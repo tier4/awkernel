@@ -1,0 +1,2 @@
+[alias]
+x86 = "build --package t4os --target x86_64-custom.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"

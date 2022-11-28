@@ -7,21 +7,23 @@ extern crate alloc;
 extern crate unwinding;
 
 use alloc::boxed::Box;
-use bootloader::{entry_point, BootInfo};
+use board_info::BoardInfo;
 use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
 
+mod board_info;
 mod config;
 mod heap;
 
-mod x86_64;
+mod arch;
 
-entry_point!(kernel_main);
-
-fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+fn main<Info, HeapInit>(board_info: &BoardInfo<Info>)
+where
+    HeapInit: heap::HeapInit<Info>,
+{
     let mut serial_port = unsafe { uart_16550::SerialPort::new(0x3F8) };
     serial_port.init();
 
-    match heap::init(boot_info) {
+    match heap::init::<_, HeapInit>(board_info) {
         Ok(_) => {
             let _ = serial_port.write_str("Heap memory has been successfully initialized.\n");
         }
@@ -30,23 +32,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 "Failed to initialize heap memory: reason = {:?}\n",
                 err
             ));
-            loop {}
+            return;
         }
     }
 
-    let mut serial_port = unsafe { uart_16550::SerialPort::new(0x3F8) };
-    serial_port.init();
+    let _n = Box::new(10);
+
     serial_port.write_str("Hello, world!\n").unwrap();
-
-    let n = Box::new(10); // Heap memory allocation
-
-    if let Some(framebuffer) = boot_info.framebuffer.as_mut() {
-        for byte in framebuffer.buffer_mut() {
-            *byte = 0x90;
-        }
-    }
-
-    loop {}
 }
 
 #[alloc_error_handler]

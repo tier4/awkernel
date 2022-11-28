@@ -1,4 +1,4 @@
-pub use crate::x86_64::config::HEAP_START;
+pub use crate::arch::x86_64::config::*;
 
-/// Heap size is 32MiB.
-pub const HEAP_SIZE: u64 = 32 * 1024 * 1024;
+/// Heap size is 64MiB.
+pub const HEAP_SIZE: u64 = 64 * 1024 * 1024;

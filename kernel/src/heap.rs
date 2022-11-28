@@ -1,4 +1,4 @@
-use bootloader::BootInfo;
+use crate::board_info::BoardInfo;
 
 #[derive(Debug)]
 pub enum InitErr {
@@ -7,15 +7,18 @@ pub enum InitErr {
     FailedToMapPage,
 }
 
-pub trait HeapInit {
-    fn init(boot_info: &BootInfo) -> Result<(), InitErr>;
+pub trait HeapInit<Info> {
+    /// Map heap memory region.
+    fn init(board_info: &BoardInfo<Info>) -> Result<(), InitErr>;
 }
 
-pub fn init(boot_info: &BootInfo) -> Result<(), InitErr> {
-    use crate::x86_64::heap::MapHeapPage;
+pub fn init<Info, Init>(board_info: &BoardInfo<Info>) -> Result<(), InitErr>
+where
+    Init: HeapInit<Info>,
+{
+    Init::init(board_info)?;
 
-    MapHeapPage::init(boot_info)?;
-
+    // Initialize memory allocator.
     unsafe {
         ALLOC.init(
             crate::config::HEAP_START as usize,
@@ -27,4 +30,4 @@ pub fn init(boot_info: &BootInfo) -> Result<(), InitErr> {
 }
 
 #[global_allocator]
-static mut ALLOC: memac::Allocator<memac::buddy::Buddy32M> = memac::Allocator::new();
+static mut ALLOC: memac::Allocator<memac::buddy::Buddy64M> = memac::Allocator::new();

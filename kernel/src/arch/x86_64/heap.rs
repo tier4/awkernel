@@ -10,16 +10,18 @@ use x86_64::{
 };
 
 use crate::{
+    board_info::BoardInfo,
     config::{HEAP_SIZE, HEAP_START},
     heap::{HeapInit, InitErr},
 };
 
-pub struct MapHeapPage;
+pub struct HeapMapper;
 
-impl HeapInit for MapHeapPage {
-    fn init(boot_info: &BootInfo) -> Result<(), InitErr> {
+impl HeapInit<&mut BootInfo> for HeapMapper {
+    fn init(board_info: &BoardInfo<&mut BootInfo>) -> Result<(), InitErr> {
         let phys_mem_offset = VirtAddr::new(
-            *boot_info
+            *board_info
+                .info
                 .physical_memory_offset
                 .as_ref()
                 .ok_or(InitErr::InvalidPhysicalMemoryOffset)?,
@@ -35,7 +37,8 @@ impl HeapInit for MapHeapPage {
             Page::range_inclusive(heap_start_page, heap_end_page)
         };
 
-        let mut frames = boot_info
+        let mut frames = board_info
+            .info
             .memory_regions
             .iter()
             .filter(|m| m.kind == MemoryRegionKind::Usable)
