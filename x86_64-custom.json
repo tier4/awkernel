@@ -20,7 +20,9 @@
       "kernel-x86_64.elf",
       "-T",
       "x86_64-link.lds",
-      "--static"
+      "--static",
+      "--gc-sections"
     ]
-  }
+  },
+  "vendor": "TIER IV"
 }

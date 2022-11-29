@@ -20,25 +20,40 @@ fn main<Info, HeapInit>(board_info: &BoardInfo<Info>)
 where
     HeapInit: heap::HeapInit<Info>,
 {
+    hello_world();
+
+    // let mut serial_port = unsafe { uart_16550::SerialPort::new(0x3F8) };
+    // serial_port.init();
+
+    // match heap::init::<_, HeapInit>(board_info) {
+    //     Ok(_) => {
+    //         let _ = serial_port.write_str("Heap memory has been successfully initialized.\n");
+    //     }
+    //     Err(err) => {
+    //         let _ = serial_port.write_fmt(format_args!(
+    //             "Failed to initialize heap memory: reason = {:?}\n",
+    //             err
+    //         ));
+    //         return;
+    //     }
+    // }
+
+    // let _n = Box::new(10);
+
+    // serial_port.write_str("Hello, world!\n").unwrap();
+}
+
+#[cfg(feature = "x86")]
+fn hello_world() {
     let mut serial_port = unsafe { uart_16550::SerialPort::new(0x3F8) };
     serial_port.init();
 
-    match heap::init::<_, HeapInit>(board_info) {
-        Ok(_) => {
-            let _ = serial_port.write_str("Heap memory has been successfully initialized.\n");
-        }
-        Err(err) => {
-            let _ = serial_port.write_fmt(format_args!(
-                "Failed to initialize heap memory: reason = {:?}\n",
-                err
-            ));
-            return;
-        }
-    }
-
-    let _n = Box::new(10);
-
     serial_port.write_str("Hello, world!\n").unwrap();
+}
+
+#[cfg(feature = "aarch64")]
+fn hello_world() {
+    todo!()
 }
 
 #[alloc_error_handler]

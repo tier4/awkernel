@@ -30,7 +30,7 @@ SECTIONS
   . = DATA_SEGMENT_ALIGN (CONSTANT (MAXPAGESIZE), CONSTANT (COMMONPAGESIZE));
   .data           :
   {
-    *(.data .data.*)
+    *(.data .data.* .gnu.linkonce.d*)
     SORT(CONSTRUCTORS)
   }
   .data1          : { *(.data1) }
