@@ -5,6 +5,14 @@ SECTIONS
     __ram_start = .;
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }
+    .fini           :
+    {
+        KEEP (*(SORT_NONE(.fini)))
+    }
+    PROVIDE (__etext = .);
+    PROVIDE (_etext = .);
+    PROVIDE (etext = .);
+
     .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
 
     .eh_frame_hdr   : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }

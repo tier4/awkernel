@@ -3,11 +3,11 @@ ifndef $(BSP)
 	BSP = raspi3
 endif
 
-ifndef $(RELEASE)
-	BUILD = debug
-else
+ifeq ($(RELEASE), 1)
 	OPT = --release
 	BUILD = release
+else
+	BUILD = debug
 endif
 
 # 2MiB Stack
@@ -40,6 +40,7 @@ all: raspi3 x86_64
 
 raspi3: kernel-aarch64.img
 
+.PHONY: target/aarch64-custom/$(BUILD)/t4os
 target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ) aarch64-link-bsp.lds
 	cargo +nightly raspi3 $(OPT)
 

@@ -1,1 +1,1 @@
-pub const HEAP_START: u64 = 0x1_0000_0000; // 4GiB
+pub const HEAP_START: u64 = 1024 * 1024 * 1024; // 1GiB

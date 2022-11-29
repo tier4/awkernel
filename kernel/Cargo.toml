@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 memac = "0.5.0"
+synctools = "0.3.1"
 log = "0.4"
 
 [dependencies.x86_64]
@@ -31,7 +32,7 @@ map-physical-memory = true
 physical-memory-offset = "0x8000_0000_0000" # Phisical memory is placed at 128TiB of virtual memory
 
 [features]
-default = ["raspi3"]
+default = ["x86"]
 x86 = ["dep:uart_16550", "dep:x86_64", "dep:bootloader"]
 aarch64 = []
 raspi3 = ["aarch64", "raspi"]

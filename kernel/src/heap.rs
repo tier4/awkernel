@@ -12,12 +12,7 @@ pub trait HeapInit<Info> {
     fn init(board_info: &BoardInfo<Info>) -> Result<(), InitErr>;
 }
 
-pub fn init<Info, Init>(board_info: &BoardInfo<Info>) -> Result<(), InitErr>
-where
-    Init: HeapInit<Info>,
-{
-    Init::init(board_info)?;
-
+pub fn init() {
     // Initialize memory allocator.
     unsafe {
         ALLOC.init(
@@ -25,8 +20,6 @@ where
             crate::config::HEAP_SIZE as usize,
         );
     }
-
-    Ok(())
 }
 
 #[global_allocator]

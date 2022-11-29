@@ -2,5 +2,8 @@ pub mod bsp;
 pub mod config;
 pub mod context;
 pub mod cpu;
+pub mod driver;
 pub mod exception;
 pub mod kernel_main;
+pub mod mmu;
+pub mod serial;
