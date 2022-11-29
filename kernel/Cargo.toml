@@ -31,7 +31,8 @@ map-physical-memory = true
 physical-memory-offset = "0x8000_0000_0000" # Phisical memory is placed at 128TiB of virtual memory
 
 [features]
-default = ["x86"]
+default = ["raspi3"]
 x86 = ["dep:uart_16550", "dep:x86_64", "dep:bootloader"]
 aarch64 = []
-raspi3 = ["aarch64"]
+raspi3 = ["aarch64", "raspi"]
+raspi = []

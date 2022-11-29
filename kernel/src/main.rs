@@ -13,6 +13,7 @@ use core::{alloc::Layout, fmt::Write, panic::PanicInfo};
 mod board_info;
 mod config;
 mod heap;
+mod mmio;
 
 mod arch;
 
