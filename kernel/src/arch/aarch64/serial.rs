@@ -50,11 +50,8 @@ impl Log for Serial {
             port.write_str(record.level().as_str());
             port.write_str("] ");
 
-            if let Some(args) = record.args().as_str() {
-                let _ = port.write_str(args);
-            }
-
-            port.write_str("\n");
+            let msg = alloc::format!("{}\n", record.args());
+            let _ = port.write_str(msg.as_str());
         }
     }
 

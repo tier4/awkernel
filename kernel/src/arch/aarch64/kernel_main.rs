@@ -1,7 +1,5 @@
-use core::fmt::Write;
-
 use super::driver::uart::{DevUART, UART};
-use crate::{arch::aarch64::serial, board_info::BoardInfo};
+use crate::board_info::BoardInfo;
 
 /// entry point from assembly code
 #[no_mangle]

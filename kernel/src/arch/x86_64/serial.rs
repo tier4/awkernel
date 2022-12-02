@@ -9,6 +9,12 @@ pub struct Serial {
     port: MCSLock<uart_16550::SerialPort>,
 }
 
+pub(crate) fn puts(msg: &str) {
+    let mut node = MCSNode::new();
+    let mut guard = SERIAL.port.lock(&mut node);
+    let _ = guard.write_str(msg);
+}
+
 impl Serial {
     const fn new() -> Self {
         let port = unsafe { uart_16550::SerialPort::new(0x3F8) };
@@ -20,8 +26,8 @@ impl Serial {
     fn init(&self) {
         let mut node = MCSNode::new();
         let mut guard = self.port.lock(&mut node);
-        let _ = guard.write_str("Initialized a serial port.\n");
         guard.init();
+        let _ = guard.write_str("Initialized a serial port.\n");
     }
 }
 
@@ -42,10 +48,8 @@ impl Log for Serial {
         let _ = guard.write_str(record.level().as_str());
         let _ = guard.write_str("] ");
 
-        if let Some(args) = record.args().as_str() {
-            let _ = guard.write_str(args);
-        }
-        let _ = guard.write_char('\n');
+        let msg = alloc::format!("{}\n", record.args());
+        let _ = guard.write_str(msg.as_str());
     }
 
     fn flush(&self) {}

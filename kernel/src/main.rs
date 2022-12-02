@@ -1,7 +1,9 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
+#![feature(start)]
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 
 extern crate alloc;
 extern crate unwinding;
@@ -16,11 +18,12 @@ mod config;
 mod heap;
 mod mmio;
 
-fn main<Info>(board_info: &BoardInfo<Info>) {
+fn main<Info>(_board_info: &BoardInfo<Info>) {
     heap::init();
-    let _n = Box::new(10);
+    let n = Box::new(10);
 
-    log::info!("Hello, world!");
+    log::debug!("{n}");
+    log::debug!("Hello, world!");
 }
 
 #[alloc_error_handler]

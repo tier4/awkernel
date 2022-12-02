@@ -24,9 +24,12 @@ else ifeq ($(BSP),raspi4)
 	INITADDR = 0
 endif
 
-ASM_FILE_DEP=kernel/asm/device/raspi.S kernel/asm/exception.S
-ASM_FILE=kernel/asm/boot.S
-ASM_OBJ=boot_aarch64.o
+ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/device/raspi.S kernel/asm/aarch64/exception.S
+ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
+ASM_OBJ_AARCH64=boot_aarch64.o
+
+ASM_FILE_X86=kernel/asm/x86/boot.S
+ASM_OBJ_X86=boot_x86.o
 
 ifndef $(CC)
 	CC = clang
@@ -40,21 +43,36 @@ all: raspi3 x86_64
 
 raspi3: kernel-aarch64.img
 
+# AArch64
 .PHONY: target/aarch64-custom/$(BUILD)/t4os
-target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ) aarch64-link-bsp.lds
+target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds
 	cargo +nightly raspi3 $(OPT)
 
 kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
 	rust-objcopy -O binary target/aarch64-custom/$(BUILD)/t4os $@
 
-x86_64:
-	cargo +nightly x86 $(OPT)
-
-$(ASM_OBJ): $(ASM_FILE) $(ASM_FILE_DEP)
-	$(CC) --target=aarch64-elf -c $(ASM_FILE) -o $(ASM_OBJ) -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
+$(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
+	$(CC) --target=aarch64-elf -c $(ASM_FILE_AARCH64) -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
 
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
+
+## x86_64
+
+.PHONY:
+x86_64: $(ASM_OBJ_X86)
+	cargo +nightly x86 $(OPT)
+
+$(ASM_OBJ_X86): $(ASM_FILE_X86)
+	$(CC) -c $(ASM_FILE_X86) -o $@ -DSTACKSIZE="$(STACKSIZE)"
+
+## Linux
+
+.PHONY:
+linux:
+	cargo build $(OPT)
+
+## Clean
 
 clean:
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img

@@ -1,3 +1,6 @@
 [alias]
 x86 = "build --package t4os --no-default-features --features x86 --target x86_64-custom.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 raspi3 = "build --package t4os --no-default-features --features raspi3 --target aarch64-custom.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-lc"]
