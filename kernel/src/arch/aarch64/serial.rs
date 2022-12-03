@@ -1,3 +1,5 @@
+use core::fmt::Write;
+
 use super::driver::uart::{DevUART, UART};
 use log::Log;
 use synctools::mcs::{MCSLock, MCSNode};
@@ -22,9 +24,9 @@ impl Serial {
         let mut node = MCSNode::new();
         let mut guard = self.port.lock(&mut node);
         if guard.is_none() {
-            let port = DevUART::new(super::bsp::memory::UART0_BASE);
+            let mut port = DevUART::new(super::bsp::memory::UART0_BASE);
             port.init(UART_CLOCK, UART_BAUD);
-            port.write_str("Initialized a serial port.\n");
+            let _ = port.write_str("Initialized a serial port.\n");
             *guard = Some(port);
         }
     }
@@ -43,15 +45,10 @@ impl Log for Serial {
         }
 
         let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
+        let mut guard = self.port.lock(&mut node);
 
-        if let Some(port) = guard.as_ref() {
-            port.write_str("[");
-            port.write_str(record.level().as_str());
-            port.write_str("] ");
-
-            let msg = alloc::format!("{}\n", record.args());
-            let _ = port.write_str(msg.as_str());
+        if let Some(serial) = guard.as_mut() {
+            crate::logger::write_msg(serial, record);
         }
     }
 

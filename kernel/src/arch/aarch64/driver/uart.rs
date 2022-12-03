@@ -13,7 +13,7 @@ pub trait UART {
     fn off(&self);
     fn init(&self, clock: usize, baudrate: usize);
 
-    fn write_str(&self, data: &str) {
+    fn puts(&self, data: &str) {
         for c in data.bytes() {
             self.send(c as u32);
             if c == b'\n' {
@@ -55,7 +55,7 @@ pub trait UART {
             }
         }
 
-        self.write_str("\n");
+        self.puts("\n");
 
         res
     }
@@ -64,11 +64,4 @@ pub trait UART {
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
 pub type DevUART = pl011::RaspiUART;
 
-impl DevUART
-where
-    DevUART: UART,
-{
-    // pub fn new() -> Self {
-    //     pl011::RaspiUART::new()
-    // }
-}
+impl DevUART where DevUART: UART {}

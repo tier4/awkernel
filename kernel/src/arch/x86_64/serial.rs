@@ -2,6 +2,7 @@ use core::fmt::Write;
 
 use log::Log;
 use synctools::mcs::{MCSLock, MCSNode};
+use uart_16550::SerialPort;
 
 pub static SERIAL: Serial = Serial::new();
 
@@ -42,7 +43,11 @@ impl Log for Serial {
         }
 
         let mut node = MCSNode::new();
+
         let mut guard = self.port.lock(&mut node);
+
+        let serial: &mut SerialPort = &mut guard;
+        crate::logger::write_msg(serial, record);
 
         let _ = guard.write_char('[');
         let _ = guard.write_str(record.level().as_str());

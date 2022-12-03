@@ -2,7 +2,9 @@ use crate::board_info::BoardInfo;
 
 #[start]
 #[no_mangle]
-extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
+pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
+    super::console::init();
+
     if unsafe { super::heap::mmap() }.is_err() {
         let msg = b"failed to initialize heap memory\n";
         unsafe { libc::write(0, msg.as_ptr() as _, msg.len()) };

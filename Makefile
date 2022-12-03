@@ -70,7 +70,7 @@ $(ASM_OBJ_X86): $(ASM_FILE_X86)
 
 .PHONY:
 linux:
-	cargo build $(OPT)
+	cargo +nightly linux $(OPT)
 
 ## Clean
 

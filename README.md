@@ -12,7 +12,6 @@ isolated zero-copy communications written in Rust.
   - [ ] Computational isolation
 - [ ] Realtime scheduling
   - [ ] DAG scheduling
-  - [ ] Multiple times
 - [ ] Multikernel
 - [ ] TEE
   - [ ] TrustZone
@@ -55,6 +54,12 @@ Release build.
 $ make raspi3 RELEASE=1
 ```
 
+### Linux
+
+```text
+$ make linux
+```
+
 ## Boot
 
 ### x86\_64
@@ -73,4 +78,10 @@ $ qemu-system-x86_64 -drive format=raw,file=./target/x86_64-bootloader/release/b
 
 ```text
 $ qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio -d int
+```
+
+### Linux
+
+```text
+$ cargo +nightly run
 ```

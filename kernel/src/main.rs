@@ -9,6 +9,7 @@ extern crate alloc;
 extern crate unwinding;
 
 use alloc::boxed::Box;
+use arch::Delay;
 use board_info::BoardInfo;
 use core::{alloc::Layout, panic::PanicInfo};
 
@@ -16,6 +17,7 @@ mod arch;
 mod board_info;
 mod config;
 mod heap;
+mod logger;
 mod mmio;
 
 fn main<Info>(_board_info: &BoardInfo<Info>) {
@@ -27,12 +29,13 @@ fn main<Info>(_board_info: &BoardInfo<Info>) {
 }
 
 #[alloc_error_handler]
-fn on_oom(layout: Layout) -> ! {
-    unwinding::panic::begin_panic(Box::new(layout));
-    loop {}
+fn on_oom(_layout: Layout) -> ! {
+    unwinding::panic::begin_panic(Box::new(()));
+    arch::ArchDelay::wait_forever();
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+    unwinding::panic::begin_panic(Box::new(()));
+    arch::ArchDelay::wait_forever();
 }

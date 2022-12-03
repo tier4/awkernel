@@ -1,6 +1,6 @@
 use bootloader::{entry_point, BootInfo};
 
-use crate::board_info::BoardInfo;
+use crate::{arch::Delay, board_info::BoardInfo};
 
 extern "C" {
     static __boot: u64;
@@ -18,13 +18,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let board_info = BoardInfo { info: boot_info };
 
-    if let Some(framebuffer) = board_info.info.framebuffer.as_mut() {
-        for byte in framebuffer.buffer_mut() {
-            *byte = 0x90;
-        }
-    }
-
     crate::main(&board_info);
 
-    loop {}
+    super::delay::ArchDelay::wait_forever();
 }

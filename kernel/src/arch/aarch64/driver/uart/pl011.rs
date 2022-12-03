@@ -1,5 +1,7 @@
 use crate::{arch::aarch64::bsp::memory::*, mmio_rw};
-use core::arch::asm;
+use core::{arch::asm, fmt::Write};
+
+use super::UART;
 
 pub struct RaspiUART {}
 
@@ -116,5 +118,12 @@ impl super::UART for RaspiUART {
     fn off(&self) {}
     fn new(_base: usize) -> Self {
         Self {}
+    }
+}
+
+impl Write for RaspiUART {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.puts(s);
+        Ok(())
     }
 }
