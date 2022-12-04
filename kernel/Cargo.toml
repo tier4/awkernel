@@ -9,6 +9,7 @@ edition = "2021"
 memac = "0.5.0"
 synctools = "0.3.1"
 log = "0.4"
+gimli = { version = "0.27", default-features = false, features = ["read-core"] }
 
 [dependencies.x86_64]
 version = "0.14"
@@ -41,4 +42,4 @@ x86 = ["unwinding/fde-static", "dep:uart_16550", "dep:x86_64", "dep:bootloader"]
 aarch64 = ["unwinding/fde-static"]
 raspi3 = ["aarch64", "raspi"]
 raspi = []
-linux = ["libc"]
+linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl"]

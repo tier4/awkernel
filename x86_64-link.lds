@@ -2,8 +2,6 @@ ENTRY(_start)
 SECTIONS
 {
   PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x400000)); . = SEGMENT_START("text-segment", 0x400000) + SIZEOF_HEADERS;
-  .interp         : { *(.interp) }
-  .hash           : { *(.hash) }
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   .init           :
   {
@@ -14,13 +12,14 @@ SECTIONS
   {
     KEEP (*(SORT_NONE(.fini)))
   }
-  PROVIDE (__etext = .);
-  PROVIDE (_etext = .);
-  PROVIDE (etext = .);
 
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   __boot = .;
   .boot           : { *(.boot) }
+
+  PROVIDE (__etext = .);
+  PROVIDE (_etext = .);
+  PROVIDE (etext = .);
 
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   . = SEGMENT_START("rodata-segment", ALIGN(CONSTANT (MAXPAGESIZE)) + (. & (CONSTANT (MAXPAGESIZE) - 1)));

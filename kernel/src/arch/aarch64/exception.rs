@@ -1,3 +1,5 @@
+use crate::arch::{ArchDelay, Delay};
+
 use super::context::GpRegs;
 
 const ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
@@ -69,7 +71,21 @@ pub fn lower_el_aarch32_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
 
 // from the current EL using the SP_EL0
 #[no_mangle]
-pub fn curr_el_sp0_sync_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_sync_el1(ctx: *mut GpRegs, _sp: usize) {
+    let r = unsafe { &*ctx };
+    log::debug!(
+        r#"EL1 exception: SPX Sync
+ELR  = 0x{:x}
+SPSR = 0x{:x}
+ESR  = 0x{:x}
+"#,
+        r.elr,
+        r.spsr,
+        super::cpu::esr_el1::get()
+    );
+
+    ArchDelay::wait_forever();
+}
 
 #[no_mangle]
 pub fn curr_el_sp0_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
@@ -78,11 +94,39 @@ pub fn curr_el_sp0_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
 pub fn curr_el_sp0_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_serror_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_serror_el1(ctx: *mut GpRegs, _sp: usize) {
+    let r = unsafe { &*ctx };
+    log::debug!(
+        r#"EL1 exception: SPX Sync
+ELR  = 0x{:x}
+SPSR = 0x{:x}
+ESR  = 0x{:x}
+"#,
+        r.elr,
+        r.spsr,
+        super::cpu::esr_el1::get()
+    );
+
+    ArchDelay::wait_forever();
+}
 
 // from the current EL using the SP_EL1
 #[no_mangle]
-pub fn curr_el_spx_sync_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_sync_el1(ctx: *mut GpRegs, _sp: usize) {
+    let r = unsafe { &*ctx };
+    log::debug!(
+        r#"EL1 exception: SPX Sync
+ELR  = 0x{:x}
+SPSR = 0x{:x}
+ESR  = 0x{:x}
+"#,
+        r.elr,
+        r.spsr,
+        super::cpu::esr_el1::get()
+    );
+
+    ArchDelay::wait_forever();
+}
 
 #[no_mangle]
 pub fn curr_el_spx_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
@@ -91,7 +135,21 @@ pub fn curr_el_spx_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
 pub fn curr_el_spx_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_serror_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_serror_el1(ctx: *mut GpRegs, _sp: usize) {
+    let r = unsafe { &*ctx };
+    log::debug!(
+        r#"EL1 exception: SPX Sync
+ELR  = 0x{:x}
+SPSR = 0x{:x}
+ESR  = 0x{:x}
+"#,
+        r.elr,
+        r.spsr,
+        super::cpu::esr_el1::get()
+    );
+
+    ArchDelay::wait_forever();
+}
 
 // from lower EL (AArch64)
 #[no_mangle]

@@ -19,7 +19,7 @@
     stp     x26, x27, [sp, #16 * 13]
     stp     x28, x29, [sp, #16 * 14]
 
-    // Add the exception link register and the saved program status.
+    // Store the exception link register and the saved program status.
     mrs     x1, \elr_reg
     mrs     x2, \spsr_reg
 
@@ -91,7 +91,7 @@ sync_el1:
 #if defined(raspi3) || defined(raspi4)
     .balign 0x800
 exception_vector_el2:
-    // from the current EL using the current SP0
+    // from the current EL using SP0
     CALL_WITH_CONTEXT curr_el_sp0_sync_el2 ELR_EL2 SPSR_EL2
     .balign 0x80
     CALL_WITH_CONTEXT curr_el_sp0_irq_el2 ELR_EL2 SPSR_EL2
@@ -133,7 +133,8 @@ exception_vector_el2:
 
     .balign 0x800
 exception_vector_el1:
-    // from the current EL using the current SP0
+    msr     spsel, #0 // Select SP_EL0
+    // from the current EL using SP0
     CALL_WITH_CONTEXT curr_el_sp0_sync_el1 ELR_EL1 SPSR_EL1
     .balign 0x80
     msr     spsel, #0 // Select SP_EL0

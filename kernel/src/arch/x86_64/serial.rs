@@ -48,13 +48,6 @@ impl Log for Serial {
 
         let serial: &mut SerialPort = &mut guard;
         crate::logger::write_msg(serial, record);
-
-        let _ = guard.write_char('[');
-        let _ = guard.write_str(record.level().as_str());
-        let _ = guard.write_str("] ");
-
-        let msg = alloc::format!("{}\n", record.args());
-        let _ = guard.write_str(msg.as_str());
     }
 
     fn flush(&self) {}

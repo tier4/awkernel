@@ -11,7 +11,7 @@ pub unsafe fn mmap() -> Result<*mut c_void, &'static str> {
     );
 
     if result == libc::MAP_FAILED {
-        return Err("failed mmap");
+        Err("failed mmap")
     } else {
         Ok(result)
     }

@@ -7,7 +7,6 @@
     "features": "+strict-align,-neon,-fp-armv8",
     "linker": "rust-lld",
     "linker-flavor": "ld.lld",
-    "linker-is-gnu": true,
     "pre-link-args": {
         "ld.lld": [
             "-z",
@@ -24,7 +23,6 @@
     "llvm-target": "aarch64-unknown-none-softfloat",
     "max-atomic-width": 128,
     "os": "none",
-    "panic-strategy": "abort",
     "relocation-model": "static",
     "target-c-int-width": "32",
     "target-endian": "little",

@@ -11,7 +11,7 @@ extern crate unwinding;
 use alloc::boxed::Box;
 use arch::Delay;
 use board_info::BoardInfo;
-use core::{alloc::Layout, panic::PanicInfo};
+use core::alloc::Layout;
 
 mod arch;
 mod board_info;
@@ -20,12 +20,24 @@ mod heap;
 mod logger;
 mod mmio;
 
+fn foo() {
+    panic!("panic");
+}
+
 fn main<Info>(_board_info: &BoardInfo<Info>) {
     heap::init();
     let n = Box::new(10);
 
     log::debug!("{n}");
     log::debug!("Hello, world!");
+
+    match unwinding::panic::catch_unwind(|| {
+        foo();
+        log::debug!("finished");
+    }) {
+        Ok(_) => log::debug!("not caught panic"),
+        Err(_) => log::debug!("caught panic"),
+    }
 }
 
 #[alloc_error_handler]
@@ -34,8 +46,11 @@ fn on_oom(_layout: Layout) -> ! {
     arch::ArchDelay::wait_forever();
 }
 
+#[cfg(not(feature = "linux"))]
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    unwinding::panic::begin_panic(Box::new(()));
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    log::debug!("panic(): 0");
+    let reason = unwinding::panic::begin_panic(Box::new(()));
+    log::debug!("panic(): {}", reason.0);
     arch::ArchDelay::wait_forever();
 }

@@ -147,6 +147,7 @@ pub struct TTable {
 }
 
 // logical address information
+#[derive(Debug)]
 pub struct Addr {
     // must be same as physical
     pub no_cache_start: u64,

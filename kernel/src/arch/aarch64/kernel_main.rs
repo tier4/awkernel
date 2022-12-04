@@ -15,10 +15,10 @@ pub extern "C" fn kernel_main() -> ! {
         loop {}
     }
 
-    super::serial::init();
+    super::serial::init(); // Enable serial port.
+    super::cpu::init_cpacr_el1(); // Enable floating point numbers.
 
     let board_info = BoardInfo::<()> { info: () };
-
     crate::main::<()>(&board_info);
 
     super::delay::ArchDelay::wait_forever();
