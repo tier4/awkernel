@@ -57,6 +57,9 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
+run-raspi3:
+	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio
+
 ## x86_64
 
 .PHONY:
@@ -71,6 +74,9 @@ $(ASM_OBJ_X86): $(ASM_FILE_X86)
 .PHONY:
 linux:
 	cargo +nightly linux $(OPT)
+
+run-linux:
+	cargo +nightly run --package t4os --no-default-features --features linux  $(OPT)
 
 ## Clean
 

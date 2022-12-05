@@ -11,6 +11,7 @@ isolated zero-copy communications written in Rust.
   - [ ] Memory isolation
   - [ ] Computational isolation
 - [ ] Realtime scheduling
+  - [ ] Round robin scheduling
   - [ ] DAG scheduling
 - [ ] Multikernel
 - [ ] TEE
@@ -19,7 +20,7 @@ isolated zero-copy communications written in Rust.
 ## Dependencies
 
 ```text
-$ apt install clang qemu-system-arm
+$ sudo apt install clang qemu-system-arm
 $ rustup component add rust-src llvm-tools-preview
 $ cargo install cargo-binutils
 ```
@@ -60,6 +61,12 @@ $ make raspi3 RELEASE=1
 $ make linux
 ```
 
+Release build.
+
+```text
+$ make linux RELEASE=1
+```
+
 ## Boot
 
 ### x86\_64
@@ -77,11 +84,17 @@ $ qemu-system-x86_64 -drive format=raw,file=./target/x86_64-bootloader/release/b
 ### AArch64
 
 ```text
-$ qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio -d int
+$ make run-raspi3
 ```
 
 ### Linux
 
 ```text
-$ cargo +nightly run
+$ make run-linux
+```
+
+Release build.
+
+```text
+$ make run-linux RELEASE=1
 ```
