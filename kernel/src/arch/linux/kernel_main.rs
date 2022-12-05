@@ -20,6 +20,10 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
 
     heap::init(); // Enable heap allocator.
 
+    if !set_fifo_scheduler() {
+        log::warn!("Failed to SCHED_FIFO.");
+    }
+
     // Create worker threads.
     let mut threads = Vec::new();
     for i in 1..nprocs() {
@@ -98,4 +102,11 @@ extern "C" fn thread_func(cpu: *mut c_void) -> *mut c_void {
     crate::main(kernel_info);
 
     null_mut()
+}
+
+fn set_fifo_scheduler() -> bool {
+    unsafe {
+        let param = libc::sched_param { sched_priority: 1 };
+        libc::sched_setscheduler(0, libc::SCHED_FIFO, &param) == 0
+    }
 }
