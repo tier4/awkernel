@@ -1,6 +1,7 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 #![feature(start)]
+#![feature(abi_x86_interrupt)]
 #![no_std]
 #![no_main]
 #![allow(dead_code)]
@@ -11,7 +12,7 @@ extern crate unwinding;
 use alloc::boxed::Box;
 use arch::Delay;
 use board_info::BoardInfo;
-use core::alloc::Layout;
+use core::{alloc::Layout, fmt::Debug};
 
 mod arch;
 mod board_info;
@@ -24,12 +25,12 @@ fn foo() {
     panic!("panic");
 }
 
-fn main<Info>(_board_info: &BoardInfo<Info>) {
+fn main<Info: Debug>(board_info: &BoardInfo<Info>) {
     heap::init();
     let n = Box::new(10);
 
     log::debug!("{n}");
-    log::debug!("Hello, world!");
+    log::debug!("board_info: {:?}", board_info);
 
     match unwinding::panic::catch_unwind(|| {
         foo();

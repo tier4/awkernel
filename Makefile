@@ -39,7 +39,7 @@ ifndef $(LD)
 	LD = rust-lld -flavor gnu
 endif
 
-all: raspi3 x86_64
+all: raspi3 x86_64 linux
 
 raspi3: kernel-aarch64.img
 

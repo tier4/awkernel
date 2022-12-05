@@ -13,13 +13,13 @@ SECTIONS
     KEEP (*(SORT_NONE(.fini)))
   }
 
-  . = ALIGN(CONSTANT (MAXPAGESIZE));
-  __boot = .;
-  .boot           : { *(.boot) }
-
   PROVIDE (__etext = .);
   PROVIDE (_etext = .);
   PROVIDE (etext = .);
+
+  . = ALIGN(CONSTANT (MAXPAGESIZE));
+  __boot = .;
+  .boot           : { *(.boot) }
 
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   . = SEGMENT_START("rodata-segment", ALIGN(CONSTANT (MAXPAGESIZE)) + (. & (CONSTANT (MAXPAGESIZE) - 1)));

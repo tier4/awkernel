@@ -1,5 +1,6 @@
 pub mod config;
 pub mod delay;
-pub mod heap;
+mod heap;
+mod interrupt;
 mod kernel_main;
-pub mod serial;
+mod serial;
