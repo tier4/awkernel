@@ -53,8 +53,6 @@ fn on_oom(_layout: Layout) -> ! {
 #[cfg(not(feature = "linux"))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
-    log::debug!("panic(): 0");
-    let reason = unwinding::panic::begin_panic(Box::new(()));
-    log::debug!("panic(): {}", reason.0);
+    unwinding::panic::begin_panic(Box::new(()));
     arch::ArchDelay::wait_forever();
 }

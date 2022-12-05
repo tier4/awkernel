@@ -32,10 +32,6 @@ features = ["unwinder", "personality", "panic"]
 version = "0.2"
 optional = true
 
-[package.metadata.bootloader]
-map-physical-memory = true
-physical-memory-offset = "0x8000_0000_0000" # Phisical memory is placed at 128TiB of virtual memory
-
 [features]
 default = ["linux"]
 x86 = ["unwinding/fde-static", "dep:uart_16550", "dep:x86_64", "dep:bootloader"]
@@ -44,3 +40,7 @@ raspi3 = ["aarch64", "raspi"]
 raspi4 = ["aarch64", "raspi"]
 raspi = []
 linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl"]
+
+[package.metadata.bootloader]
+map-physical-memory = true
+physical-memory-offset = "0x8000_0000_0000" # Phisical memory is placed at 128TiB of virtual memory
