@@ -198,94 +198,6 @@ impl Addr {
         self.sram_start = SRAM_START;
         self.sram_end = SRAM_END;
     }
-
-    // fn print(&self) {
-    //     driver::uart::puts("rom_start          = 0x");
-    //     driver::uart::hex(self.rom_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("rom_end            = 0x");
-    //     driver::uart::hex(self.rom_end as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("sram_start         = 0x");
-    //     driver::uart::hex(self.sram_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("sram_end           = 0x");
-    //     driver::uart::hex(self.sram_end as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("DEVICE_MEM_START   = 0x");
-    //     driver::uart::hex(DEVICE_MEM_START as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("DEVICE_MEM_END     = 0x");
-    //     driver::uart::hex(DEVICE_MEM_END as u64);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_ram_start();
-    //     driver::uart::puts("__ram_start        = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_data_start();
-    //     driver::uart::puts("__data_start       = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_data_end();
-    //     driver::uart::puts("__data_end         = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_bss_start();
-    //     driver::uart::puts("__bss_start        = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_stack_el1_end();
-    //     driver::uart::puts("__stack_el1_end    = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     let addr = get_stack_el1_start();
-    //     driver::uart::puts("__stack_el1_start  = 0x");
-    //     driver::uart::hex(addr);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("no_cache_start     = 0x");
-    //     driver::uart::hex(self.no_cache_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("no_cache_end       = 0x");
-    //     driver::uart::hex(self.no_cache_end as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("tt_el1_ttbr0_start = 0x");
-    //     driver::uart::hex(self.tt_el1_ttbr0_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("tt_el1_ttbr0_end   = 0x");
-    //     driver::uart::hex(self.tt_el1_ttbr0_end as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("tt_el1_ttbr1_start = 0x");
-    //     driver::uart::hex(self.tt_el1_ttbr1_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("tt_el1_ttbr1_end   = 0x");
-    //     driver::uart::hex(self.tt_el1_ttbr1_end as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("pager_mem_start    = 0x");
-    //     driver::uart::hex(self.pager_mem_start as u64);
-    //     driver::uart::puts("\n");
-
-    //     driver::uart::puts("pager_mem_end      = 0x");
-    //     driver::uart::hex(self.pager_mem_end as u64);
-    //     driver::uart::puts("\n");
-    // }
 }
 
 pub fn init_memory_map() {
@@ -573,6 +485,17 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
     );
 
     table0.init();
+
+    // map the first page. 0..64KiB.
+    let flag = FLAG_L3_NS
+        | FLAG_L3_XN
+        | FLAG_L3_PXN
+        | FLAG_L3_AF
+        | FLAG_L3_OSH
+        | FLAG_L3_SH_RW_RW
+        | FLAG_L3_ATTR_DEV
+        | 0b11;
+    table0.map(0, 0, flag);
 
     // map .init and .text section
     let mut ram_start = get_ram_start();

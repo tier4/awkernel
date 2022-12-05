@@ -1,4 +1,4 @@
-use crate::board_info::BoardInfo;
+use crate::{heap, kernel_info::KernelInfo};
 
 #[start]
 #[no_mangle]
@@ -11,8 +11,13 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
         return -1;
     };
 
-    let board_info = BoardInfo::<()> { info: () };
-    crate::main(&board_info);
+    heap::init(); // Enable heap allocator.
+
+    let kernel_info = KernelInfo::<()> {
+        info: (),
+        cpu_id: 0,
+    };
+    crate::main(kernel_info);
 
     0
 }

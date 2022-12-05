@@ -11,13 +11,13 @@ extern crate unwinding;
 
 use alloc::boxed::Box;
 use arch::Delay;
-use board_info::BoardInfo;
 use core::{alloc::Layout, fmt::Debug};
+use kernel_info::KernelInfo;
 
 mod arch;
-mod board_info;
 mod config;
 mod heap;
+mod kernel_info;
 mod logger;
 mod mmio;
 
@@ -25,19 +25,22 @@ fn foo() {
     panic!("panic");
 }
 
-fn main<Info: Debug>(board_info: &BoardInfo<Info>) {
-    heap::init();
-    let n = Box::new(10);
+fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    if kernel_info.cpu_id == 0 {
+        let n = Box::new(10);
 
-    log::debug!("{n}");
-    log::debug!("board_info: {:?}", board_info);
+        log::debug!("{n}");
+        log::debug!("kernel_info: {:?}", kernel_info);
 
-    match unwinding::panic::catch_unwind(|| {
-        foo();
-        log::debug!("finished");
-    }) {
-        Ok(_) => log::debug!("not caught panic"),
-        Err(_) => log::debug!("caught panic"),
+        match unwinding::panic::catch_unwind(|| {
+            foo();
+            log::debug!("finished");
+        }) {
+            Ok(_) => log::debug!("not caught panic"),
+            Err(_) => log::debug!("caught panic"),
+        }
+    } else {
+        log::debug!("I am a non primary CPU.");
     }
 }
 

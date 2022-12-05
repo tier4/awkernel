@@ -1,25 +1,56 @@
+use super::{
+    cpu,
+    driver::uart::{DevUART, UART},
+    mmu, serial,
+};
+use crate::{arch::Delay, heap, kernel_info::KernelInfo};
 use core::fmt::Write;
-
-use super::driver::uart::{DevUART, UART};
-use crate::{arch::Delay, board_info::BoardInfo};
 
 /// entry point from assembly code
 #[no_mangle]
 pub extern "C" fn kernel_main() -> ! {
-    super::mmu::init_memory_map();
+    if cpu::core_pos() == 0 {
+        primary_cpu();
+    } else {
+        cpu::wait_event(); // Wait non-primary CPU.
+        non_primary_cpu();
+    }
 
-    if super::mmu::init().is_none() {
+    super::delay::ArchDelay::wait_forever();
+}
+
+fn primary_cpu() {
+    mmu::init_memory_map();
+
+    if mmu::init().is_none() {
         let mut serial = DevUART::new(super::bsp::memory::UART0_BASE);
-        serial.init(super::serial::UART_CLOCK, super::serial::UART_BAUD);
+        serial.init(serial::UART_CLOCK, serial::UART_BAUD);
         let _ = serial.write_str("Failed to init MMU.\n");
         loop {}
     }
 
-    super::serial::init(); // Enable serial port.
-    super::cpu::init_cpacr_el1(); // Enable floating point numbers.
+    heap::init(); // Enable heap allocator.
+    serial::init(); // Enable serial port.
+    cpu::init_cpacr_el1(); // Enable floating point numbers.
+    cpu::start_non_primary(); // Wake non-primary CPUs up.
 
-    let board_info = BoardInfo::<()> { info: () };
-    crate::main::<()>(&board_info);
+    cpu::send_event(); // Start non-primary CPUs.
 
-    super::delay::ArchDelay::wait_forever();
+    let kernel_info = KernelInfo {
+        info: (),
+        cpu_id: 0,
+    };
+
+    crate::main::<()>(kernel_info);
+}
+
+fn non_primary_cpu() {
+    mmu::set_regs();
+
+    let kernel_info = KernelInfo {
+        info: (),
+        cpu_id: cpu::core_pos(),
+    };
+
+    crate::main::<()>(kernel_info);
 }

@@ -165,8 +165,6 @@ _start:
     msr     cnthctl_el2, x0
     msr     cntvoff_el2, x0
 
-    msr     DAIFClr, #0x0f // enable all interrupt
-
     // change execution level to EL1
     msr     sp_el0, x10  // set stack pointer
     msr     sp_el1, x10

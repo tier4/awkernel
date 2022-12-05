@@ -1,17 +1,11 @@
 use super::interrupt;
-use crate::{arch::Delay, board_info::BoardInfo};
+use crate::{arch::Delay, heap, kernel_info::KernelInfo};
 use bootloader::{entry_point, BootInfo};
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
 
 extern "C" {
     static __boot: u64;
     static __eh_frame: u64;
-}
-
-#[derive(Debug)]
-pub struct KernelInfo {
-    boot_info: &'static mut BootInfo,
-    eh_frame: u64,
 }
 
 entry_point!(kernel_main);
@@ -24,22 +18,21 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         loop {}
     }
 
-    let kernel_info = KernelInfo {
-        boot_info,
-        eh_frame: unsafe { &__eh_frame as *const u64 as u64 },
-    };
-
+    heap::init(); // Enable heap allocator.
     enable_fpu(); // Enable SSE.
-
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
-    let board_info = BoardInfo { info: kernel_info };
-    crate::main(&board_info);
+    let kernel_info = KernelInfo {
+        info: boot_info,
+        cpu_id: 0,
+    };
+
+    crate::main(kernel_info);
 
     super::delay::ArchDelay::wait_forever();
 }
 
-pub fn enable_fpu() {
+fn enable_fpu() {
     let mut cr0flags = Cr0::read();
     cr0flags &= !Cr0Flags::EMULATE_COPROCESSOR;
     cr0flags |= Cr0Flags::MONITOR_COPROCESSOR;
