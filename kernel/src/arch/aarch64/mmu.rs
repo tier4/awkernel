@@ -486,17 +486,6 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
 
     table0.init();
 
-    // map the first page. 0..64KiB.
-    let flag = FLAG_L3_NS
-        | FLAG_L3_XN
-        | FLAG_L3_PXN
-        | FLAG_L3_AF
-        | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_RW
-        | FLAG_L3_ATTR_DEV
-        | 0b11;
-    table0.map(0, 0, flag);
-
     // map .init and .text section
     let mut ram_start = get_ram_start();
     let data_start = get_data_start();

@@ -4,15 +4,23 @@ use super::{
     mmu, serial,
 };
 use crate::{arch::Delay, heap, kernel_info::KernelInfo};
-use core::fmt::Write;
+use core::{
+    fmt::Write,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
-/// entry point from assembly code
+static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
+
+/// Entry point from assembly code.
 #[no_mangle]
 pub extern "C" fn kernel_main() -> ! {
     if cpu::core_pos() == 0 {
+        cpu::start_non_primary(); // Wake non-primary CPUs up.
         primary_cpu();
     } else {
-        cpu::wait_event(); // Wait non-primary CPU.
+        while !PRIMARY_READY.load(Ordering::Relaxed) {
+            cpu::wait_event(); // Wait non-primary CPU.
+        }
         non_primary_cpu();
     }
 
@@ -32,9 +40,10 @@ fn primary_cpu() {
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
     cpu::init_cpacr_el1(); // Enable floating point numbers.
-    cpu::start_non_primary(); // Wake non-primary CPUs up.
 
-    cpu::send_event(); // Start non-primary CPUs.
+    // Start non-primary CPUs.
+    PRIMARY_READY.store(true, Ordering::SeqCst);
+    cpu::send_event();
 
     let kernel_info = KernelInfo {
         info: (),
