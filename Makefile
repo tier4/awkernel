@@ -41,11 +41,13 @@ endif
 
 all: raspi3 x86_64 linux
 
-raspi3: kernel-aarch64.img
+cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
 
 # AArch64
+raspi3: target/aarch64-custom/$(BUILD)/t4os
+
 .PHONY: target/aarch64-custom/$(BUILD)/t4os
-target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds
+target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel
 	cargo +nightly raspi3 $(OPT)
 
 kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
@@ -64,7 +66,7 @@ run-raspi3:
 
 x86_64: x86_64_boot.img
 
-.PHONY:
+.PHONY: kernel-x86_64.elf
 kernel-x86_64.elf: $(ASM_OBJ_X86)
 	cargo +nightly x86 $(OPT)
 
@@ -72,14 +74,14 @@ x86_64_boot.img: kernel-x86_64.elf
 	cargo run --release --package x86bootdisk -- --kernel kernel-x86_64.elf --output $@
 
 $(ASM_OBJ_X86): $(ASM_FILE_X86)
-	$(CC) -c $(ASM_FILE_X86) -o $@ -DSTACKSIZE="$(STACKSIZE)"
+	$(CC) -m32 -c $(ASM_FILE_X86) -o $@
 
 run-x86_64:
 	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio
 
 ## Linux
 
-.PHONY:
+.PHONY: linux
 linux:
 	cargo +nightly linux $(OPT)
 

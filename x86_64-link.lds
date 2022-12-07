@@ -18,10 +18,6 @@ SECTIONS
   PROVIDE (etext = .);
 
   . = ALIGN(CONSTANT (MAXPAGESIZE));
-  __boot = .;
-  .boot           : { *(.boot) }
-
-  . = ALIGN(CONSTANT (MAXPAGESIZE));
   . = SEGMENT_START("rodata-segment", ALIGN(CONSTANT (MAXPAGESIZE)) + (. & (CONSTANT (MAXPAGESIZE) - 1)));
   .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }

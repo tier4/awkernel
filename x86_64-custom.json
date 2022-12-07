@@ -20,8 +20,7 @@
       "-T",
       "x86_64-link.lds",
       "--static",
-      "--gc-sections",
-      "boot_x86.o"
+      "--gc-sections"
     ]
   },
   "vendor": "TIER IV"

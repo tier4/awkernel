@@ -1,10 +1,14 @@
-use super::interrupt;
+use super::{delay, interrupt};
 use crate::{arch::Delay, heap, kernel_info::KernelInfo};
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
-use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
+use x86_64::{
+    instructions::tables::sgdt,
+    registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags},
+    structures::paging::{Mapper, OffsetPageTable, Page, PageTable, Size4KiB},
+    PhysAddr, VirtAddr,
+};
 
 extern "C" {
-    static __boot: u64;
     static __eh_frame: u64;
 }
 
@@ -20,21 +24,36 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::serial::init(); // Initialize a serial port and logger.
 
-    if super::heap::HeapMapper::init(boot_info).is_err() {
-        super::serial::puts("Failed to map heap memory");
-        loop {}
+    let mut page_table = if let Some(page_table) = unsafe { get_page_table(boot_info) } {
+        page_table
+    } else {
+        super::serial::puts("Physical memory is not mapped.");
+        delay::ArchDelay::wait_forever();
+    };
+
+    // Map heap memory region.
+    if super::heap::HeapMapper::init(boot_info, &mut page_table).is_err() {
+        super::serial::puts("Failed to map heap memory.");
+        delay::ArchDelay::wait_forever();
     }
 
     heap::init(); // Enable heap allocator.
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
-    if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
+    // Get offset address to physical memory.
+    let offset = if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
         log::info!("Physical memory offset = {:x}", offset);
+        offset
+    } else {
+        log::error!("Failed to get physical memory offset.");
+        delay::ArchDelay::wait_forever();
+    };
 
-        // Initialize APIC.
-        super::apic::new(*offset);
-    }
+    // Initialize APIC.
+    super::apic::new(*offset);
+
+    start_non_primary_cpus(&page_table, *offset);
 
     let kernel_info = KernelInfo {
         info: boot_info,
@@ -58,3 +77,22 @@ fn enable_fpu() {
 
     unsafe { Cr4::write(cr4flags) };
 }
+
+unsafe fn get_page_table(boot_info: &BootInfo) -> Option<OffsetPageTable<'static>> {
+    let physical_memory_offset = VirtAddr::new(*boot_info.physical_memory_offset.as_ref()?);
+
+    let level_4_table = active_level_4_table(physical_memory_offset);
+    Some(OffsetPageTable::new(level_4_table, physical_memory_offset))
+}
+
+unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
+    let (level_4_table_frame, _) = Cr3::read();
+
+    let phys = level_4_table_frame.start_address();
+    let virt = physical_memory_offset + phys.as_u64();
+    let ptr = virt.as_mut_ptr() as *mut PageTable;
+
+    &mut *ptr
+}
+
+fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64) {}

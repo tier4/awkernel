@@ -4,10 +4,8 @@ use crate::{
 };
 use bootloader_api::{info::MemoryRegionKind, BootInfo};
 use x86_64::{
-    registers::control::Cr3,
     structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame,
-        Size4KiB,
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
     },
     PhysAddr, VirtAddr,
 };
@@ -15,16 +13,10 @@ use x86_64::{
 pub struct HeapMapper;
 
 impl HeapMapper {
-    pub(super) fn init(boot_info: &BootInfo) -> Result<(), InitErr> {
-        let phys_mem_offset = VirtAddr::new(
-            *boot_info
-                .physical_memory_offset
-                .as_ref()
-                .ok_or(InitErr::InvalidPhysicalMemoryOffset)?,
-        );
-
-        let mut page_table = unsafe { get_page_table(phys_mem_offset) };
-
+    pub(super) fn init(
+        boot_info: &BootInfo,
+        page_table: &mut OffsetPageTable<'static>,
+    ) -> Result<(), InitErr> {
         let page_range = {
             let heap_start = VirtAddr::new(HEAP_START);
             let heap_end = heap_start + HEAP_SIZE - 1u64;
@@ -58,21 +50,6 @@ impl HeapMapper {
 
         Ok(())
     }
-}
-
-unsafe fn get_page_table(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
-    let level_4_table = active_level_4_table(physical_memory_offset);
-    OffsetPageTable::new(level_4_table, physical_memory_offset)
-}
-
-unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
-    let (level_4_table_frame, _) = Cr3::read();
-
-    let phys = level_4_table_frame.start_address();
-    let virt = physical_memory_offset + phys.as_u64();
-    let ptr = virt.as_mut_ptr() as *mut PageTable;
-
-    &mut *ptr
 }
 
 struct PageAllocator<'a> {
