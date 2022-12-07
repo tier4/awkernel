@@ -62,12 +62,20 @@ run-raspi3:
 
 ## x86_64
 
+x86_64: x86_64_boot.img
+
 .PHONY:
-x86_64: $(ASM_OBJ_X86)
+kernel-x86_64.elf: $(ASM_OBJ_X86)
 	cargo +nightly x86 $(OPT)
+
+x86_64_boot.img: kernel-x86_64.elf
+	cargo run --release --package x86bootdisk -- --kernel kernel-x86_64.elf --output $@
 
 $(ASM_OBJ_X86): $(ASM_FILE_X86)
 	$(CC) -c $(ASM_FILE_X86) -o $@ -DSTACKSIZE="$(STACKSIZE)"
+
+run-x86_64:
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio
 
 ## Linux
 

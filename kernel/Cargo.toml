@@ -19,8 +19,8 @@ optional = true
 version = "0.2"
 optional = true
 
-[dependencies.bootloader]
-version = "0.10.13"
+[dependencies.bootloader_api]
+version = "0.11"
 optional = true
 
 [dependencies.unwinding]
@@ -34,13 +34,9 @@ optional = true
 
 [features]
 default = ["x86"]
-x86 = ["unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader"]
+x86 = ["unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader_api"]
 aarch64 = ["unwinding/fde-static", "unwinding/personality"]
 raspi3 = ["aarch64", "raspi"]
 raspi4 = ["aarch64", "raspi"]
 raspi = []
 linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality"]
-
-[package.metadata.bootloader]
-map-physical-memory = true
-physical-memory-offset = "0x8000_0000_0000" # Phisical memory is placed at 128TiB of virtual memory

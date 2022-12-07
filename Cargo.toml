@@ -3,4 +3,5 @@
 [workspace]
 members = [
     "kernel",
+    "x86bootdisk"
 ]

@@ -1,5 +1,8 @@
-use bootloader::{boot_info::MemoryRegionKind, BootInfo};
-
+use crate::{
+    config::{HEAP_SIZE, HEAP_START},
+    heap::InitErr,
+};
+use bootloader_api::{info::MemoryRegionKind, BootInfo};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{
@@ -7,11 +10,6 @@ use x86_64::{
         Size4KiB,
     },
     PhysAddr, VirtAddr,
-};
-
-use crate::{
-    config::{HEAP_SIZE, HEAP_START},
-    heap::InitErr,
 };
 
 pub struct HeapMapper;

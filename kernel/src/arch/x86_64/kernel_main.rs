@@ -1,6 +1,6 @@
 use super::interrupt;
 use crate::{arch::Delay, heap, kernel_info::KernelInfo};
-use bootloader::{entry_point, BootInfo};
+use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags};
 
 extern "C" {
@@ -8,7 +8,14 @@ extern "C" {
     static __eh_frame: u64;
 }
 
-entry_point!(kernel_main);
+pub static BOOTLOADER_CONFIG: BootloaderConfig = {
+    let mut config = BootloaderConfig::new_default();
+    config.mappings.physical_memory = Some(Mapping::Dynamic);
+    config.kernel_stack_size = 2 * 1024 * 1024; // 2MiB
+    config
+};
+
+entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::serial::init(); // Initialize a serial port and logger.
