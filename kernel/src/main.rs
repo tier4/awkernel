@@ -50,7 +50,7 @@ fn on_oom(_layout: Layout) -> ! {
     arch::ArchDelay::wait_forever();
 }
 
-#[cfg(not(feature = "linux"))]
+#[cfg(any(feature = "x86", feature = "aarch64"))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unwinding::panic::begin_panic(Box::new(()));

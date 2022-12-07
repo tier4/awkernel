@@ -26,20 +26,20 @@ optional = true
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
-features = ["unwinder", "personality", "panic"]
+features = ["unwinder", "panic"]
 
 [dependencies.libc]
 version = "0.2"
 optional = true
 
 [features]
-default = ["raspi3"]
-x86 = ["unwinding/fde-static", "dep:uart_16550", "dep:x86_64", "dep:bootloader"]
-aarch64 = ["unwinding/fde-static"]
+default = ["x86"]
+x86 = ["unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader"]
+aarch64 = ["unwinding/fde-static", "unwinding/personality"]
 raspi3 = ["aarch64", "raspi"]
 raspi4 = ["aarch64", "raspi"]
 raspi = []
-linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl"]
+linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality"]
 
 [package.metadata.bootloader]
 map-physical-memory = true

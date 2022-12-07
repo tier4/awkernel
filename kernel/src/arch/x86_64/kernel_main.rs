@@ -22,6 +22,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
+    if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
+        log::info!("Physical memory offset = {:x}", offset);
+
+        // Initialize APIC.
+        super::apic::new(*offset);
+    }
+
     let kernel_info = KernelInfo {
         info: boot_info,
         cpu_id: 0,

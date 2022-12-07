@@ -3,6 +3,7 @@ use core::{
     ptr::{read_volatile, write_volatile},
 };
 
+#[derive(Debug)]
 pub struct ReadWrite<T>(*mut T);
 
 #[macro_export]
@@ -17,22 +18,29 @@ macro_rules! mmio_rw {
             $crate::mmio::ReadWrite::new($addr)
         }
     };
-}
-
-#[macro_export]
-macro_rules! mmio_rw_base {
-    ($addr:expr => $func_name:ident<$ty:ty>) => {
-        fn $func_name(&self) -> $crate::mmio::ReadWrite<$ty> {
-            $crate::mmio::ReadWrite::new(self.base + $addr)
+    (offset $addr:expr => $func_name:ident<$ty:ty>) => {
+        fn $func_name(base: usize) -> $crate::mmio::ReadWrite<$ty> {
+            $crate::mmio::ReadWrite::new($addr + base)
         }
     };
-    ($addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
-        $visibility fn $func_name(&self) -> $crate::mmio::ReadWrite<$ty> {
-            $crate::mmio::ReadWrite::new(self.base + $addr)
+    (offset $addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
+        $visibility fn $func_name(base: usize) -> $crate::mmio::ReadWrite<$ty> {
+            $crate::mmio::ReadWrite::new($addr + usize)
         }
     };
 }
 
+/// ```
+/// // Read only MMIO.
+/// mmio_r!(0x100, mmio_1st<u32>);
+/// let val = mmio_1st().read(); // Read from 0x100
+///
+/// mmio_r!(0x200, pub mmio_2nd<u32>);
+/// let val = mmio_2nd().read(); // Read from 0x200
+///
+/// mmio_r1!(offset 0x300, mmio_3rd<u32>);
+/// let val = mmio_3rd(0x4000).read(); // Read from 0x4000 + 0x300.
+/// ```
 #[macro_export]
 macro_rules! mmio_r {
     ($addr:expr => $func_name:ident<$ty:ty>) => {
@@ -43,6 +51,16 @@ macro_rules! mmio_r {
     ($addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
         $visibility fn $func_name() -> $crate::mmio::ReadOnly<$ty> {
             $crate::mmio::ReadOnly::new($addr)
+        }
+    };
+    (offset $addr:expr => $func_name:ident<$ty:ty>) => {
+        fn $func_name(base: usize) -> $crate::mmio::ReadOnly<$ty> {
+            $crate::mmio::ReadOnly::new($addr + base)
+        }
+    };
+    (offset $addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
+        $visibility fn $func_name(base: usize) -> $crate::mmio::ReadOnly<$ty> {
+            $crate::mmio::ReadOnly::new($addr + base)
         }
     };
 }
@@ -57,6 +75,16 @@ macro_rules! mmio_w {
     ($addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
         $visibility fn $func_name() -> $crate::mmio::WriteOnly<$ty> {
             $crate::mmio::WriteOnly::new($addr)
+        }
+    };
+    (offset $addr:expr => $func_name:ident<$ty:ty>) => {
+        fn $func_name(base: usize) -> $crate::mmio::WriteOnly<$ty> {
+            $crate::mmio::WriteOnly::new($addr + base)
+        }
+    };
+    (offset $addr:expr => $visibility:vis $func_name:ident<$ty:ty>) => {
+        $visibility fn $func_name(base) -> $crate::mmio::WriteOnly<$ty> {
+            $crate::mmio::WriteOnly::new($addr + usize)
         }
     };
 }

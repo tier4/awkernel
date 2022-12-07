@@ -1,3 +1,4 @@
+mod apic;
 pub mod config;
 pub mod delay;
 mod heap;
