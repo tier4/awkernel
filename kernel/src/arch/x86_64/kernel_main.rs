@@ -1,17 +1,22 @@
-use core::ptr::{read_volatile, write_volatile};
-
 use super::{
-    apic::{new, TypeApic, APIC},
+    apic::{Apic, TypeApic},
     delay, interrupt,
 };
-use crate::{arch::Delay, heap, kernel_info::KernelInfo};
+use crate::{
+    arch::{
+        x86_64::apic::{DeliveryMode, DestinationShorthand, IcrFlags},
+        Delay,
+    },
+    heap,
+    kernel_info::KernelInfo,
+};
 use alloc::boxed::Box;
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
+use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
-    instructions::tables::sgdt,
     registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags},
-    structures::paging::{Mapper, OffsetPageTable, Page, PageTable, Size4KiB},
-    PhysAddr, VirtAddr,
+    structures::paging::{OffsetPageTable, PageTable},
+    VirtAddr,
 };
 
 extern "C" {
@@ -58,7 +63,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Initialize APIC.
     match super::apic::new(*offset) {
-        TypeApic::XAPIC(apic) => start_non_primary_cpus(&page_table, *offset, &apic),
+        TypeApic::Xapic(apic) => start_non_primary_cpus(&page_table, *offset, &apic),
         _ => (),
     }
 
@@ -102,17 +107,53 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     &mut *ptr
 }
 
-fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64, apic: &dyn APIC) {
+fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64, apic: &dyn Apic) {
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(phy_offset + 4096);
 
     let _original =
         Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
 
-    // Write boot16.img to the 2nd page (4096..8192).
+    // Write boot16.img to the 2nd page (4096..=8192).
     unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), boot16.as_ptr()) };
 
     let data_addr = VirtAddr::new(phy_offset + 4096 + 1024);
+    let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
+    log::debug!("data = {data}");
+
+    // INIT IPI
+    apic.interrupt(
+        0,
+        DestinationShorthand::AllExcludingSelf,
+        IcrFlags::empty(),
+        DeliveryMode::Init,
+        0,
+    );
+
+    // TODO: wait 10[ms]
+
+    // SIPI
+    apic.interrupt(
+        0,
+        DestinationShorthand::AllExcludingSelf,
+        IcrFlags::empty(),
+        DeliveryMode::StartUp,
+        1, // 2nd Page
+    );
+
+    // TODO: wait 200[us]
+
+    // SIPI
+    apic.interrupt(
+        0,
+        DestinationShorthand::AllExcludingSelf,
+        IcrFlags::empty(),
+        DeliveryMode::StartUp,
+        1, // 2nd Page
+    );
+
+    // TODO: wait 200[us]
+
     let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
     log::debug!("data = {data}");
 }

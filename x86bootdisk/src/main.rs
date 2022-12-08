@@ -5,8 +5,8 @@ use clap::Parser;
 
 #[derive(Debug, clap::ValueEnum, Clone)]
 enum BootType {
-    UEFI,
-    BIOS,
+    Uefi,
+    Bios,
 }
 
 /// Simple program to greet a person
@@ -22,7 +22,7 @@ struct Args {
     output: String,
 
     /// UEFI or BIOS.
-    #[arg(value_enum, long, default_value_t = BootType::BIOS)]
+    #[arg(value_enum, long, default_value_t = BootType::Bios)]
     boot_type: BootType,
 }
 
@@ -33,7 +33,7 @@ fn main() {
     let output_path = Path::new(&args.output);
 
     match args.boot_type {
-        BootType::UEFI => {
+        BootType::Uefi => {
             UefiBoot::new(kernel_path)
                 .create_disk_image(output_path)
                 .unwrap();
@@ -46,7 +46,7 @@ fn main() {
                 output_path.display()
             )
         }
-        BootType::BIOS => {
+        BootType::Bios => {
             BiosBoot::new(kernel_path)
                 .create_disk_image(output_path)
                 .unwrap();
