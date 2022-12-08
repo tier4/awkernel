@@ -28,8 +28,9 @@ ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/device/raspi.S kernel/asm/aarch64/except
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
 ASM_OBJ_AARCH64=boot_aarch64.o
 
-ASM_FILE_X86=kernel/asm/x86/boot.S
-ASM_OBJ_X86=boot_x86.o
+ASM_FILE_X86_16=kernel/asm/x86/boot16.S
+ASM_OBJ_X86_16=kernel/asm/x86/boot16.o
+ASM_IMG_X86_16=kernel/asm/x86/boot16.img
 
 ifndef $(CC)
 	CC = clang
@@ -67,17 +68,18 @@ run-raspi3:
 x86_64: x86_64_boot.img
 
 .PHONY: kernel-x86_64.elf
-kernel-x86_64.elf: $(ASM_OBJ_X86)
+kernel-x86_64.elf: $(ASM_IMG_X86_16)
 	cargo +nightly x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
 	cargo run --release --package x86bootdisk -- --kernel kernel-x86_64.elf --output $@
 
-$(ASM_OBJ_X86): $(ASM_FILE_X86)
-	$(CC) -m32 -c $(ASM_FILE_X86) -o $@
+$(ASM_IMG_X86_16): $(ASM_FILE_X86_16)
+	$(CC) -m32 -c $(ASM_FILE_X86_16) -o $(ASM_OBJ_X86_16)
+	rust-objcopy -O binary $(ASM_OBJ_X86_16) $@
 
 run-x86_64:
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp cpus=4
 
 ## Linux
 

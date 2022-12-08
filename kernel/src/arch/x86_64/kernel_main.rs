@@ -1,5 +1,11 @@
-use super::{delay, interrupt};
+use core::ptr::{read_volatile, write_volatile};
+
+use super::{
+    apic::{new, TypeApic, APIC},
+    delay, interrupt,
+};
 use crate::{arch::Delay, heap, kernel_info::KernelInfo};
+use alloc::boxed::Box;
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
 use x86_64::{
     instructions::tables::sgdt,
@@ -51,9 +57,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // Initialize APIC.
-    super::apic::new(*offset);
-
-    start_non_primary_cpus(&page_table, *offset);
+    match super::apic::new(*offset) {
+        TypeApic::XAPIC(apic) => start_non_primary_cpus(&page_table, *offset, &apic),
+        _ => (),
+    }
 
     let kernel_info = KernelInfo {
         info: boot_info,
@@ -95,4 +102,17 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     &mut *ptr
 }
 
-fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64) {}
+fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64, apic: &dyn APIC) {
+    let boot16 = include_bytes!("../../../asm/x86/boot16.img");
+    let boot16_phy_addr = VirtAddr::new(phy_offset + 4096);
+
+    let _original =
+        Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
+
+    // Write boot16.img to the 2nd page (4096..8192).
+    unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), boot16.as_ptr()) };
+
+    let data_addr = VirtAddr::new(phy_offset + 4096 + 1024);
+    let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
+    log::debug!("data = {data}");
+}
