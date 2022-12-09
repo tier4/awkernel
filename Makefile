@@ -28,10 +28,7 @@ ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/device/raspi.S kernel/asm/aarch64/except
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
 ASM_OBJ_AARCH64=boot_aarch64.o
 
-ASM_FILE_X86_16=kernel/asm/x86/boot16.S
-ASM_OBJ_X86_16=kernel/asm/x86/boot16.o
-ASM_ELF_X86_16=kernel/asm/x86/boot16.elf
-ASM_IMG_X86_16=kernel/asm/x86/boot16.img
+X86ASM=kernel/asm/x86
 
 ifndef $(CC)
 	CC = clang
@@ -46,11 +43,12 @@ all: raspi3 x86_64 linux
 
 cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
 
+FORCE:
+
 # AArch64
 raspi3: target/aarch64-custom/$(BUILD)/t4os
 
-.PHONY: target/aarch64-custom/$(BUILD)/t4os
-target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel
+target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
 	cargo +nightly raspi3 $(OPT)
 
 kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
@@ -69,29 +67,22 @@ qemu-raspi3:
 
 x86_64: x86_64_boot.img
 
-.PHONY: kernel-x86_64.elf
-kernel-x86_64.elf: $(ASM_IMG_X86_16)
+kernel-x86_64.elf: $(X86ASM) FORCE
 	cargo +nightly x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
 	cargo run --release --package x86bootdisk -- --kernel $< --output $@
 
-$(ASM_OBJ_X86_16): $(ASM_FILE_X86_16)
-	$(CC) -m32 -fno-pie -nostdlib -c $< -o $(ASM_OBJ_X86_16)
-
-$(ASM_ELF_X86_16): $(ASM_OBJ_X86_16)
-	$(LD) -m elf_i386 -N -e _start_cpu -Ttext 0x1000 $< -o $@
-
-$(ASM_IMG_X86_16): $(ASM_ELF_X86_16)
-	rust-objcopy -O binary $< $@
+$(X86ASM): FORCE
+	$(MAKE) -C $@
 
 qemu-x86_64:
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 2
+	# qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 2
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 2
 
 ## Linux
 
-.PHONY: linux
-linux:
+linux: FORCE
 	cargo +nightly linux $(OPT)
 
 run-linux:
@@ -99,6 +90,7 @@ run-linux:
 
 ## Clean
 
-clean:
+clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
 	cargo clean
+	$(MAKE) -C $(X86ASM) clean

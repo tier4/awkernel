@@ -120,7 +120,8 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     &mut *ptr
 }
 
-const NON_PRIMARY_START: u64 = 0x1000;
+const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB
+const ENTRY32: u64 = 1024 * 5; // 5KiB
 
 fn start_non_primary_cpus(
     page_table: &OffsetPageTable,
@@ -131,11 +132,18 @@ fn start_non_primary_cpus(
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
 
+    let entry32 = include_bytes!("../../../asm/x86/entry32.img");
+    let entry32_phy_addr = VirtAddr::new(phy_offset + ENTRY32);
+
+    // Save original data.
     let original =
         Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
 
-    // Write boot16.img to the 2nd page (4096..=8192).
+    // Write boot16.img.
     unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16) };
+
+    // Write entry32.img.
+    unsafe { write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32) };
 
     let data_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START + 1024);
     let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
