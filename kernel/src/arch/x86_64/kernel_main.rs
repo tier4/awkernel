@@ -1,4 +1,5 @@
 use super::{
+    acpi::{wait_usec, AcpiMapper},
     apic::{Apic, TypeApic},
     delay, interrupt,
 };
@@ -10,9 +11,13 @@ use crate::{
     heap,
     kernel_info::KernelInfo,
 };
+use acpi::AcpiTables;
 use alloc::boxed::Box;
 use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    arch::asm,
+    ptr::{read_volatile, write_volatile},
+};
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags},
     structures::paging::{OffsetPageTable, PageTable},
@@ -61,9 +66,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         delay::ArchDelay::wait_forever();
     };
 
+    // Get ACPI tables.
+    let acpi = if let Some(acpi) = super::acpi::create_acpi(boot_info, *offset) {
+        acpi
+    } else {
+        log::error!("Failed to initialize ACPI.");
+        delay::ArchDelay::wait_forever();
+    };
+
     // Initialize APIC.
     match super::apic::new(*offset) {
-        TypeApic::Xapic(apic) => start_non_primary_cpus(&page_table, *offset, &apic),
+        TypeApic::Xapic(apic) => start_non_primary_cpus(&page_table, *offset, &apic, &acpi),
         _ => (),
     }
 
@@ -107,30 +120,50 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     &mut *ptr
 }
 
-fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64, apic: &dyn Apic) {
-    let boot16 = include_bytes!("../../../asm/x86/boot16.img");
-    let boot16_phy_addr = VirtAddr::new(phy_offset + 4096);
+const NON_PRIMARY_START: u64 = 0x1000;
 
-    let _original =
+fn start_non_primary_cpus(
+    page_table: &OffsetPageTable,
+    phy_offset: u64,
+    apic: &dyn Apic,
+    acpi: &AcpiTables<AcpiMapper>,
+) {
+    let boot16 = include_bytes!("../../../asm/x86/boot16.img");
+    let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
+
+    let original =
         Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
 
     // Write boot16.img to the 2nd page (4096..=8192).
-    unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), boot16.as_ptr()) };
+    unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16) };
 
-    let data_addr = VirtAddr::new(phy_offset + 4096 + 1024);
+    let data_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START + 1024);
     let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
     log::debug!("data = {data}");
+
+    unsafe { asm!("wbinvd") };
 
     // INIT IPI
     apic.interrupt(
         0,
         DestinationShorthand::AllExcludingSelf,
-        IcrFlags::empty(),
+        IcrFlags::DESTINATION_LOGICAL,
         DeliveryMode::Init,
         0,
     );
 
-    // TODO: wait 10[ms]
+    wait_usec(10_000, acpi); // Wait 10[ms]
+
+    // SIPI
+    apic.interrupt(
+        0,
+        DestinationShorthand::AllExcludingSelf,
+        IcrFlags::DESTINATION_LOGICAL,
+        DeliveryMode::StartUp,
+        (NON_PRIMARY_START >> 12) as u8, // 2nd Page
+    );
+
+    wait_usec(200, acpi); // Wait 200[us]
 
     // SIPI
     apic.interrupt(
@@ -138,21 +171,10 @@ fn start_non_primary_cpus(page_table: &OffsetPageTable, phy_offset: u64, apic: &
         DestinationShorthand::AllExcludingSelf,
         IcrFlags::empty(),
         DeliveryMode::StartUp,
-        1, // 2nd Page
+        (NON_PRIMARY_START >> 12) as u8, // 2nd Page
     );
 
-    // TODO: wait 200[us]
-
-    // SIPI
-    apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
-        IcrFlags::empty(),
-        DeliveryMode::StartUp,
-        1, // 2nd Page
-    );
-
-    // TODO: wait 200[us]
+    wait_usec(200, acpi); // Wait 200[us]
 
     let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
     log::debug!("data = {data}");

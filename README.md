@@ -72,13 +72,13 @@ $ make linux RELEASE=1
 ### x86\_64
 
 ```text
-$ make run-x86_64
+$ make qemu-x86_64
 ```
 
 ### AArch64
 
 ```text
-$ make run-raspi3
+$ make qemu-raspi3
 ```
 
 ### Linux

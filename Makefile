@@ -30,6 +30,7 @@ ASM_OBJ_AARCH64=boot_aarch64.o
 
 ASM_FILE_X86_16=kernel/asm/x86/boot16.S
 ASM_OBJ_X86_16=kernel/asm/x86/boot16.o
+ASM_ELF_X86_16=kernel/asm/x86/boot16.elf
 ASM_IMG_X86_16=kernel/asm/x86/boot16.img
 
 ifndef $(CC)
@@ -38,6 +39,7 @@ endif
 
 ifndef $(LD)
 	LD = rust-lld -flavor gnu
+	# LD = ld.gold
 endif
 
 all: raspi3 x86_64 linux
@@ -55,12 +57,12 @@ kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
 	rust-objcopy -O binary target/aarch64-custom/$(BUILD)/t4os $@
 
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
-	$(CC) --target=aarch64-elf -c $(ASM_FILE_AARCH64) -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
+	$(CC) --target=aarch64-elf -c $< -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
 
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
-run-raspi3:
+qemu-raspi3:
 	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio
 
 ## x86_64
@@ -72,14 +74,19 @@ kernel-x86_64.elf: $(ASM_IMG_X86_16)
 	cargo +nightly x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
-	cargo run --release --package x86bootdisk -- --kernel kernel-x86_64.elf --output $@
+	cargo run --release --package x86bootdisk -- --kernel $< --output $@
 
-$(ASM_IMG_X86_16): $(ASM_FILE_X86_16)
-	$(CC) -m32 -c $(ASM_FILE_X86_16) -o $(ASM_OBJ_X86_16)
-	rust-objcopy -O binary $(ASM_OBJ_X86_16) $@
+$(ASM_OBJ_X86_16): $(ASM_FILE_X86_16)
+	$(CC) -m32 -fno-pie -nostdlib -c $< -o $(ASM_OBJ_X86_16)
 
-run-x86_64:
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp cpus=4
+$(ASM_ELF_X86_16): $(ASM_OBJ_X86_16)
+	$(LD) -m elf_i386 -N -e _start_cpu -Ttext 0x1000 $< -o $@
+
+$(ASM_IMG_X86_16): $(ASM_ELF_X86_16)
+	rust-objcopy -O binary $< $@
+
+qemu-x86_64:
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 2
 
 ## Linux
 
@@ -88,10 +95,10 @@ linux:
 	cargo +nightly linux $(OPT)
 
 run-linux:
-	cargo +nightly run --package t4os --no-default-features --features linux  $(OPT)
+	cargo +nightly run --package t4os --no-default-features --features linux $(OPT)
 
 ## Clean
 
 clean:
-	rm -f *.o *.elf aarch64-link-bsp.lds *.img
+	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
 	cargo clean

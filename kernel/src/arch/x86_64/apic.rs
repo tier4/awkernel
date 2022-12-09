@@ -150,8 +150,8 @@ impl Apic for Xapic {
             _ => high_bits,
         };
 
-        low.write(low_bits);
         high.write(high_bits);
+        low.write(low_bits);
 
         while (low.read() & IcrFlags::SEND_PENDING.bits) != 0 {}
     }

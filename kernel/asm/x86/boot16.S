@@ -1,101 +1,92 @@
-.section .text, "x"
+//
+// assembler macros to create x86 segments
+//
+
+#define SEG_NULLASM                                             \
+        .word 0, 0;                                             \
+        .byte 0, 0, 0, 0
+
+// The 0xC0 means the limit is in 4096-byte units
+// and (for executable segments) 32-bit mode.
+#define SEG_ASM(type,base,lim)                                  \
+        .word (((lim) >> 12) & 0xffff), ((base) & 0xffff);      \
+        .byte (((base) >> 16) & 0xff), (0x90 | (type)),         \
+                (0xC0 | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
+
+#define STA_X     0x8 // Executable segment
+#define STA_W     0x2 // Writeable (non-executable segments)
+#define STA_R     0x2 // Readable (executable segments)
+
+#define SEG_KCODE 1
+#define SEG_KDATA 2
+
+// Control Register flags
+#define CR0_PE    0x00000001 // Protection Enable
+
+.section .text
+
 .global _start_cpu
 
 // Address of _start_cpu
 #define ADDR_OFFSET 0x1000
 
+.code16
 _start_cpu:
-    // Disable interrupts
-    cli
+    cli                         # BIOS enabled interrupts; disable
 
-    // Calculate the base address
-    movl    $ADDR_OFFSET, %eax
-    movw    %ax, %ds
+    # Zero data segment registers DS, ES, and SS.
+    xorw    %ax,%ax             # Set %ax to zero
+    movw    %ax,%ds             # -> Data Segment
+    movw    %ax,%es             # -> Extra Segment
+    movw    %ax,%ss             # -> Stack Segment
 
-    // Initialize IDT and GDT
-    lidt    %ds:(idtr - _start_cpu)
-    lgdt    %ds:(gdtr - _start_cpu)
-
-    // Set segment registers.
-    movl    $(1 << 3), %eax
-    movl    $(2 << 3), %ebx
-    movw    %ax, %cs
-    movw    %bx, %ss
-    movw    %bx, %ds
-    movw    %bx, %es
-    movw    %bx, %fs
-    movw    %bx, %gs
-
-    // Entering the protected mode
+    # Switch from real to protected mode.  Use a bootstrap GDT that makes
+    # virtual addresses map directly to physical addresses so that the
+    # effective memory map doesn't change during the transition.
+    lgdt    gdtdesc
     movl    %cr0, %eax
-    orl     $0x1, %eax
+    orl     $CR0_PE, %eax
     movl    %eax, %cr0
-    // ljmpl	$AP_GDT_CODE32_SEL,$(ap_entry32 - KERNEL_RELOCBASE)
 
-loop:
-    movl    [(ADDR_OFFSET + 1024)], %eax
-    addl    $1, %eax
-    movl    %eax, [(ADDR_OFFSET + 1024)]
+//PAGEBREAK!
+    # Complete the transition to 32-bit protected mode by using a long jmp
+    # to reload %cs and %eip.  The segment descriptors are set up with no
+    # translation, so that the mapping is still the identity mapping.
+    ljmp    $(SEG_KCODE<<3), $start32
+
+.code32  # Tell assembler to generate 32-bit code now.
+start32:
+    # Set up the protected-mode data segment registers
+    movw    $(SEG_KDATA<<3), %ax    # Our data segment selector
+    movw    %ax, %ds                # -> DS: Data Segment
+    movw    %ax, %es                # -> ES: Extra Segment
+    movw    %ax, %ss                # -> SS: Stack Segment
+    movw    $0, %ax                 # Zero segments not ready for use
+    movw    %ax, %fs                # -> FS
+    movw    %ax, %gs                # -> GS
+
+    # Set up the stack pointer and call into C.
+    # movl    $start, %esp
+    # call    bootmain
+
+    # If bootmain returns (it shouldn't), trigger a Bochs
+    # breakpoint if running under Bochs, then loop.
+    movw    $0x8a00, %ax            # 0x8a00 -> port 0x8a00
+    movw    %ax, %dx
+    outw    %ax, %dx
+    movw    $0x8ae0, %ax            # 0x8ae0 -> port 0x8a00
+    outw    %ax, %dx
+spin:
     hlt
-    jmp     (loop + ADDR_OFFSET)
+    jmp     spin
 
-    .align  16
-
-/* Pseudo interrupt descriptor table */
-idtr:
-    .word   0x0		/* Limit */
-    .long   0x0		/* Base address */
-/* Temporary global descriptor table */
+# Bootstrap GDT
+.p2align 2                                  # force 4 byte alignment
 gdt:
-    .long   0x0, 0x0    // NULL descriptor
+    SEG_NULLASM                             # null seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff)   # code seg
+    SEG_ASM(STA_W, 0x0, 0xffffffff)         # data seg
 
-    // Execute/Read Segment
-    .word   0xffff      // Segment Limit 15:00
-    .word   0           // Base Address  15:00
-    .byte   0           // Base Address  23:16
-
-    // P    (1 bit) : segment Present
-    // DPL  (2 bits): Descriptor Priviledged Level field. 0 to 3, with 0 being the most priviledged level
-    // S    (1 bit) : descriptor type flag. 0 indicates a system segment, and 1 indicates a code or data segment
-    // Type (4 bits): segment type
-    .byte   (1 << 7) /* P */ | (1 << 4) /* S */ | 0x0a // Execute/Read
-
-    // G   (1 bit): granuality flag. Determines the scaling of the segment limit field.
-    //              0 indicates the segment limit is interpreted in byte units
-    //              1 indicates it is interpreted in byte units 4KiB units
-    // D/B (1 bit): default operation size/default stack pointer size and/or upper bound flag
-    //              This shoud always be set to 1 for 32-bit code and data segments
-    // L   (1 bit): 64-bit code segment flag
-    // AVL (1 bit): AVailabLe and reserved bits. available for use by system software.
-    // Segment Limit 19:16 (4 bits)
-    .byte   (1 << 7) /* G */ | (1 << 6) /* D/B */ | 0x0F /* Seg. Limit 19:16 */
-
-    .byte   0       // Base Address 31:24
-
-    // Read/Write Segment
-    .word   0xffff      // Segment Limit 15:00
-    .word   0           // Base Address  15:00
-    .byte   0           // Base Address  23:16
-
-    // P    (1 bit) : segment Present
-    // DPL  (2 bits): Descriptor Priviledged Level field. 0 to 3, with 0 being the most priviledged level
-    // S    (1 bit) : descriptor type flag. 0 indicates a system segment, and 1 indicates a code or data segment
-    // Type (4 bits): segment type
-    .byte   (1 << 7) /* P */ | (1 << 4) /* S */ | 0x02 // Read/Write
-
-    // G   (1 bit): granuality flag. Determines the scaling of the segment limit field.
-    //              0 indicates the segment limit is interpreted in byte units
-    //              1 indicates it is interpreted in byte units 4KiB units
-    // D/B (1 bit): default operation size/default stack pointer size and/or upper bound flag
-    //              This shoud always be set to 1 for 32-bit code and data segments
-    // L   (1 bit): 64-bit code segment flag
-    // AVL (1 bit): AVailabLe and reserved bits. available for use by system software.
-    // Segment Limit 19:16 (4 bits)
-    .byte   (1 << 7) /* G */ | (1 << 6) /* D/B */ | 0x0F /* Seg. Limit 19:16 */
-
-    .byte   0       // Base Address 31:24
-
-gdt.1:
-gdtr:
-    .word	gdt.1 - gdt - 1	// size of GDT - 1
-    .long	gdt             // Base address
+gdtdesc:
+    .word   (gdtdesc - gdt - 1)             # sizeof(gdt) - 1
+    .long   gdt                             # address gdt
