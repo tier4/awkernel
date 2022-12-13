@@ -5,4 +5,5 @@ pub mod delay;
 mod heap;
 mod interrupt;
 mod kernel_main;
+mod page_allocator;
 mod serial;

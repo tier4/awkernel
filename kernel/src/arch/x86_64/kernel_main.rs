@@ -2,6 +2,7 @@ use super::{
     acpi::{wait_usec, AcpiMapper},
     apic::{Apic, TypeApic},
     delay, interrupt,
+    page_allocator::PageAllocator,
 };
 use crate::{
     arch::{
@@ -13,15 +14,19 @@ use crate::{
 };
 use acpi::AcpiTables;
 use alloc::boxed::Box;
-use bootloader_api::{config::Mapping, entry_point, BootInfo, BootloaderConfig};
+use bootloader_api::{
+    config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
+};
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags},
-    structures::paging::{OffsetPageTable, PageTable},
-    VirtAddr,
+    structures::paging::{
+        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
+    },
+    PhysAddr, VirtAddr,
 };
 
 extern "C" {
@@ -47,8 +52,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         delay::ArchDelay::wait_forever();
     };
 
+    // Create a page allocator.
+    let mut frames = boot_info
+        .memory_regions
+        .iter()
+        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .flat_map(|m| (m.start..m.end).step_by(4096))
+        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+    let mut page_allocator = PageAllocator::new(&mut frames);
+
     // Map heap memory region.
-    if super::heap::HeapMapper::init(boot_info, &mut page_table).is_err() {
+    if super::heap::HeapMapper::init(boot_info, &mut page_table, &mut page_allocator).is_err() {
         super::serial::puts("Failed to map heap memory.");
         delay::ArchDelay::wait_forever();
     }
@@ -56,6 +70,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     heap::init(); // Enable heap allocator.
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
+
+    for region in boot_info.memory_regions.into_iter() {
+        log::debug!("{:?}", region);
+    }
 
     // Get offset address to physical memory.
     let offset = if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
@@ -76,7 +94,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Initialize APIC.
     match super::apic::new(*offset) {
-        TypeApic::Xapic(apic) => start_non_primary_cpus(&page_table, *offset, &apic, &acpi),
+        TypeApic::Xapic(apic) => {
+            start_non_primary_cpus(&mut page_table, &mut page_allocator, *offset, &apic, &acpi)
+        }
         _ => (),
     }
 
@@ -122,34 +142,63 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 
 const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB
 const ENTRY32: u64 = 1024 * 5; // 5KiB
+const CR3_POS: u64 = 1024 * 6; // 6KiB
 
 fn start_non_primary_cpus(
-    page_table: &OffsetPageTable,
+    page_table: &mut OffsetPageTable,
+    page_allocator: &mut PageAllocator,
     phy_offset: u64,
     apic: &dyn Apic,
     acpi: &AcpiTables<AcpiMapper>,
 ) {
+    // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
 
     let entry32 = include_bytes!("../../../asm/x86/entry32.img");
     let entry32_phy_addr = VirtAddr::new(phy_offset + ENTRY32);
 
+    let cr3_phy_addr = VirtAddr::new(phy_offset + CR3_POS);
+
+    // Map 2nd page.
+    let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE;
+
+    if let Err(e) = unsafe {
+        page_table.map_to(
+            Page::<Size4KiB>::containing_address(VirtAddr::new(NON_PRIMARY_START)),
+            PhysFrame::containing_address(PhysAddr::new(NON_PRIMARY_START)),
+            flags,
+            page_allocator,
+        )
+    } {
+        log::error!("Failed to map 2nd page: {:?}", e);
+    }
+
+    let addr = VirtAddr::new(4096);
+    let phy_addr = page_table.translate_addr(addr);
+    log::debug!("VirtAddry(0x1000) => {:?}", phy_addr);
+
+    // Store CR3.
+    let mut cr3: u64;
+    unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
+    log::debug!("CR3 = {:x}", cr3);
+
     // Save original data.
     let original =
         Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
 
-    // Write boot16.img.
-    unsafe { write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16) };
+    unsafe {
+        // Write CR3.
+        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
 
-    // Write entry32.img.
-    unsafe { write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32) };
+        // Write boot16.img.
+        write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
 
-    let data_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START + 1024);
-    let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
-    log::debug!("data = {data}");
+        // Write entry32.img.
+        write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
 
-    unsafe { asm!("wbinvd") };
+        asm!("wbinvd");
+    }
 
     // INIT IPI
     apic.interrupt(
@@ -183,7 +232,4 @@ fn start_non_primary_cpus(
     );
 
     wait_usec(200, acpi); // Wait 200[us]
-
-    let data = unsafe { read_volatile::<u32>(data_addr.as_ptr()) };
-    log::debug!("data = {data}");
 }
