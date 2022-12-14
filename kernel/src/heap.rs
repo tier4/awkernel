@@ -1,6 +1,7 @@
 #[derive(Debug)]
 pub enum InitErr {
     InvalidPhysicalMemoryOffset,
+    InvalidACPI,
     FailedToAllocateFrame,
     FailedToMapPage,
 }

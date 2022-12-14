@@ -78,7 +78,7 @@ $(X86ASM): FORCE
 
 qemu-x86_64:
 	# qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 2
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 2
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 2 -d int
 
 ## Linux
 

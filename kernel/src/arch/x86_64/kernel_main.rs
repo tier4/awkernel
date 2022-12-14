@@ -1,15 +1,20 @@
 use super::{
     acpi::{wait_usec, AcpiMapper},
     apic::{Apic, TypeApic},
-    delay, interrupt,
-    page_allocator::PageAllocator,
+    delay,
+    heap::map_heap,
+    interrupt,
+    page_allocator::{get_page_table, PageAllocator},
 };
 use crate::{
     arch::{
-        x86_64::apic::{DeliveryMode, DestinationShorthand, IcrFlags},
+        x86_64::{
+            apic::{DeliveryMode, DestinationShorthand, IcrFlags},
+            stack::map_stack,
+        },
         Delay,
     },
-    heap,
+    config::{PAGE_SIZE, STACK_SIZE, STACK_START},
     kernel_info::KernelInfo,
 };
 use acpi::AcpiTables;
@@ -20,11 +25,13 @@ use bootloader_api::{
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
+    slice::from_raw_parts,
 };
 use x86_64::{
-    registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags},
-    structures::paging::{
-        Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate,
+    registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
+    structures::{
+        gdt::GlobalDescriptorTable,
+        paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
     },
     PhysAddr, VirtAddr,
 };
@@ -36,7 +43,7 @@ extern "C" {
 pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
     config.mappings.physical_memory = Some(Mapping::Dynamic);
-    config.kernel_stack_size = 2 * 1024 * 1024; // 2MiB
+    config.kernel_stack_size = STACK_SIZE;
     config
 };
 
@@ -57,17 +64,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .memory_regions
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Usable)
-        .flat_map(|m| (m.start..m.end).step_by(4096))
+        .flat_map(|m| (m.start..m.end).step_by(PAGE_SIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
     let mut page_allocator = PageAllocator::new(&mut frames);
 
     // Map heap memory region.
-    if super::heap::HeapMapper::init(boot_info, &mut page_table, &mut page_allocator).is_err() {
+    if map_heap(&mut page_table, &mut page_allocator).is_err() {
         super::serial::puts("Failed to map heap memory.");
         delay::ArchDelay::wait_forever();
     }
 
-    heap::init(); // Enable heap allocator.
+    crate::heap::init(); // Enable heap allocator.
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
@@ -123,34 +130,35 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-unsafe fn get_page_table(boot_info: &BootInfo) -> Option<OffsetPageTable<'static>> {
-    let physical_memory_offset = VirtAddr::new(*boot_info.physical_memory_offset.as_ref()?);
-
-    let level_4_table = active_level_4_table(physical_memory_offset);
-    Some(OffsetPageTable::new(level_4_table, physical_memory_offset))
-}
-
-unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
-    let (level_4_table_frame, _) = Cr3::read();
-
-    let phys = level_4_table_frame.start_address();
-    let virt = physical_memory_offset + phys.as_u64();
-    let ptr = virt.as_mut_ptr() as *mut PageTable;
-
-    &mut *ptr
-}
-
 const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB
 const ENTRY32: u64 = 1024 * 5; // 5KiB
-const CR3_POS: u64 = 1024 * 6; // 6KiB
+
+// 6KiB
+const GDTR_BASE_POS: u64 = 1024 * 6;
+const CR3_POS: u64 = 1024 * 6 + 8;
 
 fn start_non_primary_cpus(
-    page_table: &mut OffsetPageTable,
+    page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut PageAllocator,
     phy_offset: u64,
     apic: &dyn Apic,
     acpi: &AcpiTables<AcpiMapper>,
 ) {
+    // Map stack memory.
+    if map_stack(acpi, page_table, page_allocator).is_err() {
+        return;
+    }
+
+    // Read GDTR.
+    let gdtr = x86_64::instructions::tables::sgdt();
+    let gdtr_base = gdtr.base.as_u64();
+    let gdtr_num = (gdtr.limit + 1) >> 3;
+
+    let gdt = unsafe { from_raw_parts(gdtr.base.as_ptr::<u64>(), gdtr_num as usize) };
+    for table in gdt {
+        log::debug!("GDT = 0x{:016x}", table);
+    }
+
     // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
@@ -159,6 +167,7 @@ fn start_non_primary_cpus(
     let entry32_phy_addr = VirtAddr::new(phy_offset + ENTRY32);
 
     let cr3_phy_addr = VirtAddr::new(phy_offset + CR3_POS);
+    let gdtr_phy_addr = VirtAddr::new(phy_offset + GDTR_BASE_POS);
 
     // Map 2nd page.
     let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE;
@@ -174,22 +183,22 @@ fn start_non_primary_cpus(
         log::error!("Failed to map 2nd page: {:?}", e);
     }
 
-    let addr = VirtAddr::new(4096);
-    let phy_addr = page_table.translate_addr(addr);
-    log::debug!("VirtAddry(0x1000) => {:?}", phy_addr);
-
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
     log::debug!("CR3 = {:x}", cr3);
 
     // Save original data.
-    let original =
-        Box::<[u8; 4096]>::new(unsafe { read_volatile::<[u8; 4096]>(boot16_phy_addr.as_ptr()) });
+    let original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
+        read_volatile::<[u8; PAGE_SIZE as usize]>(boot16_phy_addr.as_ptr())
+    });
 
     unsafe {
         // Write CR3.
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
+
+        // Write GDTR.
+        write_volatile(gdtr_phy_addr.as_mut_ptr(), gdtr_base);
 
         // Write boot16.img.
         write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);

@@ -7,3 +7,4 @@ mod interrupt;
 mod kernel_main;
 mod page_allocator;
 mod serial;
+mod stack;
