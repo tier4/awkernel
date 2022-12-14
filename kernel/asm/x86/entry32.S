@@ -63,7 +63,7 @@ _entry32:
     movl    %ecx, %esp
     movl    %ecx, %ebp
 
-    pushl   $1
+    pushl   $(1 << 3)
     pushl   $entry64
 
     // Set GDTR up.
@@ -71,7 +71,7 @@ _entry32:
     // movl    (%eax), %ebx
     // lgdt    (%ebx)
 
-    // lret
+    lret
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
