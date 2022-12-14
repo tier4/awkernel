@@ -14,7 +14,7 @@ use crate::{
         },
         Delay,
     },
-    config::{PAGE_SIZE, STACK_SIZE, STACK_START},
+    config::{PAGE_SIZE, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use acpi::AcpiTables;
@@ -29,10 +29,7 @@ use core::{
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
-    structures::{
-        gdt::GlobalDescriptorTable,
-        paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
-    },
+    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 

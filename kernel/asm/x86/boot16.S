@@ -6,22 +6,20 @@
         .word 0, 0;                                             \
         .byte 0, 0, 0, 0
 
-// The 0xC0 means the limit is in 4096-byte units
-// and (for executable segments) 32-bit mode.
-#define SEG_ASM(type,base,lim,lflag)                                  \
+#define SEG_ASM(type,base,lim,mode)                             \
         .word (((lim) >> 12) & 0xffff), ((base) & 0xffff);      \
         .byte (((base) >> 16) & 0xff), (0x90 | (type)),         \
-                (0xC0 | lflag | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
+                (mode | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
 
 #define STA_X     0x8 // Executable segment
 #define STA_W     0x2 // Writeable (non-executable segments)
 #define STA_R     0x2 // Readable (executable segments)
 
+#define MODE_GD 0xC0 // G: granuarity 4KiB, D/B: 32-bit code and data
+#define MODE_GL 0xA0 // G: granuarity 4KiB, L: 64-bit code segment
+
 #define SEG_KCODE 1
 #define SEG_KDATA 2
-
-#define L64 (1 << 6)
-#define L32 0
 
 // Control Register flags
 #define CR0_PE    0x00000001 // Protection Enable
@@ -85,9 +83,7 @@ start32:
     movw    %ax, %fs                # -> FS
     movw    %ax, %gs                # -> GS
 
-    # Set up the stack pointer and call into C.
-    # movl    $start, %esp
-    # call    bootmain
+    # Jump to ENTRY32
     movl    $ENTRY32, %eax
     jmp     *%eax
 
@@ -106,8 +102,9 @@ spin:
 .p2align 2                                  # force 4 byte alignment
 gdt:
     SEG_NULLASM                             # null seg
-    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, L64)   # code seg
-    SEG_ASM(STA_W, 0x0, 0xffffffff, L64)         # data seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GD)   # 32-bit code seg
+    SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)         # 32-bit data seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GL)   # 64-bit code seg
 
 gdtdesc:
     .word   (gdtdesc - gdt - 1)             # sizeof(gdt) - 1

@@ -16,6 +16,8 @@
 #define STACK_START (256 * 1024 * 1024)
 #define STACK_SIZE (2 * 1024 * 1024)
 
+#define SEG_KCODE_64 3
+
 .code32  # Tell assembler to generate 32-bit code now.
 _entry32:
     // Disable i8259 PIC.
@@ -63,13 +65,9 @@ _entry32:
     movl    %ecx, %esp
     movl    %ecx, %ebp
 
-    pushl   $(1 << 3)
+    // Jump to entry64
+    pushl   $(SEG_KCODE_64 << 3)
     pushl   $entry64
-
-    // Set GDTR up.
-    // movl    $CPU0_GDTR, %eax
-    // movl    (%eax), %ebx
-    // lgdt    (%ebx)
 
     lret
 
