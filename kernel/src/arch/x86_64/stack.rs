@@ -26,8 +26,6 @@ pub(super) fn map_stack(
         return Err(InitErr::InvalidACPI);
     };
 
-    log::debug!("Map stack: num_cpu = {num_cpu}");
-
     let mut stack_start = STACK_START;
     for _ in 0..num_cpu {
         let page_range = {
@@ -55,8 +53,6 @@ pub(super) fn map_stack(
         }
 
         stack_start += STACK_SIZE;
-
-        log::debug!("Map stack memory for non-primary CPUs: {:?}", page_range);
     }
 
     Ok(())

@@ -54,10 +54,6 @@ pub fn new(offset: u64) -> TypeApic {
     let is_bsp = (value & (1 << 8)) != 0;
     let apic_base = (value & 0xFFFF_F000) as u32;
 
-    if is_bsp {
-        log::info!("I am a BootStrap processor.");
-    }
-
     log::info!("APIC Base Address = {:x}", apic_base);
 
     match (value >> 10) & 0b11 {

@@ -10,7 +10,7 @@
 #define EFER_LMA (1 << 10) // long mode active
 #define EFER_NXE (1 << 11) // No-execute enable
 
-#define CPU0_GDTR (1024 * 6)
+#define NON_PRIMARY_KERNEL_MAIN (1024 * 6)
 #define CPU0_CR3 (1024 * 6 + 8)
 
 #define STACK_START (256 * 1024 * 1024)
@@ -61,9 +61,9 @@ _entry32:
     movl    %ebx, %eax
     movl    $STACK_SIZE, %ecx
     mull    %ecx
-    addl    $STACK_START, %ecx
-    movl    %ecx, %esp
-    movl    %ecx, %ebp
+    addl    $STACK_START, %eax
+    movl    %eax, %esp
+    movl    %eax, %ebp
 
     // Jump to entry64
     pushl   $(SEG_KCODE_64 << 3)
@@ -73,6 +73,9 @@ _entry32:
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
+    movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
+    movq    (%rbx), %rax
+    jmp     *%rax
 
 loop:
     hlt

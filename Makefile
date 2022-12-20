@@ -46,7 +46,7 @@ cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
 FORCE:
 
 # AArch64
-raspi3: target/aarch64-custom/$(BUILD)/t4os
+raspi3: kernel-aarch64.img
 
 target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
 	cargo +nightly raspi3 $(OPT)
@@ -77,8 +77,8 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 qemu-x86_64:
-	# qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 2
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 2 -d int
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4
+	# qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 4 -d int
 
 ## Linux
 

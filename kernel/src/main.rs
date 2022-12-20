@@ -27,6 +27,8 @@ fn foo() {
 
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
+        log::debug!("I am the primary CPU.");
+
         let n = Box::new(10);
 
         log::debug!("{n}");
@@ -40,7 +42,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             Err(_) => log::debug!("caught panic"),
         }
     } else {
-        log::debug!("I am a non primary CPU.");
+        log::debug!("I am a non primary CPU (#{}).", kernel_info.cpu_id);
     }
 }
 

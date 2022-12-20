@@ -11,9 +11,9 @@
         .byte (((base) >> 16) & 0xff), (0x90 | (type)),         \
                 (mode | (((lim) >> 28) & 0xf)), (((base) >> 24) & 0xff)
 
-#define STA_X     0x8 // Executable segment
-#define STA_W     0x2 // Writeable (non-executable segments)
-#define STA_R     0x2 // Readable (executable segments)
+#define STA_X 0x8 // Executable segment
+#define STA_W 0x2 // Writeable (non-executable segments)
+#define STA_R 0x2 // Readable (executable segments)
 
 #define MODE_GD 0xC0 // G: granuarity 4KiB, D/B: 32-bit code and data
 #define MODE_GL 0xA0 // G: granuarity 4KiB, L: 64-bit code segment
@@ -22,7 +22,7 @@
 #define SEG_KDATA 2
 
 // Control Register flags
-#define CR0_PE    0x00000001 // Protection Enable
+#define CR0_PE 0x00000001 // Protection Enable
 
 #define ENTRY32 (1024 * 5)
 

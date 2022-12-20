@@ -25,7 +25,6 @@ use bootloader_api::{
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
-    slice::from_raw_parts,
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
@@ -81,7 +80,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Get offset address to physical memory.
     let offset = if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
-        log::info!("Physical memory offset = {:x}", offset);
+        log::info!("Physical memory offset = 0x{:x}", offset);
         offset
     } else {
         log::error!("Failed to get physical memory offset.");
@@ -105,7 +104,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     let kernel_info = KernelInfo {
-        info: boot_info,
+        info: Some(boot_info),
         cpu_id: 0,
     };
 
@@ -131,7 +130,7 @@ const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB
 const ENTRY32: u64 = 1024 * 5; // 5KiB
 
 // 6KiB
-const GDTR_BASE_POS: u64 = 1024 * 6;
+const NON_PRIMARY_KERNEL_MAIN: u64 = 1024 * 6;
 const CR3_POS: u64 = 1024 * 6 + 8;
 
 fn start_non_primary_cpus(
@@ -146,16 +145,6 @@ fn start_non_primary_cpus(
         return;
     }
 
-    // Read GDTR.
-    let gdtr = x86_64::instructions::tables::sgdt();
-    let gdtr_base = gdtr.base.as_u64();
-    let gdtr_num = (gdtr.limit + 1) >> 3;
-
-    let gdt = unsafe { from_raw_parts(gdtr.base.as_ptr::<u64>(), gdtr_num as usize) };
-    for table in gdt {
-        log::debug!("GDT = 0x{:016x}", table);
-    }
-
     // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
@@ -163,8 +152,8 @@ fn start_non_primary_cpus(
     let entry32 = include_bytes!("../../../asm/x86/entry32.img");
     let entry32_phy_addr = VirtAddr::new(phy_offset + ENTRY32);
 
+    let main_addr = VirtAddr::new(phy_offset + NON_PRIMARY_KERNEL_MAIN);
     let cr3_phy_addr = VirtAddr::new(phy_offset + CR3_POS);
-    let gdtr_phy_addr = VirtAddr::new(phy_offset + GDTR_BASE_POS);
 
     // Map 2nd page.
     let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE;
@@ -183,19 +172,18 @@ fn start_non_primary_cpus(
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
-    log::debug!("CR3 = {:x}", cr3);
 
     // Save original data.
-    let original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
+    let _original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
         read_volatile::<[u8; PAGE_SIZE as usize]>(boot16_phy_addr.as_ptr())
     });
 
     unsafe {
+        // Write non_primary_kernel_main.
+        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as u64);
+
         // Write CR3.
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
-
-        // Write GDTR.
-        write_volatile(gdtr_phy_addr.as_mut_ptr(), gdtr_base);
 
         // Write boot16.img.
         write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
@@ -238,4 +226,22 @@ fn start_non_primary_cpus(
     );
 
     wait_usec(200, acpi); // Wait 200[us]
+}
+
+#[inline(never)]
+fn non_primary_kernel_main() -> ! {
+    let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
+    let cpu_id = (ebx >> 24) & 0xff;
+
+    enable_fpu(); // Enable SSE.
+    unsafe { interrupt::init() }; // Initialize interrupt handlers.
+
+    let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
+        info: None,
+        cpu_id: cpu_id as usize,
+    };
+
+    crate::main(kernel_info);
+
+    super::delay::ArchDelay::wait_forever();
 }
