@@ -6,4 +6,8 @@ impl Delay for ArchDelay {
     fn wait_interrupt() {
         unsafe { core::arch::asm!("hlt") };
     }
+
+    fn wait_event() {
+        unsafe { core::arch::asm!("pause") };
+    }
 }

@@ -20,6 +20,8 @@ mod heap;
 mod kernel_info;
 mod logger;
 mod mmio;
+mod scheduler;
+mod task;
 
 fn foo() {
     panic!("panic");

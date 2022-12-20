@@ -29,4 +29,5 @@ pub trait Delay {
             Self::wait_interrupt();
         }
     }
+    fn wait_event();
 }
