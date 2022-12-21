@@ -71,7 +71,7 @@ pub fn init(acpi: &AcpiTables<AcpiMapper>) {
     }
 }
 
-pub fn wait_usec(usec: u32) {
+pub fn wait_usec(usec: u64) {
     let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return; };
 
     let mut port = Port::<u32>::new(pm_timer.base.address as u16);
@@ -83,7 +83,7 @@ pub fn wait_usec(usec: u32) {
     };
 
     // Counts per usec.
-    let clk = (ACPI_TMR_HZ as u64 * usec as u64) / 1000000;
+    let clk = (ACPI_TMR_HZ as u64 * usec) / 1000000;
     let mut prev = unsafe { port.read() } as u64;
     let mut acc = 0;
 

@@ -1,4 +1,7 @@
-use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
+use crate::{
+    delay::wait_microsec,
+    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
+};
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
 use core::task::{Context, Poll};
 use futures::{
@@ -133,7 +136,7 @@ pub fn run() {
                 }
             }
         } else {
-            // TODO: Sleep this CPU.
+            wait_microsec(1);
         }
     }
 }

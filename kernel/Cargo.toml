@@ -39,7 +39,7 @@ version = "0.2"
 optional = true
 
 [features]
-default = ["linux"]
+default = ["raspi3"]
 x86 = ["unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader_api"]
 aarch64 = ["unwinding/fde-static", "unwinding/personality"]
 raspi3 = ["aarch64", "raspi"]

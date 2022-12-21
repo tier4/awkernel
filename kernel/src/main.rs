@@ -24,28 +24,12 @@ mod mmio;
 mod scheduler;
 mod task;
 
-fn foo() {
-    panic!("panic");
-}
-
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    log::info!("CPU#{} is starting.", kernel_info.cpu_id);
+
     if kernel_info.cpu_id == 0 {
-        log::debug!("I am the primary CPU.");
-
-        let n = Box::new(10);
-
-        log::debug!("{n}");
-        log::debug!("kernel_info: {:?}", kernel_info);
-
-        match unwinding::panic::catch_unwind(|| {
-            foo();
-            log::debug!("finished");
-        }) {
-            Ok(_) => log::debug!("not caught panic"),
-            Err(_) => log::debug!("caught panic"),
-        }
     } else {
-        log::debug!("I am a non primary CPU (#{}).", kernel_info.cpu_id);
+        task::run();
     }
 }
 
