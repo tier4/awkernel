@@ -1,4 +1,3 @@
-# Default to the Pine64
 ifndef $(BSP)
 	BSP = raspi3
 endif
@@ -39,17 +38,17 @@ ifndef $(LD)
 	# LD = ld.gold
 endif
 
-all: raspi3 x86_64 linux
+all: raspi x86_64 linux
 
 cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
 
 FORCE:
 
 # AArch64
-raspi3: kernel-aarch64.img
+raspi: kernel-aarch64.img
 
 target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
-	cargo +nightly raspi3 $(OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly $(BSP) $(OPT)
 
 kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
 	rust-objcopy -O binary target/aarch64-custom/$(BUILD)/t4os $@
@@ -92,5 +91,5 @@ run-linux:
 
 clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
-	cargo clean
+	cargo clean --package t4os
 	$(MAKE) -C $(X86ASM) clean

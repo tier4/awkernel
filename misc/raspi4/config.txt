@@ -1,0 +1,16 @@
+[pi3]
+
+[pi4]
+#enable_jtag_gpio=1
+enable_gic=1
+
+[all]
+# boot AARCH64 mode
+arm_64bit=1
+# kernel file
+kernel=kernel-aarch64.img
+kernel_old=1
+disable_commandline_tags=1
+
+# set uart clock to 48MHz
+init_uart_clock=48000000

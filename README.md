@@ -46,13 +46,27 @@ $ make x86_64 RELEASE=1
 Debug build.
 
 ```text
-$ make raspi3
+$ make raspi
 ```
 
 Release build.
 
 ```text
-$ make raspi3 RELEASE=1
+$ make raspi RELEASE=1
+```
+
+### Raspberry Pi 4 (AArch64)
+
+Debug build.
+
+```text
+$ make raspi BSP=raspi4
+```
+
+Release build.
+
+```text
+$ make raspi  BSP=raspi4 RELEASE=1
 ```
 
 ### Linux
@@ -75,7 +89,7 @@ $ make linux RELEASE=1
 $ make qemu-x86_64
 ```
 
-### AArch64
+### Raspberry Pi 3 (AArch64)
 
 ```text
 $ make qemu-raspi3
