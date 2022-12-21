@@ -2,8 +2,13 @@ use core::fmt::Write;
 
 use log::Level;
 
+use crate::delay;
+
 pub fn write_msg(writer: &mut impl Write, record: &log::Record) {
-    let _ = writer.write_char('[');
+    let usec = delay::uptime();
+    let time = alloc::format!("[{:>13} ", usec / 1000);
+
+    let _ = writer.write_str(time.as_str());
     let _ = writer.write_str(record.level().as_str());
     let _ = writer.write_str("] ");
 

@@ -1,5 +1,5 @@
 use super::{
-    cpu,
+    cpu, delay,
     driver::uart::{DevUART, UART},
     mmu, serial,
 };
@@ -37,6 +37,7 @@ fn primary_cpu() {
         loop {}
     }
 
+    delay::init(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
     cpu::init_cpacr_el1(); // Enable floating point numbers.

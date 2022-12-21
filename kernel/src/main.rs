@@ -28,8 +28,16 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
+        loop {
+            delay::wait_microsec(1);
+            delay::tick();
+        }
     } else {
-        task::run();
+        // task::run();
+        loop {
+            delay::wait_millisec(1500);
+            log::debug!("CPU#{}: tick", kernel_info.cpu_id);
+        }
     }
 }
 

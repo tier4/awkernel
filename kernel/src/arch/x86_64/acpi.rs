@@ -53,7 +53,7 @@ pub fn create_acpi(boot_info: &BootInfo, phy_offset: u64) -> Option<AcpiTables<A
     }
 }
 
-const ACPI_TMR_HZ: u32 = 3579545;
+pub const ACPI_TMR_HZ: u32 = 3579545;
 
 pub fn init(acpi: &AcpiTables<AcpiMapper>) {
     let Ok(platfomr_info) = acpi.platform_info() else {
@@ -66,9 +66,7 @@ pub fn init(acpi: &AcpiTables<AcpiMapper>) {
         return;
     };
 
-    unsafe {
-        write_volatile(&mut PM_TIMER, Some(pm_timer));
-    }
+    unsafe { write_volatile(&mut PM_TIMER, Some(pm_timer)) };
 }
 
 pub fn wait_usec(usec: u64) {
@@ -83,7 +81,7 @@ pub fn wait_usec(usec: u64) {
     };
 
     // Counts per usec.
-    let clk = (ACPI_TMR_HZ as u64 * usec) / 1000000;
+    let clk = (ACPI_TMR_HZ as u64 * usec) / 1000_000;
     let mut prev = unsafe { port.read() } as u64;
     let mut acc = 0;
 
@@ -98,5 +96,24 @@ pub fn wait_usec(usec: u64) {
 
         prev = cur;
         unsafe { _mm_pause() };
+    }
+}
+
+pub fn read_pm_timer() -> Option<u64> {
+    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return None; };
+    let mut port = Port::<u32>::new(pm_timer.base.address as u16);
+
+    let cnt = unsafe { port.read() } as u64;
+
+    Some(cnt)
+}
+
+pub fn get_pm_timer_max() -> Option<u64> {
+    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return None; };
+
+    if pm_timer.supports_32bit {
+        Some(1 << 32) // 32-bit counter
+    } else {
+        Some(1 << 24) // 24-bit counter
     }
 }

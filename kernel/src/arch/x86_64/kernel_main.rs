@@ -93,7 +93,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         delay::ArchDelay::wait_forever();
     };
 
-    super::acpi::init(&acpi); // Initialize timer.
+    // Initialize timer.
+    super::acpi::init(&acpi);
+    super::delay::init();
 
     // Initialize APIC.
     match super::apic::new(*offset) {
