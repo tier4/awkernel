@@ -3,7 +3,7 @@ use super::{
     driver::uart::{DevUART, UART},
     mmu, serial,
 };
-use crate::{arch::Delay, heap, kernel_info::KernelInfo};
+use crate::{delay::Delay, heap, kernel_info::KernelInfo};
 use core::{
     fmt::Write,
     sync::atomic::{AtomicBool, Ordering},

@@ -121,14 +121,16 @@ pub fn run() {
                 Ok(Poll::Pending) => (),
                 Ok(Poll::Ready(result)) => {
                     if let Err(msg) = result {
-                        log::error!("A task is failed: {msg}");
+                        log::error!("A task has failed: {msg}");
                     }
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
                     tasks.remove(task.id);
                 }
-                Err(_err) => log::error!("A task has panicked!"),
+                Err(err) => {
+                    log::error!("A task has panicked!: {:?}", err);
+                }
             }
         } else {
             // TODO: Sleep this CPU.

@@ -1,4 +1,4 @@
-use crate::arch::Delay;
+use crate::delay::Delay;
 
 pub struct ArchDelay;
 
@@ -7,7 +7,7 @@ impl Delay for ArchDelay {
         unsafe { core::arch::asm!("hlt") };
     }
 
-    fn wait_event() {
-        unsafe { core::arch::asm!("pause") };
+    fn wait_microsec(usec: u32) {
+        super::acpi::wait_usec(usec);
     }
 }

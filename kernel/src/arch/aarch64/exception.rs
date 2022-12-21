@@ -1,4 +1,4 @@
-use crate::arch::{ArchDelay, Delay};
+use crate::{arch::ArchDelay, delay::Delay};
 
 use super::context::GpRegs;
 

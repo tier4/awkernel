@@ -7,14 +7,12 @@ use super::{
     page_allocator::{get_page_table, PageAllocator},
 };
 use crate::{
-    arch::{
-        x86_64::{
-            apic::{DeliveryMode, DestinationShorthand, IcrFlags},
-            stack::map_stack,
-        },
-        Delay,
+    arch::x86_64::{
+        apic::{DeliveryMode, DestinationShorthand, IcrFlags},
+        stack::map_stack,
     },
     config::{PAGE_SIZE, STACK_SIZE},
+    delay::Delay,
     kernel_info::KernelInfo,
 };
 use acpi::AcpiTables;
@@ -94,6 +92,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         log::error!("Failed to initialize ACPI.");
         delay::ArchDelay::wait_forever();
     };
+
+    super::acpi::init(&acpi); // Initialize timer.
 
     // Initialize APIC.
     match super::apic::new(*offset) {
@@ -203,7 +203,7 @@ fn start_non_primary_cpus(
         0,
     );
 
-    wait_usec(10_000, acpi); // Wait 10[ms]
+    wait_usec(10_000); // Wait 10[ms]
 
     // SIPI
     apic.interrupt(
@@ -214,7 +214,7 @@ fn start_non_primary_cpus(
         (NON_PRIMARY_START >> 12) as u8, // 2nd Page
     );
 
-    wait_usec(200, acpi); // Wait 200[us]
+    wait_usec(200); // Wait 200[us]
 
     // SIPI
     apic.interrupt(
@@ -225,7 +225,7 @@ fn start_non_primary_cpus(
         (NON_PRIMARY_START >> 12) as u8, // 2nd Page
     );
 
-    wait_usec(200, acpi); // Wait 200[us]
+    wait_usec(200); // Wait 200[us]
 }
 
 #[inline(never)]

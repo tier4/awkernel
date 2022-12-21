@@ -1,4 +1,4 @@
-use crate::arch::Delay;
+use crate::delay::Delay;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();

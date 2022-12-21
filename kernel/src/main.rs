@@ -10,12 +10,13 @@ extern crate alloc;
 extern crate unwinding;
 
 use alloc::boxed::Box;
-use arch::Delay;
 use core::{alloc::Layout, fmt::Debug};
+use delay::Delay;
 use kernel_info::KernelInfo;
 
 mod arch;
 mod config;
+mod delay;
 mod heap;
 mod kernel_info;
 mod logger;
@@ -51,12 +52,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 #[alloc_error_handler]
 fn on_oom(_layout: Layout) -> ! {
     unwinding::panic::begin_panic(Box::new(()));
-    arch::ArchDelay::wait_forever();
+    delay::ArchDelay::wait_forever();
 }
 
 #[cfg(any(feature = "x86", feature = "aarch64"))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unwinding::panic::begin_panic(Box::new(()));
-    arch::ArchDelay::wait_forever();
+    delay::ArchDelay::wait_forever();
 }

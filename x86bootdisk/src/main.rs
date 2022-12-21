@@ -21,7 +21,7 @@ struct Args {
     #[arg(short, long)]
     output: String,
 
-    /// UEFI or BIOS.
+    /// uefi or bios.
     #[arg(value_enum, long, default_value_t = BootType::Bios)]
     boot_type: BootType,
 }
