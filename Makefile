@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio
+	qemu-system-aarch64 -M raspi3 -kernel kernel-aarch64.img -serial stdio
 
 ## x86_64
 
@@ -70,7 +70,7 @@ kernel-x86_64.elf: $(X86ASM) FORCE
 	cargo +nightly x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
-	cargo run --release --package x86bootdisk -- --kernel $< --output $@
+	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@

@@ -79,14 +79,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Get offset address to physical memory.
     let offset = if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
         log::info!("Physical memory offset = 0x{:x}", offset);
-        offset
+        *offset
     } else {
         log::error!("Failed to get physical memory offset.");
         delay::ArchDelay::wait_forever();
     };
 
     // Get ACPI tables.
-    let acpi = if let Some(acpi) = super::acpi::create_acpi(boot_info, *offset) {
+    let acpi = if let Some(acpi) = super::acpi::create_acpi(boot_info, offset) {
         acpi
     } else {
         log::error!("Failed to initialize ACPI.");
@@ -95,12 +95,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Initialize timer.
     super::acpi::init(&acpi);
-    super::delay::init();
+    super::delay::init(&acpi, offset);
 
     // Initialize APIC.
-    match super::apic::new(*offset) {
+    match super::apic::new(offset) {
         TypeApic::Xapic(apic) => {
-            start_non_primary_cpus(&mut page_table, &mut page_allocator, *offset, &apic, &acpi)
+            start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
         }
         _ => (),
     }

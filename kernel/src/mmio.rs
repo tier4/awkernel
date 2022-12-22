@@ -32,13 +32,13 @@ macro_rules! mmio_rw {
 
 /// ```
 /// // Read only MMIO.
-/// mmio_r!(0x100, mmio_1st<u32>);
+/// mmio_r!(0x100 => mmio_1st<u32>);
 /// let val = mmio_1st().read(); // Read from 0x100
 ///
-/// mmio_r!(0x200, pub mmio_2nd<u32>);
+/// mmio_r!(0x200 => pub mmio_2nd<u32>);
 /// let val = mmio_2nd().read(); // Read from 0x200
 ///
-/// mmio_r1!(offset 0x300, mmio_3rd<u32>);
+/// mmio_r!(offset 0x300 => mmio_3rd<u32>);
 /// let val = mmio_3rd(0x4000).read(); // Read from 0x4000 + 0x300.
 /// ```
 #[macro_export]

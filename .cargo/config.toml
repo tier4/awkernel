@@ -5,4 +5,4 @@ raspi4 = "build --package t4os --no-default-features --features raspi4 --target 
 linux = "build --package t4os --no-default-features --features linux"
 
 [target.'cfg(target_os = "linux")']
-rustflags = ["-C", "link-arg=-lc"]
+rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]

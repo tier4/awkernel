@@ -30,7 +30,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
         loop {
             delay::wait_microsec(1);
-            delay::tick();
         }
     } else {
         // task::run();

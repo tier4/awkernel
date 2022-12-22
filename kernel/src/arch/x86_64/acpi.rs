@@ -98,22 +98,3 @@ pub fn wait_usec(usec: u64) {
         unsafe { _mm_pause() };
     }
 }
-
-pub fn read_pm_timer() -> Option<u64> {
-    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return None; };
-    let mut port = Port::<u32>::new(pm_timer.base.address as u16);
-
-    let cnt = unsafe { port.read() } as u64;
-
-    Some(cnt)
-}
-
-pub fn get_pm_timer_max() -> Option<u64> {
-    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return None; };
-
-    if pm_timer.supports_32bit {
-        Some(1 << 32) // 32-bit counter
-    } else {
-        Some(1 << 24) // 24-bit counter
-    }
-}
