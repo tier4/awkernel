@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -M raspi3 -kernel kernel-aarch64.img -serial stdio
+	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio
 
 ## x86_64
 

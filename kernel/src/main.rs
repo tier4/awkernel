@@ -9,6 +9,7 @@
 extern crate alloc;
 extern crate unwinding;
 
+use crate::{delay::pause, scheduler::wake_task};
 use alloc::boxed::Box;
 use core::{alloc::Layout, fmt::Debug};
 use delay::Delay;
@@ -17,6 +18,7 @@ use kernel_info::KernelInfo;
 mod arch;
 mod config;
 mod delay;
+mod delta_list;
 mod heap;
 mod kernel_info;
 mod logger;
@@ -29,7 +31,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     if kernel_info.cpu_id == 0 {
         loop {
-            delay::wait_microsec(1);
+            wake_task();
+            pause();
         }
     } else {
         // task::run();

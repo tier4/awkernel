@@ -25,6 +25,8 @@ pub trait Delay {
 
     /// Return microseconds.
     fn uptime() -> u64;
+
+    fn pause();
 }
 
 pub fn wait_interrupt() {
@@ -49,4 +51,8 @@ pub fn wait_forever() -> ! {
 
 pub fn uptime() -> u64 {
     ArchDelay::uptime()
+}
+
+pub fn pause() {
+    ArchDelay::pause();
 }

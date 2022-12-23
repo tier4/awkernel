@@ -1,7 +1,10 @@
 use super::acpi::AcpiMapper;
 use crate::{delay::Delay, mmio_r, mmio_rw};
 use acpi::AcpiTables;
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    arch::x86_64::_mm_pause,
+    ptr::{read_volatile, write_volatile},
+};
 
 mmio_r!(offset 0x00 => hpet_general_cap<u64>);
 mmio_rw!(offset 0x10 => hpet_general_conf<u64>);
@@ -43,6 +46,10 @@ impl Delay for ArchDelay {
 
             diff * 1000_000 / hz as u64
         }
+    }
+
+    fn pause() {
+        unsafe { _mm_pause() };
     }
 }
 

@@ -34,6 +34,10 @@ impl Delay for ArchDelay {
 
         diff * 1000_000 / frq
     }
+
+    fn pause() {
+        cpu::isb();
+    }
 }
 
 pub(super) fn init() {
