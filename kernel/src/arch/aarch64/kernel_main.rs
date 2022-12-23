@@ -62,5 +62,7 @@ fn non_primary_cpu() {
         cpu_id: cpu::core_pos(),
     };
 
+    cpu::init_cpacr_el1(); // Enable floating point numbers.
+
     crate::main::<()>(kernel_info);
 }

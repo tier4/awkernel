@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio
+	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio -display none -monitor telnet::5556,server,nowait
 
 ## x86_64
 
@@ -76,8 +76,7 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 qemu-x86_64:
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4
-	# qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -monitor stdio -smp 4 -d int
+	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait
 
 ## Linux
 

@@ -109,3 +109,10 @@ Release build.
 ```text
 $ make run-linux RELEASE=1
 ```
+
+## Qemu Monitor
+
+```text
+$ make qemu-raspi3
+$ telnet localhost 5556
+```

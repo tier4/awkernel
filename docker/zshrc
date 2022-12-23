@@ -1,0 +1,54 @@
+setopt extended_history hist_ignore_dups hist_ignore_space prompt_subst
+setopt pushd_ignore_dups rm_star_silent sun_keyboard_hack
+setopt extended_glob list_types no_beep always_last_prompt
+setopt cdable_vars auto_param_keys magic_equal_subst sh_wordsplit
+setopt auto_pushd complete_aliases
+set convert-meta off
+set meta-flag on
+set output-meta on
+set input-meta on
+set kanji-code utf-8
+
+unsetopt beep
+
+alias ls='ls -FG --color'
+alias la='ls -FGa --color'
+alias ll='ls -FGal --color'
+alias l.='ls -FGa .[a-zA-Z0-9]* --color'
+
+autoload -U compinit
+compinit
+
+bindkey -e
+
+# set terminal title including current directory
+#
+case "${TERM}" in
+kterm*|xterm)
+    precmd() {
+        echo -ne "\033]0;${USER}@${HOST%%.*}:${PWD}\007"
+    }
+    ;;
+esac
+
+autoload -Uz vcs_info
+
+zstyle ':vcs_info:*' formats '[%b]'
+zstyle ':vcs_info:*' actionformats '[%b|%a]'
+precmd () {
+    psvar=()
+    LANG=en_US.UTF-8 vcs_info
+    [[ -n "$vcs_info_msg_0_" ]] && psvar[1]="$vcs_info_msg_0_"
+}
+
+# show git's version
+export TERM=xterm
+export PROMPT="%n@t4os %#> "
+export RPROMPT='[%~]'
+export HISTFILE=$HOME/.zsh_history
+export HISTSIZE=10000
+export SAVEHIST=10000
+export EDITOR=vi
+export PAGER=less
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8

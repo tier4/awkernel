@@ -1,0 +1,16 @@
+version: '3'
+services:
+  t4os:
+    build:
+      context: .
+    stdin_open: true
+    tty: true
+    working_dir: "/t4os"
+    volumes:
+      - "../:/t4os"
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    privileged: true
