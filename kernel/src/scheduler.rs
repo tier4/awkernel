@@ -1,6 +1,5 @@
 use crate::{delay::uptime, delta_list::DeltaList, task::Task};
-use alloc::sync::Arc;
-use futures::task::ArcWake;
+use alloc::{boxed::Box, sync::Arc};
 use synctools::mcs::{MCSLock, MCSNode};
 
 mod round_robin;
@@ -13,8 +12,14 @@ pub enum SchedulerType {
 }
 
 pub trait Scheduler {
+    /// Enqueue a executable task.
+    /// The enqueued task will be take by `get_next()`.
     fn wake_task(&self, task: Arc<Task>);
+
+    /// Get a next executable task.
     fn get_next(&self) -> Option<Arc<Task>>;
+
+    /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 }
 
@@ -33,7 +38,7 @@ pub fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
 }
 
 struct Sleep {
-    delta_list: DeltaList<Arc<Task>>,
+    delta_list: DeltaList<Box<dyn FnOnce() -> ()>>,
     base_time: u64,
 }
 
@@ -46,7 +51,7 @@ impl Sleep {
     }
 
     /// `dur` is microseconds
-    fn sleep_task(&mut self, task: Arc<Task>, mut dur: u64) {
+    fn sleep_task(&mut self, handler: Box<dyn FnOnce() -> ()>, mut dur: u64) {
         let now = uptime();
         if self.delta_list.is_empty() {
             self.base_time = now;
@@ -55,11 +60,7 @@ impl Sleep {
             dur += diff;
         }
 
-        self.delta_list.insert(dur, task);
-    }
-
-    fn cancel_sleep(&mut self, task_id: u64) {
-        self.delta_list.filter(|t| t.get_id() != task_id);
+        self.delta_list.insert(dur, handler);
     }
 
     fn wake_task(&mut self) {
@@ -69,8 +70,9 @@ impl Sleep {
             let elapsed = now - self.base_time;
             if dur <= elapsed {
                 if let DeltaList::Cons(data) = self.delta_list.pop().unwrap() {
-                    let (_, task, _) = data.into_inner();
-                    task.wake();
+                    let (_, handler, _) = data.into_inner();
+                    handler();
+
                     self.base_time += dur;
                 }
             } else {
@@ -81,16 +83,10 @@ impl Sleep {
 }
 
 /// `dur` is microseconds
-pub fn sleep_task(task: Arc<Task>, dur: u64) {
+pub fn sleep_task(sleep_handler: Box<dyn FnOnce() -> ()>, dur: u64) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
-    guard.sleep_task(task, dur);
-}
-
-pub fn cancel_sleep(task_id: u64) {
-    let mut node = MCSNode::new();
-    let mut guard = SLEEPING.lock(&mut node);
-    guard.cancel_sleep(task_id);
+    guard.sleep_task(sleep_handler, dur);
 }
 
 pub fn wake_task() {

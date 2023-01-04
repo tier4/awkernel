@@ -9,13 +9,14 @@
 extern crate alloc;
 extern crate unwinding;
 
-use crate::{delay::pause, scheduler::wake_task};
+use crate::{async_lib::sleep, delay::pause, scheduler::wake_task};
 use alloc::boxed::Box;
-use core::{alloc::Layout, fmt::Debug};
+use core::{alloc::Layout, fmt::Debug, time::Duration};
 use delay::Delay;
 use kernel_info::KernelInfo;
 
 mod arch;
+mod async_lib;
 mod config;
 mod delay;
 mod delta_list;
@@ -30,17 +31,37 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
+        create_test_tasks();
+
         loop {
             wake_task();
             pause();
         }
     } else {
-        // task::run();
-        loop {
-            delay::wait_millisec(1500);
-            log::debug!("CPU#{}: tick", kernel_info.cpu_id);
-        }
+        task::run(kernel_info.cpu_id);
     }
+}
+
+fn create_test_tasks() {
+    task::spawn(
+        async move {
+            loop {
+                log::debug!("*** T4 ***");
+                sleep::sleep(Duration::from_secs(1)).await;
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
+
+    task::spawn(
+        async move {
+            loop {
+                log::debug!("--- OS ---");
+                sleep::sleep(Duration::from_secs(3)).await;
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
 }
 
 #[alloc_error_handler]

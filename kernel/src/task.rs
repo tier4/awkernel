@@ -3,7 +3,10 @@ use crate::{
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
-use core::task::{Context, Poll};
+use core::{
+    ptr::{read_volatile, write_volatile},
+    task::{Context, Poll},
+};
 use futures::{
     future::BoxFuture,
     task::{waker_ref, ArcWake},
@@ -14,7 +17,7 @@ use synctools::mcs::{MCSLock, MCSNode};
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: MCSLock<Tasks> = MCSLock::new(Tasks::new());
-static mut RUNNING: [Option<u32>; 256] = [None; 256];
+static mut RUNNING: [Option<u64>; 512] = [None; 512];
 
 pub struct Task {
     id: u64,
@@ -37,7 +40,7 @@ impl ArcWake for Task {
 }
 
 impl Task {
-    pub fn get_id(self: &Arc<Self>) -> u64 {
+    pub fn get_id(&self) -> u64 {
         self.id
     }
 }
@@ -78,7 +81,7 @@ impl Tasks {
         }
     }
 
-    fn wake(&mut self, id: u64) {
+    fn wake(&self, id: u64) {
         if let Some(task) = self.id_to_task.get(&id) {
             task.clone().wake();
         }
@@ -107,11 +110,11 @@ pub fn spawn(
     id
 }
 
-pub fn get_current_task() -> Option<u64> {
-    todo!()
+pub fn get_current_task(cpu_id: usize) -> Option<u64> {
+    unsafe { read_volatile(&RUNNING[cpu_id]) }
 }
 
-pub fn run() {
+pub fn run(cpu_id: usize) {
     loop {
         if let Some(task) = scheduler::get_next_task() {
             let w = waker_ref(&task);
@@ -119,6 +122,8 @@ pub fn run() {
 
             let mut node = MCSNode::new();
             let mut guard = task.future.lock(&mut node);
+
+            unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
             match unwinding::panic::catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
                 Ok(Poll::Pending) => (),
