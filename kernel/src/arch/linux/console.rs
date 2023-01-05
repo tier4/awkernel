@@ -1,7 +1,6 @@
 use core::fmt::{Error, Write};
-
 use log::Log;
-use synctools::mcs::{MCSLock, MCSNode};
+use synctools::mcs::MCSLock;
 
 pub static CONSOLE: Console = Console::new();
 
@@ -23,8 +22,7 @@ impl Write for StdOut {
 }
 
 pub(crate) fn puts(msg: &str) {
-    let mut node = MCSNode::new();
-    let mut guard = CONSOLE.lock.lock(&mut node);
+    let mut guard = CONSOLE.lock.lock();
     let _ = guard.write_str(msg);
 }
 
@@ -46,8 +44,7 @@ impl Log for Console {
             return;
         }
 
-        let mut node = MCSNode::new();
-        let mut guard = self.lock.lock(&mut node);
+        let mut guard = self.lock.lock();
 
         let stdout: &mut StdOut = &mut guard;
         crate::logger::write_msg(stdout, record);

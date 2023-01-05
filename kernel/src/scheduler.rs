@@ -1,6 +1,6 @@
 use crate::{delay::uptime, delta_list::DeltaList, task::Task};
 use alloc::{boxed::Box, sync::Arc};
-use synctools::mcs::{MCSLock, MCSNode};
+use synctools::mcs::MCSLock;
 
 mod round_robin;
 
@@ -84,13 +84,11 @@ impl Sleep {
 
 /// `dur` is microseconds
 pub fn sleep_task(sleep_handler: Box<dyn FnOnce() -> ()>, dur: u64) {
-    let mut node = MCSNode::new();
-    let mut guard = SLEEPING.lock(&mut node);
+    let mut guard = SLEEPING.lock();
     guard.sleep_task(sleep_handler, dur);
 }
 
 pub fn wake_task() {
-    let mut node = MCSNode::new();
-    let mut guard = SLEEPING.lock(&mut node);
+    let mut guard = SLEEPING.lock();
     guard.wake_task();
 }

@@ -7,7 +7,7 @@ edition = "2021"
 
 [dependencies]
 memac = "0.5.0"
-synctools = "0.3.1"
+synctools = "0.4"
 log = "0.4"
 bitflags = "1.3"
 acpi = "4.1"

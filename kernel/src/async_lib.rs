@@ -2,6 +2,7 @@ use core::time::Duration;
 use futures::Future;
 
 pub mod never_return;
+pub mod pubsub;
 pub mod sleep_task;
 pub mod timeout_call;
 pub mod yield_task;

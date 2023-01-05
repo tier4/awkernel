@@ -1,7 +1,7 @@
 use core::fmt::Write;
 
 use log::Log;
-use synctools::mcs::{MCSLock, MCSNode};
+use synctools::mcs::MCSLock;
 use uart_16550::SerialPort;
 
 pub static SERIAL: Serial = Serial::new();
@@ -11,8 +11,7 @@ pub struct Serial {
 }
 
 pub(crate) fn puts(msg: &str) {
-    let mut node = MCSNode::new();
-    let mut guard = SERIAL.port.lock(&mut node);
+    let mut guard = SERIAL.port.lock();
     let _ = guard.write_str(msg);
 }
 
@@ -25,8 +24,7 @@ impl Serial {
     }
 
     fn init(&self) {
-        let mut node = MCSNode::new();
-        let mut guard = self.port.lock(&mut node);
+        let mut guard = self.port.lock();
         guard.init();
         let _ = guard.write_str("Initialized a serial port.\n");
     }
@@ -42,9 +40,7 @@ impl Log for Serial {
             return;
         }
 
-        let mut node = MCSNode::new();
-
-        let mut guard = self.port.lock(&mut node);
+        let mut guard = self.port.lock();
 
         let serial: &mut SerialPort = &mut guard;
         crate::logger::write_msg(serial, record);

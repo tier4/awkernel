@@ -12,7 +12,7 @@ use futures::{
     task::{waker_ref, ArcWake},
     Future,
 };
-use synctools::mcs::{MCSLock, MCSNode};
+use synctools::mcs::MCSLock;
 
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
@@ -102,8 +102,7 @@ pub fn spawn(
         SchedulerType::RoundRobin => get_scheduler(sched_type),
     };
 
-    let mut node = MCSNode::new();
-    let mut tasks = TASKS.lock(&mut node);
+    let mut tasks = TASKS.lock();
     let id = tasks.spawn(future, scheduler);
     tasks.wake(id);
 
@@ -120,8 +119,7 @@ pub fn run(cpu_id: usize) {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let mut node = MCSNode::new();
-            let mut guard = task.future.lock(&mut node);
+            let mut guard = task.future.lock();
 
             unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
@@ -132,8 +130,7 @@ pub fn run(cpu_id: usize) {
                         log::error!("A task has failed: {msg}");
                     }
 
-                    let mut node = MCSNode::new();
-                    let mut tasks = TASKS.lock(&mut node);
+                    let mut tasks = TASKS.lock();
                     tasks.remove(task.id);
                 }
                 Err(err) => {
