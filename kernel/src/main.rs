@@ -57,7 +57,14 @@ fn create_test_tasks() {
         async move {
             loop {
                 log::debug!("--- OS ---");
-                async_lib::sleep(Duration::from_secs(3)).await;
+
+                // Test of timeout.
+                async_lib::timeout(Duration::from_secs(3), async {
+                    async_lib::never().await;
+                })
+                .await;
+
+                // Test of yield.
                 async_lib::r#yield().await;
             }
         },

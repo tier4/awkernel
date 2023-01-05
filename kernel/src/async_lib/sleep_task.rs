@@ -1,7 +1,7 @@
 use crate::scheduler;
 use alloc::{boxed::Box, sync::Arc};
 use core::task::Poll;
-use futures::Future;
+use futures::{future::FusedFuture, Future};
 use synctools::mcs::{MCSLock, MCSNode};
 
 use super::Cancel;
@@ -60,7 +60,7 @@ impl Future for Sleep {
 }
 
 impl Cancel for Sleep {
-    fn cancel(self: core::pin::Pin<&mut Self>) {
+    fn cancel_unpin(&mut self) {
         let mut node = MCSNode::new();
         let mut guard = self.state.lock(&mut node);
 
@@ -77,6 +77,14 @@ impl Sleep {
     pub(super) fn new(dur: u64) -> Self {
         let state = Arc::new(MCSLock::new(State::Ready));
         Self { state, dur }
+    }
+}
+
+impl FusedFuture for Sleep {
+    fn is_terminated(&self) -> bool {
+        let mut node = MCSNode::new();
+        let guard = self.state.lock(&mut node);
+        matches!(*guard, State::Finished)
     }
 }
 
