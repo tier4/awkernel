@@ -1,6 +1,6 @@
 use crate::scheduler;
 use alloc::{boxed::Box, sync::Arc};
-use core::{task::Poll, time::Duration};
+use core::task::Poll;
 use futures::Future;
 use synctools::mcs::{MCSLock, MCSNode};
 
@@ -74,7 +74,7 @@ impl Cancel for Sleep {
 }
 
 impl Sleep {
-    fn new(dur: u64) -> Self {
+    pub(super) fn new(dur: u64) -> Self {
         let state = Arc::new(MCSLock::new(State::Ready));
         Self { state, dur }
     }
@@ -88,8 +88,4 @@ impl Drop for Sleep {
             *guard = State::Canceled;
         }
     }
-}
-
-pub fn sleep(duration: Duration) -> Sleep {
-    Sleep::new(duration.as_micros() as u64)
 }

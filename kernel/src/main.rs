@@ -9,7 +9,7 @@
 extern crate alloc;
 extern crate unwinding;
 
-use crate::{async_lib::sleep, delay::pause, scheduler::wake_task};
+use crate::{delay::pause, scheduler::wake_task};
 use alloc::boxed::Box;
 use core::{alloc::Layout, fmt::Debug, time::Duration};
 use delay::Delay;
@@ -47,7 +47,7 @@ fn create_test_tasks() {
         async move {
             loop {
                 log::debug!("*** T4 ***");
-                sleep::sleep(Duration::from_secs(1)).await;
+                async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -57,7 +57,8 @@ fn create_test_tasks() {
         async move {
             loop {
                 log::debug!("--- OS ---");
-                sleep::sleep(Duration::from_secs(3)).await;
+                async_lib::sleep(Duration::from_secs(3)).await;
+                async_lib::r#yield().await;
             }
         },
         scheduler::SchedulerType::RoundRobin,
