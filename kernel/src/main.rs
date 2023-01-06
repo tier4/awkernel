@@ -11,6 +11,7 @@ extern crate unwinding;
 
 use crate::{delay::pause, scheduler::wake_task};
 use alloc::boxed::Box;
+use async_lib::pubsub::create_pubsub;
 use core::{alloc::Layout, fmt::Debug, time::Duration};
 use delay::Delay;
 use kernel_info::KernelInfo;
@@ -43,11 +44,27 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 }
 
 fn create_test_tasks() {
+    let (publisher, subscriber) = create_pubsub::<u64>(10);
+
+    task::spawn(
+        async move {
+            let mut i = 0;
+            loop {
+                log::debug!("publisher: send {i}");
+                publisher.send(i).await;
+                i += 1;
+                async_lib::sleep(Duration::from_secs(1)).await;
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
+
+    let subscriber2 = subscriber.clone();
     task::spawn(
         async move {
             loop {
-                log::debug!("*** T4 ***");
-                async_lib::sleep(Duration::from_secs(1)).await;
+                let data = subscriber2.recv().await;
+                log::debug!("subscriber 1: recv {data}");
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -56,7 +73,17 @@ fn create_test_tasks() {
     task::spawn(
         async move {
             loop {
-                log::debug!("--- OS ---");
+                let data = subscriber.recv().await;
+                log::debug!("subscriber 2: recv {data}");
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
+
+    task::spawn(
+        async move {
+            loop {
+                log::debug!("--- Hello, T4OS! ---");
 
                 // Test of timeout.
                 async_lib::timeout(Duration::from_secs(3), async {
