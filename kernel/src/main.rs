@@ -11,7 +11,7 @@ extern crate unwinding;
 
 use crate::{delay::pause, scheduler::wake_task};
 use alloc::boxed::Box;
-use async_lib::pubsub::create_pubsub;
+use async_lib::pubsub::{create_publisher, create_subscriber, Attribute, Durability};
 use core::{alloc::Layout, fmt::Debug, time::Duration};
 use delay::Delay;
 use kernel_info::KernelInfo;
@@ -44,7 +44,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 }
 
 fn create_test_tasks() {
-    let (publisher, subscriber) = create_pubsub::<u64>(10);
+    let publisher =
+        create_publisher::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+            .unwrap();
+
+    let subscriber1 =
+        create_subscriber::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+            .unwrap();
+
+    let subscriber2 =
+        create_subscriber::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+            .unwrap();
 
     task::spawn(
         async move {
@@ -59,11 +69,10 @@ fn create_test_tasks() {
         scheduler::SchedulerType::RoundRobin,
     );
 
-    let subscriber2 = subscriber.clone();
     task::spawn(
         async move {
             loop {
-                let data = subscriber2.recv().await;
+                let data = subscriber1.recv().await;
                 log::debug!("subscriber 1: recv {data}");
             }
         },
@@ -73,7 +82,7 @@ fn create_test_tasks() {
     task::spawn(
         async move {
             loop {
-                let data = subscriber.recv().await;
+                let data = subscriber2.recv().await;
                 log::debug!("subscriber 2: recv {data}");
             }
         },

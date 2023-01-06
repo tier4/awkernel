@@ -1,6 +1,7 @@
 use core::time::Duration;
 use futures::Future;
 
+mod anydict;
 pub mod never_return;
 pub mod pubsub;
 pub mod sleep_task;
