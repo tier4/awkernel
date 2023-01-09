@@ -69,7 +69,7 @@ $ make raspi BSP=raspi4
 Release build.
 
 ```text
-$ make raspi  BSP=raspi4 RELEASE=1
+$ make raspi BSP=raspi4 RELEASE=1
 ```
 
 ### Linux

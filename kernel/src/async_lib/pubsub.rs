@@ -4,27 +4,27 @@ use alloc::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
-use core::{
-    sync::atomic::{AtomicBool, Ordering},
-    task::{Poll, Waker},
-};
+use core::task::{Poll, Waker};
 use crossbeam_queue::ArrayQueue;
 use futures::Future;
 use pin_project_lite::pin_project;
-use synctools::{mcs::MCSLock, rwlock::RwLock};
+use synctools::{
+    mcs::{MCSLock, MCSNode},
+    rwlock::RwLock,
+};
 
 pub struct Publisher<T: 'static> {
     subscribers: Subscribers<T>,
 }
 
 pub struct Subscriber<T: 'static> {
-    inner: Arc<InnerSubscriber<T>>,
+    inner: ArcInner<T>,
     subscribers: Subscribers<T>,
 }
 
 #[derive(Clone)]
 struct Subscribers<T> {
-    id_to_subscriber: Arc<RwLock<BTreeMap<usize, Arc<InnerSubscriber<T>>>>>,
+    id_to_subscriber: Arc<RwLock<BTreeMap<usize, ArcInner<T>>>>,
     name: Cow<'static, str>,
     attribute: Attribute,
 }
@@ -39,25 +39,27 @@ impl<T> Subscribers<T> {
     }
 }
 
+fn inner_id<T>(inner: &ArcInner<T>) -> usize {
+    inner.as_ref() as *const _ as _
+}
+
 struct InnerSubscriber<T> {
     queue: ArrayQueue<T>,
-    waker_publishers: MCSLock<VecDeque<Waker>>,
-    waker_subscriber: MCSLock<Option<Waker>>,
-    closed: AtomicBool,
+    waker_publishers: VecDeque<Waker>,
+    waker_subscriber: Option<Waker>,
+    closed: bool,
 }
+
+type ArcInner<T> = Arc<MCSLock<InnerSubscriber<T>>>;
 
 impl<T> InnerSubscriber<T> {
     fn new(queue_size: usize) -> Self {
         Self {
             queue: ArrayQueue::new(queue_size),
-            waker_publishers: MCSLock::new(Default::default()),
-            waker_subscriber: MCSLock::new(None),
-            closed: AtomicBool::new(false),
+            waker_publishers: Default::default(),
+            waker_subscriber: None,
+            closed: false,
         }
-    }
-
-    fn id(self: &Arc<Self>) -> usize {
-        self.as_ref() as *const _ as usize
     }
 }
 
@@ -73,17 +75,17 @@ impl<'a, T> Future for Receiver<'a, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let inner = &self.subscriber.inner;
+        let mut node = MCSNode::new();
+        let mut inner = self.subscriber.inner.lock(&mut node);
 
-        if let Some(data) = inner.queue.pop() {
-            return Poll::Ready(data);
+        if let Some(waker) = inner.waker_publishers.pop_front() {
+            waker.wake();
         }
 
-        let mut guard = inner.waker_subscriber.lock();
         if let Some(data) = inner.queue.pop() {
             Poll::Ready(data)
         } else {
-            *guard = Some(cx.waker().clone());
+            inner.waker_subscriber = Some(cx.waker().clone());
             Poll::Pending
         }
     }
@@ -96,7 +98,7 @@ impl<T> Subscriber<T> {
     }
 
     fn id(&self) -> usize {
-        self.inner.id()
+        inner_id(&self.inner)
     }
 }
 
@@ -117,7 +119,7 @@ pin_project! {
     struct Sender<'a, T: 'static> {
         publisher: &'a Publisher<T>,
         data: Option<T>,
-        subscribers: VecDeque<Arc<InnerSubscriber<T>>>,
+        subscribers: VecDeque<ArcInner<T>>,
         state: SenderState
     }
 }
@@ -164,35 +166,33 @@ where
                 }
                 SenderState::Wait => {
                     while let Some(subscriber) = this.subscribers.pop_front() {
-                        if subscriber.closed.load(Ordering::Acquire) {
+                        let mut node = MCSNode::new();
+                        let mut inner = subscriber.lock(&mut node);
+
+                        if inner.closed {
                             continue;
                         }
 
-                        {
-                            let mut guard = subscriber.waker_publishers.lock();
-                            if !guard.is_empty() {
-                                // If there are other publishers waiting send, enqueue itself to `waker_publishers`,
-                                guard.push_back(cx.waker().clone());
-                                guard.unlock();
+                        if !inner.waker_publishers.is_empty() {
+                            // If there are other publishers waiting send, enqueue itself to `waker_publishers`,
+                            inner.waker_publishers.push_back(cx.waker().clone());
+                            inner.unlock();
 
-                                this.subscribers.push_front(subscriber);
-                                return Poll::Pending;
-                            }
+                            this.subscribers.push_front(subscriber);
+                            return Poll::Pending;
                         }
 
-                        match subscriber.queue.push(data.clone()) {
+                        match inner.queue.push(data.clone()) {
                             Ok(_) => {
                                 // Wake the subscriber up.
-                                let mut guard = subscriber.waker_subscriber.lock();
-                                if let Some(waker) = guard.take() {
+                                if let Some(waker) = inner.waker_subscriber.take() {
                                     waker.wake();
                                 }
                             }
                             Err(_) => {
                                 // If there are no room in the queue to send data, enqueue itself to `waker_publishers`.
-                                let mut guard = subscriber.waker_publishers.lock();
-                                guard.push_back(cx.waker().clone());
-                                guard.unlock();
+                                inner.waker_publishers.push_back(cx.waker().clone());
+                                inner.unlock();
 
                                 this.subscribers.push_front(subscriber);
                                 return Poll::Pending;
@@ -223,22 +223,25 @@ where
     }
 }
 
-pub fn create_pubsub<T>(queue_size: usize) -> (Publisher<T>, Subscriber<T>) {
+pub fn create_pubsub<T>(
+    queue_size: usize,
+    durability: Durability,
+) -> (Publisher<T>, Subscriber<T>) {
     let attribute = Attribute {
         queue_size,
-        durability: Durability::Volatile,
+        durability,
     };
 
-    let subscribers = Subscribers::new("test".into(), attribute.clone());
-    let inner_subscriber = Arc::new(InnerSubscriber::new(attribute.queue_size));
+    let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
+    let inner = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
 
     {
         let mut guard = subscribers.id_to_subscriber.write();
-        guard.insert(inner_subscriber.id(), inner_subscriber.clone());
+        guard.insert(inner_id(&inner), inner.clone());
     }
 
     let subscriber = Subscriber {
-        inner: inner_subscriber,
+        inner,
         subscribers: Subscribers {
             id_to_subscriber: subscribers.id_to_subscriber.clone(),
             name: subscribers.name.clone(),
@@ -253,10 +256,12 @@ pub fn create_pubsub<T>(queue_size: usize) -> (Publisher<T>, Subscriber<T>) {
 
 impl<T> Clone for Subscriber<T> {
     fn clone(&self) -> Self {
-        let inner = Arc::new(InnerSubscriber::new(self.subscribers.attribute.queue_size));
+        let inner = Arc::new(MCSLock::new(InnerSubscriber::new(
+            self.subscribers.attribute.queue_size,
+        )));
 
         let mut guard = self.subscribers.id_to_subscriber.write();
-        guard.insert(inner.id(), inner.clone());
+        guard.insert(inner_id(&inner), inner.clone());
 
         Self {
             inner,
@@ -354,10 +359,10 @@ impl PubSub {
                 let subscribers = Subscribers::new(name.clone(), attribute.clone());
 
                 // Create `InnerSubscriber`.
-                let inner_sub = Arc::new(InnerSubscriber::new(attribute.queue_size));
+                let inner_sub = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
                 {
                     let mut guard = subscribers.id_to_subscriber.write();
-                    guard.insert(inner_sub.id(), inner_sub.clone());
+                    guard.insert(inner_id(&inner_sub), inner_sub.clone());
                 }
 
                 let subscribers2 = Subscribers {
@@ -384,10 +389,11 @@ impl PubSub {
             AnyDictResult::Ok(inner) => {
                 if inner.subscribers.attribute == attribute {
                     // Create `InnerSubscriber`.
-                    let inner_sub = Arc::new(InnerSubscriber::new(attribute.queue_size));
+                    let inner_sub =
+                        Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
                     {
                         let mut guard = inner.subscribers.id_to_subscriber.write();
-                        guard.insert(inner_sub.id(), inner_sub.clone());
+                        guard.insert(inner_id(&inner_sub), inner_sub.clone());
                     }
 
                     // Create `Subscriber` and return it.
@@ -426,18 +432,22 @@ impl PubSub {
     }
 
     fn destroy_subscriber<T: 'static>(&mut self, subscriber: &mut Subscriber<T>) {
-        subscriber.inner.closed.store(true, Ordering::Release);
-
-        {
-            let mut guard = subscriber.inner.waker_publishers.lock();
-            while let Some(waker) = guard.pop_front() {
-                waker.wake();
-            }
-        }
-
         {
             let mut guard = subscriber.subscribers.id_to_subscriber.write();
             guard.remove(&subscriber.id());
+        }
+
+        {
+            let mut node = MCSNode::new();
+            let mut inner = subscriber.inner.lock(&mut node);
+
+            // Close.
+            inner.closed = true;
+
+            // Wake all publishers up.
+            while let Some(waker) = inner.waker_publishers.pop_front() {
+                waker.wake();
+            }
         }
 
         match self
@@ -462,7 +472,8 @@ pub fn create_publisher<T: 'static>(
     name: Cow<'static, str>,
     attribute: Attribute,
 ) -> Result<Publisher<T>, &'static str> {
-    let mut guard = PUBLISH_SUBSCRIBE.lock();
+    let mut node = MCSNode::new();
+    let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.create_publisher(name, attribute)
 }
 
@@ -470,17 +481,20 @@ pub fn create_subscriber<T: 'static>(
     name: Cow<'static, str>,
     attribute: Attribute,
 ) -> Result<Subscriber<T>, &'static str> {
-    let mut guard = PUBLISH_SUBSCRIBE.lock();
+    let mut node = MCSNode::new();
+    let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.create_subscriber(name, attribute)
 }
 
 fn destroy_publisher<T: 'static>(publisher: &Publisher<T>) {
-    let mut guard = PUBLISH_SUBSCRIBE.lock();
+    let mut node = MCSNode::new();
+    let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_publisher(publisher);
 }
 
 fn destroy_subscriber<T: 'static>(subscriber: &mut Subscriber<T>) {
-    let mut guard = PUBLISH_SUBSCRIBE.lock();
+    let mut node = MCSNode::new();
+    let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_subscriber(subscriber);
 }
 

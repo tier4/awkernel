@@ -2,7 +2,7 @@ use crate::scheduler;
 use alloc::{boxed::Box, sync::Arc};
 use core::task::Poll;
 use futures::{future::FusedFuture, Future};
-use synctools::mcs::MCSLock;
+use synctools::mcs::{MCSLock, MCSNode};
 
 use super::Cancel;
 
@@ -27,7 +27,8 @@ impl Future for Sleep {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let mut guard = self.state.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.state.lock(&mut node);
 
         match &*guard {
             State::Wait => Poll::Pending,
@@ -41,7 +42,8 @@ impl Future for Sleep {
 
                 scheduler::sleep_task(
                     Box::new(move || {
-                        let mut guard = state.lock();
+                        let mut node = MCSNode::new();
+                        let mut guard = state.lock(&mut node);
                         if let State::Wait = &*guard {
                             *guard = State::Finished;
                         }
@@ -59,7 +61,8 @@ impl Future for Sleep {
 
 impl Cancel for Sleep {
     fn cancel_unpin(&mut self) {
-        let mut guard = self.state.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.state.lock(&mut node);
 
         match &*guard {
             State::Ready | State::Wait => {
@@ -79,14 +82,16 @@ impl Sleep {
 
 impl FusedFuture for Sleep {
     fn is_terminated(&self) -> bool {
-        let guard = self.state.lock();
+        let mut node = MCSNode::new();
+        let guard = self.state.lock(&mut node);
         matches!(*guard, State::Finished)
     }
 }
 
 impl Drop for Sleep {
     fn drop(&mut self) {
-        let mut guard = self.state.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.state.lock(&mut node);
         if let State::Wait = &*guard {
             *guard = State::Canceled;
         }

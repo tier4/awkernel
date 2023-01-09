@@ -81,25 +81,25 @@ fn create_test_tasks() {
         scheduler::SchedulerType::RoundRobin,
     );
 
-    // task::spawn(
-    //     async move {
-    //         loop {
-    //             let data = subscriber2.recv().await;
-    //             log::debug!("subscriber 2: recv {data}");
-    //         }
-    //     },
-    //     scheduler::SchedulerType::RoundRobin,
-    // );
+    task::spawn(
+        async move {
+            loop {
+                let data = subscriber2.recv().await;
+                log::debug!("subscriber 2: recv {data}");
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
 
-    // task::spawn(
-    //     async move {
-    //         loop {
-    //             let data = subscriber3.recv().await;
-    //             log::debug!("subscriber 3: recv {data}");
-    //         }
-    //     },
-    //     scheduler::SchedulerType::RoundRobin,
-    // );
+    task::spawn(
+        async move {
+            loop {
+                let data = subscriber3.recv().await;
+                log::debug!("subscriber 3: recv {data}");
+            }
+        },
+        scheduler::SchedulerType::RoundRobin,
+    );
 
     task::spawn(
         async move {

@@ -72,8 +72,6 @@ fn non_primary_cpu() {
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {}
 
-    delay::ArchDelay::wait_millisec(100);
-
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: cpu::core_pos(),

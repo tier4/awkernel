@@ -3,7 +3,7 @@ use alloc::{
     collections::{BTreeSet, VecDeque},
     sync::Arc,
 };
-use synctools::mcs::MCSLock;
+use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct RoundRobinScheduler {
     data: MCSLock<Option<RoundRobinData>>, // Run queue.
@@ -17,7 +17,8 @@ struct RoundRobinData {
 
 impl Scheduler for RoundRobinScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let mut guard = self.data.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.data.lock(&mut node);
 
         if guard.is_none() {
             *guard = Some(Default::default());
@@ -32,7 +33,8 @@ impl Scheduler for RoundRobinScheduler {
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
-        let mut guard = self.data.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.data.lock(&mut node);
 
         let data = guard.as_mut()?;
         let task = data.queue.pop_front()?;

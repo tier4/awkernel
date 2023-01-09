@@ -1,7 +1,7 @@
 use super::driver::uart::{DevUART, UART};
 use core::fmt::Write;
 use log::Log;
-use synctools::mcs::MCSLock;
+use synctools::mcs::{MCSLock, MCSNode};
 
 pub static SERIAL: Serial = Serial::new();
 
@@ -20,7 +20,8 @@ impl Serial {
     }
 
     fn init(&self) {
-        let mut guard = self.port.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
         if guard.is_none() {
             let mut port = DevUART::new(super::bsp::memory::UART0_BASE);
             let _ = port.write_str("Initialized a serial port.\n");
@@ -31,7 +32,8 @@ impl Serial {
 
 impl Log for Serial {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
-        let guard = self.port.lock();
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
         guard.is_some()
     }
 
@@ -40,7 +42,8 @@ impl Log for Serial {
             return;
         }
 
-        let mut guard = self.port.lock();
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
 
         if let Some(serial) = guard.as_mut() {
             crate::logger::write_msg(serial, record);

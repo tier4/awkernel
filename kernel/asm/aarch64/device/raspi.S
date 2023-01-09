@@ -53,7 +53,6 @@
 
 .section .init, "x"
 .global _start
-.global el2_setup
 
 #ifdef raspi4
 #define BCM2711 1
