@@ -98,6 +98,13 @@ $ make qemu-x86_64
 $ make qemu-raspi3
 ```
 
+### Raspberry Pi 4 (AArch64)
+
+- Serial
+  - port: GPIO 14 (Tx) and 15 (Rx)
+  - 8N1: eight data bits, no parity, one stop bit
+  - Speed: 115200
+
 ### Linux
 
 ```text

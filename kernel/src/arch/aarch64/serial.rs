@@ -23,7 +23,6 @@ impl Serial {
         let mut guard = self.port.lock();
         if guard.is_none() {
             let mut port = DevUART::new(super::bsp::memory::UART0_BASE);
-            port.init(UART_CLOCK, UART_BAUD);
             let _ = port.write_str("Initialized a serial port.\n");
             *guard = Some(port);
         }

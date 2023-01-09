@@ -5,11 +5,12 @@ use super::{
 };
 use crate::{delay::Delay, heap, kernel_info::KernelInfo};
 use core::{
-    fmt::Write,
+    ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
 
-static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
+static mut PRIMARY_READY: bool = false;
+static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Entry point from assembly code.
 #[no_mangle]
@@ -18,9 +19,7 @@ pub extern "C" fn kernel_main() -> ! {
         cpu::start_non_primary(); // Wake non-primary CPUs up.
         primary_cpu();
     } else {
-        while !PRIMARY_READY.load(Ordering::Relaxed) {
-            cpu::wait_event(); // Wait non-primary CPU.
-        }
+        while !unsafe { read_volatile(&PRIMARY_READY) } {}
         non_primary_cpu();
     }
 
@@ -28,23 +27,37 @@ pub extern "C" fn kernel_main() -> ! {
 }
 
 fn primary_cpu() {
-    mmu::init_memory_map();
+    DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
 
+    match cpu::get_current_el() {
+        0 => unsafe { DevUART::unsafe_puts("EL0\n") },
+        1 => unsafe { DevUART::unsafe_puts("EL1\n") },
+        2 => unsafe { DevUART::unsafe_puts("EL2\n") },
+        3 => unsafe { DevUART::unsafe_puts("EL3\n") },
+        _ => (),
+    }
+
+    // Initialize MMU.
+    mmu::init_memory_map();
     if mmu::init().is_none() {
-        let mut serial = DevUART::new(super::bsp::memory::UART0_BASE);
-        serial.init(serial::UART_CLOCK, serial::UART_BAUD);
-        let _ = serial.write_str("Failed to init MMU.\n");
+        unsafe { DevUART::unsafe_puts("Failed to init MMU.\n") };
         loop {}
     }
+
+    // Start non-primary CPUs.
+    unsafe { write_volatile(&mut PRIMARY_READY, true) };
+
+    // Enable MMU.
+    mmu::enable();
 
     delay::init(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
     cpu::init_cpacr_el1(); // Enable floating point numbers.
 
-    // Start non-primary CPUs.
-    PRIMARY_READY.store(true, Ordering::SeqCst);
-    cpu::send_event();
+    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
+
+    log::info!("Waking non-primary CPUs up.");
 
     let kernel_info = KernelInfo {
         info: (),
@@ -55,7 +68,11 @@ fn primary_cpu() {
 }
 
 fn non_primary_cpu() {
-    mmu::set_regs();
+    mmu::enable();
+
+    while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {}
+
+    delay::ArchDelay::wait_millisec(100);
 
     let kernel_info = KernelInfo {
         info: (),

@@ -55,8 +55,6 @@
 .global _start
 .global el2_setup
 
-// #define NOEL3
-
 #ifdef raspi4
 #define BCM2711 1
 #define GIC     1
@@ -65,12 +63,13 @@
 #define BIT(x) (1 << (x))
 
 #if BCM2711
-#define LOCAL_CONTROL       0xff800000
-#define LOCAL_PRESCALER     0xff800008
+    #define LOCAL_CONTROL       0xff800000
+    #define LOCAL_PRESCALER     0xff800008
 #else
-#define LOCAL_CONTROL       0x40000000
-#define LOCAL_PRESCALER     0x40000008
+    #define LOCAL_CONTROL       0x40000000
+    #define LOCAL_PRESCALER     0x40000008
 #endif
+
 #define GIC_DISTB           0xff841000
 #define GIC_CPUB            0xff842000
 
@@ -81,23 +80,18 @@
 #endif
 
 #define SCR_RW              BIT(10)
-#define SCR_HCE             BIT(8)
-#define SCR_SMD             BIT(7)
+#define SCR_HCE             BIT(8)  // Enable hypervisor call
+#define SCR_SMD             BIT(7)  // Disable secure monitor call
 #define SCR_RES1_5          BIT(5)
 #define SCR_RES1_4          BIT(4)
-#define SCR_NS              BIT(0)
+#define SCR_NS              BIT(0)  // EL0 and EL1 are non-secure world
 
-#ifdef NOEL3
-    #define SCR_VAL (SCR_RW | SCR_HCE | SCR_SMD | SCR_RES1_5 | SCR_RES1_4)
-#else
-    #define SCR_VAL (SCR_RW | SCR_RES1_5 | SCR_RES1_4)
-#endif
+#define SCR_VAL (SCR_RW | SCR_SMD | SCR_RES1_5 | SCR_RES1_4 | SCR_NS)
 
 #define CPUECTLR_EL1        S3_1_C15_C2_1
 #define CPUECTLR_EL1_SMPEN  BIT(6)
 
 #define L2CTLR_EL1          S3_1_C11_C0_2
-
 
 #define GICC_CTRLR          0x0
 #define GICC_PMR            0x4
@@ -106,16 +100,33 @@
 #define GICD_IGROUPR        0x80
 
 _start:
-#ifdef GIC
-    bl      setup_gic
-#endif
+    /*
+     * LOCAL_CONTROL:
+     * Bit 9 clear: Increment by 1 (vs. 2).
+     * Bit 8 clear: Timer source is 19.2MHz crystal (vs. APB).
+     */
+    mov     x0, LOCAL_CONTROL
+    str     wzr, [x0]
+    /* LOCAL_PRESCALER; divide-by (0x80000000 / register_val) == 1 */
+    mov     w1, 0x80000000
+    str     w1, [x0, #(LOCAL_PRESCALER - LOCAL_CONTROL)]
 
-    // enable FP/SIMD on EL2
-    // mov     x0, #(0x32FF)
-    // msr     CPTR_EL2, x0
+    /* Set SMPEN */
+    mov     x0, #CPUECTLR_EL1_SMPEN
+    msr     CPUECTLR_EL1, x0
+
+    /* Set L2 read/write cache latency to 3 */
+    mrs     x0, L2CTLR_EL1
+    mov     x1, #0x22
+    orr     x0, x0, x1
+    msr     L2CTLR_EL1, x0
 
     // disable all interrupt (daif at bits 9..6)
     msr     DAIFSet, #0x0f
+
+#ifdef GIC
+    bl      setup_gic
+#endif
 
     // set stack before _start
     ldr     x1, =__stack_el1_start
@@ -133,6 +144,7 @@ _start:
     // clear bss
     ldr     x1, =__bss_start
     ldr     w2, =__bss_size
+
 .L3:
     cbz     w2, .L4
     str     xzr, [x1], #8
@@ -140,9 +152,20 @@ _start:
     cbnz    w2, .L3
 
 .L4:
-    // set exception vector
-    ldr     x1, =exception_vector_el1
-    msr     vbar_el1, x1
+    msr     sp_el0, x10  // set stack pointer
+    msr     sp_el1, x10
+
+    mrs     x0, hcr_el2
+    orr     x0, x0, #(1 << 31) // AArch64
+    orr     x0, x0, #(1 << 1)  // SWIO hardwired on Pi3
+    msr     hcr_el2, x0
+    mrs     x0, hcr_el2
+
+    // enable CNTP for EL1
+    mrs     x1, cnthctl_el2
+    orr     x1, x1, #3
+    msr     cnthctl_el2, x1
+    msr     cntvoff_el2, xzr
 
     ldr     x1, =exception_vector_el2
     msr     vbar_el2, x1
@@ -154,31 +177,63 @@ _start:
     ldr     x0, =0x30c50830
     msr     sctlr_el2, x0
 
-    mrs     x0, hcr_el2
-    orr     x0, x0, #(1 << 31) // AArch64
-    orr     x0, x0, #(1 << 1)  // SWIO hardwired on Pi3
-    msr     hcr_el2, x0
+    // get current EL
+    mrs     x0, CurrentEL
+    and     x0, x0, #(0b1100) // clear reserved bits
 
-    // enable CNTP for EL1
-    mrs     x0, cnthctl_el2
-    orr     x0, x0, #3
-    msr     cnthctl_el2, x0
-    msr     cntvoff_el2, x0
+    // running at EL3?
+    cmp     x0, #(3 << 2)
+    beq     .EL3
+
+    // running at EL2?
+    cmp     x0, #(2 << 2)
+    beq     .EL2
+
+.EL3:
+    ldr     x0, =SCR_VAL
+    msr     SCR_EL3, x0
+
+    /* Set up CNTFRQ_EL0 */
+    ldr     x0, =OSC_FREQ
+    msr     CNTFRQ_EL0, x0
+
+    mov     x0, #0x33ff
+    msr     cptr_el3, x0 // Disable coprocessor traps to EL3
+
+    mov     x1, #0b100   // EL1t
+    msr     spsr_el3, x1
+    adr     x1, .EL1     // set entry point
+    msr     elr_el3, x1
+
+    eret
+
+.EL2:
+    // disable all interrupt (daif at bits 9..6)
+    msr     DAIFSet, #0x0f
 
     // change execution level to EL1
-    msr     sp_el0, x10  // set stack pointer
-    msr     sp_el1, x10
-    mov     x0, #0b100   // EL1t
-    msr     spsr_el2, x0
-    adr     x0, .L5      // set entry point
-    msr     elr_el2, x0
-    eret
-.L5:
+    mov     x1, #0b100   // EL1t
+    msr     spsr_el2, x1
+    adr     x1, .EL1      // set entry point
+    msr     elr_el2, x1
 
+    eret
+
+    // EL1t
+.EL1:
+    // disable all interrupt (daif at bits 9..6)
+    msr     DAIFSet, #0x0f
+
+    // set exception vector
+    ldr     x1, =exception_vector_el1
+    msr     vbar_el1, x1
+
+    mov     sp, x10
     bl      kernel_main
-.L6:
+
+.loop:
     wfe
-    b       .L6
+    b       .loop
 
 #ifdef GIC
 

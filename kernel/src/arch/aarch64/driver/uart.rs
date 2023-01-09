@@ -11,7 +11,8 @@ pub trait UART {
     fn disable_recv_interrupt(&self);
     fn on(&self);
     fn off(&self);
-    fn init(&self, clock: usize, baudrate: usize);
+
+    fn init(clock: usize, baudrate: usize);
 
     fn puts(&self, data: &str) {
         for c in data.bytes() {
@@ -21,6 +22,8 @@ pub trait UART {
             }
         }
     }
+
+    unsafe fn unsafe_puts(data: &str);
 
     fn read_line(&self) -> Vec<u8> {
         let mut res = Vec::new();

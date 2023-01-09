@@ -48,11 +48,24 @@ fn wait_cycles(n: usize) {
     }
 }
 
+impl RaspiUART {
+    unsafe fn putc(c: u32) {
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while uart0_fr().read() & 0x20 != 0 {
+            unsafe { asm!("nop;") };
+        }
+
+        // write the character to the buffer
+        uart0_dr().write(c);
+    }
+}
+
 impl super::UART for RaspiUART {
     /// Initialiaze UART0 for serial console.
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".
-    fn init(&self, uart_clock: usize, baudrate: usize) {
+    fn init(uart_clock: usize, baudrate: usize) {
         uart0_cr().write(0); // turn off UART0
 
         // map UART1 to GPIO pins
@@ -86,14 +99,7 @@ impl super::UART for RaspiUART {
 
     /// send a character to serial console
     fn send(&self, c: u32) {
-        // wait until we can send
-        unsafe { asm!("nop;") };
-        while uart0_fr().read() & 0x20 != 0 {
-            unsafe { asm!("nop;") };
-        }
-
-        // write the character to the buffer
-        uart0_dr().write(c);
+        unsafe { Self::putc(c) };
     }
 
     fn recv(&self) -> u32 {
@@ -118,6 +124,15 @@ impl super::UART for RaspiUART {
     fn off(&self) {}
     fn new(_base: usize) -> Self {
         Self {}
+    }
+
+    unsafe fn unsafe_puts(data: &str) {
+        for c in data.bytes() {
+            Self::putc(c as u32);
+            if c == b'\n' {
+                Self::putc(b'\r' as u32);
+            }
+        }
     }
 }
 

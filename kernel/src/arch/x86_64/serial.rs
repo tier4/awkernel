@@ -10,11 +10,6 @@ pub struct Serial {
     port: MCSLock<uart_16550::SerialPort>,
 }
 
-pub(crate) fn puts(msg: &str) {
-    let mut guard = SERIAL.port.lock();
-    let _ = guard.write_str(msg);
-}
-
 impl Serial {
     const fn new() -> Self {
         let port = unsafe { uart_16550::SerialPort::new(0x3F8) };
@@ -23,10 +18,9 @@ impl Serial {
         }
     }
 
-    fn init(&self) {
-        let mut guard = self.port.lock();
-        guard.init();
-        let _ = guard.write_str("Initialized a serial port.\n");
+    fn init() {
+        let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
+        port.init();
     }
 }
 
@@ -50,7 +44,15 @@ impl Log for Serial {
 }
 
 pub fn init() {
-    SERIAL.init();
+    Serial::init();
+}
+
+pub fn init_logger() {
     let _ = log::set_logger(&SERIAL);
     log::set_max_level(log::LevelFilter::Debug);
+}
+
+pub fn puts(data: &str) {
+    let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
+    let _ = port.write_str(data);
 }

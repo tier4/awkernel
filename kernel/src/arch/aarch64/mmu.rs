@@ -399,7 +399,7 @@ pub fn kernel_page_flag() -> u64 {
 }
 
 /// set registers
-pub fn set_regs() {
+pub fn enable() {
     let addr = get_memory_map();
 
     set_reg_el1(
@@ -602,13 +602,6 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
         table1.map(tt_start, tt_start, flag);
         tt_start += PAGESIZE;
     }
-
-    //-------------------------------------------------------------------------
-
-    set_reg_el1(
-        addr.tt_el1_ttbr0_start as usize,
-        addr.tt_el1_ttbr1_start as usize,
-    );
 
     (table0, table1)
 }

@@ -44,12 +44,13 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    super::serial::init(); // Initialize a serial port and logger.
+    super::serial::init(); // Initialize the serial port.
+    unsafe { super::puts("The primary CPU is waking up.") };
 
     let mut page_table = if let Some(page_table) = unsafe { get_page_table(boot_info) } {
         page_table
     } else {
-        super::serial::puts("Physical memory is not mapped.");
+        unsafe { super::puts("Physical memory is not mapped.") };
         delay::ArchDelay::wait_forever();
     };
 
@@ -64,13 +65,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Map heap memory region.
     if map_heap(&mut page_table, &mut page_allocator).is_err() {
-        super::serial::puts("Failed to map heap memory.");
+        unsafe { super::puts("Failed to map heap memory.") };
         delay::ArchDelay::wait_forever();
     }
 
     crate::heap::init(); // Enable heap allocator.
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
+    super::serial::init_logger(); // Initialize logger.
 
     for region in boot_info.memory_regions.into_iter() {
         log::debug!("{:?}", region);

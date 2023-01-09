@@ -45,16 +45,18 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
 fn create_test_tasks() {
     let publisher =
-        create_publisher::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+        create_publisher::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
             .unwrap();
 
     let subscriber1 =
-        create_subscriber::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+        create_subscriber::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
             .unwrap();
 
     let subscriber2 =
-        create_subscriber::<u64>("my_topic".into(), Attribute::new(10, Durability::Volatile))
+        create_subscriber::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
             .unwrap();
+
+    let subscriber3 = subscriber1.clone();
 
     task::spawn(
         async move {
@@ -63,7 +65,7 @@ fn create_test_tasks() {
                 log::debug!("publisher: send {i}");
                 publisher.send(i).await;
                 i += 1;
-                async_lib::sleep(Duration::from_secs(1)).await;
+                // async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -79,15 +81,25 @@ fn create_test_tasks() {
         scheduler::SchedulerType::RoundRobin,
     );
 
-    task::spawn(
-        async move {
-            loop {
-                let data = subscriber2.recv().await;
-                log::debug!("subscriber 2: recv {data}");
-            }
-        },
-        scheduler::SchedulerType::RoundRobin,
-    );
+    // task::spawn(
+    //     async move {
+    //         loop {
+    //             let data = subscriber2.recv().await;
+    //             log::debug!("subscriber 2: recv {data}");
+    //         }
+    //     },
+    //     scheduler::SchedulerType::RoundRobin,
+    // );
+
+    // task::spawn(
+    //     async move {
+    //         loop {
+    //             let data = subscriber3.recv().await;
+    //             log::debug!("subscriber 3: recv {data}");
+    //         }
+    //     },
+    //     scheduler::SchedulerType::RoundRobin,
+    // );
 
     task::spawn(
         async move {

@@ -45,12 +45,12 @@ cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
 FORCE:
 
 # AArch64
-raspi: kernel-aarch64.img
+raspi: kernel8.img
 
 target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly $(BSP) $(OPT)
 
-kernel-aarch64.img: target/aarch64-custom/$(BUILD)/t4os
+kernel8.img: target/aarch64-custom/$(BUILD)/t4os
 	rust-objcopy -O binary target/aarch64-custom/$(BUILD)/t4os $@
 
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -M raspi3b -kernel kernel-aarch64.img -serial stdio -display none -monitor telnet::5556,server,nowait
+	qemu-system-aarch64 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
 
 ## x86_64
 
@@ -90,5 +90,5 @@ run-linux:
 
 clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
-	cargo clean --package t4os
+	cargo clean
 	$(MAKE) -C $(X86ASM) clean

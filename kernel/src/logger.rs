@@ -1,8 +1,6 @@
-use core::fmt::Write;
-
-use log::Level;
-
 use crate::delay;
+use core::fmt::Write;
+use log::Level;
 
 pub fn write_msg(writer: &mut impl Write, record: &log::Record) {
     let usec = delay::uptime();

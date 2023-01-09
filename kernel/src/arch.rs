@@ -10,10 +10,16 @@ pub mod linux;
 pub mod config;
 
 #[cfg(feature = "aarch64")]
-pub type ArchDelay = self::aarch64::delay::ArchDelay;
+use self::aarch64 as arch_mod;
 
 #[cfg(feature = "x86")]
-pub type ArchDelay = self::x86_64::delay::ArchDelay;
+use self::x86_64 as arch_mod;
 
 #[cfg(feature = "linux")]
-pub type ArchDelay = self::linux::delay::ArchDelay;
+use self::linux as arch_mod;
+
+pub type ArchDelay = arch_mod::delay::ArchDelay;
+
+unsafe fn puts(data: &str) {
+    arch_mod::puts(data);
+}

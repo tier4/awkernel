@@ -14,9 +14,9 @@ mod raspi {
 // Raspberry Pi 4
 #[cfg(feature = "raspi4")]
 mod raspi {
-    pub(super) const MMIO_BASE: usize = 0xFE000000;
-    pub(super) const DEVICE_MEM_START: u64 = 0x0fd000000; // maybe...
-    pub(super) const DEVICE_MEM_END: u64 = 0x100000000; // maybe...
+    pub(super) const MMIO_BASE: usize = 0xfe000000;
+    pub(super) const DEVICE_MEM_START: u64 = 0xfd500000;
+    pub(super) const DEVICE_MEM_END: u64 = 0xff000000;
 }
 //-----------------------------------------------------------------------------
 
