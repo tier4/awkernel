@@ -1,11 +1,14 @@
-use super::anydict::{AnyDict, AnyDictResult};
+use super::{
+    anydict::{AnyDict, AnyDictResult},
+    r#yield,
+    ringq::RingQ,
+};
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
 use core::task::{Poll, Waker};
-use crossbeam_queue::ArrayQueue;
 use futures::Future;
 use pin_project_lite::pin_project;
 use synctools::{
@@ -44,7 +47,7 @@ fn inner_id<T>(inner: &ArcInner<T>) -> usize {
 }
 
 struct InnerSubscriber<T> {
-    queue: ArrayQueue<T>,
+    queue: RingQ<T>,
     waker_publishers: VecDeque<Waker>,
     waker_subscriber: Option<Waker>,
     closed: bool,
@@ -55,7 +58,7 @@ type ArcInner<T> = Arc<MCSLock<InnerSubscriber<T>>>;
 impl<T> InnerSubscriber<T> {
     fn new(queue_size: usize) -> Self {
         Self {
-            queue: ArrayQueue::new(queue_size),
+            queue: RingQ::new(queue_size),
             waker_publishers: Default::default(),
             waker_subscriber: None,
             closed: false,
@@ -203,8 +206,6 @@ where
                     if this.subscribers.is_empty() {
                         *this.state = SenderState::Finished;
                         return Poll::Ready(());
-                    } else {
-                        return Poll::Pending;
                     }
                 }
                 SenderState::Finished => return Poll::Ready(()),
@@ -220,17 +221,12 @@ where
     pub async fn send(&self, data: T) {
         let sender = Sender::new(self, data);
         sender.await;
+        r#yield().await;
     }
 }
 
-pub fn create_pubsub<T>(
-    queue_size: usize,
-    durability: Durability,
-) -> (Publisher<T>, Subscriber<T>) {
-    let attribute = Attribute {
-        queue_size,
-        durability,
-    };
+pub fn create_pubsub<T>(queue_size: usize) -> (Publisher<T>, Subscriber<T>) {
+    let attribute = Attribute { queue_size };
 
     let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
     let inner = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
@@ -279,13 +275,6 @@ static PUBLISH_SUBSCRIBE: MCSLock<PubSub> = MCSLock::new(PubSub::new());
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
     queue_size: usize,
-    durability: Durability,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Durability {
-    Volatile,
-    TransientLocal,
 }
 
 #[derive(Clone)]
@@ -499,10 +488,7 @@ fn destroy_subscriber<T: 'static>(subscriber: &mut Subscriber<T>) {
 }
 
 impl Attribute {
-    pub fn new(queue_size: usize, durability: Durability) -> Self {
-        Self {
-            queue_size,
-            durability,
-        }
+    pub fn new(queue_size: usize) -> Self {
+        Self { queue_size }
     }
 }

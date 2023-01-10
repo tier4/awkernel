@@ -39,11 +39,6 @@ features = ["unwinder", "panic"]
 version = "0.2"
 optional = true
 
-[dependencies.crossbeam-queue]
-version = "0.3"
-default-features = false
-features = ["alloc"]
-
 [features]
 default = ["x86"]
 x86 = ["unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader_api"]

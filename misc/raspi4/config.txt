@@ -8,7 +8,7 @@ enable_gic=1
 # boot AARCH64 mode
 arm_64bit=1
 # kernel file
-kernel=kernel-aarch64.img
+kernel=kernel8.img
 kernel_old=1
 disable_commandline_tags=1
 

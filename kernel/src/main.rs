@@ -10,9 +10,14 @@ extern crate alloc;
 extern crate unwinding;
 
 use crate::{delay::pause, scheduler::wake_task};
-use alloc::boxed::Box;
-use async_lib::pubsub::{create_publisher, create_subscriber, Attribute, Durability};
-use core::{alloc::Layout, fmt::Debug, time::Duration};
+use alloc::{boxed::Box, sync::Arc};
+use async_lib::pubsub::{create_publisher, create_subscriber, Attribute};
+use core::{
+    alloc::Layout,
+    fmt::Debug,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
 use delay::Delay;
 use kernel_info::KernelInfo;
 
@@ -44,28 +49,22 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 }
 
 fn create_test_tasks() {
-    let publisher =
-        create_publisher::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
-            .unwrap();
+    let publisher1 = create_publisher::<u64>("1->2".into(), Attribute::new(1)).unwrap();
+    let publisher2 = create_publisher::<u64>("2->1".into(), Attribute::new(1)).unwrap();
 
-    let subscriber1 =
-        create_subscriber::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
-            .unwrap();
+    let subscriber1 = create_subscriber::<u64>("1->2".into(), Attribute::new(1)).unwrap();
+    let subscriber2 = create_subscriber::<u64>("2->1".into(), Attribute::new(1)).unwrap();
 
-    let subscriber2 =
-        create_subscriber::<u64>("my_topic".into(), Attribute::new(1, Durability::Volatile))
-            .unwrap();
-
-    let subscriber3 = subscriber1.clone();
+    let count1 = Arc::new(AtomicU64::new(0));
+    let count2 = count1.clone();
 
     task::spawn(
         async move {
             let mut i = 0;
             loop {
-                log::debug!("publisher: send {i}");
-                publisher.send(i).await;
+                publisher1.send(i).await;
+                let _ = subscriber2.recv().await;
                 i += 1;
-                // async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -75,7 +74,8 @@ fn create_test_tasks() {
         async move {
             loop {
                 let data = subscriber1.recv().await;
-                log::debug!("subscriber 1: recv {data}");
+                publisher2.send(data).await;
+                count1.fetch_add(1, Ordering::Relaxed);
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -83,37 +83,19 @@ fn create_test_tasks() {
 
     task::spawn(
         async move {
+            let mut prev = 0;
             loop {
-                let data = subscriber2.recv().await;
-                log::debug!("subscriber 2: recv {data}");
-            }
-        },
-        scheduler::SchedulerType::RoundRobin,
-    );
-
-    task::spawn(
-        async move {
-            loop {
-                let data = subscriber3.recv().await;
-                log::debug!("subscriber 3: recv {data}");
-            }
-        },
-        scheduler::SchedulerType::RoundRobin,
-    );
-
-    task::spawn(
-        async move {
-            loop {
-                log::debug!("--- Hello, T4OS! ---");
-
                 // Test of timeout.
-                async_lib::timeout(Duration::from_secs(3), async {
+                async_lib::timeout(Duration::from_secs(1), async {
                     async_lib::never().await;
                 })
                 .await;
 
-                // Test of yield.
-                async_lib::r#yield().await;
+                let n = count2.load(Ordering::Relaxed);
+                let ops = n - prev;
+                prev = n;
+
+                log::debug!("{ops} [ops/s]");
             }
         },
         scheduler::SchedulerType::RoundRobin,

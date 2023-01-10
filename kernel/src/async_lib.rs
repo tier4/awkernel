@@ -4,6 +4,7 @@ use futures::Future;
 mod anydict;
 pub mod never_return;
 pub mod pubsub;
+mod ringq;
 pub mod sleep_task;
 pub mod timeout_call;
 pub mod yield_task;
