@@ -1,10 +1,11 @@
 use crate::{
-    delay::wait_microsec,
+    delay::{self, wait_microsec},
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
 use core::{
     ptr::{read_volatile, write_volatile},
+    sync::atomic::Ordering,
     task::{Context, Poll},
 };
 use futures::{
@@ -116,6 +117,9 @@ pub fn get_current_task(cpu_id: usize) -> Option<u64> {
 
 pub fn run(cpu_id: usize) {
     loop {
+        core::sync::atomic::fence(Ordering::SeqCst);
+        let start = delay::cpu_counter();
+
         if let Some(task) = scheduler::get_next_task() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
@@ -124,6 +128,10 @@ pub fn run(cpu_id: usize) {
             let mut guard = task.future.lock(&mut node);
 
             unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
+
+            core::sync::atomic::fence(Ordering::SeqCst);
+            let end = delay::cpu_counter();
+            log::debug!("Context switch overhead: {} cycles", end - start);
 
             match unwinding::panic::catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
                 Ok(Poll::Pending) => (),

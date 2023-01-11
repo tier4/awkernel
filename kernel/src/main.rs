@@ -62,9 +62,13 @@ fn create_test_tasks() {
         async move {
             let mut i = 0;
             loop {
+                log::debug!("publish {i}");
+
                 publisher1.send(i).await;
                 let _ = subscriber2.recv().await;
                 i += 1;
+
+                async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
         scheduler::SchedulerType::RoundRobin,
@@ -74,6 +78,8 @@ fn create_test_tasks() {
         async move {
             loop {
                 let data = subscriber1.recv().await;
+                log::debug!("received {data}");
+
                 publisher2.send(data).await;
                 count1.fetch_add(1, Ordering::Relaxed);
             }

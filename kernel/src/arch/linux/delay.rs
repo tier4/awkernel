@@ -8,6 +8,10 @@ static mut TIME_START: libc::timespec = libc::timespec {
 
 pub struct ArchDelay;
 
+extern "C" {
+    fn clock() -> libc::clock_t;
+}
+
 impl Delay for ArchDelay {
     fn wait_interrupt() {}
 
@@ -44,6 +48,20 @@ impl Delay for ArchDelay {
 
     fn pause() {
         nanosleep(0, 100);
+    }
+
+    fn cpu_counter() -> u64 {
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            core::arch::x86_64::_rdtsc()
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        unsafe {
+            let v: u64;
+            unsafe { core::arch::asm!("mrs {}, CNTVCT_EL0", lateout(reg) v) };
+            v
+        }
     }
 }
 

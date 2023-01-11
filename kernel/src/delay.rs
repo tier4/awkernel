@@ -26,7 +26,11 @@ pub trait Delay {
     /// Return microseconds.
     fn uptime() -> u64;
 
-    fn pause();
+    fn cpu_counter() -> u64;
+
+    fn pause() {
+        core::hint::spin_loop();
+    }
 }
 
 pub fn wait_interrupt() {
@@ -55,4 +59,8 @@ pub fn uptime() -> u64 {
 
 pub fn pause() {
     ArchDelay::pause();
+}
+
+pub fn cpu_counter() -> u64 {
+    ArchDelay::cpu_counter()
 }

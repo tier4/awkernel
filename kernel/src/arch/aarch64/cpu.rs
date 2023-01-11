@@ -365,6 +365,11 @@ sysreg!(cntpct_el0);
 sysreg!(tpidr_el0);
 sysreg!(tpidrro_el0);
 sysreg!(pmcr_el0);
+sysreg!(pmcntenset_el0);
+sysreg!(pmccntr_el0);
+sysreg!(pmccfiltr_el0);
+sysreg!(pmintenset_el1);
+sysreg!(pmuserenr_el0);
 sysreg!(sp_el0);
 sysreg!(ctr_el0);
 

@@ -48,8 +48,8 @@ impl Delay for ArchDelay {
         }
     }
 
-    fn pause() {
-        unsafe { _mm_pause() };
+    fn cpu_counter() -> u64 {
+        unsafe { core::arch::x86_64::_rdtsc() }
     }
 }
 

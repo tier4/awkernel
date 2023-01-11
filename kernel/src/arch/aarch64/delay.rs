@@ -35,12 +35,38 @@ impl Delay for ArchDelay {
         diff * 1000_000 / frq
     }
 
-    fn pause() {
-        cpu::isb();
+    fn cpu_counter() -> u64 {
+        cpu::pmccntr_el0::get()
     }
 }
 
-pub(super) fn init() {
+pub(super) fn init_primary() {
+    init_pmc();
+
     let count = cpu::cntpct_el0::get();
     unsafe { write_volatile(&mut COUNT_START, count) };
+}
+
+/// Initialize performance monitor counter.
+fn init_pmc() {
+    // Enable user-mode access to cycle counters.
+    cpu::pmuserenr_el0::set(0b1101);
+
+    // Disable the cycle counter overflow interrupt.
+    cpu::pmintenset_el1::set(0);
+
+    // Enable the cycle counter.
+    cpu::pmcntenset_el0::set(1 << 31);
+
+    // Clear the cycle counter and start.
+    let pmcr_el0 = cpu::pmcr_el0::get();
+    let pmcr_el0 = pmcr_el0 | 0b111;
+    cpu::isb();
+    cpu::pmcr_el0::set(pmcr_el0);
+
+    cpu::pmccfiltr_el0::set(1 << 27);
+}
+
+pub(super) fn init_non_primary() {
+    init_pmc();
 }

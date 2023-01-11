@@ -50,7 +50,7 @@ fn primary_cpu() {
     // Enable MMU.
     mmu::enable();
 
-    delay::init(); // Initialize timer.
+    delay::init_primary(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
     cpu::init_cpacr_el1(); // Enable floating point numbers.
@@ -71,6 +71,8 @@ fn non_primary_cpu() {
     mmu::enable();
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {}
+
+    delay::init_non_primary(); // Initialize timer.
 
     let kernel_info = KernelInfo {
         info: (),
