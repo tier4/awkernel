@@ -1,11 +1,10 @@
 use crate::{
-    delay::{self, wait_microsec},
+    delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
 use core::{
     ptr::{read_volatile, write_volatile},
-    sync::atomic::Ordering,
     task::{Context, Poll},
 };
 use futures::{
@@ -23,6 +22,7 @@ static mut RUNNING: [Option<u64>; 512] = [None; 512];
 pub struct Task {
     id: u64,
     future: MCSLock<BoxFuture<'static, TaskResult>>,
+    pub(crate) info: MCSLock<TaskInfo>,
     scheduler: &'static dyn Scheduler,
 }
 
@@ -46,6 +46,21 @@ impl Task {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct TaskInfo {
+    pub(crate) state: State,
+    pub(crate) scheduler_type: SchedulerType,
+    pub(crate) in_queue: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum State {
+    Ready,
+    Running,
+    Waiting,
+    Finished,
+}
+
 #[derive(Default)]
 struct Tasks {
     candidate_id: u64,
@@ -64,19 +79,29 @@ impl Tasks {
         &mut self,
         future: BoxFuture<'static, TaskResult>,
         scheduler: &'static dyn Scheduler,
+        scheduler_type: SchedulerType,
     ) -> u64 {
         let mut id = self.candidate_id;
         loop {
             if self.id_to_task.contains_key(&id) {
                 id += 1;
             } else {
+                let info = MCSLock::new(TaskInfo {
+                    scheduler_type,
+                    state: State::Ready,
+                    in_queue: false,
+                });
+
                 let task = Task {
                     future: MCSLock::new(future),
                     scheduler,
                     id,
+                    info,
                 };
+
                 self.id_to_task.insert(id, Arc::new(task));
                 self.candidate_id += 1;
+
                 return id;
             }
         }
@@ -105,7 +130,7 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(future, scheduler);
+    let id = tasks.spawn(future, scheduler, sched_type);
     tasks.wake(id);
 
     id
@@ -117,9 +142,6 @@ pub fn get_current_task(cpu_id: usize) -> Option<u64> {
 
 pub fn run(cpu_id: usize) {
     loop {
-        core::sync::atomic::fence(Ordering::SeqCst);
-        let start = delay::cpu_counter();
-
         if let Some(task) = scheduler::get_next_task() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
@@ -129,13 +151,15 @@ pub fn run(cpu_id: usize) {
 
             unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
-            core::sync::atomic::fence(Ordering::SeqCst);
-            let end = delay::cpu_counter();
-            log::debug!("Context switch overhead: {} cycles", end - start);
-
             match unwinding::panic::catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
                 Ok(Poll::Pending) => (),
                 Ok(Poll::Ready(result)) => {
+                    {
+                        let mut node = MCSNode::new();
+                        let mut info = task.info.lock(&mut node);
+                        info.state = State::Finished;
+                    }
+
                     if let Err(msg) = result {
                         log::error!("A task has failed: {msg}");
                     }
@@ -149,6 +173,10 @@ pub fn run(cpu_id: usize) {
                 }
             }
         } else {
+            #[cfg(feature = "linux")]
+            wait_microsec(10);
+
+            #[cfg(not(feature = "linux"))]
             wait_microsec(1);
         }
     }

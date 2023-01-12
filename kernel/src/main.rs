@@ -9,7 +9,10 @@
 extern crate alloc;
 extern crate unwinding;
 
-use crate::{delay::pause, scheduler::wake_task};
+use crate::{
+    delay::{pause, uptime},
+    scheduler::wake_task,
+};
 use alloc::{boxed::Box, sync::Arc};
 use async_lib::pubsub::{create_publisher, create_subscriber, Attribute};
 use core::{
@@ -64,10 +67,15 @@ fn create_test_tasks() {
             loop {
                 log::debug!("publish {i}");
 
+                let start = uptime();
+
                 publisher1.send(i).await;
                 let _ = subscriber2.recv().await;
-                i += 1;
 
+                let end = uptime();
+                log::debug!("RTT: {} [us]", end - start);
+
+                i += 1;
                 async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
@@ -78,9 +86,10 @@ fn create_test_tasks() {
         async move {
             loop {
                 let data = subscriber1.recv().await;
+                publisher2.send(data).await;
+
                 log::debug!("received {data}");
 
-                publisher2.send(data).await;
                 count1.fetch_add(1, Ordering::Relaxed);
             }
         },
