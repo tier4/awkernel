@@ -1,5 +1,5 @@
 use core::time::Duration;
-use futures::Future;
+use futures::{channel::oneshot, Future};
 
 mod anydict;
 pub mod never_return;
@@ -10,6 +10,8 @@ pub mod timeout_call;
 pub mod yield_task;
 
 pub use futures::channel;
+
+use crate::scheduler::SchedulerType;
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -34,6 +36,27 @@ where
     timeout_call::Timeout::new(duration, future).await
 }
 
-pub async fn never() {
+pub async fn forever() {
     never_return::Never.await;
+}
+
+pub async fn spawn<T>(
+    future: impl Future<Output = T> + 'static + Send,
+    sched_type: SchedulerType,
+) -> Option<T>
+where
+    T: Sync + Send + 'static,
+{
+    let (tx, rx) = oneshot::channel();
+
+    crate::task::spawn(
+        async move {
+            let result = future.await;
+            let _ = tx.send(result);
+            Ok(())
+        },
+        sched_type,
+    );
+
+    rx.await.ok()
 }

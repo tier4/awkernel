@@ -102,7 +102,7 @@ fn create_test_tasks() {
             loop {
                 // Test of timeout.
                 async_lib::timeout(Duration::from_secs(1), async {
-                    async_lib::never().await;
+                    async_lib::forever().await;
                 })
                 .await;
 
