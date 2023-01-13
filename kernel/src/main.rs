@@ -1,3 +1,8 @@
+//! # T4 Operating System
+//!
+//! T4 Operating System (T4OS) is a safe and realtime operating system
+//! supporting isolated zero-copy communications written in Rust.
+
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 #![feature(start)]
@@ -28,18 +33,26 @@ mod heap;
 mod kernel_info;
 mod logger;
 
+/// `main` function is called from each CPU.
+/// `kernel_info.cpu_id` represents the CPU identifier.
+/// The primary CPU's identifier is 0.
+///
+/// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
-        create_test_tasks();
+        // Primary CPU.
+
+        create_test_tasks(); // Create tasks for test. To be removed.
 
         loop {
-            wake_task();
+            wake_task(); // Wake executable tasks periodically.
             pause();
         }
     } else {
-        task::run(kernel_info.cpu_id);
+        // Non-primary CPUs.
+        task::run(kernel_info.cpu_id); // Execute tasks.
     }
 }
 

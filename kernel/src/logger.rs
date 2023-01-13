@@ -1,7 +1,21 @@
+//! This module defines how to print logging messages.
+//!
+//! # Example
+//!
+//! ```
+//! use log;
+//!
+//! log::info!("Hello, world!");
+//! log::debug!("This is a debug message.");
+//! log::error!("This is an error message.");
+//! log::trace!("This is a trace message.");
+//! ```
+
 use core::fmt::Write;
 use log::Level;
 use t4os_lib::delay;
 
+/// Format a logging message and print it out.
 pub fn write_msg(writer: &mut impl Write, record: &log::Record) {
     let usec = delay::uptime();
     let time = alloc::format!("[{:>13} ", usec / 1000);

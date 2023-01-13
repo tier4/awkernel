@@ -1,13 +1,5 @@
 {
     // "rust-analyzer.cargo.target": "x86_64-rrtos.json",
-    "rust-analyzer.checkOnSave.allTargets": false,
-    "rust-analyzer.checkOnSave.overrideCommand": [
-        "cargo",
-        "+nightly",
-        "check",
-        "--workspace",
-        "--message-format=json",
-    ],
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
         "+nightly",
@@ -16,4 +8,23 @@
         "--workspace",
         "--message-format=json",
     ],
+    "rust-analyzer.cargo.noDefaultFeatures": true,
+    // For Raspberry Pi 3
+    "rust-analyzer.cargo.features": [
+        "aarch64",
+        "raspi3"
+    ],
+    // For Raspberry Pi 4
+    // "rust-analyzer.cargo.features": [
+    //     "aarch64",
+    //     "raspi4"
+    // ],
+    // For x86_64
+    // "rust-analyzer.cargo.features": [
+    //     "x86",
+    // ],
+    // For Linux
+    // "rust-analyzer.cargo.features": [
+    //     "linux",
+    // ],
 }

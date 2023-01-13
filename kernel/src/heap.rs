@@ -18,4 +18,4 @@ pub fn init() {
 }
 
 #[global_allocator]
-static mut ALLOC: memac::Allocator<memac::buddy::Buddy64M> = memac::Allocator::new();
+static mut ALLOC: memac::Allocator<memac::buddy::Buddy256M> = memac::Allocator::new();
