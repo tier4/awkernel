@@ -7,34 +7,33 @@
 #![allow(dead_code)]
 
 extern crate alloc;
-extern crate unwinding;
 
-use crate::{
-    delay::{pause, uptime},
-    scheduler::wake_task,
-};
 use alloc::{boxed::Box, sync::Arc};
-use async_lib::pubsub::{create_publisher, create_subscriber, Attribute};
 use core::{
     alloc::Layout,
     fmt::Debug,
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
-use delay::Delay;
 use kernel_info::KernelInfo;
+use t4os_async_lib::{
+    pubsub::{create_publisher, create_subscriber, Attribute},
+    scheduler::{wake_task, SchedulerType},
+    task,
+};
+use t4os_lib::delay::{pause, uptime, wait_forever};
 
 mod arch;
-mod async_lib;
+// mod async_lib;
 mod config;
-mod delay;
-mod delta_list;
+// mod delay;
+// mod delta_list;
 mod heap;
 mod kernel_info;
 mod logger;
-mod mmio;
-mod scheduler;
-mod task;
+// mod mmio;
+// mod scheduler;
+// mod task;
 
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
@@ -76,10 +75,10 @@ fn create_test_tasks() {
                 log::debug!("RTT: {} [us]", end - start);
 
                 i += 1;
-                async_lib::sleep(Duration::from_secs(1)).await;
+                t4os_async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
-        scheduler::SchedulerType::RoundRobin,
+        SchedulerType::RoundRobin,
     );
 
     task::spawn(
@@ -93,7 +92,7 @@ fn create_test_tasks() {
                 count1.fetch_add(1, Ordering::Relaxed);
             }
         },
-        scheduler::SchedulerType::RoundRobin,
+        SchedulerType::RoundRobin,
     );
 
     task::spawn(
@@ -101,8 +100,8 @@ fn create_test_tasks() {
             let mut prev = 0;
             loop {
                 // Test of timeout.
-                async_lib::timeout(Duration::from_secs(1), async {
-                    async_lib::forever().await;
+                t4os_async_lib::timeout(Duration::from_secs(1), async {
+                    t4os_async_lib::forever().await;
                 })
                 .await;
 
@@ -113,19 +112,19 @@ fn create_test_tasks() {
                 log::debug!("{ops} [ops/s]");
             }
         },
-        scheduler::SchedulerType::RoundRobin,
+        SchedulerType::RoundRobin,
     );
 }
 
 #[alloc_error_handler]
 fn on_oom(_layout: Layout) -> ! {
     unwinding::panic::begin_panic(Box::new(()));
-    delay::ArchDelay::wait_forever();
+    wait_forever();
 }
 
 #[cfg(any(feature = "x86", feature = "aarch64"))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unwinding::panic::begin_panic(Box::new(()));
-    delay::ArchDelay::wait_forever();
+    wait_forever();
 }

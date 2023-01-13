@@ -1,6 +1,6 @@
-use crate::delay;
 use core::fmt::Write;
 use log::Level;
+use t4os_lib::delay;
 
 pub fn write_msg(writer: &mut impl Write, record: &log::Record) {
     let usec = delay::uptime();

@@ -1,13 +1,15 @@
 use super::{
-    cpu, delay,
+    bsp::raspi,
+    cpu,
     driver::uart::{DevUART, UART},
     mmu, serial,
 };
-use crate::{delay::Delay, heap, kernel_info::KernelInfo};
+use crate::{heap, kernel_info::KernelInfo};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
+use t4os_lib::delay::wait_forever;
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -16,20 +18,20 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 #[no_mangle]
 pub extern "C" fn kernel_main() -> ! {
     if cpu::core_pos() == 0 {
-        cpu::start_non_primary(); // Wake non-primary CPUs up.
+        raspi::start_non_primary(); // Wake non-primary CPUs up.
         primary_cpu();
     } else {
         while !unsafe { read_volatile(&PRIMARY_READY) } {}
         non_primary_cpu();
     }
 
-    super::delay::ArchDelay::wait_forever();
+    wait_forever();
 }
 
 fn primary_cpu() {
     DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
 
-    match cpu::get_current_el() {
+    match t4os_aarch64::get_current_el() {
         0 => unsafe { DevUART::unsafe_puts("EL0\n") },
         1 => unsafe { DevUART::unsafe_puts("EL1\n") },
         2 => unsafe { DevUART::unsafe_puts("EL2\n") },
@@ -50,10 +52,10 @@ fn primary_cpu() {
     // Enable MMU.
     mmu::enable();
 
-    delay::init_primary(); // Initialize timer.
+    t4os_lib::arch::aarch64::init_primary(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
-    cpu::init_cpacr_el1(); // Enable floating point numbers.
+    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
@@ -72,14 +74,14 @@ fn non_primary_cpu() {
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {}
 
-    delay::init_non_primary(); // Initialize timer.
+    t4os_lib::arch::aarch64::init_non_primary(); // Initialize timer.
 
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: cpu::core_pos(),
     };
 
-    cpu::init_cpacr_el1(); // Enable floating point numbers.
+    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     crate::main::<()>(kernel_info);
 }

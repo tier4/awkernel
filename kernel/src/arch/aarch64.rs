@@ -4,7 +4,7 @@ mod bsp;
 pub mod config;
 mod context;
 mod cpu;
-pub mod delay;
+// pub mod delay;
 mod driver;
 mod exception;
 mod kernel_main;

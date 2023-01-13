@@ -1,4 +1,4 @@
-pub use crate::arch::ArchDelay;
+use crate::arch::ArchDelay;
 
 impl ArchDelay where ArchDelay: Delay {}
 
@@ -50,7 +50,7 @@ pub fn wait_sec(sec: u64) {
 }
 
 pub fn wait_forever() -> ! {
-    ArchDelay::wait_forever();
+    ArchDelay::wait_forever()
 }
 
 /// Microseconds.

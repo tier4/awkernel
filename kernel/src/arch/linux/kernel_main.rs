@@ -7,12 +7,11 @@ use libc::c_void;
 
 use crate::{heap, kernel_info::KernelInfo};
 
-use super::delay;
-
 #[start]
 #[no_mangle]
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
-    delay::init(); // Initialize timer.
+    // Initialize.
+    t4os_lib::arch::linux::init();
     super::console::init();
 
     if unsafe { super::heap::mmap() }.is_err() {

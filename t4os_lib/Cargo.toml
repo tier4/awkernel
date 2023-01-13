@@ -1,0 +1,35 @@
+[package]
+name = "t4os_lib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+
+[dependencies.libc]
+version = "0.2"
+optional = true
+
+[dependencies.x86_64]
+version = "0.14"
+optional = true
+
+[dependencies.acpi]
+version = "4.1"
+optional = true
+
+[dependencies.bootloader_api]
+version = "0.11"
+optional = true
+
+[dependencies.t4os_aarch64]
+path = "../t4os_aarch64"
+optional = true
+
+[features]
+default = ["aarch64"]
+x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
+aarch64 = ["dep:t4os_aarch64"]
+linux = ["dep:libc"]

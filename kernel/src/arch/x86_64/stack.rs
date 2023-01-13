@@ -1,9 +1,10 @@
-use super::{acpi::AcpiMapper, page_allocator::PageAllocator};
+use super::page_allocator::PageAllocator;
 use crate::{
     config::{PAGE_SIZE, STACK_SIZE, STACK_START},
     heap::InitErr,
 };
 use acpi::AcpiTables;
+use t4os_lib::arch::x86_64::acpi::AcpiMapper;
 use x86_64::{
     structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
     VirtAddr,

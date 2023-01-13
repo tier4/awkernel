@@ -1,0 +1,31 @@
+[package]
+name = "t4os_async_lib"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+synctools = "0.3"
+pin-project-lite = "0.2"
+log = "0.4"
+
+[dependencies.futures]
+version = "0.3"
+default-features = false
+features = ["alloc", "async-await", "cfg-target-has-atomic"]
+
+[dependencies.unwinding]
+version = "0.1"
+default-features = false
+features = ["unwinder", "panic"]
+
+[dependencies.t4os_lib]
+path = "../t4os_lib"
+default-features = false
+
+[features]
+default = ["x86"]
+linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality", "t4os_lib/linux"]
+x86 = ["unwinding/fde-static", "unwinding/personality"]
+aarch64 = ["unwinding/fde-static", "unwinding/personality"]

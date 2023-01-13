@@ -3,5 +3,8 @@
 [workspace]
 members = [
     "kernel",
-    "x86bootdisk"
+    "x86bootdisk",
+    "t4os_async_lib",
+    "t4os_lib",
+    "t4os_aarch64",
 ]

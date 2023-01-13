@@ -1,7 +1,5 @@
 use super::{
-    acpi::{wait_usec, AcpiMapper},
     apic::{Apic, TypeApic},
-    delay,
     heap::map_heap,
     interrupt,
     page_allocator::{get_page_table, PageAllocator},
@@ -12,7 +10,6 @@ use crate::{
         stack::map_stack,
     },
     config::{PAGE_SIZE, STACK_SIZE},
-    delay::Delay,
     kernel_info::KernelInfo,
 };
 use acpi::AcpiTables;
@@ -23,6 +20,10 @@ use bootloader_api::{
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
+};
+use t4os_lib::{
+    arch::x86_64::acpi::AcpiMapper,
+    delay::{wait_forever, wait_microsec},
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
@@ -51,7 +52,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         page_table
     } else {
         unsafe { super::puts("Physical memory is not mapped.") };
-        delay::ArchDelay::wait_forever();
+        wait_forever();
     };
 
     // Create a page allocator.
@@ -66,7 +67,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Map heap memory region.
     if map_heap(&mut page_table, &mut page_allocator).is_err() {
         unsafe { super::puts("Failed to map heap memory.") };
-        delay::ArchDelay::wait_forever();
+        wait_forever();
     }
 
     crate::heap::init(); // Enable heap allocator.
@@ -84,20 +85,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         *offset
     } else {
         log::error!("Failed to get physical memory offset.");
-        delay::ArchDelay::wait_forever();
+        wait_forever();
     };
 
     // Get ACPI tables.
-    let acpi = if let Some(acpi) = super::acpi::create_acpi(boot_info, offset) {
+    let acpi = if let Some(acpi) = t4os_lib::arch::x86_64::acpi::create_acpi(boot_info, offset) {
         acpi
     } else {
         log::error!("Failed to initialize ACPI.");
-        delay::ArchDelay::wait_forever();
+        wait_forever();
     };
 
-    // Initialize timer.
-    super::acpi::init(&acpi);
-    super::delay::init(&acpi, offset);
+    // Initialize.
+    t4os_lib::arch::x86_64::init(&acpi, offset);
 
     // Initialize APIC.
     match super::apic::new(offset) {
@@ -114,7 +114,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     crate::main(kernel_info);
 
-    super::delay::ArchDelay::wait_forever();
+    wait_forever()
 }
 
 fn enable_fpu() {
@@ -207,7 +207,7 @@ fn start_non_primary_cpus(
         0,
     );
 
-    wait_usec(10_000); // Wait 10[ms]
+    wait_microsec(10_000); // Wait 10[ms]
 
     // SIPI
     apic.interrupt(
@@ -218,7 +218,7 @@ fn start_non_primary_cpus(
         (NON_PRIMARY_START >> 12) as u8, // 2nd Page
     );
 
-    wait_usec(200); // Wait 200[us]
+    wait_microsec(200); // Wait 200[us]
 
     // SIPI
     apic.interrupt(
@@ -229,7 +229,7 @@ fn start_non_primary_cpus(
         (NON_PRIMARY_START >> 12) as u8, // 2nd Page
     );
 
-    wait_usec(200); // Wait 200[us]
+    wait_microsec(200); // Wait 200[us]
 }
 
 #[inline(never)]
@@ -247,5 +247,5 @@ fn non_primary_kernel_main() -> ! {
 
     crate::main(kernel_info);
 
-    super::delay::ArchDelay::wait_forever();
+    wait_forever();
 }

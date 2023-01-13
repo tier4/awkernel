@@ -1,4 +1,4 @@
-use crate::delay::Delay;
+use t4os_lib::delay::wait_forever;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
@@ -66,7 +66,7 @@ extern "x86-interrupt" fn double_fault(stack_frame: InterruptStackFrame, error: 
         "double fault: stack_frame = {:?}, error = {error}",
         stack_frame,
     );
-    super::delay::ArchDelay::wait_forever();
+    wait_forever()
 }
 
 extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFrame, error: u64) {
@@ -89,7 +89,7 @@ extern "x86-interrupt" fn invalid_tss(stack_frame: InterruptStackFrame, error: u
 
 extern "x86-interrupt" fn machine_check(stack_frame: InterruptStackFrame) -> ! {
     log::debug!("machine check: stack_frame = {:?}", stack_frame,);
-    super::delay::ArchDelay::wait_forever();
+    wait_forever()
 }
 
 extern "x86-interrupt" fn non_maskable_interrupt(stack_frame: InterruptStackFrame) {

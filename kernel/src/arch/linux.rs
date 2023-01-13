@@ -2,7 +2,7 @@ use libc::STDOUT_FILENO;
 
 pub mod config;
 mod console;
-pub mod delay;
+// pub mod delay;
 mod heap;
 mod kernel_main;
 

@@ -1,6 +1,6 @@
-use crate::{arch::ArchDelay, delay::Delay};
-
 use super::context::GpRegs;
+use t4os_aarch64::esr_el1;
+use t4os_lib::delay::wait_forever;
 
 const ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
 const ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
@@ -81,10 +81,10 @@ ESR  = 0x{:x}
 "#,
         r.elr,
         r.spsr,
-        super::cpu::esr_el1::get()
+        esr_el1::get()
     );
 
-    ArchDelay::wait_forever();
+    wait_forever();
 }
 
 #[no_mangle]
@@ -104,10 +104,10 @@ ESR  = 0x{:x}
 "#,
         r.elr,
         r.spsr,
-        super::cpu::esr_el1::get()
+        esr_el1::get()
     );
 
-    ArchDelay::wait_forever();
+    wait_forever();
 }
 
 // from the current EL using the SP_EL1
@@ -122,10 +122,10 @@ ESR  = 0x{:x}
 "#,
         r.elr,
         r.spsr,
-        super::cpu::esr_el1::get()
+        esr_el1::get()
     );
 
-    ArchDelay::wait_forever();
+    wait_forever();
 }
 
 #[no_mangle]
@@ -145,10 +145,10 @@ ESR  = 0x{:x}
 "#,
         r.elr,
         r.spsr,
-        super::cpu::esr_el1::get()
+        esr_el1::get()
     );
 
-    ArchDelay::wait_forever();
+    wait_forever();
 }
 
 // from lower EL (AArch64)

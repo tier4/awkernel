@@ -1,13 +1,15 @@
+use super::bsp::memory::{
+    DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START,
+};
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
     slice,
 };
-
-use super::bsp::memory::{
-    DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START,
+use t4os_aarch64::{
+    dsb_ish, dsb_sy, get_current_el, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, sctlr_el2,
+    sctlr_el3, tcr_el1, ttbr0_el1, ttbr1_el1,
 };
-use super::cpu;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
 
@@ -351,15 +353,15 @@ impl TTable {
 }
 
 pub fn enabled() -> Option<bool> {
-    let el = cpu::get_current_el();
+    let el = get_current_el();
     if el == 1 {
-        let sctlr = cpu::sctlr_el1::get();
+        let sctlr = sctlr_el1::get();
         Some(sctlr & 1 == 1)
     } else if el == 2 {
-        let sctlr = cpu::sctlr_el2::get();
+        let sctlr = sctlr_el2::get();
         Some(sctlr & 1 == 1)
     } else if el == 3 {
-        let sctlr = cpu::sctlr_el3::get();
+        let sctlr = sctlr_el3::get();
         Some((sctlr & 1) == 1)
     } else {
         None
@@ -367,26 +369,26 @@ pub fn enabled() -> Option<bool> {
 }
 
 fn get_sctlr() -> u64 {
-    let el = cpu::get_current_el();
+    let el = get_current_el();
     if el == 1 {
-        cpu::sctlr_el1::get()
+        sctlr_el1::get()
     } else if el == 2 {
-        cpu::sctlr_el2::get()
+        sctlr_el2::get()
     } else if el == 3 {
-        cpu::sctlr_el3::get()
+        sctlr_el3::get()
     } else {
         0
     }
 }
 
 fn set_sctlr(sctlr: u64) {
-    let el = cpu::get_current_el();
+    let el = get_current_el();
     if el == 1 {
-        cpu::sctlr_el1::set(sctlr);
+        sctlr_el1::set(sctlr);
     } else if el == 2 {
-        cpu::sctlr_el2::set(sctlr);
+        sctlr_el2::set(sctlr);
     } else if el == 3 {
-        cpu::sctlr_el3::set(sctlr);
+        sctlr_el3::set(sctlr);
     }
 }
 
@@ -415,7 +417,7 @@ pub fn init() -> Option<(TTable, TTable)> {
     // addr.print();
 
     // check for 64KiB granule and at least 36 bits physical address bus
-    let mmfr = cpu::id_aa64mmfr0_el1::get();
+    let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
     if b < 1
     /* 36 bits */
@@ -444,7 +446,7 @@ fn get_mair() -> u64 {
 
 /// for TCR_EL2 and TCR_EL2
 fn get_tcr() -> u64 {
-    let mmfr = cpu::id_aa64mmfr0_el1::get();
+    let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
 
     1 << 31 | // Res1
@@ -608,9 +610,9 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
 
 fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
     // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC in our example
-    cpu::mair_el1::set(get_mair());
+    mair_el1::set(get_mair());
 
-    let mmfr = cpu::id_aa64mmfr0_el1::get();
+    let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
 
     let tcr: u64 = b << 32 |
@@ -626,22 +628,22 @@ fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
         22; // T0SZ = 22, 2 levels (level 2 and 3 translation tables), 2^42B (4TiB) space
 
     // next, specify mapping characteristics in translate control register
-    cpu::tcr_el1::set(tcr);
+    tcr_el1::set(tcr);
 
     // tell the MMU where our translation tables are.
-    cpu::ttbr0_el1::set(ttbr0 as u64 | 1);
-    cpu::ttbr1_el1::set(ttbr1 as u64 | 1);
+    ttbr0_el1::set(ttbr0 as u64 | 1);
+    ttbr1_el1::set(ttbr1 as u64 | 1);
 
     // finally, toggle some bits in system control register to enable page translation
-    cpu::dsb_ish();
-    cpu::isb();
+    dsb_ish();
+    isb();
 
-    let sctlr = cpu::sctlr_el1::get();
+    let sctlr = sctlr_el1::get();
     let sctlr = update_sctlr(sctlr) & !(1 << 4); // clear SA0
 
-    cpu::sctlr_el1::set(sctlr);
-    cpu::dsb_sy();
-    cpu::isb();
+    sctlr_el1::set(sctlr);
+    dsb_sy();
+    isb();
 }
 
 pub fn get_no_cache<T>() -> &'static mut T {

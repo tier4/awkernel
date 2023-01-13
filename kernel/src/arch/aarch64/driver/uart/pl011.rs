@@ -1,5 +1,6 @@
-use crate::{arch::aarch64::bsp::memory::*, mmio_rw};
+use crate::arch::aarch64::bsp::memory::*;
 use core::{arch::asm, fmt::Write};
+use t4os_lib::mmio_rw;
 
 use super::UART;
 
