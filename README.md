@@ -5,15 +5,15 @@ isolated zero-copy communications written in Rust.
 
 ## Progress
 
-- [ ] Zero-copy communication
-  - [ ] Publish and subscribe
+- [x] Zero-copy communication
+  - [x] Publish and subscribe
 - [ ] Isolation
   - [ ] Memory isolation
   - [ ] Computational isolation
 - [ ] Realtime scheduling
-  - [ ] Round robin scheduling
+  - [x] Round robin scheduling
   - [ ] DAG scheduling
-- [ ] Multikernel
+- [ ] Cokernel
 - [ ] TEE
   - [ ] TrustZone
 

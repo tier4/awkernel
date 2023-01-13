@@ -24,16 +24,10 @@ use t4os_async_lib::{
 use t4os_lib::delay::{pause, uptime, wait_forever};
 
 mod arch;
-// mod async_lib;
 mod config;
-// mod delay;
-// mod delta_list;
 mod heap;
 mod kernel_info;
 mod logger;
-// mod mmio;
-// mod scheduler;
-// mod task;
 
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
