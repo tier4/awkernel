@@ -4,7 +4,6 @@ use super::config;
 
 pub const MAX_CPUS_PER_CLUSTER: usize = config::MAX_CPUS_PER_CLUSTER;
 pub const CLUSTER_COUNT: usize = config::CLUSTER_COUNT;
-pub const CORE_COUNT: usize = config::CORE_COUNT;
 
 /// get core index from MPIDR
 fn core_pos_by_mpidr(mpidr: usize) -> Option<usize> {

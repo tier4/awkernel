@@ -11,7 +11,7 @@ pub enum SchedulerType {
     RoundRobin,
 }
 
-pub trait Scheduler {
+pub(crate) trait Scheduler {
     /// Enqueue a executable task.
     /// The enqueued task will be take by `get_next()`.
     fn wake_task(&self, task: Arc<Task>);
@@ -23,7 +23,7 @@ pub trait Scheduler {
     fn scheduler_name(&self) -> SchedulerType;
 }
 
-pub fn get_next_task() -> Option<Arc<Task>> {
+pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     if let Some(task) = round_robin::SCHEDULER.get_next() {
         return Some(task);
     }
@@ -31,7 +31,7 @@ pub fn get_next_task() -> Option<Arc<Task>> {
     None
 }
 
-pub fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
+pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::RoundRobin => &round_robin::SCHEDULER,
     }
@@ -83,7 +83,7 @@ impl Sleep {
 }
 
 /// `dur` is microseconds
-pub fn sleep_task(sleep_handler: Box<dyn FnOnce() -> ()>, dur: u64) {
+pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() -> ()>, dur: u64) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.sleep_task(sleep_handler, dur);

@@ -21,12 +21,6 @@ impl Write for StdOut {
     }
 }
 
-pub(crate) fn puts(msg: &str) {
-    let mut node = MCSNode::new();
-    let mut guard = CONSOLE.lock.lock(&mut node);
-    let _ = guard.write_str(msg);
-}
-
 impl Console {
     const fn new() -> Self {
         Self {

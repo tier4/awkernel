@@ -1,6 +1,6 @@
 use super::{Scheduler, SchedulerType, Task};
-use crate::task;
-use alloc::{collections::VecDeque, sync::Arc};
+use crate::task::{self, TaskList};
+use alloc::sync::Arc;
 use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct RoundRobinScheduler {
@@ -8,13 +8,13 @@ pub struct RoundRobinScheduler {
 }
 
 struct RoundRobinData {
-    queue: VecDeque<Arc<Task>>,
+    queue: TaskList,
 }
 
 impl RoundRobinData {
     fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
+            queue: TaskList::new(),
         }
     }
 }
@@ -41,7 +41,7 @@ impl Scheduler for RoundRobinScheduler {
             task_info.in_queue = true;
         }
 
-        data.queue.push_back(task);
+        data.queue.push(task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -49,7 +49,7 @@ impl Scheduler for RoundRobinScheduler {
         let mut data = self.data.lock(&mut node);
 
         let data = data.as_mut()?;
-        let task = data.queue.pop_front()?;
+        let task = data.queue.pop()?;
 
         {
             let mut node = MCSNode::new();

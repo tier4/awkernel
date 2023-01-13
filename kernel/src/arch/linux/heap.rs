@@ -17,6 +17,6 @@ pub unsafe fn mmap() -> Result<*mut c_void, &'static str> {
     }
 }
 
-pub unsafe fn munmap(addr: *mut c_void) {
+pub unsafe fn _munmap(addr: *mut c_void) {
     libc::munmap(addr, crate::config::HEAP_SIZE as _);
 }

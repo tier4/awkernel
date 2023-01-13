@@ -8,12 +8,14 @@ mmio_r!(offset 0x030 => xapic_local_apic_version<u32>);
 mmio_rw!(offset 0x300 => xapic_icr_low<u32>);
 mmio_rw!(offset 0x310 => xapic_icr_high<u32>);
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct Xapic {
     is_bsp: bool, // BootStrap Processor?
     apic_base: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct X2Apic {
     is_bsp: bool, // BootStrap Processor?
@@ -93,6 +95,7 @@ bitflags! {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum DestinationShorthand {
     NoShorthand = 0,
@@ -101,6 +104,7 @@ pub enum DestinationShorthand {
     AllExcludingSelf = 0b11 << 18,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum DeliveryMode {
     Fixed = 0,

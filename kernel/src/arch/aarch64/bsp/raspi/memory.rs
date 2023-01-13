@@ -24,7 +24,7 @@ pub const SRAM_START: u64 = 0;
 pub const SRAM_END: u64 = 0;
 pub const ROM_START: u64 = 0;
 pub const ROM_END: u64 = 0;
-pub const DRAM_BASE: u64 = 0;
+pub const _DRAM_BASE: u64 = 0;
 
 pub const MMIO_BASE: usize = raspi::MMIO_BASE;
 pub const DEVICE_MEM_START: u64 = raspi::DEVICE_MEM_START;

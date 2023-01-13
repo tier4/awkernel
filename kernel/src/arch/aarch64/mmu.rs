@@ -79,7 +79,7 @@ pub fn get_bss_start() -> u64 {
     unsafe { &__bss_start as *const u64 as u64 }
 }
 
-pub fn get_bss_end() -> u64 {
+pub fn _get_bss_end() -> u64 {
     unsafe { &__bss_end as *const u64 as u64 }
 }
 
@@ -87,7 +87,7 @@ pub fn get_data_start() -> u64 {
     unsafe { &__data_start as *const u64 as u64 }
 }
 
-pub fn get_data_end() -> u64 {
+pub fn _get_data_end() -> u64 {
     unsafe { &__data_end as *const u64 as u64 }
 }
 
@@ -97,12 +97,12 @@ pub fn get_data_end() -> u64 {
 pub const PAGESIZE: u64 = 64 * 1024;
 
 // NSTable (63bit)
-const FLAG_L2_NS: u64 = 1 << 63; // non secure table
+const _FLAG_L2_NS: u64 = 1 << 63; // non secure table
 
 const FLAG_L3_XN: u64 = 1 << 54; // execute never
 const FLAG_L3_PXN: u64 = 1 << 53; // priviledged execute
-const FLAG_L3_CONT: u64 = 1 << 52; // contiguous
-const FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
+const _FLAG_L3_CONT: u64 = 1 << 52; // contiguous
+const _FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
 const FLAG_L3_AF: u64 = 1 << 10; // access flag
 const FLAG_L3_NS: u64 = 1 << 5; // non secure
 
@@ -128,7 +128,7 @@ const FLAG_L3_ISH: u64 = 0b11 << 8;
 // 11 | read-only              | read-only
 const FLAG_L3_SH_RW_N: u64 = 0;
 const FLAG_L3_SH_RW_RW: u64 = 1 << 6;
-const FLAG_L3_SH_R_N: u64 = 0b10 << 6;
+const _FLAG_L3_SH_R_N: u64 = 0b10 << 6;
 const FLAG_L3_SH_R_R: u64 = 0b11 << 6;
 
 // [4:2]: AttrIndx
@@ -136,7 +136,7 @@ const FLAG_L3_SH_R_R: u64 = 0b11 << 6;
 // see get_mair()
 const FLAG_L3_ATTR_MEM: u64 = 0; // normal memory
 const FLAG_L3_ATTR_DEV: u64 = 1 << 2; // device MMIO
-const FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
+const _FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
 
 // transition table
 pub struct TTable {
@@ -215,7 +215,7 @@ pub fn get_memory_map() -> &'static Addr {
     }
 }
 
-pub fn get_ttbr0() -> TTable {
+pub fn _get_ttbr0() -> TTable {
     let addr = get_memory_map();
     TTable::new(
         addr.tt_el1_ttbr0_start + EL1_ADDR_OFFSET,
@@ -225,7 +225,7 @@ pub fn get_ttbr0() -> TTable {
     )
 }
 
-pub fn get_ttbr1() -> TTable {
+pub fn _get_ttbr1() -> TTable {
     let addr = get_memory_map();
     TTable::new(
         addr.tt_el1_ttbr1_start + EL1_ADDR_OFFSET,
@@ -328,7 +328,7 @@ impl TTable {
         }
     }
 
-    pub fn to_phy_addr(&self, vm_addr: u64) -> Option<u64> {
+    pub fn _to_phy_addr(&self, vm_addr: u64) -> Option<u64> {
         let lv2idx = ((vm_addr >> 29) & 8191) as usize;
         let lv3idx = ((vm_addr >> 16) & 8191) as usize;
 
@@ -352,7 +352,7 @@ impl TTable {
     }
 }
 
-pub fn enabled() -> Option<bool> {
+pub fn _enabled() -> Option<bool> {
     let el = get_current_el();
     if el == 1 {
         let sctlr = sctlr_el1::get();
@@ -368,7 +368,7 @@ pub fn enabled() -> Option<bool> {
     }
 }
 
-fn get_sctlr() -> u64 {
+fn _get_sctlr() -> u64 {
     let el = get_current_el();
     if el == 1 {
         sctlr_el1::get()
@@ -381,7 +381,7 @@ fn get_sctlr() -> u64 {
     }
 }
 
-fn set_sctlr(sctlr: u64) {
+fn _set_sctlr(sctlr: u64) {
     let el = get_current_el();
     if el == 1 {
         sctlr_el1::set(sctlr);
@@ -392,7 +392,7 @@ fn set_sctlr(sctlr: u64) {
     }
 }
 
-pub fn user_page_flag() -> u64 {
+pub fn _user_page_flag() -> u64 {
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_RW | FLAG_L3_ATTR_MEM | 0b11
 }
 
@@ -445,7 +445,7 @@ fn get_mair() -> u64 {
 }
 
 /// for TCR_EL2 and TCR_EL2
-fn get_tcr() -> u64 {
+fn _get_tcr() -> u64 {
     let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
 
@@ -646,7 +646,7 @@ fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
     isb();
 }
 
-pub fn get_no_cache<T>() -> &'static mut T {
+pub fn _get_no_cache<T>() -> &'static mut T {
     let addr = get_memory_map();
     let addr = addr.no_cache_start + PAGESIZE * super::cpu::core_pos() as u64;
     unsafe {
@@ -655,7 +655,7 @@ pub fn get_no_cache<T>() -> &'static mut T {
     }
 }
 
-pub fn tlb_flush_all() {
+pub fn _tlb_flush_all() {
     unsafe {
         asm!(
             "dsb ishst
@@ -666,7 +666,7 @@ pub fn tlb_flush_all() {
     };
 }
 
-pub fn tlb_flush_addr(vm_addr: usize) {
+pub fn _tlb_flush_addr(vm_addr: usize) {
     unsafe {
         asm!(
             "dsb ishst

@@ -19,7 +19,55 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: MCSLock<Tasks> = MCSLock::new(Tasks::new());
 static mut RUNNING: [Option<u64>; 512] = [None; 512];
 
-pub struct Task {
+pub(crate) struct TaskList {
+    head: Option<Arc<Task>>,
+    tail: Option<Arc<Task>>,
+}
+
+impl TaskList {
+    pub(crate) fn new() -> Self {
+        TaskList {
+            head: None,
+            tail: None,
+        }
+    }
+
+    pub(crate) fn push(&mut self, task: Arc<Task>) {
+        if let Some(tail) = &self.tail {
+            {
+                let mut node = MCSNode::new();
+                let mut info = tail.info.lock(&mut node);
+                info.next = Some(task.clone());
+            }
+
+            self.tail = Some(task);
+        } else {
+            self.head = Some(task.clone());
+            self.tail = Some(task.clone());
+        }
+    }
+
+    pub(crate) fn pop(&mut self) -> Option<Arc<Task>> {
+        if let Some(head) = self.head.take() {
+            let next = {
+                let mut node = MCSNode::new();
+                let mut info = head.info.lock(&mut node);
+                info.next.take()
+            };
+
+            if next.is_none() {
+                self.tail = None;
+            }
+            self.head = next;
+
+            Some(head)
+        } else {
+            None
+        }
+    }
+}
+
+pub(crate) struct Task {
     id: u64,
     future: MCSLock<BoxFuture<'static, TaskResult>>,
     pub(crate) info: MCSLock<TaskInfo>,
@@ -40,17 +88,12 @@ impl ArcWake for Task {
     }
 }
 
-impl Task {
-    pub fn get_id(&self) -> u64 {
-        self.id
-    }
-}
-
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct TaskInfo {
     pub(crate) state: State,
     pub(crate) _scheduler_type: SchedulerType,
     pub(crate) in_queue: bool,
+    next: Option<Arc<Task>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,6 +133,7 @@ impl Tasks {
                     _scheduler_type: scheduler_type,
                     state: State::Ready,
                     in_queue: false,
+                    next: None,
                 });
 
                 let task = Task {

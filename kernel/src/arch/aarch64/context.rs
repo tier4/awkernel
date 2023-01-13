@@ -1,6 +1,7 @@
 use core::arch::asm;
 
 extern "C" {
+    #[allow(dead_code)]
     fn save_context(ptr: *const GpRegs) -> usize;
 }
 
@@ -46,7 +47,7 @@ pub struct GpRegs {
 }
 
 impl GpRegs {
-    pub const fn new() -> GpRegs {
+    pub const fn _new() -> GpRegs {
         GpRegs {
             x0: 0,
             x1: 0,
@@ -86,7 +87,7 @@ impl GpRegs {
         }
     }
 
-    pub fn context_switch(&self) -> ! {
+    pub fn _context_switch(&self) -> ! {
         unsafe {
             asm! {
                 "mov     x0, {}
@@ -126,7 +127,7 @@ impl GpRegs {
 
     /// Return 0 if context is saved.
     /// Return 1 if context switching is performed.
-    pub fn save_context(&mut self) -> usize {
+    pub fn _save_context(&mut self) -> usize {
         unsafe { save_context(self as *const GpRegs) }
     }
 }
@@ -178,7 +179,7 @@ pub struct EL1SysRegs {
 }
 
 impl EL1SysRegs {
-    pub const fn new() -> EL1SysRegs {
+    pub const fn _new() -> EL1SysRegs {
         EL1SysRegs {
             sctlr_el1: 0,
             actlr_el1: 0,
@@ -252,7 +253,7 @@ pub struct FPRegs {
 }
 
 impl FPRegs {
-    pub const fn new() -> FPRegs {
+    pub const fn _new() -> FPRegs {
         FPRegs {
             fp_q0: [0; 16],
             fp_q1: [0; 16],

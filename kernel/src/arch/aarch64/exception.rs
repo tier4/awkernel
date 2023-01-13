@@ -2,13 +2,13 @@ use super::context::GpRegs;
 use t4os_aarch64::esr_el1;
 use t4os_lib::delay::wait_forever;
 
-const ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
-const ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
-const ESR_EL1_EC_WFI_OR_WFE: u64 = 0b000001 << 26;
-const ESR_EL1_EC_SVC32: u64 = 0b010001 << 26;
-const ESR_EL1_EC_SVC64: u64 = 0b010101 << 26;
-const ESR_LE1_EC_DATA: u64 = 0b100100 << 26;
-const ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
+const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
+const _ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
+const _ESR_EL1_EC_WFI_OR_WFE: u64 = 0b000001 << 26;
+const _ESR_EL1_EC_SVC32: u64 = 0b010001 << 26;
+const _ESR_EL1_EC_SVC64: u64 = 0b010101 << 26;
+const _ESR_LE1_EC_DATA: u64 = 0b100100 << 26;
+const _ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
 
 //------------------------------------------------------------------------------
 

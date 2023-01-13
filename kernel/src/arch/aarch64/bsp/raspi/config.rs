@@ -6,4 +6,4 @@ pub const CLUSTER_COUNT: usize = 1;
 
 // Topology information.
 pub const MAX_CPUS_PER_CLUSTER: usize = 4;
-pub const NUM_PWR_DOMAINS: usize = CLUSTER_COUNT + CORE_COUNT;
+pub const _NUM_PWR_DOMAINS: usize = CLUSTER_COUNT + CORE_COUNT;

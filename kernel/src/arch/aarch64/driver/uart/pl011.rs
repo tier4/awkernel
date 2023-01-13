@@ -32,11 +32,11 @@ const ICR_ALL_CLEAR: u32 = 0x7ff;
 const LCRH_WLEN_8BITS: u32 = 0b11 << 5; // Word length (8bits)
 const LCRH_FEN_FIFO: u32 = 1 << 4; // Enable FIFOs
 
-const IFLS_RXIFLSEL_1_8: u32 = 0b000;
+const _IFLS_RXIFLSEL_1_8: u32 = 0b000;
 const IFLS_RXIFLSEL_1_4: u32 = 0b001 << 3;
-const IFLS_RXIFLSEL_1_2: u32 = 0b010 << 3;
-const IFLS_RXIFLSEL_3_4: u32 = 0b011 << 3;
-const IFLS_RXIFLSEL_7_8: u32 = 0b100 << 3;
+const _IFLS_RXIFLSEL_1_2: u32 = 0b010 << 3;
+const _IFLS_RXIFLSEL_3_4: u32 = 0b011 << 3;
+const _IFLS_RXIFLSEL_7_8: u32 = 0b100 << 3;
 
 const IMSC_RXIM: u32 = 1 << 4;
 
