@@ -86,6 +86,11 @@ linux: FORCE
 run-linux:
 	cargo +nightly run --package t4os --no-default-features --features linux $(OPT)
 
+## Test
+
+test: FORCE
+	cargo test_t4os_lib
+
 ## Clean
 
 clean: FORCE

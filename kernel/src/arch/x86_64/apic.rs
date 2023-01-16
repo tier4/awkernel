@@ -3,10 +3,10 @@ use core::{arch::x86_64::__cpuid, fmt::Debug};
 use t4os_lib::{mmio_r, mmio_rw};
 use x86_64::registers::model_specific::Msr;
 
-mmio_r!(offset 0x020 => xapic_local_apic_id<u32>);
-mmio_r!(offset 0x030 => xapic_local_apic_version<u32>);
-mmio_rw!(offset 0x300 => xapic_icr_low<u32>);
-mmio_rw!(offset 0x310 => xapic_icr_high<u32>);
+mmio_r!(offset 0x020 => XAPIC_LOCAL_APIC_ID<u32>);
+mmio_r!(offset 0x030 => XAPIC_LOCAL_VERSION<u32>);
+mmio_rw!(offset 0x300 => XAPIC_ICR_LOW<u32>);
+mmio_rw!(offset 0x310 => XAPIC_ICR_HIGH<u32>);
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -117,12 +117,12 @@ pub enum DeliveryMode {
 
 impl Apic for Xapic {
     fn local_apic_id(&self) -> u32 {
-        let id = xapic_local_apic_id(self.apic_base).read();
+        let id = XAPIC_LOCAL_APIC_ID.read(self.apic_base);
         (id >> 24) & 0xff
     }
 
     fn local_apic_version(&self) -> u32 {
-        xapic_local_apic_version(self.apic_base as _).read()
+        XAPIC_LOCAL_VERSION.read(self.apic_base as _)
     }
 
     fn interrupt(
@@ -133,25 +133,25 @@ impl Apic for Xapic {
         delivery_mode: DeliveryMode,
         vector: u8,
     ) {
-        let low = xapic_icr_low(self.apic_base);
-        let high = xapic_icr_high(self.apic_base);
+        let low = XAPIC_ICR_LOW;
+        let high = XAPIC_ICR_HIGH;
 
-        let low_bits = low.read();
+        let low_bits = low.read(self.apic_base);
         let low_bits = (low_bits & !0x000c_dfff)
             | dst_shorthand as u32
             | flags.bits
             | delivery_mode as u32
             | vector as u32;
 
-        let high_bits = high.read() & 0x000f_ffff;
+        let high_bits = high.read(self.apic_base) & 0x000f_ffff;
         let high_bits = match dst_shorthand {
             DestinationShorthand::NoShorthand => high_bits | (destination << 24),
             _ => high_bits,
         };
 
-        high.write(high_bits);
-        low.write(low_bits);
+        high.write(high_bits, self.apic_base);
+        low.write(low_bits, self.apic_base);
 
-        while (low.read() & IcrFlags::SEND_PENDING.bits) != 0 {}
+        while (low.read(self.apic_base) & IcrFlags::SEND_PENDING.bits) != 0 {}
     }
 }

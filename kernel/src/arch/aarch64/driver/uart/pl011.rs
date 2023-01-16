@@ -8,20 +8,20 @@ pub struct RaspiUART {}
 
 const UART0_BASE: usize = MMIO_BASE + 0x00201000;
 
-mmio_rw!(UART0_BASE         => uart0_dr<u32>);
-mmio_rw!(UART0_BASE + 0x004 => uart0_rsrecr<u32>);
-mmio_rw!(UART0_BASE + 0x018 => uart0_fr<u32>);
-mmio_rw!(UART0_BASE + 0x020 => uart0_ilpr<u32>);
-mmio_rw!(UART0_BASE + 0x024 => uart0_ibrd<u32>);
-mmio_rw!(UART0_BASE + 0x028 => uart0_fbrd<u32>);
-mmio_rw!(UART0_BASE + 0x02c => uart0_lcrh<u32>);
-mmio_rw!(UART0_BASE + 0x030 => uart0_cr<u32>);
-mmio_rw!(UART0_BASE + 0x034 => uart0_ifls<u32>);
-mmio_rw!(UART0_BASE + 0x038 => uart0_imsc<u32>);
-mmio_rw!(UART0_BASE + 0x03c => uart0_ris<u32>);
-mmio_rw!(UART0_BASE + 0x040 => uart0_mis<u32>);
-mmio_rw!(UART0_BASE + 0x044 => uart0_icr<u32>);
-mmio_rw!(UART0_BASE + 0x048 => uart0_dmacr<u32>);
+mmio_rw!(UART0_BASE         => UART0_DR<u32>);
+mmio_rw!(UART0_BASE + 0x004 => UART0_RSRECR<u32>);
+mmio_rw!(UART0_BASE + 0x018 => UART0_FR<u32>);
+mmio_rw!(UART0_BASE + 0x020 => UART0_ILPR<u32>);
+mmio_rw!(UART0_BASE + 0x024 => UART0_IBRD<u32>);
+mmio_rw!(UART0_BASE + 0x028 => UART0_FBRD<u32>);
+mmio_rw!(UART0_BASE + 0x02c => UART0_LCHR<u32>);
+mmio_rw!(UART0_BASE + 0x030 => UART0_CR<u32>);
+mmio_rw!(UART0_BASE + 0x034 => UART0_IFLS<u32>);
+mmio_rw!(UART0_BASE + 0x038 => UART0_IMSC<u32>);
+mmio_rw!(UART0_BASE + 0x03c => UART0_RIS<u32>);
+mmio_rw!(UART0_BASE + 0x040 => UART0_MIS<u32>);
+mmio_rw!(UART0_BASE + 0x044 => UART0_ICR<u32>);
+mmio_rw!(UART0_BASE + 0x048 => UART0_DMACR<u32>);
 
 const CR_RXE: u32 = 1 << 9;
 const CR_TXE: u32 = 1 << 8;
@@ -53,12 +53,12 @@ impl RaspiUART {
     unsafe fn putc(c: u32) {
         // wait until we can send
         unsafe { asm!("nop;") };
-        while uart0_fr().read() & 0x20 != 0 {
+        while UART0_FR.read() & 0x20 != 0 {
             unsafe { asm!("nop;") };
         }
 
         // write the character to the buffer
-        uart0_dr().write(c);
+        UART0_DR.write(c);
     }
 }
 
@@ -67,20 +67,20 @@ impl super::UART for RaspiUART {
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".
     fn init(uart_clock: usize, baudrate: usize) {
-        uart0_cr().write(0); // turn off UART0
+        UART0_CR.write(0); // turn off UART0
 
         // map UART1 to GPIO pins
-        let mut r = gpfsel1().read();
+        let mut r = GPFSEL1.read();
         r &= !((7 << 12) | (7 << 15)); // gpio14, gpio15
         r |= (4 << 12) | (4 << 15); // alt0
 
         // enable pins 14 and 15
-        gpfsel1().write(r);
-        gppud().write(0);
+        GPFSEL1.write(r);
+        GPPUD.write(0);
 
         wait_cycles(150);
 
-        gppudclk0().write((1 << 14) | (1 << 15));
+        GPPUDCLK0.write((1 << 14) | (1 << 15));
 
         wait_cycles(150);
 
@@ -88,14 +88,14 @@ impl super::UART for RaspiUART {
         let ibrd: u32 = bauddiv / 1000;
         let fbrd: u32 = ((bauddiv - ibrd * 1000) * 64 + 500) / 1000;
 
-        gppudclk0().write(0); // flush GPIO setup
-        uart0_icr().write(ICR_ALL_CLEAR); // clear interrupts
-        uart0_ibrd().write(ibrd);
-        uart0_fbrd().write(fbrd);
+        GPPUDCLK0.write(0); // flush GPIO setup
+        UART0_ICR.write(ICR_ALL_CLEAR); // clear interrupts
+        UART0_IBRD.write(ibrd);
+        UART0_FBRD.write(fbrd);
 
-        uart0_lcrh().write(LCRH_WLEN_8BITS | LCRH_FEN_FIFO); // 8n1, FIFO
-        uart0_ifls().write(IFLS_RXIFLSEL_1_4); // RX FIFO fill level at 1/4
-        uart0_cr().write(CR_EN | CR_RXE | CR_TXE); // enable, Rx, Tx
+        UART0_LCHR.write(LCRH_WLEN_8BITS | LCRH_FEN_FIFO); // 8n1, FIFO
+        UART0_IFLS.write(IFLS_RXIFLSEL_1_4); // RX FIFO fill level at 1/4
+        UART0_CR.write(CR_EN | CR_RXE | CR_TXE); // enable, Rx, Tx
     }
 
     /// send a character to serial console
@@ -106,19 +106,19 @@ impl super::UART for RaspiUART {
     fn recv(&self) -> u32 {
         // wait until something is in the buffer
         unsafe { asm!("nop;") };
-        while uart0_fr().read() & 0x10 != 0 {
+        while UART0_FR.read() & 0x10 != 0 {
             unsafe { asm!("nop;") };
         }
 
-        uart0_dr().read()
+        UART0_DR.read()
     }
 
     fn enable_recv_interrupt(&self) {
-        //uart0_imsc().setbits(IMSC_RXIM);
+        UART0_IMSC.setbits(IMSC_RXIM);
     }
 
     fn disable_recv_interrupt(&self) {
-        uart0_imsc().clrbits(IMSC_RXIM);
+        UART0_IMSC.clrbits(IMSC_RXIM);
     }
 
     fn on(&self) {}

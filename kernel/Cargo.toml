@@ -46,7 +46,7 @@ path = "../t4os_aarch64"
 optional = true
 
 [features]
-default = ["raspi3"]
+default = ["x86"]
 x86 = ["t4os_lib/x86", "unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader_api"]
 aarch64 = ["t4os_lib/aarch64", "t4os_aarch64", "unwinding/fde-static", "unwinding/personality"]
 raspi3 = ["aarch64", "raspi"]
