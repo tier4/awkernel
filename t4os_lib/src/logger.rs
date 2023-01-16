@@ -11,9 +11,9 @@
 //! log::trace!("This is a trace message.");
 //! ```
 
+use crate::delay;
 use core::fmt::Write;
 use log::Level;
-use t4os_lib::delay;
 
 /// Format a logging message and print it out.
 pub fn write_msg(writer: &mut impl Write, record: &log::Record) {

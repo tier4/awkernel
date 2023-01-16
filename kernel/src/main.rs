@@ -31,7 +31,6 @@ mod arch;
 mod config;
 mod heap;
 mod kernel_info;
-mod logger;
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.

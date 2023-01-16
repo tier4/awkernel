@@ -38,7 +38,7 @@ impl Log for Serial {
         let mut guard = self.port.lock(&mut node);
 
         let serial: &mut SerialPort = &mut guard;
-        crate::logger::write_msg(serial, record);
+        t4os_lib::logger::write_msg(serial, record);
     }
 
     fn flush(&self) {}

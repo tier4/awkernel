@@ -43,7 +43,7 @@ impl Log for Console {
         let mut guard = self.lock.lock(&mut node);
 
         let stdout: &mut StdOut = &mut guard;
-        crate::logger::write_msg(stdout, record);
+        t4os_lib::logger::write_msg(stdout, record);
     }
 
     fn flush(&self) {}
