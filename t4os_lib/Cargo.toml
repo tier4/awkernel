@@ -20,5 +20,5 @@ x86_64 = "0.14"
 acpi = "4.1"
 bootloader_api = "0.11"
 
-[features]
-linux = ["dep:libc"]
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

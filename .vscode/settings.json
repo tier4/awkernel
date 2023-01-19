@@ -20,11 +20,11 @@
     //     "raspi4"
     // ],
     // For x86_64
-    "rust-analyzer.cargo.features": [
-        "x86",
-    ],
-    // For Linux
     // "rust-analyzer.cargo.features": [
-    //     "linux",
+    //     "x86",
     // ],
+    // For Linux
+    "rust-analyzer.cargo.features": [
+        "linux",
+    ],
 }
