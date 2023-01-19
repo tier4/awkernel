@@ -17,6 +17,8 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Entry point from assembly code.
 #[no_mangle]
 pub extern "C" fn kernel_main() -> ! {
+    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
+
     if cpu::core_pos() == 0 {
         raspi::start_non_primary(); // Wake non-primary CPUs up.
         primary_cpu();
@@ -55,7 +57,6 @@ fn primary_cpu() {
     t4os_lib::arch::aarch64::init_primary(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
-    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 

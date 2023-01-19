@@ -3,6 +3,7 @@
 [workspace]
 members = [
     "kernel",
+    "userland",
     "x86bootdisk",
     "t4os_async_lib",
     "t4os_lib",

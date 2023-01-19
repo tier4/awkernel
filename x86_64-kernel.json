@@ -10,7 +10,6 @@
   "linker-flavor": "ld.lld",
   "linker": "rust-lld",
   "disable-redzone": true,
-  "features": "-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-3dnow,-3dnowa,-avx,-avx2,+soft-float",
   "post-link-args": {
     "ld.lld": [
       "-z",

@@ -40,18 +40,18 @@ endif
 
 all: raspi x86_64 linux
 
-cargo: target/aarch64-custom/$(BUILD)/t4os kernel-x86_64.elf linux
+cargo: target/aarch64-kernel/$(BUILD)/t4os kernel-x86_64.elf linux
 
 FORCE:
 
 # AArch64
 raspi: kernel8.img
 
-target/aarch64-custom/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
+target/aarch64-kernel/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly $(BSP) $(OPT)
 
-kernel8.img: target/aarch64-custom/$(BUILD)/t4os
-	rust-objcopy -O binary target/aarch64-custom/$(BUILD)/t4os $@
+kernel8.img: target/aarch64-kernel/$(BUILD)/t4os
+	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/t4os $@
 
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 	$(CC) --target=aarch64-elf -c $< -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
+	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
 
 ## x86_64
 
@@ -76,7 +76,7 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 qemu-x86_64:
-	qemu-system-x86_64 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait
+	qemu-system-x86_64 -m 320 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait
 
 ## Linux
 
