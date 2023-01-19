@@ -127,7 +127,10 @@ fn on_oom(_layout: Layout) -> ! {
     wait_forever();
 }
 
-#[cfg(any(feature = "x86", feature = "aarch64"))]
+#[cfg(all(
+    any(target_arch = "x86_64", target_arch = "aarch64"),
+    not(feature = "linux")
+))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unwinding::panic::begin_panic(Box::new(()));

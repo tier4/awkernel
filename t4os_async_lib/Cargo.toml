@@ -25,7 +25,7 @@ path = "../t4os_lib"
 default-features = false
 
 [features]
-default = ["aarch64"]
-linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality", "t4os_lib/linux"]
-x86 = ["unwinding/fde-static", "unwinding/personality", "t4os_lib/x86"]
-aarch64 = ["unwinding/fde-static", "unwinding/personality", "t4os_lib/aarch64"]
+default = []
+linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality"]
+x86 = ["unwinding/fde-static", "unwinding/personality"]
+aarch64 = ["unwinding/fde-static", "unwinding/personality"]

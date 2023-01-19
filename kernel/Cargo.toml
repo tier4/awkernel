@@ -12,18 +12,6 @@ log = "0.4"
 bitflags = "1.3"
 acpi = "4.1"
 
-[dependencies.x86_64]
-version = "0.14"
-optional = true
-
-[dependencies.uart_16550]
-version = "0.2"
-optional = true
-
-[dependencies.bootloader_api]
-version = "0.11"
-optional = true
-
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
@@ -39,17 +27,20 @@ default-features = false
 
 [dependencies.t4os_lib]
 path = "../t4os_lib"
-default-features = false
 
-[dependencies.t4os_aarch64]
-path = "../t4os_aarch64"
-optional = true
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+t4os_aarch64 = { path = "../t4os_aarch64" }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+x86_64 = "0.14"
+bootloader_api = "0.11"
+uart_16550 = "0.2"
 
 [features]
-default = ["x86"]
-x86 = ["t4os_lib/x86", "unwinding/fde-static", "unwinding/personality", "dep:uart_16550", "dep:x86_64", "dep:bootloader_api"]
-aarch64 = ["t4os_lib/aarch64", "t4os_aarch64", "unwinding/fde-static", "unwinding/personality"]
-raspi3 = ["aarch64", "raspi"]
-raspi4 = ["aarch64", "raspi"]
+default = []
+no_std_unwinding = ["unwinding/fde-static", "unwinding/personality"]
+x86 = ["unwinding/fde-static", "unwinding/personality"]
+raspi3 = ["raspi", "no_std_unwinding"]
+raspi4 = ["raspi", "no_std_unwinding"]
 raspi = []
 linux = ["libc", "unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality", "t4os_lib/linux"]
