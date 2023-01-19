@@ -311,7 +311,7 @@ impl PubSub {
 
                 let inner = InnerPubSub {
                     subscribers: subscribers2,
-                    num_publisher: 0,
+                    num_publisher: 1,
                 };
 
                 self.name_to_inner.insert::<InnerPubSub<T>>(name, inner);

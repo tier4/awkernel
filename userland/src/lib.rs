@@ -23,7 +23,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     let count1 = Arc::new(AtomicU64::new(0));
     let count2 = count1.clone();
 
-    let _ = spawn(
+    spawn(
         async move {
             let mut i = 0;
             loop {
@@ -42,9 +42,10 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             }
         },
         SchedulerType::RoundRobin,
-    );
+    )
+    .await;
 
-    let _ = spawn(
+    spawn(
         async move {
             loop {
                 let data = subscriber1.recv().await;
@@ -56,9 +57,10 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             }
         },
         SchedulerType::RoundRobin,
-    );
+    )
+    .await;
 
-    let _ = spawn(
+    spawn(
         async move {
             let mut prev = 0;
             loop {
@@ -76,7 +78,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             }
         },
         SchedulerType::RoundRobin,
-    );
+    )
+    .await;
 
     Ok(())
 }

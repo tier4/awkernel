@@ -5,6 +5,7 @@ extern crate alloc;
 mod anydict;
 mod delay;
 mod delta_list;
+pub mod join_handle;
 pub mod never_return;
 pub mod pubsub;
 mod ringq;
@@ -15,13 +16,11 @@ pub mod timeout_call;
 pub mod yield_task;
 
 pub use futures::channel;
+use join_handle::JoinHandle;
 
 use crate::scheduler::SchedulerType;
 use core::time::Duration;
-use futures::{
-    channel::oneshot::{self, Canceled},
-    Future,
-};
+use futures::{channel::oneshot, Future};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -53,7 +52,7 @@ pub async fn forever() {
 pub async fn spawn<T>(
     future: impl Future<Output = T> + 'static + Send,
     sched_type: SchedulerType,
-) -> impl Future<Output = Result<T, Canceled>>
+) -> JoinHandle<T>
 where
     T: Sync + Send + 'static,
 {
@@ -68,5 +67,5 @@ where
         sched_type,
     );
 
-    rx
+    JoinHandle::new(rx)
 }
