@@ -15,11 +15,14 @@ acpi = "4.1"
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
-features = ["unwinder", "panic"]
+features = ["unwinder", "panic", "personality"]
 
 [dependencies.libc]
 version = "0.2"
 optional = true
+
+[dependencies.userland]
+path = "../userland"
 
 [dependencies.t4os_async_lib]
 path = "../t4os_async_lib"
@@ -41,9 +44,9 @@ libc = "0.2"
 
 [features]
 default = []
-no_std_unwinding = ["unwinding/fde-static", "unwinding/personality"]
-x86 = ["unwinding/fde-static", "unwinding/personality"]
+no_std_unwinding = ["unwinding/fde-static"]
+x86 = ["no_std_unwinding"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
 raspi = []
-linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl", "unwinding/personality"]
+linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl"]
