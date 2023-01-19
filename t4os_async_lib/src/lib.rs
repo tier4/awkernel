@@ -2,9 +2,6 @@
 
 extern crate alloc;
 
-use core::time::Duration;
-use futures::{channel::oneshot, Future};
-
 mod anydict;
 mod delay;
 mod delta_list;
@@ -20,6 +17,11 @@ pub mod yield_task;
 pub use futures::channel;
 
 use crate::scheduler::SchedulerType;
+use core::time::Duration;
+use futures::{
+    channel::oneshot::{self, Canceled},
+    Future,
+};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -51,7 +53,7 @@ pub async fn forever() {
 pub async fn spawn<T>(
     future: impl Future<Output = T> + 'static + Send,
     sched_type: SchedulerType,
-) -> Option<T>
+) -> impl Future<Output = Result<T, Canceled>>
 where
     T: Sync + Send + 'static,
 {
@@ -66,5 +68,5 @@ where
         sched_type,
     );
 
-    rx.await.ok()
+    rx
 }
