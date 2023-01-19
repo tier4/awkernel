@@ -221,10 +221,10 @@ pub fn run(cpu_id: usize) {
                 }
             }
         } else {
-            #[cfg(feature = "linux")]
+            #[cfg(target_os = "linux")]
             wait_microsec(10);
 
-            #[cfg(not(feature = "linux"))]
+            #[cfg(not(target_os = "linux"))]
             wait_microsec(1);
         }
     }
