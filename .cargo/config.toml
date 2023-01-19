@@ -4,7 +4,8 @@ raspi3 = "build --package t4os --no-default-features --features raspi3 --target 
 raspi4 = "build --package t4os --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 linux = "build --package t4os --no-default-features --features linux"
 
-test_t4os_lib = "test --package t4os_lib --no-default-features --features linux"
+test_t4os_lib = "test --package t4os_lib --no-default-features"
+test_t4os_async_lib = "test --package t4os_async_lib --no-default-features"
 
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]

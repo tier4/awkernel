@@ -90,6 +90,7 @@ run-linux:
 
 test: FORCE
 	cargo test_t4os_lib
+	cargo test_t4os_async_lib
 
 ## Clean
 

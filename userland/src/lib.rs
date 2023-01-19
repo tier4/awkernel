@@ -7,9 +7,8 @@ use core::{
 use t4os_async_lib::{
     pubsub::{create_publisher, create_subscriber, Attribute},
     scheduler::SchedulerType,
-    spawn,
+    spawn, uptime,
 };
-use t4os_lib::delay::uptime;
 
 extern crate alloc;
 

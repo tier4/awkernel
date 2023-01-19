@@ -18,7 +18,7 @@ features = ["alloc", "async-await", "cfg-target-has-atomic"]
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
-features = ["unwinder", "panic", "personality"]
+features = ["panic"]
 
 [dependencies.t4os_lib]
 path = "../t4os_lib"

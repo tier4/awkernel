@@ -10,6 +10,3 @@ log = "0.4"
 
 [dependencies.t4os_async_lib]
 path = "../t4os_async_lib"
-
-[dependencies.t4os_lib]
-path = "../t4os_lib"
