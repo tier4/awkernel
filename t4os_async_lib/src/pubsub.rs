@@ -10,7 +10,10 @@ use alloc::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
-use core::task::{Poll, Waker};
+use core::{
+    task::{Poll, Waker},
+    time::Duration,
+};
 use futures::Future;
 use pin_project_lite::pin_project;
 use synctools::{
@@ -90,6 +93,21 @@ impl<T> InnerSubscriber<T> {
             closed: false,
         }
     }
+
+    fn garbage_collect(&mut self, lifespan: &Lifespan) {
+        if let Lifespan::Span(lifespan) = lifespan {
+            let span = lifespan.as_micros();
+            loop {
+                if let Some(head) = self.queue.head() {
+                    if uptime() - head.timestamp > span as u64 {
+                        self.queue.pop();
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+    }
 }
 
 #[must_use = "use `.await` to receive"]
@@ -110,6 +128,8 @@ impl<'a, T: Clone> Future for Receiver<'a, T> {
         if let Some(waker) = inner.waker_publishers.pop_front() {
             waker.wake();
         }
+
+        inner.garbage_collect(&self.subscriber.subscribers.attribute.lifespan);
 
         if let Some(data) = inner.queue.pop() {
             Poll::Ready(data)
@@ -227,6 +247,8 @@ where
                             return Poll::Pending;
                         }
 
+                        inner.garbage_collect(&this.publisher.subscribers.attribute.lifespan);
+
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
                             data: data.clone(),
@@ -280,11 +302,13 @@ pub fn create_pubsub<T: Clone>(
     queue_size: usize,
     flow_control: bool,
     transient_local: bool,
+    lifespan: Lifespan,
 ) -> (Publisher<T>, Subscriber<T>) {
     let attribute = Attribute {
         queue_size,
         flow_control,
         transient_local,
+        lifespan,
     };
 
     let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
@@ -340,6 +364,17 @@ pub struct Attribute {
 
     /// Store messages when publishing, and late joining subscribers can receive the latest messages.
     transient_local: bool,
+
+    /// Indicate the lifespan of a message.
+    /// `Lifespan::Span(Duration)` means messages will be expired and discarded after the span of `Duration`.
+    /// `Lifespan::Permanent` means messages are valid forever.
+    lifespan: Lifespan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Lifespan {
+    Span(Duration),
+    Permanent,
 }
 
 #[derive(Clone)]
@@ -555,11 +590,17 @@ fn destroy_subscriber<T: 'static + Clone>(subscriber: &mut Subscriber<T>) {
 }
 
 impl Attribute {
-    pub fn new(queue_size: usize, flow_control: bool, transient_local: bool) -> Self {
+    pub fn new(
+        queue_size: usize,
+        flow_control: bool,
+        transient_local: bool,
+        lifespan: Lifespan,
+    ) -> Self {
         Self {
             queue_size,
             flow_control,
             transient_local,
+            lifespan,
         }
     }
 }
@@ -570,6 +611,7 @@ impl Default for Attribute {
             queue_size: 10,
             flow_control: true,
             transient_local: false,
+            lifespan: Lifespan::Permanent,
         }
     }
 }

@@ -53,6 +53,10 @@ impl<T> RingQ<T> {
         }
     }
 
+    pub fn head(&self) -> &Option<T> {
+        &self.queue[self.head]
+    }
+
     pub fn iter<'a>(&'a self) -> IterRingQ<'a, T> {
         IterRingQ {
             ringq: self,
