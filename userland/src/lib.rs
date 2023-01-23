@@ -52,9 +52,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         async move {
             loop {
                 let data = subscriber1.recv().await;
-                publisher2.send(data).await;
+                publisher2.send(data.data).await;
 
-                log::debug!("received {data}");
+                log::debug!("received {}", data.data);
 
                 count1.fetch_add(1, Ordering::Relaxed);
             }

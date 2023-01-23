@@ -1,3 +1,5 @@
+use crate::delay::uptime;
+
 use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
@@ -16,11 +18,17 @@ use synctools::{
     rwlock::RwLock,
 };
 
+#[derive(Clone)]
+pub struct Data<T> {
+    pub timestamp: u64,
+    pub data: T,
+}
+
 pub struct Publisher<T: 'static> {
     subscribers: Subscribers<T>,
 }
 
-pub struct Subscriber<T: 'static> {
+pub struct Subscriber<T: 'static + Clone> {
     inner: ArcInner<T>,
     subscribers: Subscribers<T>,
 }
@@ -28,7 +36,7 @@ pub struct Subscriber<T: 'static> {
 struct Subscribers<T> {
     id_to_subscriber: Arc<RwLock<BTreeMap<usize, ArcInner<T>>>>,
     name: Cow<'static, str>,
-    sender_buf: Option<Arc<MCSLock<RingQ<T>>>>,
+    sender_buf: Option<Arc<MCSLock<RingQ<Data<T>>>>>,
     attribute: Attribute,
 }
 
@@ -65,7 +73,7 @@ fn inner_id<T>(inner: &ArcInner<T>) -> usize {
 }
 
 struct InnerSubscriber<T> {
-    queue: RingQ<T>,
+    queue: RingQ<Data<T>>,
     waker_publishers: VecDeque<Waker>,
     waker_subscriber: Option<Waker>,
     closed: bool,
@@ -85,12 +93,12 @@ impl<T> InnerSubscriber<T> {
 }
 
 #[must_use = "use `.await` to receive"]
-struct Receiver<'a, T: 'static> {
+struct Receiver<'a, T: 'static + Clone> {
     subscriber: &'a Subscriber<T>,
 }
 
-impl<'a, T> Future for Receiver<'a, T> {
-    type Output = T;
+impl<'a, T: Clone> Future for Receiver<'a, T> {
+    type Output = Data<T>;
 
     fn poll(
         self: core::pin::Pin<&mut Self>,
@@ -112,8 +120,8 @@ impl<'a, T> Future for Receiver<'a, T> {
     }
 }
 
-impl<T> Subscriber<T> {
-    pub async fn recv(&self) -> T {
+impl<T: Clone> Subscriber<T> {
+    pub async fn recv(&self) -> Data<T> {
         let receiver = Receiver { subscriber: self };
         receiver.await
     }
@@ -123,7 +131,7 @@ impl<T> Subscriber<T> {
     }
 }
 
-impl<T> Drop for Subscriber<T> {
+impl<T: Clone> Drop for Subscriber<T> {
     fn drop(&mut self) {
         destroy_subscriber::<T>(self);
     }
@@ -141,7 +149,8 @@ pin_project! {
         publisher: &'a Publisher<T>,
         data: Option<T>,
         subscribers: VecDeque<ArcInner<T>>,
-        state: SenderState
+        state: SenderState,
+        timestamp: u64,
     }
 }
 
@@ -158,6 +167,7 @@ impl<'a, T> Sender<'a, T> {
             data: Some(data),
             subscribers: Default::default(),
             state: SenderState::Start,
+            timestamp: uptime(),
         }
     }
 }
@@ -187,7 +197,10 @@ where
                         if let Some(buf) = &this.publisher.subscribers.sender_buf {
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
-                            if let Err(data) = guard.push(data.clone()) {
+                            if let Err(data) = guard.push(Data {
+                                timestamp: uptime(),
+                                data: data.clone(),
+                            }) {
                                 guard.pop();
                                 let _ = guard.push(data);
                             }
@@ -214,7 +227,10 @@ where
                             return Poll::Pending;
                         }
 
-                        match inner.queue.push(data.clone()) {
+                        match inner.queue.push(Data {
+                            timestamp: *this.timestamp,
+                            data: data.clone(),
+                        }) {
                             Ok(_) => {
                                 // Wake the subscriber up.
                                 if let Some(waker) = inner.waker_subscriber.take() {
@@ -260,7 +276,7 @@ where
     }
 }
 
-pub fn create_pubsub<T>(
+pub fn create_pubsub<T: Clone>(
     queue_size: usize,
     flow_control: bool,
     transient_local: bool,
@@ -289,7 +305,7 @@ pub fn create_pubsub<T>(
     (publisher, subscriber)
 }
 
-impl<T> Clone for Subscriber<T> {
+impl<T: Clone> Clone for Subscriber<T> {
     fn clone(&self) -> Self {
         let inner = Arc::new(MCSLock::new(InnerSubscriber::new(
             self.subscribers.attribute.queue_size,
@@ -471,7 +487,7 @@ impl PubSub {
         }
     }
 
-    fn destroy_subscriber<T: 'static>(&mut self, subscriber: &mut Subscriber<T>) {
+    fn destroy_subscriber<T: 'static + Clone>(&mut self, subscriber: &mut Subscriber<T>) {
         {
             let mut guard = subscriber.subscribers.id_to_subscriber.write();
             guard.remove(&subscriber.id());
@@ -532,7 +548,7 @@ fn destroy_publisher<T: 'static>(publisher: &Publisher<T>) {
     guard.destroy_publisher(publisher);
 }
 
-fn destroy_subscriber<T: 'static>(subscriber: &mut Subscriber<T>) {
+fn destroy_subscriber<T: 'static + Clone>(subscriber: &mut Subscriber<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_subscriber(subscriber);
