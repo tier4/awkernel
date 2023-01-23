@@ -15,7 +15,8 @@ acpi = "4.1"
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
-features = ["unwinder", "panic", "personality"]
+optional = true
+features = ["unwinder", "panic", "personality", "fde-static"]
 
 [dependencies.libc]
 version = "0.2"
@@ -30,23 +31,31 @@ default-features = false
 
 [dependencies.t4os_lib]
 path = "../t4os_lib"
+default-features = false
 
-[target.'cfg(all(target_arch = "aarch64", not(target_os = "linux")))'.dependencies]
-t4os_aarch64 = { path = "../t4os_aarch64" }
+[dependencies.t4os_aarch64]
+path = "../t4os_aarch64"
+optional = true
 
-[target.'cfg(all(target_arch = "x86_64", not(target_os = "linux")))'.dependencies]
-x86_64 = "0.14"
-bootloader_api = "0.11"
-uart_16550 = "0.2"
+[dependencies.x86_64]
+version = "0.14"
+optional = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+[dependencies.bootloader_api]
+version = "0.11"
+optional = true
+
+[dependencies.uart_16550]
+version = "0.2"
+optional = true
 
 [features]
-default = []
-no_std_unwinding = ["unwinding/fde-static"]
-x86 = ["no_std_unwinding"]
+default = ["x86"]
+no_std_unwinding = ["dep:unwinding"]
+x86 = ["no_std_unwinding", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
-raspi = []
-linux = ["unwinding/panic-handler", "unwinding/fde-phdr-dl"]
+raspi = ["aarch64"]
+aarch64 = ["dep:t4os_aarch64"]
+linux = ["std", "t4os_async_lib/std", "dep:libc"]
+std = []

@@ -7,24 +7,28 @@
 #![feature(alloc_error_handler)]
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
-#![no_std]
 #![no_main]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
-use alloc::boxed::Box;
-use core::{alloc::Layout, fmt::Debug};
+use core::fmt::Debug;
 use kernel_info::KernelInfo;
 use t4os_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
-use t4os_lib::delay::{pause, wait_forever};
+use t4os_lib::delay::pause;
 
 mod arch;
 mod config;
-mod heap;
 mod kernel_info;
+
+#[cfg(not(feature = "std"))]
+mod heap;
+
+#[cfg(not(feature = "std"))]
+mod nostd;
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.
@@ -51,20 +55,4 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Non-primary CPUs.
         task::run(kernel_info.cpu_id); // Execute tasks.
     }
-}
-
-#[alloc_error_handler]
-fn on_oom(_layout: Layout) -> ! {
-    unwinding::panic::begin_panic(Box::new(()));
-    wait_forever();
-}
-
-#[cfg(all(
-    any(target_arch = "x86_64", target_arch = "aarch64"),
-    not(feature = "linux")
-))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    unwinding::panic::begin_panic(Box::new(()));
-    wait_forever();
 }

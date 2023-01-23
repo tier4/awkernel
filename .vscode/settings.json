@@ -1,30 +1,39 @@
 {
-    // "rust-analyzer.cargo.target": "x86_64-rrtos.json",
+    // For AArch64
+    // "rust-analyzer.cargo.buildScripts.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=aarch64-kernel.json",
+    // ],
+    // "rust-analyzer.check.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=aarch64-kernel.json",
+    // ],
+    // For x86_64
+    // "rust-analyzer.cargo.buildScripts.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=x86_64-kernel.json",
+    // ],
+    // "rust-analyzer.check.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=x86_64-kernel.json",
+    // ],
+    // For Linux
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
         "+nightly",
-        "check",
-        "--quiet",
-        "--workspace",
-        "--message-format=json",
+        "check_std",
     ],
-    "rust-analyzer.cargo.noDefaultFeatures": true,
-    // For Raspberry Pi 3
-    // "rust-analyzer.cargo.features": [
-    //     "aarch64",
-    //     "raspi3"
-    // ],
-    // For Raspberry Pi 4
-    // "rust-analyzer.cargo.features": [
-    //     "aarch64",
-    //     "raspi4"
-    // ],
-    // For x86_64
-    // "rust-analyzer.cargo.features": [
-    //     "x86",
-    // ],
-    // For Linux
-    "rust-analyzer.cargo.features": [
-        "linux",
+    "rust-analyzer.check.overrideCommand": [
+        "cargo",
+        "+nightly",
+        "check_std",
     ],
 }

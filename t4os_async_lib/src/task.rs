@@ -4,6 +4,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
 use core::{
+    any::Any,
     ptr::{read_volatile, write_volatile},
     task::{Context, Poll},
 };
@@ -195,7 +196,7 @@ pub fn run(cpu_id: usize) {
 
             unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
-            match unwinding::panic::catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
+            match catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
                 Ok(Poll::Pending) => {
                     let mut node = MCSNode::new();
                     let mut info = task.info.lock(&mut node);
@@ -228,4 +229,23 @@ pub fn run(cpu_id: usize) {
             wait_microsec(1);
         }
     }
+}
+
+#[cfg(feature = "std")]
+fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+where
+    F: FnOnce() -> R,
+{
+    use core::panic::AssertUnwindSafe;
+
+    std::panic::catch_unwind(AssertUnwindSafe(f))
+}
+
+#[cfg(not(feature = "std"))]
+fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+where
+    F: FnOnce() -> R,
+{
+    use core::panic::AssertUnwindSafe;
+    unwinding::panic::catch_unwind(AssertUnwindSafe(f))
 }

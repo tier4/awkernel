@@ -5,7 +5,7 @@
 //! For example, there are asynchronous APIs for publish and subscribe
 //! communications.
 
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 

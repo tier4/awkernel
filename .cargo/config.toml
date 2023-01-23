@@ -7,5 +7,8 @@ linux = "build --package t4os --no-default-features --features linux"
 test_t4os_lib = "test --package t4os_lib --no-default-features"
 test_t4os_async_lib = "test --package t4os_async_lib --no-default-features"
 
+check_no_std = "check --package t4os -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
+check_std = "check --package t4os --quiet --message-format=json"
+
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
