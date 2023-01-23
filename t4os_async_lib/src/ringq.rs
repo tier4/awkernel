@@ -52,4 +52,31 @@ impl<T> RingQ<T> {
             result
         }
     }
+
+    pub fn iter<'a>(&'a self) -> IterRingQ<'a, T> {
+        IterRingQ {
+            ringq: self,
+            pos: self.head,
+        }
+    }
+}
+
+pub struct IterRingQ<'a, T> {
+    ringq: &'a RingQ<T>,
+    pos: usize,
+}
+
+impl<'a, T> Iterator for IterRingQ<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.ringq.tail == self.pos {
+            None
+        } else if let Some(result) = &self.ringq.queue[self.pos] {
+            self.pos += 1;
+            Some(result)
+        } else {
+            None
+        }
+    }
 }

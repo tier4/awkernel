@@ -25,19 +25,37 @@ pub struct Subscriber<T: 'static> {
     subscribers: Subscribers<T>,
 }
 
-#[derive(Clone)]
 struct Subscribers<T> {
     id_to_subscriber: Arc<RwLock<BTreeMap<usize, ArcInner<T>>>>,
     name: Cow<'static, str>,
+    sender_buf: Option<Arc<MCSLock<RingQ<T>>>>,
     attribute: Attribute,
 }
 
 impl<T> Subscribers<T> {
     fn new(name: Cow<'static, str>, attribute: Attribute) -> Self {
+        let sender_buf = if attribute.transient_local {
+            Some(Arc::new(MCSLock::new(RingQ::new(attribute.queue_size))))
+        } else {
+            None
+        };
+
         Self {
             id_to_subscriber: Arc::new(RwLock::new(Default::default())),
             name,
+            sender_buf,
             attribute,
+        }
+    }
+}
+
+impl<T> Clone for Subscribers<T> {
+    fn clone(&self) -> Self {
+        Self {
+            id_to_subscriber: self.id_to_subscriber.clone(),
+            name: self.name.clone(),
+            sender_buf: self.sender_buf.clone(),
+            attribute: self.attribute.clone(),
         }
     }
 }
@@ -165,6 +183,17 @@ where
                         this.subscribers.push_back(x.clone());
                     }
 
+                    if this.publisher.subscribers.attribute.transient_local {
+                        if let Some(buf) = &this.publisher.subscribers.sender_buf {
+                            let mut node = MCSNode::new();
+                            let mut guard = buf.lock(&mut node);
+                            if let Err(data) = guard.push(data.clone()) {
+                                guard.pop();
+                                let _ = guard.push(data);
+                            }
+                        }
+                    }
+
                     *this.state = SenderState::Wait;
                 }
                 SenderState::Wait => {
@@ -192,13 +221,19 @@ where
                                     waker.wake();
                                 }
                             }
-                            Err(_) => {
-                                // If there are no room in the queue to send data, enqueue itself to `waker_publishers`.
-                                inner.waker_publishers.push_back(cx.waker().clone());
-                                inner.unlock();
+                            Err(data) => {
+                                if this.publisher.subscribers.attribute.flow_control {
+                                    // If there are no room in the queue to send data, enqueue itself to `waker_publishers`.
+                                    inner.waker_publishers.push_back(cx.waker().clone());
+                                    inner.unlock();
 
-                                this.subscribers.push_front(subscriber);
-                                return Poll::Pending;
+                                    this.subscribers.push_front(subscriber);
+                                    return Poll::Pending;
+                                } else {
+                                    // If there are no room in the queue, remove the oldest one.
+                                    inner.queue.pop();
+                                    let _ = inner.queue.push(data);
+                                }
                             }
                         }
                     }
@@ -225,8 +260,16 @@ where
     }
 }
 
-pub fn create_pubsub<T>(queue_size: usize) -> (Publisher<T>, Subscriber<T>) {
-    let attribute = Attribute { queue_size };
+pub fn create_pubsub<T>(
+    queue_size: usize,
+    flow_control: bool,
+    transient_local: bool,
+) -> (Publisher<T>, Subscriber<T>) {
+    let attribute = Attribute {
+        queue_size,
+        flow_control,
+        transient_local,
+    };
 
     let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
     let inner = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
@@ -238,11 +281,7 @@ pub fn create_pubsub<T>(queue_size: usize) -> (Publisher<T>, Subscriber<T>) {
 
     let subscriber = Subscriber {
         inner,
-        subscribers: Subscribers {
-            id_to_subscriber: subscribers.id_to_subscriber.clone(),
-            name: subscribers.name.clone(),
-            attribute: subscribers.attribute.clone(),
-        },
+        subscribers: subscribers.clone(),
     };
 
     let publisher = Publisher { subscribers };
@@ -261,20 +300,30 @@ impl<T> Clone for Subscriber<T> {
 
         Self {
             inner,
-            subscribers: Subscribers {
-                id_to_subscriber: self.subscribers.id_to_subscriber.clone(),
-                name: self.subscribers.name.clone(),
-                attribute: self.subscribers.attribute.clone(),
-            },
+            subscribers: self.subscribers.clone(),
         }
     }
 }
 
 static PUBLISH_SUBSCRIBE: MCSLock<PubSub> = MCSLock::new(PubSub::new());
 
+/// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
+    /// Queue size.
     queue_size: usize,
+
+    /// If `flow_control` is `true` and a subscriber's queue is full,
+    /// a publisher will block until the queue is not full.
+    /// It is good for reliability, but bad for real-time.
+    ///
+    /// If `flow_control` is `false` and a subscriber's queue is full,
+    /// the oldest message will discarded and pushed the new message to the queue.
+    /// It is good for real-time, but bad for reliability.
+    flow_control: bool,
+
+    /// Store messages when publishing, and late joining subscribers can receive the latest messages.
+    transient_local: bool,
 }
 
 #[derive(Clone)]
@@ -306,6 +355,7 @@ impl PubSub {
                 let subscribers2 = Subscribers {
                     id_to_subscriber: subscribers.id_to_subscriber.clone(),
                     name: name.clone(),
+                    sender_buf: subscribers.sender_buf.clone(),
                     attribute,
                 };
 
@@ -323,11 +373,7 @@ impl PubSub {
                     inner.num_publisher += 1;
 
                     Ok(Publisher {
-                        subscribers: Subscribers {
-                            id_to_subscriber: inner.subscribers.id_to_subscriber.clone(),
-                            name: inner.subscribers.name.clone(),
-                            attribute,
-                        },
+                        subscribers: inner.subscribers.clone(),
                     })
                 } else {
                     Err("incompatible attribute")
@@ -336,7 +382,7 @@ impl PubSub {
         }
     }
 
-    fn create_subscriber<T: 'static>(
+    fn create_subscriber<T: 'static + Clone>(
         &mut self,
         name: Cow<'static, str>,
         attribute: Attribute,
@@ -354,11 +400,7 @@ impl PubSub {
                     guard.insert(inner_id(&inner_sub), inner_sub.clone());
                 }
 
-                let subscribers2 = Subscribers {
-                    id_to_subscriber: subscribers.id_to_subscriber.clone(),
-                    name: name.clone(),
-                    attribute: attribute.clone(),
-                };
+                let subscribers2 = subscribers.clone();
 
                 // Create `InnerPubSub`.
                 let inner_pubsub = InnerPubSub {
@@ -378,8 +420,21 @@ impl PubSub {
             AnyDictResult::Ok(inner) => {
                 if inner.subscribers.attribute == attribute {
                     // Create `InnerSubscriber`.
-                    let inner_sub =
-                        Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
+                    let mut inner_sub = InnerSubscriber::new(attribute.queue_size);
+
+                    // Insert sent data to the queue.
+                    if attribute.transient_local {
+                        if let Some(buf) = &inner.subscribers.sender_buf {
+                            let mut node = MCSNode::new();
+                            let guard = buf.lock(&mut node);
+                            for data in guard.iter() {
+                                let _ = inner_sub.queue.push(data.clone());
+                            }
+                        }
+                    }
+
+                    let inner_sub = Arc::new(MCSLock::new(inner_sub));
+
                     {
                         let mut guard = inner.subscribers.id_to_subscriber.write();
                         guard.insert(inner_id(&inner_sub), inner_sub.clone());
@@ -388,11 +443,7 @@ impl PubSub {
                     // Create `Subscriber` and return it.
                     Ok(Subscriber {
                         inner: inner_sub,
-                        subscribers: Subscribers {
-                            id_to_subscriber: inner.subscribers.id_to_subscriber.clone(),
-                            name: inner.subscribers.name.clone(),
-                            attribute: inner.subscribers.attribute.clone(),
-                        },
+                        subscribers: inner.subscribers.clone(),
                     })
                 } else {
                     Err("incompatible attribute")
@@ -466,7 +517,7 @@ pub fn create_publisher<T: 'static>(
     guard.create_publisher(name, attribute)
 }
 
-pub fn create_subscriber<T: 'static>(
+pub fn create_subscriber<T: 'static + Clone>(
     name: Cow<'static, str>,
     attribute: Attribute,
 ) -> Result<Subscriber<T>, &'static str> {
@@ -488,7 +539,21 @@ fn destroy_subscriber<T: 'static>(subscriber: &mut Subscriber<T>) {
 }
 
 impl Attribute {
-    pub fn new(queue_size: usize) -> Self {
-        Self { queue_size }
+    pub fn new(queue_size: usize, flow_control: bool, transient_local: bool) -> Self {
+        Self {
+            queue_size,
+            flow_control,
+            transient_local,
+        }
+    }
+}
+
+impl Default for Attribute {
+    fn default() -> Self {
+        Self {
+            queue_size: 10,
+            flow_control: true,
+            transient_local: false,
+        }
     }
 }

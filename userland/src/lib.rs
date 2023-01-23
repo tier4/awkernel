@@ -13,11 +13,15 @@ use t4os_async_lib::{
 extern crate alloc;
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    let publisher1 = create_publisher::<u64>("1->2".into(), Attribute::new(1)).unwrap();
-    let publisher2 = create_publisher::<u64>("2->1".into(), Attribute::new(1)).unwrap();
+    let publisher1 =
+        create_publisher::<u64>("1->2".into(), Attribute::new(1, true, false)).unwrap();
+    let publisher2 =
+        create_publisher::<u64>("2->1".into(), Attribute::new(1, true, false)).unwrap();
 
-    let subscriber1 = create_subscriber::<u64>("1->2".into(), Attribute::new(1)).unwrap();
-    let subscriber2 = create_subscriber::<u64>("2->1".into(), Attribute::new(1)).unwrap();
+    let subscriber1 =
+        create_subscriber::<u64>("1->2".into(), Attribute::new(1, true, false)).unwrap();
+    let subscriber2 =
+        create_subscriber::<u64>("2->1".into(), Attribute::new(1, true, false)).unwrap();
 
     let count1 = Arc::new(AtomicU64::new(0));
     let count2 = count1.clone();
