@@ -1,10 +1,38 @@
-use crate::delay::uptime;
+//! Publish and subscribe communication.
+//!
+//! # Example
+//!
+//! ```
+//! use core::time::Duration;
+//! use t4os_async_lib::{pubsub::{create_publisher, create_subscriber, Attribute}, sleep};
+//!
+//! let publisher = create_publisher::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
+//! let subscriber = create_subscriber::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
+//!
+//! // Publisher task.
+//! let _ = async move {
+//!     let mut i = 0;
+//!     loop {
+//!         publisher.send(i).await;
+//!         i += 1;
+//!         sleep(Duration::from_secs(1)).await;
+//!     }
+//! };
+//!
+//! // Subscriber task.
+//! let _ = async move {
+//!     loop {
+//!         let data = subscriber.recv().await;
+//!     }
+//! };
+//! ```
 
 use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
     ringq::RingQ,
 };
+use crate::delay::uptime;
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
@@ -21,16 +49,19 @@ use synctools::{
     rwlock::RwLock,
 };
 
+/// Data nd timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
     pub timestamp: u64,
     pub data: T,
 }
 
+/// Publisher.
 pub struct Publisher<T: 'static> {
     subscribers: Subscribers<T>,
 }
 
+/// Subscriber.
 pub struct Subscriber<T: 'static + Clone> {
     inner: ArcInner<T>,
     subscribers: Subscribers<T>,
@@ -60,6 +91,7 @@ impl<T> Subscribers<T> {
     }
 }
 
+/// Subscriber.
 impl<T> Clone for Subscribers<T> {
     fn clone(&self) -> Self {
         Self {
@@ -214,6 +246,7 @@ where
                     }
 
                     if this.publisher.subscribers.attribute.transient_local {
+                        // Store data to the send buffer.
                         if let Some(buf) = &this.publisher.subscribers.sender_buf {
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
@@ -221,6 +254,7 @@ where
                                 timestamp: uptime(),
                                 data: data.clone(),
                             }) {
+                                // If the send buffer is full, then remove the oldest one and store again.
                                 guard.pop();
                                 let _ = guard.push(data);
                             }
@@ -298,19 +332,21 @@ where
     }
 }
 
-pub fn create_pubsub<T: Clone>(
-    queue_size: usize,
-    flow_control: bool,
-    transient_local: bool,
-    lifespan: Lifespan,
-) -> (Publisher<T>, Subscriber<T>) {
-    let attribute = Attribute {
-        queue_size,
-        flow_control,
-        transient_local,
-        lifespan,
-    };
-
+/// Create a anonymous publisher and a anonymous subscriber.
+/// This channel works as a channel of multiple producers and multiple consumers.
+///
+/// # Example
+///
+/// ```
+/// use t4os_async_lib::pubsub::{create_pubsub, Attribute};
+///
+/// let _ = async {
+///     let (publisher, subscriber) = create_pubsub(Attribute::default());
+///     publisher.send(10).await;
+///     let data = subscriber.recv().await;
+/// };
+/// ```
+pub fn create_pubsub<T: Clone>(attribute: Attribute) -> (Publisher<T>, Subscriber<T>) {
     let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
     let inner = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
 
@@ -351,7 +387,7 @@ static PUBLISH_SUBSCRIBE: MCSLock<PubSub> = MCSLock::new(PubSub::new());
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribute {
     /// Queue size.
-    queue_size: usize,
+    pub queue_size: usize,
 
     /// If `flow_control` is `true` and a subscriber's queue is full,
     /// a publisher will block until the queue is not full.
@@ -360,21 +396,22 @@ pub struct Attribute {
     /// If `flow_control` is `false` and a subscriber's queue is full,
     /// the oldest message will discarded and pushed the new message to the queue.
     /// It is good for real-time, but bad for reliability.
-    flow_control: bool,
+    pub flow_control: bool,
 
     /// Store messages when publishing, and late joining subscribers can receive the latest messages.
-    transient_local: bool,
+    pub transient_local: bool,
 
     /// Indicate the lifespan of a message.
-    /// `Lifespan::Span(Duration)` means messages will be expired and discarded after the span of `Duration`.
-    /// `Lifespan::Permanent` means messages are valid forever.
-    lifespan: Lifespan,
+    pub lifespan: Lifespan,
 }
 
+/// `Lifespan` represent how log a message is valid.
+/// `Lifespan::Permanent` means messages are valid forever.
+/// `Lifespan::Span(Duration)` means messages will be expired and discarded after the span of `Duration`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Lifespan {
-    Span(Duration),
     Permanent,
+    Span(Duration),
 }
 
 #[derive(Clone)]
@@ -383,6 +420,7 @@ struct InnerPubSub<T> {
     num_publisher: u64,
 }
 
+/// Manager of publishers and subscribers.
 struct PubSub {
     name_to_inner: AnyDict,
 }
@@ -559,6 +597,18 @@ impl PubSub {
     }
 }
 
+/// Create a publisher.
+///
+/// # Example
+///
+/// ```
+/// use t4os_async_lib::pubsub::{create_publisher, Attribute};
+///
+/// let _ = async {
+///     let publisher = create_publisher("name".into(), Attribute::default()).unwrap();
+///     publisher.send(100).await;
+/// };
+/// ```
 pub fn create_publisher<T: 'static>(
     name: Cow<'static, str>,
     attribute: Attribute,
@@ -568,6 +618,18 @@ pub fn create_publisher<T: 'static>(
     guard.create_publisher(name, attribute)
 }
 
+/// Create a subscriber.
+///
+/// # Example
+///
+/// ```
+/// use t4os_async_lib::pubsub::{create_subscriber, Attribute};
+///
+/// let _ = async {
+///     let subscriber = create_subscriber::<u64>("name".into(), Attribute::default()).unwrap();
+///     let data = subscriber.recv().await;
+/// };
+/// ```
 pub fn create_subscriber<T: 'static + Clone>(
     name: Cow<'static, str>,
     attribute: Attribute,
@@ -577,12 +639,14 @@ pub fn create_subscriber<T: 'static + Clone>(
     guard.create_subscriber(name, attribute)
 }
 
+/// Destroy a publisher.
 fn destroy_publisher<T: 'static>(publisher: &Publisher<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_publisher(publisher);
 }
 
+/// Destroy a subscriber.
 fn destroy_subscriber<T: 'static + Clone>(subscriber: &mut Subscriber<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
@@ -590,6 +654,7 @@ fn destroy_subscriber<T: 'static + Clone>(subscriber: &mut Subscriber<T>) {
 }
 
 impl Attribute {
+    /// Create a new attribute.
     pub fn new(
         queue_size: usize,
         flow_control: bool,
@@ -606,6 +671,19 @@ impl Attribute {
 }
 
 impl Default for Attribute {
+    /// The default value of `Attribute`.
+    ///
+    /// ```
+    /// use t4os_async_lib::pubsub::{Attribute, Lifespan};
+    ///
+    /// // Default value.
+    /// Attribute {
+    ///     queue_size: 10,
+    ///     flow_control: true,
+    ///     transient_local: false,
+    ///     lifespan: Lifespan::Permanent,
+    /// };
+    /// ```
     fn default() -> Self {
         Self {
             queue_size: 10,
