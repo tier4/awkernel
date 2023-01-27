@@ -76,7 +76,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
     super::serial::init_logger(); // Initialize logger.
 
-    for region in boot_info.memory_regions.into_iter() {
+    for region in boot_info.memory_regions.iter() {
         log::debug!("{:?}", region);
     }
 
@@ -101,11 +101,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     t4os_lib::arch::x86_64::init(&acpi, offset);
 
     // Initialize APIC.
-    match super::apic::new(offset) {
-        TypeApic::Xapic(apic) => {
-            start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
-        }
-        _ => (),
+    if let TypeApic::Xapic(apic) = super::apic::new(offset) {
+        start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
     }
 
     let kernel_info = KernelInfo {
@@ -185,7 +182,7 @@ fn start_non_primary_cpus(
 
     unsafe {
         // Write non_primary_kernel_main.
-        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as u64);
+        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
 
         // Write CR3.
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);

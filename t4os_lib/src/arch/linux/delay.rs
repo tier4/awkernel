@@ -12,8 +12,8 @@ impl Delay for ArchDelay {
     fn wait_interrupt() {}
 
     fn wait_microsec(usec: u64) {
-        let tv_sec = usec / 1000_000;
-        let usec = usec - (tv_sec * 1000_000);
+        let tv_sec = usec / 1_000_000;
+        let usec = usec - (tv_sec * 1_000_000);
 
         nanosleep(tv_sec, usec * 1000);
     }
@@ -31,9 +31,9 @@ impl Delay for ArchDelay {
         };
         unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp) };
 
-        let t0 = unsafe { read_volatile(&TIME_START.tv_sec) as u64 } * 1000_000
+        let t0 = unsafe { read_volatile(&TIME_START.tv_sec) as u64 } * 1_000_000
             + unsafe { read_volatile(&TIME_START.tv_nsec) as u64 } / 1000;
-        let t1 = tp.tv_sec as u64 * 1000_000 + tp.tv_nsec as u64 / 1000;
+        let t1 = tp.tv_sec as u64 * 1_000_000 + tp.tv_nsec as u64 / 1000;
 
         if t0 == 0 {
             0

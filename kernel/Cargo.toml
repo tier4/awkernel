@@ -50,7 +50,7 @@ version = "0.2"
 optional = true
 
 [features]
-default = ["x86"]
+default = ["raspi3"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = ["no_std_unwinding", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550"]
 raspi3 = ["raspi", "no_std_unwinding"]

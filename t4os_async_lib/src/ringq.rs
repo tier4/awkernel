@@ -57,7 +57,7 @@ impl<T> RingQ<T> {
         &self.queue[self.head]
     }
 
-    pub fn iter<'a>(&'a self) -> IterRingQ<'a, T> {
+    pub fn iter(&self) -> IterRingQ<T> {
         IterRingQ {
             ringq: self,
             pos: self.head,

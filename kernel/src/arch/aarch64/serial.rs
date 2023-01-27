@@ -1,4 +1,4 @@
-use super::driver::uart::{DevUART, UART};
+use super::driver::uart::{DevUART, Uart};
 use core::fmt::Write;
 use log::Log;
 use synctools::mcs::{MCSLock, MCSNode};

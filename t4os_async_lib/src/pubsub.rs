@@ -129,13 +129,9 @@ impl<T> InnerSubscriber<T> {
     fn garbage_collect(&mut self, lifespan: &Lifespan) {
         if let Lifespan::Span(lifespan) = lifespan {
             let span = lifespan.as_micros();
-            loop {
-                if let Some(head) = self.queue.head() {
-                    if uptime() - head.timestamp > span as u64 {
-                        self.queue.pop();
-                    }
-                } else {
-                    break;
+            while let Some(head) = self.queue.head() {
+                if uptime() - head.timestamp > span as u64 {
+                    self.queue.pop();
                 }
             }
         }

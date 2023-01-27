@@ -28,7 +28,7 @@ pub trait Delay {
 
     /// Wait seconds.
     fn wait_sec(sec: u64) {
-        assert!(sec < u64::MAX / 1000_000);
+        assert!(sec < u64::MAX / 1_000_000);
         Self::wait_microsec(sec * 1000 * 1000);
     }
 

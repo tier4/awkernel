@@ -435,11 +435,11 @@ pub fn init() -> Option<(TTable, TTable)> {
 
     init_sp_el1();
 
-    Some(init_el1(&addr))
+    Some(init_el1(addr))
 }
 
 fn get_mair() -> u64 {
-    (0xFF <<  0) | // AttrIdx=0: normal, IWBWA, OWBWA, NTR
+    0xFF         | // AttrIdx=0: normal, IWBWA, OWBWA, NTR
     (0x04 <<  8) | // AttrIdx=1: device, nGnRE (must be OSH too)
     (0x44 << 16) // AttrIdx=2: non cacheable
 }
@@ -681,7 +681,7 @@ pub fn _tlb_flush_addr(vm_addr: usize) {
 fn init_sp_el1() {
     let stack = get_stack_el1_start();
     for i in 0..NUM_CPU {
-        let addr = stack - (i as u64) * STACK_SIZE + EL1_ADDR_OFFSET;
+        let addr = stack - i * STACK_SIZE + EL1_ADDR_OFFSET;
         unsafe {
             asm!(
                 "msr spsel, #1

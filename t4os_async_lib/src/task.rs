@@ -2,7 +2,12 @@ use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, sync::Arc};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{btree_map, BTreeMap},
+    sync::Arc,
+};
 use core::{
     any::Any,
     ptr::{read_volatile, write_volatile},
@@ -44,7 +49,7 @@ impl TaskList {
             self.tail = Some(task);
         } else {
             self.head = Some(task.clone());
-            self.tail = Some(task.clone());
+            self.tail = Some(task);
         }
     }
 
@@ -127,9 +132,7 @@ impl Tasks {
     ) -> u64 {
         let mut id = self.candidate_id;
         loop {
-            if self.id_to_task.contains_key(&id) {
-                id += 1;
-            } else {
+            if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 let info = MCSLock::new(TaskInfo {
                     _scheduler_type: scheduler_type,
                     state: State::Ready,
@@ -144,10 +147,12 @@ impl Tasks {
                     info,
                 };
 
-                self.id_to_task.insert(id, Arc::new(task));
+                e.insert(Arc::new(task));
                 self.candidate_id += 1;
 
                 return id;
+            } else {
+                id += 1;
             }
         }
     }

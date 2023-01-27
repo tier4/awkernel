@@ -38,7 +38,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
 }
 
 struct Sleep {
-    delta_list: DeltaList<Box<dyn FnOnce() -> ()>>,
+    delta_list: DeltaList<Box<dyn FnOnce()>>,
     base_time: u64,
 }
 
@@ -51,7 +51,7 @@ impl Sleep {
     }
 
     /// `dur` is microseconds
-    fn sleep_task(&mut self, handler: Box<dyn FnOnce() -> ()>, mut dur: u64) {
+    fn sleep_task(&mut self, handler: Box<dyn FnOnce()>, mut dur: u64) {
         let now = uptime();
         if self.delta_list.is_empty() {
             self.base_time = now;
@@ -83,7 +83,7 @@ impl Sleep {
 }
 
 /// `dur` is microseconds
-pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() -> ()>, dur: u64) {
+pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce()>, dur: u64) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.sleep_task(sleep_handler, dur);

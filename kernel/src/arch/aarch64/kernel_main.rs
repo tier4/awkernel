@@ -1,7 +1,7 @@
 use super::{
     bsp::raspi,
     cpu,
-    driver::uart::{DevUART, UART},
+    driver::uart::{DevUART, Uart},
     mmu, serial,
 };
 use crate::{heap, kernel_info::KernelInfo};
@@ -45,7 +45,7 @@ fn primary_cpu() {
     mmu::init_memory_map();
     if mmu::init().is_none() {
         unsafe { DevUART::unsafe_puts("Failed to init MMU.\n") };
-        loop {}
+        wait_forever();
     }
 
     // Start non-primary CPUs.
@@ -73,7 +73,9 @@ fn primary_cpu() {
 fn non_primary_cpu() {
     mmu::enable();
 
-    while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {}
+    while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
+        core::hint::spin_loop();
+    }
 
     t4os_lib::arch::aarch64::init_non_primary(); // Initialize timer.
 

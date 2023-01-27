@@ -1,8 +1,7 @@
+use super::Uart;
 use crate::arch::aarch64::bsp::memory::*;
 use core::{arch::asm, fmt::Write};
 use t4os_lib::mmio_rw;
-
-use super::UART;
 
 pub struct RaspiUART {}
 
@@ -62,7 +61,7 @@ impl RaspiUART {
     }
 }
 
-impl super::UART for RaspiUART {
+impl super::Uart for RaspiUART {
     /// Initialiaze UART0 for serial console.
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".

@@ -41,7 +41,7 @@ impl Delay for ArchDelay {
             let now = HPET_MAIN_COUNTER.read(base);
             let diff = now - start;
 
-            diff * 1000_000 / hz as u64
+            diff * 1_000_000 / hz
         }
     }
 
@@ -52,7 +52,7 @@ impl Delay for ArchDelay {
 
 pub(super) fn init(acpi: &AcpiTables<AcpiMapper>, offset: u64) {
     let offset = offset as usize;
-    let hpet_info = acpi::hpet::HpetInfo::new(&acpi).unwrap();
+    let hpet_info = acpi::hpet::HpetInfo::new(acpi).unwrap();
 
     if !hpet_info.main_counter_is_64bits() {
         log::error!("HPET's main count is not 64 bits.");
@@ -67,7 +67,7 @@ pub(super) fn init(acpi: &AcpiTables<AcpiMapper>, offset: u64) {
 
         // Calculate the frequency.
         let capabilities = HPET_GENERAL_CAP.read(base);
-        let hz = 1000_000_000_000_000 / (capabilities >> 32);
+        let hz = 1_000_000_000_000_000 / (capabilities >> 32);
         log::info!("HPET frequency = {hz}[Hz]");
         write_volatile(&mut HPET_COUNTER_HZ, hz);
 

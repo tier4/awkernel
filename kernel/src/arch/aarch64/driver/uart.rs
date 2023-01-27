@@ -3,7 +3,7 @@ pub mod pl011;
 
 use alloc::vec::Vec;
 
-pub trait UART {
+pub trait Uart {
     fn new(base: usize) -> Self;
     fn send(&self, c: u32);
     fn recv(&self) -> u32;
@@ -25,6 +25,7 @@ pub trait UART {
 
     unsafe fn unsafe_puts(data: &str);
 
+    #[allow(clippy::same_item_push)]
     fn read_line(&self) -> Vec<u8> {
         let mut res = Vec::new();
 
@@ -67,4 +68,4 @@ pub trait UART {
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
 pub type DevUART = pl011::RaspiUART;
 
-impl DevUART where DevUART: UART {}
+impl DevUART where DevUART: Uart {}

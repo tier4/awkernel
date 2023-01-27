@@ -81,7 +81,7 @@ pub(super) fn wait_usec(usec: u64) {
     };
 
     // Counts per usec.
-    let clk = (ACPI_TMR_HZ as u64 * usec) / 1000_000;
+    let clk = (ACPI_TMR_HZ as u64 * usec) / 1_000_000;
     let mut prev = unsafe { port.read() } as u64;
     let mut acc = 0;
 

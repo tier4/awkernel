@@ -30,7 +30,7 @@ impl Delay for ArchDelay {
 
         let diff = now - start;
 
-        diff * 1000_000 / frq
+        diff * 1_000_000 / frq
     }
 
     fn cpu_counter() -> u64 {

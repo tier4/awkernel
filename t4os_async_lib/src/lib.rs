@@ -17,6 +17,7 @@ mod never_return;
 pub mod pubsub;
 mod ringq;
 pub mod scheduler;
+pub mod session_types;
 mod sleep_task;
 pub mod task;
 mod timeout_call;
