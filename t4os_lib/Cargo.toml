@@ -12,13 +12,24 @@ log = "0.4"
 version = "0.2"
 optional = true
 
-[target.'cfg(target_arch = "aarch64")'.dependencies]
-t4os_aarch64 = { path = "../t4os_aarch64" }
+[dependencies.x86_64]
+version = "0.14"
+optional = true
 
-[target.'cfg(target_arch = "x86_64")'.dependencies]
-x86_64 = "0.14"
-acpi = "4.1"
-bootloader_api = "0.11"
+[dependencies.acpi]
+version = "4.1"
+optional = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
+[dependencies.bootloader_api]
+version = "0.11"
+optional = true
+
+[dependencies.t4os_aarch64]
+path = "../t4os_aarch64"
+optional = true
+
+[features]
+default = []
+x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
+aarch64 = ["dep:t4os_aarch64"]
+std = ["dep:libc"]

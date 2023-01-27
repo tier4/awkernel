@@ -1,19 +1,25 @@
-#[cfg(all(target_arch = "aarch64", not(target_os = "linux")))]
+#[cfg(any(
+    all(target_arch = "aarch64", not(target_os = "linux")),
+    feature = "aarch64"
+))]
 pub mod aarch64;
 
-#[cfg(all(target_arch = "x86_64", not(target_os = "linux")))]
+#[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod x86_64;
 
-#[cfg(target_os = "linux")]
+#[cfg(feature = "std")]
 pub mod linux;
 
-#[cfg(all(target_arch = "aarch64", not(target_os = "linux")))]
+#[cfg(any(
+    all(target_arch = "aarch64", not(target_os = "linux")),
+    feature = "aarch64"
+))]
 use self::aarch64 as arch_mod;
 
-#[cfg(all(target_arch = "x86_64", not(target_os = "linux")))]
+#[cfg(all(feature = "x86", not(feature = "std")))]
 use self::x86_64 as arch_mod;
 
-#[cfg(target_os = "linux")]
+#[cfg(feature = "std")]
 use self::linux as arch_mod;
 
 pub(crate) type ArchDelay = arch_mod::delay::ArchDelay;
