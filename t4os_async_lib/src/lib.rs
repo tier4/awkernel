@@ -10,6 +10,7 @@
 extern crate alloc;
 
 mod anydict;
+pub mod channel;
 mod delay;
 mod delta_list;
 mod join_handle;
@@ -17,6 +18,7 @@ mod never_return;
 pub mod pubsub;
 mod ringq;
 pub mod scheduler;
+pub mod service;
 pub mod session_types;
 mod sleep_task;
 pub mod task;
@@ -28,7 +30,6 @@ use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use futures::channel;
 pub use t4os_lib::delay::{cpu_counter, uptime};
 
 pub trait Cancel: Future + Unpin {

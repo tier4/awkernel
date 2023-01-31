@@ -26,4 +26,4 @@ default-features = false
 
 [features]
 default = []
-std = []
+std = ["t4os_lib/std"]

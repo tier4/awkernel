@@ -22,124 +22,19 @@
 
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::double_must_use))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::type_complexity))]
-use alloc::{boxed::Box, collections::VecDeque, sync::Arc, vec::Vec};
+use crate::channel::{unbounded, Receiver, Sender};
+use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::{self, PhantomData},
     mem, ptr,
-    task::{Poll, Waker},
 };
-use futures::Future;
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub use Branch::*;
-
-use crate::r#yield;
-
-struct Channel {
-    queue: VecDeque<*mut u8>,
-    waker_receiver: Option<Waker>,
-    finished: bool,
-}
-
-struct Sender {
-    chan: Arc<MCSLock<Channel>>,
-}
-
-impl Sender {
-    async fn send(&self, data: *mut u8) -> Result<(), &'static str> {
-        {
-            let mut node = MCSNode::new();
-            let mut chan = self.chan.lock(&mut node);
-
-            if chan.finished {
-                return Err("Connection closed");
-            }
-
-            chan.queue.push_back(data);
-        }
-
-        r#yield().await;
-        Ok(())
-    }
-}
-
-impl Drop for Sender {
-    fn drop(&mut self) {
-        let mut node = MCSNode::new();
-        let mut chan = self.chan.lock(&mut node);
-        chan.finished = true;
-        if let Some(waker) = chan.waker_receiver.take() {
-            waker.wake();
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum RecvErr {
-    ChannelClosed,
-    NoData,
-}
-
-struct Receiver {
-    chan: Arc<MCSLock<Channel>>,
-}
-
-impl Receiver {
-    async fn recv(&self) -> Result<*mut u8, RecvErr> {
-        let receiver = AsyncReceiver { receiver: self };
-        receiver.await
-    }
-
-    fn try_recv(&self) -> Result<*mut u8, RecvErr> {
-        let mut node = MCSNode::new();
-        let mut chan = self.chan.lock(&mut node);
-        if let Some(e) = chan.queue.pop_front() {
-            Ok(e)
-        } else if chan.finished {
-            Err(RecvErr::ChannelClosed)
-        } else {
-            Err(RecvErr::NoData)
-        }
-    }
-}
-
-impl Drop for Receiver {
-    fn drop(&mut self) {
-        let mut node = MCSNode::new();
-        let mut chan = self.chan.lock(&mut node);
-        chan.finished = true;
-    }
-}
-
-struct AsyncReceiver<'a> {
-    receiver: &'a Receiver,
-}
-
-impl<'a> Future for AsyncReceiver<'a> {
-    type Output = Result<*mut u8, RecvErr>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let mut node = MCSNode::new();
-        let mut chan = self.receiver.chan.lock(&mut node);
-
-        if let Some(data) = chan.queue.pop_front() {
-            Poll::Ready(Ok(data))
-        } else if chan.finished {
-            Poll::Ready(Err(RecvErr::ChannelClosed))
-        } else {
-            chan.waker_receiver = Some(cx.waker().clone());
-            Poll::Pending
-        }
-    }
-}
 
 /// A session typed channel. `P` is the protocol and `E` is the environment,
 /// containing potential recursion targets
 #[must_use]
-pub struct Chan<E, P>(Sender, Receiver, PhantomData<(E, P)>);
+pub struct Chan<E, P>(Sender<*mut u8>, Receiver<*mut u8>, PhantomData<(E, P)>);
 
 unsafe impl<E: marker::Send, P: marker::Send> marker::Send for Chan<E, P> {}
 
@@ -483,7 +378,7 @@ impl<E, P, N> Chan<(P, E), Var<S<N>>> {
 /// The type parameter T is a return type, ie we store a value of some type T
 /// that is returned in case its associated channels is selected on `wait()`
 pub struct ChanSelect<'c> {
-    receivers: Vec<&'c Receiver>,
+    receivers: Vec<&'c Receiver<*mut u8>>,
 }
 
 impl<'c> ChanSelect<'c> {
@@ -523,31 +418,21 @@ impl<'c> Default for ChanSelect<'c> {
     }
 }
 
-fn channel() -> (Sender, Receiver) {
-    let chan = Channel {
-        queue: Default::default(),
-        waker_receiver: None,
-        finished: false,
-    };
-
-    let chan = Arc::new(MCSLock::new(chan));
-
-    let sender = Sender { chan: chan.clone() };
-    let receiver = Receiver { chan };
-
-    (sender, receiver)
-}
-
 /// Returns two session channels
 #[must_use]
 pub fn session_channel<P: HasDual>() -> (Chan<(), P>, Chan<(), P::Dual>) {
-    let (tx1, rx1) = channel();
-    let (tx2, rx2) = channel();
+    let (tx1, rx1) = unbounded();
+    let (tx2, rx2) = unbounded();
 
     let c1 = Chan(tx1, rx2, PhantomData);
     let c2 = Chan(tx2, rx1, PhantomData);
 
     (c1, c2)
+}
+
+/// Create a channel.
+pub(crate) fn mk_chan<P>(tx: Sender<*mut u8>, rx: Receiver<*mut u8>) -> Chan<(), P> {
+    Chan(tx, rx, PhantomData)
 }
 
 mod private {
@@ -574,19 +459,21 @@ mod private {
 /// we can use the `offer!` macro as follows:
 ///
 /// ```rust
-/// extern crate session_types;
-/// use session_types::*;
-/// use std::thread::spawn;
+/// use t4os_async_lib::session_types::*;
+/// use t4os_async_lib::*;
 ///
-/// fn srv(c: Chan<(), Offer<Recv<u64, Eps>, Offer<Recv<String, Eps>, Eps>>>) {
+/// type SrvProtocol = Offer<Recv<u64, Eps>, Offer<Recv<String, Eps>, Eps>>;
+/// type CliProtocol = <SrvProtocol as HasDual>::Dual;
+///
+/// async fn srv(c: Chan<(), SrvProtocol>) {
 ///     offer! { c,
 ///         Number => {
-///             let (c, n) = c.recv();
+///             let (c, n) = c.recv().await;
 ///             assert_eq!(42, n);
 ///             c.close();
 ///         },
 ///         String => {
-///             c.recv().0.close();
+///             c.recv().await.0.close();
 ///         },
 ///         Quit => {
 ///             c.close();
@@ -594,14 +481,8 @@ mod private {
 ///     }
 /// }
 ///
-/// fn cli(c: Chan<(), Choose<Send<u64, Eps>, Choose<Send<String, Eps>, Eps>>>) {
-///     c.sel1().send(42).close();
-/// }
-///
-/// fn main() {
-///     let (s, c) = session_channel();
-///     spawn(move|| cli(c));
-///     srv(s);
+/// async fn cli(c: Chan<(), CliProtocol>) {
+///     c.sel1().await.send(42).await.close();
 /// }
 /// ```
 ///
@@ -612,9 +493,9 @@ macro_rules! offer {
     (
         $id:ident, $branch:ident => $code:expr, $($t:tt)+
     ) => (
-        match $id.offer() {
-            $crate::Left($id) => $code,
-            $crate::Right($id) => offer!{ $id, $($t)+ }
+        match $id.offer().await {
+            $crate::session_types::Left($id) => $code,
+            $crate::session_types::Right($id) => offer!{ $id, $($t)+ }
         }
     );
     (
@@ -631,8 +512,8 @@ macro_rules! try_offer {
         $id:ident, $branch:ident => $code:expr, $($t:tt)+
     ) => (
         match $id.try_offer() {
-            Ok($crate::Left($id)) => $code,
-            Ok($crate::Right($id)) => try_offer!{ $id, $($t)+ },
+            Ok($crate::session_types::Left($id)) => $code,
+            Ok($crate::session_types::Right($id)) => try_offer!{ $id, $($t)+ },
             Err($id) => Err($id)
         }
     );

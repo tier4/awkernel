@@ -434,7 +434,7 @@ impl PubSub {
         attribute: Attribute,
     ) -> Result<Publisher<T>, &'static str> {
         match self.name_to_inner.get_mut::<InnerPubSub<T>>(&name) {
-            AnyDictResult::TypeError => Err("typing error"),
+            AnyDictResult::TypeError => Err("create_publisher: typing error"),
             AnyDictResult::None => {
                 let subscribers = Subscribers::new(name.clone(), attribute.clone());
                 let subscribers2 = Subscribers {
@@ -461,7 +461,7 @@ impl PubSub {
                         subscribers: inner.subscribers.clone(),
                     })
                 } else {
-                    Err("incompatible attribute")
+                    Err("create_publisher: incompatible attribute")
                 }
             }
         }
@@ -473,7 +473,7 @@ impl PubSub {
         attribute: Attribute,
     ) -> Result<Subscriber<T>, &'static str> {
         match self.name_to_inner.get::<InnerPubSub<T>>(&name) {
-            AnyDictResult::TypeError => Err("typing error"),
+            AnyDictResult::TypeError => Err("create_subscriber: typing error"),
             AnyDictResult::None => {
                 // Create `Subscribers`.
                 let subscribers = Subscribers::new(name.clone(), attribute.clone());
@@ -531,7 +531,7 @@ impl PubSub {
                         subscribers: inner.subscribers.clone(),
                     })
                 } else {
-                    Err("incompatible attribute")
+                    Err("create_subscriber: incompatible attribute")
                 }
             }
         }
