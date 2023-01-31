@@ -16,7 +16,7 @@ use core::{
 use futures::{
     future::BoxFuture,
     task::{waker_ref, ArcWake},
-    Future,
+    Future, FutureExt,
 };
 use synctools::mcs::{MCSLock, MCSNode};
 
@@ -172,7 +172,7 @@ pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u64 {
-    let future = Box::pin(future);
+    let future = future.boxed();
 
     let scheduler = match sched_type {
         SchedulerType::RoundRobin => get_scheduler(sched_type),

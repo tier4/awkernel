@@ -27,6 +27,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::{self, PhantomData},
     mem, ptr,
+    sync::atomic::{AtomicPtr, Ordering},
 };
 
 pub use Branch::*;
@@ -34,21 +35,27 @@ pub use Branch::*;
 /// A session typed channel. `P` is the protocol and `E` is the environment,
 /// containing potential recursion targets
 #[must_use]
-pub struct Chan<E, P>(Sender<*mut u8>, Receiver<*mut u8>, PhantomData<(E, P)>);
+pub struct Chan<E, P>(
+    Sender<AtomicPtr<u8>>,
+    Receiver<AtomicPtr<u8>>,
+    PhantomData<(E, P)>,
+);
 
 unsafe impl<E: marker::Send, P: marker::Send> marker::Send for Chan<E, P> {}
 
 async unsafe fn write_chan<A: marker::Send + 'static, E, P>(Chan(tx, _, _): &Chan<E, P>, x: A) {
-    tx.send(Box::into_raw(Box::new(x)) as *mut _).await.unwrap()
+    let ptr = AtomicPtr::new(Box::into_raw(Box::new(x)) as *mut _);
+    tx.send(ptr).await.unwrap()
 }
 
 async unsafe fn read_chan<A: marker::Send + 'static, E, P>(Chan(_, rx, _): &Chan<E, P>) -> A {
-    *Box::from_raw(rx.recv().await.unwrap() as *mut A)
+    let ptr = rx.recv().await.unwrap();
+    *Box::from_raw(ptr.load(Ordering::Relaxed) as *mut A)
 }
 
 unsafe fn try_read_chan<A: marker::Send + 'static, E, P>(Chan(_, rx, _): &Chan<E, P>) -> Option<A> {
     match rx.try_recv() {
-        Ok(a) => Some(*Box::from_raw(a as *mut A)),
+        Ok(a) => Some(*Box::from_raw(a.load(Ordering::Relaxed) as *mut A)),
         Err(_) => None,
     }
 }
@@ -378,7 +385,7 @@ impl<E, P, N> Chan<(P, E), Var<S<N>>> {
 /// The type parameter T is a return type, ie we store a value of some type T
 /// that is returned in case its associated channels is selected on `wait()`
 pub struct ChanSelect<'c> {
-    receivers: Vec<&'c Receiver<*mut u8>>,
+    receivers: Vec<&'c Receiver<AtomicPtr<u8>>>,
 }
 
 impl<'c> ChanSelect<'c> {
@@ -431,7 +438,7 @@ pub fn session_channel<P: HasDual>() -> (Chan<(), P>, Chan<(), P::Dual>) {
 }
 
 /// Create a channel.
-pub(crate) fn mk_chan<P>(tx: Sender<*mut u8>, rx: Receiver<*mut u8>) -> Chan<(), P> {
+pub(crate) fn mk_chan<P>(tx: Sender<AtomicPtr<u8>>, rx: Receiver<AtomicPtr<u8>>) -> Chan<(), P> {
     Chan(tx, rx, PhantomData)
 }
 

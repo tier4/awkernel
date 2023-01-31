@@ -7,7 +7,7 @@
 //! >    | bool <------------- |
 //!
 //! ```
-//! use t4os_async_lib::{service, session_types::*};
+//! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
 //!
 //! // Define protocol.
 //! type Server = Recv<u64, Send<bool, Eps>>;
@@ -28,6 +28,36 @@
 //!     let (c, result) = c.recv().await;
 //!     c.close();
 //! }
+//!
+//! async fn simple() {
+//!     // Start a server.
+//!     let accepter = service::create_server::<Server>("simple service".into()).unwrap();
+//!
+//!     // Spawn a connection accepter.
+//!     t4os_async_lib::spawn(
+//!         async move {
+//!             while let Ok(chan) = accepter.accept().await {
+//!                 // Spawn a task for the connection.
+//!                 t4os_async_lib::spawn(
+//!                     async move {
+//!                         srv(chan).await;
+//!                     },
+//!                     SchedulerType::RoundRobin,
+//!                 ).await;
+//!             }
+//!         },
+//!         SchedulerType::RoundRobin,
+//!     ).await;
+//!
+//!     // Start a client.
+//!     t4os_async_lib::spawn(
+//!         async {
+//!             let chan = service::create_client::<Client>("simple service".into()).await.unwrap();
+//!             cli(chan).await;
+//!         },
+//!         SchedulerType::RoundRobin,
+//!     ).await;
+//! }
 //! ```
 
 use crate::{
@@ -36,12 +66,12 @@ use crate::{
     session_types::{mk_chan, Chan, HasDual},
 };
 use alloc::borrow::Cow;
-use core::marker::PhantomData;
+use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 use synctools::mcs::{MCSLock, MCSNode};
 
 static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
 
-type TxRx = (Sender<*mut u8>, Receiver<*mut u8>);
+type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
 
 struct Services {
     services: AnyDict,

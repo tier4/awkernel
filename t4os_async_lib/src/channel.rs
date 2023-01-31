@@ -135,3 +135,6 @@ pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 
     (sender, receiver)
 }
+
+unsafe impl<T> Send for Receiver<T> {}
+unsafe impl<T> Send for Sender<T> {}

@@ -80,5 +80,66 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
+    test_session_types().await;
+
     Ok(())
+}
+
+use t4os_async_lib::{service, session_types::*};
+
+// Define protocol.
+type Server = Recv<u64, Send<bool, Eps>>;
+type Client = <Server as HasDual>::Dual;
+
+async fn srv(c: Chan<(), Server>) {
+    let (c, n) = c.recv().await;
+    let c = if n % 2 == 0 {
+        c.send(true).await
+    } else {
+        c.send(false).await
+    };
+    c.close();
+}
+
+async fn cli(c: Chan<(), Client>) {
+    let c = c.send(9).await;
+    let (c, result) = c.recv().await;
+    c.close();
+
+    log::debug!("cli: result = {result}");
+}
+
+async fn test_session_types() {
+    // Start a server.
+    let accepter = service::create_server::<Server>("simple service".into()).unwrap();
+
+    // Spawn a connection accepter.
+    t4os_async_lib::spawn(
+        async move {
+            while let Ok(chan) = accepter.accept().await {
+                // Spawn a task for the connection.
+                t4os_async_lib::spawn(
+                    async move {
+                        srv(chan).await;
+                    },
+                    SchedulerType::RoundRobin,
+                )
+                .await;
+            }
+        },
+        SchedulerType::RoundRobin,
+    )
+    .await;
+
+    // Start a client.
+    t4os_async_lib::spawn(
+        async {
+            let chan = service::create_client::<Client>("simple service".into())
+                .await
+                .unwrap();
+            cli(chan).await;
+        },
+        SchedulerType::RoundRobin,
+    )
+    .await;
 }
