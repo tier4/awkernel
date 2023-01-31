@@ -25,6 +25,9 @@ pub mod task;
 mod timeout_call;
 mod yield_task;
 
+#[cfg(test)]
+pub(crate) mod mini_task;
+
 use crate::scheduler::SchedulerType;
 use core::time::Duration;
 use futures::{channel::oneshot, Future};

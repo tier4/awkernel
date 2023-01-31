@@ -2,9 +2,11 @@
 //!
 //! ## A Simple Protocol
 //!
-//! > Client                Server
-//! >    | --------------> u64 |
-//! >    | bool <------------- |
+//! ```text
+//! Client                 Server
+//!    | --------------> u64 |
+//!    | bool <------------- |
+//! ```
 //!
 //! ```
 //! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
@@ -58,6 +60,24 @@
 //!         SchedulerType::RoundRobin,
 //!     ).await;
 //! }
+//! ```
+//!
+//! ## Loop
+//!
+//! ```text
+//!     Client                 Server
+//! start: |                     |
+//!        | --------------> u64 |
+//!        | bool <------------- |
+//!    goto start            goto start
+//! ```
+//!
+//! ```
+//! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
+//!
+//! // Define protocol.
+//! type Server = Recv<u64, Send<bool, Eps>>;
+//! type Client = <Server as HasDual>::Dual;
 //! ```
 
 use crate::{

@@ -530,3 +530,69 @@ macro_rules! try_offer {
         $code
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mini_task;
+
+    #[test]
+    #[allow(unused_variables)]
+    #[allow(dead_code)]
+    fn recursive_protocol() {
+        type Server = Rec<Recv<u64, Send<bool, Var<Z>>>>;
+        type Client = <Server as HasDual>::Dual;
+
+        async fn srv(chan: Chan<(), Server>) {
+            let mut chan = chan.enter();
+            loop {
+                let (c, n) = chan.recv().await;
+
+                if n % 2 == 0 {
+                    chan = c.send(true).await.zero();
+                } else {
+                    chan = c.send(false).await.zero();
+                }
+            }
+        }
+
+        async fn cli(chan: Chan<(), Client>) {
+            let mut chan = chan.enter();
+            loop {
+                let c = chan.send(9).await;
+                let (c, _result) = c.recv().await;
+                chan = c.zero();
+            }
+        }
+    }
+
+    #[test]
+    fn simple_protocol() {
+        type Server = Recv<u64, Send<bool, Eps>>;
+        type Client = <Server as HasDual>::Dual;
+
+        async fn srv(c: Chan<(), Server>) {
+            let (c, n) = c.recv().await;
+            let c = if n % 2 == 0 {
+                c.send(true).await
+            } else {
+                c.send(false).await
+            };
+            c.close();
+        }
+
+        async fn cli(c: Chan<(), Client>) {
+            let c = c.send(9).await;
+            let (c, _result) = c.recv().await;
+            c.close();
+        }
+
+        let (server, client) = session_channel::<Server>();
+
+        let tasks = mini_task::Tasks::new();
+        tasks.spawn(async move { srv(server).await });
+        tasks.spawn(async move { cli(client).await });
+
+        tasks.run();
+    }
+}
