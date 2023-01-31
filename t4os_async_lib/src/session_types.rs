@@ -22,7 +22,10 @@
 
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::double_must_use))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::type_complexity))]
-use crate::channel::{unbounded, Receiver, Sender};
+use crate::{
+    channel::{unbounded, Receiver, Sender},
+    r#yield,
+};
 use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::{self, PhantomData},
@@ -43,9 +46,9 @@ pub struct Chan<E, P>(
 
 unsafe impl<E: marker::Send, P: marker::Send> marker::Send for Chan<E, P> {}
 
-async unsafe fn write_chan<A: marker::Send + 'static, E, P>(Chan(tx, _, _): &Chan<E, P>, x: A) {
+unsafe fn write_chan<A: marker::Send + 'static, E, P>(Chan(tx, _, _): &Chan<E, P>, x: A) {
     let ptr = AtomicPtr::new(Box::into_raw(Box::new(x)) as *mut _);
-    tx.send(ptr).await.unwrap()
+    tx.send_no_yield(ptr).unwrap();
 }
 
 async unsafe fn read_chan<A: marker::Send + 'static, E, P>(Chan(_, rx, _): &Chan<E, P>) -> A {
@@ -175,7 +178,8 @@ impl<E, P, A: marker::Send + 'static> Chan<E, Send<A, P>> {
     #[must_use]
     pub async fn send(self, v: A) -> Chan<E, P> {
         unsafe {
-            write_chan(&self, v).await;
+            write_chan(&self, v);
+            r#yield().await;
             self.cast()
         }
     }
@@ -210,7 +214,8 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
     #[must_use]
     pub async fn sel1(self) -> Chan<E, P> {
         unsafe {
-            write_chan(&self, true).await;
+            write_chan(&self, true);
+            r#yield().await;
             self.cast()
         }
     }
@@ -219,7 +224,17 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
     #[must_use]
     pub async fn sel2(self) -> Chan<E, Q> {
         unsafe {
-            write_chan(&self, false).await;
+            write_chan(&self, false);
+            r#yield().await;
+            self.cast()
+        }
+    }
+
+    /// Perform an active choice, selecting protocol `Q`.
+    #[must_use]
+    fn sel2_ny(self) -> Chan<E, Q> {
+        unsafe {
+            write_chan(&self, false);
             self.cast()
         }
     }
@@ -229,7 +244,9 @@ impl<E, P, Q> Chan<E, Choose<P, Q>> {
 impl<Z, A, B> Chan<Z, Choose<A, B>> {
     #[must_use]
     pub async fn skip(self) -> Chan<Z, B> {
-        self.sel2().await
+        let result = self.sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -237,7 +254,9 @@ impl<Z, A, B> Chan<Z, Choose<A, B>> {
 impl<Z, A, B, C> Chan<Z, Choose<A, Choose<B, C>>> {
     #[must_use]
     pub async fn skip2(self) -> Chan<Z, C> {
-        self.sel2().await.sel2().await
+        let result = self.sel2_ny().sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -245,7 +264,9 @@ impl<Z, A, B, C> Chan<Z, Choose<A, Choose<B, C>>> {
 impl<Z, A, B, C, D> Chan<Z, Choose<A, Choose<B, Choose<C, D>>>> {
     #[must_use]
     pub async fn skip3(self) -> Chan<Z, D> {
-        self.sel2().await.sel2().await.sel2().await
+        let result = self.sel2_ny().sel2_ny().sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -253,7 +274,9 @@ impl<Z, A, B, C, D> Chan<Z, Choose<A, Choose<B, Choose<C, D>>>> {
 impl<Z, A, B, C, D, E> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, E>>>>> {
     #[must_use]
     pub async fn skip4(self) -> Chan<Z, E> {
-        self.sel2().await.sel2().await.sel2().await.sel2().await
+        let result = self.sel2_ny().sel2_ny().sel2_ny().sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -261,16 +284,9 @@ impl<Z, A, B, C, D, E> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, E>>>>> {
 impl<Z, A, B, C, D, E, F> Chan<Z, Choose<A, Choose<B, Choose<C, Choose<D, Choose<E, F>>>>>> {
     #[must_use]
     pub async fn skip5(self) -> Chan<Z, F> {
-        self.sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
+        let result = self.sel2_ny().sel2_ny().sel2_ny().sel2_ny().sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -280,18 +296,15 @@ impl<Z, A, B, C, D, E, F, G>
 {
     #[must_use]
     pub async fn skip6(self) -> Chan<Z, G> {
-        self.sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
+        let result = self
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny();
+        r#yield().await;
+        result
     }
 }
 
@@ -301,20 +314,16 @@ impl<Z, A, B, C, D, E, F, G, H>
 {
     #[must_use]
     pub async fn skip7(self) -> Chan<Z, H> {
-        self.sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
-            .sel2()
-            .await
+        let result = self
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny()
+            .sel2_ny();
+        r#yield().await;
+        result
     }
 }
 

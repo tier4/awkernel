@@ -4,8 +4,11 @@
 //!
 //! ```text
 //! Client                 Server
+//!    |                     |
 //!    | --------------> u64 |
 //!    | bool <------------- |
+//!    |                     |
+//!  close                 close
 //! ```
 //!
 //! ```
@@ -66,9 +69,10 @@
 //!
 //! ```text
 //!     Client                 Server
-//! start: |                     |
+//! start: |                     | :start
 //!        | --------------> u64 |
 //!        | bool <------------- |
+//!        |                     |
 //!    goto start            goto start
 //! ```
 //!
@@ -76,8 +80,30 @@
 //! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
 //!
 //! // Define protocol.
-//! type Server = Recv<u64, Send<bool, Eps>>;
+//! type Server = Rec<Recv<u64, Send<bool, Var<Z>>>>;
 //! type Client = <Server as HasDual>::Dual;
+//!
+//! async fn srv(chan: Chan<(), Server>) {
+//!     let mut chan = chan.enter();
+//!     loop {
+//!         let (c, n) = chan.recv().await;
+//!
+//!         if n % 2 == 0 {
+//!             chan = c.send(true).await.zero();
+//!         } else {
+//!             chan = c.send(false).await.zero();
+//!         }
+//!     }
+//! }
+//!
+//! async fn cli(chan: Chan<(), Client>) {
+//!     let mut chan = chan.enter();
+//!     loop {
+//!         let c = chan.send(9).await;
+//!         let (c, _result) = c.recv().await;
+//!         chan = c.zero();
+//!     }
+//! }
 //! ```
 
 use crate::{
@@ -136,7 +162,7 @@ impl Services {
                 tx
             }
             AnyDictResult::Ok(s) => s.get_sender(),
-            AnyDictResult::TypeError => return Err("create_client: typing error"),
+            AnyDictResult::TypeError => Err("create_client: typing error"),
         }
     }
 }

@@ -26,6 +26,12 @@ impl<T> Clone for Sender<T> {
 
 impl<T> Sender<T> {
     pub async fn send(&self, data: T) -> Result<(), &'static str> {
+        self.send_no_yield(data)?;
+        r#yield().await;
+        Ok(())
+    }
+
+    pub(crate) fn send_no_yield(&self, data: T) -> Result<(), &'static str> {
         {
             let mut node = MCSNode::new();
             let mut chan = self.chan.lock(&mut node);
@@ -37,7 +43,6 @@ impl<T> Sender<T> {
             chan.queue.push_back(data);
         }
 
-        r#yield().await;
         Ok(())
     }
 

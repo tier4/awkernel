@@ -1,20 +1,15 @@
-use core::{
-    sync::atomic::{AtomicBool, Ordering},
-    task::{Context, Poll},
-};
-
 use alloc::{collections::VecDeque, sync::Arc};
+use core::task::{Context, Poll};
 use futures::{
-    future::BoxFuture,
+    future::{BoxFuture, Fuse, FusedFuture},
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
 use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct Task {
-    future: MCSLock<BoxFuture<'static, ()>>,
+    future: MCSLock<Fuse<BoxFuture<'static, ()>>>,
     queue: Arc<MCSLock<VecDeque<Arc<Task>>>>,
-    terminated: AtomicBool,
 }
 
 unsafe impl Sync for Task {}
@@ -52,17 +47,17 @@ impl Tasks {
                 queue.pop_front()
             }) else { return };
 
-            if head.terminated.load(Ordering::Relaxed) {
-                continue;
-            }
-
             let w = waker_ref(&head);
             let mut cx = Context::from_waker(&w);
 
             let mut node = MCSNode::new();
             let mut future = head.future.lock(&mut node);
 
-            match future.as_mut().poll(&mut cx) {
+            if future.is_terminated() {
+                continue;
+            }
+
+            match future.poll_unpin(&mut cx) {
                 Poll::Pending => {
                     future.unlock();
 
@@ -70,9 +65,7 @@ impl Tasks {
                     let mut queue = self.queue.lock(&mut node);
                     queue.push_back(head);
                 }
-                Poll::Ready(_) => {
-                    head.terminated.store(true, Ordering::Relaxed);
-                }
+                Poll::Ready(_) => (),
             }
         }
     }
@@ -84,9 +77,8 @@ impl Tasks {
         let mut queue = self.queue.lock(&mut node);
 
         let task = Task {
-            future: MCSLock::new(future.boxed()),
+            future: MCSLock::new(future.boxed().fuse()),
             queue: q,
-            terminated: AtomicBool::new(false),
         };
 
         queue.push_back(Arc::new(task));

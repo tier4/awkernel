@@ -14,7 +14,7 @@ use core::{
     task::{Context, Poll},
 };
 use futures::{
-    future::BoxFuture,
+    future::{BoxFuture, Fuse, FusedFuture},
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
@@ -75,7 +75,7 @@ impl TaskList {
 
 pub(crate) struct Task {
     id: u64,
-    future: MCSLock<BoxFuture<'static, TaskResult>>,
+    future: MCSLock<Fuse<BoxFuture<'static, TaskResult>>>,
     pub(crate) info: MCSLock<TaskInfo>,
     scheduler: &'static dyn Scheduler,
 }
@@ -126,7 +126,7 @@ impl Tasks {
 
     fn spawn(
         &mut self,
-        future: BoxFuture<'static, TaskResult>,
+        future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
     ) -> u64 {
@@ -180,7 +180,7 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(future, scheduler, sched_type);
+    let id = tasks.spawn(future.fuse(), scheduler, sched_type);
     tasks.wake(id);
 
     id
@@ -201,7 +201,11 @@ pub fn run(cpu_id: usize) {
 
             unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
-            match catch_unwind(|| guard.as_mut().poll(&mut ctx)) {
+            if guard.is_terminated() {
+                continue;
+            }
+
+            match catch_unwind(|| guard.poll_unpin(&mut ctx)) {
                 Ok(Poll::Pending) => {
                     let mut node = MCSNode::new();
                     let mut info = task.info.lock(&mut node);
