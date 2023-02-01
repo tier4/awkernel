@@ -1,24 +1,65 @@
-//! > The MIT License (MIT)
-//! >
-//! > Copyright (c) 2015 Thomas Bracht Laumann Jespersen, Philip Munksgaard
-//! >
-//! > Permission is hereby granted, free of charge, to any person obtaining a copy
-//! > of this software and associated documentation files (the "Software"), to deal
-//! > in the Software without restriction, including without limitation the rights
-//! > to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-//! > copies of the Software, and to permit persons to whom the Software is
-//! > furnished to do so, subject to the following conditions:
-//! >
-//! > The above copyright notice and this permission notice shall be included in all
-//! > copies or substantial portions of the Software.
-//! >
-//! > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-//! > IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-//! > FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-//! > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-//! > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-//! > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-//! > SOFTWARE.
+//! Session types for Rust.
+//!
+//! # Example
+//!
+//! ```
+//! use t4os_async_lib::{session_types::*, scheduler::SchedulerType};
+//!
+//! // Define protocol.
+//! type Server = Recv<u64, Send<bool, Eps>>;
+//! type Client = <Server as HasDual>::Dual;
+//!
+//! // Server.
+//! async fn srv(c: Chan<(), Server>) {
+//!     let (c, n) = c.recv().await;
+//!     let c = if n % 2 == 0 {
+//!         c.send(true).await
+//!     } else {
+//!         c.send(false).await
+//!     };
+//!     c.close();
+//! }
+//!
+//! // Client.
+//! async fn cli(c: Chan<(), Client>) {
+//!     let c = c.send(9).await;
+//!     let (c, _result) = c.recv().await;
+//!     c.close();
+//! }
+//!
+//! let _ = async {
+//!     let (server, client) = session_channel::<Server>();
+//!
+//!     t4os_async_lib::spawn(async { srv(server).await; }, SchedulerType::RoundRobin).await;
+//!     t4os_async_lib::spawn(async { cli(client).await; }, SchedulerType::RoundRobin).await;
+//! };
+//! ```
+//!
+//! # LICENSE
+//!
+//! ```text
+//! The MIT License (MIT)
+//!
+//! Copyright (c) 2015 Thomas Bracht Laumann Jespersen, Philip Munksgaard
+//!
+//! Permission is hereby granted, free of charge, to any person obtaining a copy
+//! of this software and associated documentation files (the "Software"), to deal
+//! in the Software without restriction, including without limitation the rights
+//! to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//! copies of the Software, and to permit persons to whom the Software is
+//! furnished to do so, subject to the following conditions:
+//!
+//! The above copyright notice and this permission notice shall be included in all
+//! copies or substantial portions of the Software.
+//!
+//! THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//! IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//! FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//! AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//! LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//! OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//! SOFTWARE.
+//! ```
 
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::double_must_use))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::type_complexity))]
@@ -542,8 +583,88 @@ macro_rules! try_offer {
 
 #[cfg(test)]
 mod tests {
+    use alloc::string::ToString;
+
     use super::*;
     use crate::mini_task;
+
+    #[test]
+    fn proxy() {
+        type Server = Recv<u64, Eps>;
+        type SrvChan = Chan<(), Server>;
+        type ProxySrv1 = Recv<SrvChan, Eps>;
+        type ProxyCli1 = <ProxySrv1 as HasDual>::Dual;
+        type ProxySrv2 = Send<SrvChan, Eps>;
+        type ProxyCli2 = <ProxySrv2 as HasDual>::Dual;
+
+        let (pr_srv1, pr_cli1) = session_channel::<ProxySrv1>();
+        let (pr_srv2, pr_cli2) = session_channel::<ProxySrv2>();
+
+        async fn cli(c: Chan<(), ProxyCli1>) {
+            let (server, client) = session_channel::<Server>();
+            let pr = c.send(server).await;
+            pr.close();
+
+            let c = client.send(123).await;
+            c.close();
+        }
+
+        async fn srv(c: Chan<(), ProxyCli2>) {
+            let (pr, server) = c.recv().await;
+            pr.close();
+
+            let (c, _result) = server.recv().await;
+            c.close();
+        }
+
+        async fn proxy(c1: Chan<(), ProxySrv1>, c2: Chan<(), ProxySrv2>) {
+            let (c1, server) = c1.recv().await;
+            c1.close();
+
+            let c2 = c2.send(server).await;
+            c2.close();
+        }
+
+        let tasks = mini_task::Tasks::new();
+        tasks.spawn(async move { cli(pr_cli1).await });
+        tasks.spawn(async move { srv(pr_cli2).await });
+        tasks.spawn(async move { proxy(pr_srv1, pr_srv2).await });
+
+        tasks.run();
+    }
+
+    #[test]
+    fn test_offer() {
+        type Server = Offer<Recv<u64, Eps>, Recv<String, Eps>>;
+        type Client = <Server as HasDual>::Dual;
+
+        async fn srv(c: Chan<(), Server>) {
+            offer! {c,
+                Number => {
+                    let (c, _result) = c.recv().await;
+                    c.close();
+                },
+                String => {
+                    let (c, _result) = c.recv().await;
+                    c.close();
+                }
+            }
+        }
+
+        async fn cli(c: Chan<(), Client>) {
+            let c = c.sel2().await;
+            let c = c.send("Hello, world!".to_string()).await;
+            c.close();
+        }
+
+        let (server, client) = session_channel::<Server>();
+
+        let tasks = mini_task::Tasks::new();
+        tasks.spawn(async move { srv(server).await });
+        tasks.spawn(async move { cli(client).await });
+
+        tasks.run();
+    }
 
     #[test]
     #[allow(unused_variables)]

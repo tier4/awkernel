@@ -49,7 +49,7 @@ use synctools::{
     rwlock::RwLock,
 };
 
-/// Data nd timestamp.
+/// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
     pub timestamp: u64,
@@ -328,7 +328,7 @@ where
     }
 }
 
-/// Create a anonymous publisher and a anonymous subscriber.
+/// Create an anonymous publisher and an anonymous subscriber.
 /// This channel works as a channel of multiple producers and multiple consumers.
 ///
 /// # Example
@@ -601,7 +601,7 @@ impl PubSub {
 /// use t4os_async_lib::pubsub::{create_publisher, Attribute};
 ///
 /// let _ = async {
-///     let publisher = create_publisher("name".into(), Attribute::default()).unwrap();
+///     let publisher = create_publisher("rendezvous name".into(), Attribute::default()).unwrap();
 ///     publisher.send(100).await;
 /// };
 /// ```
@@ -622,7 +622,7 @@ pub fn create_publisher<T: 'static>(
 /// use t4os_async_lib::pubsub::{create_subscriber, Attribute};
 ///
 /// let _ = async {
-///     let subscriber = create_subscriber::<u64>("name".into(), Attribute::default()).unwrap();
+///     let subscriber = create_subscriber::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
 ///     let data = subscriber.recv().await;
 /// };
 /// ```
