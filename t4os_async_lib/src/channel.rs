@@ -1,17 +1,57 @@
+//! Channels.
+//!
+//! # Example
+//!
+//! ## Unbounded Single Producer and Single Consumer Channel
+//!
+//! ```
+//! use t4os_async_lib::channel::unbounded;
+//!
+//! let (tx, rx) = unbounded();
+//!
+//! let _ = async move {
+//!     for i in 0..10 {
+//!         tx.send(i).await.unwrap();
+//!     }
+//! };
+//!
+//! let _ = async move {
+//!     for _ in 0..10 {
+//!         rx.recv().await.unwrap();
+//!     }
+//! };
+//! ```
+//!
+//! ## Oneshot Channel
+//!
+//! ```
+//! use t4os_async_lib::channel::oneshot;
+//!
+//! let (tx, rx) = oneshot::channel();
+//!
+//! tx.send(10).unwrap();
+//!
+//! let task = async move {
+//!     let _data = rx.await.unwrap();
+//! };
+//! ```
+
+use crate::r#yield;
 use alloc::{collections::VecDeque, sync::Arc};
 use core::task::{Poll, Waker};
-pub use futures::channel::*;
 use futures::Future;
 use synctools::mcs::{MCSLock, MCSNode};
 
-use crate::r#yield;
+pub use futures::channel::*;
 
+/// Channel.
 struct Channel<T> {
     queue: VecDeque<T>,
     waker_receiver: Option<Waker>,
     terminated: bool,
 }
 
+/// Sender of a channel.
 pub struct Sender<T> {
     chan: Arc<MCSLock<Channel<T>>>,
 }
@@ -25,6 +65,18 @@ impl<T> Clone for Sender<T> {
 }
 
 impl<T> Sender<T> {
+    /// Send data.
+    /// A task will yield automatically after sending data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use t4os_async_lib::channel::Sender;
+    ///
+    /// async fn sender_task(sender: Sender<u64>) {
+    ///     sender.send(123).await.unwrap();
+    /// }
+    /// ```
     pub async fn send(&self, data: T) -> Result<(), &'static str> {
         self.send_no_yield(data)?;
         r#yield().await;
@@ -70,16 +122,41 @@ pub enum RecvErr {
     NoData,
 }
 
+/// Receiver of a channel.
 pub struct Receiver<T> {
     chan: Arc<MCSLock<Channel<T>>>,
 }
 
 impl<T> Receiver<T> {
+    /// Receive data.
+    /// If there is no data in the queue,
+    /// the task will await data arrival.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use t4os_async_lib::channel::Receiver;
+    ///
+    /// async fn receiver_task(receiver: Receiver<u64>) {
+    ///     let data = receiver.recv().await.unwrap();
+    /// }
+    /// ```
     pub async fn recv(&self) -> Result<T, RecvErr> {
         let receiver = AsyncReceiver { receiver: self };
         receiver.await
     }
 
+    /// Try to receive data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use t4os_async_lib::channel::Receiver;
+    ///
+    /// fn receiver_task(receiver: Receiver<u64>) {
+    ///     let data = receiver.try_recv().unwrap();
+    /// }
+    /// ```
     pub fn try_recv(&self) -> Result<T, RecvErr> {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
@@ -126,6 +203,18 @@ impl<'a, T> Future for AsyncReceiver<'a, T> {
     }
 }
 
+/// Create a unbounded single producer and single consumer channel.
+///
+/// # Example
+///
+/// ```
+/// use t4os_async_lib::channel::unbounded;
+///
+/// let (tx, rx) = unbounded::<u64>();
+///
+/// let _ = async move { tx.send(10).await.unwrap(); };
+/// let _ = async move { rx.recv().await.unwrap(); };
+/// ```
 pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
     let chan = Channel {
         queue: Default::default(),
@@ -143,3 +232,47 @@ pub fn unbounded<T>() -> (Sender<T>, Receiver<T>) {
 
 unsafe impl<T> Send for Receiver<T> {}
 unsafe impl<T> Send for Sender<T> {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_channel() {
+        let (tx, rx) = unbounded();
+
+        let task1 = async move {
+            for i in 0..10 {
+                tx.send(i).await.unwrap();
+            }
+        };
+
+        let task2 = async move {
+            for _ in 0..10 {
+                rx.recv().await.unwrap();
+            }
+        };
+
+        let tasks = crate::mini_task::Tasks::new();
+        tasks.spawn(task1);
+        tasks.spawn(task2);
+
+        tasks.run();
+    }
+
+    #[test]
+    fn test_oneshot() {
+        let (tx, rx) = oneshot::channel();
+
+        tx.send(10).unwrap();
+
+        let task = async move {
+            let _data = rx.await.unwrap();
+        };
+
+        let tasks = crate::mini_task::Tasks::new();
+        tasks.spawn(task);
+
+        tasks.run();
+    }
+}
