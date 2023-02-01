@@ -34,11 +34,14 @@ impl Scheduler for RoundRobinScheduler {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
 
-            if matches!(task_info.state, task::State::Finished) || task_info.in_queue {
+            if matches!(
+                task_info.state,
+                task::State::Terminated | task::State::InQueue
+            ) {
                 return;
             }
 
-            task_info.in_queue = true;
+            task_info.state = task::State::InQueue;
         }
 
         data.queue.push(task);
@@ -55,7 +58,6 @@ impl Scheduler for RoundRobinScheduler {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
 
-            task_info.in_queue = false;
             task_info.state = task::State::Running;
         }
 
