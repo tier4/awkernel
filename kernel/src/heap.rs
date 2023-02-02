@@ -8,7 +8,7 @@ pub enum InitErr {
 }
 
 
-static mut HEAP: [MaybeUninit<u8>; 256 * 1024 * 1024] = [MaybeUninit::uninit(); 256 * 1024 * 1024];
+static mut HEAP: [MaybeUninit<u8>; 16 * 1024 * 1024] = [MaybeUninit::uninit(); 16 * 1024 * 1024];
  
 pub fn init() {
     // Initialize memory allocator.
