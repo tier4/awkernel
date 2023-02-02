@@ -7,12 +7,15 @@ isolated zero-copy communications written in Rust.
 
 - [x] Zero-copy communication
   - [x] Publish and subscribe
+  - [x] Service
+  - [ ] Action
 - [ ] Isolation
   - [ ] Memory isolation
   - [ ] Computational isolation
 - [ ] Realtime scheduling
   - [x] Round robin scheduling
   - [ ] DAG scheduling
+- [ ] O(1) memory allocator
 - [ ] Cokernel
 - [ ] TEE
   - [ ] TrustZone

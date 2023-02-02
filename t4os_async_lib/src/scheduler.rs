@@ -12,11 +12,11 @@ pub enum SchedulerType {
 }
 
 pub(crate) trait Scheduler {
-    /// Enqueue a executable task.
+    /// Enqueue an executable task.
     /// The enqueued task will be take by `get_next()`.
     fn wake_task(&self, task: Arc<Task>);
 
-    /// Get a next executable task.
+    /// Get the next executable task.
     fn get_next(&self) -> Option<Arc<Task>>;
 
     /// Get the scheduler name.
