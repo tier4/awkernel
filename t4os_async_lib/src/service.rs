@@ -253,7 +253,7 @@ impl Services {
     ) -> Result<Accepter<P>, &'static str> {
         match self.services.get_mut::<InnerService<P>>(&name) {
             AnyDictResult::None => {
-                let (inner, accepter) = InnerService::new_and_accepter();
+                let (inner, accepter) = InnerService::new_and_accepter(name.clone());
                 self.services.insert(name, inner);
                 Ok(accepter)
             }
@@ -272,7 +272,7 @@ impl Services {
     ) -> Result<Sender<TxRx>, &'static str> {
         match self.services.get_mut::<InnerService<P::Dual>>(&name) {
             AnyDictResult::None => {
-                let inner = InnerService::<P::Dual>::new();
+                let inner = InnerService::<P::Dual>::new(name.clone());
                 let tx = inner.get_sender();
                 self.services.insert(name, inner);
                 tx
@@ -281,18 +281,31 @@ impl Services {
             AnyDictResult::TypeError => Err("create_client: typing error"),
         }
     }
+
+    fn set_receiver<P: 'static>(&mut self, name: Cow<'static, str>, receiver: Receiver<TxRx>) {
+        match self.services.get_mut::<InnerService<P>>(&name) {
+            AnyDictResult::Ok(s) => {
+                if s.accepter.is_none() {
+                    s.accepter = Some(Accepter::new(receiver, name));
+                } else {
+                    unreachable!()
+                }
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// `P` is a protocol of a server and `P::Dual` is a protocol of a client.
-struct InnerService<P> {
+struct InnerService<P: 'static> {
     accepter: Option<Accepter<P>>,
     sender: Sender<TxRx>,
 }
 
 impl<P> InnerService<P> {
-    fn new_and_accepter() -> (Self, Accepter<P>) {
+    fn new_and_accepter(name: Cow<'static, str>) -> (Self, Accepter<P>) {
         let (tx, rx) = unbounded();
-        let accepter = Accepter::new(rx);
+        let accepter = Accepter::new(rx, name);
 
         (
             Self {
@@ -303,10 +316,10 @@ impl<P> InnerService<P> {
         )
     }
 
-    fn new() -> Self {
+    fn new(name: Cow<'static, str>) -> Self {
         let (tx, rx) = unbounded();
         Self {
-            accepter: Some(Accepter::new(rx)),
+            accepter: Some(Accepter::new(rx, name)),
             sender: tx,
         }
     }
@@ -322,15 +335,17 @@ impl<P> InnerService<P> {
 
 /// Channel so that a server accepts a connection.
 /// `P` is a protocol of a server.
-pub struct Accepter<P> {
-    receiver: Receiver<TxRx>,
+pub struct Accepter<P: 'static> {
+    receiver: Option<Receiver<TxRx>>,
+    name: Cow<'static, str>,
     _phantom: PhantomData<fn(P)>,
 }
 
 impl<P> Accepter<P> {
-    fn new(receiver: Receiver<TxRx>) -> Self {
+    fn new(receiver: Receiver<TxRx>, name: Cow<'static, str>) -> Self {
         Self {
-            receiver,
+            receiver: Some(receiver),
+            name,
             _phantom: Default::default(),
         }
     }
@@ -356,8 +371,16 @@ impl<P> Accepter<P> {
     /// }
     /// ```
     pub async fn accept(&self) -> Result<Chan<(), P>, RecvErr> {
-        let (tx, rx) = self.receiver.recv().await?;
+        let (tx, rx) = self.receiver.as_ref().unwrap().recv().await?;
         Ok(mk_chan(tx, rx))
+    }
+}
+
+impl<P: 'static> Drop for Accepter<P> {
+    fn drop(&mut self) {
+        let mut node = MCSNode::new();
+        let mut guard = SERVICES.lock(&mut node);
+        guard.set_receiver::<P>(self.name.clone(), self.receiver.take().unwrap());
     }
 }
 
