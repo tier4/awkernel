@@ -545,7 +545,7 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
     let mut heap_start = addr.pager_mem_start;
     let mut vm_addr = crate::config::HEAP_START;
     let flag = kernel_page_flag();
-    while heap_start < addr.pager_mem_end {
+    while vm_addr < crate::config::HEAP_START + crate::config::HEAP_SIZE {
         table0.map(vm_addr, heap_start, flag);
         heap_start += PAGESIZE;
         vm_addr += PAGESIZE;
