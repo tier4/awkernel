@@ -1,9 +1,9 @@
-use core::marker::PhantomData;
-
 use crate::{
+    offer,
     pubsub::{Publisher, Subscriber},
     session_types,
 };
+use core::marker::PhantomData;
 use session_types as S;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -25,6 +25,20 @@ pub enum GoalStatus {
     Accepted,
     Executing,
     Canceling,
+    Succeeded,
+    Canceled,
+    Aborted,
+}
+
+#[derive(Debug, Clone)]
+pub enum GoalContinue {
+    Succeeded,
+    Canceled,
+    Aborted,
+}
+
+#[derive(Debug, Clone)]
+pub enum GoalEnd {
     Succeeded,
     Canceled,
     Aborted,
@@ -62,15 +76,33 @@ pub enum FeedbackOrResult<T1, T2> {
     Result(T2),
 }
 
+type GoalClient<GOAL, E1> = S::Chan<(GoalCliInner<GOAL>, E1), GoalCliInner<GOAL>>;
+type ResultClient<RESULT, E2> = S::Chan<(ResultCliInner<RESULT>, E2), ResultCliInner<RESULT>>;
+
 #[must_use]
 pub struct ActionClient<STATE, GOAL, FEEDBACK, RESULT, E1, E2>
 where
     FEEDBACK: Clone + 'static,
 {
-    goal_client: S::Chan<(GoalCliInner<GOAL>, E1), GoalCliInner<GOAL>>,
+    goal_client: GoalClient<GOAL, E1>,
     subscriber: Subscriber<Feedback<FEEDBACK>>,
-    result_client: S::Chan<(ResultCliInner<RESULT>, E2), ResultCliInner<RESULT>>,
+    result_client: ResultClient<RESULT, E2>,
     _phantom: PhantomData<STATE>,
+}
+
+impl<STATE, GOAL, FEEDBACK, RESULT, E1, E2> ActionClient<STATE, GOAL, FEEDBACK, RESULT, E1, E2>
+where
+    FEEDBACK: Clone + 'static,
+{
+    fn split(
+        self,
+    ) -> (
+        GoalClient<GOAL, E1>,
+        Subscriber<Feedback<FEEDBACK>>,
+        ResultClient<RESULT, E2>,
+    ) {
+        (self.goal_client, self.subscriber, self.result_client)
+    }
 }
 
 impl<GOAL, FEEDBACK, RESULT, E1, E2> ActionClient<ClientGoal, GOAL, FEEDBACK, RESULT, E1, E2>
@@ -85,8 +117,7 @@ where
         ActionClient<ClientFeedback, GOAL, FEEDBACK, RESULT, E1, E2>,
         ActionClient<ClientGoal, GOAL, FEEDBACK, RESULT, E1, E2>,
     > {
-        let (goal_client, subscriber, result_client) =
-            (self.goal_client, self.subscriber, self.result_client);
+        let (goal_client, subscriber, result_client) = self.split();
         let goal_client = goal_client.sel2().await;
         let goal_client = goal_client.send(goal).await;
         let (goal_client, result) = goal_client.recv().await;
@@ -110,7 +141,7 @@ where
     }
 
     pub async fn close(self) {
-        let (goal_client, result_client) = (self.goal_client, self.result_client);
+        let (goal_client, _, result_client) = self.split();
         goal_client.sel1().await.close();
         result_client.sel1().await.close();
     }
@@ -132,8 +163,7 @@ where
             Feedback<FEEDBACK>,
         ),
     > {
-        let (goal_client, subscriber, result_client) =
-            (self.goal_client, self.subscriber, self.result_client);
+        let (goal_client, subscriber, result_client) = self.split();
 
         let result = subscriber.recv().await;
 
@@ -175,8 +205,7 @@ where
         ActionClient<ClientGoal, GOAL, FEEDBACK, RESULT, E1, E2>,
         ActionResult<RESULT>,
     ) {
-        let (goal_client, subscriber, result_client) =
-            (self.goal_client, self.subscriber, self.result_client);
+        let (goal_client, subscriber, result_client) = self.split();
 
         let result_client = result_client.sel2().await;
         let result_client = result_client.send(()).await;
@@ -195,12 +224,121 @@ where
     }
 }
 
+pub struct ServerRecvGoal; // RecvGoal state.
+pub struct ServerFeedback; // Feedback state.
+
+type GoalServerRecv<GOAL, E1> = S::Chan<(GoalSrvInner<GOAL>, E1), GoalSrvInner<GOAL>>;
+type GoalServerSend<GOAL, E1> =
+    S::Chan<(GoalSrvInner<GOAL>, E1), S::Send<GoalResponse, S::Var<S::Z>>>;
+type ResultServer<RESULT, E2> = S::Chan<(ResultSrvInner<RESULT>, E2), ResultSrvInner<RESULT>>;
+
 #[must_use]
-pub struct ActionServer<GOAL, FEEDBACK, RESULT, E1, E2>
+pub struct ActionServer<STATE, GOAL, FEEDBACK, RESULT, E1, E2>
 where
     FEEDBACK: Clone + 'static,
 {
-    goal_server: S::Chan<(GoalSrvInner<GOAL>, E1), GoalSrvInner<GOAL>>,
-    publisher: Publisher<FEEDBACK>,
-    result_server: S::Chan<(ResultSrvInner<RESULT>, E2), ResultSrvInner<RESULT>>,
+    goal_server: GoalServerRecv<GOAL, E1>,
+    publisher: Publisher<Feedback<FEEDBACK>>,
+    result_server: ResultServer<RESULT, E2>,
+    _phantom: PhantomData<STATE>,
+}
+
+impl<GOAL, FEEDBACK, RESULT, E1, E2> ActionServer<ServerRecvGoal, GOAL, FEEDBACK, RESULT, E1, E2>
+where
+    GOAL: Send + 'static,
+    FEEDBACK: Clone + 'static,
+{
+    pub async fn recv_goal(
+        self,
+    ) -> Result<(ActionServerSendGoal<GOAL, FEEDBACK, RESULT, E1, E2>, GOAL), &'static str> {
+        let (goal_server, publisher, result_server) =
+            (self.goal_server, self.publisher, self.result_server);
+
+        offer! {goal_server,
+            CLOSE => {
+                goal_server.close();
+                Err("connection closed")
+            },
+            GOAL => {
+                let (goal_server, goal) = goal_server.recv().await;
+                Ok((ActionServerSendGoal {
+                    goal_server,
+                    publisher,
+                    result_server
+                }, goal))
+            }
+        }
+    }
+}
+
+#[must_use]
+pub struct ActionServerSendGoal<GOAL, FEEDBACK, RESULT, E1, E2>
+where
+    FEEDBACK: Clone + 'static,
+{
+    goal_server: GoalServerSend<GOAL, E1>,
+    publisher: Publisher<Feedback<FEEDBACK>>,
+    result_server: ResultServer<RESULT, E2>,
+}
+
+impl<GOAL, FEEDBACK, RESULT, E1, E2> ActionServerSendGoal<GOAL, FEEDBACK, RESULT, E1, E2>
+where
+    FEEDBACK: Sync + Send + Clone + 'static,
+{
+    pub async fn reject(self) -> ActionServer<ServerRecvGoal, GOAL, FEEDBACK, RESULT, E1, E2> {
+        let (goal_server, publisher, result_server) =
+            (self.goal_server, self.publisher, self.result_server);
+
+        let goal_server = goal_server.send(GoalResponse::Reject).await.zero();
+
+        ActionServer {
+            goal_server,
+            publisher,
+            result_server,
+            _phantom: PhantomData::default(),
+        }
+    }
+
+    async fn accept(
+        self,
+        response: GoalResponse,
+        feedback: FEEDBACK,
+    ) -> ActionServer<ServerFeedback, GOAL, FEEDBACK, RESULT, E1, E2> {
+        let (goal_server, publisher, result_server) =
+            (self.goal_server, self.publisher, self.result_server);
+
+        let goal_server = goal_server.send(response).await.zero();
+        publisher
+            .send(Feedback {
+                status: GoalStatus::Accepted,
+                value: feedback,
+            })
+            .await;
+
+        ActionServer {
+            goal_server,
+            publisher,
+            result_server,
+            _phantom: PhantomData::default(),
+        }
+    }
+
+    pub async fn accept_and_execute(
+        self,
+        feedback: FEEDBACK,
+    ) -> ActionServer<ServerFeedback, GOAL, FEEDBACK, RESULT, E1, E2> {
+        self.accept(GoalResponse::AcceptAndExecute, feedback).await
+    }
+
+    pub async fn accept_and_defer(
+        self,
+        feedback: FEEDBACK,
+    ) -> ActionServer<ServerFeedback, GOAL, FEEDBACK, RESULT, E1, E2> {
+        self.accept(GoalResponse::AcceptAndDefer, feedback).await
+    }
+}
+
+impl<GOAL, FEEDBACK, RESULT, E1, E2> ActionServer<ServerFeedback, GOAL, FEEDBACK, RESULT, E1, E2> where
+    FEEDBACK: Clone + 'static
+{
 }
