@@ -689,3 +689,79 @@ impl Default for Attribute {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pubsub() {
+        let (tx, rx) = create_pubsub::<u64>(Attribute::default());
+
+        let task1 = async move {
+            for i in 0..10 {
+                tx.send(i).await;
+            }
+        };
+
+        let rx2 = rx.clone();
+
+        let task2 = async move {
+            for _ in 0..10 {
+                rx2.recv().await;
+            }
+        };
+
+        let task3 = async move {
+            for _ in 0..10 {
+                rx.recv().await;
+            }
+        };
+
+        let tasks = crate::mini_task::Tasks::new();
+        tasks.spawn(task1);
+        tasks.spawn(task2);
+        tasks.spawn(task3);
+
+        tasks.run();
+    }
+
+    #[test]
+    fn test_transient_local() {
+        let mut attribute = Attribute::default();
+        attribute.transient_local = true;
+
+        let (tx, rx) = create_pubsub::<u64>(attribute);
+
+        let task1 = async move {
+            for i in 0..10 {
+                tx.send(i).await;
+            }
+        };
+
+        let rx2 = rx.clone();
+
+        let task2 = async move {
+            for n in 0..10 {
+                let m = rx2.recv().await;
+                assert_eq!(n, m.data);
+            }
+        };
+
+        let tasks = crate::mini_task::Tasks::new();
+        tasks.spawn(task1);
+        tasks.spawn(task2);
+
+        tasks.run();
+
+        let task3 = async move {
+            for n in 0..10 {
+                let m = rx.recv().await;
+                assert_eq!(n, m.data);
+            }
+        };
+
+        tasks.spawn(task3);
+        tasks.run();
+    }
+}
