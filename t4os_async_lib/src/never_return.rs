@@ -1,3 +1,5 @@
+//! Sleep a task forever.
+
 use core::task::Poll;
 use futures::Future;
 

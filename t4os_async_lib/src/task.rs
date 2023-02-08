@@ -255,11 +255,14 @@ pub fn run(cpu_id: usize) {
 
             match catch_unwind(|| guard.poll_unpin(&mut ctx)) {
                 Ok(Poll::Pending) => {
+                    // The task has not been terminated yet.
                     let mut node = MCSNode::new();
                     let mut info = task.info.lock(&mut node);
                     info.state = State::Waiting;
                 }
                 Ok(Poll::Ready(result)) => {
+                    // The task has been terminated.
+
                     {
                         let mut node = MCSNode::new();
                         let mut info = task.info.lock(&mut node);
@@ -275,6 +278,8 @@ pub fn run(cpu_id: usize) {
                     tasks.remove(task.id);
                 }
                 Err(err) => {
+                    // Caught panic.
+
                     {
                         let mut node = MCSNode::new();
                         let mut info = task.info.lock(&mut node);

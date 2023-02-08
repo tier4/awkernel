@@ -1,3 +1,5 @@
+//! `JoinHandle` receives a return value of spawned a task.
+
 use futures::channel::oneshot::{Canceled, Receiver};
 
 pub struct JoinHandle<T> {

@@ -1,11 +1,15 @@
+//! Define types and trait for the T4OS scheduler.
+//! This module contains `SleepingTasks` for sleeping.
+
 use crate::{delay::uptime, delta_list::DeltaList, task::Task};
 use alloc::{boxed::Box, sync::Arc};
 use synctools::mcs::{MCSLock, MCSNode};
 
 mod round_robin;
 
-static SLEEPING: MCSLock<Sleep> = MCSLock::new(Sleep::new());
+static SLEEPING: MCSLock<SleepingTasks> = MCSLock::new(SleepingTasks::new());
 
+/// Type of scheduler.
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerType {
     RoundRobin,
@@ -23,6 +27,7 @@ pub(crate) trait Scheduler {
     fn scheduler_name(&self) -> SchedulerType;
 }
 
+/// Get the next executable task.
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     if let Some(task) = round_robin::SCHEDULER.get_next() {
         return Some(task);
@@ -31,18 +36,20 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     None
 }
 
+/// Get a scheduler.
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::RoundRobin => &round_robin::SCHEDULER,
     }
 }
 
-struct Sleep {
+/// Maintain sleeping tasks by a delta list.
+struct SleepingTasks {
     delta_list: DeltaList<Box<dyn FnOnce()>>,
     base_time: u64,
 }
 
-impl Sleep {
+impl SleepingTasks {
     const fn new() -> Self {
         Self {
             delta_list: DeltaList::Nil,
@@ -63,15 +70,17 @@ impl Sleep {
         self.delta_list.insert(dur, handler);
     }
 
+    /// Wake tasks up.
     fn wake_task(&mut self) {
         let now = uptime();
 
         while let Some((dur, _)) = self.delta_list.front() {
             let elapsed = now - self.base_time;
             if dur <= elapsed {
+                // Timed out.
                 if let DeltaList::Cons(data) = self.delta_list.pop().unwrap() {
                     let (_, handler, _) = data.into_inner();
-                    handler();
+                    handler(); // Invoke a handler.
 
                     self.base_time += dur;
                 }
@@ -82,13 +91,19 @@ impl Sleep {
     }
 }
 
-/// `dur` is microseconds
+/// After `dur` time, `sleep_handler` will be invoked.
+/// `dur` is microseconds.
 pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce()>, dur: u64) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.sleep_task(sleep_handler, dur);
 }
 
+/// Wake executable tasks up.
+/// Waked tasks will be enqueued to their scheduler's queue.
+///
+/// This function should be called by T4OS's kernel.
+/// So, do not call this from userland.
 pub fn wake_task() {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);

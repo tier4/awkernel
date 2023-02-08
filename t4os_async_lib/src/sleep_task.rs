@@ -1,10 +1,11 @@
+//! Sleep a task.
+
+use super::Cancel;
 use crate::scheduler;
 use alloc::{boxed::Box, sync::Arc};
 use core::task::Poll;
 use futures::{future::FusedFuture, Future};
 use synctools::mcs::{MCSLock, MCSNode};
-
-use super::Cancel;
 
 #[must_use = "use `.await` to sleep"]
 pub struct Sleep {
@@ -40,6 +41,7 @@ impl Future for Sleep {
 
                 *guard = State::Wait;
 
+                // Invoke `sleep_handler` after `self.dur` time.
                 scheduler::sleep_task(
                     Box::new(move || {
                         let mut node = MCSNode::new();
@@ -60,6 +62,7 @@ impl Future for Sleep {
 }
 
 impl Cancel for Sleep {
+    // Cancel sleep.
     fn cancel_unpin(&mut self) {
         let mut node = MCSNode::new();
         let mut guard = self.state.lock(&mut node);
@@ -74,6 +77,7 @@ impl Cancel for Sleep {
 }
 
 impl Sleep {
+    // Create a `Sleep`.
     pub(super) fn new(dur: u64) -> Self {
         let state = Arc::new(MCSLock::new(State::Ready));
         Self { state, dur }
@@ -81,10 +85,11 @@ impl Sleep {
 }
 
 impl FusedFuture for Sleep {
+    // Return true if the state is `Finished` or `Canceled`.
     fn is_terminated(&self) -> bool {
         let mut node = MCSNode::new();
         let guard = self.state.lock(&mut node);
-        matches!(*guard, State::Finished)
+        matches!(*guard, State::Finished | State::Canceled)
     }
 }
 

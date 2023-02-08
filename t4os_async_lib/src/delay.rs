@@ -1,7 +1,3 @@
-pub fn uptime() -> u64 {
-    t4os_lib::delay::uptime()
-}
+//! Re-export t4os_lib's functions.
 
-pub fn wait_microsec(usec: u64) {
-    t4os_lib::delay::wait_microsec(usec)
-}
+pub use t4os_lib::delay::{uptime, wait_microsec};

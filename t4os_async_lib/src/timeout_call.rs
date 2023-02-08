@@ -1,3 +1,5 @@
+//! Timeout for async/await.
+
 use super::{sleep_task::Sleep, Cancel};
 use core::{pin::Pin, task::Poll, time::Duration};
 use futures::{future::FusedFuture, Future, FutureExt};
