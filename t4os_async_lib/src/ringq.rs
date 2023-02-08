@@ -1,5 +1,8 @@
+//! Simple ring queue implementation.
+
 use alloc::vec::Vec;
 
+/// Ring queue.
 pub(super) struct RingQ<T> {
     queue: Vec<Option<T>>,
     size: usize,
@@ -8,6 +11,7 @@ pub(super) struct RingQ<T> {
 }
 
 impl<T> RingQ<T> {
+    /// Create a ring queue.
     pub fn new(queue_size: usize) -> Self {
         let mut queue = Vec::new();
         queue.resize_with(queue_size, || None);
@@ -20,6 +24,7 @@ impl<T> RingQ<T> {
         }
     }
 
+    /// Push `data` to the queue.
     pub fn push(&mut self, data: T) -> Result<(), T> {
         if self.queue.len() == self.size {
             return Err(data);
@@ -36,6 +41,7 @@ impl<T> RingQ<T> {
         Ok(())
     }
 
+    /// Pop data from the queue.
     pub fn pop(&mut self) -> Option<T> {
         if self.size == 0 {
             None
@@ -53,10 +59,12 @@ impl<T> RingQ<T> {
         }
     }
 
+    /// Get the immutable reference of the head.
     pub fn head(&self) -> &Option<T> {
         &self.queue[self.head]
     }
 
+    /// Get a iterator.
     pub fn iter(&self) -> IterRingQ<T> {
         IterRingQ {
             ringq: self,
@@ -65,6 +73,7 @@ impl<T> RingQ<T> {
     }
 }
 
+/// Iterator of `RingQ`.
 pub struct IterRingQ<'a, T> {
     ringq: &'a RingQ<T>,
     pos: usize,
@@ -81,6 +90,34 @@ impl<'a, T> Iterator for IterRingQ<'a, T> {
             Some(result)
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ringq() {
+        let mut q = RingQ::new(10);
+
+        for i in 0..10 {
+            q.push(i).unwrap();
+        }
+
+        for i in 0..10 {
+            let data = q.pop().unwrap();
+            assert_eq!(i, data);
+        }
+
+        for i in 0..10 {
+            q.push(i).unwrap();
+        }
+
+        for i in 0..10 {
+            let data = q.pop().unwrap();
+            assert_eq!(i, data);
         }
     }
 }
