@@ -1,3 +1,7 @@
+//! This module defines the x86_64's entry point.
+//!
+//! `kernel_main()` function is the entry point and called by `bootloader` crate.
+
 use super::{
     apic::{Apic, TypeApic},
     heap::map_heap,
@@ -42,8 +46,21 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     config
 };
 
+// Set `kernel_main` as the entry point.
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
+/// The entry point of x86_64.
+///
+/// 1. Initialize a serial port.
+/// 2. Initialize the MMU.
+/// 3. Initialize the heap memory allocator.
+/// 4. Initialize interrupt handlers..
+/// 5. Initialize the logger.
+/// 6. Initialize ACPI.
+/// 7. Initialize `t4os_lib`.
+/// 8. Initialize APIC.
+/// 9. Boot non-primary CPUs up.
+/// 10. Call `crate::main()` function.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // Enable SSE.
 
@@ -128,8 +145,8 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB
-const ENTRY32: u64 = 1024 * 5; // 5KiB
+const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB. Entry point of 16-bit mode (protected mode).
+const ENTRY32: u64 = 1024 * 5; // 5KiB. Entry point of 32-bit mode (long mode).
 
 // 6KiB
 const NON_PRIMARY_KERNEL_MAIN: u64 = 1024 * 6;

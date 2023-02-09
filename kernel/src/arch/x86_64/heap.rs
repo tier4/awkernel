@@ -1,3 +1,5 @@
+//! Allocate pages for heap memory.
+
 use super::page_allocator::PageAllocator;
 use crate::{
     config::{HEAP_SIZE, HEAP_START},
@@ -8,6 +10,7 @@ use x86_64::{
     VirtAddr,
 };
 
+/// Map virtual memory of heap memory to physical memory.
 pub(super) fn map_heap(
     page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut PageAllocator,
@@ -21,12 +24,14 @@ pub(super) fn map_heap(
     };
 
     for page in page_range {
+        // Allocate a page of physical memory.
         let frame = page_allocator
             .allocate_frame()
             .ok_or(InitErr::FailedToAllocateFrame)?;
 
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
 
+        // Map virtual memory to physical memory.
         unsafe {
             page_table
                 .map_to(page, frame, flags, page_allocator)
