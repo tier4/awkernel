@@ -126,3 +126,19 @@ $ make run-linux RELEASE=1
 $ make qemu-raspi3
 $ telnet localhost 5556
 ```
+
+## GDB
+
+### Raspberry Pi 3 (AArch64)
+
+```text
+$ make debug-raspi3
+$ make gdb-raspi3
+```
+
+### x86\_64
+
+```text
+$ make debug-x86_64
+$ make gdb-x86_64
+```
