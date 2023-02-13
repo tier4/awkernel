@@ -1,3 +1,5 @@
+//! A task runner used by test.
+
 use alloc::{collections::VecDeque, sync::Arc};
 use core::task::{Context, Poll};
 use futures::{

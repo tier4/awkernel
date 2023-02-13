@@ -1,3 +1,5 @@
+//! A basic round robin scheduler.
+
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{self, TaskList};
 use alloc::sync::Arc;
@@ -30,10 +32,12 @@ impl Scheduler for RoundRobinScheduler {
 
         let data = data.as_mut().unwrap();
 
+        // Make the state of the task InQueue.
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
 
+            // If the state is Terminated or InQueue, it must not be enqueued.
             if matches!(
                 task_info.state,
                 task::State::Terminated | task::State::InQueue
@@ -41,6 +45,7 @@ impl Scheduler for RoundRobinScheduler {
                 return;
             }
 
+            // The task is in the run queue.
             task_info.state = task::State::InQueue;
         }
 
@@ -51,9 +56,11 @@ impl Scheduler for RoundRobinScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
+        // Pop a task from the run queue.
         let data = data.as_mut()?;
         let task = data.queue.pop()?;
 
+        // Make the state of the task Running.
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);

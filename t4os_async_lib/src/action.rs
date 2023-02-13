@@ -29,8 +29,11 @@ type ProtoServerGoalResult<F, R> = S::Choose<
 type ProtoServerFeedback<F, R> = S::Rec<ProtoServerFeedbackInn<F, R>>;
 
 type ProtoServerFeedbackInn<F, R> = S::Choose<
-    S::Send<F /* Send a feedback. */, S::Var<S::Z>>, /* Goto ProtoFeedback. */
-    S::Send<(ResultStatus, R) /* Send a result. */, S::Var<S::S<S::Z>>>, /* Goto ProtoServer. */
+    S::Send<F /* Send a feedback. */, S::Var<S::Z> /* Goto ProtoServerFeedbackInn. */>,
+    S::Send<
+        (ResultStatus, R),  /* Send a result. */
+        S::Var<S::S<S::Z>>, /* Goto ProtoServerInn. */
+    >,
 >;
 type ProtoClientFeedbackInn<F, R> = <ProtoServerFeedbackInn<F, R> as S::HasDual>::Dual;
 

@@ -51,16 +51,17 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 /// The entry point of x86_64.
 ///
-/// 1. Initialize a serial port.
-/// 2. Initialize the MMU.
-/// 3. Initialize the heap memory allocator.
-/// 4. Initialize interrupt handlers..
-/// 5. Initialize the logger.
-/// 6. Initialize ACPI.
-/// 7. Initialize `t4os_lib`.
-/// 8. Initialize APIC.
-/// 9. Boot non-primary CPUs up.
-/// 10. Call `crate::main()` function.
+/// 1. Enable FPU.
+/// 2. Initialize a serial port.
+/// 3. Initialize the MMU.
+/// 4. Initialize the heap memory allocator.
+/// 5. Initialize interrupt handlers..
+/// 6. Initialize the logger.
+/// 7. Initialize ACPI.
+/// 8. Initialize `t4os_lib`.
+/// 9. Initialize APIC.
+/// 10. Boot non-primary CPUs up.
+/// 11. Call `crate::main()` function.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // Enable SSE.
 
