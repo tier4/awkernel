@@ -14,7 +14,6 @@ pub enum ResultStatus {
 }
 
 type ProtoServer<G, F, R> = S::Rec<ProtoServerInn<G, F, R>>;
-type ProtoClient<G, F, R> = <ProtoServer<G, F, R> as S::HasDual>::Dual;
 
 type ProtoServerInn<G, F, R> = S::Offer<S::Eps /* Close. */, ProtoServerGoal<G, F, R>>;
 type ProtoClientInn<G, F, R> = <ProtoServerInn<G, F, R> as S::HasDual>::Dual;
@@ -122,16 +121,16 @@ where
     }
 }
 
-pub struct ClientGoal<G, F, R> {
+pub struct ClientSendGoal<G, F, R> {
     chan: S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>,
 }
 
 pub enum AcceptOrRejectGoal<G, F, R> {
     Accept(ClientRecvFeedback<G, F, R>, GoalResponse),
-    Reject(ClientGoal<G, F, R>),
+    Reject(ClientSendGoal<G, F, R>),
 }
 
-impl<G, F, R> ClientGoal<G, F, R>
+impl<G, F, R> ClientSendGoal<G, F, R>
 where
     G: Send + 'static,
 {
@@ -163,7 +162,7 @@ pub struct ClientRecvFeedback<G, F, R> {
 
 pub enum FeedbackOrResult<G, F, R> {
     Feedback(ClientRecvFeedback<G, F, R>, F),
-    Result(ClientGoal<G, F, R>, ResultStatus, R),
+    Result(ClientSendGoal<G, F, R>, ResultStatus, R),
 }
 
 impl<G, F, R> ClientRecvFeedback<G, F, R>
@@ -182,7 +181,7 @@ where
             RESULT => {
                 let (c, (status, response)) = c.recv().await;
                 let chan = c.succ().zero();
-                FeedbackOrResult::Result(ClientGoal { chan }, status, response)
+                FeedbackOrResult::Result(ClientSendGoal { chan }, status, response)
             }
         }
     }
