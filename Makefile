@@ -62,6 +62,12 @@ aarch64-link-bsp.lds: aarch64-link.lds
 qemu-raspi3:
 	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
 
+debug-raspi3:
+	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int -s -S
+
+gdb-raspi3:
+	gdb-multiarch -x aarch64-debug.gdb
+
 ## x86_64
 
 x86_64: x86_64_boot.img
@@ -77,6 +83,12 @@ $(X86ASM): FORCE
 
 qemu-x86_64:
 	qemu-system-x86_64 -m 320 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait
+
+debug-x86_64:
+	qemu-system-x86_64 -m 320 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait -s -S
+
+gdb-x86_64:
+	gdb-multiarch -x x86-debug.gdb
 
 ## Linux
 
