@@ -94,11 +94,41 @@ impl<T: Send> Sender<T> {
         };
 
         let sender = AsyncSender {
-            sender: &self,
+            sender: self,
             data: Some(data),
         };
 
-        sender.await
+        let result = sender.await;
+        r#yield().await;
+        result
+    }
+
+    pub fn try_send(&self, data: T) -> Result<(), SendErr> {
+        let data = ChannelData {
+            time_stamp: uptime(),
+            data,
+        };
+
+        let mut node = MCSNode::new();
+        let mut chan = self.chan.lock(&mut node);
+
+        if chan.terminated {
+            return Err(SendErr::ChannelClosed);
+        }
+
+        chan.garbage_collect();
+
+        if chan.queue.is_full() {
+            if chan.attribute.flow_control {
+                return Err(SendErr::Full);
+            } else {
+                let _ = chan.queue.pop();
+            }
+        }
+
+        assert!(matches!(chan.queue.push(data), Ok(())));
+
+        Ok(())
     }
 
     pub fn is_terminated(&self) -> bool {
@@ -137,9 +167,9 @@ impl<'a, T> Future for AsyncSender<'a, T> {
             return Poll::Ready(Err(SendErr::ChannelClosed));
         }
 
-        if chan.queue.is_full() {
-            chan.garbage_collect();
+        chan.garbage_collect();
 
+        if chan.queue.is_full() {
             if chan.attribute.flow_control {
                 chan.waker_sender = Some(cx.waker().clone());
                 return Poll::Pending;
@@ -175,13 +205,17 @@ impl<T> Receiver<T> {
 
         if chan.terminated {
             Err(RecvErr::ChannelClosed)
+        } else if let Some(data) = chan.queue.pop() {
+            Ok(data.data)
         } else {
-            if let Some(data) = chan.queue.pop() {
-                Ok(data.data)
-            } else {
-                Err(RecvErr::NoData)
-            }
+            Err(RecvErr::NoData)
         }
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        let mut node = MCSNode::new();
+        let chan = self.chan.lock(&mut node);
+        chan.terminated
     }
 }
 
