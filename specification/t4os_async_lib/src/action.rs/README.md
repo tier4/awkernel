@@ -29,20 +29,20 @@ The protocol can be described in sequence diagram as follows.
 sequenceDiagram
     loop
         alt
-            Client->>Server: Close
-            Note over Client,Server: Break loop
+            Client->>Server: close
+            Note over Client,Server: break loop
         else
-            Client->>Server: Goal
+            Client->>Server: goal
             alt
-                Server->>Client: Reject
+                Server->>Client: reject
             else
-                Server->>Client: Accept
+                Server->>Client: accept
                 loop
                     alt
-                        Server->>Client: Feedback
+                        Server->>Client: feedback
                     else
-                        Server->>Client: Result
-                        Note over Client,Server: Break inner loop
+                        Server->>Client: result
+                        Note over Client,Server: break inner loop
                     end
                 end
             end

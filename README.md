@@ -1,14 +1,18 @@
-# T4OS: T4 Operating System
+# O4OS: Open Intelligent Vehicle Operating System
 
-T4 Operating System (T4OS) is a safe and realtime operating system supporting
+Open Intelligent Vehicle Operating System (O4OS) is a safe and realtime operating system supporting
 isolated zero-copy communications written in Rust.
+
+- Open = O
+- Intelligent Vehicle = IV = 4
+- Operating System = OS
 
 ## Progress
 
 - [x] Zero-copy communication
   - [x] Publish and subscribe
   - [x] Service
-  - [x] Action
+  - [ ] Action
 - [ ] Isolation
   - [ ] Memory isolation
   - [ ] Computational isolation

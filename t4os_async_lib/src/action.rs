@@ -1,3 +1,9 @@
+//! ROS2 like action.
+//!
+//! # Specification
+//!
+//! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
+
 use crate::{offer, session_types as S};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -36,6 +42,7 @@ type ProtoServerFeedbackInn<F, R> = S::Choose<
 >;
 type ProtoClientFeedbackInn<F, R> = <ProtoServerFeedbackInn<F, R> as S::HasDual>::Dual;
 
+#[must_use]
 pub struct ServerRecvGoal<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerInn<G, F, R>>,
 }
@@ -59,6 +66,7 @@ where
     }
 }
 
+#[must_use]
 pub struct ServerSendGoalResult<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerGoalResult<F, R>>,
 }
@@ -92,6 +100,7 @@ where
     }
 }
 
+#[must_use]
 pub struct ServerSendFeedback<G, F, R> {
     chan: S::Chan<
         (ProtoServerFeedbackInn<F, R>, (ProtoServerInn<G, F, R>, ())),
@@ -121,6 +130,7 @@ where
     }
 }
 
+#[must_use]
 pub struct ClientSendGoal<G, F, R> {
     chan: S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>,
 }
@@ -153,6 +163,7 @@ where
     }
 }
 
+#[must_use]
 pub struct ClientRecvFeedback<G, F, R> {
     chan: S::Chan<
         (ProtoClientFeedbackInn<F, R>, (ProtoClientInn<G, F, R>, ())),

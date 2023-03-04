@@ -35,6 +35,7 @@
 //!     let _data = rx.await.unwrap();
 //! };
 //! ```
+//!
 
 use crate::r#yield;
 use alloc::{collections::VecDeque, sync::Arc};
@@ -43,6 +44,8 @@ use futures::Future;
 use synctools::mcs::{MCSLock, MCSNode};
 
 pub use futures::channel::*;
+
+pub mod bounded;
 
 /// Channel.
 struct Channel<T> {

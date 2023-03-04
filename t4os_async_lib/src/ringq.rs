@@ -24,6 +24,10 @@ impl<T> RingQ<T> {
         }
     }
 
+    pub fn is_full(&self) -> bool {
+        self.size >= self.queue.len()
+    }
+
     /// Push `data` to the queue.
     pub fn push(&mut self, data: T) -> Result<(), T> {
         if self.queue.len() == self.size {
