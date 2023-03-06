@@ -4,20 +4,23 @@ use x86_64::{
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     VirtAddr,
 };
+use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct PageAllocator<'a> {
-    frames: &'a mut dyn Iterator<Item = PhysFrame>,
+    frames: MCSLock<&'a mut dyn Iterator<Item = PhysFrame>>,
 }
 
 impl<'a> PageAllocator<'a> {
     pub fn new(frames: &'a mut dyn Iterator<Item = PhysFrame>) -> Self {
-        PageAllocator { frames }
+        PageAllocator { frames : MCSLock::new(frames) }
     }
 }
 
 unsafe impl<'a> FrameAllocator<Size4KiB> for PageAllocator<'a> {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
-        self.frames.next()
+        let mut node = MCSNode::new();
+        let mut guard = self.frames.lock(&mut node);
+        guard.next()
     }
 }
 
