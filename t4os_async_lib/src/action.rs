@@ -5,13 +5,11 @@
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
 
 use crate::{channel::bounded, offer, session_types as S};
-use alloc::boxed::Box;
-use core::pin::Pin;
+use core::{marker::PhantomData, pin::Pin};
 use futures::{
     future::{BoxFuture, Fuse},
     Future, FutureExt,
 };
-use pin_project_lite::pin_project;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum GoalResponse {
@@ -48,7 +46,6 @@ type ProtoServerResult<R> = S::Send<
     (ResultStatus, R), /* Send a result. */
     S::Var<S::Z>,      /* Goto ProtoServerInn. */
 >;
-type ProtoClientResult<R> = <ProtoServerResult<R> as S::HasDual>::Dual;
 
 #[must_use]
 pub struct ServerRecvGoal<G, F, R> {
@@ -137,16 +134,17 @@ where
 type ChanClient<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>;
 
 #[must_use]
-pub struct ClientSendGoal<G, F, R> {
+pub struct ClientSendGoal<'a, G, F, R> {
     chan: ChanClient<G, F, R>,
+    _phantom: PhantomData<&'a ()>,
 }
 
-pub enum AcceptOrRejectGoal<G, F, R> {
-    Accept(ClientRecvFeedback<G, F, R>, GoalResponse),
-    Reject(ClientSendGoal<G, F, R>),
+pub enum AcceptOrRejectGoal<'a, G, F, R> {
+    Accept(ClientRecvFeedback<'a, G, F, R>, GoalResponse),
+    Reject(ClientSendGoal<'a, G, F, R>),
 }
 
-impl<G, F, R> ClientSendGoal<G, F, R>
+impl<'a, G, F, R> ClientSendGoal<'a, G, F, R>
 where
     G: Sync + Send + 'static,
     F: Send + 'static,
@@ -156,7 +154,7 @@ where
         self,
         goal: G,
         attribute: bounded::Attribute,
-    ) -> AcceptOrRejectGoal<G, F, R> {
+    ) -> AcceptOrRejectGoal<'a, G, F, R> {
         let c = self.chan;
         let c = c.sel2().await;
         let c = c.send(goal).await;
@@ -164,7 +162,7 @@ where
         offer! {c,
             REJECT => {
                 let chan = c.zero();
-                AcceptOrRejectGoal::Reject(Self { chan })
+                AcceptOrRejectGoal::Reject(Self { chan, _phantom: PhantomData::default() })
             },
             ACCEPT => {
                 let (c, response) = c.recv().await;
@@ -225,23 +223,23 @@ impl<'a, F> Future for RecvFeedbackAsync<'a, F> {
 type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S::Z>>;
 
 #[must_use]
-pub struct ClientRecvFeedback<G, F, R> {
-    chan: Fuse<BoxFuture<'static, (ChanClientChoose<G, F, R>, (ResultStatus, R))>>,
-    rx: Fuse<BoxFuture<'static, Result<F, bounded::RecvErr>>>,
+pub struct ClientRecvFeedback<'a, G, F, R> {
+    chan: Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, (ResultStatus, R))>>,
+    rx: Fuse<BoxFuture<'a, Result<F, bounded::RecvErr>>>,
 }
 
-pub enum FeedbackOrResult<G, F, R> {
-    Feedback(ClientRecvFeedback<G, F, R>, F),
+pub enum FeedbackOrResult<'a, G, F, R> {
+    Feedback(ClientRecvFeedback<'a, G, F, R>, F),
     Result(ChanClientChoose<G, F, R>, ResultStatus, R),
 }
 
-impl<G, F, R> ClientRecvFeedback<G, F, R>
+impl<'a, G, F, R> ClientRecvFeedback<'a, G, F, R>
 where
     G: Send + 'static,
     F: Send + 'static,
     R: Send + 'static,
 {
-    pub async fn recv(self) -> FeedbackOrResult<G, F, R> {
+    pub async fn recv(self) -> FeedbackOrResult<'a, G, F, R> {
         let (mut chan, mut rx) = (self.chan, self.rx);
 
         futures::select_biased! {
