@@ -254,7 +254,7 @@ impl Default for Attribute {
     /// The default value of `Attribute`.
     ///
     /// ```
-    /// use t4os_async_lib::pubsub::{Attribute, Lifespan};
+    /// use t4os_async_lib::{channel::bounded::Attribute, pubsub::Lifespan};
     ///
     /// // Default value.
     /// Attribute {

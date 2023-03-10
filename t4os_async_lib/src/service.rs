@@ -224,7 +224,7 @@
 
 use crate::{
     anydict::{AnyDict, AnyDictResult},
-    channel::{unbounded, Receiver, RecvErr, Sender},
+    channel::unbounded::{self, Receiver, RecvErr, Sender},
     session_types::{mk_chan, Chan, HasDual},
 };
 use alloc::borrow::Cow;
@@ -304,7 +304,7 @@ struct InnerService<P: 'static> {
 
 impl<P> InnerService<P> {
     fn new_and_accepter(name: Cow<'static, str>) -> (Self, Accepter<P>) {
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded::new();
         let accepter = Accepter::new(rx, name);
 
         (
@@ -317,7 +317,7 @@ impl<P> InnerService<P> {
     }
 
     fn new(name: Cow<'static, str>) -> Self {
-        let (tx, rx) = unbounded();
+        let (tx, rx) = unbounded::new();
         Self {
             accepter: Some(Accepter::new(rx, name)),
             sender: tx,
@@ -441,8 +441,8 @@ pub async fn create_client<P: HasDual + 'static>(
     let mut services = SERVICES.lock(&mut node);
     let tx = services.create_client::<P>(name)?;
 
-    let (tx1, rx1) = unbounded();
-    let (tx2, rx2) = unbounded();
+    let (tx1, rx1) = unbounded::new();
+    let (tx2, rx2) = unbounded::new();
 
     let client = mk_chan::<P>(tx1, rx2);
     tx.send((tx2, rx1)).await?;

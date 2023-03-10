@@ -1,11 +1,7 @@
-# O4OS: Open Intelligent Vehicle Operating System
+# Autoware Kernel
 
-Open Intelligent Vehicle Operating System (O4OS) is a safe and realtime operating system supporting
+Autoware kernel is a safe and realtime operating system supporting
 isolated zero-copy communications written in Rust.
-
-- Open = O
-- Intelligent Vehicle = IV = 4
-- Operating System = OS
 
 ## Progress
 

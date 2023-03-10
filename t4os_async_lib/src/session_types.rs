@@ -64,7 +64,7 @@
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::double_must_use))]
 #![cfg_attr(feature = "cargo-clippy", allow(clippy::type_complexity))]
 use crate::{
-    channel::{unbounded, Receiver, Sender},
+    channel::unbounded::{self, Receiver, Sender},
     r#yield,
 };
 use alloc::{boxed::Box, vec::Vec};
@@ -478,8 +478,8 @@ impl<'c> Default for ChanSelect<'c> {
 /// Returns two session channels
 #[must_use]
 pub fn session_channel<P: HasDual>() -> (Chan<(), P>, Chan<(), P::Dual>) {
-    let (tx1, rx1) = unbounded();
-    let (tx2, rx2) = unbounded();
+    let (tx1, rx1) = unbounded::new();
+    let (tx2, rx2) = unbounded::new();
 
     let c1 = Chan(tx1, rx2, PhantomData);
     let c2 = Chan(tx2, rx1, PhantomData);
