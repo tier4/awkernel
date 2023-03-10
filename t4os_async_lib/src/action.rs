@@ -4,7 +4,14 @@
 //!
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
 
-use crate::{offer, session_types as S};
+use crate::{channel::bounded, offer, session_types as S};
+use alloc::boxed::Box;
+use core::pin::Pin;
+use futures::{
+    future::{BoxFuture, Fuse},
+    Future, FutureExt,
+};
+use pin_project_lite::pin_project;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum GoalResponse {
@@ -26,21 +33,22 @@ type ProtoClientInn<G, F, R> = <ProtoServerInn<G, F, R> as S::HasDual>::Dual;
 
 type ProtoServerGoal<G, F, R> = S::Recv<G /* Receive a goal. */, ProtoServerGoalResult<F, R>>;
 
-type ProtoServerGoalResult<F, R> = S::Choose<
-    S::Var<S::Z>, /* Reject. */
-    S::Send<GoalResponse /* Send a response of the goal. */, ProtoServerFeedback<F, R>>,
+type ProtoServerGoalResult<F, R> =
+    S::Choose<S::Var<S::Z> /* Reject. */, ProtoServerSendGoalResult<F, R> /* Accept. */>;
+
+type ProtoServerSendGoalResult<F, R> =
+    S::Send<GoalResponse /* Send a response of the goal. */, ProtoServerFeedback<F, R>>;
+
+type ProtoServerFeedback<F, R> = S::Recv<
+    bounded::Attribute, /* Receive an attribute. */
+    S::Send<bounded::Receiver<F> /* Send Rx. */, ProtoServerResult<R>>,
 >;
 
-type ProtoServerFeedback<F, R> = S::Rec<ProtoServerFeedbackInn<F, R>>;
-
-type ProtoServerFeedbackInn<F, R> = S::Choose<
-    S::Send<F /* Send a feedback. */, S::Var<S::Z> /* Goto ProtoServerFeedbackInn. */>,
-    S::Send<
-        (ResultStatus, R),  /* Send a result. */
-        S::Var<S::S<S::Z>>, /* Goto ProtoServerInn. */
-    >,
+type ProtoServerResult<R> = S::Send<
+    (ResultStatus, R), /* Send a result. */
+    S::Var<S::Z>,      /* Goto ProtoServerInn. */
 >;
-type ProtoClientFeedbackInn<F, R> = <ProtoServerFeedbackInn<F, R> as S::HasDual>::Dual;
+type ProtoClientResult<R> = <ProtoServerResult<R> as S::HasDual>::Dual;
 
 #[must_use]
 pub struct ServerRecvGoal<G, F, R> {
@@ -94,18 +102,19 @@ where
         let c = self.chan;
         let c = c.sel2().await;
         let c = c.send(response).await;
-        let chan = c.enter();
+        let (c, attribute) = c.recv().await;
 
-        ServerSendFeedback { chan }
+        let (tx, rx) = bounded::new(attribute);
+        let chan = c.send(rx).await;
+
+        ServerSendFeedback { chan, tx }
     }
 }
 
 #[must_use]
 pub struct ServerSendFeedback<G, F, R> {
-    chan: S::Chan<
-        (ProtoServerFeedbackInn<F, R>, (ProtoServerInn<G, F, R>, ())),
-        ProtoServerFeedbackInn<F, R>,
-    >,
+    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    tx: bounded::Sender<F>,
 }
 
 impl<G, F, R> ServerSendFeedback<G, F, R>
@@ -113,26 +122,23 @@ where
     F: Send + 'static,
     R: Send + 'static,
 {
-    pub async fn send_feedback(self, feedback: F) -> Self {
-        let c = self.chan;
-        let c = c.sel1().await;
-        let c = c.send(feedback).await;
-        let chan = c.zero();
-        Self { chan }
+    pub async fn send_feedback(&self, feedback: F) -> Result<(), bounded::SendErr> {
+        self.tx.send(feedback).await
     }
 
     pub async fn send_result(self, status: ResultStatus, value: R) -> ServerRecvGoal<G, F, R> {
         let c = self.chan;
-        let c = c.sel2().await;
         let c = c.send((status, value)).await;
-        let chan = c.succ().zero();
+        let chan = c.zero();
         ServerRecvGoal { chan }
     }
 }
 
+type ChanClient<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>;
+
 #[must_use]
 pub struct ClientSendGoal<G, F, R> {
-    chan: S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>,
+    chan: ChanClient<G, F, R>,
 }
 
 pub enum AcceptOrRejectGoal<G, F, R> {
@@ -142,9 +148,15 @@ pub enum AcceptOrRejectGoal<G, F, R> {
 
 impl<G, F, R> ClientSendGoal<G, F, R>
 where
-    G: Send + 'static,
+    G: Sync + Send + 'static,
+    F: Send + 'static,
+    R: Sync + Send + 'static,
 {
-    pub async fn send_goal(self, goal: G) -> AcceptOrRejectGoal<G, F, R> {
+    pub async fn send_goal(
+        self,
+        goal: G,
+        attribute: bounded::Attribute,
+    ) -> AcceptOrRejectGoal<G, F, R> {
         let c = self.chan;
         let c = c.sel2().await;
         let c = c.send(goal).await;
@@ -156,43 +168,89 @@ where
             },
             ACCEPT => {
                 let (c, response) = c.recv().await;
-                let chan = c.enter();
-                AcceptOrRejectGoal::Accept(ClientRecvFeedback { chan }, response)
+                let c = c.send(attribute).await;
+                let (c, rx) = c.recv().await;
+
+                let chan = async move {
+                    c.recv().await
+                }.boxed();
+
+                let chan = RecvResultAsync { chan }.boxed().fuse();
+
+                let rx = async move {
+                    rx.recv().await
+                }.boxed();
+
+                let rx = RecvFeedbackAsync { rx }.boxed().fuse();
+                AcceptOrRejectGoal::Accept(ClientRecvFeedback { chan, rx }, response)
             }
         }
     }
 }
 
+struct RecvResultAsync<G, F, R> {
+    chan: BoxFuture<'static, (ChanClientChoose<G, F, R>, (ResultStatus, R))>,
+}
+
+impl<G, F, R> Future for RecvResultAsync<G, F, R>
+where
+    G: Sync + Send + 'static,
+    R: Sync + Send + 'static,
+{
+    type Output = (ChanClientChoose<G, F, R>, (ResultStatus, R));
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        self.chan.poll_unpin(cx)
+    }
+}
+
+struct RecvFeedbackAsync<'a, F> {
+    rx: BoxFuture<'a, Result<F, bounded::RecvErr>>,
+}
+
+impl<'a, F> Future for RecvFeedbackAsync<'a, F> {
+    type Output = Result<F, bounded::RecvErr>;
+
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        self.rx.poll_unpin(cx)
+    }
+}
+
+type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S::Z>>;
+
 #[must_use]
 pub struct ClientRecvFeedback<G, F, R> {
-    chan: S::Chan<
-        (ProtoClientFeedbackInn<F, R>, (ProtoClientInn<G, F, R>, ())),
-        ProtoClientFeedbackInn<F, R>,
-    >,
+    chan: Fuse<BoxFuture<'static, (ChanClientChoose<G, F, R>, (ResultStatus, R))>>,
+    rx: Fuse<BoxFuture<'static, Result<F, bounded::RecvErr>>>,
 }
 
 pub enum FeedbackOrResult<G, F, R> {
     Feedback(ClientRecvFeedback<G, F, R>, F),
-    Result(ClientSendGoal<G, F, R>, ResultStatus, R),
+    Result(ChanClientChoose<G, F, R>, ResultStatus, R),
 }
 
 impl<G, F, R> ClientRecvFeedback<G, F, R>
 where
+    G: Send + 'static,
     F: Send + 'static,
     R: Send + 'static,
 {
     pub async fn recv(self) -> FeedbackOrResult<G, F, R> {
-        let c = self.chan;
-        offer! {c,
-            FEEDBACK => {
-                let (c, value) = c.recv().await;
-                let chan = c.zero();
-                FeedbackOrResult::Feedback(Self{ chan }, value)
+        let (mut chan, mut rx) = (self.chan, self.rx);
+
+        futures::select_biased! {
+            (c, (status ,response)) = chan => {
+                FeedbackOrResult::Result(c, status, response)
             },
-            RESULT => {
-                let (c, (status, response)) = c.recv().await;
-                let chan = c.succ().zero();
-                FeedbackOrResult::Result(ClientSendGoal { chan }, status, response)
+            result = rx => {
+                let feedback = result.unwrap();
+                FeedbackOrResult::Feedback(ClientRecvFeedback{ chan, rx }, feedback)
             }
         }
     }

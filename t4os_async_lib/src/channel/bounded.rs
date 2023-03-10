@@ -4,7 +4,7 @@ use core::task::{Poll, Waker};
 use futures::Future;
 use pin_project_lite::pin_project;
 use synctools::mcs::{MCSLock, MCSNode};
-use t4os_lib::{delay::uptime, PhantomUnsync};
+use t4os_lib::delay::uptime;
 
 /// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,12 +52,10 @@ struct ChannelData<T> {
 
 pub struct Receiver<T> {
     chan: Arc<MCSLock<Channel<T>>>,
-    _unsync: PhantomUnsync,
 }
 
 pub struct Sender<T> {
     chan: Arc<MCSLock<Channel<T>>>,
-    _unsync: PhantomUnsync,
 }
 
 pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
@@ -72,16 +70,8 @@ pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
     };
 
     let chan = Arc::new(MCSLock::new(chan));
-
-    let sender = Sender {
-        chan: chan.clone(),
-        _unsync: Default::default(),
-    };
-
-    let receiver = Receiver {
-        chan,
-        _unsync: Default::default(),
-    };
+    let sender = Sender { chan: chan.clone() };
+    let receiver = Receiver { chan };
 
     (sender, receiver)
 }
