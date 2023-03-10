@@ -4,7 +4,11 @@
 //!
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
 
-use crate::{channel::bounded, offer, session_types as S};
+use crate::{
+    channel::bounded,
+    offer,
+    session_types::{self as S},
+};
 use core::marker::PhantomData;
 use futures::{
     future::{BoxFuture, Fuse},
@@ -146,9 +150,9 @@ pub enum AcceptOrRejectGoal<'a, G, F, R> {
 
 impl<'a, G, F, R> ClientSendGoal<'a, G, F, R>
 where
-    G: Sync + Send + 'static,
+    G: Send + 'static,
     F: Send + 'static,
-    R: Sync + Send + 'static,
+    R: Send + 'static,
 {
     pub async fn send_goal(
         self,
@@ -169,6 +173,8 @@ where
                 let c = c.send(attribute).await;
                 let (c, rx) = c.recv().await;
 
+                unsafe impl<E, P> Sync for S::Chan<E, P> {}
+
                 let chan = async move {
                     c.recv().await
                 }.boxed().fuse();
@@ -181,6 +187,10 @@ where
             }
         }
     }
+
+    pub async fn close(self) {
+        self.chan.sel1().await.close();
+    }
 }
 
 type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S::Z>>;
@@ -191,9 +201,10 @@ pub struct ClientRecvFeedback<'a, G, F, R> {
     rx: Fuse<BoxFuture<'a, Result<F, bounded::RecvErr>>>,
 }
 
+#[must_use]
 pub enum FeedbackOrResult<'a, G, F, R> {
     Feedback(ClientRecvFeedback<'a, G, F, R>, F),
-    Result(ChanClientChoose<G, F, R>, ResultStatus, R),
+    Result(ClientSendGoal<'a, G, F, R>, ResultStatus, R),
 }
 
 impl<'a, G, F, R> ClientRecvFeedback<'a, G, F, R>
@@ -207,7 +218,7 @@ where
 
         futures::select_biased! {
             (c, (status ,response)) = chan => {
-                FeedbackOrResult::Result(c, status, response)
+                FeedbackOrResult::Result(ClientSendGoal { chan: c.zero(), _phantom: PhantomData::default() } , status, response)
             },
             result = rx => {
                 let feedback = result.unwrap();

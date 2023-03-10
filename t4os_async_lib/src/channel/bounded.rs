@@ -175,6 +175,20 @@ impl<'a, T> Future for AsyncSender<'a, T> {
     }
 }
 
+impl<T> Drop for Sender<T> {
+    fn drop(&mut self) {
+        let mut node = MCSNode::new();
+        let mut chan = self.chan.lock(&mut node);
+
+        chan.terminated = true;
+        chan.waker_sender = None;
+
+        if let Some(waker) = chan.waker_receiver.take() {
+            waker.wake();
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RecvErr {
     ChannelClosed,
@@ -193,10 +207,10 @@ impl<T> Receiver<T> {
 
         chan.garbage_collect();
 
-        if chan.terminated {
-            Err(RecvErr::ChannelClosed)
-        } else if let Some(data) = chan.queue.pop() {
+        if let Some(data) = chan.queue.pop() {
             Ok(data.data)
+        } else if chan.terminated {
+            Err(RecvErr::ChannelClosed)
         } else {
             Err(RecvErr::NoData)
         }
@@ -236,6 +250,20 @@ impl<'a, T> Future for AsyncReceiver<'a, T> {
         } else {
             chan.waker_receiver = Some(cx.waker().clone());
             Poll::Pending
+        }
+    }
+}
+
+impl<T> Drop for Receiver<T> {
+    fn drop(&mut self) {
+        let mut node = MCSNode::new();
+        let mut chan = self.chan.lock(&mut node);
+
+        chan.terminated = true;
+        chan.waker_receiver = None;
+
+        if let Some(waker) = chan.waker_sender.take() {
+            waker.wake();
         }
     }
 }
