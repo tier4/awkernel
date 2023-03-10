@@ -5,10 +5,10 @@
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
 
 use crate::{channel::bounded, offer, session_types as S};
-use core::{marker::PhantomData, pin::Pin};
+use core::marker::PhantomData;
 use futures::{
     future::{BoxFuture, Fuse},
-    Future, FutureExt,
+    FutureExt,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -171,52 +171,15 @@ where
 
                 let chan = async move {
                     c.recv().await
-                }.boxed();
-
-                let chan = RecvResultAsync { chan }.boxed().fuse();
+                }.boxed().fuse();
 
                 let rx = async move {
                     rx.recv().await
-                }.boxed();
+                }.boxed().fuse();
 
-                let rx = RecvFeedbackAsync { rx }.boxed().fuse();
                 AcceptOrRejectGoal::Accept(ClientRecvFeedback { chan, rx }, response)
             }
         }
-    }
-}
-
-struct RecvResultAsync<G, F, R> {
-    chan: BoxFuture<'static, (ChanClientChoose<G, F, R>, (ResultStatus, R))>,
-}
-
-impl<G, F, R> Future for RecvResultAsync<G, F, R>
-where
-    G: Sync + Send + 'static,
-    R: Sync + Send + 'static,
-{
-    type Output = (ChanClientChoose<G, F, R>, (ResultStatus, R));
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        self.chan.poll_unpin(cx)
-    }
-}
-
-struct RecvFeedbackAsync<'a, F> {
-    rx: BoxFuture<'a, Result<F, bounded::RecvErr>>,
-}
-
-impl<'a, F> Future for RecvFeedbackAsync<'a, F> {
-    type Output = Result<F, bounded::RecvErr>;
-
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        self.rx.poll_unpin(cx)
     }
 }
 
