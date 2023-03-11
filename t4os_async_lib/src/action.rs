@@ -173,8 +173,6 @@ where
                 let c = c.send(attribute).await;
                 let (c, rx) = c.recv().await;
 
-                unsafe impl<E, P> Sync for S::Chan<E, P> {}
-
                 let chan = async move {
                     c.recv().await
                 }.boxed().fuse();

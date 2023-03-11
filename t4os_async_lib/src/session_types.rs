@@ -202,6 +202,8 @@ impl<E> Chan<E, Eps> {
     }
 }
 
+unsafe impl<E, P> Sync for Chan<E, P> {}
+
 impl<E, P> Chan<E, P> {
     unsafe fn cast<E2, P2>(self) -> Chan<E2, P2> {
         let this = mem::ManuallyDrop::new(self);
