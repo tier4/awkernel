@@ -1,30 +1,28 @@
 use super::mmu::PAGESIZE;
 
-pub static mut PALLOC: PageAllocator = PageAllocator::init();
+pub trait FrameAllocator {
+    fn allocate_frame(&mut self) -> Option<u64>;
+}
+
 pub struct PageAllocator {
     start: u64,
     end: u64,
-    cursor: u64,
+}
+
+impl FrameAllocator for PageAllocator {
+    fn allocate_frame(&mut self) -> Option<u64> {
+        if self.start == self.end {
+            None
+        } else {
+            let frame = self.start;
+            self.start += PAGESIZE;
+            Some(frame)
+        }
+    }
 }
 
 impl PageAllocator {
-    pub const fn init() -> Self {
-        Self {
-            start: 0,
-            end: 0,
-            cursor: 0,
-        }
-    }
-
-    pub fn insert(&mut self, start: u64, end: u64) {
-        self.start = start;
-        self.end = end;
-        self.cursor = self.start;
-    }
-
-    pub fn alloc(&mut self) -> u64 {
-        let prev = self.cursor;
-        self.cursor += PAGESIZE;
-        prev
+    pub fn new(start: u64, end: u64) -> Self {
+        Self { start, end }
     }
 }
