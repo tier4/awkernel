@@ -42,7 +42,7 @@ fn primary_cpu() {
     }
 
     // Initialize MMU.
-    mmu::init_memory_map();
+    mmu::init_memory();
     if mmu::init().is_none() {
         unsafe { DevUART::unsafe_puts("Failed to init MMU.\n") };
         wait_forever();
