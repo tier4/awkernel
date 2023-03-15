@@ -16,10 +16,10 @@ use t4os_aarch64::{
 use t4os_lib::delay::wait_forever;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
+// higher address space offset
+pub const EL1_ADDR_OFFSET: u64 = 0x1FFFFFF << 39;
 
-pub const EL1_ADDR_OFFSET: u64 = 0x3FFFFF << 42;
-
-pub const STACK_SIZE: u64 = 32 * PAGESIZE; // 2MiB
+pub const STACK_SIZE: u64 = 2 * 1024 * 1024; // 2MiB
 
 static mut MEMORY_MAP: Addr = Addr {
     no_cache_start: 0,
@@ -79,9 +79,7 @@ pub fn _get_data_end() -> u64 {
 }
 
 // 64KB page
-// level 2 and 3 translation tables
-
-pub const PAGESIZE: u64 = 64 * 1024;
+pub const PAGESIZE: u64 = 4 * 1024;
 
 // NSTable (63bit)
 const _FLAG_L2_NS: u64 = 1 << 63; // non secure table
@@ -127,7 +125,7 @@ const _FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
 
 const ENTRY_COUNT: usize = PAGESIZE as usize / 8;
 
-#[repr(align(65536))] // 64KiB
+#[repr(align(4096))] // 64KiB
 #[repr(C)]
 pub struct PageTableEntry {
     entries: &'static mut [u64],
@@ -224,6 +222,7 @@ impl PageTableEntry {
 }
 
 enum PageTableLevel {
+    Lv1,
     Lv2,
     Lv3,
 }
@@ -234,7 +233,7 @@ pub struct PageTable {
 
 impl PageTable {
     const IDX_MASK: u64 = (ENTRY_COUNT - 1) as u64;
-    const ADDR_MASK: u64 = 0xFFFFFF << 16;
+    const ADDR_MASK: u64 = 0xFFFFFFFFF << 12; // [47:12]
 
     fn new<A>(allocator: &mut A) -> Self
     where
@@ -250,8 +249,9 @@ impl PageTable {
 
     fn get_idx(addr: u64, level: PageTableLevel) -> usize {
         match level {
-            PageTableLevel::Lv2 => ((addr >> 29) & Self::IDX_MASK) as usize,
-            PageTableLevel::Lv3 => ((addr >> 16) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv1 => ((addr >> 30) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv2 => ((addr >> 21) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv3 => ((addr >> 12) & Self::IDX_MASK) as usize,
         }
     }
 
@@ -259,45 +259,73 @@ impl PageTable {
     where
         A: FrameAllocator,
     {
-        let lv2_table = &mut self.root.entries;
+        let lv1_table = &mut self.root.entries;
+        let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
+        let lv2_table;
+        if lv1_table[lv1_idx] == 0 {
+            lv2_table = PageTableEntry::new(allocator).entries;
+            lv1_table[lv1_idx] = (lv2_table.as_ptr()) as u64 | 0b11;
+        } else {
+            let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
+            lv2_table = PageTableEntry::from_addr(addr).entries;
+        }
         let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
         let lv3_table;
         if lv2_table[lv2_idx] == 0 {
-            lv3_table = PageTableEntry::new(allocator);
-            lv2_table[lv2_idx] = (lv3_table.entries.as_ptr()) as u64 | 0b11;
+            lv3_table = PageTableEntry::new(allocator).entries;
+            lv2_table[lv2_idx] = (lv3_table.as_ptr()) as u64 | 0b11;
         } else {
             let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-            lv3_table = PageTableEntry::from_addr(addr);
+            lv3_table = PageTableEntry::from_addr(addr).entries;
         }
+
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let e = phy_addr & !0xffff | flag;
-        let ptr = &mut lv3_table.entries[lv3_idx];
+        let e = phy_addr & !0xfff | flag;
+        let ptr = &mut lv3_table[lv3_idx];
         unsafe { write_volatile(ptr, e) };
     }
 
     fn unmap(&mut self, vm_addr: u64) {
-        let lv2_table = &mut self.root.entries;
+        let lv1_table = &mut self.root.entries;
+        let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
+        if lv1_table[lv1_idx] == 0 {
+            return;
+        }
+        let lv2_addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
+        let lv2_table = PageTableEntry::from_addr(lv2_addr).entries;
         let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
-        let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-        let lv3_table = PageTableEntry::from_addr(addr);
+        if lv2_table[lv2_idx] == 0 {
+            return;
+        }
+        let lv3_addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+        let lv3_table = PageTableEntry::from_addr(lv3_addr).entries;
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let ptr = &mut lv3_table.entries[lv3_idx];
+        let ptr = &mut lv3_table[lv3_idx];
         unsafe { write_volatile(ptr, 0) };
     }
 
-    // function for debug
-    fn _translate(&self, vm_addr: u64) -> u64 {
-        let lv2_table = &self.root.entries;
+    // function for debugging
+    fn _translate(&self, vm_addr: u64) -> Option<u64> {
+        let lv1_table = &self.root.entries;
+        let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
+        if lv1_table[lv1_idx] == 0 {
+            return None;
+        }
+        let lv2_addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
+        let lv2_table = PageTableEntry::from_addr(lv2_addr).entries;
         let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
-        let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-        let lv3_table = PageTableEntry::from_addr(addr);
+        if lv2_table[lv2_idx] == 0 {
+            return None;
+        }
+        let lv3_addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+        let lv3_table = PageTableEntry::from_addr(lv3_addr).entries;
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let val = unsafe { read_volatile(&lv3_table.entries[lv3_idx]) };
-        let high = (val >> 32) & 0xffff;
-        let mid = (val >> 16) & 0xffff;
-        let low = vm_addr & 0xffff;
+        let ptr = &lv3_table[lv3_idx];
+        let val = unsafe { read_volatile(ptr) };
+        let high = (val >> 12) & 0xfffffff; // PA[39:12]
+        let low = vm_addr & 0xfff; // PA[11:0]
 
-        (high << 32) | (mid << 16) | low
+        Some(high << 16 | low)
     }
 }
 
@@ -371,10 +399,10 @@ pub fn init() -> Option<(PageTable, PageTable)> {
         return None;
     }
 
-    if mmfr & (0xF << 24) != 0
-    /* 64KiB */
+    if mmfr & (0xF << 28) != 0
+    /* 4KiB */
     {
-        unsafe { DevUART::unsafe_puts("64KiB granule not support.\n") };
+        unsafe { DevUART::unsafe_puts("4KiB granule not support.\n") };
         return None;
     }
 
@@ -420,7 +448,7 @@ fn update_sctlr(sctlr: u64) -> u64 {
         )
 }
 
-/// set up EL1's page table, 64KB page, level 2 and 3 translation tables,
+/// set up EL1's page table
 /// assume 2MiB stack space per CPU
 fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     // init the page allocator
@@ -429,7 +457,7 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     let mut allocator = PageAllocator::new(start, end);
 
     //-------------------------------------------------------------------------
-    // TTBR0
+    // TTBR0: Kernel Space
     let mut table0 = PageTable::new(&mut allocator);
 
     // map .init and .text section
@@ -539,16 +567,16 @@ fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
     let b = mmfr & 0xF;
 
     let tcr: u64 = b << 32 |
-         3 << 30 | // 64KiB granule, TTBR1_EL1
+         0b10 << 30 | // 4KiB granule, TTBR1_EL1
          3 << 28 | // inner shadable, TTBR1_EL1
          2 << 26 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
          1 << 24 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
-        22 << 16 | // T1SZ = 22, 2 levels (level 2 and 3 translation tables), 2^42B (4TiB) space
-         1 << 14 | // 64KiB granule
+        25 << 16 | // T1SZ = 25, 3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
+         0b00 << 14 | // 4KiB granule
          3 << 12 | // inner shadable, TTBR0_EL1
          2 << 10 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
          1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
-        22; // T0SZ = 22, 2 levels (level 2 and 3 translation tables), 2^42B (4TiB) space
+        25; // T0SZ = 25,  3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
 
     // next, specify mapping characteristics in translate control register
     tcr_el1::set(tcr);

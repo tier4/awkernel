@@ -22,18 +22,18 @@ SECTIONS
     .eh_frame : { KEEP (*(.eh_frame)) *(.eh_frame.*) }
 
     PROVIDE(_data = .);
-    .data : ALIGN(1024 * 64) {
+    .data : ALIGN(1024 * 4) {
         __data_start = .;
         *(.data .data.* .gnu.linkonce.d*)
         __data_end = .;
     }
-    .bss (NOLOAD) : ALIGN(1024 * 64) {
+    .bss (NOLOAD) : ALIGN(1024 * 4) {
         __bss_start    = .;
         *(.bss .bss.*)
         *(COMMON)
         __bss_end = .;
     }
-    . = ALIGN(1024 * 64);
+    . = ALIGN(1024 * 4);
 
     /* 8MiB space for EL1 */
     __stack_el1_end   = .;
