@@ -1,7 +1,7 @@
 use super::Uart;
 use crate::arch::aarch64::bsp::memory::*;
+use awkernel_lib::mmio_rw;
 use core::{arch::asm, fmt::Write};
-use t4os_lib::mmio_rw;
 
 pub struct RaspiUART {}
 

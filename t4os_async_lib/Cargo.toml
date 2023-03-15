@@ -20,10 +20,10 @@ version = "0.1"
 default-features = false
 features = ["panic"]
 
-[dependencies.t4os_lib]
-path = "../t4os_lib"
+[dependencies.awkernel_lib]
+path = "../awkernel_lib"
 default-features = false
 
 [features]
 default = []
-std = ["t4os_lib/std"]
+std = ["awkernel_lib/std"]

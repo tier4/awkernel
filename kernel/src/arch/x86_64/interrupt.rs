@@ -1,4 +1,4 @@
-use t4os_lib::delay::wait_forever;
+use awkernel_lib::delay::wait_forever;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();

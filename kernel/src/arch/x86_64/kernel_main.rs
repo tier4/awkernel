@@ -18,16 +18,16 @@ use crate::{
 };
 use acpi::AcpiTables;
 use alloc::boxed::Box;
+use awkernel_lib::{
+    arch::x86_64::acpi::AcpiMapper,
+    delay::{wait_forever, wait_microsec},
+};
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
 };
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
-};
-use t4os_lib::{
-    arch::x86_64::acpi::AcpiMapper,
-    delay::{wait_forever, wait_microsec},
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
@@ -108,7 +108,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // Get ACPI tables.
-    let acpi = if let Some(acpi) = t4os_lib::arch::x86_64::acpi::create_acpi(boot_info, offset) {
+    let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
+    {
         acpi
     } else {
         log::error!("Failed to initialize ACPI.");
@@ -116,7 +117,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // Initialize.
-    t4os_lib::arch::x86_64::init(&acpi, offset);
+    awkernel_lib::arch::x86_64::init(&acpi, offset);
 
     // Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {

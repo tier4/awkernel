@@ -4,6 +4,7 @@ use super::{
 };
 use crate::arch::aarch64::driver::uart::DevUART;
 use crate::arch::aarch64::driver::uart::Uart;
+use awkernel_lib::delay::wait_forever;
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
@@ -13,7 +14,6 @@ use t4os_aarch64::{
     dsb_ish, dsb_sy, get_current_el, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, sctlr_el2,
     sctlr_el3, tcr_el1, ttbr0_el1, ttbr1_el1,
 };
-use t4os_lib::delay::wait_forever;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
 // higher address space offset

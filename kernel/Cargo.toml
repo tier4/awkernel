@@ -32,8 +32,8 @@ path = "../userland"
 path = "../t4os_async_lib"
 default-features = false
 
-[dependencies.t4os_lib]
-path = "../t4os_lib"
+[dependencies.awkernel_lib]
+path = "../awkernel_lib"
 default-features = false
 
 [dependencies.t4os_aarch64]
@@ -55,10 +55,10 @@ optional = true
 [features]
 default = ["raspi3"]
 no_std_unwinding = ["dep:unwinding"]
-x86 = ["no_std_unwinding", "t4os_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550", "dep:acpi"]
+x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550", "dep:acpi"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
 raspi = ["aarch64"]
-aarch64 = ["dep:t4os_aarch64", "t4os_lib/aarch64"]
+aarch64 = ["dep:t4os_aarch64", "awkernel_lib/aarch64"]
 linux = ["std", "dep:libc"]
-std = ["t4os_lib/std", "t4os_async_lib/std"]
+std = ["awkernel_lib/std", "t4os_async_lib/std"]

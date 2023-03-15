@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
+use awkernel_lib::delay::wait_forever;
 use core::alloc::Layout;
-use t4os_lib::delay::wait_forever;
 
 #[alloc_error_handler]
 fn on_oom(_layout: Layout) -> ! {

@@ -34,7 +34,7 @@ use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use t4os_lib::delay::{cpu_counter, uptime};
+pub use awkernel_lib::delay::{cpu_counter, uptime};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {

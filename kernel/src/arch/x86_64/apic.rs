@@ -1,6 +1,6 @@
+use awkernel_lib::{mmio_r, mmio_rw};
 use bitflags::bitflags;
 use core::{arch::x86_64::__cpuid, fmt::Debug};
-use t4os_lib::{mmio_r, mmio_rw};
 use x86_64::registers::model_specific::Msr;
 
 mmio_r!(offset 0x020 => XAPIC_LOCAL_APIC_ID<u32>);

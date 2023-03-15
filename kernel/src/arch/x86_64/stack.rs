@@ -4,7 +4,7 @@ use crate::{
     heap::InitErr,
 };
 use acpi::AcpiTables;
-use t4os_lib::arch::x86_64::acpi::AcpiMapper;
+use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use x86_64::{
     structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
     VirtAddr,

@@ -1,5 +1,4 @@
 use core::fmt::Write;
-
 use log::Log;
 use synctools::mcs::{MCSLock, MCSNode};
 use uart_16550::SerialPort;
@@ -38,7 +37,7 @@ impl Log for Serial {
         let mut guard = self.port.lock(&mut node);
 
         let serial: &mut SerialPort = &mut guard;
-        t4os_lib::logger::write_msg(serial, record);
+        awkernel_lib::logger::write_msg(serial, record);
     }
 
     fn flush(&self) {}

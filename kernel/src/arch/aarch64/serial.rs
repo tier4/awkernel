@@ -46,7 +46,7 @@ impl Log for Serial {
         let mut guard = self.port.lock(&mut node);
 
         if let Some(serial) = guard.as_mut() {
-            t4os_lib::logger::write_msg(serial, record);
+            awkernel_lib::logger::write_msg(serial, record);
         }
     }
 

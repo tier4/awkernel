@@ -5,11 +5,11 @@ use super::{
     mmu, serial,
 };
 use crate::{heap, kernel_info::KernelInfo};
+use awkernel_lib::delay::wait_forever;
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
-use t4os_lib::delay::wait_forever;
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -54,7 +54,7 @@ unsafe fn primary_cpu() {
     // Enable MMU.
     mmu::enable();
 
-    t4os_lib::arch::aarch64::init_primary(); // Initialize timer.
+    awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
     heap::init(); // Enable heap allocator.
     serial::init(); // Enable serial port.
 
@@ -77,7 +77,7 @@ unsafe fn non_primary_cpu() {
         core::hint::spin_loop();
     }
 
-    unsafe { t4os_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
+    unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
 
     let kernel_info = KernelInfo {
         info: (),

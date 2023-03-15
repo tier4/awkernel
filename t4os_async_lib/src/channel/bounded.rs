@@ -1,10 +1,10 @@
 use crate::{pubsub::Lifespan, r#yield, ringq::RingQ};
 use alloc::sync::Arc;
+use awkernel_lib::delay::uptime;
 use core::task::{Poll, Waker};
 use futures::Future;
 use pin_project_lite::pin_project;
 use synctools::mcs::{MCSLock, MCSNode};
-use t4os_lib::delay::uptime;
 
 /// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]

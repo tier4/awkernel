@@ -1,4 +1,4 @@
-use t4os_lib::{mmio_rw, mmio_w};
+use awkernel_lib::{mmio_rw, mmio_w};
 
 //-----------------------------------------------------------------------------
 // Raspberry Pi 3
