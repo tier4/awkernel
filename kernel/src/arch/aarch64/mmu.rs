@@ -24,10 +24,6 @@ pub const STACK_SIZE: u64 = 32 * PAGESIZE; // 2MiB
 static mut MEMORY_MAP: Addr = Addr {
     no_cache_start: 0,
     no_cache_end: 0,
-    tt_el1_ttbr0_start: 0,
-    tt_el1_ttbr0_end: 0,
-    tt_el1_ttbr1_start: 0,
-    tt_el1_ttbr1_end: 0,
     rom_start: 0,
     rom_end: 0,
     sram_start: 0,
@@ -35,6 +31,8 @@ static mut MEMORY_MAP: Addr = Addr {
     stack_size: 0,
     pager_mem_start: 0,
     pager_mem_end: 0,
+    ttbr0: 0,
+    ttbr1: 0,
 };
 
 extern "C" {
@@ -141,10 +139,6 @@ pub struct Addr {
     // must be same as physical
     pub no_cache_start: u64,
     pub no_cache_end: u64,
-    pub tt_el1_ttbr0_start: u64,
-    pub tt_el1_ttbr0_end: u64,
-    pub tt_el1_ttbr1_start: u64,
-    pub tt_el1_ttbr1_end: u64,
     pub rom_start: u64,
     pub rom_end: u64,
     pub sram_start: u64,
@@ -152,9 +146,13 @@ pub struct Addr {
 
     pub stack_size: u64,
 
-    // independent from physical
+    // free memory region for allocator
     pub pager_mem_start: u64,
     pub pager_mem_end: u64,
+
+    // base address of page table
+    pub ttbr0: u64,
+    pub ttbr1: u64,
 }
 
 impl Addr {
@@ -162,17 +160,9 @@ impl Addr {
         self.no_cache_start = get_free_mem_start();
         self.no_cache_end = self.no_cache_start + PAGESIZE * NUM_CPU;
 
-        // heap memory
+        // free Memory region
         self.pager_mem_start = self.no_cache_end;
-        self.pager_mem_end = self.pager_mem_start + 256 * 1024 * 1024; // 256MiB
-
-        // MMU's transition table #0 for EL1
-        self.tt_el1_ttbr0_start = self.pager_mem_end;
-        self.tt_el1_ttbr0_end = self.tt_el1_ttbr0_start + 1024 * 1024; // 1MiB
-
-        // MMU's transition table #1 for EL1
-        self.tt_el1_ttbr1_start = self.tt_el1_ttbr0_end;
-        self.tt_el1_ttbr1_end = self.tt_el1_ttbr1_start + 1024 * 1024; // 1MiB
+        self.pager_mem_end = self.pager_mem_start + 320 * 1024 * 1024; // 256 + 64MiB
 
         // 2MiB stack for each
         self.stack_size = STACK_SIZE;
@@ -190,6 +180,13 @@ impl Addr {
 pub fn init_memory_map() {
     unsafe {
         MEMORY_MAP.init();
+    }
+}
+
+pub fn get_memory_map_mut() -> &'static mut Addr {
+    unsafe {
+        let addr = &mut MEMORY_MAP as *mut Addr as usize;
+        (addr as *mut Addr).as_mut().unwrap()
     }
 }
 
@@ -212,7 +209,7 @@ impl PageTableEntry {
             wait_forever();
         };
 
-        let entries = unsafe { slice::from_raw_parts_mut(ptr, 8192) };
+        let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
         for e in entries.iter_mut() {
             *e = 0;
         }
@@ -221,7 +218,7 @@ impl PageTableEntry {
 
     fn from_addr(addr: u64) -> Self {
         let ptr = addr as *mut u64;
-        let entries = unsafe { slice::from_raw_parts_mut(ptr, 8192) };
+        let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
         Self { entries }
     }
 }
@@ -238,6 +235,7 @@ pub struct PageTable {
 impl PageTable {
     const IDX_MASK: u64 = (ENTRY_COUNT - 1) as u64;
     const ADDR_MASK: u64 = 0xFFFFFF << 16;
+
     fn new<A>(allocator: &mut A) -> Self
     where
         A: FrameAllocator,
@@ -245,12 +243,18 @@ impl PageTable {
         let root = PageTableEntry::new(allocator);
         Self { root }
     }
+
+    fn addr(&self) -> u64 {
+        self.root.entries.as_ptr() as u64
+    }
+
     fn get_idx(addr: u64, level: PageTableLevel) -> usize {
         match level {
             PageTableLevel::Lv2 => ((addr >> 29) & Self::IDX_MASK) as usize,
             PageTableLevel::Lv3 => ((addr >> 16) & Self::IDX_MASK) as usize,
         }
     }
+
     fn map_to<A>(&mut self, vm_addr: u64, phy_addr: u64, flag: u64, allocator: &mut A)
     where
         A: FrameAllocator,
@@ -337,7 +341,7 @@ fn _set_sctlr(sctlr: u64) {
     }
 }
 
-pub fn _user_page_flag() -> u64 {
+pub fn user_page_flag() -> u64 {
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_RW | FLAG_L3_ATTR_MEM | 0b11
 }
 
@@ -348,16 +352,14 @@ pub fn kernel_page_flag() -> u64 {
 /// set registers
 pub fn enable() {
     let addr = get_memory_map();
+    assert!(addr.ttbr0 != 0 && addr.ttbr1 != 0);
 
-    set_reg_el1(
-        addr.tt_el1_ttbr0_start as usize,
-        addr.tt_el1_ttbr1_start as usize,
-    );
+    set_reg_el1(addr.ttbr0 as usize, addr.ttbr1 as usize);
 }
 
 /// initialize transition tables
 pub fn init() -> Option<(PageTable, PageTable)> {
-    let addr = get_memory_map();
+    let addr = get_memory_map_mut();
 
     // check for 4KiB granule and at least 36 bits physical address bus
     let mmfr = id_aa64mmfr0_el1::get();
@@ -372,7 +374,7 @@ pub fn init() -> Option<(PageTable, PageTable)> {
     if mmfr & (0xF << 24) != 0
     /* 64KiB */
     {
-        unsafe { DevUART::unsafe_puts("4KiB granule not support.\n") };
+        unsafe { DevUART::unsafe_puts("64KiB granule not support.\n") };
         return None;
     }
 
@@ -420,10 +422,10 @@ fn update_sctlr(sctlr: u64) -> u64 {
 
 /// set up EL1's page table, 64KB page, level 2 and 3 translation tables,
 /// assume 2MiB stack space per CPU
-fn init_el1(addr: &Addr) -> (PageTable, PageTable) {
+fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     // init the page allocator
-    let start = addr.tt_el1_ttbr0_start;
-    let end = addr.tt_el1_ttbr1_end;
+    let start = addr.pager_mem_start;
+    let end = addr.pager_mem_end;
     let mut allocator = PageAllocator::new(start, end);
 
     //-------------------------------------------------------------------------
@@ -483,14 +485,12 @@ fn init_el1(addr: &Addr) -> (PageTable, PageTable) {
         table0.unmap(addr);
     }
 
-    // map heap memory
-    let mut heap_start = addr.pager_mem_start;
-    let mut vm_addr = crate::config::HEAP_START;
+    // map free memory region
+    let mut free_mem = addr.pager_mem_start;
     let flag = kernel_page_flag();
-    while vm_addr < crate::config::HEAP_START + crate::config::HEAP_SIZE {
-        table0.map_to(vm_addr, heap_start, flag, &mut allocator);
-        heap_start += PAGESIZE;
-        vm_addr += PAGESIZE;
+    while free_mem < addr.pager_mem_end {
+        table0.map_to(free_mem, free_mem, flag, &mut allocator);
+        free_mem += PAGESIZE;
     }
 
     // map device memory
@@ -509,35 +509,24 @@ fn init_el1(addr: &Addr) -> (PageTable, PageTable) {
     }
 
     //-------------------------------------------------------------------------
-    // TTBR1: kernel space
+    // TTBR1: user space
     let mut table1 = PageTable::new(&mut allocator);
 
-    // map transition table for TTBR0
-    let mut tt_start = addr.tt_el1_ttbr0_start;
-    let flag = FLAG_L3_XN
-        | FLAG_L3_PXN
-        | FLAG_L3_AF
-        | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_N
-        | FLAG_L3_ATTR_DEV
-        | 0b11;
-    while tt_start < addr.tt_el1_ttbr0_end {
-        table1.map_to(tt_start, tt_start, flag, &mut allocator);
-        tt_start += PAGESIZE;
+    // map heap memory
+    let mut vm_addr = crate::config::HEAP_START;
+    let flag = user_page_flag();
+    while vm_addr < super::config::HEAP_START + crate::config::HEAP_SIZE {
+        let phy_addr = if let Some(addr) = allocator.allocate_frame() {
+            addr
+        } else {
+            unsafe { DevUART::unsafe_puts("failed to allocate page.\n") };
+            wait_forever();
+        };
+        table1.map_to(vm_addr, phy_addr, flag, &mut allocator);
+        vm_addr += PAGESIZE;
     }
-    // map transition table for TTBR1
-    let mut tt_start = addr.tt_el1_ttbr1_start;
-    let flag = FLAG_L3_XN
-        | FLAG_L3_PXN
-        | FLAG_L3_AF
-        | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_N
-        | FLAG_L3_ATTR_DEV
-        | 0b11;
-    while tt_start < addr.tt_el1_ttbr1_end {
-        table1.map_to(tt_start, tt_start, flag, &mut allocator);
-        tt_start += PAGESIZE;
-    }
+    addr.ttbr0 = table0.addr();
+    addr.ttbr1 = table1.addr();
 
     (table0, table1)
 }
