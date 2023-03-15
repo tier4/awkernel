@@ -1,5 +1,5 @@
 [package]
-name = "t4os"
+name = "awkernel"
 version = "0.1.0"
 edition = "2021"
 

@@ -10,8 +10,8 @@ isolated zero-copy communications written in Rust.
   - [x] Service
   - [ ] Action
 - [ ] Isolation
-  - [ ] Memory isolation
-  - [ ] Computational isolation
+  - [ ] Memory space isolation
+  - [ ] Temporal isolation
 - [ ] Realtime scheduling
   - [x] Round robin scheduling
   - [ ] DAG scheduling

@@ -40,18 +40,18 @@ endif
 
 all: raspi x86_64 linux
 
-cargo: target/aarch64-kernel/$(BUILD)/t4os kernel-x86_64.elf linux
+cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf linux
 
 FORCE:
 
 # AArch64
 raspi: kernel8.img
 
-target/aarch64-kernel/$(BUILD)/t4os: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
+target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly $(BSP) $(OPT)
 
-kernel8.img: target/aarch64-kernel/$(BUILD)/t4os
-	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/t4os $@
+kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
+	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
 
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 	$(CC) --target=aarch64-elf -c $< -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
@@ -96,13 +96,13 @@ linux: FORCE
 	cargo +nightly linux $(OPT)
 
 run-linux:
-	cargo +nightly run --package t4os --no-default-features --features linux $(OPT)
+	cargo +nightly run --package awkernel --no-default-features --features linux $(OPT)
 
 ## Test
 
 test: FORCE
-	cargo test_t4os_lib
-	cargo test_t4os_async_lib -- --nocapture
+	cargo test_awkernel_lib
+	cargo test_awkernel_async_lib -- --nocapture
 
 ## Clean
 
