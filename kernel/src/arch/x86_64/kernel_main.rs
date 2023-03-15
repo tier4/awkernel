@@ -90,7 +90,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
-    crate::heap::init(); // Enable heap allocator.
+    unsafe { crate::heap::init() }; // Enable heap allocator.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
     super::serial::init_logger(); // Initialize logger.
 

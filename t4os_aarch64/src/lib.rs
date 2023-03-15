@@ -349,8 +349,8 @@ macro_rules! sysreg {
                 v
             }
 
-            pub fn set(v: u64) {
-                unsafe { asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v) };
+            pub unsafe fn set(v: u64) {
+                asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }
         }
     }

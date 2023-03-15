@@ -1,10 +1,10 @@
 use bootloader_api::BootInfo;
+use synctools::mcs::{MCSLock, MCSNode};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     VirtAddr,
 };
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct PageAllocator<'a> {
     frames: MCSLock<&'a mut dyn Iterator<Item = PhysFrame>>,
@@ -12,7 +12,9 @@ pub struct PageAllocator<'a> {
 
 impl<'a> PageAllocator<'a> {
     pub fn new(frames: &'a mut dyn Iterator<Item = PhysFrame>) -> Self {
-        PageAllocator { frames : MCSLock::new(frames) }
+        PageAllocator {
+            frames: MCSLock::new(frames),
+        }
     }
 }
 

@@ -29,18 +29,16 @@ pub enum InitErr {
     FailedToMapPage,
 }
 
-pub fn init() {
+pub unsafe fn init() {
     let ptr = arch::config::HEAP_START as *mut u8;
-    let heap_mem = unsafe { core::slice::from_raw_parts_mut(ptr, config::HEAP_SIZE as usize) };
+    let heap_mem = core::slice::from_raw_parts_mut(ptr, config::HEAP_SIZE as usize);
 
     let Some(heap_mem) = NonNull::new(heap_mem) else { return; };
 
     // Initialize memory allocator.
     let mut node = MCSNode::new();
     let mut guard = TALLOC.0.lock(&mut node);
-    unsafe {
-        guard.insert_free_block_ptr(heap_mem);
-    }
+    guard.insert_free_block_ptr(heap_mem);
 }
 
 struct Allocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);

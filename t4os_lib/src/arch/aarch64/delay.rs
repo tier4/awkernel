@@ -38,15 +38,15 @@ impl Delay for ArchDelay {
     }
 }
 
-pub(super) fn init_primary() {
+pub(super) unsafe fn init_primary() {
     init_pmc();
 
     let count = t4os_aarch64::cntpct_el0::get();
-    unsafe { write_volatile(&mut COUNT_START, count) };
+    write_volatile(&mut COUNT_START, count);
 }
 
 /// Initialize performance monitor counter.
-fn init_pmc() {
+unsafe fn init_pmc() {
     // Enable user-mode access to cycle counters.
     t4os_aarch64::pmuserenr_el0::set(0b1101);
 
@@ -65,6 +65,6 @@ fn init_pmc() {
     t4os_aarch64::pmccfiltr_el0::set(1 << 27);
 }
 
-pub(super) fn init_non_primary() {
+pub(super) unsafe fn init_non_primary() {
     init_pmc();
 }

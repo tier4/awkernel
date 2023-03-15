@@ -358,7 +358,7 @@ fn _get_sctlr() -> u64 {
     }
 }
 
-fn _set_sctlr(sctlr: u64) {
+unsafe fn _set_sctlr(sctlr: u64) {
     let el = get_current_el();
     if el == 1 {
         sctlr_el1::set(sctlr);
@@ -378,7 +378,7 @@ pub fn kernel_page_flag() -> u64 {
 }
 
 /// set registers
-pub fn enable() {
+pub unsafe fn enable() {
     let addr = get_memory_map();
     assert!(addr.ttbr0 != 0 && addr.ttbr1 != 0);
 
@@ -551,8 +551,8 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     (table0, table1)
 }
 
-fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
-    // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC in our example
+unsafe fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
+    // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
     mair_el1::set(get_mair());
 
     let mmfr = id_aa64mmfr0_el1::get();
@@ -564,7 +564,7 @@ fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
          2 << 26 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
          1 << 24 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
         25 << 16 | // T1SZ = 25, 3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
-         0b00 << 14 | // 4KiB granule
+         // 0b00 << 14 | // 4KiB granule
          3 << 12 | // inner shadable, TTBR0_EL1
          2 << 10 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
          1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1

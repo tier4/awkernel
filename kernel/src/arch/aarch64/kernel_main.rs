@@ -16,7 +16,7 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Entry point from assembly code.
 #[no_mangle]
-pub extern "C" fn kernel_main() -> ! {
+pub unsafe extern "C" fn kernel_main() -> ! {
     t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     if cpu::core_pos() == 0 {
@@ -30,26 +30,26 @@ pub extern "C" fn kernel_main() -> ! {
     wait_forever();
 }
 
-fn primary_cpu() {
+unsafe fn primary_cpu() {
     DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
 
     match t4os_aarch64::get_current_el() {
-        0 => unsafe { DevUART::unsafe_puts("EL0\n") },
-        1 => unsafe { DevUART::unsafe_puts("EL1\n") },
-        2 => unsafe { DevUART::unsafe_puts("EL2\n") },
-        3 => unsafe { DevUART::unsafe_puts("EL3\n") },
+        0 => DevUART::unsafe_puts("EL0\n"),
+        1 => DevUART::unsafe_puts("EL1\n"),
+        2 => DevUART::unsafe_puts("EL2\n"),
+        3 => DevUART::unsafe_puts("EL3\n"),
         _ => (),
     }
 
     // Initialize MMU.
     mmu::init_memory_map();
     if mmu::init().is_none() {
-        unsafe { DevUART::unsafe_puts("Failed to init MMU.\n") };
+        DevUART::unsafe_puts("Failed to init MMU.\n");
         wait_forever();
     }
 
     // Start non-primary CPUs.
-    unsafe { write_volatile(&mut PRIMARY_READY, true) };
+    write_volatile(&mut PRIMARY_READY, true);
 
     // Enable MMU.
     mmu::enable();
@@ -70,14 +70,14 @@ fn primary_cpu() {
     crate::main::<()>(kernel_info);
 }
 
-fn non_primary_cpu() {
+unsafe fn non_primary_cpu() {
     mmu::enable();
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
 
-    t4os_lib::arch::aarch64::init_non_primary(); // Initialize timer.
+    unsafe { t4os_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
 
     let kernel_info = KernelInfo {
         info: (),
