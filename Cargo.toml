@@ -5,7 +5,7 @@ members = [
     "kernel",
     "userland",
     "x86bootdisk",
-    "t4os_async_lib",
+    "awkernel_async_lib",
     "awkernel_lib",
     "awkernel_aarch64",
 ]

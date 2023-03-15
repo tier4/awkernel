@@ -1,13 +1,13 @@
 #![no_std]
 use alloc::{borrow::Cow, sync::Arc};
-use core::{
-    sync::atomic::{AtomicU64, Ordering},
-    time::Duration,
-};
-use t4os_async_lib::{
+use awkernel_async_lib::{
     pubsub::{create_publisher, create_subscriber, Attribute},
     scheduler::SchedulerType,
     spawn, uptime,
+};
+use core::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
 };
 
 extern crate alloc;
@@ -37,7 +37,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 log::debug!("RTT: {} [us]", end - start);
 
                 i += 1;
-                t4os_async_lib::sleep(Duration::from_secs(1)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
         SchedulerType::RoundRobin,
@@ -64,8 +64,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             let mut prev = 0;
             loop {
                 // Test of timeout.
-                t4os_async_lib::timeout(Duration::from_secs(1), async {
-                    t4os_async_lib::forever().await;
+                awkernel_async_lib::timeout(Duration::from_secs(1), async {
+                    awkernel_async_lib::forever().await;
                 })
                 .await;
 
@@ -85,7 +85,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     Ok(())
 }
 
-use t4os_async_lib::{service, session_types::*};
+use awkernel_async_lib::{service, session_types::*};
 
 // Define protocol.
 type Server = Recv<u64, Send<bool, Eps>>;
@@ -114,11 +114,11 @@ async fn test_session_types() {
     let accepter = service::create_server::<Server>("simple service".into()).unwrap();
 
     // Spawn a connection accepter.
-    t4os_async_lib::spawn(
+    awkernel_async_lib::spawn(
         async move {
             while let Ok(chan) = accepter.accept().await {
                 // Spawn a task for the connection.
-                t4os_async_lib::spawn(
+                awkernel_async_lib::spawn(
                     async move {
                         srv(chan).await;
                     },
@@ -132,7 +132,7 @@ async fn test_session_types() {
     .await;
 
     // Start a client.
-    t4os_async_lib::spawn(
+    awkernel_async_lib::spawn(
         async {
             let chan = service::create_client::<Client>("simple service".into())
                 .await

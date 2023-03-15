@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 
-[dependencies.t4os_async_lib]
-path = "../t4os_async_lib"
+[dependencies.awkernel_async_lib]
+path = "../awkernel_async_lib"

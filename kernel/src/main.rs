@@ -12,13 +12,13 @@
 
 extern crate alloc;
 
-use awkernel_lib::delay::pause;
-use core::fmt::Debug;
-use kernel_info::KernelInfo;
-use t4os_async_lib::{
+use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
+use awkernel_lib::delay::pause;
+use core::fmt::Debug;
+use kernel_info::KernelInfo;
 
 mod arch;
 mod config;

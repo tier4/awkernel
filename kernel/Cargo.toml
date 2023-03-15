@@ -28,8 +28,8 @@ optional = true
 [dependencies.userland]
 path = "../userland"
 
-[dependencies.t4os_async_lib]
-path = "../t4os_async_lib"
+[dependencies.awkernel_async_lib]
+path = "../awkernel_async_lib"
 default-features = false
 
 [dependencies.awkernel_lib]
@@ -61,4 +61,4 @@ raspi4 = ["raspi", "no_std_unwinding"]
 raspi = ["aarch64"]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64"]
 linux = ["std", "dep:libc"]
-std = ["awkernel_lib/std", "t4os_async_lib/std"]
+std = ["awkernel_lib/std", "awkernel_async_lib/std"]
