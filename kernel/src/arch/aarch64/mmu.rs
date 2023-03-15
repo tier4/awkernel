@@ -1,6 +1,9 @@
-use super::bsp::memory::{
-    DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START,
+use super::{
+    bsp::memory::{DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START},
+    page_allocator::{FrameAllocator, PageAllocator},
 };
+use crate::arch::aarch64::driver::uart::DevUART;
+use crate::arch::aarch64::driver::uart::Uart;
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
@@ -10,35 +13,17 @@ use t4os_aarch64::{
     dsb_ish, dsb_sy, get_current_el, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, sctlr_el2,
     sctlr_el3, tcr_el1, ttbr0_el1, ttbr1_el1,
 };
+use t4os_lib::delay::wait_forever;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
 
 pub const EL1_ADDR_OFFSET: u64 = 0x3FFFFF << 42;
-
-// level 2 table x 1 (for 4TiB space)
-// level 3 table x 8 (for 512MiB x 8 = 4GiB space)
-// level 3 table x 32 (for 512MiB x 32 = 16GiB space, 64MiB * 256 Processes = 16GiB)
-pub const KERN_TTBR0_LV2_TABLE_NUM: usize = 1;
-pub const KERN_TTBR0_LV3_TABLE_NUM1: usize = 8; // from 0B to 4GiB
-pub const KERN_TTBR0_LV3_TABLE_NUM2: usize = 32; // from 1TiB to 1TiB + 16GiB
-pub const KERN_TTBR0_TABLE_NUM: usize =
-    KERN_TTBR0_LV2_TABLE_NUM + KERN_TTBR0_LV3_TABLE_NUM1 + KERN_TTBR0_LV3_TABLE_NUM2;
-
-// level 2 table x 1 (for 4TiB space)
-// level 3 table x 4 (for 512MiB x 4 = 2GiB space)
-pub const KERN_TTBR1_LV2_TABLE_NUM: usize = 1;
-pub const KERN_TTBR1_LV3_TABLE_NUM: usize = 4;
-pub const KERN_TTBR1_TABLE_NUM: usize = KERN_TTBR1_LV2_TABLE_NUM + KERN_TTBR1_LV3_TABLE_NUM;
 
 pub const STACK_SIZE: u64 = 32 * PAGESIZE; // 2MiB
 
 static mut MEMORY_MAP: Addr = Addr {
     no_cache_start: 0,
     no_cache_end: 0,
-    tt_el1_ttbr0_start: 0,
-    tt_el1_ttbr0_end: 0,
-    tt_el1_ttbr1_start: 0,
-    tt_el1_ttbr1_end: 0,
     rom_start: 0,
     rom_end: 0,
     sram_start: 0,
@@ -46,6 +31,8 @@ static mut MEMORY_MAP: Addr = Addr {
     stack_size: 0,
     pager_mem_start: 0,
     pager_mem_end: 0,
+    ttbr0: 0,
+    ttbr1: 0,
 };
 
 extern "C" {
@@ -106,7 +93,7 @@ const _FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
 const FLAG_L3_AF: u64 = 1 << 10; // access flag
 const FLAG_L3_NS: u64 = 1 << 5; // non secure
 
-const OFFSET_USER_HEAP_PAGE: usize = 2048; // 1TiB offset
+const _OFFSET_USER_HEAP_PAGE: usize = 2048; // 1TiB offset
 
 // [9:8]: Shareability attribute, for Normal memory
 //    | Shareability
@@ -138,14 +125,12 @@ const FLAG_L3_ATTR_MEM: u64 = 0; // normal memory
 const FLAG_L3_ATTR_DEV: u64 = 1 << 2; // device MMIO
 const _FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
 
-// transition table
-pub struct TTable {
-    tt_lv2: &'static mut [u64],
-    tt_lv3_1: &'static mut [u64],
-    tt_lv3_2: &'static mut [u64],
-    num_lv2: usize,
-    num_lv3_1: usize,
-    num_lv3_2: usize,
+const ENTRY_COUNT: usize = PAGESIZE as usize / 8;
+
+#[repr(align(65536))] // 64KiB
+#[repr(C)]
+pub struct PageTableEntry {
+    entries: &'static mut [u64],
 }
 
 // logical address information
@@ -154,10 +139,6 @@ pub struct Addr {
     // must be same as physical
     pub no_cache_start: u64,
     pub no_cache_end: u64,
-    pub tt_el1_ttbr0_start: u64,
-    pub tt_el1_ttbr0_end: u64,
-    pub tt_el1_ttbr1_start: u64,
-    pub tt_el1_ttbr1_end: u64,
     pub rom_start: u64,
     pub rom_end: u64,
     pub sram_start: u64,
@@ -165,9 +146,13 @@ pub struct Addr {
 
     pub stack_size: u64,
 
-    // independent from physical
+    // free memory region for allocator
     pub pager_mem_start: u64,
     pub pager_mem_end: u64,
+
+    // base address of page table
+    pub ttbr0: u64,
+    pub ttbr1: u64,
 }
 
 impl Addr {
@@ -175,22 +160,12 @@ impl Addr {
         self.no_cache_start = get_free_mem_start();
         self.no_cache_end = self.no_cache_start + PAGESIZE * NUM_CPU;
 
-        // MMU's transition table #0 for EL1
-        self.tt_el1_ttbr0_start = self.no_cache_end;
-        self.tt_el1_ttbr0_end = self.tt_el1_ttbr0_start + PAGESIZE * KERN_TTBR0_TABLE_NUM as u64;
-
-        // MMU's transition table #1 for EL1
-        // level 2 table x 1 (for 4TiB space)
-        // level 3 table x 1 (for 512MiB space)
-        self.tt_el1_ttbr1_start = self.tt_el1_ttbr0_end;
-        self.tt_el1_ttbr1_end = self.tt_el1_ttbr1_start + PAGESIZE * KERN_TTBR1_TABLE_NUM as u64;
+        // free Memory region
+        self.pager_mem_start = self.no_cache_end;
+        self.pager_mem_end = self.pager_mem_start + 320 * 1024 * 1024; // 256 + 64MiB
 
         // 2MiB stack for each
         self.stack_size = STACK_SIZE;
-
-        // heap memory
-        self.pager_mem_start = self.tt_el1_ttbr1_end;
-        self.pager_mem_end = self.pager_mem_start + 64 * 1024 * 1024; // 64MiB
 
         // ROM
         self.rom_start = ROM_START;
@@ -208,6 +183,13 @@ pub fn init_memory_map() {
     }
 }
 
+pub fn get_memory_map_mut() -> &'static mut Addr {
+    unsafe {
+        let addr = &mut MEMORY_MAP as *mut Addr as usize;
+        (addr as *mut Addr).as_mut().unwrap()
+    }
+}
+
 pub fn get_memory_map() -> &'static Addr {
     unsafe {
         let addr = &mut MEMORY_MAP as *mut Addr as usize;
@@ -215,140 +197,107 @@ pub fn get_memory_map() -> &'static Addr {
     }
 }
 
-pub fn _get_ttbr0() -> TTable {
-    let addr = get_memory_map();
-    TTable::new(
-        addr.tt_el1_ttbr0_start + EL1_ADDR_OFFSET,
-        KERN_TTBR0_LV2_TABLE_NUM,
-        KERN_TTBR0_LV3_TABLE_NUM1,
-        KERN_TTBR0_LV3_TABLE_NUM2,
-    )
-}
-
-pub fn _get_ttbr1() -> TTable {
-    let addr = get_memory_map();
-    TTable::new(
-        addr.tt_el1_ttbr1_start + EL1_ADDR_OFFSET,
-        KERN_TTBR1_LV2_TABLE_NUM,
-        KERN_TTBR1_LV3_TABLE_NUM,
-        0,
-    )
-}
-
-impl TTable {
-    fn new(tt_addr: u64, num_lv2: usize, num_lv3_1: usize, num_lv3_2: usize) -> TTable {
-        let ptr = tt_addr as *mut u64;
-        let tt_lv2 = unsafe { slice::from_raw_parts_mut(ptr, 8192 * num_lv2) };
-
-        // 0... space
-        let ptr = ((PAGESIZE * num_lv2 as u64) + tt_addr) as *mut u64;
-        let tt_lv3_1 = unsafe { slice::from_raw_parts_mut(ptr, 8192 * num_lv3_1) };
-
-        // 1TiB... space
-        let ptr = ((PAGESIZE * (num_lv2 + num_lv3_1) as u64) + tt_addr) as *mut u64;
-        let tt_lv3_2 = unsafe { slice::from_raw_parts_mut(ptr, 8192 * num_lv3_2) };
-
-        TTable {
-            tt_lv2,
-            tt_lv3_1,
-            tt_lv3_2,
-            num_lv2,
-            num_lv3_1,
-            num_lv3_2,
-        }
-    }
-
-    fn init(&mut self) {
-        // zero clear
-        for e in self.tt_lv2.iter_mut() {
-            *e = 0;
-        }
-
-        for e in self.tt_lv3_1.iter_mut() {
-            *e = 0;
-        }
-
-        for e in self.tt_lv3_2.iter_mut() {
-            *e = 0;
-        }
-
-        // set up level 2 tables for 0... space
-        for i in 0..(8192 * self.num_lv2) {
-            if i >= self.num_lv3_1 {
-                break;
-            }
-            self.tt_lv2[i] = (&self.tt_lv3_1[i * 8192] as *const u64) as u64 | 0b11;
-        }
-
-        // set up level 2 tables for 1TiB... space
-        for i in OFFSET_USER_HEAP_PAGE..(8192 * self.num_lv2) {
-            let idx = i - OFFSET_USER_HEAP_PAGE;
-            if idx >= self.num_lv3_2 {
-                break;
-            }
-            self.tt_lv2[i] = (&self.tt_lv3_2[idx * 8192] as *const u64) as u64 | 0b11;
-        }
-    }
-
-    pub fn map(&mut self, vm_addr: u64, phy_addr: u64, flag: u64) {
-        let lv2idx = ((vm_addr >> 29) & 8191) as usize;
-        let lv3idx = ((vm_addr >> 16) & 8191) as usize;
-
-        if lv2idx >= (self.num_lv2 * 8192) {
-            // memory access error
-            panic!("memory map error");
-        }
-
-        let e = phy_addr & !0xffff | flag;
-
-        if lv2idx < OFFSET_USER_HEAP_PAGE {
-            let idx = lv2idx * 8192 + lv3idx;
-            unsafe { write_volatile(&mut self.tt_lv3_1[idx], e) };
+impl PageTableEntry {
+    fn new<A>(allocator: &mut A) -> Self
+    where
+        A: FrameAllocator,
+    {
+        let ptr = if let Some(page) = allocator.allocate_frame() {
+            page as *mut u64
         } else {
-            let idx = (lv2idx - OFFSET_USER_HEAP_PAGE) * 8192 + lv3idx;
-            unsafe { write_volatile(&mut self.tt_lv3_2[idx], e) };
-        }
-    }
-
-    pub fn unmap(&mut self, vm_addr: u64) {
-        let lv2idx = ((vm_addr >> 29) & 8191) as usize;
-        let lv3idx = ((vm_addr >> 16) & 8191) as usize;
-
-        if lv2idx >= (self.num_lv2 * 8192) {
-            // memory access error
-            panic!("memory unmap error");
-        }
-
-        if lv2idx < OFFSET_USER_HEAP_PAGE {
-            let idx = lv2idx * 8192 + lv3idx;
-            unsafe { write_volatile(&mut self.tt_lv3_1[idx], 0) };
-        } else {
-            let idx = (lv2idx - OFFSET_USER_HEAP_PAGE) * 8192 + lv3idx;
-            unsafe { write_volatile(&mut self.tt_lv3_2[idx], 0) };
-        }
-    }
-
-    pub fn _to_phy_addr(&self, vm_addr: u64) -> Option<u64> {
-        let lv2idx = ((vm_addr >> 29) & 8191) as usize;
-        let lv3idx = ((vm_addr >> 16) & 8191) as usize;
-
-        let val = if lv2idx < OFFSET_USER_HEAP_PAGE {
-            let idx = lv2idx * 8192 + lv3idx;
-            unsafe { read_volatile(&self.tt_lv3_1[idx]) }
-        } else {
-            let idx = (lv2idx - OFFSET_USER_HEAP_PAGE) * 8192 + lv3idx;
-            unsafe { read_volatile(&self.tt_lv3_2[idx]) }
+            unsafe { DevUART::unsafe_puts("failed to allocate page\n") };
+            wait_forever();
         };
 
-        if val == 0 {
-            return None;
+        let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
+        for e in entries.iter_mut() {
+            *e = 0;
         }
+        Self { entries }
+    }
 
+    fn from_addr(addr: u64) -> Self {
+        let ptr = addr as *mut u64;
+        let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
+        Self { entries }
+    }
+}
+
+enum PageTableLevel {
+    Lv2,
+    Lv3,
+}
+
+pub struct PageTable {
+    root: PageTableEntry,
+}
+
+impl PageTable {
+    const IDX_MASK: u64 = (ENTRY_COUNT - 1) as u64;
+    const ADDR_MASK: u64 = 0xFFFFFF << 16;
+
+    fn new<A>(allocator: &mut A) -> Self
+    where
+        A: FrameAllocator,
+    {
+        let root = PageTableEntry::new(allocator);
+        Self { root }
+    }
+
+    fn addr(&self) -> u64 {
+        self.root.entries.as_ptr() as u64
+    }
+
+    fn get_idx(addr: u64, level: PageTableLevel) -> usize {
+        match level {
+            PageTableLevel::Lv2 => ((addr >> 29) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv3 => ((addr >> 16) & Self::IDX_MASK) as usize,
+        }
+    }
+
+    fn map_to<A>(&mut self, vm_addr: u64, phy_addr: u64, flag: u64, allocator: &mut A)
+    where
+        A: FrameAllocator,
+    {
+        let lv2_table = &mut self.root.entries;
+        let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
+        let lv3_table;
+        if lv2_table[lv2_idx] == 0 {
+            lv3_table = PageTableEntry::new(allocator);
+            lv2_table[lv2_idx] = (lv3_table.entries.as_ptr()) as u64 | 0b11;
+        } else {
+            let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+            lv3_table = PageTableEntry::from_addr(addr);
+        }
+        let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
+        let e = phy_addr & !0xffff | flag;
+        let ptr = &mut lv3_table.entries[lv3_idx];
+        unsafe { write_volatile(ptr, e) };
+    }
+
+    fn unmap(&mut self, vm_addr: u64) {
+        let lv2_table = &mut self.root.entries;
+        let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
+        let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+        let lv3_table = PageTableEntry::from_addr(addr);
+        let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
+        let ptr = &mut lv3_table.entries[lv3_idx];
+        unsafe { write_volatile(ptr, 0) };
+    }
+
+    // function for debug
+    fn _translate(&self, vm_addr: u64) -> u64 {
+        let lv2_table = &self.root.entries;
+        let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
+        let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+        let lv3_table = PageTableEntry::from_addr(addr);
+        let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
+        let val = unsafe { read_volatile(&lv3_table.entries[lv3_idx]) };
         let high = (val >> 32) & 0xffff;
         let mid = (val >> 16) & 0xffff;
         let low = vm_addr & 0xffff;
 
-        Some((high << 32) | (mid << 16) | low)
+        (high << 32) | (mid << 16) | low
     }
 }
 
@@ -392,7 +341,7 @@ fn _set_sctlr(sctlr: u64) {
     }
 }
 
-pub fn _user_page_flag() -> u64 {
+pub fn user_page_flag() -> u64 {
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_RW | FLAG_L3_ATTR_MEM | 0b11
 }
 
@@ -403,37 +352,33 @@ pub fn kernel_page_flag() -> u64 {
 /// set registers
 pub fn enable() {
     let addr = get_memory_map();
+    assert!(addr.ttbr0 != 0 && addr.ttbr1 != 0);
 
-    set_reg_el1(
-        addr.tt_el1_ttbr0_start as usize,
-        addr.tt_el1_ttbr1_start as usize,
-    );
+    set_reg_el1(addr.ttbr0 as usize, addr.ttbr1 as usize);
 }
 
 /// initialize transition tables
-pub fn init() -> Option<(TTable, TTable)> {
-    let addr = get_memory_map();
+pub fn init() -> Option<(PageTable, PageTable)> {
+    let addr = get_memory_map_mut();
 
-    // addr.print();
-
-    // check for 64KiB granule and at least 36 bits physical address bus
+    // check for 4KiB granule and at least 36 bits physical address bus
     let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
     if b < 1
     /* 36 bits */
     {
-        // driver::uart::puts("ERROR: 36 bit address space not supported\n");
+        unsafe { DevUART::unsafe_puts("ERROR: 36 bit address space not supported.\n") };
         return None;
     }
 
     if mmfr & (0xF << 24) != 0
     /* 64KiB */
     {
-        // driver::uart::puts("ERROR: 64KiB granule not supported\n");
+        unsafe { DevUART::unsafe_puts("64KiB granule not support.\n") };
         return None;
     }
 
-    init_sp_el1();
+    init_sp_el1(); // stack pointer
 
     Some(init_el1(addr))
 }
@@ -477,23 +422,22 @@ fn update_sctlr(sctlr: u64) -> u64 {
 
 /// set up EL1's page table, 64KB page, level 2 and 3 translation tables,
 /// assume 2MiB stack space per CPU
-fn init_el1(addr: &Addr) -> (TTable, TTable) {
-    // TTBR0: kernel and user space
-    let mut table0 = TTable::new(
-        addr.tt_el1_ttbr0_start,
-        KERN_TTBR0_LV2_TABLE_NUM,
-        KERN_TTBR0_LV3_TABLE_NUM1,
-        KERN_TTBR0_LV3_TABLE_NUM2,
-    );
+fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
+    // init the page allocator
+    let start = addr.pager_mem_start;
+    let end = addr.pager_mem_end;
+    let mut allocator = PageAllocator::new(start, end);
 
-    table0.init();
+    //-------------------------------------------------------------------------
+    // TTBR0
+    let mut table0 = PageTable::new(&mut allocator);
 
     // map .init and .text section
     let mut ram_start = get_ram_start();
     let data_start = get_data_start();
     let flag = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_R_R | FLAG_L3_ATTR_MEM | 0b11;
     while ram_start < data_start {
-        table0.map(ram_start, ram_start, flag);
+        table0.map_to(ram_start, ram_start, flag, &mut allocator);
         ram_start += PAGESIZE;
     }
 
@@ -508,7 +452,7 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
         | FLAG_L3_ATTR_MEM
         | 0b11;
     while data_start < bss_start {
-        table0.map(data_start, data_start, flag);
+        table0.map_to(data_start, data_start, flag, &mut allocator);
         data_start += PAGESIZE;
     }
 
@@ -523,7 +467,7 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
         | FLAG_L3_ATTR_MEM
         | 0b11;
     while bss_start < end {
-        table0.map(bss_start, bss_start, flag);
+        table0.map_to(bss_start, bss_start, flag, &mut allocator);
         bss_start += PAGESIZE;
     }
 
@@ -532,7 +476,7 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
     let stack_start = get_stack_el1_start();
     let flag = kernel_page_flag();
     while stack_end < stack_start {
-        table0.map(stack_end, stack_end, flag);
+        table0.map_to(stack_end, stack_end, flag, &mut allocator);
         stack_end += PAGESIZE;
     }
 
@@ -541,14 +485,12 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
         table0.unmap(addr);
     }
 
-    // map heap memory
-    let mut heap_start = addr.pager_mem_start;
-    let mut vm_addr = crate::config::HEAP_START;
+    // map free memory region
+    let mut free_mem = addr.pager_mem_start;
     let flag = kernel_page_flag();
-    while vm_addr < crate::config::HEAP_START + crate::config::HEAP_SIZE {
-        table0.map(vm_addr, heap_start, flag);
-        heap_start += PAGESIZE;
-        vm_addr += PAGESIZE;
+    while free_mem < addr.pager_mem_end {
+        table0.map_to(free_mem, free_mem, flag, &mut allocator);
+        free_mem += PAGESIZE;
     }
 
     // map device memory
@@ -562,48 +504,29 @@ fn init_el1(addr: &Addr) -> (TTable, TTable) {
         | FLAG_L3_ATTR_DEV
         | 0b11;
     while device_addr < DEVICE_MEM_END {
-        table0.map(device_addr, device_addr, flag);
+        table0.map_to(device_addr, device_addr, flag, &mut allocator);
         device_addr += PAGESIZE;
     }
 
     //-------------------------------------------------------------------------
-    // TTBR1: kernel space
-    let mut table1 = TTable::new(
-        addr.tt_el1_ttbr1_start,
-        KERN_TTBR1_LV2_TABLE_NUM,
-        KERN_TTBR1_LV3_TABLE_NUM,
-        0,
-    );
+    // TTBR1: user space
+    let mut table1 = PageTable::new(&mut allocator);
 
-    table1.init();
-
-    // map transition table for TTBR0
-    let mut tt_start = addr.tt_el1_ttbr0_start;
-    let flag = FLAG_L3_XN
-        | FLAG_L3_PXN
-        | FLAG_L3_AF
-        | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_N
-        | FLAG_L3_ATTR_DEV
-        | 0b11;
-    while tt_start < addr.tt_el1_ttbr0_end {
-        table1.map(tt_start, tt_start, flag);
-        tt_start += PAGESIZE;
+    // map heap memory
+    let mut vm_addr = crate::config::HEAP_START;
+    let flag = user_page_flag();
+    while vm_addr < super::config::HEAP_START + crate::config::HEAP_SIZE {
+        let phy_addr = if let Some(addr) = allocator.allocate_frame() {
+            addr
+        } else {
+            unsafe { DevUART::unsafe_puts("failed to allocate page.\n") };
+            wait_forever();
+        };
+        table1.map_to(vm_addr, phy_addr, flag, &mut allocator);
+        vm_addr += PAGESIZE;
     }
-
-    // map transition table for TTBR1
-    let mut tt_start = addr.tt_el1_ttbr1_start;
-    let flag = FLAG_L3_XN
-        | FLAG_L3_PXN
-        | FLAG_L3_AF
-        | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_N
-        | FLAG_L3_ATTR_DEV
-        | 0b11;
-    while tt_start < addr.tt_el1_ttbr1_end {
-        table1.map(tt_start, tt_start, flag);
-        tt_start += PAGESIZE;
-    }
+    addr.ttbr0 = table0.addr();
+    addr.ttbr1 = table1.addr();
 
     (table0, table1)
 }
