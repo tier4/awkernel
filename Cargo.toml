@@ -7,5 +7,5 @@ members = [
     "x86bootdisk",
     "t4os_async_lib",
     "awkernel_lib",
-    "t4os_aarch64",
+    "awkernel_aarch64",
 ]

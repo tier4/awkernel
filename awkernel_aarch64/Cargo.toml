@@ -1,5 +1,5 @@
 [package]
-name = "t4os_aarch64"
+name = "awkernel_aarch64"
 version = "0.1.0"
 edition = "2021"
 

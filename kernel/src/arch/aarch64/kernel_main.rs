@@ -17,7 +17,7 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Entry point from assembly code.
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() -> ! {
-    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
+    awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     if cpu::core_pos() == 0 {
         raspi::start_non_primary(); // Wake non-primary CPUs up.
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 unsafe fn primary_cpu() {
     DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
 
-    match t4os_aarch64::get_current_el() {
+    match awkernel_aarch64::get_current_el() {
         0 => DevUART::unsafe_puts("EL0\n"),
         1 => DevUART::unsafe_puts("EL1\n"),
         2 => DevUART::unsafe_puts("EL2\n"),
@@ -84,7 +84,7 @@ unsafe fn non_primary_cpu() {
         cpu_id: cpu::core_pos(),
     };
 
-    t4os_aarch64::init_cpacr_el1(); // Enable floating point numbers.
+    awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     crate::main::<()>(kernel_info);
 }

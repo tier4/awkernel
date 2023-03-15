@@ -1,6 +1,5 @@
-use t4os_aarch64::mpidr_el1;
-
 use super::config;
+use awkernel_aarch64::mpidr_el1;
 
 pub const MAX_CPUS_PER_CLUSTER: usize = config::MAX_CPUS_PER_CLUSTER;
 pub const CLUSTER_COUNT: usize = config::CLUSTER_COUNT;

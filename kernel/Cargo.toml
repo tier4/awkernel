@@ -36,8 +36,8 @@ default-features = false
 path = "../awkernel_lib"
 default-features = false
 
-[dependencies.t4os_aarch64]
-path = "../t4os_aarch64"
+[dependencies.awkernel_aarch64]
+path = "../awkernel_aarch64"
 optional = true
 
 [dependencies.x86_64]
@@ -59,6 +59,6 @@ x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
 raspi = ["aarch64"]
-aarch64 = ["dep:t4os_aarch64", "awkernel_lib/aarch64"]
+aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64"]
 linux = ["std", "dep:libc"]
 std = ["awkernel_lib/std", "t4os_async_lib/std"]

@@ -1,6 +1,6 @@
 use super::context::GpRegs;
+use awkernel_aarch64::esr_el1;
 use awkernel_lib::delay::wait_forever;
-use t4os_aarch64::esr_el1;
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
 const _ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;

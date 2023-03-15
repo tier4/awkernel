@@ -24,12 +24,12 @@ optional = true
 version = "0.11"
 optional = true
 
-[dependencies.t4os_aarch64]
-path = "../t4os_aarch64"
+[dependencies.awkernel_aarch64]
+path = "../awkernel_aarch64"
 optional = true
 
 [features]
 default = []
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
-aarch64 = ["dep:t4os_aarch64"]
+aarch64 = ["dep:awkernel_aarch64"]
 std = ["dep:libc"]
