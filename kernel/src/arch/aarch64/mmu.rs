@@ -513,14 +513,6 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         table0.unmap(addr);
     }
 
-    // map free memory region
-    let mut free_mem = addr.pager_mem_start;
-    let flag = kernel_page_flag();
-    while free_mem < addr.pager_mem_end {
-        table0.map_to(free_mem, free_mem, flag, &mut allocator);
-        free_mem += PAGESIZE;
-    }
-
     // map device memory
     let mut device_addr = DEVICE_MEM_START;
     let flag = FLAG_L3_NS
