@@ -8,8 +8,9 @@ Trans(a, b) ==
 Init == state = "ServerRecvGoal"
 
 Next ==
-  \/ Trans("ServerRecvGoal", "ServerRecvGoal")
-  \/ Trans("ServerRecvGoal", "ServerSendFeedback")
+  \/ Trans("ServerRecvGoal", "ServerSendGoalResult")
+  \/ Trans("ServerSendGoalResult", "ServerRecvGoal")
+  \/ Trans("ServerSendGoalResult", "ServerSendFeedback")
   \/ Trans("ServerSendFeedback", "ServerSendFeedback")
   \/ Trans("ServerSendFeedback", "ServerRecvGoal")
 

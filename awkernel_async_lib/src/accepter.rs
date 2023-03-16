@@ -120,7 +120,7 @@ impl Services {
     }
 
     /// `P` is a protocol of a client.
-    pub fn create_client<P: S::HasDual + 'static>(
+    pub fn create_client<P: S::HasDual>(
         &mut self,
         name: Cow<'static, str>,
         drop_fn: fn(&mut Accepter<P::Dual>),
@@ -137,7 +137,7 @@ impl Services {
         }
     }
 
-    pub fn set_accepter<P: 'static>(&mut self, accepter: Accepter<P>) {
+    pub fn set_accepter<P>(&mut self, accepter: Accepter<P>) {
         match self.services.get_mut::<Inner<P>>(&accepter.get_name()) {
             AnyDictResult::Ok(s) => {
                 if s.accepter.is_none() {

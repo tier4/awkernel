@@ -1,23 +1,23 @@
 # Action Server and Client
 
 The protocol of action server can be defined by session types as follows.
-`G`, `F`, and `R` stand for the type of goal, feedback, and result, respectively.
+`G`, `F`, and `R` stand for the types of goal, feedback, and result, respectively.
 
 ```rust
 type ProtoServer<G, F, R> = S::Rec<ProtoServerInn<G, F, R>>;
 type ProtoServerInn<G, F, R> = S::Offer<S::Eps /* Close. */, ProtoServerGoal<G, F, R>>;
 type ProtoServerGoal<G, F, R> = S::Recv<G /* Receive a goal. */, ProtoServerGoalResult<F, R>>;
-type ProtoServerGoalResult<F, R> = S::Choose<
-    S::Var<S::Z>, /* Reject. */
-    S::Send<GoalResponse /* Send a response of the goal. */, ProtoServerFeedback<F, R>>,
+type ProtoServerGoalResult<F, R> =
+    S::Choose<S::Var<S::Z> /* Reject. */, ProtoServerSendGoalResult<F, R> /* Accept. */>;
+type ProtoServerSendGoalResult<F, R> =
+    S::Send<GoalResponse /* Send a response of the goal. */, ProtoServerFeedback<F, R>>;
+type ProtoServerFeedback<F, R> = S::Recv<
+    bounded::Attribute, /* Receive an attribute. */
+    S::Send<bounded::Receiver<F> /* Send Rx. */, ProtoServerResult<R>>,
 >;
-type ProtoServerFeedback<F, R> = S::Rec<ProtoServerFeedbackInn<F, R>>;
-type ProtoServerFeedbackInn<F, R> = S::Choose<
-    S::Send<F /* Send a feedback. */, S::Var<S::Z> /* Goto ProtoServerFeedbackInn. */>,
-    S::Send<
-        (ResultStatus, R),  /* Send a result. */
-        S::Var<S::S<S::Z>>, /* Goto ProtoServerInn. */
-    >,
+type ProtoServerResult<R> = S::Send<
+    (ResultStatus, R), /* Send a result. */
+    S::Var<S::Z>,      /* Goto ProtoServerInn. */
 >;
 ```
 
@@ -37,14 +37,19 @@ sequenceDiagram
                 Server->>Client: reject
             else
                 Server->>Client: accept
+                Server->>Client: goal response
+                Client->>Server: attribute
+                Server->>Client: Receiver (endpoint)
+
                 loop
                     alt
-                        Server->>Client: feedback
+                        Sender (Server)->>Receiver (Client): feedback
                     else
-                        Server->>Client: result
-                        Note over Client,Server: break inner loop
+                        Note over Sender (Server),Receiver (Client): break loop
                     end
                 end
+
+                Server->>Client: status and result
             end
         end
     end
@@ -59,10 +64,11 @@ This can be described by [action_server.tla](./action_server.tla) in TLA+.
 stateDiagram
     [*] --> ServerRecvGoal
     ServerRecvGoal --> [*]: close
-    ServerRecvGoal --> ServerRecvGoal: reject
-    ServerRecvGoal --> ServerSendFeedback: accept
-    ServerSendFeedback --> ServerSendFeedback: send_feedback
-    ServerSendFeedback --> ServerRecvGoal: send_result
+    ServerRecvGoal --> ServerSendGoalResult: recv goal
+    ServerSendGoalResult --> ServerRecvGoal: reject
+    ServerSendGoalResult --> ServerSendFeedback: accept
+    ServerSendFeedback --> ServerSendFeedback: send feedback
+    ServerSendFeedback --> ServerRecvGoal: send result
 ```
 
 ## State Machine of Client
@@ -76,6 +82,6 @@ stateDiagram
     ClientSendGoal --> [*]: close
     ClientSendGoal --> ClientRecvFeedback: accept
     ClientSendGoal --> ClientSendGoal: reject
-    ClientRecvFeedback --> ClientRecvFeedback: recv (feedback)
-    ClientRecvFeedback --> ClientSendGoal: recv (result)
+    ClientRecvFeedback --> ClientRecvFeedback: recv feedback
+    ClientRecvFeedback --> ClientSendGoal: recv result
 ```

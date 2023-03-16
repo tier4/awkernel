@@ -5,21 +5,18 @@
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
 
 use crate::{
-    anydict::AnyDict,
-    channel::{
-        bounded,
-        unbounded::{self, Receiver, Sender},
-    },
+    accepter::{Accepter, Services},
+    channel::{bounded, unbounded},
     offer,
     session_types::{self as S},
 };
 use alloc::borrow::Cow;
-use core::{marker::PhantomData, sync::atomic::AtomicPtr};
+use core::marker::PhantomData;
 use futures::{
     future::{BoxFuture, Fuse},
     FutureExt,
 };
-use synctools::mcs::MCSNode;
+use synctools::mcs::{MCSLock, MCSNode};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum GoalResponse {
@@ -34,7 +31,16 @@ pub enum ResultStatus {
     Aborted,
 }
 
+static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
+
+fn drop_accepter<P>(acc: &mut Accepter<P>) {
+    let mut node = MCSNode::new();
+    let mut guard = SERVICES.lock(&mut node);
+    guard.set_accepter::<P>(acc.take());
+}
+
 type ProtoServer<G, F, R> = S::Rec<ProtoServerInn<G, F, R>>;
+type ProtoClient<G, F, R> = <ProtoServer<G, F, R> as S::HasDual>::Dual;
 
 type ProtoServerInn<G, F, R> = S::Offer<S::Eps /* Close. */, ProtoServerGoal<G, F, R>>;
 type ProtoClientInn<G, F, R> = <ProtoServerInn<G, F, R> as S::HasDual>::Dual;
@@ -230,4 +236,38 @@ where
             }
         }
     }
+}
+
+/// Create a server.
+///
+/// - `G`: type of goal.
+/// - `F`: type of feedback.
+/// - `R`: type of result.
+pub fn create_server<G, F, R>(
+    name: Cow<'static, str>,
+) -> Result<Accepter<ProtoServer<G, F, R>>, &'static str> {
+    let mut node = MCSNode::new();
+    let mut services = SERVICES.lock(&mut node);
+    services.create_server(name, drop_accepter)
+}
+
+/// Create a client.
+///
+/// - `G`: type of goal.
+/// - `F`: type of feedback.
+/// - `R`: type of result.
+pub async fn create_client<G: 'static, F: 'static, R: 'static>(
+    name: Cow<'static, str>,
+) -> Result<S::Chan<(), ProtoClient<G, F, R>>, &'static str> {
+    let mut node = MCSNode::new();
+    let mut services = SERVICES.lock(&mut node);
+    let tx = services.create_client::<ProtoClient<G, F, R>>(name, drop_accepter)?;
+
+    let (tx1, rx1) = unbounded::new();
+    let (tx2, rx2) = unbounded::new();
+
+    let client = S::mk_chan::<ProtoClient<G, F, R>>(tx1, rx2);
+    tx.send((tx2, rx1)).await?;
+
+    Ok(client)
 }
