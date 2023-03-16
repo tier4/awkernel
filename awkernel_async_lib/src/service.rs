@@ -223,165 +223,19 @@
 //! ```
 
 use crate::{
-    anydict::{AnyDict, AnyDictResult},
-    channel::unbounded::{self, Receiver, RecvErr, Sender},
+    accepter::{Accepter, Services},
+    channel::unbounded,
     session_types::{mk_chan, Chan, HasDual},
 };
 use alloc::borrow::Cow;
-use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 use synctools::mcs::{MCSLock, MCSNode};
 
 static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
 
-type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
-
-struct Services {
-    services: AnyDict,
-}
-
-impl Services {
-    const fn new() -> Self {
-        Self {
-            services: AnyDict::new(),
-        }
-    }
-
-    /// `P` is a protocol of a server.
-    fn create_server<P: 'static>(
-        &mut self,
-        name: Cow<'static, str>,
-    ) -> Result<Accepter<P>, &'static str> {
-        match self.services.get_mut::<InnerService<P>>(&name) {
-            AnyDictResult::None => {
-                let (inner, accepter) = InnerService::new_and_accepter(name.clone());
-                self.services.insert(name, inner);
-                Ok(accepter)
-            }
-            AnyDictResult::Ok(s) => s
-                .accepter
-                .take()
-                .ok_or("create_server: a server has been already created"),
-            AnyDictResult::TypeError => Err("create_server: typing error"),
-        }
-    }
-
-    /// `P` is a protocol of a client.
-    fn create_client<P: HasDual + 'static>(
-        &mut self,
-        name: Cow<'static, str>,
-    ) -> Result<Sender<TxRx>, &'static str> {
-        match self.services.get_mut::<InnerService<P::Dual>>(&name) {
-            AnyDictResult::None => {
-                let inner = InnerService::<P::Dual>::new(name.clone());
-                let tx = inner.get_sender();
-                self.services.insert(name, inner);
-                tx
-            }
-            AnyDictResult::Ok(s) => s.get_sender(),
-            AnyDictResult::TypeError => Err("create_client: typing error"),
-        }
-    }
-
-    fn set_receiver<P: 'static>(&mut self, name: Cow<'static, str>, receiver: Receiver<TxRx>) {
-        match self.services.get_mut::<InnerService<P>>(&name) {
-            AnyDictResult::Ok(s) => {
-                if s.accepter.is_none() {
-                    s.accepter = Some(Accepter::new(receiver, name));
-                } else {
-                    unreachable!()
-                }
-            }
-            _ => unreachable!(),
-        }
-    }
-}
-
-/// `P` is a protocol of a server and `P::Dual` is a protocol of a client.
-struct InnerService<P: 'static> {
-    accepter: Option<Accepter<P>>,
-    sender: Sender<TxRx>,
-}
-
-impl<P> InnerService<P> {
-    fn new_and_accepter(name: Cow<'static, str>) -> (Self, Accepter<P>) {
-        let (tx, rx) = unbounded::new();
-        let accepter = Accepter::new(rx, name);
-
-        (
-            Self {
-                accepter: None,
-                sender: tx,
-            },
-            accepter,
-        )
-    }
-
-    fn new(name: Cow<'static, str>) -> Self {
-        let (tx, rx) = unbounded::new();
-        Self {
-            accepter: Some(Accepter::new(rx, name)),
-            sender: tx,
-        }
-    }
-
-    fn get_sender(&self) -> Result<Sender<TxRx>, &'static str> {
-        if self.sender.is_terminated() {
-            Err("channel has been terminated")
-        } else {
-            Ok(self.sender.clone())
-        }
-    }
-}
-
-/// Channel so that a server accepts a connection.
-/// `P` is a protocol of a server.
-pub struct Accepter<P: 'static> {
-    receiver: Option<Receiver<TxRx>>,
-    name: Cow<'static, str>,
-    _phantom: PhantomData<fn(P)>,
-}
-
-impl<P> Accepter<P> {
-    fn new(receiver: Receiver<TxRx>, name: Cow<'static, str>) -> Self {
-        Self {
-            receiver: Some(receiver),
-            name,
-            _phantom: Default::default(),
-        }
-    }
-
-    /// Accept a connection.
-    ///
-    /// ```
-    /// use t4os_async_lib::{service::Accepter, session_types::*, scheduler::SchedulerType};
-    ///
-    /// type Server = Recv<u64, Send<bool, Eps>>;
-    ///
-    /// async fn server_task(server: Accepter<Server>) {
-    ///     let chan = server.accept().await.unwrap();
-    ///     // Spawn a task for the connection.
-    ///      t4os_async_lib::spawn(
-    ///          async move {
-    ///              let (c, n) = chan.recv().await;
-    ///              let c = c.send(n % 2 == 1).await;
-    ///              c.close();
-    ///          },
-    ///          SchedulerType::RoundRobin,
-    ///      ).await;
-    /// }
-    /// ```
-    pub async fn accept(&self) -> Result<Chan<(), P>, RecvErr> {
-        let (tx, rx) = self.receiver.as_ref().unwrap().recv().await?;
-        Ok(mk_chan(tx, rx))
-    }
-}
-
-impl<P: 'static> Drop for Accepter<P> {
-    fn drop(&mut self) {
-        let mut node = MCSNode::new();
-        let mut guard = SERVICES.lock(&mut node);
-        guard.set_receiver::<P>(self.name.clone(), self.receiver.take().unwrap());
-    }
+fn drop_accepter<P>(acc: &mut Accepter<P>) {
+    let mut node = MCSNode::new();
+    let mut guard = SERVICES.lock(&mut node);
+    guard.set_accepter::<P>(acc.take());
 }
 
 /// Create a server.
@@ -413,7 +267,7 @@ impl<P: 'static> Drop for Accepter<P> {
 pub fn create_server<P: 'static>(name: Cow<'static, str>) -> Result<Accepter<P>, &'static str> {
     let mut node = MCSNode::new();
     let mut services = SERVICES.lock(&mut node);
-    services.create_server(name)
+    services.create_server(name, drop_accepter)
 }
 
 /// Create a client.
@@ -439,7 +293,7 @@ pub async fn create_client<P: HasDual + 'static>(
 ) -> Result<Chan<(), P>, &'static str> {
     let mut node = MCSNode::new();
     let mut services = SERVICES.lock(&mut node);
-    let tx = services.create_client::<P>(name)?;
+    let tx = services.create_client::<P>(name, drop_accepter)?;
 
     let (tx1, rx1) = unbounded::new();
     let (tx2, rx2) = unbounded::new();
