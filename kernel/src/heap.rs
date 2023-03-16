@@ -50,7 +50,12 @@ unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut node = MCSNode::new();
         let mut guard = TALLOC.0.lock(&mut node);
-        guard.allocate(layout).unwrap().as_mut()
+        if let Some(mut ptr) = guard.allocate(layout) {
+            return ptr.as_mut();
+        } else {
+            drop(guard);
+            panic!("failed to allocate heap memory");
+        }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {

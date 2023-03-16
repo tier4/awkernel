@@ -11,7 +11,8 @@ fn on_oom(_layout: Layout) -> ! {
 
 #[cfg(any(feature = "x86", feature = "aarch64"))]
 #[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    log::error!("{}", info);
     unwinding::panic::begin_panic(Box::new(()));
     wait_forever();
 }
