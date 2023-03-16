@@ -1,8 +1,4 @@
-use super::mmu::PAGESIZE;
-
-pub trait FrameAllocator {
-    fn allocate_frame(&mut self) -> Option<u64>;
-}
+use super::{mmu::PAGESIZE, page_table::FrameAllocator};
 
 pub struct PageAllocator {
     start: u64,
