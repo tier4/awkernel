@@ -6,6 +6,8 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 #![feature(start)]
+#![feature(atomic_bool_fetch_not)]
+#![feature(core_intrinsics)]
 #![feature(abi_x86_interrupt)]
 #![no_main]
 #![cfg_attr(not(feature = "std"), no_std)]

@@ -66,7 +66,7 @@ unsafe fn primary_cpu() {
         info: (),
         cpu_id: 0,
     };
-
+    crate::heap::TALLOC.use_primary(); // use primary allocator in userland
     crate::main::<()>(kernel_info);
 }
 
@@ -85,6 +85,6 @@ unsafe fn non_primary_cpu() {
     };
 
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
-
+    crate::heap::TALLOC.use_primary(); // use primary allocator in userland
     crate::main::<()>(kernel_info);
 }
