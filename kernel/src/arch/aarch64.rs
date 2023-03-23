@@ -1,7 +1,7 @@
 mod bsp;
 pub mod config;
 mod context;
-mod cpu;
+pub mod cpu;
 mod driver;
 mod exception;
 mod kernel_main;
