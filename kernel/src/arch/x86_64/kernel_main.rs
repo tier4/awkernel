@@ -4,7 +4,7 @@
 
 use super::{
     apic::{Apic, TypeApic},
-    heap::map_heap,
+    heap::{collect_heap, map_heap},
     interrupt,
     page_allocator::{get_page_table, PageAllocator},
 };
@@ -122,6 +122,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {
         start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
+    }
+    // Collect the left usable memory
+    if unsafe { collect_heap(&mut page_table, &mut page_allocator).is_err() } {
+        log::error!("Failed to collect usable memory");
+        wait_forever();
+    } else {
+        log::debug!("Enlarged heap size is: {} bytes", unsafe {
+            crate::config::ENLARGED_HEAP_SIZE
+        });
     }
     unsafe {
         crate::heap::TALLOC.use_primary();

@@ -2,11 +2,13 @@
 
 use super::page_allocator::PageAllocator;
 use crate::{
-    config::{HEAP_SIZE, HEAP_START},
+    config::{HEAP_SIZE, HEAP_START, PAGE_SIZE},
     heap::InitErr,
 };
 use x86_64::{
-    structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
+    structures::paging::{
+        mapper::MapToError, FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB,
+    },
     VirtAddr,
 };
 
@@ -40,5 +42,28 @@ pub(super) fn map_heap(
         };
     }
 
+    Ok(())
+}
+
+/// Collect left heap memory
+pub(super) unsafe fn collect_heap(
+    page_table: &mut OffsetPageTable<'static>,
+    page_allocator: &mut PageAllocator,
+) -> Result<(), InitErr> {
+    let start = VirtAddr::new(HEAP_START + HEAP_SIZE);
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    let mut addr = start;
+    while let Some(frame) = page_allocator.allocate_frame() {
+        let page: Page<Size4KiB> = Page::containing_address(addr);
+        // Map virtual memory to physical memory.
+        match page_table.map_to(page, frame, flags, page_allocator) {
+            Ok(flush) => flush.flush(),
+            Err(MapToError::FrameAllocationFailed) => break,
+            Err(_) => return Err(InitErr::FailedToMapPage),
+        }
+        addr += PAGE_SIZE;
+    }
+    crate::heap::append(start.as_u64(), addr.as_u64());
+    crate::config::ENLARGED_HEAP_SIZE = addr - start;
     Ok(())
 }
