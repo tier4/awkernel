@@ -39,6 +39,12 @@ pub unsafe fn init() {
     TALLOC.init();
 }
 
+/// Append block into alloctor
+#[cfg(feature = "x86")]
+pub unsafe fn append(start: u64, end: u64) {
+    TALLOC.primary.append(start, end);
+}
+
 struct Allocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
 struct BackUpAllocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
 
@@ -120,7 +126,7 @@ impl Talloc {
 
 fn is_primary_mem(ptr: *mut u8) -> bool {
     let addr = ptr as u64;
-    addr < arch::config::HEAP_START + config::HEAP_SIZE - config::BACKUP_HEAP_SIZE
+    addr >= arch::config::HEAP_START + config::BACKUP_HEAP_SIZE
 }
 
 unsafe impl GlobalAlloc for BackUpAllocator {
@@ -164,9 +170,10 @@ impl Allocator {
     }
 
     pub unsafe fn init(&self) {
-        let ptr = arch::config::HEAP_START as *mut u8;
+        let primary_heap_start = (config::HEAP_START + config::BACKUP_HEAP_SIZE) as *mut u8;
         let primary_heap_size = (config::HEAP_SIZE - config::BACKUP_HEAP_SIZE) as usize;
-        let primary_heap_mem = core::slice::from_raw_parts_mut(ptr, primary_heap_size);
+        let primary_heap_mem =
+            core::slice::from_raw_parts_mut(primary_heap_start, primary_heap_size);
 
         let Some(heap_mem) = NonNull::new(primary_heap_mem) else { return; };
 
@@ -174,6 +181,20 @@ impl Allocator {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         guard.insert_free_block_ptr(heap_mem);
+    }
+
+    #[cfg(feature = "x86")]
+    pub unsafe fn append(&self, start: u64, end: u64) {
+        let append_heap_start = start as *mut u8;
+        let append_heap_size = (end - start) as usize;
+        let append_heap_mem = core::slice::from_raw_parts_mut(append_heap_start, append_heap_size);
+
+        let Some(heap_mem) = NonNull::new(append_heap_mem) else { return; };
+
+        // Insert append heap memory .
+        let mut node = MCSNode::new();
+        let mut guard = self.0.lock(&mut node);
+        guard.append_free_block_ptr(heap_mem);
     }
 }
 
@@ -183,8 +204,7 @@ impl BackUpAllocator {
     }
 
     pub unsafe fn init(&self) {
-        let backup_heap_start =
-            arch::config::HEAP_START + config::HEAP_SIZE - config::BACKUP_HEAP_SIZE;
+        let backup_heap_start = arch::config::HEAP_START;
         let backup_heap_size = config::BACKUP_HEAP_SIZE as usize;
         let backup_heap_mem =
             core::slice::from_raw_parts_mut(backup_heap_start as *mut u8, backup_heap_size);
