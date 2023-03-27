@@ -35,7 +35,7 @@ pub enum InitErr {
 #[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 
-pub fn init() {
+pub unsafe fn init() {
     TALLOC.init();
 }
 

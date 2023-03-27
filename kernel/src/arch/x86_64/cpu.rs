@@ -3,4 +3,3 @@ pub fn cpu_id() -> usize {
     (ebx >> 24 & 0xff) as usize
 }
 
-pub const NUM_CPU: usize = 4;
