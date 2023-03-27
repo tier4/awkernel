@@ -32,6 +32,13 @@ pub enum InitErr {
     FailedToMapPage,
 }
 
+#[global_allocator]
+pub static TALLOC: Talloc = Talloc::new();
+
+pub fn init() {
+    TALLOC.init();
+}
+
 struct Allocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
 struct BackUpAllocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
 
@@ -42,12 +49,36 @@ pub struct Talloc {
     flags: AtomicU64,
 }
 
-pub fn init() {
-    TALLOC.init();
-}
+/// Using a primary allocator and a backup allocator
+/// Userland only use primary allocator.
+/// If OOM occurs, return the null pointer.
+/// Rust will catch it and call the `alloc_error_handler`
+/// Otherwise, `alloc_error_handler`,  `panic_handler`
+///  and kernel would also first use the primary allocator.
+/// If the primary allocator is OOM, then use the backup allocator.
+/// If the backup allocator is also OOM, then abort the kernel.
+unsafe impl GlobalAlloc for Talloc {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if self.is_primary() {
+            self.primary.alloc(layout)
+        } else {
+            let ptr = self.primary.alloc(layout);
+            if ptr.is_null() {
+                return self.backup.alloc(layout);
+            } else {
+                return ptr;
+            }
+        }
+    }
 
-#[global_allocator]
-pub static TALLOC: Talloc = Talloc::new();
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        if is_primary_mem(ptr) {
+            self.primary.dealloc(ptr, layout);
+        } else {
+            self.backup.dealloc(ptr, layout);
+        }
+    }
+}
 
 impl Talloc {
     pub const fn new() -> Self {
@@ -84,29 +115,6 @@ impl Talloc {
         let cpu_id = cpu::cpu_id();
         let val = self.flags.load(Ordering::SeqCst);
         (val & (1 << cpu_id)) != 0
-    }
-}
-
-unsafe impl GlobalAlloc for Talloc {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if self.is_primary() {
-            self.primary.alloc(layout)
-        } else {
-            let ptr = self.primary.alloc(layout);
-            if ptr.is_null() {
-                return self.backup.alloc(layout);
-            } else {
-                return ptr;
-            }
-        }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if is_primary_mem(ptr) {
-            self.primary.dealloc(ptr, layout);
-        } else {
-            self.backup.dealloc(ptr, layout);
-        }
     }
 }
 
