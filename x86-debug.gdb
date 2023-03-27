@@ -1,3 +1,7 @@
+define hook-quit
+    kill
+end
+
 set disassemble-next-line on
 set confirm off
 set arch  i386:x86-64:intel
