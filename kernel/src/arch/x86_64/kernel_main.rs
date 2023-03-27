@@ -123,13 +123,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {
         start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
     }
-
+    unsafe {
+        crate::heap::TALLOC.use_primary();
+    } // use primary allocator in userland
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
     };
 
-    crate::main(kernel_info);
+    crate::main(kernel_info); // jump to userland
 
     wait_forever()
 }
@@ -257,12 +259,15 @@ fn non_primary_kernel_main() -> ! {
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
+    unsafe {
+        crate::heap::TALLOC.use_primary();
+    } // use primary allocator in userland
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,
         cpu_id: cpu_id as usize,
     };
 
-    crate::main(kernel_info);
+    crate::main(kernel_info); // jump to userland
 
     wait_forever();
 }
