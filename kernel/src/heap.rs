@@ -1,4 +1,4 @@
-//! Using a second-level segregated list.
+//! Use a second-level segregated list.
 //! FLLEN represents the length of first level lists.
 //! SLLEN represents the length of second level lists.
 //!
@@ -35,18 +35,19 @@ pub enum InitErr {
 #[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 
-pub unsafe fn init() {
-    TALLOC.init();
+pub unsafe fn init(
+    primary_start: usize,
+    primary_size: usize,
+    backup_start: usize,
+    backup_size: usize,
+) {
+    TALLOC.init(primary_start, primary_size, backup_start, backup_size);
 }
 
-/// Append block into alloctor
-#[cfg(feature = "x86")]
-pub unsafe fn append(start: u64, end: u64) {
-    TALLOC.primary.append(start, end);
-}
+type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
 
-struct Allocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
-struct BackUpAllocator(MCSLock<Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>>);
+struct Allocator(MCSLock<TLSFAlloc>);
+struct BackUpAllocator(MCSLock<TLSFAlloc>);
 
 pub struct Talloc {
     primary: Allocator,
@@ -55,12 +56,12 @@ pub struct Talloc {
     flags: AtomicU64,
 }
 
-/// Using a primary allocator and a backup allocator
-/// Userland only use primary allocator.
-/// If OOM occurs, return the null pointer.
-/// Rust will catch it and call the `alloc_error_handler`
+/// Use a primary allocator and a backup allocator.
+/// In the userland, only the primary allocator is used.
+/// If OOM occurs in the userland, the primary allocator returns the null pointer,
+/// caught it by the OOM handler and `alloc_error_handler` is called.
 /// Otherwise, `alloc_error_handler`,  `panic_handler`
-///  and kernel would also first use the primary allocator.
+/// and kernel would also first use the primary allocator.
 /// If the primary allocator is OOM, then use the backup allocator.
 /// If the backup allocator is also OOM, then abort the kernel.
 unsafe impl GlobalAlloc for Talloc {
@@ -95,10 +96,16 @@ impl Talloc {
         }
     }
 
-    pub fn init(&self) {
+    pub fn init(
+        &self,
+        primary_start: usize,
+        primary_size: usize,
+        backup_start: usize,
+        backup_size: usize,
+    ) {
         unsafe {
-            self.primary.init();
-            self.backup.init();
+            self.primary.init(primary_start, primary_size);
+            self.backup.init(backup_start, backup_size);
         }
     }
 
@@ -139,6 +146,7 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             abort(); // there is no free memory left
         }
     }
+
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
@@ -169,32 +177,10 @@ impl Allocator {
         Self(MCSLock::new(Tlsf::new()))
     }
 
-    pub unsafe fn init(&self) {
-        let primary_heap_start = (config::HEAP_START + config::BACKUP_HEAP_SIZE) as *mut u8;
-        let primary_heap_size = (config::HEAP_SIZE - config::BACKUP_HEAP_SIZE) as usize;
-        let primary_heap_mem =
-            core::slice::from_raw_parts_mut(primary_heap_start, primary_heap_size);
-
-        let Some(heap_mem) = NonNull::new(primary_heap_mem) else { return; };
-
-        // Insert primary heap memory .
+    pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
-        guard.insert_free_block_ptr(heap_mem);
-    }
-
-    #[cfg(feature = "x86")]
-    pub unsafe fn append(&self, start: u64, end: u64) {
-        let append_heap_start = start as *mut u8;
-        let append_heap_size = (end - start) as usize;
-        let append_heap_mem = core::slice::from_raw_parts_mut(append_heap_start, append_heap_size);
-
-        let Some(heap_mem) = NonNull::new(append_heap_mem) else { return; };
-
-        // Insert append heap memory .
-        let mut node = MCSNode::new();
-        let mut guard = self.0.lock(&mut node);
-        guard.append_free_block_ptr(heap_mem);
+        init_heap(&mut guard, heap_start, heap_size);
     }
 }
 
@@ -203,17 +189,15 @@ impl BackUpAllocator {
         Self(MCSLock::new(Tlsf::new()))
     }
 
-    pub unsafe fn init(&self) {
-        let backup_heap_start = arch::config::HEAP_START;
-        let backup_heap_size = config::BACKUP_HEAP_SIZE as usize;
-        let backup_heap_mem =
-            core::slice::from_raw_parts_mut(backup_heap_start as *mut u8, backup_heap_size);
-
-        let Some(heap_mem) = NonNull::new(backup_heap_mem) else { return; };
-
-        // Insert backup heap memory .
+    pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
-        guard.insert_free_block_ptr(heap_mem);
+        init_heap(&mut guard, heap_start, heap_size);
     }
+}
+
+unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
+    let heap_mem = core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size);
+    let Some(heap_mem) = NonNull::new(heap_mem) else { return; };
+    allocator.insert_free_block_ptr(heap_mem);
 }

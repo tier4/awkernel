@@ -1,4 +1,4 @@
-//! # t4os_async_lib: Asynchronous library for T4OS
+//! # awkernel_async_lib: Asynchronous library for T4OS
 //!
 //! T4OS is an operating system, and this is an asynchronous library
 //! to provide APIs like to Robot Operating System 2 (ROS2).
@@ -51,7 +51,7 @@ pub trait Cancel: Future + Unpin {
 ///
 /// ```
 /// use core::time::Duration;
-/// use t4os_async_lib::sleep;
+/// use awkernel_async_lib::sleep;
 ///
 /// let _ = async {
 ///     // Sleep 1 second.
@@ -69,7 +69,7 @@ pub async fn sleep(duration: Duration) -> sleep_task::State {
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::r#yield;
+/// use awkernel_async_lib::r#yield;
 ///
 /// let _ = async {
 ///     // Yield.
@@ -86,7 +86,7 @@ pub async fn r#yield() {
 ///
 /// ```
 /// use core::time::Duration;
-/// use t4os_async_lib::{forever, timeout};
+/// use awkernel_async_lib::{forever, timeout};
 ///
 /// let _ = async {
 ///     // `async { forever().await; }` will time out after 1 second.
@@ -104,7 +104,7 @@ where
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::forever;
+/// use awkernel_async_lib::forever;
 ///
 /// let _ = async {
 ///     // Wait forever.
@@ -121,11 +121,11 @@ pub async fn forever() -> ! {
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::{self, scheduler::SchedulerType};
+/// use awkernel_async_lib::{self, scheduler::SchedulerType};
 ///
 /// let _ = async {
 ///     // Spawn a detached task.
-///     let join_handler = t4os_async_lib::spawn(
+///     let join_handler = awkernel_async_lib::spawn(
 ///         async { /* do something */ },
 ///         SchedulerType::RoundRobin, // Scheduler type.
 ///     ).await;

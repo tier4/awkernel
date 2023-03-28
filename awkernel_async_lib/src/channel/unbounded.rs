@@ -5,7 +5,7 @@
 //! ## Unbounded Single Producer and Single Consumer Channel
 //!
 //! ```
-//! use t4os_async_lib::channel::unbounded;
+//! use awkernel_async_lib::channel::unbounded;
 //!
 //! let (tx, rx) = unbounded::new();
 //!
@@ -55,7 +55,7 @@ impl<T> Sender<T> {
     /// # Example
     ///
     /// ```
-    /// use t4os_async_lib::channel::unbounded::Sender;
+    /// use awkernel_async_lib::channel::unbounded::Sender;
     ///
     /// async fn sender_task(sender: Sender<u64>) {
     ///     sender.send(123).await.unwrap();
@@ -119,7 +119,7 @@ impl<T> Receiver<T> {
     /// # Example
     ///
     /// ```
-    /// use t4os_async_lib::channel::unbounded::Receiver;
+    /// use awkernel_async_lib::channel::unbounded::Receiver;
     ///
     /// async fn receiver_task(receiver: Receiver<u64>) {
     ///     let data = receiver.recv().await.unwrap();
@@ -135,7 +135,7 @@ impl<T> Receiver<T> {
     /// # Example
     ///
     /// ```
-    /// use t4os_async_lib::channel::unbounded::Receiver;
+    /// use awkernel_async_lib::channel::unbounded::Receiver;
     ///
     /// fn receiver_task(receiver: Receiver<u64>) {
     ///     let data = receiver.try_recv().unwrap();
@@ -192,7 +192,7 @@ impl<'a, T> Future for AsyncReceiver<'a, T> {
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::channel::unbounded;
+/// use awkernel_async_lib::channel::unbounded;
 ///
 /// let (tx, rx) = unbounded::new::<u64>();
 ///

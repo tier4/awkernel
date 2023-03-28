@@ -6,6 +6,7 @@ linux = "build --package awkernel --no-default-features --features linux"
 
 test_awkernel_lib = "test --package awkernel_lib --no-default-features --features std"
 test_awkernel_async_lib = "test --package awkernel_async_lib --no-default-features --features std"
+test_awkernel_drivers = "test --package awkernel_drivers"
 
 check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
 check_std = "check --package awkernel --quiet --message-format=json"

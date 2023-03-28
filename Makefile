@@ -82,10 +82,10 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 qemu-x86_64:
-	qemu-system-x86_64 -m 320 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait
+	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 
 debug-x86_64:
-	qemu-system-x86_64 -m 320 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait -s -S
+	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait -s -S
 
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb
@@ -103,6 +103,7 @@ run-linux:
 test: FORCE
 	cargo test_awkernel_lib
 	cargo test_awkernel_async_lib -- --nocapture
+	cargo test_awkernel_drivers
 
 ## Clean
 

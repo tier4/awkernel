@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```
-//! use t4os_async_lib::{session_types::*, scheduler::SchedulerType};
+//! use awkernel_async_lib::{session_types::*, scheduler::SchedulerType};
 //!
 //! // Define protocol.
 //! type Server = Recv<u64, Send<bool, Eps>>;
@@ -30,8 +30,8 @@
 //! let _ = async {
 //!     let (server, client) = session_channel::<Server>();
 //!
-//!     t4os_async_lib::spawn(async { srv(server).await; }, SchedulerType::RoundRobin).await;
-//!     t4os_async_lib::spawn(async { cli(client).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn(async { srv(server).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn(async { cli(client).await; }, SchedulerType::RoundRobin).await;
 //! };
 //! ```
 //!
@@ -518,8 +518,8 @@ mod private {
 /// we can use the `offer!` macro as follows:
 ///
 /// ```rust
-/// use t4os_async_lib::session_types::*;
-/// use t4os_async_lib::*;
+/// use awkernel_async_lib::session_types::*;
+/// use awkernel_async_lib::*;
 ///
 /// type SrvProtocol = Offer<Recv<u64, Eps>, Offer<Recv<String, Eps>, Eps>>;
 /// type CliProtocol = <SrvProtocol as HasDual>::Dual;

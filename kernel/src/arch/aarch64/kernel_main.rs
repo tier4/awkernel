@@ -4,7 +4,11 @@ use super::{
     driver::uart::{DevUART, Uart},
     mmu, serial,
 };
-use crate::{heap, kernel_info::KernelInfo};
+use crate::{
+    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    heap,
+    kernel_info::KernelInfo,
+};
 use awkernel_lib::delay::wait_forever;
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -55,7 +59,13 @@ unsafe fn primary_cpu() {
     mmu::enable();
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
-    heap::init(); // Enable heap allocator.
+
+    let backup_start = HEAP_START as usize;
+    let backup_size = BACKUP_HEAP_SIZE as usize;
+    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
+    let primary_size = HEAP_SIZE as usize;
+
+    heap::init(primary_start, primary_size, backup_start, backup_size); // Enable heap allocator.
     serial::init(); // Enable serial port.
 
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

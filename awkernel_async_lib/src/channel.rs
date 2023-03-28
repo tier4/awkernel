@@ -1,7 +1,7 @@
 //! # Oneshot channel
 //!
 //! ```
-//! use t4os_async_lib::channel::oneshot;
+//! use awkernel_async_lib::channel::oneshot;
 //!
 //! let (tx, rx) = oneshot::channel();
 //!

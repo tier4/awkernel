@@ -49,11 +49,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         loop {
+            unsafe { crate::heap::TALLOC.use_primary() }
             wake_task(); // Wake executable tasks periodically.
             pause();
         }
     } else {
         // Non-primary CPUs.
+        unsafe { crate::heap::TALLOC.use_primary() }
         task::run(kernel_info.cpu_id); // Execute tasks.
     }
 }

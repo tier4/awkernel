@@ -16,7 +16,7 @@
 //! ```
 //!
 //! ```
-//! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
+//! use awkernel_async_lib::{service, session_types::*, scheduler::SchedulerType};
 //!
 //! // Define protocol.
 //! type Server = Recv<u64, Send<bool, Eps>>;
@@ -43,11 +43,11 @@
 //!     let server = service::create_server::<Server>("simple service".into()).unwrap();
 //!
 //!     // Spawn a server.
-//!     t4os_async_lib::spawn(
+//!     awkernel_async_lib::spawn(
 //!         async move {
 //!             while let Ok(chan) = server.accept().await {
 //!                 // Spawn a task for the connection.
-//!                 t4os_async_lib::spawn(
+//!                 awkernel_async_lib::spawn(
 //!                     async move {
 //!                         srv(chan).await;
 //!                     },
@@ -59,7 +59,7 @@
 //!     ).await;
 //!
 //!     // Start a client.
-//!     t4os_async_lib::spawn(
+//!     awkernel_async_lib::spawn(
 //!         async {
 //!             let chan = service::create_client::<Client>("simple service".into()).await.unwrap();
 //!             cli(chan).await;
@@ -83,7 +83,7 @@
 //! ```
 //!
 //! ```
-//! use t4os_async_lib::session_types::*;
+//! use awkernel_async_lib::session_types::*;
 //!
 //! // Define protocol.
 //! type Server = Rec<Recv<u64, Send<bool, Var<Z>>>>;
@@ -127,7 +127,7 @@
 //! ```
 //!
 //! ```
-//! use t4os_async_lib::{offer, session_types::*};
+//! use awkernel_async_lib::{offer, session_types::*};
 //!
 //! type Server = Offer<Recv<u64, Eps>, Recv<String, Eps>>;
 //! type Client = <Server as HasDual>::Dual;
@@ -174,7 +174,7 @@
 //! ```
 //!
 //! ```
-//! use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
+//! use awkernel_async_lib::{service, session_types::*, scheduler::SchedulerType};
 //!
 //! // Define protocol.
 //! type Server = Recv<u64, Eps>;
@@ -216,9 +216,9 @@
 //!     let (pr_srv1, pr_cli1) = session_channel::<ProxySrv1>(); // Channel between client and proxy.
 //!     let (pr_srv2, pr_cli2) = session_channel::<ProxySrv2>(); // Channel between proxy and server.
 //!
-//!     t4os_async_lib::spawn(async move { cli(pr_cli1).await; }, SchedulerType::RoundRobin,).await;
-//!     t4os_async_lib::spawn(async move { srv(pr_cli2).await; }, SchedulerType::RoundRobin,).await;
-//!     t4os_async_lib::spawn(async move { proxy(pr_srv1, pr_srv2).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn(async move { cli(pr_cli1).await; }, SchedulerType::RoundRobin,).await;
+//!     awkernel_async_lib::spawn(async move { srv(pr_cli2).await; }, SchedulerType::RoundRobin,).await;
+//!     awkernel_async_lib::spawn(async move { proxy(pr_srv1, pr_srv2).await; }, SchedulerType::RoundRobin).await;
 //! };
 //! ```
 
@@ -244,7 +244,7 @@ fn drop_accepter<P>(acc: &mut Accepter<P>) {
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
+/// use awkernel_async_lib::{service, session_types::*, scheduler::SchedulerType};
 ///
 /// type Server = Recv<u64, Send<bool, Eps>>;
 ///
@@ -253,7 +253,7 @@ fn drop_accepter<P>(acc: &mut Accepter<P>) {
 /// let _ = async move {
 ///     while let Ok(chan) = server.accept().await {
 ///        // Spawn a task for the connection.
-///         t4os_async_lib::spawn(
+///         awkernel_async_lib::spawn(
 ///             async move {
 ///                 let (c, n) = chan.recv().await;
 ///                 let c = c.send(n % 2 == 1).await;
@@ -276,7 +276,7 @@ pub fn create_server<P: 'static>(name: Cow<'static, str>) -> Result<Accepter<P>,
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::{service, session_types::*, scheduler::SchedulerType};
+/// use awkernel_async_lib::{service, session_types::*, scheduler::SchedulerType};
 ///
 /// type Client = Send<u64, Recv<bool, Eps>>;
 ///

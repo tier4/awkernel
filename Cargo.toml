@@ -8,4 +8,5 @@ members = [
     "awkernel_async_lib",
     "awkernel_lib",
     "awkernel_aarch64",
+    "awkernel_drivers"
 ]

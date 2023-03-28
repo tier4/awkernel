@@ -10,7 +10,7 @@ use core::{
 /// # Example
 ///
 /// ```
-/// use t4os_lib::mmio_rw;
+/// use awkernel_lib::mmio_rw;
 ///
 /// // Read/write MMIO.
 /// mmio_rw!(0x100 => MMIO_1ST<u32>);            // Absolute address.
@@ -52,7 +52,7 @@ macro_rules! mmio_rw {
 /// Define read only MMIO.
 ///
 /// ```
-/// use t4os_lib::mmio_r;
+/// use awkernel_lib::mmio_r;
 ///
 /// // Read only MMIO.
 /// mmio_r!(0x100 => MMIO_1ST<u32>);            // Absolute address.
@@ -88,7 +88,7 @@ macro_rules! mmio_r {
 /// # Example
 ///
 /// ```
-/// use t4os_lib::mmio_w;
+/// use awkernel_lib::mmio_w;
 ///
 /// // Write only MMIO.
 /// mmio_w!(0x100 => MMIO_1ST<u32>);            // Absolute address.

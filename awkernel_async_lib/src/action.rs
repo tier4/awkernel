@@ -2,7 +2,7 @@
 //!
 //! # Specification
 //!
-//! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/t4os_async_lib/src/action.rs).
+//! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/awkernel_async_lib/src/action.rs).
 
 use crate::{
     accepter::{Accepter, Services},

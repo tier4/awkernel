@@ -27,6 +27,8 @@ pub(super) fn map_stack(
         return Err(InitErr::InvalidACPI);
     };
 
+    log::debug!("mapping stack");
+
     let mut stack_start = STACK_START;
     for _ in 0..num_cpu {
         let page_range = {

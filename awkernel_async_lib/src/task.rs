@@ -4,7 +4,7 @@
 //!     - `Task::wake()` and `Task::wake_by_ref()` call `Task::scheduler::wake_task()` to wake the task up.
 //!     - `Task::info`, which type is `TaskInfo`, contains information of the task.
 //! - `TaskList` is a list of tasks.
-//!     - This is used by schedulers. See `t4os_async_lib::scheduler::round_robin`.
+//!     - This is used by schedulers. See `awkernel_async_lib::scheduler::round_robin`.
 //!     - `TaskList::push()` takes `Arc<Task>` and pushes it to the tail.
 //!     - `TaskList::pop()` returns `Arc<Task>` from the head.`
 //! - `TaskInfo` represents information of task.
@@ -33,7 +33,7 @@ use futures::{
 };
 use synctools::mcs::{MCSLock, MCSNode};
 
-/// Return type of futures taken by `t4os_async_lib::task::spawn`.
+/// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: MCSLock<Tasks> = MCSLock::new(Tasks::new()); // Set of tasks.
@@ -197,13 +197,13 @@ impl Tasks {
 /// use this function.
 /// This function takes only futures that return `TaskResult`.
 ///
-/// Use `t4os_async_lib::spawn` in async functions instead of this.
-/// `t4os_async_lib::spawn` can take any future and joinable.
+/// Use `awkernel_async_lib::spawn` in async functions instead of this.
+/// `awkernel_async_lib::spawn` can take any future and joinable.
 ///
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::{scheduler::SchedulerType, task};
+/// use awkernel_async_lib::{scheduler::SchedulerType, task};
 /// let task_id = task::spawn(async { Ok(()) }, SchedulerType::RoundRobin);
 /// ```
 pub fn spawn(
@@ -229,7 +229,7 @@ pub fn spawn(
 /// # Example
 ///
 /// ```
-/// if let Some(task_id) = t4os_async_lib::task::get_current_task(1) { }
+/// if let Some(task_id) = awkernel_async_lib::task::get_current_task(1) { }
 /// ```
 pub fn get_current_task(cpu_id: usize) -> Option<u64> {
     unsafe { read_volatile(&RUNNING[cpu_id]) }

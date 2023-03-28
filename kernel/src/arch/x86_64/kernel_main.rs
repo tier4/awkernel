@@ -4,7 +4,7 @@
 
 use super::{
     apic::{Apic, TypeApic},
-    heap::{collect_heap, map_heap},
+    heap::map_heap,
     interrupt,
     page_allocator::{get_page_table, PageAllocator},
 };
@@ -13,15 +13,11 @@ use crate::{
         apic::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
-    config::{PAGE_SIZE, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, HEAP_START, PAGE_SIZE, STACK_SIZE},
     kernel_info::KernelInfo,
 };
-use acpi::AcpiTables;
 use alloc::boxed::Box;
-use awkernel_lib::{
-    arch::x86_64::acpi::AcpiMapper,
-    delay::{wait_forever, wait_microsec},
-};
+use awkernel_lib::delay::{wait_forever, wait_microsec};
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
 };
@@ -58,7 +54,7 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 5. Initialize interrupt handlers..
 /// 6. Initialize the logger.
 /// 7. Initialize ACPI.
-/// 8. Initialize `t4os_lib`.
+/// 8. Initialize `awkernel_lib`.
 /// 9. Initialize APIC.
 /// 10. Boot non-primary CPUs up.
 /// 11. Call `crate::main()` function.
@@ -82,30 +78,49 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .filter(|m| m.kind == MemoryRegionKind::Usable)
         .flat_map(|m| (m.start..m.end).step_by(PAGE_SIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+
+    let mut usable_pages = 0;
+    for _ in frames.clone() {
+        usable_pages += 1;
+    }
+
     let mut page_allocator = PageAllocator::new(&mut frames);
 
-    // Map heap memory region.
-    if map_heap(&mut page_table, &mut page_allocator).is_err() {
-        unsafe { super::puts("Failed to map heap memory.\n") };
-        wait_forever();
-    }
-
-    unsafe { crate::heap::init() }; // Enable heap allocator.
-    unsafe { interrupt::init() }; // Initialize interrupt handlers.
-    super::serial::init_logger(); // Initialize logger.
-
-    for region in boot_info.memory_regions.iter() {
-        log::debug!("{:?}", region);
-    }
-
     // Get offset address to physical memory.
-    let offset = if let Some(offset) = boot_info.physical_memory_offset.as_ref() {
-        log::info!("Physical memory offset = 0x{:x}", offset);
-        *offset
-    } else {
-        log::error!("Failed to get physical memory offset.");
+    let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
+        unsafe { super::puts("Failed to get the physical memory offset.\n") };
         wait_forever();
     };
+    let offset = *offset;
+
+    // Map a page to wake non-primary CPUs up.
+    map_for_boot(
+        NON_PRIMARY_START,
+        VIRT_OFFSET_BOOT,
+        &mut page_table,
+        &mut page_allocator,
+    );
+
+    // Map heap memory region.
+    let num_pages = map_heap(
+        &mut page_table,
+        &mut page_allocator,
+        (usable_pages - (128 * 1024 * 1024) / PAGE_SIZE) as usize,
+    );
+
+    let backup_start = HEAP_START as usize;
+    let backup_size = BACKUP_HEAP_SIZE as usize;
+    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
+    let primary_size = num_pages * PAGE_SIZE as usize - BACKUP_HEAP_SIZE as usize;
+
+    unsafe { crate::heap::init(primary_start, primary_size, backup_start, backup_size) }; // Enable heap allocator.
+
+    // Use the backup allocator in kernel.
+    unsafe {
+        crate::heap::TALLOC.use_backup();
+    }
+
+    log::info!("Physical memory offset: {:x}", offset);
 
     // Get ACPI tables.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
@@ -116,25 +131,28 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
+    // Map stack memory regions for non-primary CPUs.
+    if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
+        log::error!("Failed to map stack memory.");
+        wait_forever();
+    }
+
+    unsafe { interrupt::init() }; // Initialize interrupt handlers.
+    super::serial::init_logger(); // Initialize logger.
+
+    for region in boot_info.memory_regions.iter() {
+        log::debug!("{:?}", region);
+    }
+
     // Initialize.
     awkernel_lib::arch::x86_64::init(&acpi, offset);
 
     // Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {
-        start_non_primary_cpus(&mut page_table, &mut page_allocator, offset, &apic, &acpi)
+        log::info!("Waking non-primary CPUs up.");
+        start_non_primary_cpus(&apic)
     }
-    // Collect the left usable memory
-    if unsafe { collect_heap(&mut page_table, &mut page_allocator).is_err() } {
-        log::error!("Failed to collect usable memory");
-        wait_forever();
-    } else {
-        log::debug!("Enlarged heap size is: {} bytes", unsafe {
-            crate::config::ENLARGED_HEAP_SIZE
-        });
-    }
-    unsafe {
-        crate::heap::TALLOC.use_primary();
-    } // use primary allocator in userland
+
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
@@ -158,52 +176,56 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 1024 * 4; // 4KiB. Entry point of 16-bit mode (protected mode).
-const ENTRY32: u64 = 1024 * 5; // 5KiB. Entry point of 32-bit mode (long mode).
+const VIRT_OFFSET_BOOT: u64 = 0x2000000;
+const NON_PRIMARY_START: u64 = 4096 * 8; // 4KiB. Entry point of 16-bit mode (protected mode).
+const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
 
 // 6KiB
-const NON_PRIMARY_KERNEL_MAIN: u64 = 1024 * 6;
-const CR3_POS: u64 = 1024 * 6 + 8;
+const NON_PRIMARY_KERNEL_MAIN: u64 = NON_PRIMARY_START + 1024;
+const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 
-fn start_non_primary_cpus(
+pub(super) fn map_for_boot(
+    addr: u64,
+    offset: u64,
     page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut PageAllocator,
-    phy_offset: u64,
-    apic: &dyn Apic,
-    acpi: &AcpiTables<AcpiMapper>,
 ) {
-    // Map stack memory.
-    if map_stack(acpi, page_table, page_allocator).is_err() {
-        return;
-    }
+    let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE | PageTableFlags::WRITABLE;
+    unsafe {
+        page_table
+            .map_to(
+                Page::<Size4KiB>::containing_address(VirtAddr::new(addr + offset)),
+                PhysFrame::containing_address(PhysAddr::new(addr)),
+                flags,
+                page_allocator,
+            )
+            .unwrap()
+            .flush()
+    };
+}
+
+fn start_non_primary_cpus(apic: &dyn Apic) {
+    log::debug!("start_non_primary_cpus()");
 
     // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
-    let boot16_phy_addr = VirtAddr::new(phy_offset + NON_PRIMARY_START);
+    let boot16_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + NON_PRIMARY_START);
 
     let entry32 = include_bytes!("../../../asm/x86/entry32.img");
-    let entry32_phy_addr = VirtAddr::new(phy_offset + ENTRY32);
+    let entry32_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + ENTRY32);
 
-    let main_addr = VirtAddr::new(phy_offset + NON_PRIMARY_KERNEL_MAIN);
-    let cr3_phy_addr = VirtAddr::new(phy_offset + CR3_POS);
-
-    // Map 2nd page.
-    let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE;
-
-    if let Err(e) = unsafe {
-        page_table.map_to(
-            Page::<Size4KiB>::containing_address(VirtAddr::new(NON_PRIMARY_START)),
-            PhysFrame::containing_address(PhysAddr::new(NON_PRIMARY_START)),
-            flags,
-            page_allocator,
-        )
-    } {
-        log::error!("Failed to map 2nd page: {:?}", e);
-    }
+    let main_addr = VirtAddr::new(VIRT_OFFSET_BOOT + NON_PRIMARY_KERNEL_MAIN);
+    let cr3_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + CR3_POS);
 
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
+
+    log::debug!("boot16_phy_addr = {:?}", boot16_phy_addr);
+    log::debug!("entry32_phy_addr = {:?}", entry32_phy_addr);
+    log::debug!("cr3_phy_addr = {:?}", cr3_phy_addr);
+
+    loop {}
 
     // Save original data.
     let _original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
@@ -243,7 +265,7 @@ fn start_non_primary_cpus(
         DestinationShorthand::AllExcludingSelf,
         IcrFlags::DESTINATION_LOGICAL,
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8, // 2nd Page
+        (NON_PRIMARY_START >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
@@ -254,7 +276,7 @@ fn start_non_primary_cpus(
         DestinationShorthand::AllExcludingSelf,
         IcrFlags::empty(),
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8, // 2nd Page
+        (NON_PRIMARY_START >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
@@ -268,9 +290,11 @@ fn non_primary_kernel_main() -> ! {
     enable_fpu(); // Enable SSE.
     unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
+    // use primary allocator in userland
     unsafe {
-        crate::heap::TALLOC.use_primary();
-    } // use primary allocator in userland
+        crate::heap::TALLOC.use_backup();
+    }
+
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,
         cpu_id: cpu_id as usize,

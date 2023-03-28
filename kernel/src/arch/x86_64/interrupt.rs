@@ -101,6 +101,8 @@ extern "x86-interrupt" fn overflow(stack_frame: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, error: PageFaultErrorCode) {
+    unsafe { super::puts("Page fault!\n") };
+
     log::debug!(
         "page fault: stack_frame = {:?}, error = {:?}",
         stack_frame,

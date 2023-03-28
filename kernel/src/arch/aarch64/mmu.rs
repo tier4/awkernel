@@ -389,7 +389,9 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     // map heap memory
     let mut vm_addr = crate::config::HEAP_START;
     let flag = user_page_flag();
-    while vm_addr < super::config::HEAP_START + crate::config::HEAP_SIZE {
+    while vm_addr
+        < super::config::HEAP_START + crate::config::HEAP_SIZE + crate::config::BACKUP_HEAP_SIZE
+    {
         let phy_addr = if let Some(addr) = allocator.allocate_frame() {
             addr
         } else {

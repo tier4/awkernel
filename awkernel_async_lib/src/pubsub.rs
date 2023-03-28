@@ -4,7 +4,7 @@
 //!
 //! ```
 //! use core::time::Duration;
-//! use t4os_async_lib::{pubsub::{create_publisher, create_subscriber, Attribute}, sleep};
+//! use awkernel_async_lib::{pubsub::{create_publisher, create_subscriber, Attribute}, sleep};
 //!
 //! let publisher = create_publisher::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
 //! let subscriber = create_subscriber::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
@@ -334,7 +334,7 @@ where
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::pubsub::{create_pubsub, Attribute};
+/// use awkernel_async_lib::pubsub::{create_pubsub, Attribute};
 ///
 /// let _ = async {
 ///     let (publisher, subscriber) = create_pubsub(Attribute::default());
@@ -598,7 +598,7 @@ impl PubSub {
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::pubsub::{create_publisher, Attribute};
+/// use awkernel_async_lib::pubsub::{create_publisher, Attribute};
 ///
 /// let _ = async {
 ///     let publisher = create_publisher("rendezvous name".into(), Attribute::default()).unwrap();
@@ -619,7 +619,7 @@ pub fn create_publisher<T: 'static>(
 /// # Example
 ///
 /// ```
-/// use t4os_async_lib::pubsub::{create_subscriber, Attribute};
+/// use awkernel_async_lib::pubsub::{create_subscriber, Attribute};
 ///
 /// let _ = async {
 ///     let subscriber = create_subscriber::<u64>("rendezvous name".into(), Attribute::default()).unwrap();
@@ -670,7 +670,7 @@ impl Default for Attribute {
     /// The default value of `Attribute`.
     ///
     /// ```
-    /// use t4os_async_lib::pubsub::{Attribute, Lifespan};
+    /// use awkernel_async_lib::pubsub::{Attribute, Lifespan};
     ///
     /// // Default value.
     /// Attribute {

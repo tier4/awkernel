@@ -54,7 +54,7 @@ pub fn wait_interrupt() {
 /// # Example
 ///
 /// ```
-/// t4os_lib::delay::wait_microsec(10); // Wait 10 microseconds.
+/// awkernel_lib::delay::wait_microsec(10); // Wait 10 microseconds.
 /// ```
 pub fn wait_microsec(usec: u64) {
     ArchDelay::wait_microsec(usec);
@@ -65,7 +65,7 @@ pub fn wait_microsec(usec: u64) {
 /// # Example
 ///
 /// ```
-/// t4os_lib::delay::wait_millisec(10); // Wait 10 milliseconds.
+/// awkernel_lib::delay::wait_millisec(10); // Wait 10 milliseconds.
 /// ```
 pub fn wait_millisec(msec: u64) {
     ArchDelay::wait_millisec(msec);
@@ -76,7 +76,7 @@ pub fn wait_millisec(msec: u64) {
 /// # Example
 ///
 /// ```
-/// t4os_lib::delay::wait_sec(1); // Wait 1 seconds.
+/// awkernel_lib::delay::wait_sec(1); // Wait 1 seconds.
 /// ```
 pub fn wait_sec(sec: u64) {
     ArchDelay::wait_sec(sec);
@@ -92,7 +92,7 @@ pub fn wait_forever() -> ! {
 /// # Example
 ///
 /// ```
-/// use t4os_lib::delay::uptime;
+/// use awkernel_lib::delay::uptime;
 /// let start = uptime();
 /// let end = uptime();
 /// log::info!("{} [us]", end - start);
@@ -106,7 +106,7 @@ pub fn uptime() -> u64 {
 /// # Example
 ///
 /// ```
-/// t4os_lib::delay::pause();
+/// awkernel_lib::delay::pause();
 /// ```
 pub fn pause() {
     ArchDelay::pause();
@@ -117,7 +117,7 @@ pub fn pause() {
 /// # Example
 ///
 /// ```
-/// use t4os_lib::delay::cpu_counter;
+/// use awkernel_lib::delay::cpu_counter;
 ///
 /// // Wait 150 CPU cycles.
 /// let start = cpu_counter();
