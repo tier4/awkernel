@@ -49,19 +49,20 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 ///
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
-/// 3. Initialize the MMU.
+/// 3. Initialize the virtual memory.
 /// 4. Initialize the heap memory allocator.
-/// 5. Initialize interrupt handlers..
-/// 6. Initialize the logger.
+/// 5. Initialize the logger.
+/// 6. Initialize interrupt handlers.
 /// 7. Initialize ACPI.
-/// 8. Initialize `awkernel_lib`.
-/// 9. Initialize APIC.
-/// 10. Boot non-primary CPUs up.
-/// 11. Call `crate::main()` function.
+/// 8. Initialize stack memory regions for non-primary CPUs.
+/// 9. Initialize `awkernel_lib`.
+/// 10. Initialize APIC.
+/// 11. Boot non-primary CPUs.
+/// 12. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    enable_fpu(); // Enable SSE.
+    enable_fpu(); // 1. Enable SSE.
 
-    super::serial::init(); // Initialize the serial port.
+    super::serial::init(); // 2. Initialize the serial port.
     unsafe { super::puts("The primary CPU is waking up.\n") };
 
     let mut page_table = if let Some(page_table) = unsafe { get_page_table(boot_info) } {
@@ -70,6 +71,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         unsafe { super::puts("Physical memory is not mapped.\n") };
         wait_forever();
     };
+
+    // 3. Initialize virtual memory
 
     // Create a page allocator.
     let mut frames = boot_info
@@ -94,12 +97,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let offset = *offset;
 
     // Map a page to wake non-primary CPUs up.
-    map_for_boot(
-        NON_PRIMARY_START,
-        VIRT_OFFSET_BOOT,
-        &mut page_table,
-        &mut page_allocator,
-    );
+    map_for_boot(NON_PRIMARY_START, &mut page_table, &mut page_allocator);
 
     // Map heap memory region.
     let num_pages = map_heap(
@@ -113,6 +111,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
     let primary_size = num_pages * PAGE_SIZE as usize - BACKUP_HEAP_SIZE as usize;
 
+    // 4. Initialize the heap memory allocator.
     unsafe { crate::heap::init(primary_start, primary_size, backup_start, backup_size) }; // Enable heap allocator.
 
     // Use the backup allocator in kernel.
@@ -120,9 +119,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         crate::heap::TALLOC.use_backup();
     }
 
+    // 5. Initialize the logger.
+    super::serial::init_logger();
+
+    // 6. Initialize interrupt handlers.
+    unsafe { interrupt::init() };
+
     log::info!("Physical memory offset: {:x}", offset);
 
-    // Get ACPI tables.
+    // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -131,25 +136,23 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // Map stack memory regions for non-primary CPUs.
+    // 8. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
-    unsafe { interrupt::init() }; // Initialize interrupt handlers.
-    super::serial::init_logger(); // Initialize logger.
-
     for region in boot_info.memory_regions.iter() {
         log::debug!("{:?}", region);
     }
 
-    // Initialize.
+    // 9. Initialize `awkernel_lib`.
     awkernel_lib::arch::x86_64::init(&acpi, offset);
 
-    // Initialize APIC.
+    // 10. Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {
         log::info!("Waking non-primary CPUs up.");
+        // 11. Boot non-primary CPUs.
         start_non_primary_cpus(&apic)
     }
 
@@ -158,7 +161,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         cpu_id: 0,
     };
 
-    crate::main(kernel_info); // jump to userland
+    // 12. Call `crate::main()`.
+    crate::main(kernel_info);
 
     wait_forever()
 }
@@ -176,25 +180,23 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const VIRT_OFFSET_BOOT: u64 = 0x2000000;
-const NON_PRIMARY_START: u64 = 4096 * 8; // 4KiB. Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_START: u64 = 4096; // 4KiB. Entry point of 16-bit mode (protected mode).
 const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
 
 // 6KiB
-const NON_PRIMARY_KERNEL_MAIN: u64 = NON_PRIMARY_START + 1024;
+const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 
 pub(super) fn map_for_boot(
     addr: u64,
-    offset: u64,
     page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut PageAllocator,
 ) {
-    let flags = PageTableFlags::PRESENT | PageTableFlags::NO_CACHE | PageTableFlags::WRITABLE;
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     unsafe {
         page_table
             .map_to(
-                Page::<Size4KiB>::containing_address(VirtAddr::new(addr + offset)),
+                Page::<Size4KiB>::containing_address(VirtAddr::new(addr)),
                 PhysFrame::containing_address(PhysAddr::new(addr)),
                 flags,
                 page_allocator,
@@ -209,23 +211,17 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
 
     // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
-    let boot16_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + NON_PRIMARY_START);
+    let boot16_phy_addr = VirtAddr::new(NON_PRIMARY_START);
 
     let entry32 = include_bytes!("../../../asm/x86/entry32.img");
-    let entry32_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + ENTRY32);
+    let entry32_phy_addr = VirtAddr::new(ENTRY32);
 
-    let main_addr = VirtAddr::new(VIRT_OFFSET_BOOT + NON_PRIMARY_KERNEL_MAIN);
-    let cr3_phy_addr = VirtAddr::new(VIRT_OFFSET_BOOT + CR3_POS);
+    let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN);
+    let cr3_phy_addr = VirtAddr::new(CR3_POS);
 
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
-
-    log::debug!("boot16_phy_addr = {:?}", boot16_phy_addr);
-    log::debug!("entry32_phy_addr = {:?}", entry32_phy_addr);
-    log::debug!("cr3_phy_addr = {:?}", cr3_phy_addr);
-
-    loop {}
 
     // Save original data.
     let _original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
@@ -233,17 +229,17 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     });
 
     unsafe {
-        // Write non_primary_kernel_main.
-        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
-
-        // Write CR3.
-        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
-
         // Write boot16.img.
         write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
 
         // Write entry32.img.
         write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
+
+        // Write non_primary_kernel_main.
+        write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
+
+        // Write CR3.
+        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
 
         asm!("wbinvd");
     }
