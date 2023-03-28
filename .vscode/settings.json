@@ -12,6 +12,7 @@
     //     "check_no_std",
     //     "--target=aarch64-kernel.json",
     // ],
+    // "rust-analyzer.cargo.features": ["aarch64"],
     // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
@@ -25,6 +26,7 @@
         "check_no_std",
         "--target=x86_64-kernel.json",
     ],
+    "rust-analyzer.cargo.features": ["x86"],
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
@@ -36,4 +38,5 @@
     //     "+nightly",
     //     "check_std",
     // ],
+    // "rust-analyzer.cargo.features": ["linux"],
 }
