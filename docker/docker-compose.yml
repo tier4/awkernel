@@ -1,13 +1,13 @@
 version: '3'
 services:
-  t4os:
+  awkernel:
     build:
       context: .
     stdin_open: true
     tty: true
-    working_dir: "/t4os"
+    working_dir: "/awkernel"
     volumes:
-      - "../:/t4os"
+      - "../:/awkernel"
     cap_add:
       - SYS_PTRACE
       - SYS_ADMIN
