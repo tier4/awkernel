@@ -10,11 +10,11 @@ isolated zero-copy communications written in Rust.
   - [x] Service
   - [ ] Action
 - [ ] Isolation
-  - [ ] Memory space isolation
+  - [x] Memory space isolation
   - [ ] Temporal isolation
-- [ ] Realtime scheduling
-  - [x] Round robin scheduling
-  - [ ] DAG scheduling
+- [ ] Scheduling
+  - [x] Round robin scheduler
+  - [ ] DAG scheduler
 - [x] O(1) memory allocator
 - [ ] Cokernel
 - [ ] TEE
