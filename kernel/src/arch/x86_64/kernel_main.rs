@@ -112,12 +112,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let primary_size = num_pages * PAGE_SIZE as usize - BACKUP_HEAP_SIZE as usize;
 
     // 4. Initialize the heap memory allocator.
-    unsafe { crate::heap::init(primary_start, primary_size, backup_start, backup_size) }; // Enable heap allocator.
+    unsafe { awkernel_lib::heap::init(primary_start, primary_size, backup_start, backup_size) }; // Enable heap allocator.
 
     // Use the backup allocator in kernel.
-    unsafe {
-        crate::heap::TALLOC.use_backup();
-    }
+    unsafe { awkernel_lib::heap::TALLOC.use_backup() };
 
     // 5. Initialize the logger.
     super::serial::init_logger();
@@ -284,12 +282,12 @@ fn non_primary_kernel_main() -> ! {
     let cpu_id = (ebx >> 24) & 0xff;
 
     enable_fpu(); // Enable SSE.
-    unsafe { interrupt::init() }; // Initialize interrupt handlers.
 
-    // use primary allocator in userland
-    unsafe {
-        crate::heap::TALLOC.use_backup();
-    }
+    // use backup allocator
+    unsafe { awkernel_lib::heap::TALLOC.use_backup() };
+
+    // Initialize interrupt handlers.
+    unsafe { interrupt::init() };
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,

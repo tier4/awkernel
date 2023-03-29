@@ -6,7 +6,6 @@
 #![feature(lang_items)]
 #![feature(alloc_error_handler)]
 #![feature(start)]
-#![feature(core_intrinsics)]
 #![feature(abi_x86_interrupt)]
 #![no_main]
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -25,8 +24,8 @@ mod arch;
 mod config;
 mod kernel_info;
 
-#[cfg(not(feature = "std"))]
-mod heap;
+// #[cfg(not(feature = "std"))]
+// mod heap;
 
 #[cfg(not(feature = "std"))]
 mod nostd;
@@ -49,13 +48,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         loop {
-            unsafe { crate::heap::TALLOC.use_primary() }
+            unsafe { awkernel_lib::heap::TALLOC.use_primary() }
             wake_task(); // Wake executable tasks periodically.
             pause();
         }
     } else {
         // Non-primary CPUs.
-        unsafe { crate::heap::TALLOC.use_primary() }
+        unsafe { awkernel_lib::heap::TALLOC.use_primary() }
         task::run(kernel_info.cpu_id); // Execute tasks.
     }
 }

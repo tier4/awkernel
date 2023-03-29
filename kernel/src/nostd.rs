@@ -1,6 +1,5 @@
-use crate::heap::TALLOC;
 use alloc::boxed::Box;
-use awkernel_lib::delay::wait_forever;
+use awkernel_lib::{delay::wait_forever, heap::TALLOC};
 use core::alloc::Layout;
 
 #[alloc_error_handler]

@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(core_intrinsics)]
 
 use core::{cell::Cell, marker::PhantomData};
 
@@ -9,6 +10,9 @@ pub mod cpu;
 pub mod delay;
 pub mod logger;
 pub mod mmio;
+
+#[cfg(not(feature = "std"))]
+pub mod heap;
 
 extern crate alloc;
 

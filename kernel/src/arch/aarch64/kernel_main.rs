@@ -7,10 +7,9 @@ use super::{
 use crate::{
     arch::aarch64::cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
-    heap,
     kernel_info::KernelInfo,
 };
-use awkernel_lib::delay::wait_forever;
+use awkernel_lib::{delay::wait_forever, heap};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -68,6 +67,8 @@ unsafe fn primary_cpu() {
     let primary_size = HEAP_SIZE as usize;
 
     heap::init(primary_start, primary_size, backup_start, backup_size); // Enable heap allocator.
+    heap::TALLOC.use_backup(); // use backup allocator
+
     serial::init(); // Enable serial port.
 
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
@@ -78,7 +79,7 @@ unsafe fn primary_cpu() {
         info: (),
         cpu_id: 0,
     };
-    crate::heap::TALLOC.use_primary(); // use primary allocator in userland
+
     crate::main::<()>(kernel_info);
 }
 
@@ -97,6 +98,7 @@ unsafe fn non_primary_cpu() {
     };
 
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
-    crate::heap::TALLOC.use_primary(); // use primary allocator in userland
+    heap::TALLOC.use_backup(); // use backup allocator
+
     crate::main::<()>(kernel_info);
 }
