@@ -6,6 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bootloader = "=0.11.0"
+bootloader = "0.11"
 ovmf-prebuilt = "0.1.0-alpha.1"
 clap = { version = "4.0", features = ["derive"] }
