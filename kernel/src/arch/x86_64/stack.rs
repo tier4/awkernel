@@ -27,8 +27,7 @@ pub(super) fn map_stack(
         return Err(InitErr::InvalidACPI);
     };
 
-    log::debug!("mapping stack");
-
+    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     let mut stack_start = STACK_START;
     for _ in 0..num_cpu {
         let page_range = {
@@ -43,9 +42,6 @@ pub(super) fn map_stack(
             let frame = page_allocator
                 .allocate_frame()
                 .ok_or(InitErr::FailedToAllocateFrame)?;
-
-            let flags =
-                PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
 
             unsafe {
                 page_table

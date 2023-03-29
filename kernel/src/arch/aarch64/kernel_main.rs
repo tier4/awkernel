@@ -5,6 +5,7 @@ use super::{
     mmu, serial,
 };
 use crate::{
+    arch::aarch64::cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     heap,
     kernel_info::KernelInfo,
@@ -59,6 +60,7 @@ unsafe fn primary_cpu() {
     mmu::enable();
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
+    awkernel_lib::arch::aarch64::set_cluster_info(MAX_CPUS_PER_CLUSTER, CLUSTER_COUNT);
 
     let backup_start = HEAP_START as usize;
     let backup_size = BACKUP_HEAP_SIZE as usize;
