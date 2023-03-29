@@ -14,12 +14,14 @@ const SLLEN: usize = 64; // The worst-case internal fragmentation is ((32 << 28)
 type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
-use crate::arch::cpu;
 use crate::{arch, config};
-use core::alloc::{GlobalAlloc, Layout};
-use core::intrinsics::abort;
-use core::ptr::{self, NonNull};
-use core::sync::atomic::{AtomicU64, Ordering};
+use awkernel_lib::cpu;
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    intrinsics::abort,
+    ptr::{self, NonNull},
+    sync::atomic::{AtomicU64, Ordering},
+};
 use rlsf::Tlsf;
 use synctools::mcs::{MCSLock, MCSNode};
 

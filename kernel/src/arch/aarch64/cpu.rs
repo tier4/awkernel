@@ -23,7 +23,3 @@ pub fn core_pos() -> usize {
     let mpidr = mpidr_el1::get();
     core_pos_by_mpidr(mpidr as usize).unwrap()
 }
-
-pub fn cpu_id() -> usize {
-    core_pos()
-}

@@ -9,6 +9,3 @@ mod linux;
 
 /// Configuration.
 pub mod config;
-
-/// CPUID
-pub mod cpu;
