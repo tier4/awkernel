@@ -23,4 +23,6 @@ use self::x86_64 as arch_mod;
 use self::linux as arch_mod;
 
 pub(crate) type ArchDelay = arch_mod::delay::ArchDelay;
+
+#[cfg(not(target_os = "linux"))]
 pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;

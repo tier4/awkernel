@@ -4,10 +4,12 @@ use core::alloc::Layout;
 
 #[alloc_error_handler]
 fn on_oom(layout: Layout) -> ! {
-    unsafe {
-        TALLOC.use_backup();
+    {
+        let _guard = unsafe { TALLOC.save() };
+        unsafe { TALLOC.use_backup() };
+        log::error!("heap allocation error: {:?}", layout);
     }
-    log::error!("heap allocation error: {:?}", layout);
+
     unwinding::panic::begin_panic(Box::new(()));
     wait_forever();
 }
@@ -15,10 +17,12 @@ fn on_oom(layout: Layout) -> ! {
 #[cfg(any(feature = "x86", feature = "aarch64"))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
-    unsafe {
-        TALLOC.use_backup();
+    {
+        let _guard = unsafe { TALLOC.save() };
+        unsafe { TALLOC.use_backup() };
+        log::error!("panic: {}", info);
     }
-    log::error!("{}", info);
+
     unwinding::panic::begin_panic(Box::new(()));
     wait_forever();
 }

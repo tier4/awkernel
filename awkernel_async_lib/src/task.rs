@@ -253,7 +253,23 @@ pub fn run(cpu_id: usize) {
                 continue;
             }
 
-            match catch_unwind(|| guard.poll_unpin(&mut ctx)) {
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
+
+            // Invoke a task.
+            let result = catch_unwind(|| guard.poll_unpin(&mut ctx));
+
+            // If the primary memory allocator is available, it will be used.
+            // If the primary memory allocator is exhausted, the backup allocator will be used.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_backup()
+            };
+
+            match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
                     let mut node = MCSNode::new();

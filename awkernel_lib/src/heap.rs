@@ -94,6 +94,17 @@ unsafe impl GlobalAlloc for Talloc {
     }
 }
 
+pub struct Guard<'a> {
+    talloc: &'a Talloc,
+    flag: u64,
+}
+
+impl<'a> Drop for Guard<'a> {
+    fn drop(&mut self) {
+        unsafe { self.talloc.restore(self.flag) };
+    }
+}
+
 impl Talloc {
     pub const fn new() -> Self {
         Self {
@@ -129,20 +140,31 @@ impl Talloc {
     pub unsafe fn use_backup(&self) {
         let cpu_id = cpu::cpu_id();
         let mask = !(1 << cpu_id);
-        self.flags.fetch_and(mask, Ordering::SeqCst);
+        self.flags.fetch_and(mask, Ordering::Relaxed);
     }
 
     /// switch to primary allocator
     pub unsafe fn use_primary(&self) {
         let cpu_id = cpu::cpu_id();
         let mask = 1 << cpu_id;
-        self.flags.fetch_or(mask, Ordering::SeqCst);
+        self.flags.fetch_or(mask, Ordering::Relaxed);
+    }
+
+    pub unsafe fn save<'a>(&'a self) -> Guard<'a> {
+        let cpu_id = cpu::cpu_id();
+        let mask = 1 << cpu_id;
+        let flag = mask & self.flags.load(Ordering::Relaxed);
+        Guard { talloc: self, flag }
+    }
+
+    pub unsafe fn restore(&self, flag: u64) {
+        self.flags.fetch_or(flag, Ordering::Relaxed);
     }
 
     /// check whether using the primary allocator
     pub unsafe fn is_primary(&self) -> bool {
         let cpu_id = cpu::cpu_id();
-        let val = self.flags.load(Ordering::SeqCst);
+        let val = self.flags.load(Ordering::Relaxed);
         (val & (1 << cpu_id)) != 0
     }
 
