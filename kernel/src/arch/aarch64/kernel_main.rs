@@ -66,14 +66,27 @@ unsafe fn primary_cpu() {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
     let primary_size = HEAP_SIZE as usize;
 
-    heap::init(primary_start, primary_size, backup_start, backup_size); // Enable heap allocator.
+    // Enable heap allocator.
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
     heap::TALLOC.use_backup(); // use backup allocator
 
     serial::init(); // Enable serial port.
 
-    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
+    log::info!(
+        "Primary heap: start = 0x{:x}, size = {}",
+        primary_start,
+        primary_size
+    );
+
+    log::info!(
+        "Backup heap: start = 0x{:x}, size = {}",
+        backup_start,
+        backup_size
+    );
 
     log::info!("Waking non-primary CPUs up.");
+    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
         info: (),

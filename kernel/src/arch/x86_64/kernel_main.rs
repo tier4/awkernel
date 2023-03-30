@@ -50,15 +50,16 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Initialize the heap memory allocator.
+/// 4. Initialize the backup heap memory allocator.
 /// 5. Initialize the logger.
 /// 6. Initialize interrupt handlers.
 /// 7. Initialize ACPI.
 /// 8. Initialize stack memory regions for non-primary CPUs.
-/// 9. Initialize `awkernel_lib`.
-/// 10. Initialize APIC.
-/// 11. Boot non-primary CPUs.
-/// 12. Call `crate::main()`.
+/// 9. Initialize the primary heap memory allocator.
+/// 10. Initialize `awkernel_lib`.
+/// 11. Initialize APIC.
+/// 12. Boot non-primary CPUs.
+/// 13. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
@@ -82,11 +83,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .flat_map(|m| (m.start..m.end).step_by(PAGE_SIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
 
-    let mut usable_pages = 0;
-    for _ in frames.clone() {
-        usable_pages += 1;
-    }
-
     let mut page_allocator = PageAllocator::new(&mut frames);
 
     // Get offset address to physical memory.
@@ -99,20 +95,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Map a page to wake non-primary CPUs up.
     map_for_boot(NON_PRIMARY_START, &mut page_table, &mut page_allocator);
 
-    // Map heap memory region.
-    let num_pages = map_heap(
-        &mut page_table,
-        &mut page_allocator,
-        (usable_pages - (128 * 1024 * 1024) / PAGE_SIZE) as usize,
-    );
-
     let backup_start = HEAP_START as usize;
     let backup_size = BACKUP_HEAP_SIZE as usize;
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = num_pages * PAGE_SIZE as usize - BACKUP_HEAP_SIZE as usize;
 
-    // 4. Initialize the heap memory allocator.
-    unsafe { awkernel_lib::heap::init(primary_start, primary_size, backup_start, backup_size) }; // Enable heap allocator.
+    // 4. Initialize the backup heap memory allocator.
+    // Map backup heap memory region.
+    map_heap(
+        &mut page_table,
+        &mut page_allocator,
+        backup_start,
+        backup_size,
+    );
+
+    // Initialize.
+    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
 
     // Use the backup allocator in kernel.
     unsafe { awkernel_lib::heap::TALLOC.use_backup() };
@@ -144,14 +140,43 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         log::debug!("{:?}", region);
     }
 
-    // 9. Initialize `awkernel_lib`.
+    // 9. Initialize the primary heap memory allocator.
+    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
+    let primary_size = 1 << 48;
+
+    let num_pages = map_heap(
+        &mut page_table,
+        &mut page_allocator,
+        primary_start,
+        primary_size,
+    );
+
+    let heap_size = num_pages * PAGE_SIZE as usize;
+    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+
+    log::info!(
+        "Primary heap: start = 0x{:x}, size = {}",
+        primary_start,
+        heap_size
+    );
+
+    log::info!(
+        "Backup heap: start = 0x{:x}, size = {}",
+        backup_start,
+        backup_size
+    );
+
+    // 10. Initialize `awkernel_lib`.
     awkernel_lib::arch::x86_64::init(&acpi, offset);
 
-    // 10. Initialize APIC.
+    // 11. Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(offset) {
         log::info!("Waking non-primary CPUs up.");
-        // 11. Boot non-primary CPUs.
+        // 12. Boot non-primary CPUs.
         start_non_primary_cpus(&apic)
+    } else {
+        log::error!("Failed on XAPIC.");
+        wait_forever();
     }
 
     let kernel_info = KernelInfo {
@@ -159,7 +184,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         cpu_id: 0,
     };
 
-    // 12. Call `crate::main()`.
+    // 13. Call `crate::main()`.
     crate::main(kernel_info);
 
     wait_forever()
@@ -205,8 +230,6 @@ pub(super) fn map_for_boot(
 }
 
 fn start_non_primary_cpus(apic: &dyn Apic) {
-    log::debug!("start_non_primary_cpus()");
-
     // Calculate address.
     let boot16 = include_bytes!("../../../asm/x86/boot16.img");
     let boot16_phy_addr = VirtAddr::new(NON_PRIMARY_START);

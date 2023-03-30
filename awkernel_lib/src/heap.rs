@@ -36,13 +36,12 @@ pub enum InitErr {
 #[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 
-pub unsafe fn init(
-    primary_start: usize,
-    primary_size: usize,
-    backup_start: usize,
-    backup_size: usize,
-) {
-    TALLOC.init(primary_start, primary_size, backup_start, backup_size);
+pub unsafe fn init_primary(primary_start: usize, primary_size: usize) {
+    TALLOC.init_primary(primary_start, primary_size);
+}
+
+pub unsafe fn init_backup(backup_start: usize, backup_size: usize) {
+    TALLOC.init_backup(backup_start, backup_size);
 }
 
 type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
@@ -118,22 +117,18 @@ impl Talloc {
         }
     }
 
-    pub fn init(
-        &self,
-        primary_start: usize,
-        primary_size: usize,
-        backup_start: usize,
-        backup_size: usize,
-    ) {
+    pub fn init_primary(&self, primary_start: usize, primary_size: usize) {
         self.primary_start.store(primary_start, Ordering::Relaxed);
         self.primary_size.store(primary_size, Ordering::Relaxed);
+
+        unsafe { self.primary.init(primary_start, primary_size) };
+    }
+
+    pub fn init_backup(&self, backup_start: usize, backup_size: usize) {
         self.backup_start.store(backup_start, Ordering::Relaxed);
         self.backup_size.store(backup_size, Ordering::Relaxed);
 
-        unsafe {
-            self.primary.init(primary_start, primary_size);
-            self.backup.init(backup_start, backup_size);
-        }
+        unsafe { self.backup.init(backup_start, backup_size) };
     }
 
     /// switch to backup allocator
