@@ -6,7 +6,6 @@ use super::{
     apic::{Apic, TypeApic},
     heap::map_heap,
     interrupt,
-    page_allocator::{get_page_table, PageAllocator},
 };
 use crate::{
     arch::x86_64::{
@@ -17,7 +16,10 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
-use awkernel_lib::delay::{wait_forever, wait_microsec};
+use awkernel_lib::{
+    arch::x86_64::page_allocator::{get_page_table, PageAllocator},
+    delay::{wait_forever, wait_microsec},
+};
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
 };
@@ -55,9 +57,9 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 6. Initialize interrupt handlers.
 /// 7. Initialize ACPI.
 /// 8. Initialize stack memory regions for non-primary CPUs.
-/// 9. Initialize the primary heap memory allocator.
-/// 10. Initialize `awkernel_lib`.
-/// 11. Initialize APIC.
+/// 9. Initialize `awkernel_lib`.
+/// 10. Initialize APIC.
+/// 11. Initialize the primary heap memory allocator.
 /// 12. Boot non-primary CPUs.
 /// 13. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -107,6 +109,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_size,
     );
 
+    log::info!(
+        "Backup heap: start = 0x{:x}, size = {}",
+        backup_start,
+        backup_size
+    );
+
     // Initialize.
     unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
 
@@ -119,7 +127,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 6. Initialize interrupt handlers.
     unsafe { interrupt::init() };
 
-    log::info!("Physical memory offset: {:x}", offset);
+    log::info!("Physical memory offset: 0x{:x}", offset);
 
     // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
@@ -136,42 +144,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
-    for region in boot_info.memory_regions.iter() {
-        log::debug!("{:?}", region);
-    }
+    // 9. Initialize `awkernel_lib`.
+    awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator);
 
-    // 9. Initialize the primary heap memory allocator.
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = 1 << 48;
+    // 10. Initialize APIC.
+    if let TypeApic::Xapic(apic) = super::apic::new(&mut page_table, &mut page_allocator) {
+        // 11. Initialize the primary heap memory allocator.
+        init_primary_heap(&mut page_table, &mut page_allocator);
 
-    let num_pages = map_heap(
-        &mut page_table,
-        &mut page_allocator,
-        primary_start,
-        primary_size,
-    );
-
-    let heap_size = num_pages * PAGE_SIZE as usize;
-    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
-
-    log::info!(
-        "Primary heap: start = 0x{:x}, size = {}",
-        primary_start,
-        heap_size
-    );
-
-    log::info!(
-        "Backup heap: start = 0x{:x}, size = {}",
-        backup_start,
-        backup_size
-    );
-
-    // 10. Initialize `awkernel_lib`.
-    awkernel_lib::arch::x86_64::init(&acpi, offset);
-
-    // 11. Initialize APIC.
-    if let TypeApic::Xapic(apic) = super::apic::new(offset) {
         log::info!("Waking non-primary CPUs up.");
+
         // 12. Boot non-primary CPUs.
         start_non_primary_cpus(&apic)
     } else {
@@ -188,6 +170,25 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     crate::main(kernel_info);
 
     wait_forever()
+}
+
+fn init_primary_heap(
+    page_table: &mut OffsetPageTable<'static>,
+    page_allocator: &mut PageAllocator,
+) {
+    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
+    let primary_size = 1 << 48;
+
+    let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
+
+    let heap_size = num_pages * PAGE_SIZE as usize;
+    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+
+    log::info!(
+        "Primary heap: start = 0x{:x}, size = {}",
+        primary_start,
+        heap_size
+    );
 }
 
 fn enable_fpu() {

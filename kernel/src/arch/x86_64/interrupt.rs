@@ -101,12 +101,13 @@ extern "x86-interrupt" fn overflow(stack_frame: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, error: PageFaultErrorCode) {
-    unsafe { super::puts("Page fault!\n") };
+    let addr = x86_64::registers::control::Cr2::read();
 
     log::debug!(
-        "page fault: stack_frame = {:?}, error = {:?}",
+        "page fault: addr = {:?}, stack_frame = {:?}, error = {:b}",
+        addr,
         stack_frame,
-        error
+        error.bits()
     );
 }
 

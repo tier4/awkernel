@@ -78,6 +78,9 @@ kernel-x86_64.elf: $(X86ASM) FORCE
 x86_64_boot.img: kernel-x86_64.elf
 	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@
 
+x86_64_uefi.img: kernel-x86_64.elf
+	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@ --boot-type uefi
+
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 

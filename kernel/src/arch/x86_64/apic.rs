@@ -1,7 +1,14 @@
-use awkernel_lib::{mmio_r, mmio_rw};
+use awkernel_lib::{
+    arch::x86_64::{mmu, page_allocator::PageAllocator},
+    delay::wait_forever,
+    mmio_r, mmio_rw,
+};
 use bitflags::bitflags;
 use core::{arch::x86_64::__cpuid, fmt::Debug};
-use x86_64::registers::model_specific::Msr;
+use x86_64::{
+    registers::model_specific::Msr,
+    structures::paging::{OffsetPageTable, PageTableFlags},
+};
 
 mmio_r!(offset 0x020 => XAPIC_LOCAL_APIC_ID<u32>);
 mmio_r!(offset 0x030 => XAPIC_LOCAL_VERSION<u32>);
@@ -43,7 +50,10 @@ pub trait Apic {
 
 const IA32_APIC_BASE_MSR: u32 = 0x1B;
 
-pub fn new(offset: u64) -> TypeApic {
+pub fn new(
+    page_table: &mut OffsetPageTable<'static>,
+    page_allocator: &mut PageAllocator,
+) -> TypeApic {
     let cpuid = unsafe { __cpuid(1) };
     if cpuid.ecx & (1 << 21) != 0 {
         log::info!("x2APIC is available.");
@@ -53,9 +63,18 @@ pub fn new(offset: u64) -> TypeApic {
     let value = unsafe { msr.read() };
 
     let is_bsp = (value & (1 << 8)) != 0;
-    let apic_base = (value & 0xFFFF_F000) as u32;
+    let apic_base = (value & 0xFFFF_F000) as usize;
 
-    log::info!("APIC Base Address = {:x}", apic_base);
+    log::info!("APIC base address = 0x{:x}", apic_base);
+
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_EXECUTE
+        | PageTableFlags::NO_CACHE;
+    if !unsafe { mmu::map_to(apic_base, apic_base, flags, page_table, page_allocator) } {
+        log::error!("Failed to map APIC's memory region.");
+        wait_forever();
+    }
 
     match (value >> 10) & 0b11 {
         0b00 => {
@@ -68,11 +87,7 @@ pub fn new(offset: u64) -> TypeApic {
         }
         0b10 => {
             log::info!("Local APIC is enabled in xAPIC mode.");
-            let offset = (offset + apic_base as u64) as usize;
-            let xapic = Xapic {
-                is_bsp,
-                apic_base: offset,
-            };
+            let xapic = Xapic { is_bsp, apic_base };
 
             log::info!("Local APIC ID = {:x}", xapic.local_apic_id());
 

@@ -41,7 +41,7 @@ fn main() {
             let ovmf_path = ovmf_prebuilt::ovmf_pure_efi();
             println!("Prebuild OVMF binaries: {}", ovmf_path.display());
             println!(
-                "\nRun:\nqemu-system-x86_64 -bios {} -drive format=raw,file={} -serial stdio",
+                "\nRun:\nqemu-system-x86_64 -bios {} -drive format=raw,file={} -serial stdio -monitor telnet::5556,server,nowait -smp 4 -m 512",
                 ovmf_path.display(),
                 output_path.display()
             )
@@ -51,7 +51,7 @@ fn main() {
                 .create_disk_image(output_path)
                 .unwrap();
             println!(
-                "\nRun:\nqemu-system-x86_64 -drive format=raw,file={} -serial stdio",
+                "\nRun:\nqemu-system-x86_64 -drive format=raw,file={} -serial stdio -monitor telnet::5556,server,nowait -smp 4 -m 512",
                 output_path.display()
             )
         }

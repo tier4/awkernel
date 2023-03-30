@@ -47,6 +47,12 @@ Release build.
 $ make x86_64 RELEASE=1
 ```
 
+If you want to use UEFI, make `x86_64_uefi.img` as follows.
+
+```text
+$ make x86_64_uefi.img
+```
+
 ### Raspberry Pi 3 (AArch64)
 
 Debug build.
