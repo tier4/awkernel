@@ -1,8 +1,102 @@
-//! ROS2 like action.
+//! ROS2 like action, but this is connection oriented like TCP/IP.
+//! Thus, an action server have to accept a connection from a client before starting an action.
 //!
 //! # Specification
 //!
 //! See [specification of action](https://github.com/tier4/t4os/tree/main/specification/awkernel_async_lib/src/action.rs).
+//!
+//! # Examples
+//!
+//! ## Action Server
+//!
+//! ```
+//! use awkernel_async_lib::{
+//!     action::{create_server, GoalResponse, ResultStatus, ServerRecvGoal},
+//!     scheduler::SchedulerType,
+//!     spawn,
+//! };
+//!
+//! async fn server_task() {
+//!     let server = create_server::<u64, u64, u64>("action_server".into()).unwrap();
+//!
+//!     // Accept a connection.
+//!     while let Ok(server_recv_goal) = server.accept().await {
+//!         spawn(server_main(server_recv_goal), SchedulerType::RoundRobin).await;
+//!     }
+//! }
+//!
+//! async fn server_main(mut server_recv_goal: ServerRecvGoal<u64, u64, u64>) {
+//!     'outer: loop {
+//!         // Receive a goal value.
+//!         let Some((send_goal_result, goal)) = server_recv_goal.recv_goal().await
+//!         else { /* The session have been closed. */return };
+//!
+//!         // Send a goal result.
+//!         let server_send_feedback = send_goal_result
+//!             .accept(GoalResponse::AcceptAndExecute)
+//!             .await;
+//!
+//!         // Send feedback values.
+//!         let mut result = 0;
+//!         for i in 0..=goal {
+//!             result += i;
+//!
+//!             if server_send_feedback.send_feedback(result).await.is_err() {
+//!                 // If failed to send a feedback, then abort.
+//!                 server_recv_goal = server_send_feedback
+//!                     .send_result(ResultStatus::Aborted, result)
+//!                     .await;
+//!                 continue 'outer;
+//!             }
+//!         }
+//!
+//!         // Send a result value.
+//!         server_recv_goal = server_send_feedback
+//!             .send_result(ResultStatus::Succeeded, result)
+//!             .await;
+//!     }
+//! }
+//! ```
+//!
+//! ## Action Client
+//!
+//! ```
+//! use crate::{
+//!     action::{create_client, AcceptOrRejectGoal, FeedbackOrResult},
+//!     channel::bounded,
+//! };
+//!
+//! async fn client() {
+//!     let client_send_goal = create_client::<u64, u64, u64>("action_server".into())
+//!         .await
+//!         .unwrap();
+//!
+//!     let mut client_recv_feedback = match client_send_goal
+//!         .send_goal(10, bounded::Attribute::default())
+//!         .await
+//!     {
+//!         AcceptOrRejectGoal::Accept(client_recv_feedback, _goal_response) => {
+//!             client_recv_feedback
+//!         }
+//!         AcceptOrRejectGoal::Reject(client_send_goal) => {
+//!             client_send_goal.close().await;
+//!             return;
+//!         }
+//!     };
+//!
+//!     loop {
+//!         match client_recv_feedback.recv().await {
+//!             FeedbackOrResult::Feedback(rf, _feedback) => {
+//!                 client_recv_feedback = rf;
+//!             }
+//!             FeedbackOrResult::Result(client_send_goal, _result_status, _result) => {
+//!                 client_send_goal.close().await;
+//!                 break;
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
 
 use crate::{
     accepter::{Accepter, Services},
@@ -72,6 +166,9 @@ impl<G, F, R> ServerRecvGoal<G, F, R>
 where
     G: Send + 'static,
 {
+    /// Receive a goal.
+    /// If a goal is received, a value of `Some((ServerSendGoalResult, G))` will be returned.
+    /// If the session is closed by remote, `None` will be returned.
     pub async fn recv_goal(self) -> Option<(ServerSendGoalResult<G, F, R>, G)> {
         let c = self.chan;
         offer! {c,
@@ -96,6 +193,8 @@ impl<G, F, R> ServerSendGoalResult<G, F, R>
 where
     F: Send + 'static,
 {
+    /// Reject a goal value received before.
+    /// The state will be transited from `ServerSendGoalResult` to `ServerRecvGoal`.
     pub async fn reject(self) -> ServerRecvGoal<G, F, R> {
         let c = self.chan;
         let c = c.sel1().await;
@@ -103,14 +202,8 @@ where
         ServerRecvGoal { chan }
     }
 
-    pub async fn accept_and_execute(self) -> ServerSendFeedback<G, F, R> {
-        self.accept(GoalResponse::AcceptAndExecute).await
-    }
-
-    pub async fn accept_and_defer(self) -> ServerSendFeedback<G, F, R> {
-        self.accept(GoalResponse::AcceptAndDefer).await
-    }
-
+    /// Accept a goal value received before.
+    /// The state will be transited from `ServerSendGoalResult` to `ServerSendFeedback`.
     pub async fn accept(self, response: GoalResponse) -> ServerSendFeedback<G, F, R> {
         let c = self.chan;
         let c = c.sel2().await;
@@ -135,13 +228,16 @@ where
     F: Send + 'static,
     R: Send + 'static,
 {
+    /// Send a feedback value.
     pub async fn send_feedback(&self, feedback: F) -> Result<(), bounded::SendErr> {
         self.tx.send(feedback).await
     }
 
-    pub async fn send_result(self, status: ResultStatus, value: R) -> ServerRecvGoal<G, F, R> {
+    /// Send a result value.
+    /// The state will be transited from `ServerSendFeedback` to `ServerRecvGoal`.
+    pub async fn send_result(self, status: ResultStatus, result: R) -> ServerRecvGoal<G, F, R> {
         let c = self.chan;
-        let c = c.send((status, value)).await;
+        let c = c.send((status, result)).await;
         let chan = c.zero();
         ServerRecvGoal { chan }
     }
@@ -155,6 +251,7 @@ pub struct ClientSendGoal<'a, G, F, R> {
     _phantom: PhantomData<&'a ()>,
 }
 
+#[must_use]
 pub enum AcceptOrRejectGoal<'a, G, F, R> {
     Accept(ClientRecvFeedback<'a, G, F, R>, GoalResponse),
     Reject(ClientSendGoal<'a, G, F, R>),
@@ -166,6 +263,10 @@ where
     F: Send + 'static,
     R: Send + 'static,
 {
+    /// Send a goal value.
+    /// The state will be transited from `ClientSendGoal` to `ClientRecvFeedback` if the goal value sent before has been accepted.
+    ///
+    /// `attribute` is a channel attribute for feedback values.
     pub async fn send_goal(
         self,
         goal: G,
@@ -198,6 +299,7 @@ where
         }
     }
 
+    /// Close this session.
     pub async fn close(self) {
         self.chan.sel1().await.close();
     }
@@ -223,6 +325,7 @@ where
     F: Send + 'static,
     R: Send + 'static,
 {
+    /// Receive a feedback or result value.
     pub async fn recv(self) -> FeedbackOrResult<'a, G, F, R> {
         let (mut chan, mut rx) = (self.chan, self.rx);
 
@@ -245,10 +348,11 @@ where
 /// - `R`: type of result.
 pub fn create_server<G, F, R>(
     name: Cow<'static, str>,
-) -> Result<Accepter<ProtoServer<G, F, R>>, &'static str> {
+) -> Result<ActionAccepter<G, F, R>, &'static str> {
     let mut node = MCSNode::new();
     let mut services = SERVICES.lock(&mut node);
-    services.create_server(name, drop_accepter)
+    let accepter = services.create_server(name, drop_accepter)?;
+    Ok(ActionAccepter { accepter })
 }
 
 /// Create a client.
@@ -258,7 +362,7 @@ pub fn create_server<G, F, R>(
 /// - `R`: type of result.
 pub async fn create_client<G: 'static, F: 'static, R: 'static>(
     name: Cow<'static, str>,
-) -> Result<S::Chan<(), ProtoClient<G, F, R>>, &'static str> {
+) -> Result<ClientSendGoal<G, F, R>, &'static str> {
     let mut node = MCSNode::new();
     let mut services = SERVICES.lock(&mut node);
     let tx = services.create_client::<ProtoClient<G, F, R>>(name, drop_accepter)?;
@@ -266,8 +370,25 @@ pub async fn create_client<G: 'static, F: 'static, R: 'static>(
     let (tx1, rx1) = unbounded::new();
     let (tx2, rx2) = unbounded::new();
 
-    let client = S::mk_chan::<ProtoClient<G, F, R>>(tx1, rx2);
+    let chan = S::mk_chan::<ProtoClient<G, F, R>>(tx1, rx2);
     tx.send((tx2, rx1)).await?;
 
-    Ok(client)
+    let chan = chan.enter();
+
+    Ok(ClientSendGoal {
+        chan,
+        _phantom: PhantomData::default(),
+    })
+}
+
+pub struct ActionAccepter<G: 'static, F: 'static, R: 'static> {
+    accepter: Accepter<ProtoServer<G, F, R>>,
+}
+
+impl<G: 'static, F: 'static, R: 'static> ActionAccepter<G, F, R> {
+    /// Accept a connection.
+    pub async fn accept(&self) -> Result<ServerRecvGoal<G, F, R>, unbounded::RecvErr> {
+        let chan = self.accepter.accept().await?.enter();
+        Ok(ServerRecvGoal { chan })
+    }
 }

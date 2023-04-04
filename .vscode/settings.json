@@ -26,7 +26,10 @@
         "check_no_std",
         "--target=x86_64-kernel.json",
     ],
-    "rust-analyzer.cargo.features": ["x86"],
+    "rust-analyzer.cargo.features": [
+        "x86"
+    ],
+    "rust-analyzer.showUnlinkedFileNotification": false,
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
