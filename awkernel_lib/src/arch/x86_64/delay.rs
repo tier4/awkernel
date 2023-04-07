@@ -15,7 +15,7 @@ static mut HPET_BASE: usize = 0;
 static mut HPET_COUNTER_HZ: u64 = 0;
 static mut HPET_COUNTER_START: u64 = 0;
 
-const HPET_GENERAL_CONF_NEABLE: u64 = 1;
+const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
 pub(crate) struct ArchDelay;
 
@@ -91,7 +91,7 @@ pub(super) fn init(
 
         // Enable HPET.
         let conf = HPET_GENERAL_CONF.read(base);
-        HPET_GENERAL_CONF.write(conf | HPET_GENERAL_CONF_NEABLE, base);
+        HPET_GENERAL_CONF.write(conf | HPET_GENERAL_CONF_ENABLE, base);
 
         // Get and store the initial counter.
         let counter = HPET_MAIN_COUNTER.read(base);

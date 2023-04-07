@@ -31,6 +31,33 @@ $ rustup target add x86_64-unknown-none aarch64-unknown-none
 $ cargo install cargo-binutils
 ```
 
+## Crates
+
+- [kernel](./kernel/)
+  - boot code
+  - initialization
+    - virtual memory
+    - heap memory
+    - stack memory
+    - devices (UART, etc)
+- [awkernel_lib](./awkernel_lib/)
+  - library used by both [kernel](./kernel/) and [awkernel_lib](./awkernel_lib/)
+- [awkernel_async_lib](./awkernel_async_lib/)
+  - asynchronous library for no_std
+- [awkernel_drivers](./awkernel_drivers/)
+- [userland](./userland/)
+
+```mermaid
+graph LR;
+    kernel-->awkernel_lib;
+    kernel-->awkernel_async_lib;
+    kernel-->awkernel_aarch64;
+    kernel-->userland;
+    awkernel_lib-->awkernel_aarch64;
+    awkernel_async_lib-->awkernel_lib;
+    userland-->awkernel_async_lib;
+```
+
 ## Compile
 
 ### x86_64
