@@ -45,6 +45,7 @@ $ cargo install cargo-binutils
 - [awkernel_async_lib](./awkernel_async_lib/)
   - asynchronous library for no_std
 - [awkernel_drivers](./awkernel_drivers/)
+- [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
 
 ```mermaid

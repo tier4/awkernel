@@ -41,6 +41,6 @@ SECTIONS
 
     __free_mem_start = __stack_el1_start;
 
-   /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) *(.eh_frame*) }
+   /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) }
 }
 __bss_size = (__bss_end - __bss_start) >> 3;
