@@ -34,4 +34,5 @@ optional = true
 default = []
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
+rv32 = []
 std = ["dep:libc"]

@@ -6,7 +6,7 @@ use awkernel_async_lib::{
     spawn, uptime,
 };
 use core::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -19,7 +19,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     let subscriber1 = create_subscriber::<u64>("1->2".into(), Attribute::default()).unwrap();
     let subscriber2 = create_subscriber::<u64>("2->1".into(), Attribute::default()).unwrap();
 
-    let count1 = Arc::new(AtomicU64::new(0));
+    let count1 = Arc::new(AtomicUsize::new(0));
     let count2 = count1.clone();
 
     spawn(

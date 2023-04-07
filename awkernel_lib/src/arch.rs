@@ -7,6 +7,9 @@ pub mod aarch64;
 #[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod x86_64;
 
+#[cfg(all(feature = "rv32", not(feature = "std")))]
+pub mod rv32;
+
 #[cfg(feature = "std")]
 pub mod linux;
 
@@ -18,6 +21,9 @@ use self::aarch64 as arch_mod;
 
 #[cfg(all(feature = "x86", not(feature = "std")))]
 use self::x86_64 as arch_mod;
+
+#[cfg(all(feature = "rv32", not(feature = "std")))]
+use self::rv32 as arch_mod;
 
 #[cfg(feature = "std")]
 use self::linux as arch_mod;

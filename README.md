@@ -109,6 +109,12 @@ Release build.
 $ make raspi BSP=raspi4 RELEASE=1
 ```
 
+### RISC-V (32bit)
+
+```text
+$ cargo rv32
+```
+
 ### Linux
 
 ```text

@@ -19,7 +19,7 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     intrinsics::abort,
     ptr::{self, NonNull},
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use rlsf::Tlsf;
 use synctools::mcs::{MCSLock, MCSNode};
@@ -54,7 +54,7 @@ pub struct Talloc {
     backup: BackUpAllocator,
 
     /// bitmap for each CPU to decide which allocator to use
-    flags: AtomicU64,
+    flags: AtomicUsize,
 
     primary_start: AtomicUsize,
     primary_size: AtomicUsize,
@@ -95,7 +95,7 @@ unsafe impl GlobalAlloc for Talloc {
 
 pub struct Guard<'a> {
     talloc: &'a Talloc,
-    flag: u64,
+    flag: usize,
 }
 
 impl<'a> Drop for Guard<'a> {
@@ -109,7 +109,7 @@ impl Talloc {
         Self {
             primary: Allocator::new(),
             backup: BackUpAllocator::new(),
-            flags: AtomicU64::new(0),
+            flags: AtomicUsize::new(0),
             primary_start: AtomicUsize::new(0),
             primary_size: AtomicUsize::new(0),
             backup_start: AtomicUsize::new(0),
@@ -152,7 +152,7 @@ impl Talloc {
         Guard { talloc: self, flag }
     }
 
-    pub unsafe fn restore(&self, flag: u64) {
+    pub unsafe fn restore(&self, flag: usize) {
         self.flags.fetch_or(flag, Ordering::Relaxed);
     }
 

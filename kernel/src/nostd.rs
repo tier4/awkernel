@@ -14,7 +14,7 @@ fn on_oom(layout: Layout) -> ! {
     wait_forever();
 }
 
-#[cfg(any(feature = "x86", feature = "aarch64"))]
+#[cfg(any(feature = "x86", feature = "aarch64", feature = "rv32"))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     {

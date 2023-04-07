@@ -4,6 +4,9 @@ mod aarch64;
 #[cfg(all(feature = "x86", not(feature = "linux")))]
 mod x86_64;
 
+#[cfg(all(feature = "rv32", not(feature = "linux")))]
+mod rv32;
+
 #[cfg(feature = "linux")]
 mod linux;
 
