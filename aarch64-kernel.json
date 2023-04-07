@@ -20,7 +20,7 @@
             "boot_aarch64.o"
         ]
     },
-    "llvm-target": "aarch64-unknown-none-softfloat",
+    "llvm-target": "aarch64-unknown-none",
     "max-atomic-width": 128,
     "os": "none",
     "relocation-model": "static",

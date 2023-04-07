@@ -27,7 +27,7 @@ $ sudo apt install clang qemu-system-arm qemu-system-x86
 $ rustup toolchain install nightly
 $ rustup default nightly
 $ rustup component add rust-src llvm-tools-preview
-$ rustup target add x86_64-unknown-none aarch64-unknown-none-softfloat
+$ rustup target add x86_64-unknown-none aarch64-unknown-none
 $ cargo install cargo-binutils
 ```
 
