@@ -25,8 +25,8 @@ impl<T> DeltaList<T> {
     /// Insert a data which will be invoked after `delta` duration.
     ///
     /// For example, if a delta list is `10 -> 20 -> 5`,
-    /// and a delta of `15` is inserted,
-    /// the list is updated to `10 -> 5 -> 5 -> 5`.
+    /// and a duration of `15` is inserted,
+    /// the list is updated to `10 -> 5 -> 15 -> 5`.
     pub fn insert(&mut self, delta: u64, data: T) {
         insert_delta(self, delta, data);
     }
