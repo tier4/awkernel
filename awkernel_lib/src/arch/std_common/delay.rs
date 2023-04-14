@@ -47,9 +47,17 @@ impl Delay for ArchDelay {
     }
 
     fn cpu_counter() -> u64 {
-        let v: u64;
-        unsafe { core::arch::asm!("mrs {}, CNTVCT_EL0", lateout(reg) v) };
-        v
+        #[cfg(target_arch = "x86_64")]
+        unsafe {
+            core::arch::x86_64::_rdtsc()
+        }
+
+        #[cfg(target_arch = "aarch64")]
+        {
+            let v: u64;
+            unsafe { core::arch::asm!("mrs {}, CNTVCT_EL0", lateout(reg) v) };
+            v
+        }
     }
 }
 
