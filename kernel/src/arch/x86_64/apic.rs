@@ -154,7 +154,7 @@ impl Apic for Xapic {
         let low_bits = low.read(self.apic_base);
         let low_bits = (low_bits & !0x000c_dfff)
             | dst_shorthand as u32
-            | flags.bits
+            | flags.bits()
             | delivery_mode as u32
             | vector as u32;
 
@@ -167,6 +167,6 @@ impl Apic for Xapic {
         high.write(high_bits, self.apic_base);
         low.write(low_bits, self.apic_base);
 
-        while (low.read(self.apic_base) & IcrFlags::SEND_PENDING.bits) != 0 {}
+        while (low.read(self.apic_base) & IcrFlags::SEND_PENDING.bits()) != 0 {}
     }
 }

@@ -53,7 +53,7 @@ impl Delay for ArchDelay {
         }
 
         #[cfg(target_arch = "aarch64")]
-        unsafe {
+        {
             let v: u64;
             unsafe { core::arch::asm!("mrs {}, CNTVCT_EL0", lateout(reg) v) };
             v
@@ -78,7 +78,12 @@ fn nanosleep(sec: u64, nsec: u64) {
     loop {
         let result = unsafe { libc::nanosleep(&req, &mut rem) };
         if result == -1 {
+            #[cfg(target_os = "macos")]
+            let errno = unsafe { *libc::__error() };
+
+            #[cfg(target_os = "linux")]
             let errno = unsafe { *libc::__errno_location() };
+
             if errno == libc::EINTR {
                 req = rem;
             } else {

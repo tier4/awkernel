@@ -115,16 +115,16 @@ $ make raspi BSP=raspi4 RELEASE=1
 $ cargo rv32
 ```
 
-### Linux
+### Linux / macOS
 
 ```text
-$ make linux
+$ make std
 ```
 
 Release build.
 
 ```text
-$ make linux RELEASE=1
+$ make std RELEASE=1
 ```
 
 ## Boot
@@ -148,16 +148,16 @@ $ make qemu-raspi3
   - 8N1: eight data bits, no parity, one stop bit
   - Speed: 115200
 
-### Linux
+### Linux / macOS
 
 ```text
-$ make run-linux
+$ make run-std
 ```
 
 Release build.
 
 ```text
-$ make run-linux RELEASE=1
+$ make run-std RELEASE=1
 ```
 
 ## Qemu Monitor
