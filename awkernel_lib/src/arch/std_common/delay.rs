@@ -70,7 +70,12 @@ fn nanosleep(sec: u64, nsec: u64) {
     loop {
         let result = unsafe { libc::nanosleep(&req, &mut rem) };
         if result == -1 {
+            #[cfg(target_os = "macos")]
             let errno = unsafe { *libc::__error() };
+
+            #[cfg(target_os = "linux")]
+            let errno = unsafe { *libc::__errno_location() };
+
             if errno == libc::EINTR {
                 req = rem;
             } else {

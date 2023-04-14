@@ -7,16 +7,7 @@ mod x86_64;
 #[cfg(all(feature = "rv32", not(feature = "linux")))]
 mod rv32;
 
-#[cfg(feature = "linux")]
-mod linux;
-
-#[cfg(feature = "linux")]
-mod linux;
-
-#[cfg(feature = "macos")]
-mod macos;
-
-#[cfg(feature = "std")]
+#[cfg(any(feature = "linux", feature = "macos"))]
 mod std_common;
 
 /// Configuration.

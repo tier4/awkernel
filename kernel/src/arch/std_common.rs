@@ -1,2 +1,2 @@
 pub mod console;
-pub mod thread;
+pub mod kernel_main;
