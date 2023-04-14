@@ -1,4 +1,4 @@
-use crate::kernel_info::KernelInfo;
+use crate::{arch::std_common::console, kernel_info::KernelInfo};
 use alloc::vec::Vec;
 use core::{
     mem::{size_of, MaybeUninit},
@@ -11,7 +11,7 @@ use libc::c_void;
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Initialize.
     awkernel_lib::arch::linux::init();
-    super::console::init();
+    console::init();
 
     if !set_fifo_scheduler() {
         log::warn!("Failed to SCHED_FIFO.");

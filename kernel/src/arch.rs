@@ -10,5 +10,14 @@ mod rv32;
 #[cfg(feature = "linux")]
 mod linux;
 
+#[cfg(feature = "linux")]
+mod linux;
+
+#[cfg(feature = "macos")]
+mod macos;
+
+#[cfg(feature = "std")]
+mod std_common;
+
 /// Configuration.
 pub mod config;
