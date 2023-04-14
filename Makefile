@@ -38,9 +38,9 @@ ifndef $(LD)
 	# LD = ld.gold
 endif
 
-all: raspi x86_64 linux
+all: raspi x86_64 std
 
-cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf linux
+cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
 FORCE:
 
@@ -93,13 +93,13 @@ debug-x86_64:
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb
 
-## Linux
+## Linux / macOS
 
-linux: FORCE
-	cargo +nightly linux $(OPT)
+std: FORCE
+	cargo +nightly std $(OPT)
 
-run-linux:
-	cargo +nightly run --package awkernel --no-default-features --features linux $(OPT)
+run-std:
+	cargo +nightly run --package awkernel --no-default-features --features std $(OPT)
 
 ## Test
 

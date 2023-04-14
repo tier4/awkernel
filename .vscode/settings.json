@@ -27,7 +27,7 @@
         "--target=x86_64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "macos"
+        "std"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false,
     // For Linux
