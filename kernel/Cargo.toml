@@ -51,13 +51,17 @@ optional = true
 version = "0.2"
 optional = true
 
+[dependencies.ns16550a]
+version = "0.2.0"
+optional = true
+
 [features]
 default = ["std"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550", "dep:acpi"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
-rv32 = ["no_std_unwinding", "awkernel_lib/rv32"]
+rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a"]
 raspi = ["aarch64"]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64"]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
