@@ -13,7 +13,6 @@ use core::{
 extern crate alloc;
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    log::info!("user main");
     let publisher1 = create_publisher::<u64>("1->2".into(), Attribute::default()).unwrap();
     let publisher2 = create_publisher::<u64>("2->1".into(), Attribute::default()).unwrap();
 

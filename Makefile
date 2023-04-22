@@ -60,7 +60,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 qemu-raspi3:
-	qemu-system-aarch64 -m 1024 -M raspi3 -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
+	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
 
 debug-raspi3:
 	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int -s -S
@@ -96,11 +96,10 @@ gdb-x86_64:
 ## riscv32
 
 riscv32:
-	cargo rv32
+	cargo riscv32
 
 run-riscv32: target/riscv32imac-unknown-none-elf/debug/awkernel
-#	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 512M -nographic -smp 2
-	~/ladybird/sim/launch_sim $< --ebreak --htif --tohost 0x80040f88 --fromhost 0x80040f90 --core 2
+	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4
 
 ## Linux / macOS
 

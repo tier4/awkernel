@@ -2,7 +2,7 @@ pub use crate::arch::config::*;
 
 #[allow(dead_code)]
 /// Heap size is 256MiB
-pub const HEAP_SIZE: u64 = 8 * 1024 * 1024;
+pub const HEAP_SIZE: u64 = 256 * 1024 * 1024;
 
 /// Backup Heap size is 32 MiB
 #[allow(dead_code)]
