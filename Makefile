@@ -96,7 +96,7 @@ gdb-x86_64:
 ## riscv32
 
 riscv32:
-	cargo riscv32
+	cargo rv32
 
 run-riscv32: target/riscv32imac-unknown-none-elf/debug/awkernel
 	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4

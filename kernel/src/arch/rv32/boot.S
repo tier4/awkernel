@@ -7,9 +7,9 @@
   .attribute arch, "rv32imac"
 
 _start:
-  # set up the 4KB initial stack for each cpu.
-  la sp, INITIAL_STACK
-  li a0, 4096
+  # set up the 4MB initial stack for each cpu.
+  li sp, 0x80400000
+  li a0, 0x00400000
   csrr a1, mhartid
   addi a1, a1, 1
   mul a0, a0, a1
