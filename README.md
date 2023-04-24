@@ -23,11 +23,11 @@ isolated zero-copy communications written in Rust.
 ## Dependencies
 
 ```text
-$ sudo apt install clang qemu-system-arm qemu-system-x86
+$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
 $ rustup toolchain install nightly
 $ rustup default nightly
 $ rustup component add rust-src llvm-tools-preview
-$ rustup target add x86_64-unknown-none aarch64-unknown-none
+$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
 ```
 
@@ -112,7 +112,7 @@ $ make raspi BSP=raspi4 RELEASE=1
 ### RISC-V (32bit)
 
 ```text
-$ cargo rv32
+$ make riscv32
 ```
 
 ### Linux / macOS
@@ -147,6 +147,12 @@ $ make qemu-raspi3
   - port: GPIO 14 (Tx) and 15 (Rx)
   - 8N1: eight data bits, no parity, one stop bit
   - Speed: 115200
+
+### RISC-V (32bit)
+
+```text
+$ make run-riscv32
+```
 
 ### Linux / macOS
 

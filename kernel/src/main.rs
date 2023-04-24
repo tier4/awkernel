@@ -48,10 +48,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         loop {
-            log::info!("wake tick");
             wake_task(); // Wake executable tasks periodically.
             pause();
-            log::info!("pause break");
         }
     } else {
         // Non-primary CPUs.

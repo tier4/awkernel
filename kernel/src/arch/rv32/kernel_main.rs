@@ -1,6 +1,6 @@
 use core::{
     arch::global_asm,
-    mem::MaybeUninit,
+//    mem::MaybeUninit,
     sync::atomic::{AtomicBool, Ordering},
     fmt::Write,
 };
@@ -16,13 +16,15 @@ use crate::{
 use super::console;
 
 const UART_BASE: u32 = 0x1000_0000;
-const INITIAL_STACK_SIZE: usize = 4096;
-const MAX_HARTS: usize = 8;
 
-#[repr(align(4096))]
-struct InitialStack([MaybeUninit<u8>; INITIAL_STACK_SIZE * MAX_HARTS]);
-#[no_mangle]
-static INITIAL_STACK: InitialStack = unsafe { MaybeUninit::uninit().assume_init() };
+// TODO: set initial stack 4MB for each CPU on 0x8040_0000. see boot.S
+// const MAX_HARTS: usize = 8;
+// const INITIAL_STACK: usize = 0x8040_0000;
+// const INITIAL_STACK_SIZE: usize = 0x0040_0000;
+// #[repr(align(4096))]
+// struct InitialStack([MaybeUninit<u8>; INITIAL_STACK_SIZE * MAX_HARTS]);
+// #[no_mangle]
+// static INITIAL_STACK: InitialStack = unsafe { MaybeUninit::uninit().assume_init() };
 
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
