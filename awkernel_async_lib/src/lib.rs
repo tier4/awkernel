@@ -14,7 +14,6 @@ pub mod action;
 mod anydict;
 pub mod channel;
 mod delay;
-mod delta_list;
 mod join_handle;
 mod never_return;
 pub mod pubsub;

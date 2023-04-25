@@ -41,9 +41,12 @@ $ cargo install cargo-binutils
     - stack memory
     - devices (UART, etc)
 - [awkernel_lib](./awkernel_lib/)
-  - library used by both [kernel](./kernel/) and [awkernel_lib](./awkernel_lib/)
+  - library used by both [kernel](./kernel/) and [awkernel_async_lib](./awkernel_async_lib/)
 - [awkernel_async_lib](./awkernel_async_lib/)
   - asynchronous library for no_std
+- [awkernel_async_lib_verified](./awkernel_async_lib_verified/)
+  - verified library for awkernel_async_lib
+  - pure Rust (no dependencies on external functions and no inline assembly)
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
@@ -56,12 +59,15 @@ graph LR;
     kernel-->userland;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
+    awkernel_async_lib-->awkernel_async_lib_verified;
     userland-->awkernel_async_lib;
 ```
 
-## Compile
+---
 
-### x86_64
+## x86_64
+
+### Compile
 
 Debug build.
 
@@ -81,7 +87,32 @@ If you want to use UEFI, make `x86_64_uefi.img` as follows.
 $ make x86_64_uefi.img
 ```
 
-### Raspberry Pi 3 (AArch64)
+### Boot
+
+Debug build.
+
+```text
+$ make qemu-x86_64
+```
+
+Release build.
+
+```text
+$ make qemu-x86_64 RELEASE=1
+```
+
+### GDB
+
+```text
+$ make qemu-x86_64
+$ make gdb-x86_64
+```
+
+---
+
+## Raspberry Pi 3 (AArch64, Qemu)
+
+### Compile
 
 Debug build.
 
@@ -95,7 +126,32 @@ Release build.
 $ make raspi RELEASE=1
 ```
 
-### Raspberry Pi 4 (AArch64)
+### Boot
+
+Debug build.
+
+```text
+$ make qemu-raspi3
+```
+
+Release build.
+
+```text
+$ make qemu-raspi3 RELEASE=1
+```
+
+### GDB
+
+```text
+$ make qemu-raspi3
+$ make gdb-raspi3
+```
+
+---
+
+## Raspberry Pi 4 (AArch64)
+
+### Compile
 
 Debug build.
 
@@ -109,13 +165,52 @@ Release build.
 $ make raspi BSP=raspi4 RELEASE=1
 ```
 
-### RISC-V (32bit)
+### Boot
+
+- Serial
+  - port: GPIO 14 (Tx) and 15 (Rx)
+  - 8N1: eight data bits, no parity, one stop bit
+  - Speed: 115200
+
+---
+
+## RISC-V (32bit)
+
+### Compile
+
+Debug build.
 
 ```text
 $ make riscv32
 ```
 
-### Linux / macOS
+Release build.
+
+```text
+$ make riscv32 RELEASE=1
+```
+
+### Boot
+
+Debug build.
+
+```text
+$ make qemu-riscv32
+```
+
+Release build.
+
+```text
+$ make qemu-riscv32 RELEASE=1
+```
+
+---
+
+## Linux / macOS
+
+### Compile
+
+Debug build.
 
 ```text
 $ make std
@@ -127,34 +222,9 @@ Release build.
 $ make std RELEASE=1
 ```
 
-## Boot
+### Boot
 
-### x86\_64
-
-```text
-$ make qemu-x86_64
-```
-
-### Raspberry Pi 3 (AArch64)
-
-```text
-$ make qemu-raspi3
-```
-
-### Raspberry Pi 4 (AArch64)
-
-- Serial
-  - port: GPIO 14 (Tx) and 15 (Rx)
-  - 8N1: eight data bits, no parity, one stop bit
-  - Speed: 115200
-
-### RISC-V (32bit)
-
-```text
-$ make run-riscv32
-```
-
-### Linux / macOS
+Debug build.
 
 ```text
 $ make run-std
@@ -171,20 +241,4 @@ $ make run-std RELEASE=1
 ```text
 $ make qemu-raspi3
 $ telnet localhost 5556
-```
-
-## GDB
-
-### Raspberry Pi 3 (AArch64)
-
-```text
-$ make debug-raspi3
-$ make gdb-raspi3
-```
-
-### x86\_64
-
-```text
-$ make debug-x86_64
-$ make gdb-x86_64
 ```

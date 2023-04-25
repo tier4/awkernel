@@ -24,6 +24,9 @@ features = ["panic"]
 path = "../awkernel_lib"
 default-features = false
 
+[dependencies.awkernel_async_lib_verified]
+path = "../awkernel_async_lib_verified"
+
 [features]
 default = []
 std = ["awkernel_lib/std"]

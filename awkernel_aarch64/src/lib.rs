@@ -349,6 +349,9 @@ macro_rules! sysreg {
                 v
             }
 
+            /// # Safety
+            ///
+            /// See "Arm Architecture Reference Manual".
             pub unsafe fn set(v: u64) {
                 asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }

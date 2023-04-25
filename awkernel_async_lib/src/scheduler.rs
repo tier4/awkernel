@@ -1,8 +1,9 @@
 //! Define types and trait for the T4OS scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
-use crate::{delay::uptime, delta_list::DeltaList, task::Task};
+use crate::{delay::uptime, task::Task};
 use alloc::{boxed::Box, sync::Arc};
+use awkernel_async_lib_verified::delta_list::DeltaList;
 use synctools::mcs::{MCSLock, MCSNode};
 
 mod round_robin;
