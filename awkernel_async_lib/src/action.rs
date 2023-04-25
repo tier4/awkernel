@@ -61,7 +61,7 @@
 //! ## Action Client
 //!
 //! ```
-//! use crate::{
+//! use awkernel_async_lib::{
 //!     action::{create_client, AcceptOrRejectGoal, FeedbackOrResult},
 //!     channel::bounded,
 //! };
