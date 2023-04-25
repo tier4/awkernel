@@ -4,7 +4,6 @@
 //! supporting isolated zero-copy communications written in Rust.
 
 #![feature(lang_items)]
-#![feature(alloc_error_handler)]
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
 #![no_main]
