@@ -31,8 +31,8 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     }
 
     // Use CPU #0.
-    #[cfg(target_os = "linux")]
-    set_affinity(pthread_self(), 0);
+    // #[cfg(target_os = "linux")]
+    // set_affinity(pthread_self(), 0);
 
     // Execute main.
     let kernel_info = KernelInfo::<()> {
@@ -49,10 +49,10 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     0
 }
 
-#[cfg(target_os = "linux")]
-fn pthread_self() -> libc::pthread_t {
-    unsafe { libc::pthread_self() }
-}
+// #[cfg(target_os = "linux")]
+// fn pthread_self() -> libc::pthread_t {
+//     unsafe { libc::pthread_self() }
+// }
 
 fn join(thread: libc::pthread_t) {
     unsafe { libc::pthread_join(thread, null_mut()) };
@@ -65,17 +65,17 @@ fn nprocs() -> usize {
     result as usize
 }
 
-#[cfg(target_os = "linux")]
-fn set_affinity(thread: libc::pthread_t, cpu: usize) {
-    unsafe {
-        let mut cpuset: libc::cpu_set_t = MaybeUninit::zeroed().assume_init();
-        libc::CPU_SET(cpu, &mut cpuset);
+// #[cfg(target_os = "linux")]
+// fn set_affinity(thread: libc::pthread_t, cpu: usize) {
+//     unsafe {
+//         let mut cpuset: libc::cpu_set_t = MaybeUninit::zeroed().assume_init();
+//         libc::CPU_SET(cpu, &mut cpuset);
 
-        if libc::pthread_setaffinity_np(thread, size_of::<libc::cpu_set_t>(), &cpuset) != 0 {
-            log::warn!("Failed to set CPU affinity: thread = {thread}, cpu = {cpu}");
-        }
-    }
-}
+//         if libc::pthread_setaffinity_np(thread, size_of::<libc::cpu_set_t>(), &cpuset) != 0 {
+//             log::warn!("Failed to set CPU affinity: thread = {thread}, cpu = {cpu}");
+//         }
+//     }
+// }
 
 fn thread_create(cpu: usize) -> Option<libc::pthread_t> {
     unsafe {
