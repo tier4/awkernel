@@ -212,9 +212,7 @@ pub fn spawn(
 ) -> u64 {
     let future = future.boxed();
 
-    let scheduler = match sched_type {
-        SchedulerType::RoundRobin => get_scheduler(sched_type),
-    };
+    let scheduler = get_scheduler(sched_type);
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
