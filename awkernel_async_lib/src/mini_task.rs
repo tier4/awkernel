@@ -1,8 +1,7 @@
 //! A task runner used by test.
-//! This polls tasks.
 
 use alloc::{collections::VecDeque, sync::Arc};
-use core::task::{Context, Poll};
+use core::task::Context;
 use futures::{
     future::{BoxFuture, Fuse, FusedFuture},
     task::{waker_ref, ArcWake},
@@ -60,16 +59,7 @@ impl Tasks {
                 continue;
             }
 
-            match future.poll_unpin(&mut cx) {
-                Poll::Pending => {
-                    future.unlock();
-
-                    let mut node = MCSNode::new();
-                    let mut queue = self.queue.lock(&mut node);
-                    queue.push_back(head);
-                }
-                Poll::Ready(_) => (),
-            }
+            let _ = future.poll_unpin(&mut cx);
         }
     }
 

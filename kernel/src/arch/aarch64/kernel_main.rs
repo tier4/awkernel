@@ -1,3 +1,12 @@
+//! # Boot process
+//!
+//! ## Raspberry Pi
+//!
+//! 1. The entrypoint, `_start` in `kernel/asm/aarch64/device/raspi.S`, is called.
+//! 2. [`kernel_main`] is called.
+//! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
+//! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
+
 use super::{
     bsp::raspi,
     cpu,
@@ -34,6 +43,11 @@ pub unsafe extern "C" fn kernel_main() -> ! {
     wait_forever();
 }
 
+/// 1. Initialize MMU.
+/// 2. Start non-primary CPUs.
+/// 3. Enable MMU.
+/// 4. Enable heap allocator.
+/// 5. Enable serial port.
 unsafe fn primary_cpu() {
     DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
 
@@ -45,17 +59,17 @@ unsafe fn primary_cpu() {
         _ => (),
     }
 
-    // Initialize MMU.
+    // 1. Initialize MMU.
     mmu::init_memory_map();
     if mmu::init().is_none() {
         DevUART::unsafe_puts("Failed to init MMU.\n");
         wait_forever();
     }
 
-    // Start non-primary CPUs.
+    // 2. Start non-primary CPUs.
     write_volatile(&mut PRIMARY_READY, true);
 
-    // Enable MMU.
+    // 3. Enable MMU.
     mmu::enable();
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
@@ -66,12 +80,13 @@ unsafe fn primary_cpu() {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
     let primary_size = HEAP_SIZE as usize;
 
-    // Enable heap allocator.
+    // 4. Enable heap allocator.
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
     heap::TALLOC.use_backup(); // use backup allocator
 
-    serial::init(); // Enable serial port.
+    // 5. Enable serial port.
+    serial::init();
 
     log::info!(
         "Primary heap: start = 0x{:x}, size = {}",

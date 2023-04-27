@@ -1,6 +1,6 @@
-//! # T4 Operating System
+//! # Autoware Kernel
 //!
-//! T4 Operating System (T4OS) is a safe and realtime operating system
+//! Autoware Kernel is a safe and realtime operating system
 //! supporting isolated zero-copy communications written in Rust.
 
 #![feature(lang_items)]

@@ -1,3 +1,15 @@
+//! Bounded channel.
+//!≈
+//!
+//! let _ = async move {
+//!     tx.send(10).await.unwrap();
+//! };
+//!
+//! let _ = async move {
+//!     rx.recv().await.unwrap();
+//! };
+//! ```
+
 use crate::{pubsub::Lifespan, r#yield, ringq::RingQ};
 use alloc::sync::Arc;
 use awkernel_lib::delay::uptime;
@@ -58,6 +70,18 @@ pub struct Sender<T> {
     chan: Arc<MCSLock<Channel<T>>>,
 }
 
+/// Create a bounded single producer and single consumer channel.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_async_lib::channel::bounded;
+///
+/// let (tx, rx) = bounded::new::<u64>(Default::default());
+///
+/// let _ = async move { tx.send(10).await.unwrap(); };
+/// let _ = async move { rx.recv().await.unwrap(); };
+/// ```
 pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
     let queue = RingQ::new(attribute.queue_size);
 
@@ -77,6 +101,18 @@ pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
 }
 
 impl<T: Send> Sender<T> {
+    /// Send data.
+    /// A task will yield automatically after sending data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::channel::bounded::Sender;
+    ///
+    /// async fn sender_task(sender: Sender<u64>) {
+    ///     sender.send(123).await.unwrap();
+    /// }
+    /// ```
     pub async fn send(&self, data: T) -> Result<(), SendErr> {
         let data = ChannelData {
             time_stamp: uptime(),
@@ -93,6 +129,17 @@ impl<T: Send> Sender<T> {
         result
     }
 
+    /// Try to send data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::channel::bounded::Sender;
+    ///
+    /// fn send_example(sender: Sender<u64>) {
+    ///     sender.try_send(123).unwrap();
+    /// }
+    /// ```
     pub fn try_send(&self, data: T) -> Result<(), SendErr> {
         let data = ChannelData {
             time_stamp: uptime(),
@@ -196,11 +243,35 @@ pub enum RecvErr {
 }
 
 impl<T> Receiver<T> {
+    /// Receive data.
+    /// If there is no data in the queue,
+    /// the task will await data arrival.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::channel::bounded::Receiver;
+    ///
+    /// async fn receiver_task(receiver: Receiver<u64>) {
+    ///     let data = receiver.recv().await.unwrap();
+    /// }
+    /// ```
     pub async fn recv(&self) -> Result<T, RecvErr> {
         let receiver = AsyncReceiver { receiver: self };
         receiver.await
     }
 
+    /// Try to receive data.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::channel::bounded::Receiver;
+    ///
+    /// fn receiver_task(receiver: Receiver<u64>) {
+    ///     let data = receiver.try_recv().unwrap();
+    /// }
+    /// ```
     pub fn try_recv(&self) -> Result<T, RecvErr> {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
