@@ -6,7 +6,7 @@ impl Interrupt for ArchInterrupt {
     fn get_flag() -> usize {
         let x: usize;
         unsafe { core::arch::asm!("csrr {}, mstatus", out(reg) x) };
-        x & 0x80
+        x & 0x08
     }
 
     fn disable() {
