@@ -4,7 +4,8 @@ use x86_64::structures::paging::OffsetPageTable;
 
 pub mod acpi;
 pub(super) mod cpu;
-pub(crate) mod delay;
+pub(super) mod delay;
+pub(super) mod interrupt;
 pub mod mmu;
 pub mod page_allocator;
 
