@@ -17,7 +17,7 @@ optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
 
 [dependencies.acpi]
-version = "4.1"
+git = "https://github.com/sun-jacobi/acpi.git"
 optional = true
 
 [dependencies.libc]
