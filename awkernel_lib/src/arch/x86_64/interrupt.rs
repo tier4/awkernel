@@ -4,14 +4,22 @@ pub struct ArchInterrupt;
 
 impl Interrupt for ArchInterrupt {
     fn get_flag() -> usize {
-        todo!()
+        if x86_64::instructions::interrupts::are_enabled() {
+            1
+        } else {
+            0
+        }
     }
 
     fn disable() {
-        todo!()
+        x86_64::instructions::interrupts::disable();
     }
 
     fn set_flag(flag: usize) {
-        todo!()
+        if flag == 0 {
+            x86_64::instructions::interrupts::disable();
+        } else {
+            x86_64::instructions::interrupts::enable();
+        }
     }
 }
