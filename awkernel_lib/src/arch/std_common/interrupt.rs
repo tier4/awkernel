@@ -9,5 +9,7 @@ impl Interrupt for ArchInterrupt {
 
     fn disable() {}
 
+    fn enable() {}
+
     fn set_flag(_flag: usize) {}
 }

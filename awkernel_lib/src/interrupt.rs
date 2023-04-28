@@ -9,6 +9,9 @@ pub trait Interrupt {
     /// Disable interrupt.
     fn disable();
 
+    /// Enable interrupt.
+    fn enable();
+
     /// Set interrupt flag(s).
     fn set_flag(flag: usize);
 }

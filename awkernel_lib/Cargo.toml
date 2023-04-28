@@ -31,7 +31,7 @@ path = "../awkernel_aarch64"
 optional = true
 
 [features]
-default = ["x86"]
+default = ["std"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []

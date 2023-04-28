@@ -15,6 +15,10 @@ impl Interrupt for ArchInterrupt {
         x86_64::instructions::interrupts::disable();
     }
 
+    fn enable() {
+        x86_64::instructions::interrupts::enable();
+    }
+
     fn set_flag(flag: usize) {
         if flag == 0 {
             x86_64::instructions::interrupts::disable();

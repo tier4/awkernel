@@ -3,8 +3,8 @@ use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::null_mut};
 use libc::c_void;
 
-#[cfg(target_os = "linux")]
-use core::mem::size_of;
+// #[cfg(target_os = "linux")]
+// use core::mem::size_of;
 
 #[start]
 #[no_mangle]
@@ -85,8 +85,9 @@ fn thread_create(cpu: usize) -> Option<libc::pthread_t> {
         let mut thread: libc::pthread_t = MaybeUninit::zeroed().assume_init();
         let result = libc::pthread_create(&mut thread, &attr, thread_func, cpu as *mut _);
         if result == 0 {
-            #[cfg(target_os = "linux")]
-            set_affinity(thread, cpu);
+            // #[cfg(target_os = "linux")]
+            // set_affinity(thread, cpu);
+
             Some(thread)
         } else {
             None
