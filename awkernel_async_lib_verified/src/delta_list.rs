@@ -78,3 +78,32 @@ fn insert_delta<T>(mut list: &mut DeltaList<T>, mut delta: u64, data: T) {
         }
     }
 }
+
+#[cfg(kani)]
+#[kani::proof]
+#[kani::unwind(3)]
+fn check_correctness() {
+    use alloc::vec::Vec;
+
+    let size: usize = 5;
+    let mut dlist = DeltaList::<u32>::Nil;
+    let mut vec = Vec::new();
+    for _ in 0..size {
+        let val: u64 = kani::any();
+        dlist.insert(val, 0);
+        vec.push(val);
+    }
+
+    // doff(sort(T)) に相当
+    vec.sort();
+    for i in size - 1..=1 {
+        vec[i] = vec[i] - vec[i - 1];
+    }
+
+    let mut idx = 0;
+    while let Some((t, _)) = dlist.front() {
+        assert!(vec[idx] == t);
+        dlist.pop();
+        idx += 1;
+    }
+}

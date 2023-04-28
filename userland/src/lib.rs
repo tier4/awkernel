@@ -40,7 +40,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             }
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::Random,
     )
     .await;
 
@@ -55,7 +55,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 count1.fetch_add(1, Ordering::Relaxed);
             }
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::Random,
     )
     .await;
 
@@ -76,7 +76,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 log::debug!("{ops} [ops/s]");
             }
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::Random,
     )
     .await;
 
@@ -122,12 +122,12 @@ async fn test_session_types() {
                     async move {
                         srv(chan).await;
                     },
-                    SchedulerType::RoundRobin,
+                    SchedulerType::Random,
                 )
                 .await;
             }
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::Random,
     )
     .await;
 
@@ -139,7 +139,7 @@ async fn test_session_types() {
                 .unwrap();
             cli(chan).await;
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::Random,
     )
     .await;
 }

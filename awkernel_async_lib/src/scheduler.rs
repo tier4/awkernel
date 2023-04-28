@@ -6,6 +6,7 @@ use alloc::{boxed::Box, sync::Arc};
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use synctools::mcs::{MCSLock, MCSNode};
 
+mod random_sched;
 mod round_robin;
 
 static SLEEPING: MCSLock<SleepingTasks> = MCSLock::new(SleepingTasks::new());
@@ -14,6 +15,7 @@ static SLEEPING: MCSLock<SleepingTasks> = MCSLock::new(SleepingTasks::new());
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerType {
     RoundRobin,
+    Random,
 }
 
 pub(crate) trait Scheduler {
@@ -30,6 +32,10 @@ pub(crate) trait Scheduler {
 
 /// Get the next executable task.
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
+    if let Some(task) = random_sched::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
     if let Some(task) = round_robin::SCHEDULER.get_next() {
         return Some(task);
     }
@@ -41,6 +47,7 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::RoundRobin => &round_robin::SCHEDULER,
+        SchedulerType::Random => &random_sched::SCHEDULER,
     }
 }
 
