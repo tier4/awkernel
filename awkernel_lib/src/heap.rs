@@ -1,6 +1,6 @@
 //! Use a second-level segregated list.
-//! FLLEN represents the length of first level lists.
-//! SLLEN represents the length of second level lists.
+//! `FLLEN` represents the length of first level lists.
+//! `SLLEN` represents the length of second level lists.
 //!
 //! `minimum_size = size_of::<usize>() * 4`
 //!
@@ -14,7 +14,7 @@ const SLLEN: usize = 64; // The worst-case internal fragmentation is ((32 << 28)
 type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
-use crate::cpu;
+use crate::{cpu, interrupt::InterruptGuard};
 use core::{
     alloc::{GlobalAlloc, Layout},
     intrinsics::abort,
@@ -145,7 +145,7 @@ impl Talloc {
         self.flags.fetch_or(mask, Ordering::Relaxed);
     }
 
-    pub unsafe fn save<'a>(&'a self) -> Guard<'a> {
+    pub unsafe fn save(&self) -> Guard {
         let cpu_id = cpu::cpu_id();
         let mask = 1 << cpu_id;
         let flag = mask & self.flags.load(Ordering::Relaxed);
@@ -174,16 +174,22 @@ impl Talloc {
 
 unsafe impl GlobalAlloc for BackUpAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let int_gurad = InterruptGuard::new(); // Disable interrupt.
+
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         if let Some(mut ptr) = guard.allocate(layout) {
             return ptr.as_mut();
         } else {
+            drop(int_gurad);
+
             abort(); // there is no free memory left
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let _int_gurad = InterruptGuard::new(); // Disable interrupt.
+
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         guard.deallocate(NonNull::new_unchecked(ptr), layout.align());
@@ -192,16 +198,20 @@ unsafe impl GlobalAlloc for BackUpAllocator {
 
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let _int_gurad = InterruptGuard::new(); // Disable interrupt.
+
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         if let Some(mut ptr) = guard.allocate(layout) {
-            return ptr.as_mut();
+            ptr.as_mut()
         } else {
-            return ptr::null_mut();
+            ptr::null_mut()
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let _int_gurad = InterruptGuard::new(); // Disable interrupt.
+
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         guard.deallocate(NonNull::new_unchecked(ptr), layout.align());

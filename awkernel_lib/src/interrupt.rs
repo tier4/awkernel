@@ -45,3 +45,13 @@ impl Drop for InterruptGuard {
         ArchInterrupt::set_flag(self.flag);
     }
 }
+
+/// Enable interrupt.
+pub fn enable() {
+    ArchInterrupt::enable();
+}
+
+/// Disable interrupt.
+pub fn disable() {
+    ArchInterrupt::disable();
+}
