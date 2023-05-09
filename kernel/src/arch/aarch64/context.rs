@@ -1,6 +1,13 @@
 #[derive(Debug, Copy, Clone)]
 #[repr(C)]
 pub struct Context {
+    // 8 * 64 bytes
+    pub fp_regs: FPRegs,
+
+    // 8 * 2 bytes
+    pub fp_fpsr: u64,
+    pub fp_fpcr: u64,
+
     // 8 * 31 bytes
     pub gp_regs: GpRegs,
 
@@ -9,13 +16,6 @@ pub struct Context {
     pub spsr: u32, // saved program status register
     _unused: [u8; 4],
     pub sp: u64, // stack pointer
-
-    // 8 * 64 bytes
-    pub fp_regs: FPRegs,
-
-    // 8 * 2 bytes
-    pub fp_fpsr: u64,
-    pub fp_fpcr: u64,
 }
 
 /// General Purpose Registers.
