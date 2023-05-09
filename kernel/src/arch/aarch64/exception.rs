@@ -1,4 +1,4 @@
-use super::context::GpRegs;
+use super::context::Context;
 use awkernel_aarch64::esr_el1;
 use awkernel_lib::delay::wait_forever;
 
@@ -16,54 +16,54 @@ const _ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
 
 // from the current EL using the current SP0
 #[no_mangle]
-pub fn curr_el_sp0_sync_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_sync_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_irq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_irq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_fiq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_fiq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_serror_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_sync_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_sync_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_irq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_irq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_fiq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_fiq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_serror_el2(_ctx: *mut Context, _sp: usize) {}
 
 // from lower EL (AArch64)
 #[no_mangle]
-pub fn lower_el_aarch64_sync_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_sync_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_irq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_irq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_fiq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_fiq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_serror_el2(_ctx: *mut Context, _sp: usize) {}
 
 // from lower EL (AArch32)
 #[no_mangle]
-pub fn lower_el_aarch32_sync_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_sync_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_irq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_irq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_fiq_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_fiq_el2(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_serror_el2(_ctx: *mut Context, _sp: usize) {}
 
 //------------------------------------------------------------------------------
 
@@ -71,7 +71,7 @@ pub fn lower_el_aarch32_serror_el2(_ctx: *mut GpRegs, _sp: usize) {}
 
 // from the current EL using the SP_EL0
 #[no_mangle]
-pub fn curr_el_sp0_sync_el1(ctx: *mut GpRegs, _sp: usize) {
+pub fn curr_el_sp0_sync_el1(ctx: *mut Context, _sp: usize) {
     let r = unsafe { &*ctx };
     log::debug!(
         r#"EL1 exception: SPX Sync
@@ -88,13 +88,13 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_sp0_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_irq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_sp0_fiq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_sp0_serror_el1(ctx: *mut GpRegs, _sp: usize) {
+pub fn curr_el_sp0_serror_el1(ctx: *mut Context, _sp: usize) {
     let r = unsafe { &*ctx };
     log::debug!(
         r#"EL1 exception: SPX Sync
@@ -112,7 +112,7 @@ ESR  = 0x{:x}
 
 // from the current EL using the SP_EL1
 #[no_mangle]
-pub fn curr_el_spx_sync_el1(ctx: *mut GpRegs, _sp: usize) {
+pub fn curr_el_spx_sync_el1(ctx: *mut Context, _sp: usize) {
     let r = unsafe { &*ctx };
     log::debug!(
         r#"EL1 exception: SPX Sync
@@ -129,13 +129,13 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_spx_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn curr_el_spx_fiq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn curr_el_spx_serror_el1(ctx: *mut GpRegs, _sp: usize) {
+pub fn curr_el_spx_serror_el1(ctx: *mut Context, _sp: usize) {
     let r = unsafe { &*ctx };
     log::debug!(
         r#"EL1 exception: SPX Sync
@@ -153,26 +153,26 @@ ESR  = 0x{:x}
 
 // from lower EL (AArch64)
 #[no_mangle]
-pub fn lower_el_aarch64_sync_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_sync_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_irq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_fiq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch64_serror_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch64_serror_el1(_ctx: *mut Context, _sp: usize) {}
 
 // from lower EL (AArch32)
 #[no_mangle]
-pub fn lower_el_aarch32_sync_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_sync_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_irq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_irq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_fiq_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_fiq_el1(_ctx: *mut Context, _sp: usize) {}
 
 #[no_mangle]
-pub fn lower_el_aarch32_serror_el1(_ctx: *mut GpRegs, _sp: usize) {}
+pub fn lower_el_aarch32_serror_el1(_ctx: *mut Context, _sp: usize) {}
