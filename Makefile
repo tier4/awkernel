@@ -84,11 +84,15 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
+QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_boot.img
+QEMU_X86_ARGS+= -machine q35
+QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+
 qemu-x86_64:
-	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+	qemu-system-x86_64  $(QEMU_X86_ARGS)
 
 debug-x86_64:
-	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait -s -S
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S
 
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb

@@ -19,7 +19,7 @@ version = "0.14"
 optional = true
 
 [dependencies.acpi]
-version = "4.1"
+git = "https://github.com/sun-jacobi/acpi.git"
 optional = true
 
 [dependencies.bootloader_api]
