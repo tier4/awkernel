@@ -2,8 +2,8 @@
     // disable all interrupt
     msr     DAIFSet, #0x0f
 
-    // handle data abort
-    b       data_abort
+    // TODO: handle data abort
+    // b       data_abort
 
     // Store x0 and x1 on the stack.
     stp     x0, x1, [sp, #16 * -17]
