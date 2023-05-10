@@ -129,7 +129,6 @@ exception_store_registers:
 
 exception_restore_context:
     mov     x28, sp
-    add     sp, sp, #16 * 50 // Restore SP.
 
     ldr      q0, [x28], #16
     ldr      q1, [x28], #16
@@ -184,6 +183,8 @@ exception_restore_context:
     ldp     x24, x25, [x28], #16
     ldp     x26, x27, [x28], #16
     ldp     x28, x29, [x28]
+
+    add     sp, sp, #16 * 50 // Restore SP.
 
     eret
 
