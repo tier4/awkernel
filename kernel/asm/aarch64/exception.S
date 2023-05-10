@@ -12,31 +12,34 @@
 
     cbz     x18, data_abort
 
-    // Store x0 and x1 on the stack.
+    // Store x0 - x3 on the stack.
     stp     x0, x1, [sp, #16 * -17]
     stp     x2, x3, [sp, #16 * -16]
 
     // Store x30 and the exception link register.
-    mrs     x1, elr_\el
-    stp     lr, x1, [sp, #16 * -2]
-
-    // Store SPSR.
-    mrs     x2, \spsr_reg
-    str     w2, [sp, #16 * -1] // Context::spsr
-
-    bl      exception_store_registers
+    mrs     x3, elr_\el
+    stp     lr, x3, [sp, #16 * -2]
 
     // x2 is the third argument for the function called through `\handler`.
     mrs     x2, esr_\el
 
+    // Make room on the stack for the exception context.
+    sub     sp, sp, #16 * 50 // size of Context
+
     // enable all interrupt
     msr     DAIFClr, #0x0f
 
+    // Store SPSR.
+    mrs     x3, \spsr_reg
+    str     w3, [sp, #16 * -1] // Context::spsr
+
     // x0 is the first argument for the function called through `\handler`.
-    mov     x0, sp
+    mov     x0, sp // Context
 
     // x1 is the second argument for the function called through `\handler`.
-    add     x1, sp, #16 * 50
+    add     x1, sp, #16 * 50 // SP (original)
+
+    bl      exception_store_registers
 
     // Call `\handler`.
     bl      \handler
@@ -58,76 +61,72 @@ data_abort:
     wfi
     b       1b
 
+//--------------------------------------------------------------------------------------------------
+// Helper functions
+//--------------------------------------------------------------------------------------------------
 exception_store_registers:
-    // Store general purpose registers.
-    stp      x4,  x5, [sp, #16 * -15]
-    stp      x6,  x7, [sp, #16 * -14]
-    stp      x8,  x9, [sp, #16 * -13]
-    stp     x10, x11, [sp, #16 * -12]
-    stp     x12, x13, [sp, #16 * -11]
-    stp     x14, x15, [sp, #16 * -10]
-    stp     x16, x17, [sp, #16 *  -9]
-    stp     x18, x19, [sp, #16 *  -8]
-    stp     x20, x21, [sp, #16 *  -7]
-    stp     x22, x23, [sp, #16 *  -6]
-    stp     x24, x25, [sp, #16 *  -5]
-    stp     x26, x27, [sp, #16 *  -4]
-    stp     x28, x29, [sp, #16 *  -3]
-
     // Store SP.
-    mov     x0, sp
-    str     x0, [sp, -8] // Context::sp
+    str     x1, [x1, -8] // Context::sp
 
-    // Make room on the stack for the exception context.
-    sub     sp, sp, #16 * 50 // size of Context
+    // Store general purpose registers.
+    stp      x4,  x5, [x1, #16 * -15]
+    stp      x6,  x7, [x1, #16 * -14]
+    stp      x8,  x9, [x1, #16 * -13]
+    stp     x10, x11, [x1, #16 * -12]
+    stp     x12, x13, [x1, #16 * -11]
+    stp     x14, x15, [x1, #16 * -10]
+    stp     x16, x17, [x1, #16 *  -9]
+    stp     x18, x19, [x1, #16 *  -8]
+    stp     x20, x21, [x1, #16 *  -7]
+    stp     x22, x23, [x1, #16 *  -6]
+    stp     x24, x25, [x1, #16 *  -5]
+    stp     x26, x27, [x1, #16 *  -4]
+    stp     x28, x29, [x1, #16 *  -3]
 
-    mov     x0, sp // Context::fp_regs
+    mov     x3, sp // Context::fp_regs
 
     // Store all floating-point registers.
-    str      q0, [x0], #16
-    str      q1, [x0], #16
-    str      q2, [x0], #16
-    str      q3, [x0], #16
-    str      q4, [x0], #16
-    str      q5, [x0], #16
-    str      q6, [x0], #16
-    str      q7, [x0], #16
-    str      q8, [x0], #16
-    str      q9, [x0], #16
-    str     q10, [x0], #16
-    str     q11, [x0], #16
-    str     q12, [x0], #16
-    str     q13, [x0], #16
-    str     q14, [x0], #16
-    str     q15, [x0], #16
-    str     q16, [x0], #16
-    str     q17, [x0], #16
-    str     q18, [x0], #16
-    str     q19, [x0], #16
-    str     q20, [x0], #16
-    str     q21, [x0], #16
-    str     q22, [x0], #16
-    str     q23, [x0], #16
-    str     q24, [x0], #16
-    str     q25, [x0], #16
-    str     q26, [x0], #16
-    str     q27, [x0], #16
-    str     q28, [x0], #16
-    str     q29, [x0], #16
-    str     q30, [x0], #16
-    str     q31, [x0], #16
+    str      q0, [x3], #16
+    str      q1, [x3], #16
+    str      q2, [x3], #16
+    str      q3, [x3], #16
+    str      q4, [x3], #16
+    str      q5, [x3], #16
+    str      q6, [x3], #16
+    str      q7, [x3], #16
+    str      q8, [x3], #16
+    str      q9, [x3], #16
+    str     q10, [x3], #16
+    str     q11, [x3], #16
+    str     q12, [x3], #16
+    str     q13, [x3], #16
+    str     q14, [x3], #16
+    str     q15, [x3], #16
+    str     q16, [x3], #16
+    str     q17, [x3], #16
+    str     q18, [x3], #16
+    str     q19, [x3], #16
+    str     q20, [x3], #16
+    str     q21, [x3], #16
+    str     q22, [x3], #16
+    str     q23, [x3], #16
+    str     q24, [x3], #16
+    str     q25, [x3], #16
+    str     q26, [x3], #16
+    str     q27, [x3], #16
+    str     q28, [x3], #16
+    str     q29, [x3], #16
+    str     q30, [x3], #16
+    str     q31, [x3], #16
 
     // Store FPSR and FPCR registers.
     mrs     x3, fpsr
     mrs     x4, fpcr
 
-    stp     x3, x4, [x0]
+    stp     x3, x4, [x3]
 
     ret
 
-//--------------------------------------------------------------------------------------------------
-// Helper functions
-//--------------------------------------------------------------------------------------------------
 exception_restore_context:
     mov     x28, sp
     add     sp, sp, #16 * 50 // Restore SP.
