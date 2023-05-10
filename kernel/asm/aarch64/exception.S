@@ -2,8 +2,15 @@
     // disable all interrupt
     msr     DAIFSet, #0x0f
 
-    // TODO: handle data abort
-    // b       data_abort
+    // handle data abort
+    mrs     x18, esr_\el
+    lsr     x18, x18, #27
+    and     x18, x18, #0b11111
+
+    eor     x18, x18, #0b10000 // x18 == 0b10010 ?
+    eor     x18, x18, #0b00010
+
+    cbz     x18, data_abort
 
     // Store x0 and x1 on the stack.
     stp     x0, x1, [sp, #16 * -17]
@@ -48,6 +55,7 @@
 // TODO
 data_abort:
 1:
+    wfi
     b       1b
 
 exception_store_registers:
@@ -180,9 +188,6 @@ exception_restore_context:
 
     eret
 
-sync_el1:
-    CALL_WITH_CONTEXT lower_el_aarch64_sync_el1 el1 spsr_el1
-
 #if defined(raspi3) || defined(raspi4)
     .balign 0x800
 exception_vector_el2:
@@ -248,6 +253,8 @@ exception_vector_el1:
     CALL_WITH_CONTEXT curr_el_spx_serror_el1 el1 spsr_el1
 
     // from lower EL (AArch64)
+    .balign 0x80
+    CALL_WITH_CONTEXT lower_el_aarch64_sync_el1 el1 spsr_el1
     .balign 0x80
     CALL_WITH_CONTEXT lower_el_aarch64_irq_el1 el1 spsr_el1
     .balign 0x80
