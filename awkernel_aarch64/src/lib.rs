@@ -393,6 +393,7 @@ sysreg_read!(ctr_el0);
 
 sysreg!(elr_el1);
 sysreg!(spsr_el1);
+sysreg!(spsel);
 sysreg!(cntkctl_el1);
 sysreg!(sctlr_el1);
 sysreg!(actlr_el1);

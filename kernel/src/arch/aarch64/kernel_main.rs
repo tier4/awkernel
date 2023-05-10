@@ -100,6 +100,12 @@ unsafe fn primary_cpu() {
         backup_size
     );
 
+    if awkernel_aarch64::spsel::get() & 1 == 0 {
+        log::info!("Use SP_EL0.");
+    } else {
+        log::info!("Use SP_ELx.");
+    }
+
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
