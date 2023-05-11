@@ -293,7 +293,7 @@ procedure CALL_WITH_CONTEXT()
 variables
     ctx_start;
 begin
-    start_interrupt:
+    start_call_with_context:
         ctx_start := registers;
         counter := counter + 1;
 
@@ -361,7 +361,7 @@ begin
 
     C17: call exception_restore_context();
 
-    end_interrupt:
+    end_call_with_context:
         assert ctx_start = registers;
         counter := counter - 1;
         return;
@@ -539,7 +539,7 @@ procedure handler() begin
     H027: inc("x27");
     H028: inc("x28");
     H029: inc("x29");
-    H031: inc("lr");
+    H030: inc("lr");
 
     H_INT00: call interrupt();
 
@@ -591,9 +591,7 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "36200a79" /\ chksum(tla) = "79fdf8bb")
-\* Label start_interrupt of procedure interrupt at line 132 col 9 changed to start_interrupt_
-\* Label end_interrupt of procedure interrupt at line 139 col 9 changed to end_interrupt_
+\* BEGIN TRANSLATION (chksum(pcal) = "e37a7735" /\ chksum(tla) = "a946eb02")
 \* Procedure variable addr of procedure str at line 153 col 5 changed to addr_
 \* Procedure variable addr of procedure ldr at line 171 col 5 changed to addr_l
 \* Procedure variable addr of procedure str_add at line 190 col 5 changed to addr_s
@@ -760,38 +758,38 @@ Init == (* Global variables *)
         /\ stack = << >>
         /\ pc = "start"
 
-start_interrupt_ == /\ pc = "start_interrupt_"
-                    /\ \/ /\ TRUE
-                          /\ pc' = "end_interrupt_"
-                          /\ UNCHANGED <<stack, ctx_start>>
-                       \/ /\ stack' = << [ procedure |->  "CALL_WITH_CONTEXT",
-                                           pc        |->  "end_interrupt_",
-                                           ctx_start |->  ctx_start ] >>
-                                       \o stack
-                          /\ ctx_start' = defaultInitValue
-                          /\ pc' = "start_interrupt"
-                    /\ UNCHANGED << counter, data_abort, stack_memory, 
-                                    registers, reg1_, reg2_, offset_, addr_, 
-                                    reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                                    reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                                    offset_ld, addr_ld, reg1_st, reg2_st, 
-                                    reg3_, offset_st, addr_st, reg1_ldp, 
-                                    reg2_ldp, reg3_l, offset_ldp, addr_ldp, 
-                                    reg1, reg2, reg3, offset, addr >>
+start_interrupt == /\ pc = "start_interrupt"
+                   /\ \/ /\ TRUE
+                         /\ pc' = "end_interrupt"
+                         /\ UNCHANGED <<stack, ctx_start>>
+                      \/ /\ stack' = << [ procedure |->  "CALL_WITH_CONTEXT",
+                                          pc        |->  "end_interrupt",
+                                          ctx_start |->  ctx_start ] >>
+                                      \o stack
+                         /\ ctx_start' = defaultInitValue
+                         /\ pc' = "start_call_with_context"
+                   /\ UNCHANGED << counter, data_abort, stack_memory, 
+                                   registers, reg1_, reg2_, offset_, addr_, 
+                                   reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                                   reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                                   offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                                   offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                                   reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                                   reg3, offset, addr >>
 
-end_interrupt_ == /\ pc = "end_interrupt_"
-                  /\ pc' = Head(stack).pc
-                  /\ stack' = Tail(stack)
-                  /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                                  reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
-                                  offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                                  addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
-                                  reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                                  reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                                  addr_ldp, reg1, reg2, reg3, offset, addr, 
-                                  ctx_start >>
+end_interrupt == /\ pc = "end_interrupt"
+                 /\ pc' = Head(stack).pc
+                 /\ stack' = Tail(stack)
+                 /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
+                                 reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
+                                 offset_l, addr_l, reg1_s, reg2_s, offset_s, 
+                                 addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                                 reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                                 reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                                 addr_ldp, reg1, reg2, reg3, offset, addr, 
+                                 ctx_start >>
 
-interrupt == start_interrupt_ \/ end_interrupt_
+interrupt == start_interrupt \/ end_interrupt
 
 loop_data_abort == /\ pc = "loop_data_abort"
                    /\ data_abort' = TRUE
@@ -1177,18 +1175,20 @@ ldp_add4 == /\ pc = "ldp_add4"
 
 ldp_add == ldp_add0 \/ ldp_add1 \/ ldp_add2 \/ ldp_add3 \/ ldp_add4
 
-start_interrupt == /\ pc = "start_interrupt"
-                   /\ ctx_start' = registers
-                   /\ counter' = counter + 1
-                   /\ pc' = "C0"
-                   /\ UNCHANGED << data_abort, stack_memory, registers, stack, 
-                                   reg1_, reg2_, offset_, addr_, reg1_l, 
-                                   reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
-                                   offset_s, addr_s, reg1_ld, reg2_ld, 
-                                   offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                                   offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                                   reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                                   reg3, offset, addr >>
+start_call_with_context == /\ pc = "start_call_with_context"
+                           /\ ctx_start' = registers
+                           /\ counter' = counter + 1
+                           /\ pc' = "C0"
+                           /\ UNCHANGED << data_abort, stack_memory, registers, 
+                                           stack, reg1_, reg2_, offset_, addr_, 
+                                           reg1_l, reg2_l, offset_l, addr_l, 
+                                           reg1_s, reg2_s, offset_s, addr_s, 
+                                           reg1_ld, reg2_ld, offset_ld, 
+                                           addr_ld, reg1_st, reg2_st, reg3_, 
+                                           offset_st, addr_st, reg1_ldp, 
+                                           reg2_ldp, reg3_l, offset_ldp, 
+                                           addr_ldp, reg1, reg2, reg3, offset, 
+                                           addr >>
 
 C0 == /\ pc = "C0"
       /\ /\ offset_st' = 16 * (-17)
@@ -1320,7 +1320,7 @@ C_INT00 == /\ pc = "C_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C9" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1343,7 +1343,7 @@ C_INT01 == /\ pc = "C_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C10" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1390,7 +1390,7 @@ C_INT02 == /\ pc = "C_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C12" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1455,7 +1455,7 @@ C_INT03 == /\ pc = "C_INT03"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C15" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1488,7 +1488,7 @@ C_INT04 == /\ pc = "C_INT04"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C17" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1499,7 +1499,7 @@ C_INT04 == /\ pc = "C_INT04"
 
 C17 == /\ pc = "C17"
        /\ stack' = << [ procedure |->  "exception_restore_context",
-                        pc        |->  "end_interrupt" ] >>
+                        pc        |->  "end_call_with_context" ] >>
                     \o stack
        /\ pc' = "R000"
        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
@@ -1509,26 +1509,28 @@ C17 == /\ pc = "C17"
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-end_interrupt == /\ pc = "end_interrupt"
-                 /\ Assert(ctx_start = registers, 
-                           "Failure of assertion at line 365, column 9.")
-                 /\ counter' = counter - 1
-                 /\ pc' = Head(stack).pc
-                 /\ ctx_start' = Head(stack).ctx_start
-                 /\ stack' = Tail(stack)
-                 /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, 
-                                 reg2_, offset_, addr_, reg1_l, reg2_l, 
-                                 offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                                 addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
-                                 reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                                 reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                                 addr_ldp, reg1, reg2, reg3, offset, addr >>
+end_call_with_context == /\ pc = "end_call_with_context"
+                         /\ Assert(ctx_start = registers, 
+                                   "Failure of assertion at line 365, column 9.")
+                         /\ counter' = counter - 1
+                         /\ pc' = Head(stack).pc
+                         /\ ctx_start' = Head(stack).ctx_start
+                         /\ stack' = Tail(stack)
+                         /\ UNCHANGED << data_abort, stack_memory, registers, 
+                                         reg1_, reg2_, offset_, addr_, reg1_l, 
+                                         reg2_l, offset_l, addr_l, reg1_s, 
+                                         reg2_s, offset_s, addr_s, reg1_ld, 
+                                         reg2_ld, offset_ld, addr_ld, reg1_st, 
+                                         reg2_st, reg3_, offset_st, addr_st, 
+                                         reg1_ldp, reg2_ldp, reg3_l, 
+                                         offset_ldp, addr_ldp, reg1, reg2, 
+                                         reg3, offset, addr >>
 
-CALL_WITH_CONTEXT == start_interrupt \/ C0 \/ C1 \/ C2 \/ C3 \/ C4 \/ C6
-                        \/ C7 \/ C5 \/ C_INT00 \/ C9 \/ C_INT01 \/ C10
-                        \/ C8 \/ C11 \/ C_INT02 \/ C12 \/ C13 \/ C14
+CALL_WITH_CONTEXT == start_call_with_context \/ C0 \/ C1 \/ C2 \/ C3 \/ C4
+                        \/ C6 \/ C7 \/ C5 \/ C_INT00 \/ C9 \/ C_INT01
+                        \/ C10 \/ C8 \/ C11 \/ C_INT02 \/ C12 \/ C13 \/ C14
                         \/ C_INT03 \/ C15 \/ C16 \/ C_INT04 \/ C17
-                        \/ end_interrupt
+                        \/ end_call_with_context
 
 S000 == /\ pc = "S000"
         /\ /\ offset_' = -8
@@ -1554,7 +1556,7 @@ S_INT00 == /\ pc = "S_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S001" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1853,7 +1855,7 @@ S_INT01 == /\ pc = "S_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S14" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -1876,7 +1878,7 @@ S_INT02 == /\ pc = "S_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S100" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -2529,7 +2531,7 @@ S_INT03 == /\ pc = "S_INT03"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S200" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -2606,7 +2608,7 @@ R_INT00 == /\ pc = "R_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R100" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -3259,7 +3261,7 @@ R_INT01 == /\ pc = "R_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R200" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -3314,7 +3316,7 @@ R_INT02 == /\ pc = "R_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R300" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -3657,7 +3659,7 @@ R_INT03 == /\ pc = "R_INT03"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R400" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -3982,7 +3984,7 @@ H028 == /\ pc = "H028"
 
 H029 == /\ pc = "H029"
         /\ registers' = [registers EXCEPT !["x29"] = registers["x29"] + 1]
-        /\ pc' = "H031"
+        /\ pc' = "H030"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
@@ -3990,7 +3992,7 @@ H029 == /\ pc = "H029"
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-H031 == /\ pc = "H031"
+H030 == /\ pc = "H030"
         /\ registers' = [registers EXCEPT !["lr"] = registers["lr"] + 1]
         /\ pc' = "H_INT00"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
@@ -4004,7 +4006,7 @@ H_INT00 == /\ pc = "H_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "H100" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -4337,7 +4339,7 @@ H_INT01 == /\ pc = "H_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "H200" ] >>
                         \o stack
-           /\ pc' = "start_interrupt_"
+           /\ pc' = "start_interrupt"
            /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -4391,7 +4393,7 @@ handler == H000 \/ H001 \/ H002 \/ H003 \/ H004 \/ H005 \/ H006 \/ H007
               \/ H008 \/ H009 \/ H010 \/ H011 \/ H012 \/ H013 \/ H014
               \/ H015 \/ H016 \/ H017 \/ H018 \/ H019 \/ H020 \/ H021
               \/ H022 \/ H023 \/ H024 \/ H025 \/ H026 \/ H027 \/ H028
-              \/ H029 \/ H031 \/ H_INT00 \/ H100 \/ H101 \/ H102 \/ H103
+              \/ H029 \/ H030 \/ H_INT00 \/ H100 \/ H101 \/ H102 \/ H103
               \/ H104 \/ H105 \/ H106 \/ H107 \/ H108 \/ H109 \/ H110
               \/ H111 \/ H112 \/ H113 \/ H114 \/ H115 \/ H116 \/ H117
               \/ H118 \/ H119 \/ H120 \/ H121 \/ H122 \/ H123 \/ H124
@@ -4404,7 +4406,7 @@ start == /\ pc = "start"
                           ctx_start |->  ctx_start ] >>
                       \o stack
          /\ ctx_start' = defaultInitValue
-         /\ pc' = "start_interrupt"
+         /\ pc' = "start_call_with_context"
          /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                          reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                          addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 

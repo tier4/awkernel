@@ -30,6 +30,7 @@
         "raspi4"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false,
+    "tlaplus.tlc.modelChecker.options": "-workers auto",
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
