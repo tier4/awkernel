@@ -16,12 +16,16 @@
     stp     x0, x1, [sp, #16 * -17]
     stp     x2, x3, [sp, #16 * -16]
 
-    // Store x30 and the exception link register.
+    // Store x31 and ELR.
     mrs     x3, elr_\el
     stp     lr, x3, [sp, #16 * -2]
 
     // x2 is the third argument for the function called through `\handler`.
     mrs     x2, esr_\el
+
+    // Store SPSR.
+    mrs     x3, \spsr_reg
+    str     w3, [sp, #16 * -1] // Context::spsr
 
     // Make room on the stack for the exception context.
     sub     sp, sp, #16 * 50 // size of Context
@@ -29,17 +33,13 @@
     // enable all interrupt
     msr     DAIFClr, #0x0f
 
-    // Store SPSR.
-    mrs     x3, \spsr_reg
-    str     w3, [sp, #16 * -1] // Context::spsr
-
-    // x0 is the first argument for the function called through `\handler`.
-    mov     x0, sp // Context
-
     // x1 is the second argument for the function called through `\handler`.
     add     x1, sp, #16 * 50 // SP (original)
 
     bl      exception_store_registers
+
+    // x0 is the first argument for the function called through `\handler`.
+    mov     x0, sp // Context
 
     // Call `\handler`.
     bl      \handler
@@ -120,10 +120,9 @@ exception_store_registers:
     str     q31, [x3], #16
 
     // Store FPSR and FPCR registers.
-    mrs     x3, fpsr
+    mrs     x0, fpsr
     mrs     x4, fpcr
-
-    stp     x3, x4, [x3]
+    stp     x0, x4, [x3]
 
     ret
 
