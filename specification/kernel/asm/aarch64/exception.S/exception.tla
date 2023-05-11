@@ -41,7 +41,7 @@ variables
         x27 |-> 27,
         x28 |-> 28,
         x29 |-> 29,
-        lr |-> 30, \* equivalent to "x31"
+        lr |-> 30, \* equivalent to "x30"
 
         \* floating-point registers
         q0 |-> 100,
@@ -126,6 +126,18 @@ end macro;
 macro sub(dst, src, imm) begin
     registers[dst] := registers[src] - imm;
 end macro;
+
+procedure interrupt() begin
+    start_interrupt:
+        either
+            skip;
+        or
+            call CALL_WITH_CONTEXT();
+        end either;
+
+    end_interrupt:
+        return;
+end procedure;
 
 procedure data_abort_exception() begin
     loop_data_abort:
@@ -319,8 +331,12 @@ begin
     \* // enable all interrupt
     \* msr     DAIFClr, #0x0f
 
+    C_INT00: call interrupt();
+
     \* // x1 is the second argument for the function called through `\handler`.
     C9: add("x1", "sp", 16 * 50);
+
+    C_INT01: call interrupt();
 
     C10: call exception_store_registers();
 
@@ -330,18 +346,23 @@ begin
     \* // Call `\handler`.
     C11: call handler();
 
+    C_INT02: call interrupt();
+
     C12: add("x0", "sp", 16 * 48);
     C13: call ldp_add("lr", "x1", "x0", 16);
     C14: call ldr("x2", "x0", 0);
 
+    C_INT03: call interrupt();
+
     C15: msr("elr", "x1");
     C16: msr("spsr", "x2");
+
+    C_INT04: call interrupt();
 
     C17: call exception_restore_context();
 
     end_interrupt:
         assert ctx_start = registers;
-        print registers;
         counter := counter - 1;
         return;
 end procedure;
@@ -349,6 +370,8 @@ end procedure;
 procedure exception_store_registers() begin
     \* // Store SP.
     S000: call str("x1", "x1", -8);
+
+    S_INT00: call interrupt();
 
     \* // Store general purpose registers.
     S001: call stp( "x4",  "x5", "x1", 16 * (-15));
@@ -365,7 +388,11 @@ procedure exception_store_registers() begin
     S012: call stp("x26", "x27", "x1", 16 *  (-4));
     S013: call stp("x28", "x29", "x1", 16 *  (-3));
 
+    S_INT01: call interrupt();
+
     S14: mov("x3", "sp");
+
+    S_INT02: call interrupt();
 
     \* // Store all floating-point registers.
     S100: call str_add("q0", "x3", 16);
@@ -401,6 +428,8 @@ procedure exception_store_registers() begin
     S130: call str_add("q30", "x3", 16);
     S131: call str_add("q31", "x3", 16);
 
+    S_INT03: call interrupt();
+
     \* // Store FPSR and FPCR registers.
     S200: mrs("x0", "fpsr");
     S201: mrs("x4", "fpcr");
@@ -411,6 +440,8 @@ end procedure;
 
 procedure exception_restore_context() begin
     R000: mov("x28", "sp");
+
+    R_INT00: call interrupt();
 
     R100: call ldr_add("q0", "x28", 16);
     R101: call ldr_add("q1", "x28", 16);
@@ -445,10 +476,14 @@ procedure exception_restore_context() begin
     R130: call ldr_add("q30", "x28", 16);
     R131: call ldr_add("q31", "x28", 16);
 
+    R_INT01: call interrupt();
+
     R200: call ldp_add("x0", "x1", "x28", 16); \* Load FPSR and FPCR.
 
     R201: msr("fpsr", "x0"); \* Restore FPSR
     R202: msr("fpcr", "x1"); \* Restore FPCR.
+
+    R_INT02: call interrupt();
 
     R300: call ldp_add( "x0",  "x1", "x28", 16);
     R301: call ldp_add( "x2",  "x3", "x28", 16);
@@ -465,6 +500,8 @@ procedure exception_restore_context() begin
     R312: call ldp_add("x24", "x25", "x28", 16);
     R313: call ldp_add("x26", "x27", "x28", 16);
     R314: call ldp("x28", "x29", "x28", 0);
+
+    R_INT03: call interrupt();
 
     R400: add("sp", "sp", 16 * 50); \* Restore SP.
 
@@ -504,6 +541,8 @@ procedure handler() begin
     H029: inc("x29");
     H031: inc("lr");
 
+    H_INT00: call interrupt();
+
     H100: inc("q0");
     H101: inc("q1");
     H102: inc("q2");
@@ -537,6 +576,8 @@ procedure handler() begin
     H130: inc("q30");
     H131: inc("q31");
 
+    H_INT01: call interrupt();
+
     H200: inc("elr");
     H201: inc("spsr");
     H202: inc("fpsr");
@@ -550,33 +591,35 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "209a7b04" /\ chksum(tla) = "e2a9d88e")
-\* Procedure variable addr of procedure str at line 141 col 5 changed to addr_
-\* Procedure variable addr of procedure ldr at line 159 col 5 changed to addr_l
-\* Procedure variable addr of procedure str_add at line 178 col 5 changed to addr_s
-\* Procedure variable addr of procedure ldr_add at line 199 col 5 changed to addr_ld
-\* Procedure variable addr of procedure stp at line 220 col 5 changed to addr_st
-\* Procedure variable addr of procedure ldp at line 241 col 5 changed to addr_ldp
-\* Parameter reg1 of procedure str at line 139 col 15 changed to reg1_
-\* Parameter reg2 of procedure str at line 139 col 21 changed to reg2_
-\* Parameter offset of procedure str at line 139 col 27 changed to offset_
-\* Parameter reg1 of procedure ldr at line 157 col 15 changed to reg1_l
-\* Parameter reg2 of procedure ldr at line 157 col 21 changed to reg2_l
-\* Parameter offset of procedure ldr at line 157 col 27 changed to offset_l
-\* Parameter reg1 of procedure str_add at line 176 col 19 changed to reg1_s
-\* Parameter reg2 of procedure str_add at line 176 col 25 changed to reg2_s
-\* Parameter offset of procedure str_add at line 176 col 31 changed to offset_s
-\* Parameter reg1 of procedure ldr_add at line 197 col 19 changed to reg1_ld
-\* Parameter reg2 of procedure ldr_add at line 197 col 25 changed to reg2_ld
-\* Parameter offset of procedure ldr_add at line 197 col 31 changed to offset_ld
-\* Parameter reg1 of procedure stp at line 218 col 15 changed to reg1_st
-\* Parameter reg2 of procedure stp at line 218 col 21 changed to reg2_st
-\* Parameter reg3 of procedure stp at line 218 col 27 changed to reg3_
-\* Parameter offset of procedure stp at line 218 col 33 changed to offset_st
-\* Parameter reg1 of procedure ldp at line 239 col 15 changed to reg1_ldp
-\* Parameter reg2 of procedure ldp at line 239 col 21 changed to reg2_ldp
-\* Parameter reg3 of procedure ldp at line 239 col 27 changed to reg3_l
-\* Parameter offset of procedure ldp at line 239 col 33 changed to offset_ldp
+\* BEGIN TRANSLATION (chksum(pcal) = "36200a79" /\ chksum(tla) = "79fdf8bb")
+\* Label start_interrupt of procedure interrupt at line 132 col 9 changed to start_interrupt_
+\* Label end_interrupt of procedure interrupt at line 139 col 9 changed to end_interrupt_
+\* Procedure variable addr of procedure str at line 153 col 5 changed to addr_
+\* Procedure variable addr of procedure ldr at line 171 col 5 changed to addr_l
+\* Procedure variable addr of procedure str_add at line 190 col 5 changed to addr_s
+\* Procedure variable addr of procedure ldr_add at line 211 col 5 changed to addr_ld
+\* Procedure variable addr of procedure stp at line 232 col 5 changed to addr_st
+\* Procedure variable addr of procedure ldp at line 253 col 5 changed to addr_ldp
+\* Parameter reg1 of procedure str at line 151 col 15 changed to reg1_
+\* Parameter reg2 of procedure str at line 151 col 21 changed to reg2_
+\* Parameter offset of procedure str at line 151 col 27 changed to offset_
+\* Parameter reg1 of procedure ldr at line 169 col 15 changed to reg1_l
+\* Parameter reg2 of procedure ldr at line 169 col 21 changed to reg2_l
+\* Parameter offset of procedure ldr at line 169 col 27 changed to offset_l
+\* Parameter reg1 of procedure str_add at line 188 col 19 changed to reg1_s
+\* Parameter reg2 of procedure str_add at line 188 col 25 changed to reg2_s
+\* Parameter offset of procedure str_add at line 188 col 31 changed to offset_s
+\* Parameter reg1 of procedure ldr_add at line 209 col 19 changed to reg1_ld
+\* Parameter reg2 of procedure ldr_add at line 209 col 25 changed to reg2_ld
+\* Parameter offset of procedure ldr_add at line 209 col 31 changed to offset_ld
+\* Parameter reg1 of procedure stp at line 230 col 15 changed to reg1_st
+\* Parameter reg2 of procedure stp at line 230 col 21 changed to reg2_st
+\* Parameter reg3 of procedure stp at line 230 col 27 changed to reg3_
+\* Parameter offset of procedure stp at line 230 col 33 changed to offset_st
+\* Parameter reg1 of procedure ldp at line 251 col 15 changed to reg1_ldp
+\* Parameter reg2 of procedure ldp at line 251 col 21 changed to reg2_ldp
+\* Parameter reg3 of procedure ldp at line 251 col 27 changed to reg3_l
+\* Parameter offset of procedure ldp at line 251 col 33 changed to offset_ldp
 CONSTANT defaultInitValue
 VARIABLES counter, data_abort, stack_memory, registers, pc, stack, reg1_, 
           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
@@ -716,6 +759,39 @@ Init == (* Global variables *)
         /\ ctx_start = defaultInitValue
         /\ stack = << >>
         /\ pc = "start"
+
+start_interrupt_ == /\ pc = "start_interrupt_"
+                    /\ \/ /\ TRUE
+                          /\ pc' = "end_interrupt_"
+                          /\ UNCHANGED <<stack, ctx_start>>
+                       \/ /\ stack' = << [ procedure |->  "CALL_WITH_CONTEXT",
+                                           pc        |->  "end_interrupt_",
+                                           ctx_start |->  ctx_start ] >>
+                                       \o stack
+                          /\ ctx_start' = defaultInitValue
+                          /\ pc' = "start_interrupt"
+                    /\ UNCHANGED << counter, data_abort, stack_memory, 
+                                    registers, reg1_, reg2_, offset_, addr_, 
+                                    reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                                    reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                                    offset_ld, addr_ld, reg1_st, reg2_st, 
+                                    reg3_, offset_st, addr_st, reg1_ldp, 
+                                    reg2_ldp, reg3_l, offset_ldp, addr_ldp, 
+                                    reg1, reg2, reg3, offset, addr >>
+
+end_interrupt_ == /\ pc = "end_interrupt_"
+                  /\ pc' = Head(stack).pc
+                  /\ stack' = Tail(stack)
+                  /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
+                                  reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
+                                  offset_l, addr_l, reg1_s, reg2_s, offset_s, 
+                                  addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                                  reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                                  reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                                  addr_ldp, reg1, reg2, reg3, offset, addr, 
+                                  ctx_start >>
+
+interrupt == start_interrupt_ \/ end_interrupt_
 
 loop_data_abort == /\ pc = "loop_data_abort"
                    /\ data_abort' = TRUE
@@ -1232,7 +1308,7 @@ C7 == /\ pc = "C7"
 
 C5 == /\ pc = "C5"
       /\ registers' = [registers EXCEPT !["sp"] = registers["sp"] - (16 * 50)]
-      /\ pc' = "C9"
+      /\ pc' = "C_INT00"
       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
                       reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
@@ -1240,15 +1316,41 @@ C5 == /\ pc = "C5"
                       reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
                       reg2, reg3, offset, addr, ctx_start >>
 
+C_INT00 == /\ pc = "C_INT00"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "C9" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
+
 C9 == /\ pc = "C9"
       /\ registers' = [registers EXCEPT !["x1"] = registers["sp"] + (16 * 50)]
-      /\ pc' = "C10"
+      /\ pc' = "C_INT01"
       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
                       reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
                       addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
                       reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
                       reg2, reg3, offset, addr, ctx_start >>
+
+C_INT01 == /\ pc = "C_INT01"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "C10" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 C10 == /\ pc = "C10"
        /\ stack' = << [ procedure |->  "exception_store_registers",
@@ -1274,7 +1376,7 @@ C8 == /\ pc = "C8"
 
 C11 == /\ pc = "C11"
        /\ stack' = << [ procedure |->  "handler",
-                        pc        |->  "C12" ] >>
+                        pc        |->  "C_INT02" ] >>
                     \o stack
        /\ pc' = "H000"
        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
@@ -1283,6 +1385,19 @@ C11 == /\ pc = "C11"
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+C_INT02 == /\ pc = "C_INT02"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "C12" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 C12 == /\ pc = "C12"
        /\ registers' = [registers EXCEPT !["x0"] = registers["sp"] + (16 * 48)]
@@ -1321,7 +1436,7 @@ C14 == /\ pc = "C14"
           /\ reg1_l' = "x2"
           /\ reg2_l' = "x0"
           /\ stack' = << [ procedure |->  "ldr",
-                           pc        |->  "C15",
+                           pc        |->  "C_INT03",
                            addr_l    |->  addr_l,
                            reg1_l    |->  reg1_l,
                            reg2_l    |->  reg2_l,
@@ -1336,6 +1451,19 @@ C14 == /\ pc = "C14"
                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
                        ctx_start >>
 
+C_INT03 == /\ pc = "C_INT03"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "C15" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
+
 C15 == /\ pc = "C15"
        /\ registers' = [registers EXCEPT !["elr"] = registers["x1"]]
        /\ pc' = "C16"
@@ -1348,13 +1476,26 @@ C15 == /\ pc = "C15"
 
 C16 == /\ pc = "C16"
        /\ registers' = [registers EXCEPT !["spsr"] = registers["x2"]]
-       /\ pc' = "C17"
+       /\ pc' = "C_INT04"
        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+C_INT04 == /\ pc = "C_INT04"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "C17" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 C17 == /\ pc = "C17"
        /\ stack' = << [ procedure |->  "exception_restore_context",
@@ -1370,8 +1511,7 @@ C17 == /\ pc = "C17"
 
 end_interrupt == /\ pc = "end_interrupt"
                  /\ Assert(ctx_start = registers, 
-                           "Failure of assertion at line 343, column 9.")
-                 /\ PrintT(registers)
+                           "Failure of assertion at line 365, column 9.")
                  /\ counter' = counter - 1
                  /\ pc' = Head(stack).pc
                  /\ ctx_start' = Head(stack).ctx_start
@@ -1385,15 +1525,17 @@ end_interrupt == /\ pc = "end_interrupt"
                                  addr_ldp, reg1, reg2, reg3, offset, addr >>
 
 CALL_WITH_CONTEXT == start_interrupt \/ C0 \/ C1 \/ C2 \/ C3 \/ C4 \/ C6
-                        \/ C7 \/ C5 \/ C9 \/ C10 \/ C8 \/ C11 \/ C12 \/ C13
-                        \/ C14 \/ C15 \/ C16 \/ C17 \/ end_interrupt
+                        \/ C7 \/ C5 \/ C_INT00 \/ C9 \/ C_INT01 \/ C10
+                        \/ C8 \/ C11 \/ C_INT02 \/ C12 \/ C13 \/ C14
+                        \/ C_INT03 \/ C15 \/ C16 \/ C_INT04 \/ C17
+                        \/ end_interrupt
 
 S000 == /\ pc = "S000"
         /\ /\ offset_' = -8
            /\ reg1_' = "x1"
            /\ reg2_' = "x1"
            /\ stack' = << [ procedure |->  "str",
-                            pc        |->  "S001",
+                            pc        |->  "S_INT00",
                             addr_     |->  addr_,
                             reg1_     |->  reg1_,
                             reg2_     |->  reg2_,
@@ -1407,6 +1549,19 @@ S000 == /\ pc = "S000"
                         reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
                         reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
+
+S_INT00 == /\ pc = "S_INT00"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "S001" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 S001 == /\ pc = "S001"
         /\ /\ offset_st' = 16 * (-15)
@@ -1678,7 +1833,7 @@ S013 == /\ pc = "S013"
            /\ reg2_st' = "x29"
            /\ reg3_' = "x1"
            /\ stack' = << [ procedure |->  "stp",
-                            pc        |->  "S14",
+                            pc        |->  "S_INT01",
                             addr_st   |->  addr_st,
                             reg1_st   |->  reg1_st,
                             reg2_st   |->  reg2_st,
@@ -1694,15 +1849,41 @@ S013 == /\ pc = "S013"
                         reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
 
+S_INT01 == /\ pc = "S_INT01"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "S14" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
+
 S14 == /\ pc = "S14"
        /\ registers' = [registers EXCEPT !["x3"] = registers["sp"]]
-       /\ pc' = "S100"
+       /\ pc' = "S_INT02"
        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+S_INT02 == /\ pc = "S_INT02"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "S100" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 S100 == /\ pc = "S100"
         /\ /\ offset_s' = 16
@@ -2329,7 +2510,7 @@ S131 == /\ pc = "S131"
            /\ reg1_s' = "q31"
            /\ reg2_s' = "x3"
            /\ stack' = << [ procedure |->  "str_add",
-                            pc        |->  "S200",
+                            pc        |->  "S_INT03",
                             addr_s    |->  addr_s,
                             reg1_s    |->  reg1_s,
                             reg2_s    |->  reg2_s,
@@ -2343,6 +2524,19 @@ S131 == /\ pc = "S131"
                         reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
                         reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
+
+S_INT03 == /\ pc = "S_INT03"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "S200" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 S200 == /\ pc = "S200"
         /\ registers' = [registers EXCEPT !["x0"] = registers["fpsr"]]
@@ -2386,26 +2580,40 @@ S202 == /\ pc = "S202"
                         reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
 
-exception_store_registers == S000 \/ S001 \/ S002 \/ S003 \/ S004 \/ S005
-                                \/ S006 \/ S007 \/ S008 \/ S009 \/ S010
-                                \/ S011 \/ S012 \/ S013 \/ S14 \/ S100
+exception_store_registers == S000 \/ S_INT00 \/ S001 \/ S002 \/ S003
+                                \/ S004 \/ S005 \/ S006 \/ S007 \/ S008
+                                \/ S009 \/ S010 \/ S011 \/ S012 \/ S013
+                                \/ S_INT01 \/ S14 \/ S_INT02 \/ S100
                                 \/ S101 \/ S102 \/ S103 \/ S104 \/ S105
                                 \/ S106 \/ S107 \/ S108 \/ S109 \/ S110
                                 \/ S111 \/ S112 \/ S113 \/ S114 \/ S115
                                 \/ S116 \/ S117 \/ S118 \/ S119 \/ S120
                                 \/ S121 \/ S122 \/ S123 \/ S124 \/ S125
                                 \/ S126 \/ S127 \/ S128 \/ S129 \/ S130
-                                \/ S131 \/ S200 \/ S201 \/ S202
+                                \/ S131 \/ S_INT03 \/ S200 \/ S201 \/ S202
 
 R000 == /\ pc = "R000"
         /\ registers' = [registers EXCEPT !["x28"] = registers["sp"]]
-        /\ pc' = "R100"
+        /\ pc' = "R_INT00"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+R_INT00 == /\ pc = "R_INT00"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "R100" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 R100 == /\ pc = "R100"
         /\ /\ offset_ld' = 16
@@ -3032,7 +3240,7 @@ R131 == /\ pc = "R131"
            /\ reg1_ld' = "q31"
            /\ reg2_ld' = "x28"
            /\ stack' = << [ procedure |->  "ldr_add",
-                            pc        |->  "R200",
+                            pc        |->  "R_INT01",
                             addr_ld   |->  addr_ld,
                             reg1_ld   |->  reg1_ld,
                             reg2_ld   |->  reg2_ld,
@@ -3046,6 +3254,19 @@ R131 == /\ pc = "R131"
                         reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
                         reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
+
+R_INT01 == /\ pc = "R_INT01"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "R200" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 R200 == /\ pc = "R200"
         /\ /\ offset' = 16
@@ -3081,13 +3302,26 @@ R201 == /\ pc = "R201"
 
 R202 == /\ pc = "R202"
         /\ registers' = [registers EXCEPT !["fpcr"] = registers["x1"]]
-        /\ pc' = "R300"
+        /\ pc' = "R_INT02"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+R_INT02 == /\ pc = "R_INT02"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "R300" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 R300 == /\ pc = "R300"
         /\ /\ offset' = 16
@@ -3403,7 +3637,7 @@ R314 == /\ pc = "R314"
            /\ reg2_ldp' = "x29"
            /\ reg3_l' = "x28"
            /\ stack' = << [ procedure |->  "ldp",
-                            pc        |->  "R400",
+                            pc        |->  "R_INT03",
                             addr_ldp  |->  addr_ldp,
                             reg1_ldp  |->  reg1_ldp,
                             reg2_ldp  |->  reg2_ldp,
@@ -3419,6 +3653,19 @@ R314 == /\ pc = "R314"
                         offset_st, addr_st, reg1, reg2, reg3, offset, addr, 
                         ctx_start >>
 
+R_INT03 == /\ pc = "R_INT03"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "R400" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
+
 R400 == /\ pc = "R400"
         /\ registers' = [registers EXCEPT !["sp"] = registers["sp"] + (16 * 50)]
         /\ pc' = Head(stack).pc
@@ -3430,16 +3677,17 @@ R400 == /\ pc = "R400"
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-exception_restore_context == R000 \/ R100 \/ R101 \/ R102 \/ R103 \/ R104
-                                \/ R105 \/ R106 \/ R107 \/ R108 \/ R109
-                                \/ R110 \/ R111 \/ R112 \/ R113 \/ R114
-                                \/ R115 \/ R116 \/ R117 \/ R118 \/ R119
-                                \/ R120 \/ R121 \/ R122 \/ R123 \/ R124
-                                \/ R125 \/ R126 \/ R127 \/ R128 \/ R129
-                                \/ R130 \/ R131 \/ R200 \/ R201 \/ R202
-                                \/ R300 \/ R301 \/ R302 \/ R303 \/ R304
-                                \/ R305 \/ R306 \/ R307 \/ R308 \/ R309
-                                \/ R310 \/ R311 \/ R312 \/ R313 \/ R314
+exception_restore_context == R000 \/ R_INT00 \/ R100 \/ R101 \/ R102
+                                \/ R103 \/ R104 \/ R105 \/ R106 \/ R107
+                                \/ R108 \/ R109 \/ R110 \/ R111 \/ R112
+                                \/ R113 \/ R114 \/ R115 \/ R116 \/ R117
+                                \/ R118 \/ R119 \/ R120 \/ R121 \/ R122
+                                \/ R123 \/ R124 \/ R125 \/ R126 \/ R127
+                                \/ R128 \/ R129 \/ R130 \/ R131 \/ R_INT01
+                                \/ R200 \/ R201 \/ R202 \/ R_INT02 \/ R300
+                                \/ R301 \/ R302 \/ R303 \/ R304 \/ R305
+                                \/ R306 \/ R307 \/ R308 \/ R309 \/ R310
+                                \/ R311 \/ R312 \/ R313 \/ R314 \/ R_INT03
                                 \/ R400
 
 H000 == /\ pc = "H000"
@@ -3744,13 +3992,26 @@ H029 == /\ pc = "H029"
 
 H031 == /\ pc = "H031"
         /\ registers' = [registers EXCEPT !["lr"] = registers["lr"] + 1]
-        /\ pc' = "H100"
+        /\ pc' = "H_INT00"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+H_INT00 == /\ pc = "H_INT00"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "H100" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 H100 == /\ pc = "H100"
         /\ registers' = [registers EXCEPT !["q0"] = registers["q0"] + 1]
@@ -4064,13 +4325,26 @@ H130 == /\ pc = "H130"
 
 H131 == /\ pc = "H131"
         /\ registers' = [registers EXCEPT !["q31"] = registers["q31"] + 1]
-        /\ pc' = "H200"
+        /\ pc' = "H_INT01"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+
+H_INT01 == /\ pc = "H_INT01"
+           /\ stack' = << [ procedure |->  "interrupt",
+                            pc        |->  "H200" ] >>
+                        \o stack
+           /\ pc' = "start_interrupt_"
+           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                           offset, addr, ctx_start >>
 
 H200 == /\ pc = "H200"
         /\ registers' = [registers EXCEPT !["elr"] = registers["elr"] + 1]
@@ -4117,12 +4391,12 @@ handler == H000 \/ H001 \/ H002 \/ H003 \/ H004 \/ H005 \/ H006 \/ H007
               \/ H008 \/ H009 \/ H010 \/ H011 \/ H012 \/ H013 \/ H014
               \/ H015 \/ H016 \/ H017 \/ H018 \/ H019 \/ H020 \/ H021
               \/ H022 \/ H023 \/ H024 \/ H025 \/ H026 \/ H027 \/ H028
-              \/ H029 \/ H031 \/ H100 \/ H101 \/ H102 \/ H103 \/ H104
-              \/ H105 \/ H106 \/ H107 \/ H108 \/ H109 \/ H110 \/ H111
-              \/ H112 \/ H113 \/ H114 \/ H115 \/ H116 \/ H117 \/ H118
-              \/ H119 \/ H120 \/ H121 \/ H122 \/ H123 \/ H124 \/ H125
-              \/ H126 \/ H127 \/ H128 \/ H129 \/ H130 \/ H131 \/ H200
-              \/ H201 \/ H202 \/ H203
+              \/ H029 \/ H031 \/ H_INT00 \/ H100 \/ H101 \/ H102 \/ H103
+              \/ H104 \/ H105 \/ H106 \/ H107 \/ H108 \/ H109 \/ H110
+              \/ H111 \/ H112 \/ H113 \/ H114 \/ H115 \/ H116 \/ H117
+              \/ H118 \/ H119 \/ H120 \/ H121 \/ H122 \/ H123 \/ H124
+              \/ H125 \/ H126 \/ H127 \/ H128 \/ H129 \/ H130 \/ H131
+              \/ H_INT01 \/ H200 \/ H201 \/ H202 \/ H203
 
 start == /\ pc = "start"
          /\ stack' = << [ procedure |->  "CALL_WITH_CONTEXT",
@@ -4141,9 +4415,10 @@ start == /\ pc = "start"
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == pc = "Done" /\ UNCHANGED vars
 
-Next == data_abort_exception \/ str \/ ldr \/ str_add \/ ldr_add \/ stp
-           \/ ldp \/ ldp_add \/ CALL_WITH_CONTEXT \/ exception_store_registers
-           \/ exception_restore_context \/ handler \/ start
+Next == interrupt \/ data_abort_exception \/ str \/ ldr \/ str_add
+           \/ ldr_add \/ stp \/ ldp \/ ldp_add \/ CALL_WITH_CONTEXT
+           \/ exception_store_registers \/ exception_restore_context \/ handler
+           \/ start
            \/ Terminating
 
 Spec == Init /\ [][Next]_vars
