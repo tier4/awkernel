@@ -7,7 +7,7 @@
 ## Propositions to be Verified
 
 1. A context can be properly restored when exiting the exception handler.
-2. Condition 1 is satisfied even if exceptions occur recursively.
+2. Condition 1 is satisfied even if exceptions occur recursively unless a data abort occurs.
 
 ## Result
 
@@ -41,11 +41,42 @@ begin
 end procedure;
 ```
 
-To verify the propositions, registers are properly restored
-by `assert ctx_start = registers;`.
-Recursive exceptions are represented as `call interrupt();`.
+`assert ctx_start = registers;` is an expression to verify the proposition 1.
+Recursive exceptions indicated by the proposition 2 are represented as `call interrupt();`.
 
-### AArch64 Instructions and Notations in PlusCal/TLA+
+## Data Abort
+
+If [r] is specified at of store or load and r is out of memory, then the data abort exception is occur as follows.
+
+```
+procedure data_abort_exception() begin
+    loop_data_abort:
+        data_abort := TRUE;
+        goto loop_data_abort;
+end procedure;
+```
+
+If a data abort occur, the verification will be stopped by the infinite loop.
+
+## Recursive Exception
+
+Exceptions can occur recursively, and it is represented as follows.
+
+```
+procedure interrupt() begin
+    start_interrupt:
+        either
+            skip;
+        or
+            call CALL_WITH_CONTEXT();
+        end either;
+
+    end_interrupt:
+        return;
+end procedure;
+```
+
+### AArch64 Instructions and Representation in PlusCal/TLA+
 
 - r, r1, r2: general purpose registers
 - sys: system register
@@ -65,36 +96,6 @@ Recursive exceptions are represented as `call interrupt();`.
 | stp, r1, r2, [r3, imm] | procedure stp(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 8] |
 | ldp, r1, r2, [r3, imm] | procedure ldp(r1, r2, r3, imm) | r1 = [r3 + imm]; r2 = [r3 + imm + 8] |
 | ldp, r1, r2, [r3], imm | procedure ldp_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 8]; r3 += imm |
-
-## Data Abort
-
-If [r] is specified at of store or load and r is out of memory, then the data abort exception is occur as follows.
-
-```
-procedure data_abort_exception() begin
-    loop_data_abort:
-        data_abort := TRUE;
-        goto loop_data_abort;
-end procedure;
-```
-
-## Recursive Exception
-
-Exceptions can occur recursively, and it is represented as follows.
-
-```
-procedure interrupt() begin
-    start_interrupt:
-        either
-            skip;
-        or
-            call CALL_WITH_CONTEXT();
-        end either;
-
-    end_interrupt:
-        return;
-end procedure;
-```
 
 ## Registers
 
