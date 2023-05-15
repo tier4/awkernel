@@ -11,7 +11,7 @@
 //!
 //! ```
 //! use awkernel_async_lib::{
-//!     action::{create_server, GoalResponse, ResultStatus, ServerRecvGoal},
+//!     action::{create_server, GoalResponse, ResultStatus, ServerFeedbackOrCancel, ServerRecvGoal},
 //!     scheduler::SchedulerType,
 //!     spawn,
 //! };
@@ -29,10 +29,10 @@
 //!     'outer: loop {
 //!         // Receive a goal value.
 //!         let Some((send_goal_result, goal)) = server_recv_goal.recv_goal().await
-//!         else { /* The session have been closed. */return };
+//!      else { /* The session have been closed. */ return };
 //!
 //!         // Send a goal result.
-//!         let server_send_feedback = send_goal_result
+//!         let mut server_send_feedback = send_goal_result
 //!             .accept(GoalResponse::AcceptAndExecute)
 //!             .await;
 //!
@@ -41,19 +41,17 @@
 //!         for i in 0..=goal {
 //!             result += i;
 //!
-//!             if server_send_feedback.send_feedback(result).await.is_err() {
-//!                 // If failed to send a feedback, then abort.
-//!                 server_recv_goal = server_send_feedback
-//!                     .send_result(ResultStatus::Aborted, result)
-//!                     .await;
-//!                 continue 'outer;
+//!             match server_send_feedback.send_feedback(result).await {
+//!                 ServerFeedbackOrCancel::Feedback(f) => server_send_feedback = f,
+//!                 ServerFeedbackOrCancel::Cancel(c) => {
+//!                     server_recv_goal = c.send_cancel().await;
+//!                     continue 'outer;
+//!                 }
 //!             }
 //!         }
 //!
 //!         // Send a result value.
-//!         server_recv_goal = server_send_feedback
-//!             .send_result(ResultStatus::Succeeded, result)
-//!             .await;
+//!         server_recv_goal = server_send_feedback.send_result(result).await;
 //!     }
 //! }
 //! ```
@@ -89,7 +87,7 @@
 //!             FeedbackOrResult::Feedback(rf, _feedback) => {
 //!                 client_recv_feedback = rf;
 //!             }
-//!             FeedbackOrResult::Result(client_send_goal, _result_status, _result) => {
+//!             FeedbackOrResult::Result(client_send_goal, result_status) => {
 //!                 client_send_goal.close().await;
 //!                 break;
 //!             }
@@ -104,8 +102,11 @@ use crate::{
     offer,
     session_types::{self as S},
 };
-use alloc::borrow::Cow;
-use core::marker::PhantomData;
+use alloc::{borrow::Cow, sync::Arc};
+use core::{
+    marker::PhantomData,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use futures::{
     future::{BoxFuture, Fuse},
     FutureExt,
@@ -119,8 +120,8 @@ pub enum GoalResponse {
 }
 
 #[derive(Debug, Clone)]
-pub enum ResultStatus {
-    Succeeded,
+pub enum ResultStatus<R> {
+    Succeeded(R),
     Canceled,
     Aborted,
 }
@@ -153,8 +154,8 @@ type ProtoServerFeedback<F, R> = S::Recv<
 >;
 
 type ProtoServerResult<R> = S::Send<
-    (ResultStatus, R), /* Send a result. */
-    S::Var<S::Z>,      /* Goto ProtoServerInn. */
+    ResultStatus<R>, /* Send a result. */
+    S::Var<S::Z>,    /* Goto ProtoServerInn. */
 >;
 
 #[must_use]
@@ -213,14 +214,22 @@ where
         let (tx, rx) = bounded::new(attribute);
         let chan = c.send(rx).await;
 
-        ServerSendFeedback { chan, tx }
+        let cancel = Arc::new(AtomicBool::new(false));
+
+        ServerSendFeedback { chan, tx, cancel }
     }
+}
+
+pub enum ServerFeedbackOrCancel<G, F, R> {
+    Feedback(ServerSendFeedback<G, F, R>),
+    Cancel(ServerSendCancel<G, F, R>),
 }
 
 #[must_use]
 pub struct ServerSendFeedback<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
     tx: bounded::Sender<F>,
+    cancel: Arc<AtomicBool>,
 }
 
 impl<G, F, R> ServerSendFeedback<G, F, R>
@@ -229,16 +238,49 @@ where
     R: Send + 'static,
 {
     /// Send a feedback value.
-    pub async fn send_feedback(&self, feedback: F) -> Result<(), bounded::SendErr> {
-        self.tx.send(feedback).await
+    /// The state will be transited from `ServerSendFeedback` to `ServerSendFeedback` or `ServerSendCancel`.
+    pub async fn send_feedback(self, feedback: F) -> ServerFeedbackOrCancel<G, F, R> {
+        if self.cancel.load(Ordering::Relaxed) {
+            ServerFeedbackOrCancel::Cancel(ServerSendCancel {
+                chan: self.chan,
+                cancel: self.cancel,
+            })
+        } else {
+            self.tx.send(feedback).await.unwrap();
+            ServerFeedbackOrCancel::Feedback(self)
+        }
     }
 
     /// Send a result value.
     /// The state will be transited from `ServerSendFeedback` to `ServerRecvGoal`.
-    pub async fn send_result(self, status: ResultStatus, result: R) -> ServerRecvGoal<G, F, R> {
+    pub async fn send_result(self, result: R) -> ServerRecvGoal<G, F, R> {
         let c = self.chan;
-        let c = c.send((status, result)).await;
+        let c = c.send(ResultStatus::Succeeded(result)).await;
         let chan = c.zero();
+        ServerRecvGoal { chan }
+    }
+}
+
+#[must_use]
+pub struct ServerSendCancel<G, F, R> {
+    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl<G, F, R> ServerSendCancel<G, F, R>
+where
+    F: Send + 'static,
+    R: Send + 'static,
+{
+    /// Send a cancel.
+    /// The state will be transited from `ServerSendCancel` to `ServerRecvGoal`.
+    pub async fn send_cancel(self) -> ServerRecvGoal<G, F, R> {
+        let c = self.chan;
+        let c = c.send(ResultStatus::Canceled).await;
+        let chan = c.zero();
+
+        self.cancel.store(false, Ordering::Relaxed);
+
         ServerRecvGoal { chan }
     }
 }
@@ -309,14 +351,14 @@ type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S
 
 #[must_use]
 pub struct ClientRecvFeedback<'a, G, F, R> {
-    chan: Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, (ResultStatus, R))>>,
+    chan: Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, ResultStatus<R>)>>,
     rx: Fuse<BoxFuture<'a, Result<F, bounded::RecvErr>>>,
 }
 
 #[must_use]
 pub enum FeedbackOrResult<'a, G, F, R> {
     Feedback(ClientRecvFeedback<'a, G, F, R>, F),
-    Result(ClientSendGoal<'a, G, F, R>, ResultStatus, R),
+    Result(ClientSendGoal<'a, G, F, R>, ResultStatus<R>),
 }
 
 impl<'a, G, F, R> ClientRecvFeedback<'a, G, F, R>
@@ -330,8 +372,8 @@ where
         let (mut chan, mut rx) = (self.chan, self.rx);
 
         futures::select_biased! {
-            (c, (status ,response)) = chan => {
-                FeedbackOrResult::Result(ClientSendGoal { chan: c.zero(), _phantom: PhantomData::default() } , status, response)
+            (c, status) = chan => {
+                FeedbackOrResult::Result(ClientSendGoal { chan: c.zero(), _phantom: PhantomData::default() } , status)
             },
             result = rx => {
                 let feedback = result.unwrap();
