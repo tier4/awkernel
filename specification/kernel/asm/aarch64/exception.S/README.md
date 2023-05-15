@@ -1,13 +1,17 @@
-# AArch64 Interrupt Handler
+# AArch64 Exception Handler
 
 ## Target
 
 [kernel/asm/aarch64/exception.S](../../../../../kernel/asm/aarch64/exception.S).
 
-## Propositions to be Verified
+## Subjects to be Verified
 
 1. A context can be properly restored when exiting the exception handler.
 2. Condition 1 is satisfied even if exceptions occur recursively unless a data abort occurs.
+
+## Prerequisite
+
+1. x18 registers can be ignored because it is not used by the compiler.
 
 ## Result
 
@@ -93,7 +97,7 @@ end procedure;
 | str r1, [r2, imm] | procedure str(r1, r2, imm) | [r2 + imm] = r1 |
 | ldr r1, [r2, imm] | procedure ldr(r1, r2, imm) | r1 = [r2 + imm] |
 | ldr r1, [r2], imm | procedure ldr_add(r1, r2, imm) | r1 = [r2]; r2 += imm |
-| stp, r1, r2, [r3, imm] | procedure stp(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 8] |
+| stp, r1, r2, [r3, imm] | procedure stp(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 8] = r2|
 | ldp, r1, r2, [r3, imm] | procedure ldp(r1, r2, r3, imm) | r1 = [r3 + imm]; r2 = [r3 + imm + 8] |
 | ldp, r1, r2, [r3], imm | procedure ldp_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 8]; r3 += imm |
 

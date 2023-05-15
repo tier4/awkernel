@@ -15,7 +15,7 @@ variables
     StateRunning = {};
     StateWaiting = {};
 
-    result = [x \in 1..TASK_NUM |-> -1];
+    result = [x \in 1..TASK_NUM |-> -1]; \* return value of get_next
 
 define
     starvation_free == \A x \in 1..TASK_NUM:
@@ -109,7 +109,7 @@ end algorithm;*)
 
 \* BEGIN TRANSLATION (chksum(pcal) = "ab2f7241" /\ chksum(tla) = "1d3d1943")
 CONSTANT defaultInitValue
-VARIABLES queue, StateInQueue, StateReady, StateRunning, StateWaiting, result, 
+VARIABLES queue, StateInQueue, StateReady, StateRunning, StateWaiting, result,
           pc, stack
 
 (* define statement *)
@@ -130,7 +130,7 @@ waiting_xor == \A x \in 1..TASK_NUM:
 
 VARIABLES task, pid, head, next_task, runnable_task
 
-vars == << queue, StateInQueue, StateReady, StateRunning, StateWaiting, 
+vars == << queue, StateInQueue, StateReady, StateRunning, StateWaiting,
            result, pc, stack, task, pid, head, next_task, runnable_task >>
 
 ProcSet == (WORKERS) \cup {1000}
@@ -161,12 +161,12 @@ start_wake_task(self) == /\ pc[self] = "start_wake_task"
                                     /\ StateInQueue' = (StateInQueue \union {task[self]})
                                     /\ queue' = Append(queue, task[self])
                                ELSE /\ TRUE
-                                    /\ UNCHANGED << queue, StateInQueue, 
+                                    /\ UNCHANGED << queue, StateInQueue,
                                                     StateWaiting >>
                          /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                          /\ task' = [task EXCEPT ![self] = Head(stack[self]).task]
                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                         /\ UNCHANGED << StateReady, StateRunning, result, pid, 
+                         /\ UNCHANGED << StateReady, StateRunning, result, pid,
                                          head, next_task, runnable_task >>
 
 wake_task(self) == start_wake_task(self)
@@ -178,7 +178,7 @@ start_get_next(self) == /\ pc[self] = "start_get_next"
                                    /\ head' = [head EXCEPT ![self] = Head(stack[self]).head]
                                    /\ pid' = [pid EXCEPT ![self] = Head(stack[self]).pid]
                                    /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                                   /\ UNCHANGED << queue, StateInQueue, 
+                                   /\ UNCHANGED << queue, StateInQueue,
                                                    StateRunning >>
                               ELSE /\ head' = [head EXCEPT ![self] = Head(queue)]
                                    /\ queue' = Tail(queue)
@@ -187,7 +187,7 @@ start_get_next(self) == /\ pc[self] = "start_get_next"
                                    /\ result' = [result EXCEPT ![pid[self]] = head'[self]]
                                    /\ pc' = [pc EXCEPT ![self] = "end_get_next"]
                                    /\ UNCHANGED << stack, pid >>
-                        /\ UNCHANGED << StateReady, StateWaiting, task, 
+                        /\ UNCHANGED << StateReady, StateWaiting, task,
                                         next_task, runnable_task >>
 
 end_get_next(self) == /\ pc[self] = "end_get_next"
@@ -195,8 +195,8 @@ end_get_next(self) == /\ pc[self] = "end_get_next"
                       /\ head' = [head EXCEPT ![self] = Head(stack[self]).head]
                       /\ pid' = [pid EXCEPT ![self] = Head(stack[self]).pid]
                       /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                      /\ UNCHANGED << queue, StateInQueue, StateReady, 
-                                      StateRunning, StateWaiting, result, task, 
+                      /\ UNCHANGED << queue, StateInQueue, StateReady,
+                                      StateRunning, StateWaiting, result, task,
                                       next_task, runnable_task >>
 
 get_next(self) == start_get_next(self) \/ end_get_next(self)
@@ -210,8 +210,8 @@ run(self) == /\ pc[self] = "run"
                                                      \o stack[self]]
              /\ head' = [head EXCEPT ![self] = defaultInitValue]
              /\ pc' = [pc EXCEPT ![self] = "start_get_next"]
-             /\ UNCHANGED << queue, StateInQueue, StateReady, StateRunning, 
-                             StateWaiting, result, task, next_task, 
+             /\ UNCHANGED << queue, StateInQueue, StateReady, StateRunning,
+                             StateWaiting, result, task, next_task,
                              runnable_task >>
 
 execute_task(self) == /\ pc[self] = "execute_task"
@@ -219,16 +219,16 @@ execute_task(self) == /\ pc[self] = "execute_task"
                       /\ IF next_task'[self] = -1
                             THEN /\ pc' = [pc EXCEPT ![self] = "run"]
                             ELSE /\ pc' = [pc EXCEPT ![self] = "wait_task"]
-                      /\ UNCHANGED << queue, StateInQueue, StateReady, 
-                                      StateRunning, StateWaiting, result, 
+                      /\ UNCHANGED << queue, StateInQueue, StateReady,
+                                      StateRunning, StateWaiting, result,
                                       stack, task, pid, head, runnable_task >>
 
 wait_task(self) == /\ pc[self] = "wait_task"
                    /\ StateRunning' = StateReady \ {next_task[self]}
                    /\ StateWaiting' = (StateWaiting \union  {next_task[self]})
                    /\ pc' = [pc EXCEPT ![self] = "run"]
-                   /\ UNCHANGED << queue, StateInQueue, StateReady, result, 
-                                   stack, task, pid, head, next_task, 
+                   /\ UNCHANGED << queue, StateInQueue, StateReady, result,
+                                   stack, task, pid, head, next_task,
                                    runnable_task >>
 
 WorkerThread(self) == run(self) \/ execute_task(self) \/ wait_task(self)
@@ -237,8 +237,8 @@ start_waker == /\ pc[1000] = "start_waker"
                /\ StateWaiting' = StateReady
                /\ StateReady' = {}
                /\ pc' = [pc EXCEPT ![1000] = "wake_task_up"]
-               /\ UNCHANGED << queue, StateInQueue, StateRunning, result, 
-                               stack, task, pid, head, next_task, 
+               /\ UNCHANGED << queue, StateInQueue, StateRunning, result,
+                               stack, task, pid, head, next_task,
                                runnable_task >>
 
 wake_task_up == /\ pc[1000] = "wake_task_up"
@@ -250,7 +250,7 @@ wake_task_up == /\ pc[1000] = "wake_task_up"
                                                         \o stack[1000]]
                    /\ task' = [task EXCEPT ![1000] = runnable_task']
                 /\ pc' = [pc EXCEPT ![1000] = "start_wake_task"]
-                /\ UNCHANGED << queue, StateInQueue, StateReady, StateRunning, 
+                /\ UNCHANGED << queue, StateInQueue, StateReady, StateRunning,
                                 StateWaiting, result, pid, head, next_task >>
 
 Waker == start_waker \/ wake_task_up

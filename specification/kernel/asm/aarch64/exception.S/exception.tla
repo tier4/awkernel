@@ -88,6 +88,10 @@ variables
         sp |-> STACK_SIZE - 1
     ];
 
+define
+    NotAbortThenTermination == <>(~data_abort => pc = "Done")
+end define;
+
 macro inc(reg) begin
     registers[reg] := registers[reg] + 1;
 end macro;
@@ -154,11 +158,10 @@ variables
 begin
     str0:
         addr := registers[reg2] + offset;
-    str1:
         if addr < 0 \/ addr >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    str2:
+    str1:
         stack_memory[addr] := registers[reg1];
         return;
 end procedure;
@@ -172,11 +175,10 @@ variables
 begin
     ldr0:
         addr := registers[reg2] + offset;
-    ldr1:
         if addr < 0 \/ addr >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    ldr2:
+    ldr1:
         registers[reg1] := stack_memory[addr];
         return;
 end procedure;
@@ -191,13 +193,11 @@ variables
 begin
     str_add0:
         addr := registers[reg2];
-    str_add1:
         if addr < 0 \/ addr >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    str_add2:
+    str_add1:
         stack_memory[addr] := registers[reg1];
-    str_add3:
         registers[reg2] := addr + offset;
         return;
 end procedure;
@@ -212,13 +212,12 @@ variables
 begin
     ldr_add0:
         addr := registers[reg2];
-    ldr_add1:
         if addr < 0 \/ addr >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    ldr_add2:
+    ldr_add1:
         registers[reg1] := stack_memory[addr];
-    ldr_add3:
+    ldr_add2:
         registers[reg2] := addr + offset;
         return;
 end procedure;
@@ -233,13 +232,12 @@ variables
 begin
     stp0:
         addr := registers[reg3] + offset;
-    stp1:
         if addr < 0 \/ addr + 8 >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    stp2:
+    stp1:
         stack_memory[addr] := registers[reg1];
-    stp3:
+    stp2:
         stack_memory[addr + 8] := registers[reg2];
         return;
 end procedure;
@@ -254,13 +252,12 @@ variables
 begin
     ldp0:
         addr := registers[reg3] + offset;
-    ldp1:
         if addr < 0 \/ addr + 8 >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    ldp2:
+    ldp1:
         registers[reg1] := stack_memory[addr];
-    ldp3:
+    ldp2:
         registers[reg2] := stack_memory[addr + 8];
         return;
 end procedure;
@@ -276,15 +273,14 @@ variables
 begin
     ldp_add0:
         addr := registers[reg3];
-    ldp_add1:
         if addr < 0 \/ addr + 8 >= STACK_SIZE then
             call data_abort_exception();
         end if;
-    ldp_add2:
+    ldp_add1:
         registers[reg1] := stack_memory[addr];
-    ldp_add3:
+    ldp_add2:
         registers[reg2] := stack_memory[addr + 8];
-    ldp_add4:
+    ldp_add3:
         registers[reg3] := addr + offset;
         return;
 end procedure;
@@ -591,40 +587,44 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "e37a7735" /\ chksum(tla) = "a946eb02")
-\* Procedure variable addr of procedure str at line 153 col 5 changed to addr_
-\* Procedure variable addr of procedure ldr at line 171 col 5 changed to addr_l
-\* Procedure variable addr of procedure str_add at line 190 col 5 changed to addr_s
+\* BEGIN TRANSLATION (chksum(pcal) = "5b216fbf" /\ chksum(tla) = "de304666")
+\* Procedure variable addr of procedure str at line 157 col 5 changed to addr_
+\* Procedure variable addr of procedure ldr at line 174 col 5 changed to addr_l
+\* Procedure variable addr of procedure str_add at line 192 col 5 changed to addr_s
 \* Procedure variable addr of procedure ldr_add at line 211 col 5 changed to addr_ld
-\* Procedure variable addr of procedure stp at line 232 col 5 changed to addr_st
-\* Procedure variable addr of procedure ldp at line 253 col 5 changed to addr_ldp
-\* Parameter reg1 of procedure str at line 151 col 15 changed to reg1_
-\* Parameter reg2 of procedure str at line 151 col 21 changed to reg2_
-\* Parameter offset of procedure str at line 151 col 27 changed to offset_
-\* Parameter reg1 of procedure ldr at line 169 col 15 changed to reg1_l
-\* Parameter reg2 of procedure ldr at line 169 col 21 changed to reg2_l
-\* Parameter offset of procedure ldr at line 169 col 27 changed to offset_l
-\* Parameter reg1 of procedure str_add at line 188 col 19 changed to reg1_s
-\* Parameter reg2 of procedure str_add at line 188 col 25 changed to reg2_s
-\* Parameter offset of procedure str_add at line 188 col 31 changed to offset_s
+\* Procedure variable addr of procedure stp at line 231 col 5 changed to addr_st
+\* Procedure variable addr of procedure ldp at line 251 col 5 changed to addr_ldp
+\* Parameter reg1 of procedure str at line 155 col 15 changed to reg1_
+\* Parameter reg2 of procedure str at line 155 col 21 changed to reg2_
+\* Parameter offset of procedure str at line 155 col 27 changed to offset_
+\* Parameter reg1 of procedure ldr at line 172 col 15 changed to reg1_l
+\* Parameter reg2 of procedure ldr at line 172 col 21 changed to reg2_l
+\* Parameter offset of procedure ldr at line 172 col 27 changed to offset_l
+\* Parameter reg1 of procedure str_add at line 190 col 19 changed to reg1_s
+\* Parameter reg2 of procedure str_add at line 190 col 25 changed to reg2_s
+\* Parameter offset of procedure str_add at line 190 col 31 changed to offset_s
 \* Parameter reg1 of procedure ldr_add at line 209 col 19 changed to reg1_ld
 \* Parameter reg2 of procedure ldr_add at line 209 col 25 changed to reg2_ld
 \* Parameter offset of procedure ldr_add at line 209 col 31 changed to offset_ld
-\* Parameter reg1 of procedure stp at line 230 col 15 changed to reg1_st
-\* Parameter reg2 of procedure stp at line 230 col 21 changed to reg2_st
-\* Parameter reg3 of procedure stp at line 230 col 27 changed to reg3_
-\* Parameter offset of procedure stp at line 230 col 33 changed to offset_st
-\* Parameter reg1 of procedure ldp at line 251 col 15 changed to reg1_ldp
-\* Parameter reg2 of procedure ldp at line 251 col 21 changed to reg2_ldp
-\* Parameter reg3 of procedure ldp at line 251 col 27 changed to reg3_l
-\* Parameter offset of procedure ldp at line 251 col 33 changed to offset_ldp
+\* Parameter reg1 of procedure stp at line 229 col 15 changed to reg1_st
+\* Parameter reg2 of procedure stp at line 229 col 21 changed to reg2_st
+\* Parameter reg3 of procedure stp at line 229 col 27 changed to reg3_
+\* Parameter offset of procedure stp at line 229 col 33 changed to offset_st
+\* Parameter reg1 of procedure ldp at line 249 col 15 changed to reg1_ldp
+\* Parameter reg2 of procedure ldp at line 249 col 21 changed to reg2_ldp
+\* Parameter reg3 of procedure ldp at line 249 col 27 changed to reg3_l
+\* Parameter offset of procedure ldp at line 249 col 33 changed to offset_ldp
 CONSTANT defaultInitValue
-VARIABLES counter, data_abort, stack_memory, registers, pc, stack, reg1_, 
-          reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-          reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
-          reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-          reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-          ctx_start
+VARIABLES counter, data_abort, stack_memory, registers, pc, stack
+
+(* define statement *)
+NotAbortThenTermination == <>(~data_abort => pc = "Done")
+
+VARIABLES reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+          reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+          addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+          reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+          addr, ctx_start
 
 vars == << counter, data_abort, stack_memory, registers, pc, stack, reg1_, 
            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
@@ -807,32 +807,21 @@ data_abort_exception == loop_data_abort
 
 str0 == /\ pc = "str0"
         /\ addr_' = registers[reg2_] + offset_
-        /\ pc' = "str1"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, stack, 
-                        reg1_, reg2_, offset_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
-
-str1 == /\ pc = "str1"
-        /\ IF addr_ < 0 \/ addr_ >= STACK_SIZE
+        /\ IF addr_' < 0 \/ addr_' >= STACK_SIZE
               THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                    pc        |->  "str2" ] >>
+                                    pc        |->  "str1" ] >>
                                 \o stack
                    /\ pc' = "loop_data_abort"
-              ELSE /\ pc' = "str2"
+              ELSE /\ pc' = "str1"
                    /\ stack' = stack
         /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
+                        reg2_, offset_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-str2 == /\ pc = "str2"
+str1 == /\ pc = "str1"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_] = registers[reg1_]]
         /\ pc' = Head(stack).pc
         /\ addr_' = Head(stack).addr_
@@ -847,35 +836,25 @@ str2 == /\ pc = "str2"
                         offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
                         ctx_start >>
 
-str == str0 \/ str1 \/ str2
+str == str0 \/ str1
 
 ldr0 == /\ pc = "ldr0"
         /\ addr_l' = registers[reg2_l] + offset_l
-        /\ pc' = "ldr1"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, stack, 
-                        reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+        /\ IF addr_l' < 0 \/ addr_l' >= STACK_SIZE
+              THEN /\ stack' = << [ procedure |->  "data_abort_exception",
+                                    pc        |->  "ldr1" ] >>
+                                \o stack
+                   /\ pc' = "loop_data_abort"
+              ELSE /\ pc' = "ldr1"
+                   /\ stack' = stack
+        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 ldr1 == /\ pc = "ldr1"
-        /\ IF addr_l < 0 \/ addr_l >= STACK_SIZE
-              THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                    pc        |->  "ldr2" ] >>
-                                \o stack
-                   /\ pc' = "loop_data_abort"
-              ELSE /\ pc' = "ldr2"
-                   /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
-
-ldr2 == /\ pc = "ldr2"
         /\ registers' = [registers EXCEPT ![reg1_l] = stack_memory[addr_l]]
         /\ pc' = Head(stack).pc
         /\ addr_l' = Head(stack).addr_l
@@ -890,47 +869,27 @@ ldr2 == /\ pc = "ldr2"
                         offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
                         ctx_start >>
 
-ldr == ldr0 \/ ldr1 \/ ldr2
+ldr == ldr0 \/ ldr1
 
 str_add0 == /\ pc = "str_add0"
             /\ addr_s' = registers[reg2_s]
-            /\ pc' = "str_add1"
+            /\ IF addr_s' < 0 \/ addr_s' >= STACK_SIZE
+                  THEN /\ stack' = << [ procedure |->  "data_abort_exception",
+                                        pc        |->  "str_add1" ] >>
+                                    \o stack
+                       /\ pc' = "loop_data_abort"
+                  ELSE /\ pc' = "str_add1"
+                       /\ stack' = stack
             /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            stack, reg1_, reg2_, offset_, addr_, reg1_l, 
-                            reg2_l, offset_l, addr_l, reg1_s, reg2_s, offset_s, 
+                            reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
+                            offset_l, addr_l, reg1_s, reg2_s, offset_s, 
                             reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
                             reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
                             reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
                             reg3, offset, addr, ctx_start >>
 
 str_add1 == /\ pc = "str_add1"
-            /\ IF addr_s < 0 \/ addr_s >= STACK_SIZE
-                  THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                        pc        |->  "str_add2" ] >>
-                                    \o stack
-                       /\ pc' = "loop_data_abort"
-                  ELSE /\ pc' = "str_add2"
-                       /\ stack' = stack
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
-                            offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
-                            reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
-
-str_add2 == /\ pc = "str_add2"
             /\ stack_memory' = [stack_memory EXCEPT ![addr_s] = registers[reg1_s]]
-            /\ pc' = "str_add3"
-            /\ UNCHANGED << counter, data_abort, registers, stack, reg1_, 
-                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
-
-str_add3 == /\ pc = "str_add3"
             /\ registers' = [registers EXCEPT ![reg2_s] = addr_s + offset_s]
             /\ pc' = Head(stack).pc
             /\ addr_s' = Head(stack).addr_s
@@ -938,45 +897,35 @@ str_add3 == /\ pc = "str_add3"
             /\ reg2_s' = Head(stack).reg2_s
             /\ offset_s' = Head(stack).offset_s
             /\ stack' = Tail(stack)
-            /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                            reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
+            /\ UNCHANGED << counter, data_abort, reg1_, reg2_, offset_, addr_, 
+                            reg1_l, reg2_l, offset_l, addr_l, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
-str_add == str_add0 \/ str_add1 \/ str_add2 \/ str_add3
+str_add == str_add0 \/ str_add1
 
 ldr_add0 == /\ pc = "ldr_add0"
             /\ addr_ld' = registers[reg2_ld]
-            /\ pc' = "ldr_add1"
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            stack, reg1_, reg2_, offset_, addr_, reg1_l, 
-                            reg2_l, offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                            addr_s, reg1_ld, reg2_ld, offset_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
-
-ldr_add1 == /\ pc = "ldr_add1"
-            /\ IF addr_ld < 0 \/ addr_ld >= STACK_SIZE
+            /\ IF addr_ld' < 0 \/ addr_ld' >= STACK_SIZE
                   THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                        pc        |->  "ldr_add2" ] >>
+                                        pc        |->  "ldr_add1" ] >>
                                     \o stack
                        /\ pc' = "loop_data_abort"
-                  ELSE /\ pc' = "ldr_add2"
+                  ELSE /\ pc' = "ldr_add1"
                        /\ stack' = stack
             /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
                             reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
                             offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
-                            reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
+                            reg1_ld, reg2_ld, offset_ld, reg1_st, reg2_st, 
+                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                            offset, addr, ctx_start >>
 
-ldr_add2 == /\ pc = "ldr_add2"
+ldr_add1 == /\ pc = "ldr_add1"
             /\ registers' = [registers EXCEPT ![reg1_ld] = stack_memory[addr_ld]]
-            /\ pc' = "ldr_add3"
+            /\ pc' = "ldr_add2"
             /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
                             reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                             addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
@@ -985,7 +934,7 @@ ldr_add2 == /\ pc = "ldr_add2"
                             reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
                             offset, addr, ctx_start >>
 
-ldr_add3 == /\ pc = "ldr_add3"
+ldr_add2 == /\ pc = "ldr_add2"
             /\ registers' = [registers EXCEPT ![reg2_ld] = addr_ld + offset_ld]
             /\ pc' = Head(stack).pc
             /\ addr_ld' = Head(stack).addr_ld
@@ -1000,37 +949,27 @@ ldr_add3 == /\ pc = "ldr_add3"
                             reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
                             offset, addr, ctx_start >>
 
-ldr_add == ldr_add0 \/ ldr_add1 \/ ldr_add2 \/ ldr_add3
+ldr_add == ldr_add0 \/ ldr_add1 \/ ldr_add2
 
 stp0 == /\ pc = "stp0"
         /\ addr_st' = registers[reg3_] + offset_st
-        /\ pc' = "stp1"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, stack, 
-                        reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+        /\ IF addr_st' < 0 \/ addr_st' + 8 >= STACK_SIZE
+              THEN /\ stack' = << [ procedure |->  "data_abort_exception",
+                                    pc        |->  "stp1" ] >>
+                                \o stack
+                   /\ pc' = "loop_data_abort"
+              ELSE /\ pc' = "stp1"
+                   /\ stack' = stack
+        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
+                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                         addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
                         reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
                         offset_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 stp1 == /\ pc = "stp1"
-        /\ IF addr_st < 0 \/ addr_st + 8 >= STACK_SIZE
-              THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                    pc        |->  "stp2" ] >>
-                                \o stack
-                   /\ pc' = "loop_data_abort"
-              ELSE /\ pc' = "stp2"
-                   /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
-
-stp2 == /\ pc = "stp2"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_st] = registers[reg1_st]]
-        /\ pc' = "stp3"
+        /\ pc' = "stp2"
         /\ UNCHANGED << counter, data_abort, registers, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
@@ -1038,7 +977,7 @@ stp2 == /\ pc = "stp2"
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-stp3 == /\ pc = "stp3"
+stp2 == /\ pc = "stp2"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_st + 8] = registers[reg2_st]]
         /\ pc' = Head(stack).pc
         /\ addr_st' = Head(stack).addr_st
@@ -1053,37 +992,27 @@ stp3 == /\ pc = "stp3"
                         addr_ld, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-stp == stp0 \/ stp1 \/ stp2 \/ stp3
+stp == stp0 \/ stp1 \/ stp2
 
 ldp0 == /\ pc = "ldp0"
         /\ addr_ldp' = registers[reg3_l] + offset_ldp
-        /\ pc' = "ldp1"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, stack, 
-                        reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
-
-ldp1 == /\ pc = "ldp1"
-        /\ IF addr_ldp < 0 \/ addr_ldp + 8 >= STACK_SIZE
+        /\ IF addr_ldp' < 0 \/ addr_ldp' + 8 >= STACK_SIZE
               THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                    pc        |->  "ldp2" ] >>
+                                    pc        |->  "ldp1" ] >>
                                 \o stack
                    /\ pc' = "loop_data_abort"
-              ELSE /\ pc' = "ldp2"
+              ELSE /\ pc' = "ldp1"
                    /\ stack' = stack
         /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
                         reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
                         addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
                         reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
                         offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
+                        offset_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-ldp2 == /\ pc = "ldp2"
+ldp1 == /\ pc = "ldp1"
         /\ registers' = [registers EXCEPT ![reg1_ldp] = stack_memory[addr_ldp]]
-        /\ pc' = "ldp3"
+        /\ pc' = "ldp2"
         /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
@@ -1091,7 +1020,7 @@ ldp2 == /\ pc = "ldp2"
                         addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
                         addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-ldp3 == /\ pc = "ldp3"
+ldp2 == /\ pc = "ldp2"
         /\ registers' = [registers EXCEPT ![reg2_ldp] = stack_memory[addr_ldp + 8]]
         /\ pc' = Head(stack).pc
         /\ addr_ldp' = Head(stack).addr_ldp
@@ -1106,26 +1035,16 @@ ldp3 == /\ pc = "ldp3"
                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                         addr_st, reg1, reg2, reg3, offset, addr, ctx_start >>
 
-ldp == ldp0 \/ ldp1 \/ ldp2 \/ ldp3
+ldp == ldp0 \/ ldp1 \/ ldp2
 
 ldp_add0 == /\ pc = "ldp_add0"
             /\ addr' = registers[reg3]
-            /\ pc' = "ldp_add1"
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            stack, reg1_, reg2_, offset_, addr_, reg1_l, 
-                            reg2_l, offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                            addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
-                            reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                            reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, 
-                            reg1, reg2, reg3, offset, ctx_start >>
-
-ldp_add1 == /\ pc = "ldp_add1"
-            /\ IF addr < 0 \/ addr + 8 >= STACK_SIZE
+            /\ IF addr' < 0 \/ addr' + 8 >= STACK_SIZE
                   THEN /\ stack' = << [ procedure |->  "data_abort_exception",
-                                        pc        |->  "ldp_add2" ] >>
+                                        pc        |->  "ldp_add1" ] >>
                                     \o stack
                        /\ pc' = "loop_data_abort"
-                  ELSE /\ pc' = "ldp_add2"
+                  ELSE /\ pc' = "ldp_add1"
                        /\ stack' = stack
             /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
                             reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
@@ -1133,10 +1052,21 @@ ldp_add1 == /\ pc = "ldp_add1"
                             reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
                             reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
                             reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
+                            reg3, offset, ctx_start >>
+
+ldp_add1 == /\ pc = "ldp_add1"
+            /\ registers' = [registers EXCEPT ![reg1] = stack_memory[addr]]
+            /\ pc' = "ldp_add2"
+            /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
+                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
+                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
+                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                            offset, addr, ctx_start >>
 
 ldp_add2 == /\ pc = "ldp_add2"
-            /\ registers' = [registers EXCEPT ![reg1] = stack_memory[addr]]
+            /\ registers' = [registers EXCEPT ![reg2] = stack_memory[addr + 8]]
             /\ pc' = "ldp_add3"
             /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
                             reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
@@ -1147,17 +1077,6 @@ ldp_add2 == /\ pc = "ldp_add2"
                             offset, addr, ctx_start >>
 
 ldp_add3 == /\ pc = "ldp_add3"
-            /\ registers' = [registers EXCEPT ![reg2] = stack_memory[addr + 8]]
-            /\ pc' = "ldp_add4"
-            /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
-                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
-
-ldp_add4 == /\ pc = "ldp_add4"
             /\ registers' = [registers EXCEPT ![reg3] = addr + offset]
             /\ pc' = Head(stack).pc
             /\ addr' = Head(stack).addr
@@ -1173,7 +1092,7 @@ ldp_add4 == /\ pc = "ldp_add4"
                             offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                             offset_ldp, addr_ldp, ctx_start >>
 
-ldp_add == ldp_add0 \/ ldp_add1 \/ ldp_add2 \/ ldp_add3 \/ ldp_add4
+ldp_add == ldp_add0 \/ ldp_add1 \/ ldp_add2 \/ ldp_add3
 
 start_call_with_context == /\ pc = "start_call_with_context"
                            /\ ctx_start' = registers
@@ -1511,7 +1430,7 @@ C17 == /\ pc = "C17"
 
 end_call_with_context == /\ pc = "end_call_with_context"
                          /\ Assert(ctx_start = registers, 
-                                   "Failure of assertion at line 365, column 9.")
+                                   "Failure of assertion at line 361, column 9.")
                          /\ counter' = counter - 1
                          /\ pc' = Head(stack).pc
                          /\ ctx_start' = Head(stack).ctx_start
