@@ -12,7 +12,9 @@ Next ==
   \/ Trans("ServerSendGoalResult", "ServerRecvGoal")
   \/ Trans("ServerSendGoalResult", "ServerSendFeedback")
   \/ Trans("ServerSendFeedback", "ServerSendFeedback")
+  \/ Trans("ServerSendFeedback", "ServerSendCancel")
   \/ Trans("ServerSendFeedback", "ServerRecvGoal")
+  \/ Trans("ServerSendCancel", "ServerRecvGoal")
 
 Spec == Init /\ [][Next]_state
 ====
