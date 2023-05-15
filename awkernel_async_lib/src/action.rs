@@ -109,7 +109,6 @@ use alloc::{
 };
 use core::{
     marker::PhantomData,
-    result,
     sync::atomic::{AtomicBool, Ordering},
 };
 use futures::{
@@ -494,7 +493,7 @@ impl<G: 'static, F: 'static, R: 'static> ActionAccepter<G, F, R> {
 type ActionMap = BTreeMap<Cow<'static, str>, BTreeMap<u64, Arc<AtomicBool>>>;
 
 struct Actions {
-    ids: BTreeMap<Cow<'static, str>, BTreeMap<u64, Arc<AtomicBool>>>,
+    ids: ActionMap,
     current_id: u64,
 }
 
