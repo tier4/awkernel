@@ -227,7 +227,7 @@ use crate::{
     channel::unbounded,
     session_types::{mk_chan, Chan, HasDual},
 };
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use synctools::mcs::{MCSLock, MCSNode};
 
 static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
@@ -302,4 +302,10 @@ pub async fn create_client<P: HasDual + 'static>(
     tx.send((tx2, rx1)).await?;
 
     Ok(client)
+}
+
+pub fn get_services() -> Vec<Cow<'static, str>> {
+    let mut node = MCSNode::new();
+    let services = SERVICES.lock(&mut node);
+    services.get_services()
 }

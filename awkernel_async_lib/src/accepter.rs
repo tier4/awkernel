@@ -3,7 +3,7 @@ use crate::{
     channel::unbounded::{self, Receiver, RecvErr, Sender},
     session_types::{self as S},
 };
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 
 /// Channel so that a server accepts a connection.
@@ -98,6 +98,10 @@ impl Services {
         Self {
             services: AnyDict::new(),
         }
+    }
+
+    pub fn get_services(&self) -> Vec<Cow<'static, str>> {
+        self.services.keys()
     }
 
     /// `P` is a protocol of a server.

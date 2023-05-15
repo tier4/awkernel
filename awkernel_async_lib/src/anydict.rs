@@ -1,6 +1,6 @@
 //! Dictionary mapping from string to any value.
 
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, vec::Vec};
 use core::any::Any;
 
 /// Return value of `AnyDict`.
@@ -21,6 +21,10 @@ impl AnyDict {
         Self {
             dict: BTreeMap::new(),
         }
+    }
+
+    pub(super) fn keys<'a>(&'a self) -> Vec<Cow<'static, str>> {
+        self.dict.keys().cloned().collect()
     }
 
     /// Insert a key value pair.

@@ -104,11 +104,12 @@ use crate::{
 };
 use alloc::{
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     sync::Arc,
 };
 use core::{
     marker::PhantomData,
+    result,
     sync::atomic::{AtomicBool, Ordering},
 };
 use futures::{
@@ -490,6 +491,8 @@ impl<G: 'static, F: 'static, R: 'static> ActionAccepter<G, F, R> {
     }
 }
 
+type ActionMap = BTreeMap<Cow<'static, str>, BTreeMap<u64, Arc<AtomicBool>>>;
+
 struct Actions {
     ids: BTreeMap<Cow<'static, str>, BTreeMap<u64, Arc<AtomicBool>>>,
     current_id: u64,
@@ -501,6 +504,20 @@ impl Actions {
             ids: BTreeMap::new(),
             current_id: 0,
         }
+    }
+
+    fn get_actions(&self) -> BTreeMap<Cow<'static, str>, BTreeSet<u64>> {
+        let mut result = BTreeMap::new();
+        for (name, map) in self.ids.iter() {
+            let mut set = BTreeSet::new();
+            for id in map.keys() {
+                set.insert(*id);
+            }
+
+            result.insert(name.clone(), set);
+        }
+
+        result
     }
 
     fn insert(&mut self, name: Cow<'static, str>, flag: Arc<AtomicBool>) -> u64 {
@@ -580,4 +597,10 @@ fn remove_cancel(name: &str, id: u64) {
     let mut node = MCSNode::new();
     let mut actions = ACTIONS.lock(&mut node);
     actions.remove(name, id);
+}
+
+pub fn get_actions() -> BTreeMap<Cow<'static, str>, BTreeSet<u64>> {
+    let mut node = MCSNode::new();
+    let actions = ACTIONS.lock(&mut node);
+    actions.get_actions()
 }
