@@ -73,7 +73,7 @@
 //!         .send_goal(10, bounded::Attribute::default())
 //!         .await
 //!     {
-//!         AcceptOrRejectGoal::Accept(client_recv_feedback, _goal_response) => {
+//!         AcceptOrRejectGoal::Accept(client_recv_feedback, _id, _goal_response) => {
 //!             client_recv_feedback
 //!         }
 //!         AcceptOrRejectGoal::Reject(client_send_goal) => {
@@ -102,7 +102,11 @@ use crate::{
     offer,
     session_types::{self as S},
 };
-use alloc::{borrow::Cow, sync::Arc};
+use alloc::{
+    borrow::Cow,
+    collections::{btree_map::Entry, BTreeMap},
+    sync::Arc,
+};
 use core::{
     marker::PhantomData,
     sync::atomic::{AtomicBool, Ordering},
@@ -127,6 +131,7 @@ pub enum ResultStatus<R> {
 }
 
 static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
+static ACTIONS: MCSLock<Actions> = MCSLock::new(Actions::new());
 
 fn drop_accepter<P>(acc: &mut Accepter<P>) {
     let mut node = MCSNode::new();
@@ -145,8 +150,10 @@ type ProtoServerGoal<G, F, R> = S::Recv<G /* Receive a goal. */, ProtoServerGoal
 type ProtoServerGoalResult<F, R> =
     S::Choose<S::Var<S::Z> /* Reject. */, ProtoServerSendGoalResult<F, R> /* Accept. */>;
 
-type ProtoServerSendGoalResult<F, R> =
-    S::Send<GoalResponse /* Send a response of the goal. */, ProtoServerFeedback<F, R>>;
+type ProtoServerSendGoalResult<F, R> = S::Send<
+    (u64, GoalResponse), /* Send an ID and a response of the goal. */
+    ProtoServerFeedback<F, R>,
+>;
 
 type ProtoServerFeedback<F, R> = S::Recv<
     bounded::Attribute, /* Receive an attribute. */
@@ -161,6 +168,7 @@ type ProtoServerResult<R> = S::Send<
 #[must_use]
 pub struct ServerRecvGoal<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerInn<G, F, R>>,
+    name: Cow<'static, str>,
 }
 
 impl<G, F, R> ServerRecvGoal<G, F, R>
@@ -179,7 +187,7 @@ where
             },
             RECV => {
                 let (chan, goal) = c.recv().await;
-                Some((ServerSendGoalResult{ chan },goal))
+                Some((ServerSendGoalResult{ chan, name: self.name }, goal))
             }
         }
     }
@@ -188,6 +196,7 @@ where
 #[must_use]
 pub struct ServerSendGoalResult<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerGoalResult<F, R>>,
+    name: Cow<'static, str>,
 }
 
 impl<G, F, R> ServerSendGoalResult<G, F, R>
@@ -200,23 +209,37 @@ where
         let c = self.chan;
         let c = c.sel1().await;
         let chan = c.zero();
-        ServerRecvGoal { chan }
+        ServerRecvGoal {
+            chan,
+            name: self.name,
+        }
     }
 
     /// Accept a goal value received before.
     /// The state will be transited from `ServerSendGoalResult` to `ServerSendFeedback`.
     pub async fn accept(self, response: GoalResponse) -> ServerSendFeedback<G, F, R> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let id = {
+            let mut node = MCSNode::new();
+            let mut actions = ACTIONS.lock(&mut node);
+            actions.insert(self.name.clone(), cancel.clone())
+        };
+
         let c = self.chan;
         let c = c.sel2().await;
-        let c = c.send(response).await;
+        let c = c.send((id, response)).await;
         let (c, attribute) = c.recv().await;
 
         let (tx, rx) = bounded::new(attribute);
         let chan = c.send(rx).await;
 
-        let cancel = Arc::new(AtomicBool::new(false));
-
-        ServerSendFeedback { chan, tx, cancel }
+        ServerSendFeedback {
+            chan,
+            name: self.name,
+            tx,
+            cancel,
+            id,
+        }
     }
 }
 
@@ -228,8 +251,10 @@ pub enum ServerFeedbackOrCancel<G, F, R> {
 #[must_use]
 pub struct ServerSendFeedback<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    name: Cow<'static, str>,
     tx: bounded::Sender<F>,
     cancel: Arc<AtomicBool>,
+    id: u64,
 }
 
 impl<G, F, R> ServerSendFeedback<G, F, R>
@@ -243,6 +268,7 @@ where
         if self.cancel.load(Ordering::Relaxed) {
             ServerFeedbackOrCancel::Cancel(ServerSendCancel {
                 chan: self.chan,
+                name: self.name,
                 cancel: self.cancel,
             })
         } else {
@@ -254,16 +280,37 @@ where
     /// Send a result value.
     /// The state will be transited from `ServerSendFeedback` to `ServerRecvGoal`.
     pub async fn send_result(self, result: R) -> ServerRecvGoal<G, F, R> {
+        remove_cancel(&self.name, self.id);
+
         let c = self.chan;
         let c = c.send(ResultStatus::Succeeded(result)).await;
         let chan = c.zero();
-        ServerRecvGoal { chan }
+
+        ServerRecvGoal {
+            chan,
+            name: self.name,
+        }
+    }
+
+    /// Send abort.
+    /// The state will be transited from `ServerSendFeedback` to `ServerRecvGoal`.
+    pub async fn send_abort(self) -> ServerRecvGoal<G, F, R> {
+        remove_cancel(&self.name, self.id);
+
+        let c = self.chan;
+        let c = c.send(ResultStatus::Aborted).await;
+        let chan = c.zero();
+        ServerRecvGoal {
+            chan,
+            name: self.name,
+        }
     }
 }
 
 #[must_use]
 pub struct ServerSendCancel<G, F, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    name: Cow<'static, str>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -281,7 +328,10 @@ where
 
         self.cancel.store(false, Ordering::Relaxed);
 
-        ServerRecvGoal { chan }
+        ServerRecvGoal {
+            chan,
+            name: self.name,
+        }
     }
 }
 
@@ -295,7 +345,7 @@ pub struct ClientSendGoal<'a, G, F, R> {
 
 #[must_use]
 pub enum AcceptOrRejectGoal<'a, G, F, R> {
-    Accept(ClientRecvFeedback<'a, G, F, R>, GoalResponse),
+    Accept(ClientRecvFeedback<'a, G, F, R>, u64, GoalResponse),
     Reject(ClientSendGoal<'a, G, F, R>),
 }
 
@@ -324,7 +374,7 @@ where
                 AcceptOrRejectGoal::Reject(Self { chan, _phantom: PhantomData::default() })
             },
             ACCEPT => {
-                let (c, response) = c.recv().await;
+                let (c, (id, response)) = c.recv().await;
                 let c = c.send(attribute).await;
                 let (c, rx) = c.recv().await;
 
@@ -336,7 +386,7 @@ where
                     rx.recv().await
                 }.boxed().fuse();
 
-                AcceptOrRejectGoal::Accept(ClientRecvFeedback { chan, rx }, response)
+                AcceptOrRejectGoal::Accept(ClientRecvFeedback { chan, rx }, id, response)
             }
         }
     }
@@ -393,8 +443,8 @@ pub fn create_server<G, F, R>(
 ) -> Result<ActionAccepter<G, F, R>, &'static str> {
     let mut node = MCSNode::new();
     let mut services = SERVICES.lock(&mut node);
-    let accepter = services.create_server(name, drop_accepter)?;
-    Ok(ActionAccepter { accepter })
+    let accepter = services.create_server(name.clone(), drop_accepter)?;
+    Ok(ActionAccepter { accepter, name })
 }
 
 /// Create a client.
@@ -425,12 +475,109 @@ pub async fn create_client<G: 'static, F: 'static, R: 'static>(
 
 pub struct ActionAccepter<G: 'static, F: 'static, R: 'static> {
     accepter: Accepter<ProtoServer<G, F, R>>,
+    name: Cow<'static, str>,
 }
 
 impl<G: 'static, F: 'static, R: 'static> ActionAccepter<G, F, R> {
     /// Accept a connection.
     pub async fn accept(&self) -> Result<ServerRecvGoal<G, F, R>, unbounded::RecvErr> {
-        let chan = self.accepter.accept().await?.enter();
-        Ok(ServerRecvGoal { chan })
+        let chan = self.accepter.accept().await?;
+        let chan = chan.enter();
+        Ok(ServerRecvGoal {
+            chan,
+            name: self.name.clone(),
+        })
     }
+}
+
+struct Actions {
+    ids: BTreeMap<Cow<'static, str>, BTreeMap<u64, Arc<AtomicBool>>>,
+    current_id: u64,
+}
+
+impl Actions {
+    const fn new() -> Self {
+        Actions {
+            ids: BTreeMap::new(),
+            current_id: 0,
+        }
+    }
+
+    fn insert(&mut self, name: Cow<'static, str>, flag: Arc<AtomicBool>) -> u64 {
+        fn get_id(map: &BTreeMap<u64, Arc<AtomicBool>>, start: &mut u64) -> u64 {
+            loop {
+                let result = *start;
+                *start += 1;
+                if !map.contains_key(&result) {
+                    return result;
+                }
+            }
+        }
+
+        match self.ids.entry(name.into()) {
+            Entry::Occupied(mut e) => {
+                let map = e.get_mut();
+                let id = get_id(map, &mut self.current_id);
+                map.insert(id, flag);
+                id
+            }
+            Entry::Vacant(e) => {
+                let mut map = BTreeMap::new();
+                let id = get_id(&mut map, &mut self.current_id);
+                map.insert(id, flag);
+                e.insert(map);
+                id
+            }
+        }
+    }
+
+    fn remove(&mut self, name: &str, id: u64) {
+        if let Some(map) = self.ids.get_mut(name) {
+            map.remove(&id);
+            if map.is_empty() {
+                self.ids.remove(name);
+            }
+        }
+    }
+
+    fn cancel(&mut self, name: &str, id: u64) {
+        if let Some(map) = self.ids.get_mut(name) {
+            if let Some(flag) = map.get(&id) {
+                flag.store(true, Ordering::Relaxed);
+
+                map.remove(&id);
+                if map.is_empty() {
+                    self.ids.remove(name);
+                }
+            }
+        }
+    }
+
+    fn cancel_all(&mut self, name: &str) {
+        if let Some(map) = self.ids.get_mut(name) {
+            for flag in map.values() {
+                flag.store(true, Ordering::Relaxed);
+            }
+
+            self.ids.remove(name);
+        }
+    }
+}
+
+pub fn cancel(name: &str, id: u64) {
+    let mut node = MCSNode::new();
+    let mut actions = ACTIONS.lock(&mut node);
+    actions.cancel(name, id);
+}
+
+pub fn cancel_all(name: &str) {
+    let mut node = MCSNode::new();
+    let mut actions = ACTIONS.lock(&mut node);
+    actions.cancel_all(name);
+}
+
+fn remove_cancel(name: &str, id: u64) {
+    let mut node = MCSNode::new();
+    let mut actions = ACTIONS.lock(&mut node);
+    actions.remove(name, id);
 }

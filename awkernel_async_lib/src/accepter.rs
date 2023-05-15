@@ -29,6 +29,7 @@ impl<P> Accepter<P> {
     }
 
     /// Accept a connection.
+    /// If accepted, it returns the name and a channel.
     pub async fn accept(&self) -> Result<S::Chan<(), P>, RecvErr> {
         let (tx, rx) = self.receiver.as_ref().unwrap().recv().await?;
         Ok(S::mk_chan(tx, rx))
