@@ -30,9 +30,13 @@ optional = true
 path = "../awkernel_aarch64"
 optional = true
 
+[dependencies.parking_lot]
+version = "0.12"
+optional = true
+
 [features]
 default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
-std = ["dep:libc"]
+std = ["dep:libc", "dep:parking_lot"]

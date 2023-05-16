@@ -5,10 +5,10 @@ type Lock<T> = super::mcs::MCSLock<T>;
 type LockGuard<'a, T> = super::mcs::MCSLockGuard<'a, T>;
 
 #[cfg(feature = "std")]
-type Lock<T> = std::sync::Mutex<T>;
+type Lock<T> = parking_lot::Mutex<T>;
 
 #[cfg(feature = "std")]
-type LockGuard<'a, T> = std::sync::MutexGuard<'a, T>;
+type LockGuard<'a, T> = parking_lot::MutexGuard<'a, T>;
 
 pub struct Mutex<T> {
     #[cfg(not(std))]
@@ -23,20 +23,14 @@ impl<T> Mutex<T> {
     }
 
     #[cfg(not(feature = "std"))]
-    pub fn lock<'a>(&'a self) -> LockGuard<'a, T> {
-        self.mutex.lock()
+    pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> LockGuard<'a, T> {
+        self.mutex.lock(node)
     }
 
     #[cfg(feature = "std")]
-    pub fn lock<'a>(&'a self) -> LockGuard<'a, T> {
-        self.mutex.lock().unwrap()
+    pub fn lock<'a>(&'a self, _node: &mut MCSNode<T>) -> LockGuard<'a, T> {
+        self.mutex.lock()
     }
 }
 
-#[cfg(not(feature = "std"))]
 pub use super::mcs::MCSNode;
-
-#[cfg(not(feature = "std"))]
-pub unsafe fn init_mcs_node(node: *mut MCSNode) {
-    super::mcs::init_mcs_node(node)
-}

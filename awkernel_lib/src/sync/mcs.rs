@@ -1,33 +1,29 @@
 use core::{
     cell::UnsafeCell,
-    mem::transmute,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
-    ptr::{null_mut, read_volatile, write_volatile},
+    ptr::null_mut,
     sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
 };
 
-use crate::cpu;
-
-static mut MCS_NODES: [*mut MCSNode; 1024] = [null_mut(); 1024];
-
 pub struct MCSLock<T> {
-    last: AtomicPtr<MCSNode>,
+    last: AtomicPtr<MCSNode<T>>,
     data: UnsafeCell<T>,
 }
 
-pub struct MCSNode {
-    next: AtomicPtr<MCSNode>,
+pub struct MCSNode<T> {
+    next: AtomicPtr<MCSNode<T>>,
     locked: AtomicBool,
 }
 
-impl Default for MCSNode {
+impl<T> Default for MCSNode<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl MCSNode {
-    pub fn new() -> MCSNode {
+impl<T> MCSNode<T> {
+    pub fn new() -> Self {
         MCSNode {
             next: AtomicPtr::new(null_mut()),
             locked: AtomicBool::new(false),
@@ -44,9 +40,7 @@ impl<T> MCSLock<T> {
     }
 
     /// acquire lock
-    pub fn lock<'a>(&'a self) -> MCSLockGuard<T> {
-        let node = unsafe { get_node() };
-
+    pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<T> {
         node.next = AtomicPtr::new(null_mut());
         node.locked = AtomicBool::new(false);
 
@@ -57,9 +51,10 @@ impl<T> MCSLock<T> {
             node,
             mcs_lock: self,
             _interrupt_guard,
+            _phantom: Default::default(),
         };
 
-        let ptr = guard.node as *mut MCSNode;
+        let ptr = guard.node as *mut MCSNode<T>;
         let prev = self.last.swap(ptr, Ordering::Relaxed);
 
         // if prev is null then nobody is trying to acquire lock,
@@ -87,9 +82,10 @@ unsafe impl<T> Sync for MCSLock<T> {}
 unsafe impl<T> Send for MCSLock<T> {}
 
 pub struct MCSLockGuard<'a, T> {
-    node: &'a mut MCSNode,
+    node: &'a mut MCSNode<T>,
     mcs_lock: &'a MCSLock<T>,
     _interrupt_guard: crate::interrupt::InterruptGuard,
+    _phantom: PhantomData<*mut ()>,
 }
 
 impl<'a, T> Drop for MCSLockGuard<'a, T> {
@@ -97,7 +93,7 @@ impl<'a, T> Drop for MCSLockGuard<'a, T> {
         // if next node is null and self is the last node
         // set the last node to null
         if self.node.next.load(Ordering::Relaxed).is_null() {
-            let ptr = self.node as *mut MCSNode;
+            let ptr = self.node as *mut MCSNode<T>;
             if self
                 .mcs_lock
                 .last
@@ -131,15 +127,4 @@ impl<'a, T> DerefMut for MCSLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mcs_lock.data.get() }
     }
-}
-
-pub(crate) unsafe fn init_mcs_node(node: *mut MCSNode) {
-    write_volatile(&mut MCS_NODES[cpu::cpu_id()], node);
-}
-
-#[inline]
-unsafe fn get_node() -> &'static mut MCSNode {
-    let ptr = read_volatile(&MCS_NODES[cpu::cpu_id()]);
-    assert!(!ptr.is_null());
-    transmute(ptr)
 }
