@@ -63,10 +63,6 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 12. Boot non-primary CPUs.
 /// 13. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    // Enable mutex.
-    let mut node = awkernel_lib::sync::mutex::MCSNode::new();
-    unsafe { awkernel_lib::sync::mutex::init_mcs_node(&mut node) };
-
     enable_fpu(); // 1. Enable SSE.
 
     super::serial::init(); // 2. Initialize the serial port.

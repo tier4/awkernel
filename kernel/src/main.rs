@@ -35,10 +35,6 @@ mod nostd;
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
-    let m = awkernel_lib::sync::mutex::Mutex::new(0);
-    let mut guard = m.lock();
-    *guard = 1;
-
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {

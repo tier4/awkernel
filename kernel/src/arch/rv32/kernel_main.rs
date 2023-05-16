@@ -29,10 +29,6 @@ global_asm!(include_str!("boot.S"));
 
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() {
-    // Enable mutex.
-    let mut node = awkernel_lib::sync::mutex::MCSNode::new();
-    awkernel_lib::sync::mutex::init_mcs_node(&mut node);
-
     let hartid: usize = cpu::cpu_id();
     if hartid == 0 {
         primary_hart(hartid);
