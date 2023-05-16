@@ -1,4 +1,4 @@
-// Task yielding.
+//! Task yielding.
 
 use core::task::Poll;
 use futures::Future;

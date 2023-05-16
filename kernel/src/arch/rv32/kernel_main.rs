@@ -1,19 +1,16 @@
+use super::console;
+use crate::{
+    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    kernel_info::KernelInfo,
+};
+use awkernel_lib::{cpu, heap};
 use core::{
     arch::global_asm,
-//    mem::MaybeUninit,
-    sync::atomic::{AtomicBool, Ordering},
     fmt::Write,
+    //    mem::MaybeUninit,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use ns16550a::Uart;
-use awkernel_lib::{
-    cpu,
-    heap,
-};
-use crate::{
-    kernel_info::KernelInfo,
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
-};
-use super::console;
 
 const UART_BASE: u32 = 0x1000_0000;
 
@@ -32,6 +29,10 @@ global_asm!(include_str!("boot.S"));
 
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() {
+    // Enable mutex.
+    let mut node = awkernel_lib::sync::mutex::MCSNode::new();
+    awkernel_lib::sync::mutex::init_mcs_node(&mut node);
+
     let hartid: usize = cpu::cpu_id();
     if hartid == 0 {
         primary_hart(hartid);
@@ -64,7 +65,7 @@ unsafe fn primary_hart(hartid: usize) {
         ns16550a::StickParity::DISABLE,
         ns16550a::Break::DISABLE,
         ns16550a::DMAMode::MODE0,
-        ns16550a::Divisor::BAUD115200
+        ns16550a::Divisor::BAUD115200,
     );
 
     let _ = port.write_str("\nautoware kernel is booting\n\n");

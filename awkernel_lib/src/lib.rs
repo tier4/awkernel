@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![feature(core_intrinsics)]
 
 use core::{cell::Cell, marker::PhantomData};
@@ -11,6 +11,7 @@ pub mod delay;
 pub mod interrupt;
 pub mod logger;
 pub mod mmio;
+pub mod sync;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;

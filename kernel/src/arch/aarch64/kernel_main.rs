@@ -18,7 +18,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{delay::wait_forever, heap};
+use awkernel_lib::{delay::wait_forever, heap, sync::mutex::MCSNode};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -30,6 +30,10 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 /// Entry point from assembly code.
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() -> ! {
+    // Enable mutex.
+    let mut node = MCSNode::new();
+    awkernel_lib::sync::mutex::init_mcs_node(&mut node);
+
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
 
     if cpu::core_pos() == 0 {
