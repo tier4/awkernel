@@ -83,7 +83,7 @@ unsafe fn primary_cpu() {
     // 4. Enable heap allocator.
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
-    heap::TALLOC.use_backup(); // use backup allocator
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     // 5. Enable serial port.
     serial::init();
@@ -131,8 +131,7 @@ unsafe fn non_primary_cpu() {
         cpu_id: cpu::core_pos(),
     };
 
-    awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
-    heap::TALLOC.use_backup(); // use backup allocator
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     crate::main::<()>(kernel_info);
 }

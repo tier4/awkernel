@@ -264,7 +264,7 @@ pub fn run(cpu_id: usize) {
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup()
             };
 
             match result {

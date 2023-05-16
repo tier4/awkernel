@@ -1,17 +1,17 @@
 //! A task runner used by test.
 
 use alloc::{collections::VecDeque, sync::Arc};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::task::Context;
 use futures::{
     future::{BoxFuture, Fuse, FusedFuture},
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub struct Task {
-    future: MCSLock<Fuse<BoxFuture<'static, ()>>>,
-    queue: Arc<MCSLock<VecDeque<Arc<Task>>>>,
+    future: Mutex<Fuse<BoxFuture<'static, ()>>>,
+    queue: Arc<Mutex<VecDeque<Arc<Task>>>>,
 }
 
 unsafe impl Sync for Task {}
@@ -31,13 +31,13 @@ impl ArcWake for Task {
 }
 
 pub struct Tasks {
-    queue: Arc<MCSLock<VecDeque<Arc<Task>>>>,
+    queue: Arc<Mutex<VecDeque<Arc<Task>>>>,
 }
 
 impl Tasks {
     pub fn new() -> Self {
         Self {
-            queue: Arc::new(MCSLock::new(VecDeque::new())),
+            queue: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -70,7 +70,7 @@ impl Tasks {
         let mut queue = self.queue.lock(&mut node);
 
         let task = Task {
-            future: MCSLock::new(future.boxed().fuse()),
+            future: Mutex::new(future.boxed().fuse()),
             queue: q,
         };
 

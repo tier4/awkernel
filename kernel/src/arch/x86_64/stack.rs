@@ -5,15 +5,20 @@ use awkernel_lib::{
     heap::InitErr,
 };
 use x86_64::{
-    structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
+    },
     VirtAddr,
 };
 
-pub(super) fn map_stack(
+pub(super) fn map_stack<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) -> Result<(), InitErr> {
+    page_allocator: &mut PageAllocator<T>,
+) -> Result<(), InitErr>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let num_cpu = if let Ok(platform_info) = acpi.platform_info() {
         if let Some(processor_info) = platform_info.processor_info {
             processor_info.application_processors.len()

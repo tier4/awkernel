@@ -49,7 +49,7 @@ unsafe fn primary_hart(hartid: usize) {
     // enable heap allocator
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
-    heap::TALLOC.use_backup(); // use backup allocator
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     // initialize serial device and dump booting logo
     let mut port = Uart::new(UART_BASE as usize);
@@ -88,6 +88,8 @@ unsafe fn non_primary_hart(hartid: usize) {
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
+
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     let kernel_info = KernelInfo {
         info: (),

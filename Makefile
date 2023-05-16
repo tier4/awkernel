@@ -38,7 +38,7 @@ ifndef $(LD)
 	# LD = ld.gold
 endif
 
-all: raspi x86_64 std
+all: raspi x86_64 riscv32 std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
@@ -70,7 +70,7 @@ gdb-raspi3:
 
 ## x86_64
 
-x86_64: x86_64_boot.img
+x86_64: x86_64_uefi.img
 
 kernel-x86_64.elf: $(X86ASM) FORCE
 	cargo +nightly x86 $(OPT)
@@ -84,15 +84,15 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
-QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_boot.img
+QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 
 qemu-x86_64:
-	qemu-system-x86_64  $(QEMU_X86_ARGS)
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`
 
 debug-x86_64:
-	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
 
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb
@@ -103,7 +103,7 @@ riscv32:
 	cargo +nightly rv32 $(OPT)
 
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
-	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4
+	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
 ## Linux / macOS
 

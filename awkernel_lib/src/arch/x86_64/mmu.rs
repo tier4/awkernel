@@ -4,13 +4,16 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
-pub unsafe fn map_to(
+pub unsafe fn map_to<T>(
     phy_addr: usize,
     virt_addr: usize,
     flags: PageTableFlags,
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) -> bool {
+    page_allocator: &mut PageAllocator<T>,
+) -> bool
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let frame = PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phy_addr as u64));
 
     let page = Page::containing_address(VirtAddr::new(virt_addr as u64));

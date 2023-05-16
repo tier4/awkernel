@@ -119,7 +119,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
 
     // Use the backup allocator in kernel.
-    unsafe { awkernel_lib::heap::TALLOC.use_backup() };
+    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     // 5. Initialize the logger.
     super::serial::init_logger();
@@ -172,10 +172,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     wait_forever()
 }
 
-fn init_primary_heap(
+fn init_primary_heap<T>(
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) {
+    page_allocator: &mut PageAllocator<T>,
+) where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
     let primary_size = 1 << 48;
 
@@ -211,11 +213,13 @@ const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mo
 const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 
-pub(super) fn map_for_boot(
+pub(super) fn map_for_boot<T>(
     addr: u64,
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) {
+    page_allocator: &mut PageAllocator<T>,
+) where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
     unsafe {
         page_table
@@ -308,7 +312,7 @@ fn non_primary_kernel_main() -> ! {
     enable_fpu(); // Enable SSE.
 
     // use backup allocator
-    unsafe { awkernel_lib::heap::TALLOC.use_backup() };
+    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     // Initialize interrupt handlers.
     unsafe { interrupt::init() };
