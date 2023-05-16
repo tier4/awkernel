@@ -4,11 +4,11 @@
 use crate::{delay::uptime, task::Task};
 use alloc::{boxed::Box, sync::Arc};
 use awkernel_async_lib_verified::delta_list::DeltaList;
-use synctools::mcs::{MCSLock, MCSNode};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 mod round_robin;
 
-static SLEEPING: MCSLock<SleepingTasks> = MCSLock::new(SleepingTasks::new());
+static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
 #[derive(Debug, Clone, Copy)]
@@ -46,7 +46,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
 
 /// Maintain sleeping tasks by a delta list.
 struct SleepingTasks {
-    delta_list: DeltaList<Box<dyn FnOnce()>>,
+    delta_list: DeltaList<Box<dyn FnOnce() + Send>>,
     base_time: u64,
 }
 
@@ -59,7 +59,7 @@ impl SleepingTasks {
     }
 
     /// `dur` is microseconds
-    fn sleep_task(&mut self, handler: Box<dyn FnOnce()>, mut dur: u64) {
+    fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: u64) {
         let now = uptime();
         if self.delta_list.is_empty() {
             self.base_time = now;
@@ -94,7 +94,7 @@ impl SleepingTasks {
 
 /// After `dur` time, `sleep_handler` will be invoked.
 /// `dur` is microseconds.
-pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce()>, dur: u64) {
+pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.sleep_task(sleep_handler, dur);

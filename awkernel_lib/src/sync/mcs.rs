@@ -6,7 +6,7 @@ use core::{
     sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
 };
 
-pub struct MCSLock<T> {
+pub struct MCSLock<T: Send> {
     last: AtomicPtr<MCSNode<T>>,
     data: UnsafeCell<T>,
 }
@@ -31,7 +31,7 @@ impl<T> MCSNode<T> {
     }
 }
 
-impl<T> MCSLock<T> {
+impl<T: Send> MCSLock<T> {
     pub const fn new(v: T) -> MCSLock<T> {
         MCSLock {
             last: AtomicPtr::new(null_mut()),
@@ -78,17 +78,17 @@ impl<T> MCSLock<T> {
     }
 }
 
-unsafe impl<T> Sync for MCSLock<T> {}
-unsafe impl<T> Send for MCSLock<T> {}
+unsafe impl<T: Send> Sync for MCSLock<T> {}
+unsafe impl<T: Send> Send for MCSLock<T> {}
 
-pub struct MCSLockGuard<'a, T> {
+pub struct MCSLockGuard<'a, T: Send> {
     node: &'a mut MCSNode<T>,
     mcs_lock: &'a MCSLock<T>,
     _interrupt_guard: crate::interrupt::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
-impl<'a, T> Drop for MCSLockGuard<'a, T> {
+impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
     fn drop(&mut self) {
         // if next node is null and self is the last node
         // set the last node to null
@@ -115,7 +115,7 @@ impl<'a, T> Drop for MCSLockGuard<'a, T> {
     }
 }
 
-impl<'a, T> Deref for MCSLockGuard<'a, T> {
+impl<'a, T: Send> Deref for MCSLockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -123,7 +123,7 @@ impl<'a, T> Deref for MCSLockGuard<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for MCSLockGuard<'a, T> {
+impl<'a, T: Send> DerefMut for MCSLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mcs_lock.data.get() }
     }

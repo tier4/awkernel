@@ -107,6 +107,7 @@ use alloc::{
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
     sync::Arc,
 };
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
     marker::PhantomData,
     sync::atomic::{AtomicBool, Ordering},
@@ -115,7 +116,6 @@ use futures::{
     future::{BoxFuture, Fuse},
     FutureExt,
 };
-use synctools::mcs::{MCSLock, MCSNode};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum GoalResponse {
@@ -130,8 +130,8 @@ pub enum ResultStatus<R> {
     Aborted,
 }
 
-static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
-static ACTIONS: MCSLock<Actions> = MCSLock::new(Actions::new());
+static SERVICES: Mutex<Services> = Mutex::new(Services::new());
+static ACTIONS: Mutex<Actions> = Mutex::new(Actions::new());
 
 fn drop_accepter<P>(acc: &mut Accepter<P>) {
     let mut node = MCSNode::new();
@@ -166,7 +166,7 @@ type ProtoServerResult<R> = S::Send<
 >;
 
 #[must_use]
-pub struct ServerRecvGoal<G, F, R> {
+pub struct ServerRecvGoal<G, F: Send, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerInn<G, F, R>>,
     name: Cow<'static, str>,
 }
@@ -174,6 +174,7 @@ pub struct ServerRecvGoal<G, F, R> {
 impl<G, F, R> ServerRecvGoal<G, F, R>
 where
     G: Send + 'static,
+    F: Send,
 {
     /// Receive a goal.
     /// If a goal is received, a value of `Some((ServerSendGoalResult, G))` will be returned.
@@ -194,7 +195,7 @@ where
 }
 
 #[must_use]
-pub struct ServerSendGoalResult<G, F, R> {
+pub struct ServerSendGoalResult<G, F: Send, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerGoalResult<F, R>>,
     name: Cow<'static, str>,
 }
@@ -243,13 +244,13 @@ where
     }
 }
 
-pub enum ServerFeedbackOrCancel<G, F, R> {
+pub enum ServerFeedbackOrCancel<G, F: Send, R> {
     Feedback(ServerSendFeedback<G, F, R>),
     Cancel(ServerSendCancel<G, F, R>),
 }
 
 #[must_use]
-pub struct ServerSendFeedback<G, F, R> {
+pub struct ServerSendFeedback<G, F: Send, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
     name: Cow<'static, str>,
     tx: bounded::Sender<F>,
@@ -308,7 +309,7 @@ where
 }
 
 #[must_use]
-pub struct ServerSendCancel<G, F, R> {
+pub struct ServerSendCancel<G, F: Send, R> {
     chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
     name: Cow<'static, str>,
     cancel: Arc<AtomicBool>,
@@ -338,13 +339,13 @@ where
 type ChanClient<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), ProtoClientInn<G, F, R>>;
 
 #[must_use]
-pub struct ClientSendGoal<'a, G, F, R> {
+pub struct ClientSendGoal<'a, G, F: Send, R> {
     chan: ChanClient<G, F, R>,
     _phantom: PhantomData<&'a ()>,
 }
 
 #[must_use]
-pub enum AcceptOrRejectGoal<'a, G, F, R> {
+pub enum AcceptOrRejectGoal<'a, G, F: Send, R> {
     Accept(ClientRecvFeedback<'a, G, F, R>, u64, GoalResponse),
     Reject(ClientSendGoal<'a, G, F, R>),
 }
@@ -400,13 +401,13 @@ where
 type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S::Z>>;
 
 #[must_use]
-pub struct ClientRecvFeedback<'a, G, F, R> {
+pub struct ClientRecvFeedback<'a, G, F: Send, R> {
     chan: Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, ResultStatus<R>)>>,
     rx: Fuse<BoxFuture<'a, Result<F, bounded::RecvErr>>>,
 }
 
 #[must_use]
-pub enum FeedbackOrResult<'a, G, F, R> {
+pub enum FeedbackOrResult<'a, G, F: Send, R> {
     Feedback(ClientRecvFeedback<'a, G, F, R>, F),
     Result(ClientSendGoal<'a, G, F, R>, ResultStatus<R>),
 }
@@ -438,7 +439,7 @@ where
 /// - `G`: type of goal.
 /// - `F`: type of feedback.
 /// - `R`: type of result.
-pub fn create_server<G, F, R>(
+pub fn create_server<G, F: Send, R>(
     name: Cow<'static, str>,
 ) -> Result<ActionAccepter<G, F, R>, &'static str> {
     let mut node = MCSNode::new();
@@ -452,7 +453,7 @@ pub fn create_server<G, F, R>(
 /// - `G`: type of goal.
 /// - `F`: type of feedback.
 /// - `R`: type of result.
-pub async fn create_client<G: 'static, F: 'static, R: 'static>(
+pub async fn create_client<G: 'static, F: 'static + Send, R: 'static>(
     name: Cow<'static, str>,
 ) -> Result<ClientSendGoal<G, F, R>, &'static str> {
     let mut node = MCSNode::new();
@@ -473,12 +474,12 @@ pub async fn create_client<G: 'static, F: 'static, R: 'static>(
     })
 }
 
-pub struct ActionAccepter<G: 'static, F: 'static, R: 'static> {
+pub struct ActionAccepter<G: 'static, F: 'static + Send, R: 'static> {
     accepter: Accepter<ProtoServer<G, F, R>>,
     name: Cow<'static, str>,
 }
 
-impl<G: 'static, F: 'static, R: 'static> ActionAccepter<G, F, R> {
+impl<G: 'static, F: 'static + Send, R: 'static> ActionAccepter<G, F, R> {
     /// Accept a connection.
     pub async fn accept(&self) -> Result<ServerRecvGoal<G, F, R>, unbounded::RecvErr> {
         let chan = self.accepter.accept().await?;

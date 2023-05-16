@@ -3,19 +3,18 @@
 use super::{sleep_task::Sleep, Cancel};
 use core::{pin::Pin, task::Poll, time::Duration};
 use futures::{future::FusedFuture, Future, FutureExt};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 
-pin_project! {
-    #[must_use = "use `.await` to call"]
-    pub struct Timeout<F, T>
-    where
-        F: Future<Output = T>,
-    {
-        #[pin]
-        future: F,
-        sleep: Sleep,
-        state: State,
-    }
+#[must_use = "use `.await` to call"]
+#[pin_project]
+pub struct Timeout<F, T>
+where
+    F: Future<Output = T>,
+{
+    #[pin]
+    future: F,
+    sleep: Sleep,
+    state: State,
 }
 
 enum State {

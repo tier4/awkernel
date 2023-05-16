@@ -8,7 +8,7 @@ use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 
 /// Channel so that a server accepts a connection.
 
-type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
+pub(crate) type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
 
 /// `P` is a protocol of a server.
 pub struct Accepter<P: 'static> {

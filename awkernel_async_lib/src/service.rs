@@ -223,14 +223,14 @@
 //! ```
 
 use crate::{
-    accepter::{Accepter, Services},
+    accepter::{self, Accepter, Services},
     channel::unbounded,
     session_types::{mk_chan, Chan, HasDual},
 };
 use alloc::{borrow::Cow, vec::Vec};
-use synctools::mcs::{MCSLock, MCSNode};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-static SERVICES: MCSLock<Services> = MCSLock::new(Services::new());
+static SERVICES: Mutex<Services> = Mutex::new(Services::new());
 
 fn drop_accepter<P>(acc: &mut Accepter<P>) {
     let mut node = MCSNode::new();
@@ -291,9 +291,7 @@ pub fn create_server<P: 'static>(name: Cow<'static, str>) -> Result<Accepter<P>,
 pub async fn create_client<P: HasDual + 'static>(
     name: Cow<'static, str>,
 ) -> Result<Chan<(), P>, &'static str> {
-    let mut node = MCSNode::new();
-    let mut services = SERVICES.lock(&mut node);
-    let tx = services.create_client::<P>(name, drop_accepter)?;
+    let tx = get_tx::<P>(name)?;
 
     let (tx1, rx1) = unbounded::new();
     let (tx2, rx2) = unbounded::new();
@@ -302,6 +300,14 @@ pub async fn create_client<P: HasDual + 'static>(
     tx.send((tx2, rx1)).await?;
 
     Ok(client)
+}
+
+fn get_tx<P: HasDual + 'static>(
+    name: Cow<'static, str>,
+) -> Result<unbounded::Sender<accepter::TxRx>, &'static str> {
+    let mut node = MCSNode::new();
+    let mut services = SERVICES.lock(&mut node);
+    services.create_client::<P>(name, drop_accepter)
 }
 
 pub fn get_services() -> Vec<Cow<'static, str>> {

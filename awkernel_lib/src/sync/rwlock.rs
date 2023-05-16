@@ -5,14 +5,14 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-pub struct RwLock<T> {
+pub struct RwLock<T: Send> {
     rcnt: AtomicUsize,
     wcnt: AtomicUsize,
     lock: AtomicBool,
     data: UnsafeCell<T>,
 }
 
-impl<T> RwLock<T> {
+impl<T: Send> RwLock<T> {
     pub const fn new(v: T) -> RwLock<T> {
         RwLock {
             rcnt: AtomicUsize::new(0),
@@ -70,32 +70,32 @@ impl<T> RwLock<T> {
     }
 }
 
-pub struct RwLockReadGuard<'a, T> {
+pub struct RwLockReadGuard<'a, T: Send> {
     rwlock: &'a RwLock<T>,
     _interrupt_guard: crate::interrupt::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
-impl<'a, T> RwLockReadGuard<'a, T> {
+impl<'a, T: Send> RwLockReadGuard<'a, T> {
     /// unlock read lock
     pub fn unlock(self) {}
 }
 
-pub struct RwLockWriteGuard<'a, T> {
+pub struct RwLockWriteGuard<'a, T: Send> {
     rwlock: &'a RwLock<T>,
     _interrupt_guard: crate::interrupt::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
-impl<'a, T> RwLockWriteGuard<'a, T> {
+impl<'a, T: Send> RwLockWriteGuard<'a, T> {
     /// unlock write lock
     pub fn unlock(self) {}
 }
 
-unsafe impl<T> Sync for RwLock<T> {}
-unsafe impl<T> Send for RwLock<T> {}
+unsafe impl<T: Send> Sync for RwLock<T> {}
+unsafe impl<T: Send> Send for RwLock<T> {}
 
-impl<'a, T> Deref for RwLockReadGuard<'a, T> {
+impl<'a, T: Send> Deref for RwLockReadGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -103,7 +103,7 @@ impl<'a, T> Deref for RwLockReadGuard<'a, T> {
     }
 }
 
-impl<'a, T> Deref for RwLockWriteGuard<'a, T> {
+impl<'a, T: Send> Deref for RwLockWriteGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -111,21 +111,21 @@ impl<'a, T> Deref for RwLockWriteGuard<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for RwLockWriteGuard<'a, T> {
+impl<'a, T: Send> DerefMut for RwLockWriteGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.rwlock.data.get() }
     }
 }
 
 /// release read lock
-impl<'a, T> Drop for RwLockReadGuard<'a, T> {
+impl<'a, T: Send> Drop for RwLockReadGuard<'a, T> {
     fn drop(&mut self) {
         self.rwlock.rcnt.fetch_sub(1, Ordering::Release);
     }
 }
 
 /// release write lock
-impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
+impl<'a, T: Send> Drop for RwLockWriteGuard<'a, T> {
     fn drop(&mut self) {
         self.rwlock.lock.store(false, Ordering::Relaxed);
         self.rwlock.wcnt.fetch_sub(1, Ordering::Release);

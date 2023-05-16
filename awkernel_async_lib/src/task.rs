@@ -21,6 +21,7 @@ use alloc::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
 };
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
     any::Any,
     ptr::{read_volatile, write_volatile},
@@ -31,12 +32,11 @@ use futures::{
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
-use synctools::mcs::{MCSLock, MCSNode};
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
-static TASKS: MCSLock<Tasks> = MCSLock::new(Tasks::new()); // Set of tasks.
+static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static mut RUNNING: [Option<u64>; 512] = [None; 512]; // IDs of running tasks.
 
 /// List of tasks.
@@ -93,8 +93,8 @@ impl TaskList {
 /// Task has ID, future, information, and a reference to a scheduler.
 pub(crate) struct Task {
     id: u64,
-    future: MCSLock<Fuse<BoxFuture<'static, TaskResult>>>,
-    pub(crate) info: MCSLock<TaskInfo>,
+    future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
+    pub(crate) info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
 }
 
@@ -156,14 +156,14 @@ impl Tasks {
         loop {
             // Find an unused task ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
-                let info = MCSLock::new(TaskInfo {
+                let info = Mutex::new(TaskInfo {
                     _scheduler_type: scheduler_type,
                     state: State::Ready,
                     next: None,
                 });
 
                 let task = Task {
-                    future: MCSLock::new(future),
+                    future: Mutex::new(future),
                     scheduler,
                     id,
                     info,

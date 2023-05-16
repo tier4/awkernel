@@ -10,12 +10,12 @@ type Lock<T> = parking_lot::Mutex<T>;
 #[cfg(feature = "std")]
 type LockGuard<'a, T> = parking_lot::MutexGuard<'a, T>;
 
-pub struct Mutex<T> {
+pub struct Mutex<T: Send> {
     #[cfg(not(std))]
     mutex: Lock<T>,
 }
 
-impl<T> Mutex<T> {
+impl<T: Send> Mutex<T> {
     pub const fn new(v: T) -> Self {
         Self {
             mutex: Lock::new(v),

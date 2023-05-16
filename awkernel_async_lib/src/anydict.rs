@@ -12,7 +12,7 @@ pub(super) enum AnyDictResult<T> {
 
 /// Dictionary from `Cow<'static, str>` to any value.
 pub(super) struct AnyDict {
-    dict: BTreeMap<Cow<'static, str>, Box<dyn Any>>,
+    dict: BTreeMap<Cow<'static, str>, Box<dyn Any + Send>>,
 }
 
 impl AnyDict {
@@ -30,7 +30,7 @@ impl AnyDict {
     /// Insert a key value pair.
     pub(super) fn insert<T>(&mut self, key: Cow<'static, str>, value: T)
     where
-        T: Any,
+        T: Any + Send,
     {
         self.dict.insert(key, Box::new(value));
     }
@@ -72,7 +72,7 @@ impl AnyDict {
     }
 
     /// Remove the value mapped by `key`.
-    pub(super) fn remove(&mut self, key: &str) -> Option<Box<dyn Any>> {
+    pub(super) fn remove(&mut self, key: &str) -> Option<Box<dyn Any + Send>> {
         self.dict.remove(key)
     }
 }

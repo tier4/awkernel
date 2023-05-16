@@ -3,10 +3,10 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{self, TaskList};
 use alloc::sync::Arc;
-use synctools::mcs::{MCSLock, MCSNode};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RoundRobinScheduler {
-    data: MCSLock<Option<RoundRobinData>>, // Run queue.
+    data: Mutex<Option<RoundRobinData>>, // Run queue.
 }
 
 struct RoundRobinData {
@@ -77,5 +77,5 @@ impl Scheduler for RoundRobinScheduler {
 }
 
 pub static SCHEDULER: RoundRobinScheduler = RoundRobinScheduler {
-    data: MCSLock::new(None),
+    data: Mutex::new(None),
 };
