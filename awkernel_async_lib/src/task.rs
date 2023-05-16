@@ -242,23 +242,38 @@ pub fn run(cpu_id: usize) {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let mut node = MCSNode::new();
-            let mut guard = task.future.lock(&mut node);
+            let result = {
+                let mut node = MCSNode::new();
+                let mut guard = task.future.lock(&mut node);
 
-            unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
+                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
-            if guard.is_terminated() {
-                continue;
-            }
+                if guard.is_terminated() {
+                    continue;
+                }
 
-            // Use the primary memory allocator.
-            #[cfg(not(feature = "std"))]
-            unsafe {
-                awkernel_lib::heap::TALLOC.use_primary()
+                // Use the primary memory allocator.
+                #[cfg(not(feature = "std"))]
+                unsafe {
+                    awkernel_lib::heap::TALLOC.use_primary()
+                };
+
+                // Invoke a task.
+                let result = {
+                    catch_unwind(|| {
+                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                        awkernel_lib::interrupt::enable();
+
+                        let result = guard.poll_unpin(&mut ctx);
+
+                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                        awkernel_lib::interrupt::disable();
+                        result
+                    })
+                };
+
+                result
             };
-
-            // Invoke a task.
-            let result = catch_unwind(|| guard.poll_unpin(&mut ctx));
 
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.

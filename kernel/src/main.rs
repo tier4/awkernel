@@ -37,6 +37,10 @@ mod nostd;
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
+    // TODO: currently interrupt is supported for only AArch64
+    #[cfg(all(feature = "aarch64", not(feature = "std")))]
+    awkernel_lib::interrupt::enable();
+
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
