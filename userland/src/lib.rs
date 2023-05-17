@@ -1,145 +1,101 @@
 #![no_std]
-use alloc::{borrow::Cow, sync::Arc};
+use alloc::{borrow::Cow, format};
 use awkernel_async_lib::{
     pubsub::{create_publisher, create_subscriber, Attribute},
     scheduler::SchedulerType,
     spawn, uptime,
 };
 use core::{
+    ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
 extern crate alloc;
 
+const RTT_SIZE: usize = 4096;
+
+static mut RTT: [u64; RTT_SIZE] = [0; RTT_SIZE];
+static COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn add_rtt(rtt: u64) {
+    let index = COUNT.fetch_add(1, Ordering::Relaxed);
+    unsafe { write_volatile(&mut RTT[index & (RTT_SIZE - 1)], rtt) };
+}
+
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    let publisher1 = create_publisher::<u64>("1->2".into(), Attribute::default()).unwrap();
-    let publisher2 = create_publisher::<u64>("2->1".into(), Attribute::default()).unwrap();
-
-    let subscriber1 = create_subscriber::<u64>("1->2".into(), Attribute::default()).unwrap();
-    let subscriber2 = create_subscriber::<u64>("2->1".into(), Attribute::default()).unwrap();
-
-    let count1 = Arc::new(AtomicUsize::new(0));
-    let count2 = count1.clone();
-
     spawn(
         async move {
-            let mut i = 0;
             loop {
-                log::debug!("publish {i}");
-
-                let start = uptime();
-
-                publisher1.send(i).await;
-                let _ = subscriber2.recv().await;
-
-                let end = uptime();
-                log::debug!("RTT: {} [us]", end - start);
-
-                i += 1;
                 awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+
+                let mut total = 0;
+                let mut count = 0;
+                let mut worst = 0;
+
+                for i in 0..RTT_SIZE {
+                    let rtt = unsafe { read_volatile(&mut RTT[i]) };
+                    if rtt > 0 {
+                        total += rtt;
+                        count += 1;
+                    }
+
+                    if rtt > worst {
+                        worst = rtt;
+                    }
+                }
+
+                if count > 0 {
+                    let ave = total as f64 / count as f64;
+                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                }
             }
         },
         SchedulerType::RoundRobin,
     )
     .await;
 
-    spawn(
-        async move {
-            loop {
-                let data = subscriber1.recv().await;
-                publisher2.send(data.data).await;
+    for i in 0..1024 {
+        let topic_a = format!("topic_a_{i}");
+        let topic_b = format!("topic_b_{i}");
 
-                log::debug!("received {}", data.data);
+        let publisher1 =
+            create_publisher::<()>(topic_a.clone().into(), Attribute::default()).unwrap();
+        let subscriber1 =
+            create_subscriber::<()>(topic_b.clone().into(), Attribute::default()).unwrap();
 
-                count1.fetch_add(1, Ordering::Relaxed);
-            }
-        },
-        SchedulerType::RoundRobin,
-    )
-    .await;
+        let publisher2 = create_publisher::<()>(topic_b.into(), Attribute::default()).unwrap();
+        let subscriber2 = create_subscriber::<()>(topic_a.into(), Attribute::default()).unwrap();
 
-    spawn(
-        async move {
-            let mut prev = 0;
-            loop {
-                // Test of timeout.
-                awkernel_async_lib::timeout(Duration::from_secs(1), async {
-                    awkernel_async_lib::forever().await;
-                })
-                .await;
+        spawn(
+            async move {
+                loop {
+                    subscriber2.recv().await;
+                    publisher2.send(()).await;
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
 
-                let n = count2.load(Ordering::Relaxed);
-                let ops = n - prev;
-                prev = n;
+        spawn(
+            async move {
+                loop {
+                    let start = uptime();
+                    publisher1.send(()).await;
+                    subscriber1.recv().await;
+                    let end = uptime();
 
-                log::debug!("{ops} [ops/s]");
-            }
-        },
-        SchedulerType::RoundRobin,
-    )
-    .await;
+                    let elapsed = end - start;
+                    add_rtt(elapsed);
 
-    test_session_types().await;
+                    awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+    }
 
     Ok(())
-}
-
-use awkernel_async_lib::{service, session_types::*};
-
-// Define protocol.
-type Server = Recv<u64, Send<bool, Eps>>;
-type Client = <Server as HasDual>::Dual;
-
-async fn srv(c: Chan<(), Server>) {
-    let (c, n) = c.recv().await;
-    let c = if n % 2 == 0 {
-        c.send(true).await
-    } else {
-        c.send(false).await
-    };
-    c.close();
-}
-
-async fn cli(c: Chan<(), Client>) {
-    let c = c.send(9).await;
-    let (c, result) = c.recv().await;
-    c.close();
-
-    log::debug!("cli: result = {result}");
-}
-
-async fn test_session_types() {
-    // Start a server.
-    let accepter = service::create_server::<Server>("simple service".into()).unwrap();
-
-    // Spawn a connection accepter.
-    awkernel_async_lib::spawn(
-        async move {
-            while let Ok(chan) = accepter.accept().await {
-                // Spawn a task for the connection.
-                awkernel_async_lib::spawn(
-                    async move {
-                        srv(chan).await;
-                    },
-                    SchedulerType::RoundRobin,
-                )
-                .await;
-            }
-        },
-        SchedulerType::RoundRobin,
-    )
-    .await;
-
-    // Start a client.
-    awkernel_async_lib::spawn(
-        async {
-            let chan = service::create_client::<Client>("simple service".into())
-                .await
-                .unwrap();
-            cli(chan).await;
-        },
-        SchedulerType::RoundRobin,
-    )
-    .await;
 }

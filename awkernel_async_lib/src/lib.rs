@@ -22,6 +22,7 @@ pub mod scheduler;
 pub mod service;
 pub mod session_types;
 mod sleep_task;
+pub mod sync;
 pub mod task;
 mod timeout_call;
 mod yield_task;
