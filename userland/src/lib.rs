@@ -13,7 +13,7 @@ use core::{
 
 extern crate alloc;
 
-const RTT_SIZE: usize = 4096;
+const RTT_SIZE: usize = 1024 * 8;
 
 static mut RTT: [u64; RTT_SIZE] = [0; RTT_SIZE];
 static COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -89,7 +89,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+                    awkernel_async_lib::sleep(Duration::from_millis(200)).await;
                 }
             },
             SchedulerType::RoundRobin,
