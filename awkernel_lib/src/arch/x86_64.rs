@@ -9,6 +9,7 @@ pub(super) mod interrupt;
 pub(super) mod memory;
 pub mod mmu;
 pub mod page_allocator;
+pub(super) mod pcie;
 
 pub struct X86;
 
@@ -24,4 +25,5 @@ pub fn init<T>(
     // Initialize timer.
     acpi::init(acpi);
     delay::init(acpi, page_table, page_allocator);
+    pcie::init(acpi, page_table, page_allocator);
 }
