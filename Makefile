@@ -38,6 +38,10 @@ ifndef $(LD)
 	# LD = ld.gold
 endif
 
+
+QEMUPORT=5556
+
+
 all: raspi x86_64 riscv32 std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
@@ -59,11 +63,16 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
+
+QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -kernel kernel8.img
+QEMU_RASPI3_ARGS+= -serial stdio -display none
+QEMU_RASPI3_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait -d int
+
 qemu-raspi3:
-	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
+	qemu-system-aarch64  $(QEMU_RASPI3_ARGS)
 
 debug-raspi3:
-	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int -s -S
+	qemu-system-aarch64 $(QEMU_RASPI3_ARGS) -s -S
 
 gdb-raspi3:
 	gdb-multiarch -x aarch64-debug.gdb
@@ -86,7 +95,7 @@ $(X86ASM): FORCE
 
 QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
-QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::$(QEMUPORT),server,nowait
 
 qemu-x86_64:
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`
@@ -126,3 +135,10 @@ clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
 	cargo clean
 	$(MAKE) -C $(X86ASM) clean
+
+
+### QEMU Monitor
+
+monitor : FORCE 
+	telnet localhost $(QEMUPORT)
+	
