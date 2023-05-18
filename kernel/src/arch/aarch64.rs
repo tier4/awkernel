@@ -1,6 +1,5 @@
 mod bsp;
 pub mod config;
-mod context;
 pub mod cpu;
 mod driver;
 mod exception;

@@ -7,6 +7,7 @@ use alloc::rc::Rc;
 
 pub mod arch;
 
+pub mod context;
 pub mod delay;
 pub mod interrupt;
 pub mod logger;

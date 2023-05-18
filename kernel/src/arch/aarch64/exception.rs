@@ -1,5 +1,4 @@
-use super::context::Context;
-use awkernel_lib::delay::wait_forever;
+use awkernel_lib::{arch::aarch64::context::Context, delay::wait_forever};
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
 const _ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
