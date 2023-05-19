@@ -16,6 +16,6 @@ pub trait Ether {
     // receive a packet, and store it into a buffer
     fn poll(&mut self) -> Result<(), EtherErr>;
 
-    // inin the NIC hardware
+    // init the NIC hardware
     fn init_hw(&mut self) -> Result<(), EtherErr>;
 }

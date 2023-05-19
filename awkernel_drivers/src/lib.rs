@@ -6,6 +6,7 @@ pub mod hal;
 pub mod interrupt_controler;
 pub mod net;
 pub mod uart;
+pub mod x86_64;
 
 #[cfg(feature = "aarch64")]
 pub mod psci;
