@@ -14,9 +14,7 @@ pub struct Context {
     // 8 bytes
     pub elr: u64, // exception link register,
 
-    // ---------------------- offset: 16 * 49 (+16)
-
-    // 8 * 2 bytes
+    // 8 * 2 bytes ---------- offset: 16 * 49 (+16)
     pub spsr: u32, // saved program status register
     _unused: [u8; 4],
     pub sp: u64, // stack pointer

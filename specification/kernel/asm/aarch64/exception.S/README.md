@@ -45,8 +45,8 @@ begin
 end procedure;
 ```
 
-`assert ctx_start = registers;` is an expression to verify the proposition 1.
-Recursive exceptions indicated by the proposition 2 are represented as `call interrupt();`.
+`assert ctx_start = registers;` is an expression to verify the subject 1.
+Recursive exceptions indicated by the subject 2 are represented as `call interrupt();`.
 
 ## Data Abort
 
@@ -136,4 +136,4 @@ stack_memory = [x \in 0..(STACK_SIZE - 1) |-> <<>>];
 
 ## Handler
 
-`procedure handler()` updates registers to verify the propositions above.
+`procedure handler()` updates registers to verify the subjects above.
