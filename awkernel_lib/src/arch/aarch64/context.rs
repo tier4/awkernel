@@ -231,8 +231,8 @@ msr     fpcr, x3
 
 // Load SPSR.
 add     x0, x0, #16 * 17
-ldr     w9, [x0]
-msr     spsr_el1, x9
+ldr     w1, [x0]
+msr     spsr_el1, x1
 
 // Load SP.
 ldr     x2, [x0, #8]

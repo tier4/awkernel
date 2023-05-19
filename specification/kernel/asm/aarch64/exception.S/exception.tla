@@ -6,7 +6,6 @@ CONSTANTS STACK_SIZE
 (*--algorithm exception
 
 variables
-    counter = 0;
     data_abort = FALSE;
     stack_memory = [x \in 0..(STACK_SIZE - 1) |-> <<>>];
     registers = [
@@ -87,10 +86,6 @@ variables
         \* stack pointer
         sp |-> STACK_SIZE - 1
     ];
-
-define
-    NotAbortThenTermination == <>(~data_abort => pc = "Done")
-end define;
 
 macro inc(reg) begin
     registers[reg] := registers[reg] + 1;
@@ -291,7 +286,6 @@ variables
 begin
     start_call_with_context:
         ctx_start := registers;
-        counter := counter + 1;
 
     \* // disable all interrupt
     \* msr     DAIFSet, #0x0f
@@ -359,7 +353,6 @@ begin
 
     end_call_with_context:
         assert ctx_start = registers;
-        counter := counter - 1;
         return;
 end procedure;
 
@@ -587,54 +580,47 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "5b216fbf" /\ chksum(tla) = "de304666")
-\* Procedure variable addr of procedure str at line 157 col 5 changed to addr_
-\* Procedure variable addr of procedure ldr at line 174 col 5 changed to addr_l
-\* Procedure variable addr of procedure str_add at line 192 col 5 changed to addr_s
-\* Procedure variable addr of procedure ldr_add at line 211 col 5 changed to addr_ld
-\* Procedure variable addr of procedure stp at line 231 col 5 changed to addr_st
-\* Procedure variable addr of procedure ldp at line 251 col 5 changed to addr_ldp
-\* Parameter reg1 of procedure str at line 155 col 15 changed to reg1_
-\* Parameter reg2 of procedure str at line 155 col 21 changed to reg2_
-\* Parameter offset of procedure str at line 155 col 27 changed to offset_
-\* Parameter reg1 of procedure ldr at line 172 col 15 changed to reg1_l
-\* Parameter reg2 of procedure ldr at line 172 col 21 changed to reg2_l
-\* Parameter offset of procedure ldr at line 172 col 27 changed to offset_l
-\* Parameter reg1 of procedure str_add at line 190 col 19 changed to reg1_s
-\* Parameter reg2 of procedure str_add at line 190 col 25 changed to reg2_s
-\* Parameter offset of procedure str_add at line 190 col 31 changed to offset_s
-\* Parameter reg1 of procedure ldr_add at line 209 col 19 changed to reg1_ld
-\* Parameter reg2 of procedure ldr_add at line 209 col 25 changed to reg2_ld
-\* Parameter offset of procedure ldr_add at line 209 col 31 changed to offset_ld
-\* Parameter reg1 of procedure stp at line 229 col 15 changed to reg1_st
-\* Parameter reg2 of procedure stp at line 229 col 21 changed to reg2_st
-\* Parameter reg3 of procedure stp at line 229 col 27 changed to reg3_
-\* Parameter offset of procedure stp at line 229 col 33 changed to offset_st
-\* Parameter reg1 of procedure ldp at line 249 col 15 changed to reg1_ldp
-\* Parameter reg2 of procedure ldp at line 249 col 21 changed to reg2_ldp
-\* Parameter reg3 of procedure ldp at line 249 col 27 changed to reg3_l
-\* Parameter offset of procedure ldp at line 249 col 33 changed to offset_ldp
+\* BEGIN TRANSLATION (chksum(pcal) = "3126fac" /\ chksum(tla) = "9f7d1874")
+\* Procedure variable addr of procedure str at line 152 col 5 changed to addr_
+\* Procedure variable addr of procedure ldr at line 169 col 5 changed to addr_l
+\* Procedure variable addr of procedure str_add at line 187 col 5 changed to addr_s
+\* Procedure variable addr of procedure ldr_add at line 206 col 5 changed to addr_ld
+\* Procedure variable addr of procedure stp at line 226 col 5 changed to addr_st
+\* Procedure variable addr of procedure ldp at line 246 col 5 changed to addr_ldp
+\* Parameter reg1 of procedure str at line 150 col 15 changed to reg1_
+\* Parameter reg2 of procedure str at line 150 col 21 changed to reg2_
+\* Parameter offset of procedure str at line 150 col 27 changed to offset_
+\* Parameter reg1 of procedure ldr at line 167 col 15 changed to reg1_l
+\* Parameter reg2 of procedure ldr at line 167 col 21 changed to reg2_l
+\* Parameter offset of procedure ldr at line 167 col 27 changed to offset_l
+\* Parameter reg1 of procedure str_add at line 185 col 19 changed to reg1_s
+\* Parameter reg2 of procedure str_add at line 185 col 25 changed to reg2_s
+\* Parameter offset of procedure str_add at line 185 col 31 changed to offset_s
+\* Parameter reg1 of procedure ldr_add at line 204 col 19 changed to reg1_ld
+\* Parameter reg2 of procedure ldr_add at line 204 col 25 changed to reg2_ld
+\* Parameter offset of procedure ldr_add at line 204 col 31 changed to offset_ld
+\* Parameter reg1 of procedure stp at line 224 col 15 changed to reg1_st
+\* Parameter reg2 of procedure stp at line 224 col 21 changed to reg2_st
+\* Parameter reg3 of procedure stp at line 224 col 27 changed to reg3_
+\* Parameter offset of procedure stp at line 224 col 33 changed to offset_st
+\* Parameter reg1 of procedure ldp at line 244 col 15 changed to reg1_ldp
+\* Parameter reg2 of procedure ldp at line 244 col 21 changed to reg2_ldp
+\* Parameter reg3 of procedure ldp at line 244 col 27 changed to reg3_l
+\* Parameter offset of procedure ldp at line 244 col 33 changed to offset_ldp
 CONSTANT defaultInitValue
-VARIABLES counter, data_abort, stack_memory, registers, pc, stack
+VARIABLES data_abort, stack_memory, registers, pc, stack, reg1_, reg2_, 
+          offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+          offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
+          reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+          offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start
 
-(* define statement *)
-NotAbortThenTermination == <>(~data_abort => pc = "Done")
-
-VARIABLES reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-          reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-          addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-          reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-          addr, ctx_start
-
-vars == << counter, data_abort, stack_memory, registers, pc, stack, reg1_, 
-           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-           reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
-           reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-           ctx_start >>
+vars == << data_abort, stack_memory, registers, pc, stack, reg1_, reg2_, 
+           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+           offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
+           reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 Init == (* Global variables *)
-        /\ counter = 0
         /\ data_abort = FALSE
         /\ stack_memory = [x \in 0..(STACK_SIZE - 1) |-> <<>>]
         /\ registers =             [
@@ -768,20 +754,20 @@ start_interrupt == /\ pc = "start_interrupt"
                                       \o stack
                          /\ ctx_start' = defaultInitValue
                          /\ pc' = "start_call_with_context"
-                   /\ UNCHANGED << counter, data_abort, stack_memory, 
-                                   registers, reg1_, reg2_, offset_, addr_, 
-                                   reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                                   reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                                   offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                                   offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                                   reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                                   reg3, offset, addr >>
+                   /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, 
+                                   reg2_, offset_, addr_, reg1_l, reg2_l, 
+                                   offset_l, addr_l, reg1_s, reg2_s, offset_s, 
+                                   addr_s, reg1_ld, reg2_ld, offset_ld, 
+                                   addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                                   addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                                   offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                                   offset, addr >>
 
 end_interrupt == /\ pc = "end_interrupt"
                  /\ pc' = Head(stack).pc
                  /\ stack' = Tail(stack)
-                 /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                                 reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
+                 /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, 
+                                 reg2_, offset_, addr_, reg1_l, reg2_l, 
                                  offset_l, addr_l, reg1_s, reg2_s, offset_s, 
                                  addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
                                  reg1_st, reg2_st, reg3_, offset_st, addr_st, 
@@ -794,14 +780,14 @@ interrupt == start_interrupt \/ end_interrupt
 loop_data_abort == /\ pc = "loop_data_abort"
                    /\ data_abort' = TRUE
                    /\ pc' = "loop_data_abort"
-                   /\ UNCHANGED << counter, stack_memory, registers, stack, 
-                                   reg1_, reg2_, offset_, addr_, reg1_l, 
-                                   reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
-                                   offset_s, addr_s, reg1_ld, reg2_ld, 
-                                   offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                                   offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                                   reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                                   reg3, offset, addr, ctx_start >>
+                   /\ UNCHANGED << stack_memory, registers, stack, reg1_, 
+                                   reg2_, offset_, addr_, reg1_l, reg2_l, 
+                                   offset_l, addr_l, reg1_s, reg2_s, offset_s, 
+                                   addr_s, reg1_ld, reg2_ld, offset_ld, 
+                                   addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                                   addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                                   offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                                   offset, addr, ctx_start >>
 
 data_abort_exception == loop_data_abort
 
@@ -814,12 +800,12 @@ str0 == /\ pc = "str0"
                    /\ pc' = "loop_data_abort"
               ELSE /\ pc' = "str1"
                    /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 str1 == /\ pc = "str1"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_] = registers[reg1_]]
@@ -829,10 +815,10 @@ str1 == /\ pc = "str1"
         /\ reg2_' = Head(stack).reg2_
         /\ offset_' = Head(stack).offset_
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, registers, reg1_l, reg2_l, 
-                        offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
-                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+        /\ UNCHANGED << data_abort, registers, reg1_l, reg2_l, offset_l, 
+                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
+                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                         offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
                         ctx_start >>
 
@@ -847,12 +833,12 @@ ldr0 == /\ pc = "ldr0"
                    /\ pc' = "loop_data_abort"
               ELSE /\ pc' = "ldr1"
                    /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 ldr1 == /\ pc = "ldr1"
         /\ registers' = [registers EXCEPT ![reg1_l] = stack_memory[addr_l]]
@@ -862,12 +848,11 @@ ldr1 == /\ pc = "ldr1"
         /\ reg2_l' = Head(stack).reg2_l
         /\ offset_l' = Head(stack).offset_l
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                        offset_, addr_, reg1_s, reg2_s, offset_s, addr_s, 
-                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, addr_, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 ldr == ldr0 \/ ldr1
 
@@ -880,13 +865,13 @@ str_add0 == /\ pc = "str_add0"
                        /\ pc' = "loop_data_abort"
                   ELSE /\ pc' = "str_add1"
                        /\ stack' = stack
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
-                            offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                            reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
 str_add1 == /\ pc = "str_add1"
             /\ stack_memory' = [stack_memory EXCEPT ![addr_s] = registers[reg1_s]]
@@ -897,8 +882,8 @@ str_add1 == /\ pc = "str_add1"
             /\ reg2_s' = Head(stack).reg2_s
             /\ offset_s' = Head(stack).offset_s
             /\ stack' = Tail(stack)
-            /\ UNCHANGED << counter, data_abort, reg1_, reg2_, offset_, addr_, 
-                            reg1_l, reg2_l, offset_l, addr_l, reg1_ld, reg2_ld, 
+            /\ UNCHANGED << data_abort, reg1_, reg2_, offset_, addr_, reg1_l, 
+                            reg2_l, offset_l, addr_l, reg1_ld, reg2_ld, 
                             offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
                             offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                             offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
@@ -915,24 +900,24 @@ ldr_add0 == /\ pc = "ldr_add0"
                        /\ pc' = "loop_data_abort"
                   ELSE /\ pc' = "ldr_add1"
                        /\ stack' = stack
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
-                            offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
-                            reg1_ld, reg2_ld, offset_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                            offset_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                            addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                            addr_ldp, reg1, reg2, reg3, offset, addr, 
+                            ctx_start >>
 
 ldr_add1 == /\ pc = "ldr_add1"
             /\ registers' = [registers EXCEPT ![reg1_ld] = stack_memory[addr_ld]]
             /\ pc' = "ldr_add2"
-            /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
-                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
 ldr_add2 == /\ pc = "ldr_add2"
             /\ registers' = [registers EXCEPT ![reg2_ld] = addr_ld + offset_ld]
@@ -942,12 +927,12 @@ ldr_add2 == /\ pc = "ldr_add2"
             /\ reg2_ld' = Head(stack).reg2_ld
             /\ offset_ld' = Head(stack).offset_ld
             /\ stack' = Tail(stack)
-            /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                            reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, 
+                            addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                            reg2_s, offset_s, addr_s, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
 ldr_add == ldr_add0 \/ ldr_add1 \/ ldr_add2
 
@@ -960,22 +945,22 @@ stp0 == /\ pc = "stp0"
                    /\ pc' = "loop_data_abort"
               ELSE /\ pc' = "stp1"
                    /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 stp1 == /\ pc = "stp1"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_st] = registers[reg1_st]]
         /\ pc' = "stp2"
-        /\ UNCHANGED << counter, data_abort, registers, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, registers, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 stp2 == /\ pc = "stp2"
         /\ stack_memory' = [stack_memory EXCEPT ![addr_st + 8] = registers[reg2_st]]
@@ -986,11 +971,11 @@ stp2 == /\ pc = "stp2"
         /\ reg3_' = Head(stack).reg3_
         /\ offset_st' = Head(stack).offset_st
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, registers, reg1_, reg2_, offset_, 
-                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                        addr_ld, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, registers, reg1_, reg2_, offset_, addr_, 
+                        reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                        offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 stp == stp0 \/ stp1 \/ stp2
 
@@ -1003,22 +988,22 @@ ldp0 == /\ pc = "ldp0"
                    /\ pc' = "loop_data_abort"
               ELSE /\ pc' = "ldp1"
                    /\ stack' = stack
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 ldp1 == /\ pc = "ldp1"
         /\ registers' = [registers EXCEPT ![reg1_ldp] = stack_memory[addr_ldp]]
         /\ pc' = "ldp2"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 ldp2 == /\ pc = "ldp2"
         /\ registers' = [registers EXCEPT ![reg2_ldp] = stack_memory[addr_ldp + 8]]
@@ -1029,11 +1014,11 @@ ldp2 == /\ pc = "ldp2"
         /\ reg3_l' = Head(stack).reg3_l
         /\ offset_ldp' = Head(stack).offset_ldp
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, addr_, 
+                        reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                        offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                        reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 ldp == ldp0 \/ ldp1 \/ ldp2
 
@@ -1046,35 +1031,35 @@ ldp_add0 == /\ pc = "ldp_add0"
                        /\ pc' = "loop_data_abort"
                   ELSE /\ pc' = "ldp_add1"
                        /\ stack' = stack
-            /\ UNCHANGED << counter, data_abort, stack_memory, registers, 
-                            reg1_, reg2_, offset_, addr_, reg1_l, reg2_l, 
-                            offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
-                            reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                            reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
-                            reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
-                            reg3, offset, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            ctx_start >>
 
 ldp_add1 == /\ pc = "ldp_add1"
             /\ registers' = [registers EXCEPT ![reg1] = stack_memory[addr]]
             /\ pc' = "ldp_add2"
-            /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
-                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
 ldp_add2 == /\ pc = "ldp_add2"
             /\ registers' = [registers EXCEPT ![reg2] = stack_memory[addr + 8]]
             /\ pc' = "ldp_add3"
-            /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, 
-                            reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                            addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                            reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                            reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                            reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                            offset, addr, ctx_start >>
+            /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, 
+                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                            offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                            offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                            offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                            addr, ctx_start >>
 
 ldp_add3 == /\ pc = "ldp_add3"
             /\ registers' = [registers EXCEPT ![reg3] = addr + offset]
@@ -1085,9 +1070,9 @@ ldp_add3 == /\ pc = "ldp_add3"
             /\ reg3' = Head(stack).reg3
             /\ offset' = Head(stack).offset
             /\ stack' = Tail(stack)
-            /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                            offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                            reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+            /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, 
+                            addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                            reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                             offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
                             offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                             offset_ldp, addr_ldp, ctx_start >>
@@ -1096,7 +1081,6 @@ ldp_add == ldp_add0 \/ ldp_add1 \/ ldp_add2 \/ ldp_add3
 
 start_call_with_context == /\ pc = "start_call_with_context"
                            /\ ctx_start' = registers
-                           /\ counter' = counter + 1
                            /\ pc' = "C0"
                            /\ UNCHANGED << data_abort, stack_memory, registers, 
                                            stack, reg1_, reg2_, offset_, addr_, 
@@ -1124,12 +1108,11 @@ C0 == /\ pc = "C0"
                       \o stack
       /\ addr_st' = defaultInitValue
       /\ pc' = "stp0"
-      /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                      reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                      reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                      offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
-                      offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                      ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                      addr_ld, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                      addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 C1 == /\ pc = "C1"
       /\ /\ offset_st' = 16 * (-16)
@@ -1146,22 +1129,21 @@ C1 == /\ pc = "C1"
                       \o stack
       /\ addr_st' = defaultInitValue
       /\ pc' = "stp0"
-      /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                      reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                      reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                      offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
-                      offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                      ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                      addr_ld, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                      addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 C2 == /\ pc = "C2"
       /\ registers' = [registers EXCEPT !["x3"] = registers["elr"]]
       /\ pc' = "C3"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C3 == /\ pc = "C3"
       /\ /\ offset_st' = 16 * (-2)
@@ -1178,32 +1160,31 @@ C3 == /\ pc = "C3"
                       \o stack
       /\ addr_st' = defaultInitValue
       /\ pc' = "stp0"
-      /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                      reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                      reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                      offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
-                      offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
-                      ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                      addr_ld, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                      addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 C4 == /\ pc = "C4"
       /\ registers' = [registers EXCEPT !["x2"] = registers["esr"]]
       /\ pc' = "C6"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C6 == /\ pc = "C6"
       /\ registers' = [registers EXCEPT !["x3"] = registers["spsr"]]
       /\ pc' = "C7"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C7 == /\ pc = "C7"
       /\ /\ offset_' = 16 * (-1)
@@ -1218,66 +1199,66 @@ C7 == /\ pc = "C7"
                       \o stack
       /\ addr_' = defaultInitValue
       /\ pc' = "str0"
-      /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_l, 
-                      reg2_l, offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                      addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                      reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                      reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                      addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, registers, reg1_l, reg2_l, 
+                      offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
+                      reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                      reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                      offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                      ctx_start >>
 
 C5 == /\ pc = "C5"
       /\ registers' = [registers EXCEPT !["sp"] = registers["sp"] - (16 * 50)]
       /\ pc' = "C_INT00"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C_INT00 == /\ pc = "C_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C9" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 C9 == /\ pc = "C9"
       /\ registers' = [registers EXCEPT !["x1"] = registers["sp"] + (16 * 50)]
       /\ pc' = "C_INT01"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C_INT01 == /\ pc = "C_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C10" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 C10 == /\ pc = "C10"
        /\ stack' = << [ procedure |->  "exception_store_registers",
                         pc        |->  "C8" ] >>
                     \o stack
        /\ pc' = "S000"
-       /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                       reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+       /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
@@ -1286,20 +1267,20 @@ C10 == /\ pc = "C10"
 C8 == /\ pc = "C8"
       /\ registers' = [registers EXCEPT !["x0"] = registers["sp"]]
       /\ pc' = "C11"
-      /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                      offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                      reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
-                      addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
-                      reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
-                      reg2, reg3, offset, addr, ctx_start >>
+      /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                      addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                      offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                      reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                      reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
+                      offset, addr, ctx_start >>
 
 C11 == /\ pc = "C11"
        /\ stack' = << [ procedure |->  "handler",
                         pc        |->  "C_INT02" ] >>
                     \o stack
        /\ pc' = "H000"
-       /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                       reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+       /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
@@ -1310,23 +1291,23 @@ C_INT02 == /\ pc = "C_INT02"
                             pc        |->  "C12" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 C12 == /\ pc = "C12"
        /\ registers' = [registers EXCEPT !["x0"] = registers["sp"] + (16 * 48)]
        /\ pc' = "C13"
-       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                       reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                       offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                       addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                       addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+       /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                       addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                       offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                       reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                       reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                       reg3, offset, addr, ctx_start >>
 
 C13 == /\ pc = "C13"
        /\ /\ offset' = 16
@@ -1343,8 +1324,8 @@ C13 == /\ pc = "C13"
                        \o stack
        /\ addr' = defaultInitValue
        /\ pc' = "ldp_add0"
-       /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                       reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+       /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
@@ -1363,8 +1344,8 @@ C14 == /\ pc = "C14"
                        \o stack
        /\ addr_l' = defaultInitValue
        /\ pc' = "ldr0"
-       /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                       reg2_, offset_, addr_, reg1_s, reg2_s, offset_s, addr_s, 
+       /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                       offset_, addr_, reg1_s, reg2_s, offset_s, addr_s, 
                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
@@ -1375,54 +1356,54 @@ C_INT03 == /\ pc = "C_INT03"
                             pc        |->  "C15" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 C15 == /\ pc = "C15"
        /\ registers' = [registers EXCEPT !["elr"] = registers["x1"]]
        /\ pc' = "C16"
-       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                       reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                       offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                       addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                       addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+       /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                       addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                       offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                       reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                       reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                       reg3, offset, addr, ctx_start >>
 
 C16 == /\ pc = "C16"
        /\ registers' = [registers EXCEPT !["spsr"] = registers["x2"]]
        /\ pc' = "C_INT04"
-       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                       reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                       offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                       addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                       addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+       /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                       addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                       offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                       reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                       reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                       reg3, offset, addr, ctx_start >>
 
 C_INT04 == /\ pc = "C_INT04"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "C17" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 C17 == /\ pc = "C17"
        /\ stack' = << [ procedure |->  "exception_restore_context",
                         pc        |->  "end_call_with_context" ] >>
                     \o stack
        /\ pc' = "R000"
-       /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                       reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+       /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
@@ -1430,8 +1411,7 @@ C17 == /\ pc = "C17"
 
 end_call_with_context == /\ pc = "end_call_with_context"
                          /\ Assert(ctx_start = registers, 
-                                   "Failure of assertion at line 361, column 9.")
-                         /\ counter' = counter - 1
+                                   "Failure of assertion at line 355, column 9.")
                          /\ pc' = Head(stack).pc
                          /\ ctx_start' = Head(stack).ctx_start
                          /\ stack' = Tail(stack)
@@ -1464,25 +1444,25 @@ S000 == /\ pc = "S000"
                         \o stack
         /\ addr_' = defaultInitValue
         /\ pc' = "str0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_l, 
-                        reg2_l, offset_l, addr_l, reg1_s, reg2_s, offset_s, 
-                        addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_l, reg2_l, 
+                        offset_l, addr_l, reg1_s, reg2_s, offset_s, addr_s, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S_INT00 == /\ pc = "S_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S001" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 S001 == /\ pc = "S001"
         /\ /\ offset_st' = 16 * (-15)
@@ -1499,12 +1479,12 @@ S001 == /\ pc = "S001"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S002 == /\ pc = "S002"
         /\ /\ offset_st' = 16 * (-14)
@@ -1521,12 +1501,12 @@ S002 == /\ pc = "S002"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S003 == /\ pc = "S003"
         /\ /\ offset_st' = 16 * (-13)
@@ -1543,12 +1523,12 @@ S003 == /\ pc = "S003"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S004 == /\ pc = "S004"
         /\ /\ offset_st' = 16 * (-12)
@@ -1565,12 +1545,12 @@ S004 == /\ pc = "S004"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S005 == /\ pc = "S005"
         /\ /\ offset_st' = 16 * (-11)
@@ -1587,12 +1567,12 @@ S005 == /\ pc = "S005"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S006 == /\ pc = "S006"
         /\ /\ offset_st' = 16 * (-10)
@@ -1609,12 +1589,12 @@ S006 == /\ pc = "S006"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S007 == /\ pc = "S007"
         /\ /\ offset_st' = 16 *  (-9)
@@ -1631,12 +1611,12 @@ S007 == /\ pc = "S007"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S008 == /\ pc = "S008"
         /\ /\ offset_st' = 16 *  (-8)
@@ -1653,12 +1633,12 @@ S008 == /\ pc = "S008"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S009 == /\ pc = "S009"
         /\ /\ offset_st' = 16 *  (-7)
@@ -1675,12 +1655,12 @@ S009 == /\ pc = "S009"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S010 == /\ pc = "S010"
         /\ /\ offset_st' = 16 *  (-6)
@@ -1697,12 +1677,12 @@ S010 == /\ pc = "S010"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S011 == /\ pc = "S011"
         /\ /\ offset_st' = 16 *  (-5)
@@ -1719,12 +1699,12 @@ S011 == /\ pc = "S011"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S012 == /\ pc = "S012"
         /\ /\ offset_st' = 16 *  (-4)
@@ -1741,12 +1721,12 @@ S012 == /\ pc = "S012"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S013 == /\ pc = "S013"
         /\ /\ offset_st' = 16 *  (-3)
@@ -1763,48 +1743,48 @@ S013 == /\ pc = "S013"
                         \o stack
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S_INT01 == /\ pc = "S_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S14" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 S14 == /\ pc = "S14"
        /\ registers' = [registers EXCEPT !["x3"] = registers["sp"]]
        /\ pc' = "S_INT02"
-       /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                       offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                       reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                       offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                       addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                       addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+       /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                       addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                       offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                       reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                       reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                       reg3, offset, addr, ctx_start >>
 
 S_INT02 == /\ pc = "S_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S100" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 S100 == /\ pc = "S100"
         /\ /\ offset_s' = 16
@@ -1819,12 +1799,12 @@ S100 == /\ pc = "S100"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S101 == /\ pc = "S101"
         /\ /\ offset_s' = 16
@@ -1839,12 +1819,12 @@ S101 == /\ pc = "S101"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S102 == /\ pc = "S102"
         /\ /\ offset_s' = 16
@@ -1859,12 +1839,12 @@ S102 == /\ pc = "S102"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S103 == /\ pc = "S103"
         /\ /\ offset_s' = 16
@@ -1879,12 +1859,12 @@ S103 == /\ pc = "S103"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S104 == /\ pc = "S104"
         /\ /\ offset_s' = 16
@@ -1899,12 +1879,12 @@ S104 == /\ pc = "S104"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S105 == /\ pc = "S105"
         /\ /\ offset_s' = 16
@@ -1919,12 +1899,12 @@ S105 == /\ pc = "S105"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S106 == /\ pc = "S106"
         /\ /\ offset_s' = 16
@@ -1939,12 +1919,12 @@ S106 == /\ pc = "S106"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S107 == /\ pc = "S107"
         /\ /\ offset_s' = 16
@@ -1959,12 +1939,12 @@ S107 == /\ pc = "S107"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S108 == /\ pc = "S108"
         /\ /\ offset_s' = 16
@@ -1979,12 +1959,12 @@ S108 == /\ pc = "S108"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S109 == /\ pc = "S109"
         /\ /\ offset_s' = 16
@@ -1999,12 +1979,12 @@ S109 == /\ pc = "S109"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S110 == /\ pc = "S110"
         /\ /\ offset_s' = 16
@@ -2019,12 +1999,12 @@ S110 == /\ pc = "S110"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S111 == /\ pc = "S111"
         /\ /\ offset_s' = 16
@@ -2039,12 +2019,12 @@ S111 == /\ pc = "S111"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S112 == /\ pc = "S112"
         /\ /\ offset_s' = 16
@@ -2059,12 +2039,12 @@ S112 == /\ pc = "S112"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S113 == /\ pc = "S113"
         /\ /\ offset_s' = 16
@@ -2079,12 +2059,12 @@ S113 == /\ pc = "S113"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S114 == /\ pc = "S114"
         /\ /\ offset_s' = 16
@@ -2099,12 +2079,12 @@ S114 == /\ pc = "S114"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S115 == /\ pc = "S115"
         /\ /\ offset_s' = 16
@@ -2119,12 +2099,12 @@ S115 == /\ pc = "S115"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S116 == /\ pc = "S116"
         /\ /\ offset_s' = 16
@@ -2139,12 +2119,12 @@ S116 == /\ pc = "S116"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S117 == /\ pc = "S117"
         /\ /\ offset_s' = 16
@@ -2159,12 +2139,12 @@ S117 == /\ pc = "S117"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S118 == /\ pc = "S118"
         /\ /\ offset_s' = 16
@@ -2179,12 +2159,12 @@ S118 == /\ pc = "S118"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S119 == /\ pc = "S119"
         /\ /\ offset_s' = 16
@@ -2199,12 +2179,12 @@ S119 == /\ pc = "S119"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S120 == /\ pc = "S120"
         /\ /\ offset_s' = 16
@@ -2219,12 +2199,12 @@ S120 == /\ pc = "S120"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S121 == /\ pc = "S121"
         /\ /\ offset_s' = 16
@@ -2239,12 +2219,12 @@ S121 == /\ pc = "S121"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S122 == /\ pc = "S122"
         /\ /\ offset_s' = 16
@@ -2259,12 +2239,12 @@ S122 == /\ pc = "S122"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S123 == /\ pc = "S123"
         /\ /\ offset_s' = 16
@@ -2279,12 +2259,12 @@ S123 == /\ pc = "S123"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S124 == /\ pc = "S124"
         /\ /\ offset_s' = 16
@@ -2299,12 +2279,12 @@ S124 == /\ pc = "S124"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S125 == /\ pc = "S125"
         /\ /\ offset_s' = 16
@@ -2319,12 +2299,12 @@ S125 == /\ pc = "S125"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S126 == /\ pc = "S126"
         /\ /\ offset_s' = 16
@@ -2339,12 +2319,12 @@ S126 == /\ pc = "S126"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S127 == /\ pc = "S127"
         /\ /\ offset_s' = 16
@@ -2359,12 +2339,12 @@ S127 == /\ pc = "S127"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S128 == /\ pc = "S128"
         /\ /\ offset_s' = 16
@@ -2379,12 +2359,12 @@ S128 == /\ pc = "S128"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S129 == /\ pc = "S129"
         /\ /\ offset_s' = 16
@@ -2399,12 +2379,12 @@ S129 == /\ pc = "S129"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S130 == /\ pc = "S130"
         /\ /\ offset_s' = 16
@@ -2419,12 +2399,12 @@ S130 == /\ pc = "S130"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S131 == /\ pc = "S131"
         /\ /\ offset_s' = 16
@@ -2439,45 +2419,45 @@ S131 == /\ pc = "S131"
                         \o stack
         /\ addr_s' = defaultInitValue
         /\ pc' = "str_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_ld, reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 S_INT03 == /\ pc = "S_INT03"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S200" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 S200 == /\ pc = "S200"
         /\ registers' = [registers EXCEPT !["x0"] = registers["fpsr"]]
         /\ pc' = "S201"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 S201 == /\ pc = "S201"
         /\ registers' = [registers EXCEPT !["x4"] = registers["fpcr"]]
         /\ pc' = "S202"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 S202 == /\ pc = "S202"
         /\ /\ offset_st' = 0
@@ -2494,12 +2474,12 @@ S202 == /\ pc = "S202"
                         \o Tail(stack)
         /\ addr_st' = defaultInitValue
         /\ pc' = "stp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 exception_store_registers == S000 \/ S_INT00 \/ S001 \/ S002 \/ S003
                                 \/ S004 \/ S005 \/ S006 \/ S007 \/ S008
@@ -2516,25 +2496,25 @@ exception_store_registers == S000 \/ S_INT00 \/ S001 \/ S002 \/ S003
 R000 == /\ pc = "R000"
         /\ registers' = [registers EXCEPT !["x28"] = registers["sp"]]
         /\ pc' = "R_INT00"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 R_INT00 == /\ pc = "R_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R100" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 R100 == /\ pc = "R100"
         /\ /\ offset_ld' = 16
@@ -2549,12 +2529,12 @@ R100 == /\ pc = "R100"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R101 == /\ pc = "R101"
         /\ /\ offset_ld' = 16
@@ -2569,12 +2549,12 @@ R101 == /\ pc = "R101"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R102 == /\ pc = "R102"
         /\ /\ offset_ld' = 16
@@ -2589,12 +2569,12 @@ R102 == /\ pc = "R102"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R103 == /\ pc = "R103"
         /\ /\ offset_ld' = 16
@@ -2609,12 +2589,12 @@ R103 == /\ pc = "R103"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R104 == /\ pc = "R104"
         /\ /\ offset_ld' = 16
@@ -2629,12 +2609,12 @@ R104 == /\ pc = "R104"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R105 == /\ pc = "R105"
         /\ /\ offset_ld' = 16
@@ -2649,12 +2629,12 @@ R105 == /\ pc = "R105"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R106 == /\ pc = "R106"
         /\ /\ offset_ld' = 16
@@ -2669,12 +2649,12 @@ R106 == /\ pc = "R106"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R107 == /\ pc = "R107"
         /\ /\ offset_ld' = 16
@@ -2689,12 +2669,12 @@ R107 == /\ pc = "R107"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R108 == /\ pc = "R108"
         /\ /\ offset_ld' = 16
@@ -2709,12 +2689,12 @@ R108 == /\ pc = "R108"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R109 == /\ pc = "R109"
         /\ /\ offset_ld' = 16
@@ -2729,12 +2709,12 @@ R109 == /\ pc = "R109"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R110 == /\ pc = "R110"
         /\ /\ offset_ld' = 16
@@ -2749,12 +2729,12 @@ R110 == /\ pc = "R110"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R111 == /\ pc = "R111"
         /\ /\ offset_ld' = 16
@@ -2769,12 +2749,12 @@ R111 == /\ pc = "R111"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R112 == /\ pc = "R112"
         /\ /\ offset_ld' = 16
@@ -2789,12 +2769,12 @@ R112 == /\ pc = "R112"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R113 == /\ pc = "R113"
         /\ /\ offset_ld' = 16
@@ -2809,12 +2789,12 @@ R113 == /\ pc = "R113"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R114 == /\ pc = "R114"
         /\ /\ offset_ld' = 16
@@ -2829,12 +2809,12 @@ R114 == /\ pc = "R114"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R115 == /\ pc = "R115"
         /\ /\ offset_ld' = 16
@@ -2849,12 +2829,12 @@ R115 == /\ pc = "R115"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R116 == /\ pc = "R116"
         /\ /\ offset_ld' = 16
@@ -2869,12 +2849,12 @@ R116 == /\ pc = "R116"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R117 == /\ pc = "R117"
         /\ /\ offset_ld' = 16
@@ -2889,12 +2869,12 @@ R117 == /\ pc = "R117"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R118 == /\ pc = "R118"
         /\ /\ offset_ld' = 16
@@ -2909,12 +2889,12 @@ R118 == /\ pc = "R118"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R119 == /\ pc = "R119"
         /\ /\ offset_ld' = 16
@@ -2929,12 +2909,12 @@ R119 == /\ pc = "R119"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R120 == /\ pc = "R120"
         /\ /\ offset_ld' = 16
@@ -2949,12 +2929,12 @@ R120 == /\ pc = "R120"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R121 == /\ pc = "R121"
         /\ /\ offset_ld' = 16
@@ -2969,12 +2949,12 @@ R121 == /\ pc = "R121"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R122 == /\ pc = "R122"
         /\ /\ offset_ld' = 16
@@ -2989,12 +2969,12 @@ R122 == /\ pc = "R122"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R123 == /\ pc = "R123"
         /\ /\ offset_ld' = 16
@@ -3009,12 +2989,12 @@ R123 == /\ pc = "R123"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R124 == /\ pc = "R124"
         /\ /\ offset_ld' = 16
@@ -3029,12 +3009,12 @@ R124 == /\ pc = "R124"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R125 == /\ pc = "R125"
         /\ /\ offset_ld' = 16
@@ -3049,12 +3029,12 @@ R125 == /\ pc = "R125"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R126 == /\ pc = "R126"
         /\ /\ offset_ld' = 16
@@ -3069,12 +3049,12 @@ R126 == /\ pc = "R126"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R127 == /\ pc = "R127"
         /\ /\ offset_ld' = 16
@@ -3089,12 +3069,12 @@ R127 == /\ pc = "R127"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R128 == /\ pc = "R128"
         /\ /\ offset_ld' = 16
@@ -3109,12 +3089,12 @@ R128 == /\ pc = "R128"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R129 == /\ pc = "R129"
         /\ /\ offset_ld' = 16
@@ -3129,12 +3109,12 @@ R129 == /\ pc = "R129"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R130 == /\ pc = "R130"
         /\ /\ offset_ld' = 16
@@ -3149,12 +3129,12 @@ R130 == /\ pc = "R130"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R131 == /\ pc = "R131"
         /\ /\ offset_ld' = 16
@@ -3169,25 +3149,25 @@ R131 == /\ pc = "R131"
                         \o stack
         /\ addr_ld' = defaultInitValue
         /\ pc' = "ldr_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_st, 
-                        reg2_st, reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                        reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
-                        addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_st, reg2_st, 
+                        reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                        offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr, 
+                        ctx_start >>
 
 R_INT01 == /\ pc = "R_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R200" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 R200 == /\ pc = "R200"
         /\ /\ offset' = 16
@@ -3204,45 +3184,45 @@ R200 == /\ pc = "R200"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R201 == /\ pc = "R201"
         /\ registers' = [registers EXCEPT !["fpsr"] = registers["x0"]]
         /\ pc' = "R202"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 R202 == /\ pc = "R202"
         /\ registers' = [registers EXCEPT !["fpcr"] = registers["x1"]]
         /\ pc' = "R_INT02"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 R_INT02 == /\ pc = "R_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R300" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 R300 == /\ pc = "R300"
         /\ /\ offset' = 16
@@ -3259,12 +3239,12 @@ R300 == /\ pc = "R300"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R301 == /\ pc = "R301"
         /\ /\ offset' = 16
@@ -3281,12 +3261,12 @@ R301 == /\ pc = "R301"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R302 == /\ pc = "R302"
         /\ /\ offset' = 16
@@ -3303,12 +3283,12 @@ R302 == /\ pc = "R302"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R303 == /\ pc = "R303"
         /\ /\ offset' = 16
@@ -3325,12 +3305,12 @@ R303 == /\ pc = "R303"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R304 == /\ pc = "R304"
         /\ /\ offset' = 16
@@ -3347,12 +3327,12 @@ R304 == /\ pc = "R304"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R305 == /\ pc = "R305"
         /\ /\ offset' = 16
@@ -3369,12 +3349,12 @@ R305 == /\ pc = "R305"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R306 == /\ pc = "R306"
         /\ /\ offset' = 16
@@ -3391,12 +3371,12 @@ R306 == /\ pc = "R306"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R307 == /\ pc = "R307"
         /\ /\ offset' = 16
@@ -3413,12 +3393,12 @@ R307 == /\ pc = "R307"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R308 == /\ pc = "R308"
         /\ /\ offset' = 16
@@ -3435,12 +3415,12 @@ R308 == /\ pc = "R308"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R309 == /\ pc = "R309"
         /\ /\ offset' = 16
@@ -3457,12 +3437,12 @@ R309 == /\ pc = "R309"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R310 == /\ pc = "R310"
         /\ /\ offset' = 16
@@ -3479,12 +3459,12 @@ R310 == /\ pc = "R310"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R311 == /\ pc = "R311"
         /\ /\ offset' = 16
@@ -3501,12 +3481,12 @@ R311 == /\ pc = "R311"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R312 == /\ pc = "R312"
         /\ /\ offset' = 16
@@ -3523,12 +3503,12 @@ R312 == /\ pc = "R312"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R313 == /\ pc = "R313"
         /\ /\ offset' = 16
@@ -3545,12 +3525,12 @@ R313 == /\ pc = "R313"
                         \o stack
         /\ addr' = defaultInitValue
         /\ pc' = "ldp_add0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
-                        offset_ldp, addr_ldp, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
+                        addr_ldp, ctx_start >>
 
 R314 == /\ pc = "R314"
         /\ /\ offset_ldp' = 0
@@ -3567,36 +3547,35 @@ R314 == /\ pc = "R314"
                         \o stack
         /\ addr_ldp' = defaultInitValue
         /\ pc' = "ldp0"
-        /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                        reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                        addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                        reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
-                        offset_st, addr_st, reg1, reg2, reg3, offset, addr, 
-                        ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
+                        addr_st, reg1, reg2, reg3, offset, addr, ctx_start >>
 
 R_INT03 == /\ pc = "R_INT03"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R400" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 R400 == /\ pc = "R400"
         /\ registers' = [registers EXCEPT !["sp"] = registers["sp"] + (16 * 50)]
         /\ pc' = Head(stack).pc
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, addr_, 
+                        reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                        offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                        reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                        reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                        reg3, offset, addr, ctx_start >>
 
 exception_restore_context == R000 \/ R_INT00 \/ R100 \/ R101 \/ R102
                                 \/ R103 \/ R104 \/ R105 \/ R106 \/ R107
@@ -3614,699 +3593,699 @@ exception_restore_context == R000 \/ R_INT00 \/ R100 \/ R101 \/ R102
 H000 == /\ pc = "H000"
         /\ registers' = [registers EXCEPT !["x0"] = registers["x0"] + 1]
         /\ pc' = "H001"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H001 == /\ pc = "H001"
         /\ registers' = [registers EXCEPT !["x1"] = registers["x1"] + 1]
         /\ pc' = "H002"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H002 == /\ pc = "H002"
         /\ registers' = [registers EXCEPT !["x2"] = registers["x2"] + 1]
         /\ pc' = "H003"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H003 == /\ pc = "H003"
         /\ registers' = [registers EXCEPT !["x3"] = registers["x3"] + 1]
         /\ pc' = "H004"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H004 == /\ pc = "H004"
         /\ registers' = [registers EXCEPT !["x4"] = registers["x4"] + 1]
         /\ pc' = "H005"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H005 == /\ pc = "H005"
         /\ registers' = [registers EXCEPT !["x5"] = registers["x5"] + 1]
         /\ pc' = "H006"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H006 == /\ pc = "H006"
         /\ registers' = [registers EXCEPT !["x6"] = registers["x6"] + 1]
         /\ pc' = "H007"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H007 == /\ pc = "H007"
         /\ registers' = [registers EXCEPT !["x7"] = registers["x7"] + 1]
         /\ pc' = "H008"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H008 == /\ pc = "H008"
         /\ registers' = [registers EXCEPT !["x8"] = registers["x8"] + 1]
         /\ pc' = "H009"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H009 == /\ pc = "H009"
         /\ registers' = [registers EXCEPT !["x9"] = registers["x9"] + 1]
         /\ pc' = "H010"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H010 == /\ pc = "H010"
         /\ registers' = [registers EXCEPT !["x10"] = registers["x10"] + 1]
         /\ pc' = "H011"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H011 == /\ pc = "H011"
         /\ registers' = [registers EXCEPT !["x11"] = registers["x11"] + 1]
         /\ pc' = "H012"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H012 == /\ pc = "H012"
         /\ registers' = [registers EXCEPT !["x12"] = registers["x12"] + 1]
         /\ pc' = "H013"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H013 == /\ pc = "H013"
         /\ registers' = [registers EXCEPT !["x13"] = registers["x13"] + 1]
         /\ pc' = "H014"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H014 == /\ pc = "H014"
         /\ registers' = [registers EXCEPT !["x14"] = registers["x14"] + 1]
         /\ pc' = "H015"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H015 == /\ pc = "H015"
         /\ registers' = [registers EXCEPT !["x15"] = registers["x15"] + 1]
         /\ pc' = "H016"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H016 == /\ pc = "H016"
         /\ registers' = [registers EXCEPT !["x16"] = registers["x16"] + 1]
         /\ pc' = "H017"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H017 == /\ pc = "H017"
         /\ registers' = [registers EXCEPT !["x17"] = registers["x17"] + 1]
         /\ pc' = "H018"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H018 == /\ pc = "H018"
         /\ registers' = [registers EXCEPT !["x18"] = registers["x18"] + 1]
         /\ pc' = "H019"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H019 == /\ pc = "H019"
         /\ registers' = [registers EXCEPT !["x19"] = registers["x19"] + 1]
         /\ pc' = "H020"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H020 == /\ pc = "H020"
         /\ registers' = [registers EXCEPT !["x20"] = registers["x20"] + 1]
         /\ pc' = "H021"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H021 == /\ pc = "H021"
         /\ registers' = [registers EXCEPT !["x21"] = registers["x21"] + 1]
         /\ pc' = "H022"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H022 == /\ pc = "H022"
         /\ registers' = [registers EXCEPT !["x22"] = registers["x22"] + 1]
         /\ pc' = "H023"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H023 == /\ pc = "H023"
         /\ registers' = [registers EXCEPT !["x23"] = registers["x23"] + 1]
         /\ pc' = "H024"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H024 == /\ pc = "H024"
         /\ registers' = [registers EXCEPT !["x24"] = registers["x24"] + 1]
         /\ pc' = "H025"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H025 == /\ pc = "H025"
         /\ registers' = [registers EXCEPT !["x25"] = registers["x25"] + 1]
         /\ pc' = "H026"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H026 == /\ pc = "H026"
         /\ registers' = [registers EXCEPT !["x26"] = registers["x26"] + 1]
         /\ pc' = "H027"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H027 == /\ pc = "H027"
         /\ registers' = [registers EXCEPT !["x27"] = registers["x27"] + 1]
         /\ pc' = "H028"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H028 == /\ pc = "H028"
         /\ registers' = [registers EXCEPT !["x28"] = registers["x28"] + 1]
         /\ pc' = "H029"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H029 == /\ pc = "H029"
         /\ registers' = [registers EXCEPT !["x29"] = registers["x29"] + 1]
         /\ pc' = "H030"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H030 == /\ pc = "H030"
         /\ registers' = [registers EXCEPT !["lr"] = registers["lr"] + 1]
         /\ pc' = "H_INT00"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H_INT00 == /\ pc = "H_INT00"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "H100" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 H100 == /\ pc = "H100"
         /\ registers' = [registers EXCEPT !["q0"] = registers["q0"] + 1]
         /\ pc' = "H101"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H101 == /\ pc = "H101"
         /\ registers' = [registers EXCEPT !["q1"] = registers["q1"] + 1]
         /\ pc' = "H102"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H102 == /\ pc = "H102"
         /\ registers' = [registers EXCEPT !["q2"] = registers["q2"] + 1]
         /\ pc' = "H103"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H103 == /\ pc = "H103"
         /\ registers' = [registers EXCEPT !["q3"] = registers["q3"] + 1]
         /\ pc' = "H104"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H104 == /\ pc = "H104"
         /\ registers' = [registers EXCEPT !["q4"] = registers["q4"] + 1]
         /\ pc' = "H105"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H105 == /\ pc = "H105"
         /\ registers' = [registers EXCEPT !["q5"] = registers["q5"] + 1]
         /\ pc' = "H106"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H106 == /\ pc = "H106"
         /\ registers' = [registers EXCEPT !["q6"] = registers["q6"] + 1]
         /\ pc' = "H107"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H107 == /\ pc = "H107"
         /\ registers' = [registers EXCEPT !["q7"] = registers["q7"] + 1]
         /\ pc' = "H108"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H108 == /\ pc = "H108"
         /\ registers' = [registers EXCEPT !["q8"] = registers["q8"] + 1]
         /\ pc' = "H109"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H109 == /\ pc = "H109"
         /\ registers' = [registers EXCEPT !["q9"] = registers["q9"] + 1]
         /\ pc' = "H110"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H110 == /\ pc = "H110"
         /\ registers' = [registers EXCEPT !["q10"] = registers["q10"] + 1]
         /\ pc' = "H111"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H111 == /\ pc = "H111"
         /\ registers' = [registers EXCEPT !["q11"] = registers["q11"] + 1]
         /\ pc' = "H112"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H112 == /\ pc = "H112"
         /\ registers' = [registers EXCEPT !["q12"] = registers["q12"] + 1]
         /\ pc' = "H113"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H113 == /\ pc = "H113"
         /\ registers' = [registers EXCEPT !["q13"] = registers["q13"] + 1]
         /\ pc' = "H114"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H114 == /\ pc = "H114"
         /\ registers' = [registers EXCEPT !["q14"] = registers["q14"] + 1]
         /\ pc' = "H115"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H115 == /\ pc = "H115"
         /\ registers' = [registers EXCEPT !["q15"] = registers["q15"] + 1]
         /\ pc' = "H116"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H116 == /\ pc = "H116"
         /\ registers' = [registers EXCEPT !["q16"] = registers["q16"] + 1]
         /\ pc' = "H117"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H117 == /\ pc = "H117"
         /\ registers' = [registers EXCEPT !["q17"] = registers["q17"] + 1]
         /\ pc' = "H118"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H118 == /\ pc = "H118"
         /\ registers' = [registers EXCEPT !["q18"] = registers["q18"] + 1]
         /\ pc' = "H119"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H119 == /\ pc = "H119"
         /\ registers' = [registers EXCEPT !["q19"] = registers["q19"] + 1]
         /\ pc' = "H120"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H120 == /\ pc = "H120"
         /\ registers' = [registers EXCEPT !["q20"] = registers["q20"] + 1]
         /\ pc' = "H121"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H121 == /\ pc = "H121"
         /\ registers' = [registers EXCEPT !["q21"] = registers["q21"] + 1]
         /\ pc' = "H122"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H122 == /\ pc = "H122"
         /\ registers' = [registers EXCEPT !["q22"] = registers["q22"] + 1]
         /\ pc' = "H123"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H123 == /\ pc = "H123"
         /\ registers' = [registers EXCEPT !["q23"] = registers["q23"] + 1]
         /\ pc' = "H124"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H124 == /\ pc = "H124"
         /\ registers' = [registers EXCEPT !["q24"] = registers["q24"] + 1]
         /\ pc' = "H125"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H125 == /\ pc = "H125"
         /\ registers' = [registers EXCEPT !["q25"] = registers["q25"] + 1]
         /\ pc' = "H126"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H126 == /\ pc = "H126"
         /\ registers' = [registers EXCEPT !["q26"] = registers["q26"] + 1]
         /\ pc' = "H127"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H127 == /\ pc = "H127"
         /\ registers' = [registers EXCEPT !["q27"] = registers["q27"] + 1]
         /\ pc' = "H128"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H128 == /\ pc = "H128"
         /\ registers' = [registers EXCEPT !["q28"] = registers["q28"] + 1]
         /\ pc' = "H129"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H129 == /\ pc = "H129"
         /\ registers' = [registers EXCEPT !["q29"] = registers["q29"] + 1]
         /\ pc' = "H130"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H130 == /\ pc = "H130"
         /\ registers' = [registers EXCEPT !["q30"] = registers["q30"] + 1]
         /\ pc' = "H131"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H131 == /\ pc = "H131"
         /\ registers' = [registers EXCEPT !["q31"] = registers["q31"] + 1]
         /\ pc' = "H_INT01"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H_INT01 == /\ pc = "H_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "H200" ] >>
                         \o stack
            /\ pc' = "start_interrupt"
-           /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                           reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                           addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                           reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, 
-                           reg3_, offset_st, addr_st, reg1_ldp, reg2_ldp, 
-                           reg3_l, offset_ldp, addr_ldp, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                           reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                           offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+                           offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
+                           offset_ldp, addr_ldp, reg1, reg2, reg3, offset, 
+                           addr, ctx_start >>
 
 H200 == /\ pc = "H200"
         /\ registers' = [registers EXCEPT !["elr"] = registers["elr"] + 1]
         /\ pc' = "H201"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H201 == /\ pc = "H201"
         /\ registers' = [registers EXCEPT !["spsr"] = registers["spsr"] + 1]
         /\ pc' = "H202"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H202 == /\ pc = "H202"
         /\ registers' = [registers EXCEPT !["fpsr"] = registers["fpsr"] + 1]
         /\ pc' = "H203"
-        /\ UNCHANGED << counter, data_abort, stack_memory, stack, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
+                        addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
+                        reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, 
+                        addr_ld, reg1_st, reg2_st, reg3_, offset_st, addr_st, 
+                        reg1_ldp, reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, 
+                        reg2, reg3, offset, addr, ctx_start >>
 
 H203 == /\ pc = "H203"
         /\ registers' = [registers EXCEPT !["fpcr"] = registers["fpcr"] + 1]
         /\ pc' = Head(stack).pc
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << counter, data_abort, stack_memory, reg1_, reg2_, 
-                        offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                        reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
-                        offset_ld, addr_ld, reg1_st, reg2_st, reg3_, offset_st, 
-                        addr_st, reg1_ldp, reg2_ldp, reg3_l, offset_ldp, 
-                        addr_ldp, reg1, reg2, reg3, offset, addr, ctx_start >>
+        /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, addr_, 
+                        reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
+                        offset_s, addr_s, reg1_ld, reg2_ld, offset_ld, addr_ld, 
+                        reg1_st, reg2_st, reg3_, offset_st, addr_st, reg1_ldp, 
+                        reg2_ldp, reg3_l, offset_ldp, addr_ldp, reg1, reg2, 
+                        reg3, offset, addr, ctx_start >>
 
 handler == H000 \/ H001 \/ H002 \/ H003 \/ H004 \/ H005 \/ H006 \/ H007
               \/ H008 \/ H009 \/ H010 \/ H011 \/ H012 \/ H013 \/ H014
@@ -4326,10 +4305,10 @@ start == /\ pc = "start"
                       \o stack
          /\ ctx_start' = defaultInitValue
          /\ pc' = "start_call_with_context"
-         /\ UNCHANGED << counter, data_abort, stack_memory, registers, reg1_, 
-                         reg2_, offset_, addr_, reg1_l, reg2_l, offset_l, 
-                         addr_l, reg1_s, reg2_s, offset_s, addr_s, reg1_ld, 
-                         reg2_ld, offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
+         /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
+                         offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
+                         reg1_s, reg2_s, offset_s, addr_s, reg1_ld, reg2_ld, 
+                         offset_ld, addr_ld, reg1_st, reg2_st, reg3_, 
                          offset_st, addr_st, reg1_ldp, reg2_ldp, reg3_l, 
                          offset_ldp, addr_ldp, reg1, reg2, reg3, offset, addr >>
 
