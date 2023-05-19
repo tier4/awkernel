@@ -9,6 +9,7 @@ edition = "2021"
 log = "0.4"
 bitflags = "2.3"
 
+
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
 default-features = false
@@ -30,3 +31,18 @@ default = []
 x86 = ["awkernel_lib/x86", "x86_64"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
+
+
+[dependencies.smoltcp]
+version = "0.8.0"
+default-features = false
+features = [
+    "alloc", 
+    "log", 
+    "socket-udp", 
+    "socket-tcp", 
+    "proto-ipv4", 
+    "proto-ipv6",
+    "medium-ethernet", 
+]
+

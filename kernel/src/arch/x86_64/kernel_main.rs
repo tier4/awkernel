@@ -148,7 +148,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // 9. Initialize `awkernel_lib`.
-    awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator, PAGE_SIZE);
+    awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator, PAGESIZE as u64);
 
     // 10. Initialize APIC.
     if let TypeApic::Xapic(apic) = super::apic::new(&mut page_table, &mut page_allocator) {

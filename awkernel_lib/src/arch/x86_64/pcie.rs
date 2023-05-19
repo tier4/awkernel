@@ -37,7 +37,7 @@ fn search_devices(segment: &McfgEntry) {
                 let addr = segment.base_address() + offset;
                 let id = unsafe { read_volatile(addr as *const u32) };
                 if id != !0 {
-                    log::info!("found device with id {:#x} at {:#x}", u32::to_be(id), addr);
+                    log::info!("found device with id {:#x} at {:#x}", id, addr);
                 }
             }
         }
