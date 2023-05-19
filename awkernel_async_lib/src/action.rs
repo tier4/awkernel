@@ -352,9 +352,9 @@ pub enum AcceptOrRejectGoal<'a, G, F: Send, R> {
 
 impl<'a, G, F, R> ClientSendGoal<'a, G, F, R>
 where
-    G: Send + 'static,
+    G: Sync + Send + 'static,
     F: Send + 'static,
-    R: Send + 'static,
+    R: Sync + Send + 'static,
 {
     /// Send a goal value.
     /// The state will be transited from `ClientSendGoal` to `ClientRecvFeedback` if the goal value sent before has been accepted.
