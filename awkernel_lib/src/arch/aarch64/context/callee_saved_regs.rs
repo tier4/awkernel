@@ -1,3 +1,6 @@
+//! `save_context` and `restore_context` are specified by `specification/awkernel_lib/src/arch/aarch64/context.rs/callee_saved_regs`.
+//! If you update these functions, please update the specification and verify them.
+
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct CalleeSavedContext {
