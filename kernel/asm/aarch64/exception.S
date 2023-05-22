@@ -113,22 +113,22 @@ exception_store_registers:
 exception_restore_context:
     mov     x28, sp
 
-    ldp       q0,  q1, [x3], #32
-    ldp       q2,  q3, [x3], #32
-    ldp       q4,  q5, [x3], #32
-    ldp       q6,  q7, [x3], #32
-    ldp       q8,  q9, [x3], #32
-    ldp      q10, q11, [x3], #32
-    ldp      q12, q13, [x3], #32
-    ldp      q14, q15, [x3], #32
-    ldp      q16, q17, [x3], #32
-    ldp      q18, q19, [x3], #32
-    ldp      q20, q21, [x3], #32
-    ldp      q22, q23, [x3], #32
-    ldp      q24, q25, [x3], #32
-    ldp      q26, q27, [x3], #32
-    ldp      q28, q29, [x3], #32
-    ldp      q30, q31, [x3], #32
+    ldp       q0,  q1, [x28], #32
+    ldp       q2,  q3, [x28], #32
+    ldp       q4,  q5, [x28], #32
+    ldp       q6,  q7, [x28], #32
+    ldp       q8,  q9, [x28], #32
+    ldp      q10, q11, [x28], #32
+    ldp      q12, q13, [x28], #32
+    ldp      q14, q15, [x28], #32
+    ldp      q16, q17, [x28], #32
+    ldp      q18, q19, [x28], #32
+    ldp      q20, q21, [x28], #32
+    ldp      q22, q23, [x28], #32
+    ldp      q24, q25, [x28], #32
+    ldp      q26, q27, [x28], #32
+    ldp      q28, q29, [x28], #32
+    ldp      q30, q31, [x28], #32
 
     ldp     x0, x1, [x28], #16 // Load FPSR and FPCR.
 
