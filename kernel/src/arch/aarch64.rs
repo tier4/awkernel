@@ -8,3 +8,4 @@ mod mmu;
 mod page_allocator;
 mod page_table;
 mod serial;
+mod types;

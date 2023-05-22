@@ -6,3 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+register = "0.5.x"
+
+[dependencies.awkernel_lib]
+path = "../awkernel_lib"
+

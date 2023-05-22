@@ -12,6 +12,7 @@ use super::{
     cpu,
     driver::uart::{DevUART, Uart},
     mmu, serial,
+    driver::timer::SystemTimer,
 };
 use crate::{
     arch::aarch64::cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -114,6 +115,7 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
+    SystemTimer::init(1);
     crate::main::<()>(kernel_info);
 }
 
