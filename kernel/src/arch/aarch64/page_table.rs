@@ -114,7 +114,7 @@ impl PageTable {
         unsafe { write_volatile(ptr, e) };
     }
 
-    pub fn unmap(&mut self, vm_addr: u64) {
+    pub fn _unmap(&mut self, vm_addr: u64) {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
 

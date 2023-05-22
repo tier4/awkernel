@@ -357,14 +357,12 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     let mut stack_end = get_stack_el1_end();
     let stack_start = get_stack_el1_start();
     let flag = kernel_page_flag();
+    let start = stack_end;
     while stack_end < stack_start {
-        table0.map_to(stack_end, stack_end, flag, &mut allocator);
+        if (stack_end - start) & (addr.stack_size - 1) != 0 {
+            table0.map_to(stack_end, stack_end, flag, &mut allocator);
+        }
         stack_end += PAGESIZE;
-    }
-
-    for i in 0..NUM_CPU {
-        let addr = stack_end + i * addr.stack_size;
-        table0.unmap(addr);
     }
 
     // map device memory

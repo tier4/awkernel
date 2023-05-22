@@ -1,3 +1,6 @@
+// This file is specified by `specification/kernel/asm/aarch64/exception.S`.
+// If you update this file, please update and the specification and verify.
+
 .macro CALL_WITH_CONTEXT handler el spsr_reg
     // disable all interrupt
     msr     DAIFSet, #0x0f
