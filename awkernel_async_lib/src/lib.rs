@@ -16,7 +16,6 @@ pub mod channel;
 mod delay;
 mod join_handle;
 mod never_return;
-pub(crate) mod preempt;
 pub mod pubsub;
 mod ringq;
 pub mod scheduler;
@@ -27,6 +26,9 @@ pub mod sync;
 pub mod task;
 mod timeout_call;
 mod yield_task;
+
+#[cfg(not(feature = "std"))]
+pub(crate) mod preempt;
 
 #[cfg(test)]
 pub(crate) mod mini_task;

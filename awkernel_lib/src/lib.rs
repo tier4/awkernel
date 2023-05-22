@@ -7,7 +7,6 @@ use alloc::rc::Rc;
 
 pub mod arch;
 
-pub mod context;
 pub mod delay;
 pub mod interrupt;
 pub mod logger;
@@ -19,6 +18,9 @@ pub mod heap;
 
 #[cfg(not(feature = "std"))]
 pub mod cpu;
+
+#[cfg(not(feature = "std"))]
+pub mod context;
 
 extern crate alloc;
 
