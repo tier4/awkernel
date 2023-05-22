@@ -16,6 +16,7 @@ pub mod channel;
 mod delay;
 mod join_handle;
 mod never_return;
+pub(crate) mod preempt;
 pub mod pubsub;
 mod ringq;
 pub mod scheduler;
