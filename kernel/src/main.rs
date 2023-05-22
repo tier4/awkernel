@@ -23,9 +23,6 @@ mod arch;
 mod config;
 mod kernel_info;
 
-// #[cfg(not(feature = "std"))]
-// mod heap;
-
 #[cfg(not(feature = "std"))]
 mod nostd;
 

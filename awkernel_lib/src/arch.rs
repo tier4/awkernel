@@ -26,4 +26,7 @@ pub(crate) type ArchDelay = arch_mod::delay::ArchDelay;
 pub(crate) type ArchInterrupt = arch_mod::interrupt::ArchInterrupt;
 
 #[cfg(not(feature = "std"))]
+pub type ArchContext = arch_mod::context::Context;
+
+#[cfg(not(feature = "std"))]
 pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;

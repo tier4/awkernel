@@ -27,6 +27,9 @@ pub mod task;
 mod timeout_call;
 mod yield_task;
 
+#[cfg(not(feature = "std"))]
+pub(crate) mod preempt;
+
 #[cfg(test)]
 pub(crate) mod mini_task;
 
