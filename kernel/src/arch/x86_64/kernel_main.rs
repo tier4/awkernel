@@ -17,7 +17,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use awkernel_lib::{
-    arch::x86_64::page_allocator::{get_page_table, PageAllocator},
+    arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
     delay::{wait_forever, wait_microsec},
 };
 use bootloader_api::{
@@ -68,7 +68,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::serial::init(); // 2. Initialize the serial port.
     unsafe { super::puts("The primary CPU is waking up.\n") };
 
-    let mut page_table = if let Some(page_table) = unsafe { get_page_table(boot_info) } {
+    unsafe { page_allocator::init(boot_info) };
+    let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
     } else {
         unsafe { super::puts("Physical memory is not mapped.\n") };

@@ -5,16 +5,16 @@ pub struct Memory;
 const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
 impl crate::memory::Memory for Memory {
-    unsafe fn map(vm_addr: usize, phy_addr: usize, flag: crate::memory::Flag) -> bool {
+    unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
         let mut page_table = get_page_table(vm_addr);
 
         let mut f = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_ATTR_MEM | 0b11;
 
-        if !flag.execute {
+        if !flags.execute {
             f |= FLAG_L3_XN | FLAG_L3_PXN;
         }
 
-        if flag.write {
+        if flags.write {
             f |= FLAG_L3_SH_RW_N;
         } else {
             f |= FLAG_L3_SH_R_N;
