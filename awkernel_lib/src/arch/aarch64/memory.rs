@@ -1,4 +1,7 @@
-use crate::arch::aarch64::page_table::{flags::*, PageTable};
+use crate::{
+    arch::aarch64::page_table::{flags::*, PageTable},
+    memory::PAGESIZE,
+};
 
 pub struct Memory;
 
@@ -6,6 +9,9 @@ const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
 impl crate::memory::Memory for Memory {
     unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
+        let vm_addr = vm_addr & !(PAGESIZE - 1);
+        let phy_addr = phy_addr & !(PAGESIZE - 1);
+
         let mut page_table = get_page_table(vm_addr);
 
         let mut f = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_ATTR_MEM | 0b11;
@@ -24,15 +30,18 @@ impl crate::memory::Memory for Memory {
     }
 
     unsafe fn unmap(vm_addr: usize) {
+        let vm_addr = vm_addr & !(PAGESIZE - 1);
         let mut page_table = get_page_table(vm_addr);
         page_table.unmap(vm_addr as u64);
     }
 
     fn vm_to_phy(vm_addr: usize) -> Option<usize> {
-        let page_table = get_page_table(vm_addr);
+        let higher = vm_addr & !(PAGESIZE - 1);
+        let lower = vm_addr & (PAGESIZE - 1);
+        let page_table = get_page_table(higher);
 
-        if let Some(phy) = page_table.translate(vm_addr as u64) {
-            Some(phy as usize)
+        if let Some(phy) = page_table.translate(higher as u64) {
+            Some(phy as usize | lower)
         } else {
             None
         }
