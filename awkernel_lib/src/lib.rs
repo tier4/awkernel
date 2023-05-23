@@ -10,7 +10,6 @@ pub mod arch;
 pub mod delay;
 pub mod interrupt;
 pub mod logger;
-pub mod memory;
 pub mod mmio;
 pub mod sync;
 
@@ -22,6 +21,9 @@ pub mod cpu;
 
 #[cfg(not(feature = "std"))]
 pub mod context;
+
+#[cfg(not(feature = "std"))]
+pub mod memory;
 
 extern crate alloc;
 

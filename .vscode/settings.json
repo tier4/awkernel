@@ -27,7 +27,7 @@
         "--target=x86_64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "raspi4"
+        "rv32"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false,
     "tlaplus.tlc.modelChecker.options": "-workers auto",
