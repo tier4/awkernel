@@ -10,6 +10,7 @@ pub mod arch;
 pub mod delay;
 pub mod interrupt;
 pub mod logger;
+pub mod memory;
 pub mod mmio;
 pub mod sync;
 

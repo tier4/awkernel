@@ -1,9 +1,5 @@
-use super::{
-    driver::uart::{DevUART, Uart},
-    mmu::PAGESIZE,
-};
+use crate::{delay::wait_forever, memory::PAGESIZE};
 use alloc::slice;
-use awkernel_lib::delay::wait_forever;
 use core::ptr::{read_volatile, write_volatile};
 
 pub trait FrameAllocator {
@@ -17,6 +13,7 @@ const ENTRY_COUNT: usize = PAGESIZE as usize / 8;
 struct PageTableEntry {
     entries: &'static mut [u64],
 }
+
 impl PageTableEntry {
     fn new<A>(allocator: &mut A) -> Self
     where
@@ -25,7 +22,6 @@ impl PageTableEntry {
         let ptr = if let Some(page) = allocator.allocate_frame() {
             page as *mut u64
         } else {
-            unsafe { DevUART::unsafe_puts("failed to allocate page\n") };
             wait_forever();
         };
 
@@ -114,7 +110,7 @@ impl PageTable {
         unsafe { write_volatile(ptr, e) };
     }
 
-    pub fn _unmap(&mut self, vm_addr: u64) {
+    pub unsafe fn unmap(&mut self, vm_addr: u64) {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
 
@@ -139,7 +135,7 @@ impl PageTable {
     }
 
     // function for debugging
-    fn _translate(&self, vm_addr: u64) -> Option<u64> {
+    pub fn translate(&self, vm_addr: u64) -> Option<u64> {
         let lv1_table = &self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
 

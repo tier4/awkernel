@@ -1,4 +1,6 @@
-use super::{mmu::PAGESIZE, page_table::FrameAllocator};
+use crate::memory::PAGESIZE;
+
+use super::page_table::FrameAllocator;
 
 pub struct PageAllocator {
     start: u64,
@@ -11,7 +13,7 @@ impl FrameAllocator for PageAllocator {
             None
         } else {
             let frame = self.start;
-            self.start += PAGESIZE;
+            self.start += PAGESIZE as u64;
             Some(frame)
         }
     }
