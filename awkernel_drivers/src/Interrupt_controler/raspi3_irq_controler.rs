@@ -1,103 +1,65 @@
-
-
-use core::ptr;
-use awkernel_lib::types::KernelVirtualAddress;
-use core::marker::PhantomData;
 use awkernel_lib::interrupt::InterruptController;
 
 mod registers {
-    pub const IRQ_PENDING1: usize = 0x04;
-    pub const IRQ_PENDING2: usize = 0x08;
-    pub const IRQ_ENABLE1: usize = 0x10;
-    pub const IRQ_ENABLE2: usize = 0x14;
-    pub const IRQ_DISABLE1: usize = 0x1C;
-    pub const IRQ_DISABLE2: usize = 0x20;
-}
+    use awkernel_lib::{mmio_r, mmio_w};
 
-
-pub struct DeviceRegisters<T> {
-    base: KernelVirtualAddress,
-    data: PhantomData<T>,
-}
-
-impl<T> DeviceRegisters<T> {
-    pub const fn new(base: KernelVirtualAddress) -> Self {
-        Self {
-            base,
-            data: PhantomData,
-        }
-    }
-
-    pub unsafe fn get(&self, reg: impl Into<usize>) -> T {
-        ptr::read_volatile(self.base.add(reg.into()).as_ptr::<T>())
-    }
-
-    pub unsafe fn set(&self, reg: impl Into<usize>, data: T) {
-        ptr::write_volatile(self.base.add(reg.into()).as_mut::<T>(), data);
-    }
+    mmio_r!(offset 0x04 => pub IRQ_PENDING1<u32>);
+    mmio_r!(offset 0x08 => pub IRQ_PENDING2<u32>);
+    mmio_w!(offset 0x10 => pub IRQ_ENABLE1<u32>);
+    mmio_w!(offset 0x14 => pub IRQ_ENABLE2<u32>);
+    mmio_w!(offset 0x1C => pub IRQ_DISABLE1<u32>);
+    mmio_w!(offset 0x20 => pub IRQ_DISABLE2<u32>);
 }
 
 pub struct GenericInterruptController {
-    registers: DeviceRegisters<u32>,
     iter: Option<PendingInterruptIterator>,
+    base: usize,
 }
 
 impl GenericInterruptController {
-    pub fn new() -> Self {
-        // log::info!("interrupts: initializing generic arm interrupt controller");
+    pub fn new(base: usize) -> Self {
+        log::info!("interrupts: initializing generic arm interrupt controller");
 
-        let gic = Self {
-            registers: DeviceRegisters::new(KernelVirtualAddress::new(0x3F00_B200)),
-            iter: None,
-        };
+        let gic = Self { base, iter: None };
 
-        unsafe {
-            gic.registers.set(registers::IRQ_DISABLE1, !0);
-            gic.registers.set(registers::IRQ_DISABLE2, !0);
-        }
+        registers::IRQ_DISABLE1.write(!0, base);
+        registers::IRQ_DISABLE2.write(!0, base);
 
         gic
     }
 
     pub fn iter(&mut self) -> PendingInterruptIterator {
-        let pending = unsafe {
-            [self.registers.get(registers::IRQ_PENDING1), self.registers.get(registers::IRQ_PENDING2)]
-        };
+        let pending = [
+            registers::IRQ_PENDING1.read(self.base),
+            registers::IRQ_PENDING2.read(self.base),
+        ];
 
-        PendingInterruptIterator {
-            next: 0,
-            pending: pending,
-        }
+        PendingInterruptIterator { next: 0, pending }
     }
 }
 
 impl InterruptController for GenericInterruptController {
     fn enable_irq(&mut self, irq: usize) {
-        unsafe {
-            if irq < 32 {
-                self.registers.set(registers::IRQ_ENABLE1, 1 << irq);
-            } else {
-                self.registers.set(registers::IRQ_ENABLE2, 1 << (irq - 32));
-            }
+        if irq < 32 {
+            registers::IRQ_ENABLE1.write(1 << irq, self.base);
+        } else {
+            registers::IRQ_ENABLE2.write(1 << (irq - 32), self.base);
         }
     }
 
     fn disable_irq(&mut self, irq: usize) {
-        unsafe {
-            if irq < 32 {
-                self.registers.set(registers::IRQ_DISABLE1, 1 << irq);
-            } else {
-                self.registers.set(registers::IRQ_DISABLE2, 1 << (irq - 32));
-            }
+        if irq < 32 {
+            registers::IRQ_DISABLE1.write(1 << irq, self.base);
+        } else {
+            registers::IRQ_DISABLE2.write(1 << (irq - 32), self.base);
         }
     }
 
-    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item=usize> {
+    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
         self.iter = Some(self.iter());
         self.iter.as_mut().unwrap()
     }
 }
-
 
 pub struct PendingInterruptIterator {
     next: usize,
@@ -129,4 +91,3 @@ impl Iterator for PendingInterruptIterator {
         Some(index * 32 + bit)
     }
 }
-

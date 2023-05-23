@@ -10,9 +10,9 @@
 use super::{
     bsp::raspi,
     cpu,
+    driver::timer::SystemTimer,
     driver::uart::{DevUART, Uart},
     mmu, serial,
-    driver::timer::SystemTimer,
 };
 use crate::{
     arch::aarch64::cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -24,6 +24,7 @@ use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
+use raspi::memory::MMIO_BASE;
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -107,6 +108,11 @@ unsafe fn primary_cpu() {
         log::info!("Use SP_ELx.");
     }
 
+    // Initialize GIC.
+    awkernel_drivers::Interrupt_controler::raspi3_irq_controler::GenericInterruptController::new(
+        MMIO_BASE + 0xB200,
+    );
+
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
@@ -115,7 +121,7 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
-    SystemTimer::init(1);
+    // SystemTimer::init(1);
     crate::main::<()>(kernel_info);
 }
 
