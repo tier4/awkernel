@@ -2,6 +2,45 @@ use crate::{delay::wait_forever, memory::PAGESIZE};
 use alloc::slice;
 use core::ptr::{read_volatile, write_volatile};
 
+pub mod flags {
+    pub const FLAG_L3_XN: u64 = 1 << 54; // execute never
+    pub const FLAG_L3_PXN: u64 = 1 << 53; // privileged execute never
+    pub const FLAG_L3_CONT: u64 = 1 << 52; // contiguous
+    pub const FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
+    pub const FLAG_L3_AF: u64 = 1 << 10; // access flag
+    pub const FLAG_L3_NS: u64 = 1 << 5; // non secure
+
+    // [9:8]: Shareability attribute, for Normal memory
+    //    | Shareability
+    // ---|------------------
+    // 00 | non sharedable
+    // 01 | reserved
+    // 10 | outer sharedable
+    // 11 | inner sharedable
+    pub const FLAG_L3_OSH: u64 = 0b10 << 8;
+    pub const FLAG_L3_ISH: u64 = 0b11 << 8;
+
+    // [7:6]: access permissions
+    //    | Access from            |
+    //    | higher Exception level | Access from EL0
+    // ---|------------------------|-----------------
+    // 00 | read/write             | none
+    // 01 | read/write             | read/write
+    // 10 | read-only              | none
+    // 11 | read-only              | read-only
+    pub const FLAG_L3_SH_RW_N: u64 = 0;
+    pub const FLAG_L3_SH_RW_RW: u64 = 1 << 6;
+    pub const FLAG_L3_SH_R_N: u64 = 0b10 << 6;
+    pub const FLAG_L3_SH_R_R: u64 = 0b11 << 6;
+
+    // [4:2]: AttrIndx
+    // defined in MAIR register
+    // see get_mair()
+    pub const FLAG_L3_ATTR_MEM: u64 = 0; // normal memory
+    pub const FLAG_L3_ATTR_DEV: u64 = 1 << 2; // device MMIO
+    pub const FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
+}
+
 pub trait FrameAllocator {
     fn allocate_frame(&mut self) -> Option<u64>;
 }
@@ -64,6 +103,11 @@ impl PageTable {
         Self { root }
     }
 
+    pub unsafe fn with_root(addr: usize) -> Self {
+        let root = PageTableEntry::from_addr(addr as u64);
+        Self { root }
+    }
+
     pub fn addr(&self) -> u64 {
         self.root.entries.as_ptr() as u64
     }
@@ -110,6 +154,37 @@ impl PageTable {
         unsafe { write_volatile(ptr, e) };
     }
 
+    pub unsafe fn unsafe_map(&mut self, vm_addr: u64, phy_addr: u64, flag: u64) -> bool {
+        let lv1_table = &mut self.root.entries;
+        let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
+        let lv2_table;
+
+        if lv1_table[lv1_idx] == 0 {
+            return false;
+        } else {
+            let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
+            lv2_table = PageTableEntry::from_addr(addr).entries;
+        }
+
+        let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
+        let lv3_table;
+
+        if lv2_table[lv2_idx] == 0 {
+            return false;
+        } else {
+            let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
+            lv3_table = PageTableEntry::from_addr(addr).entries;
+        }
+
+        let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
+        let e = phy_addr & !0xfff | flag;
+        let ptr = &mut lv3_table[lv3_idx];
+
+        unsafe { write_volatile(ptr, e) };
+
+        true
+    }
+
     pub unsafe fn unmap(&mut self, vm_addr: u64) {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
@@ -134,7 +209,6 @@ impl PageTable {
         unsafe { write_volatile(ptr, 0) };
     }
 
-    // function for debugging
     pub fn translate(&self, vm_addr: u64) -> Option<u64> {
         let lv1_table = &self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);

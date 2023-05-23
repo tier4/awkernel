@@ -9,7 +9,7 @@ use awkernel_aarch64::{
 use awkernel_lib::{
     arch::aarch64::{
         page_allocator::PageAllocator,
-        page_table::{FrameAllocator, PageTable},
+        page_table::{flags, FrameAllocator, PageTable},
     },
     delay::wait_forever,
     memory::PAGESIZE,
@@ -78,48 +78,6 @@ pub fn get_data_start() -> u64 {
 pub fn _get_data_end() -> u64 {
     unsafe { &__data_end as *const u64 as u64 }
 }
-
-// NSTable (63bit)
-const _FLAG_L2_NS: u64 = 1 << 63; // non secure table
-
-const FLAG_L3_XN: u64 = 1 << 54; // execute never
-const FLAG_L3_PXN: u64 = 1 << 53; // privileged execute never
-const _FLAG_L3_CONT: u64 = 1 << 52; // contiguous
-const _FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
-const FLAG_L3_AF: u64 = 1 << 10; // access flag
-const FLAG_L3_NS: u64 = 1 << 5; // non secure
-
-const _OFFSET_USER_HEAP_PAGE: usize = 2048; // 1TiB offset
-
-// [9:8]: Shareability attribute, for Normal memory
-//    | Shareability
-// ---|------------------
-// 00 | non sharedable
-// 01 | reserved
-// 10 | outer sharedable
-// 11 | inner sharedable
-const FLAG_L3_OSH: u64 = 0b10 << 8;
-const FLAG_L3_ISH: u64 = 0b11 << 8;
-
-// [7:6]: access permissions
-//    | Access from            |
-//    | higher Exception level | Access from EL0
-// ---|------------------------|-----------------
-// 00 | read/write             | none
-// 01 | read/write             | read/write
-// 10 | read-only              | none
-// 11 | read-only              | read-only
-const FLAG_L3_SH_RW_N: u64 = 0;
-const _FLAG_L3_SH_RW_RW: u64 = 1 << 6;
-const FLAG_L3_SH_R_N: u64 = 0b10 << 6;
-const _FLAG_L3_SH_R_R: u64 = 0b11 << 6;
-
-// [4:2]: AttrIndx
-// defined in MAIR register
-// see get_mair()
-const FLAG_L3_ATTR_MEM: u64 = 0; // normal memory
-const FLAG_L3_ATTR_DEV: u64 = 1 << 2; // device MMIO
-const FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
 
 // logical address information
 #[derive(Debug)]
@@ -226,10 +184,12 @@ unsafe fn _set_sctlr(sctlr: u64) {
 }
 
 pub fn user_page_flag() -> u64 {
+    use flags::*;
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_N | FLAG_L3_ATTR_MEM | 0b11
 }
 
 pub fn kernel_page_flag() -> u64 {
+    use flags::*;
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_N | FLAG_L3_ATTR_MEM | 0b11
 }
 
@@ -307,6 +267,8 @@ fn update_sctlr(sctlr: u64) -> u64 {
 /// set up EL1's page table
 /// assume 2MiB stack space per CPU
 fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
+    use flags::*;
+
     // init the page allocator
     let start = addr.pager_mem_start;
     let end = addr.pager_mem_end;
