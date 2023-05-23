@@ -1,7 +1,6 @@
 //! Allocate pages for heap memory.
 
-use crate::config::PAGE_SIZE;
-use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
+use awkernel_lib::{arch::x86_64::page_allocator::PageAllocator, memory::PAGESIZE};
 use x86_64::{
     structures::paging::{
         FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame,
@@ -23,7 +22,7 @@ where
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     let mut num_pages = 0;
 
-    for addr in (start..(start + size)).step_by(PAGE_SIZE as usize) {
+    for addr in (start..(start + size)).step_by(PAGESIZE as usize) {
         // Allocate a physical page.
         let Some(frame) = page_allocator.allocate_frame() else { return num_pages };
 

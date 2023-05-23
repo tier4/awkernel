@@ -30,3 +30,6 @@ pub type ArchContext = arch_mod::context::Context;
 
 #[cfg(not(feature = "std"))]
 pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;
+
+#[cfg(not(feature = "std"))]
+pub(crate) type ArchMemory = arch_mod::memory::Memory;

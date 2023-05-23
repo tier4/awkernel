@@ -12,13 +12,14 @@ use crate::{
         apic::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
-    config::{BACKUP_HEAP_SIZE, HEAP_START, PAGE_SIZE, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
 use awkernel_lib::{
     arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
     delay::{wait_forever, wait_microsec},
+    memory::PAGESIZE,
 };
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
@@ -83,7 +84,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .memory_regions
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Usable)
-        .flat_map(|m| (m.start..m.end).step_by(PAGE_SIZE as _))
+        .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
 
     let mut page_allocator = PageAllocator::new(&mut frames);
@@ -184,7 +185,7 @@ fn init_primary_heap<T>(
 
     let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
 
-    let heap_size = num_pages * PAGE_SIZE as usize;
+    let heap_size = num_pages * PAGESIZE as usize;
     unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
 
     log::info!(
@@ -251,8 +252,8 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
 
     // Save original data.
-    let _original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
-        read_volatile::<[u8; PAGE_SIZE as usize]>(boot16_phy_addr.as_ptr())
+    let _original = Box::<[u8; PAGESIZE as usize]>::new(unsafe {
+        read_volatile::<[u8; PAGESIZE as usize]>(boot16_phy_addr.as_ptr())
     });
 
     unsafe {

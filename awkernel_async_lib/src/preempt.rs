@@ -1,10 +1,8 @@
-use awkernel_lib::context::ArchContext;
+use awkernel_lib::{context::ArchContext, memory::PAGESIZE};
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
 };
-
-const PAGE_SIZE: usize = 4096;
 
 pub struct WorkerThreadContext {
     cpu_ctx: ArchContext,
@@ -22,7 +20,7 @@ impl WorkerThreadContext {
     }
 
     pub fn with_stack(size: usize) -> Result<Self, &'static str> {
-        let Ok(layout) = Layout::from_size_align(size, PAGE_SIZE) else {
+        let Ok(layout) = Layout::from_size_align(size, PAGESIZE) else {
             return Err("failed to allocate stack memory.")
         };
 
@@ -43,7 +41,7 @@ impl WorkerThreadContext {
         ctx: &ArchContext,
         stack_size: usize,
     ) -> Result<Self, &'static str> {
-        let Ok(layout) = Layout::from_size_align(stack_size, PAGE_SIZE) else {
+        let Ok(layout) = Layout::from_size_align(stack_size, PAGESIZE) else {
             return Err("failed to allocate stack memory.")
         };
 
@@ -69,7 +67,7 @@ impl WorkerThreadContext {
 impl Drop for WorkerThreadContext {
     fn drop(&mut self) {
         if !self.stack_mem.is_null() {
-            let layout = Layout::from_size_align(self.stack_size, PAGE_SIZE).unwrap();
+            let layout = Layout::from_size_align(self.stack_size, PAGESIZE).unwrap();
             unsafe { awkernel_lib::heap::TALLOC.dealloc(self.stack_mem, layout) };
         }
     }
