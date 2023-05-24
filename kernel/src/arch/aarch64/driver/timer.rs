@@ -1,40 +1,15 @@
-// 
 use awkernel_lib::interrupt;
-use crate::arch::aarch64::types::KernelVirtualAddress;
-use core::ptr;
 
-use core::marker::PhantomData;
 
 mod registers {
-    pub const CONTROL: usize = 0x00;
-    pub const COUNT_LOW: usize = 0x04;
-    pub const COMPARE_1: usize = 0x10;
+    use awkernel_lib::{mmio_r, mmio_w};
+
+    mmio_w!(offset 0x00 => pub CONTROL<u32>);
+    mmio_r!(offset 0x04 => pub COUNT_LOW<u32>);
+    mmio_w!(offset 0x10 => pub COMPARE_1<u32>);
 }
 
-pub struct DeviceRegisters<T> {
-    base: KernelVirtualAddress,
-    data: PhantomData<T>,
-}
-
-impl<T> DeviceRegisters<T> {
-    pub const fn new(base: KernelVirtualAddress) -> Self {
-        Self {
-            base,
-            data: PhantomData,
-        }
-    }
-
-    pub unsafe fn get(&self, reg: impl Into<usize>) -> T {
-        ptr::read_volatile(self.base.add(reg.into()).as_ptr::<T>())
-    }
-
-    pub unsafe fn set(&self, reg: impl Into<usize>, data: T) {
-        ptr::write_volatile(self.base.add(reg.into()).as_mut::<T>(), data);
-    }
-}
-
-
-const SYS_TIMER: DeviceRegisters<u32> = DeviceRegisters::new(KernelVirtualAddress::new(0x3F00_0000));
+pub const MMIO_BASE: usize = 0x3F000000;
 
 pub struct SystemTimer;
 
@@ -46,25 +21,22 @@ impl SystemTimer {
         interrupt::register_irq(irq ,SystemTimer::handle_irq).unwrap();
         interrupt::enable_irq(irq);
 
-        unsafe {
-            let value = SYS_TIMER.get(registers::COUNT_LOW) + 20000;
-            SYS_TIMER.set(registers::COMPARE_1, value);
-        }
+            let value = registers::COUNT_LOW.read(MMIO_BASE + 0xB200)+ 20000;
+            registers::COMPARE_1.write(value, MMIO_BASE + 0xB200);
+            log::info!("20ms passed");
+
     }
 
     pub fn reset() {
-        unsafe {
-            SYS_TIMER.set(registers::CONTROL, 1 << 1);
-            let value = SYS_TIMER.get(registers::COUNT_LOW) + 20000;
-            SYS_TIMER.set(registers::COMPARE_1, value);
-        }
+        registers::CONTROL.write(1 << 1, MMIO_BASE + 0xB200);
+        let value = registers::COUNT_LOW.read(MMIO_BASE + 0xB200) + 20000;
+        registers::COMPARE_1.write(value, MMIO_BASE + 0xB200);
+        
         log::info!("20ms passed");
-
     }
 
     fn handle_irq() {
+        log::info!("handle timer");
         SystemTimer::reset();
-
     }
 }
-
