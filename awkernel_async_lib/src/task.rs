@@ -13,6 +13,7 @@
 
 use crate::{
     delay::wait_microsec,
+    preempt::WorkerThreadContext,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{
@@ -96,6 +97,8 @@ pub(crate) struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub(crate) info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
+    // #[cfg(not(feature = "std"))]
+    // pub(crate) thread: Mutex<Option<Arc<WorkerThreadContext>>>,
 }
 
 unsafe impl Sync for Task {}
@@ -167,6 +170,8 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
+                    // #[cfg(not(feature = "std"))]
+                    // thread: Mutex::new(None),
                 };
 
                 e.insert(Arc::new(task));
@@ -246,8 +251,6 @@ pub fn run(cpu_id: usize) {
                 let mut node = MCSNode::new();
                 let mut guard = task.future.lock(&mut node);
 
-                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
-
                 if guard.is_terminated() {
                     continue;
                 }
@@ -257,6 +260,11 @@ pub fn run(cpu_id: usize) {
                 unsafe {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
+
+                #[cfg(not(feature = "std"))]
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
+                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
                 // Invoke a task.
                 let result = {
@@ -271,6 +279,8 @@ pub fn run(cpu_id: usize) {
                         result
                     })
                 };
+
+                unsafe { write_volatile(&mut RUNNING[cpu_id], None) };
 
                 result
             };
@@ -323,8 +333,6 @@ pub fn run(cpu_id: usize) {
                 }
             }
         } else {
-            unsafe { write_volatile(&mut RUNNING[cpu_id], None) };
-
             #[cfg(target_os = "linux")]
             wait_microsec(10);
 
@@ -335,7 +343,7 @@ pub fn run(cpu_id: usize) {
 }
 
 #[cfg(feature = "std")]
-fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
 where
     F: FnOnce() -> R,
 {
@@ -345,7 +353,7 @@ where
 }
 
 #[cfg(not(feature = "std"))]
-fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
 where
     F: FnOnce() -> R,
 {

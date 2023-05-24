@@ -1,8 +1,75 @@
-use awkernel_lib::{context::ArchContext, memory::PAGESIZE};
+use crate::task::catch_unwind;
+use alloc::{
+    collections::{BTreeMap, LinkedList},
+    sync::Arc,
+};
+use awkernel_lib::{
+    context::{ArchContext, Context},
+    memory::PAGESIZE,
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
 };
+
+static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
+
+struct Threads {
+    pool: LinkedList<PtrWorkerThreadContext>,
+    running: BTreeMap<usize, PtrWorkerThreadContext>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PtrWorkerThreadContext(*mut WorkerThreadContext);
+
+unsafe impl Sync for PtrWorkerThreadContext {}
+unsafe impl Send for PtrWorkerThreadContext {}
+
+impl Threads {
+    const fn new() -> Self {
+        Threads {
+            pool: LinkedList::new(),
+            running: BTreeMap::new(),
+        }
+    }
+}
+
+pub fn yield_to(ptr: PtrWorkerThreadContext) {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    let ctx = {
+        let mut node = MCSNode::new();
+        let threads = THREADS.lock(&mut node);
+        let ctx = threads.running.get(&cpu_id).unwrap();
+        ctx.0 as *const ArchContext as *mut ArchContext
+    };
+
+    let result = unsafe {
+        let ctx = &mut *ctx as &mut ArchContext;
+        ctx.set_jump()
+    };
+
+    if result {
+    } else {
+    }
+}
+
+fn save_context() -> bool {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    let ctx = {
+        let mut node = MCSNode::new();
+        let threads = THREADS.lock(&mut node);
+        let ctx = threads.running.get(&cpu_id).unwrap();
+        ctx.0 as *const ArchContext as *mut ArchContext
+    };
+
+    unsafe {
+        let ctx = &mut *ctx as &mut ArchContext;
+        ctx.set_jump()
+    }
+}
 
 pub struct WorkerThreadContext {
     cpu_ctx: ArchContext,
@@ -19,21 +86,13 @@ impl WorkerThreadContext {
         }
     }
 
-    pub fn with_stack(size: usize) -> Result<Self, &'static str> {
-        let Ok(layout) = Layout::from_size_align(size, PAGESIZE) else {
-            return Err("failed to allocate stack memory.")
-        };
-
-        let stack_mem = unsafe {
-            let _config = awkernel_lib::heap::TALLOC.save();
-            awkernel_lib::heap::TALLOC.use_primary();
-            awkernel_lib::heap::TALLOC.alloc(layout)
-        };
+    pub fn with_stack(stack_size: usize) -> Result<Self, &'static str> {
+        let stack_mem = allocate_stack(stack_size)?;
 
         Ok(WorkerThreadContext {
             cpu_ctx: ArchContext::default(),
             stack_mem,
-            stack_size: size,
+            stack_size,
         })
     }
 
@@ -41,15 +100,7 @@ impl WorkerThreadContext {
         ctx: &ArchContext,
         stack_size: usize,
     ) -> Result<Self, &'static str> {
-        let Ok(layout) = Layout::from_size_align(stack_size, PAGESIZE) else {
-            return Err("failed to allocate stack memory.")
-        };
-
-        let stack_mem = unsafe {
-            let _config = awkernel_lib::heap::TALLOC.save();
-            awkernel_lib::heap::TALLOC.use_primary();
-            awkernel_lib::heap::TALLOC.alloc(layout)
-        };
+        let stack_mem = allocate_stack(stack_size)?;
 
         Ok(WorkerThreadContext {
             cpu_ctx: *ctx,
@@ -70,5 +121,22 @@ impl Drop for WorkerThreadContext {
             let layout = Layout::from_size_align(self.stack_size, PAGESIZE).unwrap();
             unsafe { awkernel_lib::heap::TALLOC.dealloc(self.stack_mem, layout) };
         }
+    }
+}
+
+fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
+    let Ok(layout) = Layout::from_size_align(size, PAGESIZE) else {
+        return Err("invalid layout")
+    };
+
+    let result = catch_unwind(|| unsafe {
+        let _config = awkernel_lib::heap::TALLOC.save();
+        awkernel_lib::heap::TALLOC.use_primary();
+        awkernel_lib::heap::TALLOC.alloc(layout)
+    });
+
+    match result {
+        Ok(ptr) => Ok(ptr),
+        Err(_) => Err("failed to allocate stack memory"),
     }
 }
