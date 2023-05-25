@@ -1,3 +1,4 @@
+pub mod e1000e;
 pub mod pcie;
 
 use acpi::AcpiTables;

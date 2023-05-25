@@ -1,13 +1,38 @@
-use super::{Ether, EtherErr, MBuf};
+#![allow(dead_code)]
+#![allow(unused_variables)]
+use super::pcie::{DeviceInfo, PCIeDevice};
+use crate::net::ether::{Ether, EtherErr};
+use crate::net::mbuf::MBuf;
 use crate::net::ring::{RecvRing, SendRing};
 use smoltcp::phy;
+use core::ptr::read_volatile;
 
 ///! intel e1000e driver
 pub struct E1000E {
+    register_start: usize,
+    register_end: usize,
+    info: DeviceInfo,
     // ring buffer for receiving data
     rx_ring: RecvRing,
     // ring buffer for sending data
     tx_ring: SendRing,
+}
+
+const E1000E_BAR0_MASK : usize  = 0xFFFFFFF0;
+
+impl PCIeDevice for E1000E {
+    const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
+    unsafe fn init(&mut self) {
+        assert_eq!(self.info.header_type, 0x0);
+    }
+    fn new(info: &super::pcie::DeviceInfo) -> Self {
+        let bar0  = unsafe { read_volatile((info.addr  + 0x10) as *mut u32) } ;
+        let register_start = (bar0 as usize) |  E1000E_BAR0_MASK; 
+        let regiter_end = register_start + Self::ADDR_SPACE_SIZE as usize;
+        let info = info.clone();
+
+        unimplemented!("e1000")
+    }
 }
 
 impl Ether for E1000E {
@@ -99,6 +124,6 @@ impl phy::TxToken for TxToken {
 }
 
 // Interrupt Mask Set/Read Register
-pub(crate) const IMS: usize = 0x000D0;
+pub(crate) const _IMS: usize = 0x000D0;
 // Interrupt Mask Clear Register
-pub(crate) const IMC: usize = 0x000D8;
+pub(crate) const _IMC: usize = 0x000D8;

@@ -1,7 +1,5 @@
 use super::mbuf::MBuf;
 
-pub mod e1000e;
-
 #[derive(Debug)]
 pub enum EtherErr {
     FailedToSend,
