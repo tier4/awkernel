@@ -13,7 +13,7 @@
 
 use crate::{
     delay::wait_microsec,
-    preempt::WorkerThreadContext,
+    preempt::current_context,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{
@@ -22,7 +22,10 @@ use alloc::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    interrupt::{self, InterruptGuard},
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::{
     any::Any,
     ptr::{read_volatile, write_volatile},
@@ -33,6 +36,9 @@ use futures::{
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
+
+#[cfg(not(feature = "std"))]
+use crate::preempt::{self, PtrWorkerThreadContext};
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
@@ -97,8 +103,6 @@ pub(crate) struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub(crate) info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
-    // #[cfg(not(feature = "std"))]
-    // pub(crate) thread: Mutex<Option<Arc<WorkerThreadContext>>>,
 }
 
 unsafe impl Sync for Task {}
@@ -132,6 +136,9 @@ pub(crate) enum State {
     Waiting,
     Terminated,
     Panicked,
+
+    #[cfg(not(feature = "std"))]
+    Preemted(PtrWorkerThreadContext),
 }
 
 /// Tasks.
@@ -170,8 +177,6 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
-                    // #[cfg(not(feature = "std"))]
-                    // thread: Mutex::new(None),
                 };
 
                 e.insert(Arc::new(task));
@@ -239,11 +244,38 @@ pub fn get_current_task(cpu_id: usize) -> Option<u64> {
 }
 
 /// Execute runnable tasks.
-/// This function should be called worker threads.
+///
+/// # Safety
+///
+/// This function must be called from worker threads.
 /// So, do not call this function in application code.
-pub fn run(cpu_id: usize) {
+pub unsafe fn run(cpu_id: usize) {
+    #[cfg(not(feature = "std"))]
+    preempt::init(cpu_id);
+
     loop {
         if let Some(task) = scheduler::get_next_task() {
+            #[cfg(not(feature = "std"))]
+            {
+                // If the next task is a preempted task, then the current task will yield to the thread running the next task.
+                // After that, the current thread will be stored in the thread pool.
+
+                if let State::Preemted(ctx) = {
+                    let mut node = MCSNode::new();
+                    let info = task.info.lock(&mut node);
+                    info.state
+                } {
+                    {
+                        let mut node = MCSNode::new();
+                        let mut info = task.info.lock(&mut node);
+                        info.state = State::Running;
+                    }
+
+                    preempt::yield_and_pool(ctx);
+                    continue;
+                }
+            }
+
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
@@ -338,6 +370,61 @@ pub fn run(cpu_id: usize) {
 
             #[cfg(not(target_os = "linux"))]
             wait_microsec(1);
+        }
+    }
+}
+
+#[cfg(not(feature = "std"))]
+pub unsafe fn preemption() {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+    let _int_guard = InterruptGuard::new();
+    interrupt::disable();
+
+    let current_thread = current_context();
+
+    // If there is a running task on the CPU core, preemption is performed.
+    // Otherwise, this function just returns.
+    let task_id = if let Some(task_id) = unsafe { read_volatile(&mut RUNNING[cpu_id]) } {
+        task_id
+    } else {
+        return;
+    };
+
+    // If there is a task to be invoked next, execute the task.
+    if let Some(next) = scheduler::get_next_task() {
+        let current_task = {
+            let mut node = MCSNode::new();
+            let tasks = TASKS.lock(&mut node);
+
+            // Make the current running task `State::Preempted`.
+            {
+                let current_task = tasks.id_to_task.get(&task_id).unwrap();
+                let mut node = MCSNode::new();
+                let mut task_info = current_task.info.lock(&mut node);
+                task_info.state = State::Preemted(current_thread);
+
+                current_task.clone()
+            }
+        };
+
+        let state = {
+            let mut node = MCSNode::new();
+            let mut info = next.info.lock(&mut node);
+            let state = info.state;
+            info.state = State::Running;
+            state
+        };
+
+        if let State::Preemted(next_thread) = state {
+            // If the next task is a preempted task, yield to it.
+            preempt::yield_and_preempted(next_thread, current_task);
+        } else {
+            // If the next task is a preempted task, yield to it.
+
+            // Get a thread from the thread pool or create a new thread.
+
+            todo!()
         }
     }
 }
