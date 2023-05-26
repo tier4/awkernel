@@ -13,7 +13,6 @@
 
 use crate::{
     delay::wait_microsec,
-    preempt::current_context,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{
@@ -37,14 +36,22 @@ use futures::{
     Future, FutureExt,
 };
 
-#[cfg(not(feature = "std"))]
-use crate::preempt::{self, PtrWorkerThreadContext};
+#[cfg(not(feature = "no_preempt"))]
+use crate::preempt::{self, current_context, PtrWorkerThreadContext};
+
+#[cfg(not(feature = "no_preempt"))]
+use alloc::collections::LinkedList;
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
+const NUM_MAX_CPU: usize = 512;
+
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
-static mut RUNNING: [Option<u64>; 512] = [None; 512]; // IDs of running tasks.
+static mut RUNNING: [Option<u64>; NUM_MAX_CPU] = [None; NUM_MAX_CPU]; // IDs of running tasks.
+
+#[cfg(not(feature = "no_preempt"))]
+static NEXT_TASK: Mutex<BTreeMap<usize, LinkedList<Arc<Task>>>> = Mutex::new(BTreeMap::new());
 
 /// List of tasks.
 pub(crate) struct TaskList {
@@ -120,11 +127,13 @@ impl ArcWake for Task {
 }
 
 /// Information of task.
-#[derive(Clone)]
 pub(crate) struct TaskInfo {
     pub(crate) state: State,
     pub(crate) _scheduler_type: SchedulerType,
     next: Option<Arc<Task>>,
+
+    #[cfg(not(feature = "no_preempt"))]
+    thread: Option<PtrWorkerThreadContext>,
 }
 
 /// State of task.
@@ -136,9 +145,6 @@ pub(crate) enum State {
     Waiting,
     Terminated,
     Panicked,
-
-    #[cfg(not(feature = "std"))]
-    Preemted(PtrWorkerThreadContext),
 }
 
 /// Tasks.
@@ -170,6 +176,9 @@ impl Tasks {
                     _scheduler_type: scheduler_type,
                     state: State::Ready,
                     next: None,
+
+                    #[cfg(not(feature = "no_preempt"))]
+                    thread: None,
                 });
 
                 let task = Task {
@@ -243,6 +252,23 @@ pub fn get_current_task(cpu_id: usize) -> Option<u64> {
     unsafe { read_volatile(&RUNNING[cpu_id]) }
 }
 
+fn get_next_task() -> Option<Arc<Task>> {
+    #[cfg(not(feature = "no_preempt"))]
+    {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut next_task = NEXT_TASK.lock(&mut node);
+        if let Some(tasks) = next_task.get_mut(&cpu_id) {
+            if let Some(task) = tasks.pop_front() {
+                return Some(task);
+            }
+        }
+    }
+
+    scheduler::get_next_task()
+}
+
 /// Execute runnable tasks.
 ///
 /// # Safety
@@ -254,22 +280,17 @@ pub unsafe fn run(cpu_id: usize) {
     preempt::init(cpu_id);
 
     loop {
-        if let Some(task) = scheduler::get_next_task() {
-            #[cfg(not(feature = "std"))]
+        if let Some(task) = get_next_task() {
+            #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread running the next task.
                 // After that, the current thread will be stored in the thread pool.
 
-                if let State::Preemted(ctx) = {
-                    let mut node = MCSNode::new();
-                    let info = task.info.lock(&mut node);
-                    info.state
-                } {
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Running;
-                    }
+                let mut node = MCSNode::new();
+                let info = task.info.lock(&mut node);
+
+                if let Some(ctx) = info.thread {
+                    drop(info);
 
                     preempt::yield_and_pool(ctx);
                     continue;
@@ -374,7 +395,7 @@ pub unsafe fn run(cpu_id: usize) {
     }
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(not(feature = "no_preempt"))]
 pub unsafe fn preemption() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
@@ -397,36 +418,58 @@ pub unsafe fn preemption() {
             let mut node = MCSNode::new();
             let tasks = TASKS.lock(&mut node);
 
-            // Make the current running task `State::Preempted`.
+            // Make the current running task preempted.
             {
                 let current_task = tasks.id_to_task.get(&task_id).unwrap();
                 let mut node = MCSNode::new();
                 let mut task_info = current_task.info.lock(&mut node);
-                task_info.state = State::Preemted(current_thread);
+
+                task_info.thread = Some(current_thread);
 
                 current_task.clone()
             }
         };
 
-        let state = {
+        if let Some(next_thread) = {
             let mut node = MCSNode::new();
-            let mut info = next.info.lock(&mut node);
-            let state = info.state;
-            info.state = State::Running;
-            state
-        };
-
-        if let State::Preemted(next_thread) = state {
+            let mut task_info = next.info.lock(&mut node);
+            task_info.thread.take()
+        } {
             // If the next task is a preempted task, yield to it.
-            preempt::yield_and_preempted(next_thread, current_task);
+            preempt::yield_preempted_and_wake_task(next_thread, current_task);
+        } else if let Some(next_thread) = preempt::get_pooled_thread() {
+            // Otherwise, get a thread from the thread pool or create a new thread.
+
+            // If there is a pooled thread.
+            let mut node = MCSNode::new();
+            let mut next_task = NEXT_TASK.lock(&mut node);
+
+            // Insert the next task to the queue.
+            match next_task.entry(cpu_id) {
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().push_back(next);
+                }
+                btree_map::Entry::Vacant(entry) => {
+                    let mut queue = LinkedList::new();
+                    queue.push_back(next);
+                    entry.insert(queue);
+                }
+            }
+
+            preempt::yield_preempted_and_wake_task(next_thread, current_task);
+        } else if let Ok(next_thread) = preempt::new_thread(thread_entry, 0) {
+            // Create a new thread.
+            todo!();
         } else {
-            // If the next task is a preempted task, yield to it.
-
-            // Get a thread from the thread pool or create a new thread.
-
-            todo!()
+            next.wake();
         }
     }
+}
+
+#[cfg(not(feature = "no_preempt"))]
+#[no_mangle]
+extern "C" fn thread_entry(arg: usize) -> ! {
+    awkernel_lib::delay::wait_forever();
 }
 
 #[cfg(feature = "std")]

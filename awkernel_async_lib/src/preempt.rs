@@ -37,6 +37,17 @@ impl PtrWorkerThreadContext {
         PtrWorkerThreadContext(ptr)
     }
 
+    fn with_stack_and_entry(
+        stack_size: usize,
+        entry: extern "C" fn(usize) -> !,
+        arg: usize,
+    ) -> Result<Self, &'static str> {
+        let mut ctx = WorkerThreadContext::with_stack_and_entry(stack_size, entry, arg)?;
+        let ptr_ctx = Box::new(ctx);
+        let ptr = Box::into_raw(ptr_ctx);
+        Ok(PtrWorkerThreadContext(ptr))
+    }
+
     unsafe fn delete(ptr: PtrWorkerThreadContext) {
         let _ctx = Box::from_raw(ptr.0);
     }
@@ -52,9 +63,7 @@ impl Threads {
     }
 }
 
-/// Yield to `ptr`.
-/// Current thread will be the pooled state,
-/// and `ptr` will be the running state.
+/// The current thread yields to `ptr` and it is pooled.
 pub(crate) unsafe fn yield_and_pool(ptr: PtrWorkerThreadContext) {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
@@ -65,7 +74,7 @@ pub(crate) unsafe fn yield_and_pool(ptr: PtrWorkerThreadContext) {
         let ctx = *ctx;
 
         threads.running.insert(cpu_id, ptr);
-        threads.pooled.push_back(ctx);
+        threads.pooled.push_front(ctx);
 
         ctx.0 as *const ArchContext as *mut ArchContext
     };
@@ -79,35 +88,39 @@ pub(crate) unsafe fn yield_and_pool(ptr: PtrWorkerThreadContext) {
     }
 }
 
-/// Yield to `ptr`.
-/// Current thread will be the preempted state.
-/// and `ptr` will be the running state.
-pub(crate) fn yield_and_preempted(ptr: PtrWorkerThreadContext, task: Arc<Task>) {
+/// The thread of `current_task` yields to `next_thread`.
+/// The current thread will preempted, and waked soon.
+pub(crate) fn yield_preempted_and_wake_task(
+    next_thread: PtrWorkerThreadContext,
+    current_task: Arc<Task>,
+) {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
     // Disable interrupt.
     let _int_guard = InterruptGuard::new();
     interrupt::disable();
 
-    let ctx = {
+    let current_ctx = {
         let mut node = MCSNode::new();
         let mut threads = THREADS.lock(&mut node);
         let ctx = threads.running.get(&cpu_id).unwrap();
         let ctx = *ctx;
 
-        threads.running.insert(cpu_id, ptr);
+        threads.running.insert(cpu_id, next_thread);
         threads.preempted.insert(ctx);
 
         ctx.0 as *const ArchContext as *mut ArchContext
     };
 
     unsafe {
-        let ctx = &mut *ctx as &mut ArchContext;
+        // Save the current context.
+        let ctx = &mut *current_ctx as &mut ArchContext;
         if !ctx.set_jump() {
-            // Re-schedule.
-            task.wake();
+            // Re-schedule the current task.
+            current_task.wake();
 
-            let target = &*ptr.0;
+            // Jump to the next thread.
+            let target = &*next_thread.0;
             target.cpu_ctx.long_jump();
         }
     }
@@ -120,7 +133,7 @@ struct WorkerThreadContext {
 }
 
 impl WorkerThreadContext {
-    pub fn new() -> Self {
+    fn new() -> Self {
         WorkerThreadContext {
             cpu_ctx: ArchContext::default(),
             stack_mem: null_mut(),
@@ -128,30 +141,29 @@ impl WorkerThreadContext {
         }
     }
 
-    pub fn with_stack(stack_size: usize) -> Result<Self, &'static str> {
-        let stack_mem = allocate_stack(stack_size)?;
-
-        Ok(WorkerThreadContext {
-            cpu_ctx: ArchContext::default(),
-            stack_mem,
-            stack_size,
-        })
-    }
-
-    pub fn with_context_and_stack(
-        ctx: &ArchContext,
+    fn with_stack_and_entry(
         stack_size: usize,
+        entry: extern "C" fn(usize) -> !,
+        arg: usize,
     ) -> Result<Self, &'static str> {
         let stack_mem = allocate_stack(stack_size)?;
+        let stack_pointer = unsafe { stack_mem.add(stack_size) };
+
+        let mut cpu_ctx = ArchContext::default();
+
+        unsafe {
+            cpu_ctx.set_entry_point(entry, arg);
+            cpu_ctx.set_stack_pointer(stack_pointer as usize);
+        }
 
         Ok(WorkerThreadContext {
-            cpu_ctx: *ctx,
+            cpu_ctx,
             stack_mem,
             stack_size,
         })
     }
 
-    pub fn stack_start(&self) -> *mut () {
+    fn stack_start(&self) -> *mut () {
         let ptr = unsafe { self.stack_mem.add(self.stack_size) };
         ptr as _
     }
@@ -199,4 +211,18 @@ pub fn current_context() -> PtrWorkerThreadContext {
     let threads = THREADS.lock(&mut node);
 
     *threads.running.get(&cpu_id).unwrap()
+}
+
+pub fn get_pooled_thread() -> Option<PtrWorkerThreadContext> {
+    let mut node = MCSNode::new();
+    let mut threads = THREADS.lock(&mut node);
+
+    threads.pooled.pop_front()
+}
+
+pub fn new_thread(
+    entry: extern "C" fn(usize) -> !,
+    arg: usize,
+) -> Result<PtrWorkerThreadContext, &'static str> {
+    PtrWorkerThreadContext::with_stack_and_entry(1024 * 1024 * 2, entry, arg)
 }

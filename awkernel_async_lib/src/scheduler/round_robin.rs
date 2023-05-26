@@ -46,9 +46,7 @@ impl Scheduler for RoundRobinScheduler {
             }
 
             // The task is in the run queue or a preempted task.
-            if !matches!(task_info.state, task::State::Preemted(_)) {
-                task_info.state = task::State::InQueue;
-            }
+            task_info.state = task::State::InQueue;
         }
 
         data.queue.push(task);
@@ -67,9 +65,7 @@ impl Scheduler for RoundRobinScheduler {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
 
-            if !matches!(task_info.state, task::State::Preemted(_)) {
-                task_info.state = task::State::Running;
-            }
+            task_info.state = task::State::Running;
         }
 
         Some(task)

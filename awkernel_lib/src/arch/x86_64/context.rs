@@ -6,7 +6,15 @@ impl crate::context::Context for Context {
         todo!();
     }
 
-    fn long_jump(&self) -> ! {
+    unsafe fn long_jump(&self) -> ! {
+        todo!();
+    }
+
+    unsafe fn set_stack_pointer(&mut self, sp: usize) {
+        todo!();
+    }
+
+    unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
         todo!();
     }
 }

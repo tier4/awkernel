@@ -1,5 +1,6 @@
 //! `save_context` and `restore_context` are specified by `specification/awkernel_lib/src/arch/aarch64/context.rs/callee_saved_regs`.
 //! If you update these functions, please update the specification and verify them.
+use core::arch::global_asm;
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
@@ -141,8 +142,28 @@ impl crate::context::Context for CalleeSavedContext {
         val == 0
     }
 
-    fn long_jump(&self) -> ! {
+    unsafe fn long_jump(&self) -> ! {
         unsafe { restore_context(self as *const _) };
         unreachable!()
     }
+
+    unsafe fn set_stack_pointer(&mut self, sp: usize) {
+        self.sp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+        self.gp_regs.x20 = entry as u64;
+    }
 }
+
+global_asm!(
+    "
+entry_point:
+    mov     x0, x19
+    blr     x20
+1:
+    wfi
+    b       1b
+"
+);
