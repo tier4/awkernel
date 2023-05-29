@@ -89,7 +89,7 @@ pub(crate) unsafe fn yield_and_pool(ptr: PtrWorkerThreadContext) {
 }
 
 /// The thread of `current_task` yields to `next_thread`.
-/// The current thread will preempted, and waked soon.
+/// The current thread will be preempted, and waked soon.
 pub(crate) fn yield_preempted_and_wake_task(
     next_thread: PtrWorkerThreadContext,
     current_task: Arc<Task>,

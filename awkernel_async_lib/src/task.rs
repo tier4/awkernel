@@ -283,7 +283,7 @@ pub unsafe fn run(cpu_id: usize) {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
             {
-                // If the next task is a preempted task, then the current task will yield to the thread running the next task.
+                // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
 
                 let mut node = MCSNode::new();
@@ -404,7 +404,7 @@ pub unsafe fn preemption() {
 
     let current_thread = current_context();
 
-    // If there is a running task on the CPU core, preemption is performed.
+    // If there is a running task on this CPU core, preemption is performed.
     // Otherwise, this function just returns.
     let task_id = if let Some(task_id) = unsafe { read_volatile(&mut RUNNING[cpu_id]) } {
         task_id
@@ -440,19 +440,21 @@ pub unsafe fn preemption() {
         } else if let Some(next_thread) = preempt::get_pooled_thread() {
             // Otherwise, get a thread from the thread pool or create a new thread.
 
-            // If there is a pooled thread.
-            let mut node = MCSNode::new();
-            let mut next_task = NEXT_TASK.lock(&mut node);
+            // If there is a thread in the thread pool, use it
+            {
+                let mut node = MCSNode::new();
+                let mut next_task = NEXT_TASK.lock(&mut node);
 
-            // Insert the next task to the queue.
-            match next_task.entry(cpu_id) {
-                btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().push_back(next);
-                }
-                btree_map::Entry::Vacant(entry) => {
-                    let mut queue = LinkedList::new();
-                    queue.push_back(next);
-                    entry.insert(queue);
+                // Insert the next task to the queue.
+                match next_task.entry(cpu_id) {
+                    btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().push_back(next);
+                    }
+                    btree_map::Entry::Vacant(entry) => {
+                        let mut queue = LinkedList::new();
+                        queue.push_back(next);
+                        entry.insert(queue);
+                    }
                 }
             }
 
