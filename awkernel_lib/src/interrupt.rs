@@ -1,6 +1,5 @@
 use crate::arch::ArchInterrupt;
-use spin::Mutex;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use crate::sync::mutex::{MCSNode, Mutex};
 use alloc::boxed::Box;
 
 pub trait Interrupt {
@@ -19,39 +18,49 @@ pub trait InterruptController: Sync + Send {
 type IrqHandler = fn();
 
 const MAX_IRQS: usize = 64;
-
 static INTERRUPT_CONTROLLER: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
 static IRQ_HANDLERS: Mutex<[Option<IrqHandler>; MAX_IRQS]> = Mutex::new([None; MAX_IRQS]);
 
 pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
-    *INTERRUPT_CONTROLLER.lock() = Some(controller);
+    let mut node = MCSNode::new();
+    INTERRUPT_CONTROLLER.lock(&mut node);
 }
 
 pub fn register_irq(irq: usize, func: IrqHandler) -> Result<(), ()> {
-    if irq >= MAX_IRQS || IRQ_HANDLERS.lock()[irq].is_some() {
+    let mut node = MCSNode::new();
+    if irq >= MAX_IRQS || IRQ_HANDLERS.lock(&mut node)[irq].is_some() {
         return Err(());
     }
 
-    IRQ_HANDLERS.lock()[irq] = Some(func);
+    IRQ_HANDLERS.lock(&mut node)[irq] = Some(func);
     Ok(())
 }
 
 pub fn enable_irq(irq: usize) {
-    if let Some(ctrl) = INTERRUPT_CONTROLLER.lock().as_mut() {
+    log::info!("enable_irq");
+    let mut node = MCSNode::new();
+    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    if let Some(ctrl) = controller.as_mut() {
         ctrl.enable_irq(irq);
     }
 }
 
 pub fn disable_irq(irq: usize) {
-    if let Some(ctrl) = INTERRUPT_CONTROLLER.lock().as_mut() {
+    log::info!("disable_irq");
+    let mut node = MCSNode::new();
+    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    if let Some(ctrl) = controller.as_mut() {
         ctrl.disable_irq(irq);
     }
 }
 
-pub(crate) fn handle_irqs() {
-    let handlers = IRQ_HANDLERS.lock();
-
-    if let Some(ctrl) = INTERRUPT_CONTROLLER.lock().as_mut() {
+pub fn handle_irqs() {
+    log::info!("handle_irqs");
+    let mut node = MCSNode::new();
+    let handlers = IRQ_HANDLERS.lock(&mut node);
+    let mut node2 = MCSNode::new();
+    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node2);
+    if let Some(ctrl) = controller.as_mut() {
         let iter = ctrl.pending_irqs();
         while let Some(irq) = iter.next() {
             if let Some(handler) = handlers[irq] {
