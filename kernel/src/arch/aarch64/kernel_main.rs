@@ -125,7 +125,7 @@ unsafe fn primary_cpu() {
     }
 
     // Initialize GIC.
-    let ctrl = awkernel_drivers::Interrupt_controler::raspi3_irq_controler::GenericInterruptController::new(
+    let ctrl = awkernel_drivers::interrupt_controler::raspi3_irq_controler::GenericInterruptController::new(
         MMIO_BASE + 0xB200,
     );
     register_interrupt_controller(Box::new(ctrl));
