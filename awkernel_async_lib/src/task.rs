@@ -23,7 +23,6 @@ use alloc::{
 };
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
-    interrupt::{self, InterruptGuard},
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
@@ -42,6 +41,9 @@ use crate::preempt::{self, current_context, PtrWorkerThreadContext};
 
 #[cfg(not(feature = "no_preempt"))]
 use alloc::collections::LinkedList;
+
+#[cfg(not(feature = "no_preempt"))]
+use awkernel_lib::interrupt::{self, InterruptGuard};
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
@@ -133,6 +135,13 @@ pub(crate) struct TaskInfo {
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
+}
+
+#[cfg(not(feature = "no_preempt"))]
+impl TaskInfo {
+    fn preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
+        self.thread.take()
+    }
 }
 
 /// State of task.
@@ -279,7 +288,7 @@ pub fn run_main() {
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
-                if let Some(ctx) = info.thread.take() {
+                if let Some(ctx) = info.preempt_context() {
                     drop(info);
 
                     unsafe { preempt::yield_and_pool(ctx) };
@@ -304,7 +313,6 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
 
-                #[cfg(not(feature = "std"))]
                 let cpu_id = awkernel_lib::cpu::cpu_id();
 
                 unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
@@ -391,9 +399,9 @@ pub fn run_main() {
 ///
 /// This function must be called from worker threads.
 /// So, do not call this function in application code.
-pub unsafe fn run(cpu_id: usize) {
+pub unsafe fn run(_cpu_id: usize) {
     #[cfg(not(feature = "std"))]
-    preempt::init(cpu_id);
+    preempt::init(_cpu_id);
 
     run_main();
 }
