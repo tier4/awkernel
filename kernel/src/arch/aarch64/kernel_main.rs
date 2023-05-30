@@ -15,7 +15,10 @@ use super::{
     mmu, serial,
 };
 use crate::{
-    arch::aarch64::cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
+    arch::aarch64::{
+        cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
+        mmu::{get_stack_el1_end, get_stack_el1_start},
+    },
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
@@ -25,7 +28,7 @@ use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
-use raspi::memory::MMIO_BASE;
+use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START, MMIO_BASE};
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -92,6 +95,12 @@ unsafe fn primary_cpu() {
     serial::init();
 
     log::info!(
+        "Stack memory: start = 0x{:x}, end = 0x{:x}",
+        get_stack_el1_end(),
+        get_stack_el1_start()
+    );
+
+    log::info!(
         "Primary heap: start = 0x{:x}, size = {}",
         primary_start,
         primary_size
@@ -101,6 +110,12 @@ unsafe fn primary_cpu() {
         "Backup heap: start = 0x{:x}, size = {}",
         backup_start,
         backup_size
+    );
+
+    log::info!(
+        "Device memory: start = 0x{:x}, end = 0x{:x}",
+        DEVICE_MEM_START,
+        DEVICE_MEM_END
     );
 
     if awkernel_aarch64::spsel::get() & 1 == 0 {

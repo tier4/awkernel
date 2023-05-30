@@ -45,8 +45,8 @@ begin
 end procedure;
 ```
 
-`assert ctx_start = registers;` is an expression to verify the proposition 1.
-Recursive exceptions indicated by the proposition 2 are represented as `call interrupt();`.
+`assert ctx_start = registers;` is an expression to verify the subject 1.
+Recursive exceptions indicated by the subject 2 are represented as `call interrupt();`.
 
 ## Data Abort
 
@@ -96,10 +96,11 @@ end procedure;
 | sub r1, r2, imm   | macro sub(r1, r2, imm)     | r1 = r2 - imm |
 | str r1, [r2, imm] | procedure str(r1, r2, imm) | [r2 + imm] = r1 |
 | ldr r1, [r2, imm] | procedure ldr(r1, r2, imm) | r1 = [r2 + imm] |
-| ldr r1, [r2], imm | procedure ldr_add(r1, r2, imm) | r1 = [r2]; r2 += imm |
 | stp, r1, r2, [r3, imm] | procedure stp(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 8] = r2|
+| stp, r1, r2, [r3], imm | procedure stp16_add(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 16] = r2|
 | ldp, r1, r2, [r3, imm] | procedure ldp(r1, r2, r3, imm) | r1 = [r3 + imm]; r2 = [r3 + imm + 8] |
 | ldp, r1, r2, [r3], imm | procedure ldp_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 8]; r3 += imm |
+| ldp, r1, r2, [r3], imm | procedure ldp16_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 16]; r3 += imm |
 
 ## Registers
 
@@ -136,4 +137,4 @@ stack_memory = [x \in 0..(STACK_SIZE - 1) |-> <<>>];
 
 ## Handler
 
-`procedure handler()` updates registers to verify the propositions above.
+`procedure handler()` updates registers to verify the subjects above.

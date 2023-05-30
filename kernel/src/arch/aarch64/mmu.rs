@@ -1,14 +1,19 @@
-use super::{
-    bsp::memory::{DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START},
-    page_allocator::PageAllocator,
-    page_table::{FrameAllocator, PageTable},
+use super::bsp::memory::{
+    DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START,
 };
 use crate::arch::aarch64::driver::uart::{DevUART, Uart};
 use awkernel_aarch64::{
     dsb_ish, dsb_sy, get_current_el, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, sctlr_el2,
     sctlr_el3, tcr_el1, ttbr0_el1, ttbr1_el1,
 };
-use awkernel_lib::delay::wait_forever;
+use awkernel_lib::{
+    arch::aarch64::{
+        page_allocator::PageAllocator,
+        page_table::{flags, FrameAllocator, PageTable},
+    },
+    delay::wait_forever,
+    memory::PAGESIZE,
+};
 use core::arch::asm;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
@@ -74,51 +79,6 @@ pub fn _get_data_end() -> u64 {
     unsafe { &__data_end as *const u64 as u64 }
 }
 
-// 64KB page
-pub const PAGESIZE: u64 = 4 * 1024;
-
-// NSTable (63bit)
-const _FLAG_L2_NS: u64 = 1 << 63; // non secure table
-
-const FLAG_L3_XN: u64 = 1 << 54; // execute never
-const FLAG_L3_PXN: u64 = 1 << 53; // priviledged execute
-const _FLAG_L3_CONT: u64 = 1 << 52; // contiguous
-const _FLAG_L3_DBM: u64 = 1 << 51; // dirty bit modifier
-const FLAG_L3_AF: u64 = 1 << 10; // access flag
-const FLAG_L3_NS: u64 = 1 << 5; // non secure
-
-const _OFFSET_USER_HEAP_PAGE: usize = 2048; // 1TiB offset
-
-// [9:8]: Shareability attribute, for Normal memory
-//    | Shareability
-// ---|------------------
-// 00 | non sharedable
-// 01 | reserved
-// 10 | outer sharedable
-// 11 | inner sharedable
-const FLAG_L3_OSH: u64 = 0b10 << 8;
-const FLAG_L3_ISH: u64 = 0b11 << 8;
-
-// [7:6]: access permissions
-//    | Access from            |
-//    | higher Exception level | Access from EL0
-// ---|------------------------|-----------------
-// 00 | read/write             | none
-// 01 | read/write             | read/write
-// 10 | read-only              | none
-// 11 | read-only              | read-only
-const FLAG_L3_SH_RW_N: u64 = 0;
-const FLAG_L3_SH_RW_RW: u64 = 1 << 6;
-const _FLAG_L3_SH_R_N: u64 = 0b10 << 6;
-const FLAG_L3_SH_R_R: u64 = 0b11 << 6;
-
-// [4:2]: AttrIndx
-// defined in MAIR register
-// see get_mair()
-const FLAG_L3_ATTR_MEM: u64 = 0; // normal memory
-const FLAG_L3_ATTR_DEV: u64 = 1 << 2; // device MMIO
-const _FLAG_L3_ATTR_NC: u64 = 2 << 2; // non-cachable
-
 // logical address information
 #[derive(Debug)]
 pub struct Addr {
@@ -144,7 +104,7 @@ pub struct Addr {
 impl Addr {
     fn init(&mut self) {
         self.no_cache_start = get_free_mem_start();
-        self.no_cache_end = self.no_cache_start + PAGESIZE * NUM_CPU;
+        self.no_cache_end = self.no_cache_start + PAGESIZE as u64 * NUM_CPU;
 
         // free Memory region
         self.pager_mem_start = self.no_cache_end;
@@ -224,10 +184,12 @@ unsafe fn _set_sctlr(sctlr: u64) {
 }
 
 pub fn user_page_flag() -> u64 {
-    FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_RW | FLAG_L3_ATTR_MEM | 0b11
+    use flags::*;
+    FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_N | FLAG_L3_ATTR_MEM | 0b11
 }
 
 pub fn kernel_page_flag() -> u64 {
+    use flags::*;
     FLAG_L3_XN | FLAG_L3_PXN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_RW_N | FLAG_L3_ATTR_MEM | 0b11
 }
 
@@ -305,6 +267,8 @@ fn update_sctlr(sctlr: u64) -> u64 {
 /// set up EL1's page table
 /// assume 2MiB stack space per CPU
 fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
+    use flags::*;
+
     // init the page allocator
     let start = addr.pager_mem_start;
     let end = addr.pager_mem_end;
@@ -317,10 +281,10 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     // map .init and .text section
     let mut ram_start = get_ram_start();
     let data_start = get_data_start();
-    let flag = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_R_R | FLAG_L3_ATTR_MEM | 0b11;
+    let flag = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_R_N | FLAG_L3_ATTR_MEM | 0b11;
     while ram_start < data_start {
         table0.map_to(ram_start, ram_start, flag, &mut allocator);
-        ram_start += PAGESIZE;
+        ram_start += PAGESIZE as u64;
     }
 
     // map .data
@@ -330,12 +294,12 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         | FLAG_L3_PXN
         | FLAG_L3_AF
         | FLAG_L3_ISH
-        | FLAG_L3_SH_RW_RW
+        | FLAG_L3_SH_RW_N
         | FLAG_L3_ATTR_MEM
         | 0b11;
     while data_start < bss_start {
         table0.map_to(data_start, data_start, flag, &mut allocator);
-        data_start += PAGESIZE;
+        data_start += PAGESIZE as u64;
     }
 
     // map .bss section
@@ -345,26 +309,24 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         | FLAG_L3_PXN
         | FLAG_L3_AF
         | FLAG_L3_ISH
-        | FLAG_L3_SH_RW_RW
+        | FLAG_L3_SH_RW_N
         | FLAG_L3_ATTR_MEM
         | 0b11;
     while bss_start < end {
         table0.map_to(bss_start, bss_start, flag, &mut allocator);
-        bss_start += PAGESIZE;
+        bss_start += PAGESIZE as u64;
     }
 
     // map stack memory
     let mut stack_end = get_stack_el1_end();
     let stack_start = get_stack_el1_start();
     let flag = kernel_page_flag();
+    let start = stack_end;
     while stack_end < stack_start {
-        table0.map_to(stack_end, stack_end, flag, &mut allocator);
-        stack_end += PAGESIZE;
-    }
-
-    for i in 0..NUM_CPU {
-        let addr = stack_end + i * addr.stack_size;
-        table0.unmap(addr);
+        if (stack_end - start) & (addr.stack_size - 1) != 0 {
+            table0.map_to(stack_end, stack_end, flag, &mut allocator);
+        }
+        stack_end += PAGESIZE as u64;
     }
 
     // map device memory
@@ -374,12 +336,27 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         | FLAG_L3_PXN
         | FLAG_L3_AF
         | FLAG_L3_OSH
-        | FLAG_L3_SH_RW_RW
+        | FLAG_L3_SH_RW_N
         | FLAG_L3_ATTR_DEV
         | 0b11;
     while device_addr < DEVICE_MEM_END {
         table0.map_to(device_addr, device_addr, flag, &mut allocator);
-        device_addr += PAGESIZE;
+        device_addr += PAGESIZE as u64;
+    }
+
+    // map pager memory
+    let mut pager_start = addr.pager_mem_start;
+    let flag = FLAG_L3_NS
+        | FLAG_L3_XN
+        | FLAG_L3_PXN
+        | FLAG_L3_AF
+        | FLAG_L3_ISH
+        | FLAG_L3_SH_RW_N
+        | FLAG_L3_ATTR_NC
+        | 0b11;
+    while pager_start < addr.pager_mem_end {
+        table0.map_to(pager_start, pager_start, flag, &mut allocator);
+        pager_start += PAGESIZE as u64;
     }
 
     //-------------------------------------------------------------------------
@@ -399,7 +376,7 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
             wait_forever();
         };
         table1.map_to(vm_addr, phy_addr, flag, &mut allocator);
-        vm_addr += PAGESIZE;
+        vm_addr += PAGESIZE as u64;
     }
     addr.ttbr0 = table0.addr();
     addr.ttbr1 = table1.addr();
@@ -447,7 +424,7 @@ unsafe fn set_reg_el1(ttbr0: usize, ttbr1: usize) {
 
 pub fn _get_no_cache<T>() -> &'static mut T {
     let addr = get_memory_map();
-    let addr = addr.no_cache_start + PAGESIZE * super::cpu::core_pos() as u64;
+    let addr = addr.no_cache_start + PAGESIZE as u64 * super::cpu::core_pos() as u64;
     unsafe {
         let addr = addr as *mut u64 as usize;
         (addr as *mut T).as_mut().unwrap()

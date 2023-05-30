@@ -45,7 +45,7 @@ impl Scheduler for RoundRobinScheduler {
                 return;
             }
 
-            // The task is in the run queue.
+            // The task is in the run queue or a preempted task.
             task_info.state = task::State::InQueue;
         }
 
