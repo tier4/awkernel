@@ -12,7 +12,7 @@ pub trait Interrupt {
 pub trait InterruptController: Sync + Send {
     fn enable_irq(&mut self, irq: usize);
     fn disable_irq(&mut self, irq: usize);
-    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item=usize>;
+    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize>;
 }
 
 type IrqHandler = fn();
@@ -23,7 +23,8 @@ static IRQ_HANDLERS: Mutex<[Option<IrqHandler>; MAX_IRQS]> = Mutex::new([None; M
 
 pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     let mut node = MCSNode::new();
-    INTERRUPT_CONTROLLER.lock(&mut node);
+    let mut ctrl = INTERRUPT_CONTROLLER.lock(&mut node);
+    *ctrl = Some(controller);
 }
 
 pub fn register_irq(irq: usize, func: IrqHandler) -> Result<(), ()> {

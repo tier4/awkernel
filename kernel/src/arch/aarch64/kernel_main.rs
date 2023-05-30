@@ -19,7 +19,8 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{delay::wait_forever, heap};
+use alloc::boxed::Box;
+use awkernel_lib::{delay::wait_forever, heap, interrupt::register_interrupt_controller};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -109,9 +110,10 @@ unsafe fn primary_cpu() {
     }
 
     // Initialize GIC.
-    awkernel_drivers::Interrupt_controler::raspi3_irq_controler::GenericInterruptController::new(
+    let ctrl = awkernel_drivers::Interrupt_controler::raspi3_irq_controler::GenericInterruptController::new(
         MMIO_BASE + 0xB200,
     );
+    register_interrupt_controller(Box::new(ctrl));
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
@@ -121,7 +123,7 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
-    // SystemTimer::init(1);
+    SystemTimer::init(1);
     crate::main::<()>(kernel_info);
 }
 
