@@ -1,1 +1,1 @@
-pub mod raspi3_irq_controler;
+pub mod bcm2835;

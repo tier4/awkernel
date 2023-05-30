@@ -1,3 +1,4 @@
+use crate::arch::aarch64::bsp::memory::MMIO_BASE;
 use awkernel_lib::interrupt;
 
 mod registers {
@@ -8,7 +9,7 @@ mod registers {
     mmio_w!(offset 0x10 => pub COMPARE_1<u32>);
 }
 
-pub const MMIO_BASE: usize = 0x3F000000;
+const BASE: usize = MMIO_BASE + 0x3000;
 
 pub struct SystemTimer;
 
@@ -19,17 +20,14 @@ impl SystemTimer {
         interrupt::register_irq(irq, SystemTimer::handle_irq).unwrap();
         interrupt::enable_irq(irq);
 
-        let value = registers::COUNT_LOW.read(MMIO_BASE + 0xB200) + 20000;
-        registers::COMPARE_1.write(value, MMIO_BASE + 0xB200);
-        log::info!("20ms passed");
+        let value = registers::COUNT_LOW.read(BASE) + 2000000;
+        registers::COMPARE_1.write(value, BASE);
     }
 
     pub fn reset() {
-        registers::CONTROL.write(1 << 1, MMIO_BASE + 0xB200);
-        let value = registers::COUNT_LOW.read(MMIO_BASE + 0xB200) + 20000;
-        registers::COMPARE_1.write(value, MMIO_BASE + 0xB200);
-
-        log::info!("20ms passed");
+        registers::CONTROL.write(1 << 1, BASE);
+        let value = registers::COUNT_LOW.read(BASE) + 2000000;
+        registers::COMPARE_1.write(value, BASE);
     }
 
     fn handle_irq() {

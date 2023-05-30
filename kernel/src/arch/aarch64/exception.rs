@@ -105,7 +105,9 @@ pub fn curr_el_sp0_irq_el1(ctx: *mut AllContext, sp: usize, esr: usize) {
 }
 
 #[no_mangle]
-pub fn curr_el_sp0_fiq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {}
+pub fn curr_el_sp0_fiq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {
+    loop {}
+}
 
 #[no_mangle]
 pub fn curr_el_sp0_serror_el1(ctx: *mut AllContext, _sp: usize, esr: usize) {
@@ -143,7 +145,20 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_spx_irq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {}
+pub fn curr_el_spx_irq_el1(ctx: *mut AllContext, sp: usize, esr: usize) {
+    let context = unsafe { &mut *ctx };
+
+    // Log the context of the interrupt for debugging
+    log::info!(
+        "IRQ received at EL1:
+        Stack pointer: 0x{:x}
+        Exception Syndrome Register (ESR): 0x{:x}
+        Return address: 0x{:x}",
+        sp,
+        esr,
+        context.elr
+    );
+}
 
 #[no_mangle]
 pub fn curr_el_spx_fiq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {}

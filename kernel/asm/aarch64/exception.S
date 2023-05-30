@@ -33,9 +33,6 @@
     // Make room on the stack for the exception context.
     sub     sp, sp, #16 * 50 // size of Context
 
-    // enable all interrupt
-    msr     DAIFClr, #0x0f
-
     // x1 is the second argument for the function called through `\handler`.
     add     x1, sp, #16 * 50 // SP (original)
 
@@ -155,6 +152,9 @@ exception_restore_context:
     ldp     x28, x29, [x28]
 
     add     sp, sp, #16 * 50 // Restore SP.
+
+    // enable all interrupt
+    msr     DAIFClr, #0x0f
 
     eret
 

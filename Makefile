@@ -139,6 +139,6 @@ clean: FORCE
 
 ### QEMU Monitor
 
-monitor : FORCE 
+monitor : FORCE
 	telnet localhost $(QEMUPORT)
-	
+

@@ -3,12 +3,16 @@ use awkernel_lib::interrupt::InterruptController;
 mod registers {
     use awkernel_lib::{mmio_r, mmio_w};
 
+    mmio_r!(offset 0x00 => pub IRQ_BASIC_PENDING<u32>);
     mmio_r!(offset 0x04 => pub IRQ_PENDING1<u32>);
     mmio_r!(offset 0x08 => pub IRQ_PENDING2<u32>);
+    mmio_r!(offset 0x0C => pub FIQ_CONTROL<u32>);
     mmio_w!(offset 0x10 => pub IRQ_ENABLE1<u32>);
     mmio_w!(offset 0x14 => pub IRQ_ENABLE2<u32>);
+    mmio_w!(offset 0x18 => pub IRQ_ENABLE_BASIC<u32>);
     mmio_w!(offset 0x1C => pub IRQ_DISABLE1<u32>);
     mmio_w!(offset 0x20 => pub IRQ_DISABLE2<u32>);
+    mmio_w!(offset 0x24 => pub IRQ_DISABLE_BASIC<u32>);
 }
 
 pub struct GenericInterruptController {
@@ -24,6 +28,9 @@ impl GenericInterruptController {
 
         registers::IRQ_DISABLE1.write(!0, base);
         registers::IRQ_DISABLE2.write(!0, base);
+        registers::IRQ_ENABLE_BASIC.write(!0, base);
+        registers::IRQ_PENDING1.read(base);
+        registers::IRQ_PENDING2.read(base);
 
         gic
     }
@@ -45,6 +52,8 @@ impl InterruptController for GenericInterruptController {
         } else {
             registers::IRQ_ENABLE2.write(1 << (irq - 32), self.base);
         }
+
+        log::debug!("enable_irq: {}", irq);
     }
 
     fn disable_irq(&mut self, irq: usize) {

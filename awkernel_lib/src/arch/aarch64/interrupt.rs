@@ -8,7 +8,7 @@ impl Interrupt for ArchInterrupt {
     }
 
     fn disable() {
-        unsafe { awkernel_aarch64::daif::set(awkernel_aarch64::DISABLE_ALL_EXCEPTIONS) };
+        unsafe { core::arch::asm!("msr daifset, #0b1111",) };
     }
 
     fn enable() {
