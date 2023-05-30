@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 rlsf = "0.2"
+synctools = "0.3"
+spin = "0.9.8"
 
 [dependencies.libc]
 version = "0.2"

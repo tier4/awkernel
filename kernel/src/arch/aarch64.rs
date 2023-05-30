@@ -6,3 +6,4 @@ mod exception;
 mod kernel_main;
 mod mmu;
 mod serial;
+mod types;

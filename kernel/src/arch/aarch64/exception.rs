@@ -1,4 +1,4 @@
-use awkernel_lib::{arch::aarch64::context::all_regs::AllContext, delay::wait_forever};
+use awkernel_lib::{arch::aarch64::context::all_regs::AllContext, delay::wait_forever, interrupt};
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
 const _ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
@@ -86,7 +86,23 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_sp0_irq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {}
+pub fn curr_el_sp0_irq_el1(ctx: *mut Context, sp: usize, esr: usize) {
+    // Convert the raw pointer to a Rust reference
+    let context = unsafe { &mut *ctx };
+
+    // Log the context of the interrupt for debugging
+    log::info!(
+        "IRQ received at EL1:
+        Stack pointer: 0x{:x}
+        Exception Syndrome Register (ESR): 0x{:x}
+        Return address: 0x{:x}", 
+        sp, esr, context.elr
+    );
+
+    interrupt::handle_irqs();
+
+    wait_forever();
+}
 
 #[no_mangle]
 pub fn curr_el_sp0_fiq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {}
