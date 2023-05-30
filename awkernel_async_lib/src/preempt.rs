@@ -1,11 +1,13 @@
-use crate::task::{catch_unwind, Task};
+use crate::task::{catch_unwind, Task, TaskList};
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, BTreeSet, LinkedList},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_lib::{
     context::{ArchContext, Context},
+    cpu::NUM_MAX_CPU,
     interrupt::{self, InterruptGuard},
     memory::PAGESIZE,
     sync::mutex::{MCSNode, Mutex},
@@ -17,9 +19,10 @@ use core::{
 use futures::task::ArcWake;
 
 static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
+static mut TASKS: Vec<Mutex<TaskList>> = Vec::new();
 
 struct Threads {
-    pooled: LinkedList<PtrWorkerThreadContext>,
+    pooled: VecDeque<PtrWorkerThreadContext>,
     running: BTreeMap<usize, PtrWorkerThreadContext>,
     preempted: BTreeSet<PtrWorkerThreadContext>,
 }
@@ -42,7 +45,7 @@ impl PtrWorkerThreadContext {
         entry: extern "C" fn(usize) -> !,
         arg: usize,
     ) -> Result<Self, &'static str> {
-        let mut ctx = WorkerThreadContext::with_stack_and_entry(stack_size, entry, arg)?;
+        let ctx = WorkerThreadContext::with_stack_and_entry(stack_size, entry, arg)?;
         let ptr_ctx = Box::new(ctx);
         let ptr = Box::into_raw(ptr_ctx);
         Ok(PtrWorkerThreadContext(ptr))
@@ -56,7 +59,7 @@ impl PtrWorkerThreadContext {
 impl Threads {
     const fn new() -> Self {
         Threads {
-            pooled: LinkedList::new(),
+            pooled: VecDeque::new(),
             running: BTreeMap::new(),
             preempted: BTreeSet::new(),
         }
@@ -81,9 +84,12 @@ pub(crate) unsafe fn yield_and_pool(ptr: PtrWorkerThreadContext) {
 
     unsafe {
         let ctx = &mut *ctx as &mut ArchContext;
-        if !ctx.set_jump() {
-            let target = &*ptr.0;
+        let target = &*ptr.0;
+
+        if !Context::set_jump(ctx) {
             target.cpu_ctx.long_jump();
+        } else {
+            re_schedule();
         }
     }
 }
@@ -112,17 +118,33 @@ pub(crate) fn yield_preempted_and_wake_task(
         ctx.0 as *const ArchContext as *mut ArchContext
     };
 
+    {
+        // The current task will be re-scheduled.
+        let mut node = MCSNode::new();
+        let mut tasks = unsafe { TASKS[cpu_id].lock(&mut node) };
+        tasks.push(current_task);
+    }
+
     unsafe {
         // Save the current context.
         let ctx = &mut *current_ctx as &mut ArchContext;
-        if !ctx.set_jump() {
-            // Re-schedule the current task.
-            current_task.wake();
-
+        if !Context::set_jump(ctx) {
             // Jump to the next thread.
             let target = &*next_thread.0;
             target.cpu_ctx.long_jump();
+        } else {
+            re_schedule();
         }
+    }
+}
+
+pub fn re_schedule() {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    let mut node = MCSNode::new();
+    let mut tasks = unsafe { TASKS[cpu_id].lock(&mut node) };
+
+    while let Some(task) = tasks.pop() {
+        task.wake();
     }
 }
 
@@ -196,6 +218,10 @@ fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
 }
 
 pub fn init(cpu_id: usize) {
+    unsafe {
+        TASKS.resize_with(NUM_MAX_CPU, || Mutex::new(TaskList::new()));
+    }
+
     let ctx = PtrWorkerThreadContext::new();
 
     let mut node = MCSNode::new();

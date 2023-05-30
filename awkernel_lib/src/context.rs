@@ -3,6 +3,9 @@ pub use crate::arch::ArchContext;
 pub trait Context: Default {
     /// Return `true` when jumped from `long_jump`.
     /// Return `false` when called directly.
+    ///
+    /// This function must be inline.
+    /// So, use ` #[inline(always)]` for implementation.
     fn set_jump(&mut self) -> bool;
 
     unsafe fn long_jump(&self) -> !;

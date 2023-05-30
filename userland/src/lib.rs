@@ -97,5 +97,21 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         .await;
     }
 
+    // #[cfg(not(target_os = "linux"))]
+    for i in 0..1 {
+        spawn(
+            async move {
+                log::debug!("do preemption ({i})");
+                unsafe { awkernel_async_lib::task::preemption() };
+
+                awkernel_async_lib::sleep(Duration::from_millis(500)).await;
+
+                log::debug!("end preemption ({i})");
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+    }
+
     Ok(())
 }

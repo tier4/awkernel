@@ -22,6 +22,7 @@ use alloc::{
     sync::Arc,
 };
 use awkernel_lib::{
+    cpu::NUM_MAX_CPU,
     interrupt::{self, InterruptGuard},
     sync::mutex::{MCSNode, Mutex},
 };
@@ -45,8 +46,6 @@ use alloc::collections::LinkedList;
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
-const NUM_MAX_CPU: usize = 512;
-
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static mut RUNNING: [Option<u64>; NUM_MAX_CPU] = [None; NUM_MAX_CPU]; // IDs of running tasks.
 
@@ -60,7 +59,7 @@ pub(crate) struct TaskList {
 }
 
 impl TaskList {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         TaskList {
             head: None,
             tail: None,
@@ -269,16 +268,7 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
-/// Execute runnable tasks.
-///
-/// # Safety
-///
-/// This function must be called from worker threads.
-/// So, do not call this function in application code.
-pub unsafe fn run(cpu_id: usize) {
-    #[cfg(not(feature = "std"))]
-    preempt::init(cpu_id);
-
+pub fn run_main() {
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -287,12 +277,12 @@ pub unsafe fn run(cpu_id: usize) {
                 // After that, the current thread will be stored in the thread pool.
 
                 let mut node = MCSNode::new();
-                let info = task.info.lock(&mut node);
+                let mut info = task.info.lock(&mut node);
 
-                if let Some(ctx) = info.thread {
+                if let Some(ctx) = info.thread.take() {
                     drop(info);
 
-                    preempt::yield_and_pool(ctx);
+                    unsafe { preempt::yield_and_pool(ctx) };
                     continue;
                 }
             }
@@ -395,13 +385,42 @@ pub unsafe fn run(cpu_id: usize) {
     }
 }
 
+/// Execute runnable tasks.
+///
+/// # Safety
+///
+/// This function must be called from worker threads.
+/// So, do not call this function in application code.
+pub unsafe fn run(cpu_id: usize) {
+    #[cfg(not(feature = "std"))]
+    preempt::init(cpu_id);
+
+    run_main();
+}
+
 #[cfg(not(feature = "no_preempt"))]
 pub unsafe fn preemption() {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-
     let _int_guard = InterruptGuard::new();
     interrupt::disable();
 
+    #[cfg(not(feature = "std"))]
+    let _heap_guard = {
+        let heap_guard = awkernel_lib::heap::TALLOC.save();
+        awkernel_lib::heap::TALLOC.use_primary();
+        heap_guard
+    };
+
+    if let Err(e) = catch_unwind(|| do_preemption()) {
+        #[cfg(not(feature = "std"))]
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+
+        log::error!("caught panic!: {e:?}");
+    }
+}
+
+#[cfg(not(feature = "no_preempt"))]
+unsafe fn do_preemption() {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
     let current_thread = current_context();
 
     // If there is a running task on this CPU core, preemption is performed.
@@ -437,10 +456,20 @@ pub unsafe fn preemption() {
         } {
             // If the next task is a preempted task, yield to it.
             preempt::yield_preempted_and_wake_task(next_thread, current_task);
-        } else if let Some(next_thread) = preempt::get_pooled_thread() {
+        } else {
             // Otherwise, get a thread from the thread pool or create a new thread.
 
-            // If there is a thread in the thread pool, use it
+            let next_thread = if let Some(t) = preempt::get_pooled_thread() {
+                // If there is a thread in the thread pool, use it,
+                t
+            } else if let Ok(t) = preempt::new_thread(thread_entry, 0) {
+                // or create a new thread.
+                t
+            } else {
+                next.wake();
+                return;
+            };
+
             {
                 let mut node = MCSNode::new();
                 let mut next_task = NEXT_TASK.lock(&mut node);
@@ -459,18 +488,28 @@ pub unsafe fn preemption() {
             }
 
             preempt::yield_preempted_and_wake_task(next_thread, current_task);
-        } else if let Ok(next_thread) = preempt::new_thread(thread_entry, 0) {
-            // Create a new thread.
-            todo!();
-        } else {
-            next.wake();
         }
     }
 }
 
 #[cfg(not(feature = "no_preempt"))]
 #[no_mangle]
-extern "C" fn thread_entry(arg: usize) -> ! {
+extern "C" fn thread_entry(_arg: usize) -> ! {
+    // Use only the primary heap memory region.
+    #[cfg(not(feature = "std"))]
+    unsafe {
+        awkernel_lib::heap::TALLOC.use_primary()
+    };
+
+    // Disable interrupt.
+    interrupt::disable();
+
+    // Re-schedule the preempted task.
+    preempt::re_schedule();
+
+    // Run the main function.
+    run_main();
+
     awkernel_lib::delay::wait_forever();
 }
 

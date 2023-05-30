@@ -190,7 +190,7 @@ impl Talloc {
         self.flags[index].fetch_or(mask, Ordering::Relaxed);
     }
 
-    /// Save the configuration and it will be restored after dropping `Guard`.
+    /// Save the configuration and it will be restored when dropping `Guard`.
     pub unsafe fn save(&self) -> Guard {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
