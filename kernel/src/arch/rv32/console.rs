@@ -29,7 +29,7 @@ impl Console {
                 ns16550a::StickParity::DISABLE,
                 ns16550a::Break::DISABLE,
                 ns16550a::DMAMode::MODE0,
-                ns16550a::Divisor::BAUD115200
+                ns16550a::Divisor::BAUD115200,
             );
             let _ = port.write_str("Initialized a serial port.\n");
             *guard = Some(port);

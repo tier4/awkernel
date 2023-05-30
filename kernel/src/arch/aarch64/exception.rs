@@ -86,7 +86,7 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_sp0_irq_el1(ctx: *mut Context, sp: usize, esr: usize) {
+pub fn curr_el_sp0_irq_el1(ctx: *mut AllContext, sp: usize, esr: usize) {
     // Convert the raw pointer to a Rust reference
     let context = unsafe { &mut *ctx };
 
@@ -95,13 +95,13 @@ pub fn curr_el_sp0_irq_el1(ctx: *mut Context, sp: usize, esr: usize) {
         "IRQ received at EL1:
         Stack pointer: 0x{:x}
         Exception Syndrome Register (ESR): 0x{:x}
-        Return address: 0x{:x}", 
-        sp, esr, context.elr
+        Return address: 0x{:x}",
+        sp,
+        esr,
+        context.elr
     );
 
     interrupt::handle_irqs();
-
-    wait_forever();
 }
 
 #[no_mangle]

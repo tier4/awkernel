@@ -1,4 +1,3 @@
-
 use core::fmt;
 
 pub fn ceiling_div(size: usize, units: usize) -> usize {
@@ -17,7 +16,6 @@ pub fn offset_from_align(length: usize, alignment: usize) -> usize {
     length & (alignment - 1)
 }
 
-
 //extern "C" {
 //    static __KERNEL_VIRTUAL_BASE_ADDR: u64;
 //}
@@ -27,7 +25,6 @@ const fn kernel_virtual_base_addr() -> u64 {
     0xffff_0000_0000_0000
 }
 
-
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhysicalAddress(u64);
 
@@ -36,8 +33,6 @@ pub struct VirtualAddress(u64);
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KernelVirtualAddress(u64);
-
-
 
 impl From<u64> for PhysicalAddress {
     fn from(addr: u64) -> Self {
@@ -75,12 +70,10 @@ impl PhysicalAddress {
         KernelVirtualAddress::from(self)
     }
 
-    pub fn align_up(self, align: usize) -> Self  {
+    pub fn align_up(self, align: usize) -> Self {
         Self(align_up(self.0 as usize, align) as u64)
     }
 }
-
-
 
 impl From<u64> for VirtualAddress {
     fn from(addr: u64) -> Self {
@@ -115,11 +108,11 @@ impl VirtualAddress {
         Self(self.0 - offset as u64)
     }
 
-    pub fn align_down(self, align: usize) -> Self  {
+    pub fn align_down(self, align: usize) -> Self {
         Self(align_down(self.0 as usize, align) as u64)
     }
 
-    pub fn align_up(self, align: usize) -> Self  {
+    pub fn align_up(self, align: usize) -> Self {
         Self(align_up(self.0 as usize, align) as u64)
     }
 
@@ -127,8 +120,6 @@ impl VirtualAddress {
         offset_from_align(self.0 as usize, align)
     }
 }
-
-
 
 impl From<PhysicalAddress> for KernelVirtualAddress {
     fn from(addr: PhysicalAddress) -> Self {
@@ -159,4 +150,3 @@ impl KernelVirtualAddress {
         self.0 as *mut T
     }
 }
-

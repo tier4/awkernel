@@ -1,7 +1,7 @@
 #![cfg_attr(not(test), no_std)]
 
-pub mod net;
 pub mod Interrupt_controler;
+pub mod net;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
