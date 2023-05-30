@@ -37,6 +37,9 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
+pub use preempt::deallocate_thread_pool;
+
+#[cfg(not(feature = "no_preempt"))]
 use crate::preempt::{self, current_context, PtrWorkerThreadContext};
 
 #[cfg(not(feature = "no_preempt"))]

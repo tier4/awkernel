@@ -54,6 +54,6 @@ pub unsafe fn map(vm_addr: usize, phy_addr: usize, flags: Flags) -> bool {
 ///
 /// - Virtual memory must be enabled.
 /// - `vm_addr` must be being mapped.
-unsafe fn unmap(vm_addr: usize) {
+pub unsafe fn unmap(vm_addr: usize) {
     ArchMemory::unmap(vm_addr)
 }

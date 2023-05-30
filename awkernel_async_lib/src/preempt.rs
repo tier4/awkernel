@@ -9,7 +9,7 @@ use awkernel_lib::{
     context::{ArchContext, Context},
     cpu::NUM_MAX_CPU,
     interrupt::{self, InterruptGuard},
-    memory::PAGESIZE,
+    memory::{self, Flags, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
@@ -51,8 +51,18 @@ impl PtrWorkerThreadContext {
         Ok(PtrWorkerThreadContext(ptr))
     }
 
-    unsafe fn delete(ptr: PtrWorkerThreadContext) {
-        let _ctx = Box::from_raw(ptr.0);
+    unsafe fn delete(self) {
+        let ctx = Box::from_raw(self.0);
+        unsafe {
+            memory::map(
+                ctx.stack_mem as usize,
+                ctx.stack_mem_phy,
+                Flags {
+                    execute: false,
+                    write: true,
+                },
+            )
+        };
     }
 }
 
@@ -151,6 +161,7 @@ pub fn re_schedule() {
 struct WorkerThreadContext {
     cpu_ctx: ArchContext,
     stack_mem: *mut u8,
+    stack_mem_phy: usize,
     stack_size: usize,
 }
 
@@ -159,6 +170,7 @@ impl WorkerThreadContext {
         WorkerThreadContext {
             cpu_ctx: ArchContext::default(),
             stack_mem: null_mut(),
+            stack_mem_phy: 0,
             stack_size: 0,
         }
     }
@@ -171,6 +183,12 @@ impl WorkerThreadContext {
         let stack_mem = allocate_stack(stack_size)?;
         let stack_pointer = unsafe { stack_mem.add(stack_size) };
 
+        let Some(stack_mem_phy) = memory::vm_to_phy(stack_mem as usize) else {
+            return Err("failed to translate VM to Phy");
+        };
+
+        unsafe { memory::unmap(stack_mem as usize) };
+
         let mut cpu_ctx = ArchContext::default();
 
         unsafe {
@@ -181,13 +199,9 @@ impl WorkerThreadContext {
         Ok(WorkerThreadContext {
             cpu_ctx,
             stack_mem,
+            stack_mem_phy,
             stack_size,
         })
-    }
-
-    fn stack_start(&self) -> *mut () {
-        let ptr = unsafe { self.stack_mem.add(self.stack_size) };
-        ptr as _
     }
 }
 
@@ -212,7 +226,10 @@ fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
     });
 
     match result {
-        Ok(ptr) => Ok(ptr),
+        Ok(ptr) => {
+            assert_eq!(ptr as usize & (PAGESIZE - 1), 0);
+            Ok(ptr)
+        }
         Err(_) => Err("failed to allocate stack memory"),
     }
 }
@@ -251,4 +268,13 @@ pub fn new_thread(
     arg: usize,
 ) -> Result<PtrWorkerThreadContext, &'static str> {
     PtrWorkerThreadContext::with_stack_and_entry(1024 * 1024 * 2, entry, arg)
+}
+
+pub fn deallocate_thread_pool() {
+    let mut node = MCSNode::new();
+    let mut threads = THREADS.lock(&mut node);
+
+    while let Some(thread) = threads.pooled.pop_front() {
+        unsafe { thread.delete() };
+    }
 }
