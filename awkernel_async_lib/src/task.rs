@@ -21,7 +21,10 @@ use alloc::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    cpu::NUM_MAX_CPU,
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::{
     any::Any,
     ptr::{read_volatile, write_volatile},
@@ -33,11 +36,26 @@ use futures::{
     Future, FutureExt,
 };
 
+#[cfg(not(feature = "no_preempt"))]
+pub use preempt::deallocate_thread_pool;
+
+#[cfg(not(feature = "no_preempt"))]
+use crate::preempt::{self, current_context, PtrWorkerThreadContext};
+
+#[cfg(not(feature = "no_preempt"))]
+use alloc::collections::LinkedList;
+
+#[cfg(not(feature = "no_preempt"))]
+use awkernel_lib::interrupt::{self, InterruptGuard};
+
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
-static mut RUNNING: [Option<u64>; 512] = [None; 512]; // IDs of running tasks.
+static mut RUNNING: [Option<u64>; NUM_MAX_CPU] = [None; NUM_MAX_CPU]; // IDs of running tasks.
+
+#[cfg(not(feature = "no_preempt"))]
+static NEXT_TASK: Mutex<BTreeMap<usize, LinkedList<Arc<Task>>>> = Mutex::new(BTreeMap::new());
 
 /// List of tasks.
 pub(crate) struct TaskList {
@@ -46,7 +64,7 @@ pub(crate) struct TaskList {
 }
 
 impl TaskList {
-    pub(crate) fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         TaskList {
             head: None,
             tail: None,
@@ -113,11 +131,20 @@ impl ArcWake for Task {
 }
 
 /// Information of task.
-#[derive(Clone)]
 pub(crate) struct TaskInfo {
     pub(crate) state: State,
     pub(crate) _scheduler_type: SchedulerType,
     next: Option<Arc<Task>>,
+
+    #[cfg(not(feature = "no_preempt"))]
+    thread: Option<PtrWorkerThreadContext>,
+}
+
+#[cfg(not(feature = "no_preempt"))]
+impl TaskInfo {
+    fn preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
+        self.thread.take()
+    }
 }
 
 /// State of task.
@@ -160,6 +187,9 @@ impl Tasks {
                     _scheduler_type: scheduler_type,
                     state: State::Ready,
                     next: None,
+
+                    #[cfg(not(feature = "no_preempt"))]
+                    thread: None,
                 });
 
                 let task = Task {
@@ -233,20 +263,48 @@ pub fn get_current_task(cpu_id: usize) -> Option<u64> {
     unsafe { read_volatile(&RUNNING[cpu_id]) }
 }
 
-/// Execute runnable tasks.
-/// This function should be called worker threads.
-/// So, do not call this function in application code.
-pub fn run(cpu_id: usize) {
+fn get_next_task() -> Option<Arc<Task>> {
+    #[cfg(not(feature = "no_preempt"))]
+    {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut next_task = NEXT_TASK.lock(&mut node);
+        if let Some(tasks) = next_task.get_mut(&cpu_id) {
+            if let Some(task) = tasks.pop_front() {
+                return Some(task);
+            }
+        }
+    }
+
+    scheduler::get_next_task()
+}
+
+pub fn run_main() {
     loop {
-        if let Some(task) = scheduler::get_next_task() {
+        if let Some(task) = get_next_task() {
+            #[cfg(not(feature = "no_preempt"))]
+            {
+                // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
+                // After that, the current thread will be stored in the thread pool.
+
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+
+                if let Some(ctx) = info.preempt_context() {
+                    drop(info);
+
+                    unsafe { preempt::yield_and_pool(ctx) };
+                    continue;
+                }
+            }
+
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
             let result = {
                 let mut node = MCSNode::new();
                 let mut guard = task.future.lock(&mut node);
-
-                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
                 if guard.is_terminated() {
                     continue;
@@ -257,6 +315,10 @@ pub fn run(cpu_id: usize) {
                 unsafe {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
+
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
+                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
 
                 // Invoke a task.
                 let result = {
@@ -271,6 +333,8 @@ pub fn run(cpu_id: usize) {
                         result
                     })
                 };
+
+                unsafe { write_volatile(&mut RUNNING[cpu_id], None) };
 
                 result
             };
@@ -323,8 +387,6 @@ pub fn run(cpu_id: usize) {
                 }
             }
         } else {
-            unsafe { write_volatile(&mut RUNNING[cpu_id], None) };
-
             #[cfg(target_os = "linux")]
             wait_microsec(10);
 
@@ -334,8 +396,136 @@ pub fn run(cpu_id: usize) {
     }
 }
 
+/// Execute runnable tasks.
+///
+/// # Safety
+///
+/// This function must be called from worker threads.
+/// So, do not call this function in application code.
+pub unsafe fn run(_cpu_id: usize) {
+    #[cfg(not(feature = "std"))]
+    preempt::init(_cpu_id);
+
+    run_main();
+}
+
+#[cfg(not(feature = "no_preempt"))]
+pub unsafe fn preemption() {
+    let _int_guard = InterruptGuard::new();
+    interrupt::disable();
+
+    #[cfg(not(feature = "std"))]
+    let _heap_guard = {
+        let heap_guard = awkernel_lib::heap::TALLOC.save();
+        awkernel_lib::heap::TALLOC.use_primary();
+        heap_guard
+    };
+
+    if let Err(e) = catch_unwind(|| do_preemption()) {
+        #[cfg(not(feature = "std"))]
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+
+        log::error!("caught panic!: {e:?}");
+    }
+}
+
+#[cfg(not(feature = "no_preempt"))]
+unsafe fn do_preemption() {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    let current_thread = current_context();
+
+    // If there is a running task on this CPU core, preemption is performed.
+    // Otherwise, this function just returns.
+    let task_id = if let Some(task_id) = unsafe { read_volatile(&mut RUNNING[cpu_id]) } {
+        task_id
+    } else {
+        return;
+    };
+
+    // If there is a task to be invoked next, execute the task.
+    if let Some(next) = scheduler::get_next_task() {
+        let current_task = {
+            let mut node = MCSNode::new();
+            let tasks = TASKS.lock(&mut node);
+
+            // Make the current running task preempted.
+            {
+                let current_task = tasks.id_to_task.get(&task_id).unwrap();
+                let mut node = MCSNode::new();
+                let mut task_info = current_task.info.lock(&mut node);
+
+                task_info.thread = Some(current_thread);
+
+                current_task.clone()
+            }
+        };
+
+        if let Some(next_thread) = {
+            let mut node = MCSNode::new();
+            let mut task_info = next.info.lock(&mut node);
+            task_info.thread.take()
+        } {
+            // If the next task is a preempted task, yield to it.
+            preempt::yield_preempted_and_wake_task(next_thread, current_task);
+        } else {
+            // Otherwise, get a thread from the thread pool or create a new thread.
+
+            let next_thread = if let Some(t) = preempt::get_pooled_thread() {
+                // If there is a thread in the thread pool, use it,
+                t
+            } else if let Ok(t) = preempt::new_thread(thread_entry, 0) {
+                // or create a new thread.
+                t
+            } else {
+                next.wake();
+                return;
+            };
+
+            {
+                let mut node = MCSNode::new();
+                let mut next_task = NEXT_TASK.lock(&mut node);
+
+                // Insert the next task to the queue.
+                match next_task.entry(cpu_id) {
+                    btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().push_back(next);
+                    }
+                    btree_map::Entry::Vacant(entry) => {
+                        let mut queue = LinkedList::new();
+                        queue.push_back(next);
+                        entry.insert(queue);
+                    }
+                }
+            }
+
+            preempt::yield_preempted_and_wake_task(next_thread, current_task);
+        }
+    }
+}
+
+#[cfg(not(feature = "no_preempt"))]
+#[no_mangle]
+extern "C" fn thread_entry(_arg: usize) -> ! {
+    // Use only the primary heap memory region.
+    #[cfg(not(feature = "std"))]
+    unsafe {
+        awkernel_lib::heap::TALLOC.use_primary()
+    };
+
+    // Disable interrupt.
+    interrupt::disable();
+
+    // Re-schedule the preempted task.
+    preempt::re_schedule();
+
+    // Run the main function.
+    run_main();
+
+    awkernel_lib::delay::wait_forever();
+}
+
 #[cfg(feature = "std")]
-fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
 where
     F: FnOnce() -> R,
 {
@@ -345,7 +535,7 @@ where
 }
 
 #[cfg(not(feature = "std"))]
-fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
+pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
 where
     F: FnOnce() -> R,
 {

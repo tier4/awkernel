@@ -46,14 +46,15 @@ type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
 use crate::{
-    cpu,
+    cpu::{self, NUM_MAX_CPU},
     sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
     intrinsics::abort,
+    mem::transmute,
     ptr::{self, NonNull},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 use rlsf::Tlsf;
 
@@ -87,7 +88,7 @@ pub struct Talloc {
     backup: BackUpAllocator,
 
     /// bitmap for each CPU to decide which allocator to use
-    flags: AtomicUsize,
+    flags: [AtomicU32; NUM_MAX_CPU / 32],
 
     primary_start: AtomicUsize,
     primary_size: AtomicUsize,
@@ -129,21 +130,24 @@ unsafe impl GlobalAlloc for Talloc {
 
 pub struct Guard<'a> {
     talloc: &'a Talloc,
-    flag: usize,
+    index: usize,
+    flag: u32,
 }
 
 impl<'a> Drop for Guard<'a> {
     fn drop(&mut self) {
-        unsafe { self.talloc.restore(self.flag) };
+        unsafe { self.talloc.restore(self.index, self.flag) };
     }
 }
 
 impl Talloc {
     pub const fn new() -> Self {
+        let flags = [0; NUM_MAX_CPU / 32];
+
         Self {
             primary: Allocator::new(),
             backup: BackUpAllocator::new(),
-            flags: AtomicUsize::new(0),
+            flags: unsafe { transmute(flags) },
             primary_start: AtomicUsize::new(0),
             primary_size: AtomicUsize::new(0),
             backup_start: AtomicUsize::new(0),
@@ -165,36 +169,47 @@ impl Talloc {
         unsafe { self.backup.init(backup_start, backup_size) };
     }
 
+    fn cpu_index() -> (usize, u32) {
+        let cpu_id = cpu::cpu_id();
+        let index = cpu_id >> 5;
+        let id = cpu_id & (32 - 1);
+        (index, id as u32)
+    }
+
     /// use both the primary and backup allocators
     pub unsafe fn use_primary_then_backup(&self) {
-        let cpu_id = cpu::cpu_id();
+        let (index, cpu_id) = Self::cpu_index();
         let mask = !(1 << cpu_id);
-        self.flags.fetch_and(mask, Ordering::Relaxed);
+        self.flags[index].fetch_and(mask, Ordering::Relaxed);
     }
 
     /// use only the primary allocator
     pub unsafe fn use_primary(&self) {
-        let cpu_id = cpu::cpu_id();
+        let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
-        self.flags.fetch_or(mask, Ordering::Relaxed);
+        self.flags[index].fetch_or(mask, Ordering::Relaxed);
     }
 
-    /// Save the configuration and it will be restored after dropping `Guard`.
+    /// Save the configuration and it will be restored when dropping `Guard`.
     pub unsafe fn save(&self) -> Guard {
-        let cpu_id = cpu::cpu_id();
+        let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
-        let flag = mask & self.flags.load(Ordering::Relaxed);
-        Guard { talloc: self, flag }
+        let flag = mask & self.flags[index].load(Ordering::Relaxed);
+        Guard {
+            talloc: self,
+            index,
+            flag,
+        }
     }
 
-    unsafe fn restore(&self, flag: usize) {
-        self.flags.fetch_or(flag, Ordering::Relaxed);
+    unsafe fn restore(&self, index: usize, flag: u32) {
+        self.flags[index].fetch_or(flag, Ordering::Relaxed);
     }
 
     /// check whether using the primary allocator
     pub unsafe fn is_primary(&self) -> bool {
-        let cpu_id = cpu::cpu_id();
-        let val = self.flags.load(Ordering::Relaxed);
+        let (index, cpu_id) = Self::cpu_index();
+        let val = self.flags[index].load(Ordering::Relaxed);
         (val & (1 << cpu_id)) != 0
     }
 

@@ -53,6 +53,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     } else {
         // Non-primary CPUs.
-        task::run(kernel_info.cpu_id); // Execute tasks.
+        unsafe { task::run(kernel_info.cpu_id) }; // Execute tasks.
     }
 }

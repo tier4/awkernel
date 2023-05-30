@@ -1,5 +1,6 @@
 //! `save_context` and `restore_context` are specified by `specification/awkernel_lib/src/arch/aarch64/context.rs/callee_saved_regs`.
 //! If you update these functions, please update the specification and verify them.
+use core::arch::global_asm;
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
@@ -60,6 +61,7 @@ pub struct CalleeSavedFPRegs {
 
 core::arch::global_asm!(
     "
+.global save_context
 save_context:
 // Store floating-point registers.
 stp      d8,  d9, [x0], #16
@@ -102,12 +104,12 @@ ldp     d12, d13, [x0], #16
 ldp     d14, d15, [x0], #16
 
 // Load general purpose registers.
-stp     x19, x20, [x0, #16 * 1]
-stp     x21, x22, [x0, #16 * 2]
-stp     x23, x24, [x0, #16 * 3]
-stp     x25, x26, [x0, #16 * 4]
-stp     x27, x28, [x0, #16 * 5]
-str     x30, [x0, #16 * 6]
+ldp     x19, x20, [x0, #16 * 1]
+ldp     x21, x22, [x0, #16 * 2]
+ldp     x23, x24, [x0, #16 * 3]
+ldp     x25, x26, [x0, #16 * 4]
+ldp     x27, x28, [x0, #16 * 5]
+ldr     x30, [x0, #16 * 6]
 
 // Load FPSR and FPCR registers.
 ldp     x9, x10, [x0]
@@ -130,19 +132,47 @@ ret
 );
 
 extern "C" {
-    fn save_context(ptr: *mut CalleeSavedContext) -> u64;
-    fn restore_context(ptr: *const CalleeSavedContext);
+    pub fn save_context(ptr: *mut CalleeSavedContext) -> u64;
+    pub fn restore_context(ptr: *const CalleeSavedContext);
 }
 
 impl crate::context::Context for CalleeSavedContext {
+    #[inline(always)]
     fn set_jump(&mut self) -> bool {
         let ptr = self as *mut _;
         let val = unsafe { save_context(ptr) };
         val == 0
     }
 
-    fn long_jump(&self) -> ! {
+    unsafe fn long_jump(&self) -> ! {
         unsafe { restore_context(self as *const _) };
         unreachable!()
     }
+
+    unsafe fn set_stack_pointer(&mut self, sp: usize) {
+        self.sp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
+        log::debug!("entry = 0x{:x}", entry as *const () as u64);
+
+        self.gp_regs.x19 = arg as u64;
+        self.gp_regs.x20 = entry as u64;
+        self.gp_regs.x30 = entry_point as *const () as u64;
+    }
 }
+
+extern "C" {
+    fn entry_point() -> !;
+}
+
+global_asm!(
+    "
+entry_point:
+   mov     x0, x19
+   blr     x20
+1:
+    wfi
+    b       1b
+"
+);
