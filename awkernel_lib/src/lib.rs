@@ -13,6 +13,7 @@ pub mod delay;
 pub mod interrupt;
 pub mod logger;
 pub mod mmio;
+pub mod serial;
 pub mod sync;
 
 #[cfg(not(feature = "std"))]

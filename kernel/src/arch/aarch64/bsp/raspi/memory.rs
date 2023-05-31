@@ -21,8 +21,8 @@ mod raspi {
     pub const INTC_BASE: usize = 0xff800000;
     pub const GIC_V2_DISTRIBUTOR_BASE: usize = INTC_BASE + 0x00041000;
     pub const GIC_V2_CPU_INTERFACE_BASE: usize = INTC_BASE + 0x00042000;
-    pub const GIC_V2_HYPERVISOR_BASE: usize = INTC_BASE + 0x00044000;
-    pub const GIC_V2_VIRTUAL_CPU_BASE: usize = INTC_BASE + 0x00046000;
+    pub const _GIC_V2_HYPERVISOR_BASE: usize = INTC_BASE + 0x00044000;
+    pub const _GIC_V2_VIRTUAL_CPU_BASE: usize = INTC_BASE + 0x00046000;
 }
 //-----------------------------------------------------------------------------
 

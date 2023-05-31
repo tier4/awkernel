@@ -1,9 +1,9 @@
-use super::Uart;
 use crate::arch::aarch64::bsp::memory::*;
-use awkernel_lib::mmio_rw;
+use alloc::vec::Vec;
+use awkernel_lib::{mmio_rw, serial::Serial};
 use core::{arch::asm, fmt::Write};
 
-pub struct RaspiUART {}
+pub struct PL011;
 
 const UART0_BASE: usize = MMIO_BASE + 0x00201000;
 
@@ -48,24 +48,15 @@ fn wait_cycles(n: usize) {
     }
 }
 
-impl RaspiUART {
-    unsafe fn putc(c: u32) {
-        // wait until we can send
-        unsafe { asm!("nop;") };
-        while UART0_FR.read() & 0x20 != 0 {
-            unsafe { asm!("nop;") };
-        }
-
-        // write the character to the buffer
-        UART0_DR.write(c);
+impl PL011 {
+    pub fn new() -> Self {
+        PL011
     }
-}
 
-impl super::Uart for RaspiUART {
     /// Initialiaze UART0 for serial console.
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".
-    fn init(uart_clock: usize, baudrate: usize) {
+    pub unsafe fn init_device(uart_clock: usize, baudrate: usize) {
         UART0_CR.write(0); // turn off UART0
 
         // map UART1 to GPIO pins
@@ -97,9 +88,15 @@ impl super::Uart for RaspiUART {
         UART0_CR.write(CR_EN | CR_RXE | CR_TXE); // enable, Rx, Tx
     }
 
-    /// send a character to serial console
-    fn send(&self, c: u32) {
-        unsafe { Self::putc(c) };
+    unsafe fn putc(c: u32) {
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while UART0_FR.read() & 0x20 != 0 {
+            unsafe { asm!("nop;") };
+        }
+
+        // write the character to the buffer
+        UART0_DR.write(c);
     }
 
     fn recv(&self) -> u32 {
@@ -112,21 +109,59 @@ impl super::Uart for RaspiUART {
         UART0_DR.read()
     }
 
-    fn enable_recv_interrupt(&self) {
-        UART0_IMSC.setbits(IMSC_RXIM);
+    fn send(&self, c: u32) {
+        unsafe { Self::putc(c) }
     }
 
-    fn disable_recv_interrupt(&self) {
-        UART0_IMSC.clrbits(IMSC_RXIM);
-    }
+    #[allow(clippy::same_item_push)]
+    fn _read_line(&self) -> Vec<u8> {
+        let mut res = Vec::new();
 
-    fn on(&self) {}
-    fn off(&self) {}
-    fn new(_base: usize) -> Self {
-        Self {}
-    }
+        loop {
+            let c = self.recv() as u8;
+            if c == b'\r' || c == b'\n' {
+                break;
+            } else if c == 0x08 || c == 0x7F {
+                if !res.is_empty() {
+                    self.send(0x08);
+                    self.send(b' ' as u32);
+                    self.send(0x08);
+                    res.pop();
+                }
+            } else if c == b'\t' {
+                let c = b' ';
+                for _ in 0..8 {
+                    self.send(c as u32);
+                    res.push(c);
+                }
+            } else if c == 0x15 {
+                while !res.is_empty() {
+                    self.send(0x08);
+                    self.send(b' ' as u32);
+                    self.send(0x08);
+                    res.pop();
+                }
+            } else {
+                self.send(c as u32);
+                res.push(c);
+            }
+        }
 
-    unsafe fn unsafe_puts(data: &str) {
+        self.send('\n' as u32);
+
+        res
+    }
+}
+
+impl Write for PL011 {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        unsafe { Self::raw_puts(s) };
+        Ok(())
+    }
+}
+
+impl Serial for PL011 {
+    unsafe fn raw_puts(data: &str) {
         for c in data.bytes() {
             Self::putc(c as u32);
             if c == b'\n' {
@@ -134,11 +169,20 @@ impl super::Uart for RaspiUART {
             }
         }
     }
-}
 
-impl Write for RaspiUART {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.puts(s);
-        Ok(())
+    fn enable(&mut self) {
+        UART0_CR.write(CR_EN | CR_RXE | CR_TXE); // enable, Rx, Tx
+    }
+
+    fn disable(&mut self) {
+        UART0_CR.write(0);
+    }
+
+    fn enable_recv_interrupt(&mut self) {
+        UART0_IMSC.setbits(IMSC_RXIM);
+    }
+
+    fn disable_recv_interrupt(&mut self) {
+        UART0_IMSC.clrbits(IMSC_RXIM);
     }
 }

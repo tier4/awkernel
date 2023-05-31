@@ -80,6 +80,8 @@ impl GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, gicc_base);
         registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::ENABLE, gicd_base);
 
+        gic.enable_irq(121 + 32);
+
         gic
     }
 

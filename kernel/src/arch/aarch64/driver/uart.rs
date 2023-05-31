@@ -1,7 +1,8 @@
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
 pub mod pl011;
 
-use alloc::vec::Vec;
+use crate::arch::aarch64::serial::UART_CLOCK;
+use awkernel_lib::serial::{Serial, BAUDRATE};
 
 pub trait Uart {
     fn new(base: usize) -> Self;
@@ -24,48 +25,13 @@ pub trait Uart {
     }
 
     unsafe fn unsafe_puts(data: &str);
-
-    #[allow(clippy::same_item_push)]
-    fn read_line(&self) -> Vec<u8> {
-        let mut res = Vec::new();
-
-        loop {
-            let c = self.recv() as u8;
-            if c == b'\r' || c == b'\n' {
-                break;
-            } else if c == 0x08 || c == 0x7F {
-                if !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else if c == b'\t' {
-                let c = b' ';
-                for _ in 0..8 {
-                    self.send(c as u32);
-                    res.push(c);
-                }
-            } else if c == 0x15 {
-                while !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else {
-                self.send(c as u32);
-                res.push(c);
-            }
-        }
-
-        self.puts("\n");
-
-        res
-    }
 }
 
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
-pub type DevUART = pl011::RaspiUART;
+pub type DevUART = pl011::PL011;
 
-impl DevUART where DevUART: Uart {}
+impl DevUART where DevUART: Serial {}
+
+pub unsafe fn init_device() {
+    DevUART::init_device(UART_CLOCK, BAUDRATE as usize);
+}

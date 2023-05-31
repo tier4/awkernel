@@ -7,21 +7,17 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{
-    bsp::raspi,
-    cpu,
-    driver::uart::{DevUART, Uart},
-    mmu, serial,
-};
+use super::{bsp::raspi, cpu, driver::uart::DevUART, mmu, serial};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
+        driver::timer::SystemTimer,
         mmu::{get_stack_el1_end, get_stack_el1_start},
     },
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{delay::wait_forever, heap};
+use awkernel_lib::{delay::wait_forever, heap, interrupt, serial::Serial};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -53,20 +49,21 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 4. Enable heap allocator.
 /// 5. Enable serial port.
 unsafe fn primary_cpu() {
-    DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
+    // Initialize UART.
+    serial::init_device();
 
     match awkernel_aarch64::get_current_el() {
-        0 => DevUART::unsafe_puts("EL0\n"),
-        1 => DevUART::unsafe_puts("EL1\n"),
-        2 => DevUART::unsafe_puts("EL2\n"),
-        3 => DevUART::unsafe_puts("EL3\n"),
+        0 => DevUART::raw_puts("EL0\n"),
+        1 => DevUART::raw_puts("EL1\n"),
+        2 => DevUART::raw_puts("EL2\n"),
+        3 => DevUART::raw_puts("EL3\n"),
         _ => (),
     }
 
     // 1. Initialize MMU.
     mmu::init_memory_map();
     if mmu::init().is_none() {
-        DevUART::unsafe_puts("Failed to init MMU.\n");
+        DevUART::raw_puts("Failed to init MMU.\n");
         wait_forever();
     }
 
@@ -125,15 +122,9 @@ unsafe fn primary_cpu() {
     // Board specific initialization.
     super::bsp::init();
 
+    interrupt::enable();
+
     loop {}
-
-    // let ctrl = awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(
-    //     MMIO_BASE + 0xB200,
-    // );
-    // register_interrupt_controller(Box::new(ctrl));
-
-    // SystemTimer::init(1);
-    // interrupt::enable();
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
