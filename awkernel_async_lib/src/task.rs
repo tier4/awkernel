@@ -412,7 +412,6 @@ pub unsafe fn run(_cpu_id: usize) {
 #[cfg(not(feature = "no_preempt"))]
 pub unsafe fn preemption() {
     let _int_guard = InterruptGuard::new();
-    interrupt::disable();
 
     #[cfg(not(feature = "std"))]
     let _heap_guard = {

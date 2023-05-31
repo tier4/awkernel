@@ -8,7 +8,7 @@ use alloc::{
 use awkernel_lib::{
     context::{ArchContext, Context},
     cpu::NUM_MAX_CPU,
-    interrupt::{self, InterruptGuard},
+    interrupt::InterruptGuard,
     memory::{self, Flags, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
@@ -114,7 +114,6 @@ pub(crate) fn yield_preempted_and_wake_task(
 
     // Disable interrupt.
     let _int_guard = InterruptGuard::new();
-    interrupt::disable();
 
     let current_ctx = {
         let mut node = MCSNode::new();

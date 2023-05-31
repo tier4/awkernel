@@ -10,7 +10,6 @@
 use super::{
     bsp::raspi,
     cpu,
-    driver::timer::SystemTimer,
     driver::uart::{DevUART, Uart},
     mmu, serial,
 };
@@ -22,17 +21,12 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use alloc::boxed::Box;
-use awkernel_lib::{
-    delay::wait_forever,
-    heap,
-    interrupt::{self, register_interrupt_controller},
-};
+use awkernel_lib::{delay::wait_forever, heap};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
-use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START, MMIO_BASE};
+use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START};
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
@@ -128,14 +122,18 @@ unsafe fn primary_cpu() {
         log::info!("Use SP_ELx.");
     }
 
-    // Initialize GIC.
-    let ctrl = awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(
-        MMIO_BASE + 0xB200,
-    );
-    register_interrupt_controller(Box::new(ctrl));
+    // Board specific initialization.
+    super::bsp::init();
 
-    SystemTimer::init(1);
-    interrupt::enable();
+    loop {}
+
+    // let ctrl = awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(
+    //     MMIO_BASE + 0xB200,
+    // );
+    // register_interrupt_controller(Box::new(ctrl));
+
+    // SystemTimer::init(1);
+    // interrupt::enable();
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

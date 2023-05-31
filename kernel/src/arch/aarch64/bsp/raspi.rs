@@ -18,3 +18,19 @@ pub fn start_non_primary() {
         }
     }
 }
+
+#[cfg(feature = "raspi4")]
+pub fn init() {
+    let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
+        memory::GIC_V2_CPU_INTERFACE_BASE,
+        memory::GIC_V2_DISTRIBUTOR_BASE,
+    );
+}
+
+#[cfg(feature = "raspi3")]
+pub fn init() {
+    let ctrl = awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(
+        MMIO_BASE + 0xB200,
+    );
+    register_interrupt_controller(Box::new(ctrl));
+}
