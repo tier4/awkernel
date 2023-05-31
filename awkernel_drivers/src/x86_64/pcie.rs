@@ -39,12 +39,19 @@ pub fn init<T>(
             config_start += page_size as usize;
         }
 
-        scan_devices(&segment);
+        scan_devices(&segment, page_table, page_allocator, page_size);
     }
 }
 
 /// scan and initialize the PICe devices
-fn scan_devices(segment: &McfgEntry) {
+fn scan_devices<T>(
+    segment: &McfgEntry,
+    page_table: &mut OffsetPageTable<'static>,
+    page_allocator: &mut PageAllocator<T>,
+    page_size: u64,
+) where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     for bus in segment.buses() {
         for dev in 0..(1 << 5) {
             for func in 0..(1 << 3) {
@@ -52,7 +59,7 @@ fn scan_devices(segment: &McfgEntry) {
                 let addr = segment.base_address() + offset;
                 if let Some(device) = DeviceInfo::from_addr(addr) {
                     log::info!("Load {:x?} at {:#x} ", device, addr);
-                    device.init();
+                    device.init(page_table, page_allocator, page_size);
                 }
             }
         }
@@ -85,13 +92,20 @@ impl DeviceInfo {
         }
     }
 
-    /// return the size of device's address space
-    fn init(&self) {
+    fn init<T>(
+        &self,
+        page_table: &mut OffsetPageTable<'static>,
+        page_allocator: &mut PageAllocator<T>,
+        page_size: u64,
+    ) where
+        T: Iterator<Item = PhysFrame> + Send,
+    {
         match (self.id, self.vendor) {
             //  Intel 82574 GbE Controller
-            (0x10d3, 0x8086) => unsafe {
-                // E1000E::new(&self).init();
-            },
+            (0x10d3, 0x8086) => {
+                let mut e1000e = E1000E::new(&self, page_table, page_allocator, page_size);
+                e1000e.init();
+            }
             _ => (),
         }
     }
@@ -99,6 +113,13 @@ impl DeviceInfo {
 
 pub trait PCIeDevice {
     const ADDR_SPACE_SIZE: u64;
-    fn new(info: &DeviceInfo) -> Self;
-    unsafe fn init(&mut self);
+    fn new<T>(
+        info: &DeviceInfo,
+        page_table: &mut OffsetPageTable<'static>,
+        page_allocator: &mut PageAllocator<T>,
+        page_size: u64,
+    ) -> Self
+    where
+        T: Iterator<Item = PhysFrame> + Send;
+    fn init(&mut self);
 }
