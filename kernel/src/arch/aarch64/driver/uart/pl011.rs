@@ -50,7 +50,9 @@ fn wait_cycles(n: usize) {
 
 impl PL011 {
     pub fn new() -> Self {
-        PL011
+        let mut pl011 = PL011;
+        pl011.enable_recv_interrupt();
+        pl011
     }
 
     /// Initialiaze UART0 for serial console.

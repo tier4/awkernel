@@ -122,6 +122,8 @@ unsafe fn primary_cpu() {
     // Board specific initialization.
     super::bsp::init();
 
+    interrupt::enable_irq(121 + 32); // Enable UART0
+
     interrupt::enable();
 
     loop {}

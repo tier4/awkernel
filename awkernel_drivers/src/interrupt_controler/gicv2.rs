@@ -80,8 +80,6 @@ impl GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, gicc_base);
         registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::ENABLE, gicd_base);
 
-        gic.enable_irq(121 + 32);
-
         gic
     }
 
@@ -146,6 +144,8 @@ pub type IRQNumber = u16;
 
 impl InterruptController for GICv2 {
     fn enable_irq(&mut self, irq: usize) {
+        log::info!("Enable IRQ #{irq}.");
+
         if irq > self.max_it {
             log::warn!(
                 "GICv2: Failed to enable IRQ #{irq}, because it is greater than {}.",
@@ -153,6 +153,9 @@ impl InterruptController for GICv2 {
             );
             return;
         }
+
+        // Disable the distributor.
+        registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::empty(), self.gicd_base);
 
         self.set_priority(irq, 0);
         self.set_target_processor(irq, 0);
@@ -162,6 +165,8 @@ impl InterruptController for GICv2 {
         let base = self.gicd_base + idx * 4;
 
         registers::GICD_ISENABLER.write(mask, base);
+
+        registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::ENABLE, self.gicd_base);
     }
 
     fn disable_irq(&mut self, irq: usize) {

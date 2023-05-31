@@ -1,7 +1,5 @@
 use core::fmt::Write;
 
-pub const BAUDRATE: u32 = 115200;
-
 pub trait Serial: Write {
     /// Print raw data.
     unsafe fn raw_puts(data: &str);

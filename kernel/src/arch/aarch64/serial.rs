@@ -1,21 +1,21 @@
-use core::fmt::Write;
-
 use super::driver::uart::{self, DevUART};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::fmt::Write;
 use log::Log;
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub static SERIAL: Serial = Serial::new();
 
 pub const UART_CLOCK: usize = 48000000;
+pub const UART_BAUDRATE: usize = 115200;
 
 pub struct Serial {
-    port: MCSLock<Option<DevUART>>,
+    port: Mutex<Option<DevUART>>,
 }
 
 impl Serial {
     const fn new() -> Self {
         Self {
-            port: MCSLock::new(None),
+            port: Mutex::new(None),
         }
     }
 

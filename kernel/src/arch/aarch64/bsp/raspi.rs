@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+use awkernel_lib::interrupt::register_interrupt_controller;
 use core::arch::asm;
 
 pub mod config;
@@ -25,6 +27,7 @@ pub fn init() {
         memory::GIC_V2_CPU_INTERFACE_BASE,
         memory::GIC_V2_DISTRIBUTOR_BASE,
     );
+    register_interrupt_controller(Box::new(gic));
 }
 
 #[cfg(feature = "raspi3")]
