@@ -3,19 +3,41 @@
 use super::pcie::{DeviceInfo, PCIeDevice};
 use crate::net::ether::{Ether, EtherErr};
 use crate::net::mbuf::MBuf;
-use crate::net::ring::{RecvRing, SendRing};
 use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
 use awkernel_lib::arch::x86_64::mmu::map_to;
-use core::cell::OnceCell;
+use core::mem::size_of;
 use core::ptr::{read_volatile, write_volatile};
+use core::slice;
 use smoltcp::phy;
-use x86_64::structures::paging::PageTableFlags;
+use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
+use x86_64::{PhysAddr, VirtAddr};
 
 #[repr(C)]
-struct TxDescriptor {}
+/// Legacy Transmit Descriptor Format
+struct TxDescriptor {
+    buf: u64,
+    length: u16,
+    cso: u8,
+    cmd: u8,
+    // Bit0: Descriptor done status
+    // Bit4: Time stamp
+    status: u8,
+    css: u8,
+    vtags: u16,
+}
 
 #[repr(C)]
-struct RxDesriptor {}
+/// Legacy Receive Descriptor Format
+/// valid when RCTL.DTYP = 00b
+/// and RFCTL.EXSTEN bit is clear
+struct RxDescriptor {
+    buf: u64,
+    len: u16,
+    checksum: u16,
+    status: u8,
+    error: u8,
+    vtags: u16,
+}
 
 ///! intel e1000e driver
 pub struct E1000E {
@@ -23,15 +45,16 @@ pub struct E1000E {
     register_end: usize,
     info: DeviceInfo,
     // ring buffer for receiving data
-    rx_ring: OnceCell<RecvRing>,
+    rx_ring: &'static [RxDescriptor],
     // ring buffer for sending data
-    tx_ring: OnceCell<SendRing>,
+    tx_ring: &'static [TxDescriptor],
 }
 
 const E1000E_BAR0_MASK: usize = 0xFFFFFFF0;
 
 impl PCIeDevice for E1000E {
     const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
+
     fn init(&mut self) {
         assert_eq!(self.info.header_type, 0x0);
         //  set up command register in config space
@@ -43,6 +66,7 @@ impl PCIeDevice for E1000E {
             write_volatile(command_reg as *mut u16, 0b111);
         }
     }
+
     fn new<T>(
         info: &DeviceInfo,
         page_table: &mut OffsetPageTable<'static>,
@@ -61,13 +85,23 @@ impl PCIeDevice for E1000E {
         Self::map_register_space(register_start, page_table, page_allocator, page_size);
 
         // allocate send and recv descriptor ring
+        let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
+        let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
+        let (tx_ring_va, tx_ring_pa) = Self::create_ring(page_table, page_allocator);
+        let (rx_ring_va, rx_ring_pa) = Self::create_ring(page_table, page_allocator);
+        let tx_ring = unsafe {
+            slice::from_raw_parts_mut(tx_ring_pa.as_u64() as *mut TxDescriptor, tx_ring_len)
+        };
+        let rx_ring = unsafe {
+            slice::from_raw_parts_mut(rx_ring_pa.as_u64() as *mut RxDescriptor, rx_ring_len)
+        };
 
         Self {
             register_start,
             register_end,
             info,
-            rx_ring: OnceCell::new(),
-            tx_ring: OnceCell::new(),
+            rx_ring,
+            tx_ring,
         }
     }
 }
@@ -96,11 +130,19 @@ impl E1000E {
     fn create_ring<T>(
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
-        page_size: u64,
-    ) where
+    ) -> (VirtAddr, PhysAddr)
+    where
         T: Iterator<Item = PhysFrame> + Send,
     {
+        let ring_pa = if let Some(frame) = page_allocator.allocate_frame() {
+            frame.start_address()
+        } else {
+            panic!("failed to create nic ring.");
+        };
 
+        let ring_va = page_table.phys_offset() + ring_pa.as_u64();
+
+        (ring_va, ring_pa)
     }
 }
 
@@ -115,19 +157,17 @@ impl Ether for E1000E {
     }
 
     fn init_hw(&mut self) -> Result<(), EtherErr> {
-        // 1.Disable Interrupts
+        // Disable Interrupts
 
-        // 2. Issue Global Reset and perform General Configuration
+        // Issue Global Reset and perform General Configuration
 
-        // 3. Setup the PHY and the link
+        // Setup the PHY and the link
 
-        // 4. Initialize all statistical counters
+        // Initialize receive
 
-        // 5. Initialize receive
+        // Initialize transmit
 
-        // 6. Initialize transmit
-
-        // 7. Enable interrupt
+        // Enable interrupt
 
         Ok(())
     }
