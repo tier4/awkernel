@@ -1,3 +1,5 @@
+use awkernel_lib::serial::Serial;
+
 mod apic;
 pub mod config;
 mod heap;
@@ -7,5 +9,5 @@ mod serial;
 mod stack;
 
 pub unsafe fn puts(data: &str) {
-    serial::puts(data);
+    serial::UART::raw_puts(data)
 }

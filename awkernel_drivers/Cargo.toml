@@ -14,7 +14,7 @@ path = "../awkernel_lib"
 default-features = false
 
 [features]
-default = ["aarch64"]
+default = ["x86"]
 x86 = ["awkernel_lib/x86"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64"]

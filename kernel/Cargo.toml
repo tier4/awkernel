@@ -6,7 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-synctools = "0.3"
 log = "0.4"
 bitflags = "2.3"
 
@@ -60,7 +59,7 @@ version = "0.2.0"
 optional = true
 
 [features]
-default = ["raspi4"]
+default = ["x86"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550", "dep:acpi", "awkernel_drivers/x86"]
 raspi3 = ["raspi", "no_std_unwinding"]
