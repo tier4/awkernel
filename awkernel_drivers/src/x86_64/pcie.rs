@@ -111,6 +111,7 @@ impl DeviceInfo {
     }
 }
 
+// TODO : design error handling ( should not panic )
 pub trait PCIeDevice {
     const ADDR_SPACE_SIZE: u64;
     fn new<T>(
