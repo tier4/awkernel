@@ -1,18 +1,18 @@
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::fmt::Write;
 use log::Log;
 use ns16550a::Uart;
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub static CONSOLE: Console = Console::new();
 
 pub struct Console {
-    port: MCSLock<Option<Uart>>,
+    port: Mutex<Option<Uart>>,
 }
 
 impl Console {
     const fn new() -> Self {
         Self {
-            port: MCSLock::new(None),
+            port: Mutex::new(None),
         }
     }
 
