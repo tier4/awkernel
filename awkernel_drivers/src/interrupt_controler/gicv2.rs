@@ -1,8 +1,6 @@
 use awkernel_lib::interrupt::InterruptController;
 use core::default::Default;
 
-use self::registers::GICD_ITARGETSR;
-
 const GIC_MAX_INTS: usize = 1020;
 const NUM_INTS_PER_REG: usize = 32;
 
@@ -33,8 +31,10 @@ mod registers {
     mmio_rw!(offset 0x100 => pub GICD_ISENABLER<u32>);
     mmio_rw!(offset 0x180 => pub GICD_ICENABLER<u32>);
     mmio_rw!(offset 0x280 => pub GICD_ICPENDR<u32>);
+    mmio_rw!(offset 0x380 => pub GICD_ICACTIVER<u32>);
     mmio_rw!(offset 0x400 => pub GICD_IPRIORITYR<u32>);
     mmio_rw!(offset 0x800 => pub GICD_ITARGETSR<u32>);
+    mmio_rw!(offset 0xc00 => pub GICD_ICFGR<u32>);
 }
 
 #[derive(Default)]
@@ -42,6 +42,10 @@ pub struct GICv2 {
     gicc_base: usize,
     gicd_base: usize,
     max_it: usize,
+}
+
+fn div_ceil(a: usize, b: usize) -> usize {
+    (a + b - 1) / b
 }
 
 impl GICv2 {
@@ -54,13 +58,14 @@ impl GICv2 {
 
         // Disable the distributor.
         registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::empty(), gicd_base);
+        registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::empty(), gicc_base);
 
         // Get the maximum number of interrupt.
         gic.probe_max_it();
 
         log::info!("GICv2: The number of interrupts is {}.", gic.max_it);
 
-        for i in 0..=(gic.max_it / NUM_INTS_PER_REG) {
+        for i in 0..div_ceil(gic.max_it, NUM_INTS_PER_REG) {
             let base = gicd_base + i * 4;
 
             // Disable interrupts.
@@ -71,14 +76,32 @@ impl GICv2 {
 
             // Make interrupts group 1.
             registers::GICD_IGROUPR.write(!0, base);
+
+            // Deactivates interrupts.
+            registers::GICD_ICACTIVER.write(!0, base);
         }
 
-        // Mask interrupts whose priority is greater than 0x80.
-        registers::GICC_PMR.write(0x80, gicc_base);
+        // Direct all interrupts to core 0 (=01) with default priority a0.
+        for i in 0..div_ceil(gic.max_it, 4) {
+            let base = gicd_base + i * 4;
+            registers::GICD_ITARGETSR.write(0x01010101, base);
+            registers::GICD_IPRIORITYR.write(0xa0a0a0a0, base);
+        }
 
-        // Enable GIC.
-        registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, gicc_base);
+        // Config all interrupts to level triggered.
+        for i in 0..div_ceil(gic.max_it, NUM_INTS_PER_REG / 2) {
+            let base = gicd_base + i * 4;
+            registers::GICD_ICFGR.write(0, base);
+        }
+
+        // Enable the distributor.
         registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::ENABLE, gicd_base);
+
+        // Mask interrupts whose priority is greater than 0x80.
+        registers::GICC_PMR.write(0xF0, gicc_base);
+
+        // Enable the CPU interface.
+        registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, gicc_base);
 
         gic
     }
@@ -117,9 +140,10 @@ impl GICv2 {
 
         let shift = (irq as u32 & 0b11) * 8;
         let mask = !(0xff << shift);
-        let base = self.gicd_base + (irq >> 2);
+        let base = self.gicd_base + (irq >> 2) * 4;
 
         let old_priority = registers::GICD_IPRIORITYR.read(base);
+
         registers::GICD_IPRIORITYR
             .write((old_priority & mask) | ((priority as u32) << shift), base);
     }
@@ -129,14 +153,14 @@ impl GICv2 {
             return;
         }
 
-        let base = self.gicd_base + (irq >> 2);
+        let base = self.gicd_base + (irq >> 2) * 4;
         let target_shift = (irq & 0b11) * 8;
 
-        let mut target = GICD_ITARGETSR.read(base);
+        let mut target = registers::GICD_ITARGETSR.read(base);
         target &= !(0xff << target_shift);
         target |= (1 << processor) << target_shift;
 
-        GICD_ITARGETSR.write(target, base);
+        registers::GICD_ITARGETSR.write(target, base);
     }
 }
 
@@ -144,8 +168,6 @@ pub type IRQNumber = u16;
 
 impl InterruptController for GICv2 {
     fn enable_irq(&mut self, irq: usize) {
-        log::info!("Enable IRQ #{irq}.");
-
         if irq > self.max_it {
             log::warn!(
                 "GICv2: Failed to enable IRQ #{irq}, because it is greater than {}.",
@@ -154,19 +176,13 @@ impl InterruptController for GICv2 {
             return;
         }
 
-        // Disable the distributor.
-        registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::empty(), self.gicd_base);
-
-        self.set_priority(irq, 0);
-        self.set_target_processor(irq, 0);
-
         let idx = irq >> 5;
         let mask = 1 << (irq & (NUM_INTS_PER_REG - 1)) as u32;
         let base = self.gicd_base + idx * 4;
 
         registers::GICD_ISENABLER.write(mask, base);
 
-        registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::ENABLE, self.gicd_base);
+        log::info!("GICv2: IRQ #{irq} is enabled.");
     }
 
     fn disable_irq(&mut self, irq: usize) {

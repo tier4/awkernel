@@ -1,6 +1,4 @@
-use core::fmt::Write;
-
-pub trait Serial: Write {
+pub trait Serial {
     /// Print raw data.
     unsafe fn raw_puts(data: &str);
 
