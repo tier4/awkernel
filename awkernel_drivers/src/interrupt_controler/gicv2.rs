@@ -182,7 +182,7 @@ impl InterruptController for GICv2 {
 
         registers::GICD_ISENABLER.write(mask, base);
 
-        log::info!("GICv2: IRQ #{irq} is enabled.");
+        log::info!("GICv2: IRQ #{irq} has been enabled.");
     }
 
     fn disable_irq(&mut self, irq: usize) {
@@ -199,6 +199,8 @@ impl InterruptController for GICv2 {
         let base = self.gicd_base + idx * 4;
 
         registers::GICD_ICENABLER.write(mask, base);
+
+        log::info!("GICv2: IRQ #{irq} has been disabled.");
     }
 
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {

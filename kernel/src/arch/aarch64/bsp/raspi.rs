@@ -32,8 +32,8 @@ pub fn init() {
 
 #[cfg(feature = "raspi3")]
 pub fn init() {
-    let ctrl = awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(
-        MMIO_BASE + 0xB200,
-    );
+    use self::memory::UART0_BASE;
+    let ctrl =
+        awkernel_drivers::interrupt_controler::bcm2835::GenericInterruptController::new(UART0_BASE);
     register_interrupt_controller(Box::new(ctrl));
 }

@@ -30,6 +30,40 @@ impl Console {
     }
 }
 
+impl awkernel_lib::console::Console for Console {
+    fn enable(&self) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.enable()
+        }
+    }
+
+    fn disable(&self) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.disable()
+        }
+    }
+
+    fn enable_recv_interrupt(&self) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.enable_recv_interrupt()
+        }
+    }
+
+    fn disable_recv_interrupt(&self) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.disable_recv_interrupt()
+        }
+    }
+}
+
 impl Log for Console {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
         let mut node = MCSNode::new();
@@ -55,10 +89,13 @@ impl Log for Console {
 
 pub unsafe fn init_device() {
     uart::init_device();
+    awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
 }
 
 pub fn init() {
     CONSOLE.init();
     let _ = log::set_logger(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
+
+    awkernel_lib::console::register_console(&CONSOLE);
 }

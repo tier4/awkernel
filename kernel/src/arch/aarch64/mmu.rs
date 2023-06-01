@@ -1,7 +1,6 @@
 use super::bsp::memory::{
     DEVICE_MEM_END, DEVICE_MEM_START, ROM_END, ROM_START, SRAM_END, SRAM_START,
 };
-use crate::arch::aarch64::driver::uart::DevUART;
 use awkernel_aarch64::{
     dsb_ish, dsb_sy, get_current_el, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, sctlr_el2,
     sctlr_el3, tcr_el1, ttbr0_el1, ttbr1_el1,
@@ -11,7 +10,7 @@ use awkernel_lib::{
         page_allocator::PageAllocator,
         page_table::{flags, FrameAllocator, PageTable},
     },
-    console::Console,
+    console::unsafe_puts,
     delay::wait_forever,
     memory::PAGESIZE,
 };
@@ -212,14 +211,14 @@ pub fn init() -> Option<(PageTable, PageTable)> {
     if b < 1
     /* 36 bits */
     {
-        unsafe { DevUART::raw_puts("ERROR: 36 bit address space not supported.\n") };
+        unsafe { unsafe_puts("ERROR: 36 bit address space not supported.\n") };
         return None;
     }
 
     if mmfr & (0xF << 28) != 0
     /* 4KiB */
     {
-        unsafe { DevUART::raw_puts("4KiB granule not support.\n") };
+        unsafe { unsafe_puts("4KiB granule not support.\n") };
         return None;
     }
 
@@ -373,7 +372,7 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         let phy_addr = if let Some(addr) = allocator.allocate_frame() {
             addr
         } else {
-            unsafe { DevUART::raw_puts("failed to allocate page.\n") };
+            unsafe { unsafe_puts("failed to allocate page.\n") };
             wait_forever();
         };
         table1.map_to(vm_addr, phy_addr, flag, &mut allocator);

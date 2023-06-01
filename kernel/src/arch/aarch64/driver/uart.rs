@@ -12,3 +12,7 @@ impl DevUART where DevUART: Console {}
 pub unsafe fn init_device() {
     DevUART::init_device(UART_CLOCK, UART_BAUDRATE);
 }
+
+pub unsafe fn unsafe_puts(data: &str) {
+    DevUART::unsafe_puts(data);
+}

@@ -5,8 +5,6 @@ use core::{arch::asm, fmt::Write};
 
 pub struct PL011;
 
-const UART0_BASE: usize = MMIO_BASE + 0x00201000;
-
 mmio_rw!(UART0_BASE         => UART0_DR<u32>);
 mmio_rw!(UART0_BASE + 0x004 => UART0_RSRECR<u32>);
 mmio_rw!(UART0_BASE + 0x018 => UART0_FR<u32>);
@@ -50,9 +48,16 @@ fn wait_cycles(n: usize) {
 
 impl PL011 {
     pub fn new() -> Self {
-        let mut pl011 = PL011;
-        pl011.enable_recv_interrupt();
-        pl011
+        Self
+    }
+
+    pub unsafe fn unsafe_puts(data: &str) {
+        for c in data.bytes() {
+            Self::putc(c as u32);
+            if c == b'\n' {
+                Self::putc(b'\r' as u32);
+            }
+        }
     }
 
     /// Initialiaze UART0 for serial console.
@@ -157,34 +162,25 @@ impl PL011 {
 
 impl Write for PL011 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        unsafe { Self::raw_puts(s) };
+        unsafe { Self::unsafe_puts(s) };
         Ok(())
     }
 }
 
 impl Console for PL011 {
-    unsafe fn raw_puts(data: &str) {
-        for c in data.bytes() {
-            Self::putc(c as u32);
-            if c == b'\n' {
-                Self::putc(b'\r' as u32);
-            }
-        }
-    }
-
-    fn enable(&mut self) {
+    fn enable(&self) {
         UART0_CR.write(CR_EN | CR_RXE | CR_TXE); // enable, Rx, Tx
     }
 
-    fn disable(&mut self) {
+    fn disable(&self) {
         UART0_CR.write(0);
     }
 
-    fn enable_recv_interrupt(&mut self) {
+    fn enable_recv_interrupt(&self) {
         UART0_IMSC.setbits(IMSC_RXIM);
     }
 
-    fn disable_recv_interrupt(&mut self) {
+    fn disable_recv_interrupt(&self) {
         UART0_IMSC.clrbits(IMSC_RXIM);
     }
 }

@@ -7,7 +7,7 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, console, cpu, driver::uart::DevUART, mmu};
+use super::{bsp::raspi, console, cpu, mmu};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -17,7 +17,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{console::Console, delay::wait_forever, heap, interrupt};
+use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap, interrupt};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -53,17 +53,17 @@ unsafe fn primary_cpu() {
     console::init_device();
 
     match awkernel_aarch64::get_current_el() {
-        0 => DevUART::raw_puts("EL0\n"),
-        1 => DevUART::raw_puts("EL1\n"),
-        2 => DevUART::raw_puts("EL2\n"),
-        3 => DevUART::raw_puts("EL3\n"),
+        0 => unsafe_puts("EL0\n"),
+        1 => unsafe_puts("EL1\n"),
+        2 => unsafe_puts("EL2\n"),
+        3 => unsafe_puts("EL3\n"),
         _ => (),
     }
 
     // 1. Initialize MMU.
     mmu::init_memory_map();
     if mmu::init().is_none() {
-        DevUART::raw_puts("Failed to init MMU.\n");
+        unsafe_puts("Failed to init MMU.\n");
         wait_forever();
     }
 
@@ -122,6 +122,7 @@ unsafe fn primary_cpu() {
     // Board specific initialization.
     super::bsp::init();
 
+    awkernel_lib::console::enable_recv_interrupt();
     interrupt::enable_irq(121 + 32); // Enable UART0
 
     interrupt::enable();

@@ -22,7 +22,7 @@ pub struct GenericInterruptController {
 
 impl GenericInterruptController {
     pub fn new(base: usize) -> Self {
-        log::info!("interrupts: initializing generic arm interrupt controller");
+        log::info!("BCM2835 IRQ: Initializing the interrupt controller.");
 
         let gic = Self { base, iter: None };
 
@@ -47,21 +47,29 @@ impl GenericInterruptController {
 
 impl InterruptController for GenericInterruptController {
     fn enable_irq(&mut self, irq: usize) {
-        if irq < 32 {
+        if irq >= 64 {
+            log::warn!("BCM2835 IRQ: Failed to enable IRQ #{irq} because it is greater than 63.");
+            return;
+        } else if irq < 32 {
             registers::IRQ_ENABLE1.write(1 << irq, self.base);
         } else {
             registers::IRQ_ENABLE2.write(1 << (irq - 32), self.base);
         }
 
-        log::debug!("enable_irq: {}", irq);
+        log::info!("BCM2835 IRQ: IRQ #{irq} has been enabled.");
     }
 
     fn disable_irq(&mut self, irq: usize) {
-        if irq < 32 {
+        if irq >= 64 {
+            log::warn!("BCM2835 IRQ: Failed to disable IRQ #{irq} because it is greater than 63.");
+            return;
+        } else if irq < 32 {
             registers::IRQ_DISABLE1.write(1 << irq, self.base);
         } else {
             registers::IRQ_DISABLE2.write(1 << (irq - 32), self.base);
         }
+
+        log::info!("BCM2835 IRQ: IRQ #{irq} has been disabled.");
     }
 
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
