@@ -1,6 +1,6 @@
 use crate::arch::aarch64::bsp::memory::*;
 use alloc::vec::Vec;
-use awkernel_lib::{mmio_rw, serial::Serial};
+use awkernel_lib::{console::Console, mmio_rw};
 use core::{arch::asm, fmt::Write};
 
 pub struct PL011;
@@ -162,7 +162,7 @@ impl Write for PL011 {
     }
 }
 
-impl Serial for PL011 {
+impl Console for PL011 {
     unsafe fn raw_puts(data: &str) {
         for c in data.bytes() {
             Self::putc(c as u32);

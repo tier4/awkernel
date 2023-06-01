@@ -8,12 +8,12 @@ use alloc::rc::Rc;
 
 pub mod arch;
 
+pub mod console;
 pub mod cpu;
 pub mod delay;
 pub mod interrupt;
 pub mod logger;
 pub mod mmio;
-pub mod serial;
 pub mod sync;
 
 #[cfg(not(feature = "std"))]

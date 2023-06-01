@@ -11,9 +11,9 @@ use awkernel_lib::{
         page_allocator::PageAllocator,
         page_table::{flags, FrameAllocator, PageTable},
     },
+    console::Console,
     delay::wait_forever,
     memory::PAGESIZE,
-    serial::Serial,
 };
 use core::arch::asm;
 
