@@ -18,6 +18,7 @@ use crate::{
 use alloc::boxed::Box;
 use awkernel_lib::{
     arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
+    console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     memory::PAGESIZE,
 };
@@ -66,14 +67,16 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
-    super::serial::init(); // 2. Initialize the serial port.
-    unsafe { super::puts("The primary CPU is waking up.\n") };
+    super::console::init(); // 2. Initialize the serial port.
+    awkernel_lib::console::register_unsafe_puts(super::console::unsafe_puts);
+
+    unsafe { unsafe_puts("The primary CPU is waking up.\n") };
 
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
     } else {
-        unsafe { super::puts("Physical memory is not mapped.\n") };
+        unsafe { unsafe_puts("Physical memory is not mapped.\n") };
         wait_forever();
     };
 
@@ -91,7 +94,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
-        unsafe { super::puts("Failed to get the physical memory offset.\n") };
+        unsafe { unsafe_puts("Failed to get the physical memory offset.\n") };
         wait_forever();
     };
     let offset = *offset;
@@ -124,7 +127,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     // 5. Initialize the logger.
-    super::serial::init_logger();
+    super::console::init_logger();
 
     // 6. Initialize interrupt handlers.
     unsafe { interrupt::init() };

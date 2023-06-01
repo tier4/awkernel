@@ -65,25 +65,25 @@ impl Write for UART {
     }
 }
 
+pub unsafe fn unsafe_puts(data: &str) {
+    let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
+    let _ = port.write_str(data);
+}
+
 impl Console for UART {
-    unsafe fn raw_puts(data: &str) {
-        let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
-        let _ = port.write_str(data);
-    }
-
-    fn enable(&mut self) {
+    fn enable(&self) {
         // TODO
     }
 
-    fn disable(&mut self) {
+    fn disable(&self) {
         // TODO
     }
 
-    fn enable_recv_interrupt(&mut self) {
+    fn enable_recv_interrupt(&self) {
         // TODO
     }
 
-    fn disable_recv_interrupt(&mut self) {
+    fn disable_recv_interrupt(&self) {
         // TODO
     }
 }
