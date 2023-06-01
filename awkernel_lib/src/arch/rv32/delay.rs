@@ -14,7 +14,7 @@ impl Delay for ArchDelay {
     fn wait_microsec(usec: u64) {
         let mtime = ACLINT_MTIME_BASE as *const u64;
         let end = unsafe { *mtime + ((RISCV_TIMEBASE_FREQ / 1000) * usec) / 1000 };
-        while { unsafe { *mtime < end } } {}
+        while unsafe { *mtime < end } {}
     }
 
     fn uptime() -> u64 {

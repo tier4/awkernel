@@ -1,11 +1,11 @@
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::fmt::{Error, Write};
 use log::Log;
-use synctools::mcs::{MCSLock, MCSNode};
 
 pub static CONSOLE: Console = Console::new();
 
 pub struct Console {
-    lock: MCSLock<StdOut>,
+    lock: Mutex<StdOut>,
 }
 
 pub struct StdOut(());
@@ -24,7 +24,7 @@ impl Write for StdOut {
 impl Console {
     const fn new() -> Self {
         Self {
-            lock: MCSLock::new(StdOut(())),
+            lock: Mutex::new(StdOut(())),
         }
     }
 }
