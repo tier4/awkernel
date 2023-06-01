@@ -1,5 +1,5 @@
 use awkernel_lib::{
-    serial::Serial,
+    console::Console,
     sync::mutex::{MCSNode, Mutex},
 };
 use core::fmt::Write;
@@ -65,7 +65,7 @@ impl Write for UART {
     }
 }
 
-impl Serial for UART {
+impl Console for UART {
     unsafe fn raw_puts(data: &str) {
         let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
         let _ = port.write_str(data);

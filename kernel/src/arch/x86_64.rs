@@ -1,4 +1,4 @@
-use awkernel_lib::serial::Serial;
+use awkernel_lib::console::Console;
 
 mod apic;
 pub mod config;
