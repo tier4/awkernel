@@ -15,5 +15,5 @@ pub trait Ether {
     fn poll(&mut self) -> Result<(), EtherErr>;
 
     // init the NIC hardware
-    fn init_hw(&mut self) -> Result<(), EtherErr>;
+    unsafe fn init_hw(&mut self) -> Result<(), EtherErr>;
 }

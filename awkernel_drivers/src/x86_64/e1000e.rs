@@ -54,25 +54,25 @@ pub struct E1000E {
 
 const E1000E_BAR0_MASK: usize = 0xFFFFFFF0;
 
-const IMS: usize = 0x000D0 / 4; // Interrupt Mask Set/Read Register
-const IMC: usize = 0x000D8 / 4; // Interrupt Mask Clear Register
+const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
+const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
-const TDBAL: usize = 0x03800 / 4; // Transmit Descriptor Base Address Low
-const TDBAH: usize = 0x03804 / 4; // Transmit Descriptor Base Address High
-const TDLEN: usize = 0x03808 / 4; // Transmit Descriptor Length
-const RDBAL: usize = 0x02800 / 4;
-const RDBAH: usize = 0x02804 / 4;
-const RDLEN: usize = 0x02808 / 4;
+const TDBAL: usize = 0x03800; // Transmit Descriptor Base Address Low
+const TDBAH: usize = 0x03804; // Transmit Descriptor Base Address High
+const TDLEN: usize = 0x03808; // Transmit Descriptor Length
+const RDBAL: usize = 0x02800;
+const RDBAH: usize = 0x02804;
+const RDLEN: usize = 0x02808;
 
-const TXDCTL: usize = 0x03828 / 4; // Transmit Descriptor Control
+const TXDCTL: usize = 0x03828; // Transmit Descriptor Control
 const TXDCTL_GRAN: u32 = 0x1 << 24;
 const TXDCTL_WTHRESH: u32 = 0x1 << 16;
-const TCTL: usize = 0x00400 / 4; // Transmit Control Register
+const TCTL: usize = 0x00400; // Transmit Control Register
 const TCTL_EN: u32 = 0x1 << 1; //  Transmitter Enable
 const TCTL_PSP: u32 = 0x1 << 3; //  Pad short packets
 const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
 const TCTL_COLD: u32 = 0x1FF << 12; // Collision Distance
-const TIPG: usize = 0x00410 / 4; // Transmit IPG Register
+const TIPG: usize = 0x00410; // Transmit IPG Register
 const TIPG_IPGT: u32 = 0x8;
 const TIPG_IPGR1: u32 = 0x2 << 10;
 const TIPG_IPGR2: u32 = 0xA << 20;
@@ -91,7 +91,7 @@ impl PCIeDevice for E1000E {
             write_volatile(command_reg as *mut u16, 0b111);
         }
 
-        if let Err(e) = self.init_hw() {
+        if let Err(e) = unsafe { self.init_hw() } {
             panic!("failed to init the E1000E.");
         }
     }
@@ -214,6 +214,12 @@ impl E1000E {
         let regs_len = (Self::ADDR_SPACE_SIZE / 4) as usize;
         slice::from_raw_parts_mut(self.register_start as *mut u32, regs_len)
     }
+
+    unsafe fn write_reg(&self, reg: usize, val: u32) {
+        (self.register_start as *mut u32)
+            .add(reg / 4)
+            .write_volatile(val)
+    }
 }
 
 impl Ether for E1000E {
@@ -225,32 +231,26 @@ impl Ether for E1000E {
         unimplemented!()
     }
 
-    fn init_hw(&mut self) -> Result<(), EtherErr> {
-        let regs = unsafe { self.get_regs() };
-
+    unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
         // Disable Interrupts
-        regs[IMS] = 0;
+        self.write_reg(IMS, 0);
 
         // Issue Global Reset and perform General Configuration
 
         // Setup the PHY and the link
 
         // 4.6.6 Transmit Initialization
-
         //  transmit ring
-        regs[TDBAL] = self.tx_ring_pa as u32;
-        regs[TDBAH] = (self.tx_ring_pa >> 32) as u32;
-        regs[TDLEN] = self.tx_ring.len() as u32;
-        regs[TXDCTL] = TXDCTL_GRAN | TXDCTL_WTHRESH;
-        regs[TCTL] = TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN;
-        regs[TIPG] = TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT;
-
+        self.write_reg(TDBAL, self.tx_ring_pa as u32);
+        self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
+        self.write_reg(TXDCTL, TXDCTL_GRAN | TXDCTL_WTHRESH);
+        self.write_reg(TCTL, TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN);
+        self.write_reg(TIPG, TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT);
         //  4.6.5 Receive Initialization
-
-        //  receive rina
-        regs[RDBAL] = self.rx_ring_pa as u32;
-        regs[RDBAH] = (self.rx_ring_pa >> 32) as u32;
-        regs[RDLEN] = self.rx_ring.len() as u32;
+        //  receive ring
+        self.write_reg(RDBAL, self.rx_ring_pa as u32);
+        self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
+        self.write_reg(RDLEN, self.rx_ring.len() as u32);
 
         // Enable interrupt
 
