@@ -7,7 +7,7 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, cpu, driver::uart::DevUART, mmu, serial};
+use super::{bsp::raspi, console, cpu, driver::uart::DevUART, mmu};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 5. Enable serial port.
 unsafe fn primary_cpu() {
     // Initialize UART.
-    serial::init_device();
+    console::init_device();
 
     match awkernel_aarch64::get_current_el() {
         0 => DevUART::raw_puts("EL0\n"),
@@ -87,7 +87,7 @@ unsafe fn primary_cpu() {
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     // 5. Enable serial port.
-    serial::init();
+    console::init();
 
     log::info!(
         "Stack memory: start = 0x{:x}, end = 0x{:x}",

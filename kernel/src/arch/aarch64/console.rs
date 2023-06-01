@@ -3,16 +3,16 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::fmt::Write;
 use log::Log;
 
-pub static SERIAL: Serial = Serial::new();
+pub static CONSOLE: Console = Console::new();
 
 pub const UART_CLOCK: usize = 48000000;
 pub const UART_BAUDRATE: usize = 115200;
 
-pub struct Serial {
+pub struct Console {
     port: Mutex<Option<DevUART>>,
 }
 
-impl Serial {
+impl Console {
     const fn new() -> Self {
         Self {
             port: Mutex::new(None),
@@ -30,7 +30,7 @@ impl Serial {
     }
 }
 
-impl Log for Serial {
+impl Log for Console {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
         let mut node = MCSNode::new();
         let guard = self.port.lock(&mut node);
@@ -58,7 +58,7 @@ pub unsafe fn init_device() {
 }
 
 pub fn init() {
-    SERIAL.init();
-    let _ = log::set_logger(&SERIAL);
+    CONSOLE.init();
+    let _ = log::set_logger(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
 }

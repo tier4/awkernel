@@ -1,7 +1,7 @@
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
 pub mod pl011;
 
-use crate::arch::aarch64::serial::{UART_BAUDRATE, UART_CLOCK};
+use crate::arch::aarch64::console::{UART_BAUDRATE, UART_CLOCK};
 use awkernel_lib::serial::Serial;
 
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
