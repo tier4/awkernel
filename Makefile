@@ -121,9 +121,22 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
+
 QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
-QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::$(QEMUPORT),server,nowait
+QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+
+QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
+QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
+QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0
+QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
+
+tcp-dump:
+	tcpdump -XXnr packets.pcap
+
+qemu-x86_64-net:
+	cat /dev/null > packets.pcap
+	qemu-system-x86_64  $(QEMU_X86_NET_ARGS) -bios `cat ${HOME}/.ovfmpath`
 
 qemu-x86_64:
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`

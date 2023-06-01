@@ -2,15 +2,16 @@
 #![allow(unused_variables)]
 use super::pcie::{DeviceInfo, PCIeDevice};
 use crate::net::ether::{Ether, EtherErr};
-use crate::net::mbuf::MBuf;
 use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
 use awkernel_lib::arch::x86_64::mmu::map_to;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
-use smoltcp::phy;
+use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
+
+const BUFFER_PAGE_SIZE: usize = 4096;
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format
@@ -53,29 +54,6 @@ pub struct E1000E {
 }
 
 const E1000E_BAR0_MASK: usize = 0xFFFFFFF0;
-
-const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
-const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
-
-const TDBAL: usize = 0x03800; // Transmit Descriptor Base Address Low
-const TDBAH: usize = 0x03804; // Transmit Descriptor Base Address High
-const TDLEN: usize = 0x03808; // Transmit Descriptor Length
-const RDBAL: usize = 0x02800;
-const RDBAH: usize = 0x02804;
-const RDLEN: usize = 0x02808;
-
-const TXDCTL: usize = 0x03828; // Transmit Descriptor Control
-const TXDCTL_GRAN: u32 = 0x1 << 24;
-const TXDCTL_WTHRESH: u32 = 0x1 << 16;
-const TCTL: usize = 0x00400; // Transmit Control Register
-const TCTL_EN: u32 = 0x1 << 1; //  Transmitter Enable
-const TCTL_PSP: u32 = 0x1 << 3; //  Pad short packets
-const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
-const TCTL_COLD: u32 = 0x1FF << 12; // Collision Distance
-const TIPG: usize = 0x00410; // Transmit IPG Register
-const TIPG_IPGT: u32 = 0x8;
-const TIPG_IPGR1: u32 = 0x2 << 10;
-const TIPG_IPGR2: u32 = 0xA << 20;
 
 impl PCIeDevice for E1000E {
     const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
@@ -220,37 +198,72 @@ impl E1000E {
             .add(reg / 4)
             .write_volatile(val)
     }
+
+    unsafe fn read_reg(&self, reg: usize) -> u32 {
+        (self.register_start as *const u32)
+            .add(reg / 4)
+            .read_volatile()
+    }
+
+    unsafe fn reset(&self) {
+        self.write_reg(IMS, 0);
+        let val = self.read_reg(CTRL) | CTRL_RST;
+        self.write_reg(CTRL, val);
+        self.write_reg(IMS, 0);
+    }
 }
 
 impl Ether for E1000E {
     // poll for the received packet
-    fn poll(&mut self) -> Result<(), EtherErr> {
+    fn recv(&self) -> Result<&mut [u8], EtherErr> {
         loop {}
     } // Initialize receive
-    fn send(&mut self, buffer: &mut MBuf) -> Result<(), EtherErr> {
+    fn send(&self, buffer: &mut [u8]) -> Result<(), EtherErr> {
         unimplemented!()
     }
 
     unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
-        // Disable Interrupts
-        self.write_reg(IMS, 0);
+        log::info!("{:#x}", self.read_reg(STATUS));
 
-        // Issue Global Reset and perform General Configuration
+        // PCIe Register
+        // GCR bit 22 should be set to 1b during initialization
+        self.write_reg(GCR, 0b1 << 22);
+        // 4.6.2 Global Reset and General Configuration
+        self.reset();
 
         // Setup the PHY and the link
 
         // 4.6.6 Transmit Initialization
-        //  transmit ring
+        //  Install the transmit ring
         self.write_reg(TDBAL, self.tx_ring_pa as u32);
         self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
+        self.write_reg(TDLEN, self.rx_ring.len() as u32);
+        self.write_reg(TDH, 0);
+        self.write_reg(TDT, 0);
+        // Transmit Registers Initialization
         self.write_reg(TXDCTL, TXDCTL_GRAN | TXDCTL_WTHRESH);
         self.write_reg(TCTL, TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN);
         self.write_reg(TIPG, TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT);
         //  4.6.5 Receive Initialization
-        //  receive ring
+        //  Install the receive ring
         self.write_reg(RDBAL, self.rx_ring_pa as u32);
         self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
         self.write_reg(RDLEN, self.rx_ring.len() as u32);
+        self.write_reg(RDH, 0);
+        self.write_reg(RDT, (self.rx_ring.len() - 1) as u32);
+        // Clear the Multicast Table Array
+        for offset in 0..128 {
+            self.write_reg(MTA + offset, 0);
+        }
+        // Receive Registers Intialization
+        self.write_reg(RAH, 0); // MAC Low
+        self.write_reg(RAL, 0); // MAC High
+        self.write_reg(
+            RCTL,
+            RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
+        );
+
+        log::info!("{:#x}", self.read_reg(STATUS));
 
         // Enable interrupt
 
@@ -258,19 +271,23 @@ impl Ether for E1000E {
     }
 }
 
-pub struct RxToken(MBuf);
+pub struct RxToken<'a>(&'a E1000E);
 
-pub struct TxToken(MBuf);
+pub struct TxToken<'a>(&'a E1000E);
 
 /// Adapting a lazy method such that
 /// the receiving and sending operations only occur
 /// when the tokens are consumed.
 /// Thus the `receive` and ` transmit` only create the token.
-impl phy::Device<'_> for E1000E {
-    type RxToken = RxToken;
-    type TxToken = TxToken;
+impl<'a> phy::Device<'a> for E1000E {
+    type RxToken = RxToken<'a> where Self : 'a;
+    type TxToken = TxToken<'a> where Self : 'a;
     fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
-        unimplemented!()
+        let mut cap = DeviceCapabilities::default();
+        cap.max_transmission_unit = 1536;
+        cap.max_burst_size = Some(32);
+        cap.medium = Medium::Ethernet;
+        cap
     }
 
     fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
@@ -282,7 +299,7 @@ impl phy::Device<'_> for E1000E {
     }
 }
 
-impl phy::RxToken for RxToken {
+impl<'a> phy::RxToken for RxToken<'a> {
     /// Store packet data into the buffer.
     /// Closure f will map the raw bytes to the form that
     /// could be used in the higher layer of smoltcp.
@@ -290,11 +307,13 @@ impl phy::RxToken for RxToken {
     where
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
-        unimplemented!()
+        let buffer = self.0.recv().unwrap();
+        let result = f(buffer);
+        result
     }
 }
 
-impl phy::TxToken for TxToken {
+impl<'a> phy::TxToken for TxToken<'a> {
     /// create a buffer of size `len`
     /// Closure f will construct a packet in the buffer.
     /// Real packet data transmissions occur here.
@@ -308,16 +327,59 @@ impl phy::TxToken for TxToken {
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         // allocate a buffer for raw data
-
+        let mut buffer: [u8; BUFFER_PAGE_SIZE] = [0; BUFFER_PAGE_SIZE];
         // construct packet in buffer
-
+        let result = f(&mut buffer[0..len]);
         // send the buffer
-
-        unimplemented!()
+        let _ = self.0.send(&mut buffer);
+        result
     }
 }
 
-// Interrupt Mask Set/Read Register
-pub(crate) const _IMS: usize = 0x000D0;
-// Interrupt Mask Clear Register
-pub(crate) const _IMC: usize = 0x000D8;
+const CTRL: usize = 0x00000; // Device Control Register
+const STATUS: usize = 0x00008; // Device Status register
+const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
+const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+
+// Transmit Registers
+const TCTL: usize = 0x00400; // Transmit Control Register
+const TIPG: usize = 0x00410; // Transmit IPG Register
+const TDBAL: usize = 0x03800; // Transmit Descriptor Base Address Low
+const TDBAH: usize = 0x03804; // Transmit Descriptor Base Address High
+const TDLEN: usize = 0x03808; // Transmit Descriptor Length
+const TDH: usize = 0x03810; // Transmit Descriptor Head
+const TDT: usize = 0x03818; // Transmit Descriptor Tail
+const TXDCTL: usize = 0x03828; // Transmit Descriptor Control
+
+// Receive Registers
+const RCTL: usize = 0x00100; // Receive Control Register
+const RDBAL: usize = 0x02800; // Receive Descriptor Base Address Low
+const RDBAH: usize = 0x02804; // Receive Descriptor Base Address High
+const RDLEN: usize = 0x02808; // Receive Descriptor Base Length
+const RDH: usize = 0x02810; // Receive Descriptor Head
+const RDT: usize = 0x02818; // Receive Descriptor Tail
+const MTA: usize = 0x05200; // Multicast Table Array
+const RAL: usize = 0x05400; // Receive Address Low
+const RAH: usize = 0x05404; // Receive Address High
+
+const GCR: usize = 0x05B00; // 3GIO
+
+const CTRL_RST: u32 = 0b1 << 26;
+
+const TXDCTL_GRAN: u32 = 0b1 << 24;
+const TXDCTL_WTHRESH: u32 = 0b1 << 16;
+
+const TCTL_EN: u32 = 0b1 << 1; //  Transmitter Enable
+const TCTL_PSP: u32 = 0b1 << 3; //  Pad short packets
+const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
+
+const TCTL_COLD: u32 = 0x3F << 12; // Collision Distance (FDX)
+const TIPG_IPGT: u32 = 0x8;
+const TIPG_IPGR1: u32 = 0x2 << 10;
+const TIPG_IPGR2: u32 = 0xA << 20;
+
+const RCTL_EN: u32 = 0b1 << 1; // Receive Control Register Enable
+const RCTL_BAM: u32 = 0b1 << 15; // Broadcast Accept Mode
+const RCTL_BSIZE: u32 = 0b11 << 16; // Receive Buffer Size (4096 Bytes)
+const RCTL_BSEX: u32 = 0b1 << 25; // Buffer Size Extenson
+const RCTL_SECRC: u32 = 0b1 << 26; // Strip CRC from packet

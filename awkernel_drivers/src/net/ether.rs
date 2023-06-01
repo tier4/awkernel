@@ -1,4 +1,4 @@
-use super::mbuf::MBuf;
+
 
 #[derive(Debug)]
 pub enum EtherErr {
@@ -9,10 +9,10 @@ pub enum EtherErr {
 
 pub trait Ether {
     // send a packet in buffer
-    fn send(&mut self, buffer: &mut MBuf) -> Result<(), EtherErr>;
+    fn send(&self, buffer: &mut [u8]) -> Result<(), EtherErr>;
 
     // receive a packet, and store it into a buffer
-    fn poll(&mut self) -> Result<(), EtherErr>;
+    fn recv(&self) -> Result<&mut  [u8], EtherErr>;
 
     // init the NIC hardware
     unsafe fn init_hw(&mut self) -> Result<(), EtherErr>;
