@@ -68,7 +68,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
     super::console::init(); // 2. Initialize the serial port.
-    awkernel_lib::console::register_unsafe_puts(super::console::unsafe_puts);
 
     unsafe { unsafe_puts("The primary CPU is waking up.\n") };
 

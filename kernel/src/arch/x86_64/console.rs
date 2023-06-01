@@ -6,7 +6,7 @@ use core::fmt::Write;
 use log::Log;
 use uart_16550::SerialPort;
 
-pub static SERIAL: UART = UART::new();
+static CONSOLE: UART = UART::new();
 
 pub struct UART {
     port: Mutex<uart_16550::SerialPort>,
@@ -48,11 +48,14 @@ impl Log for UART {
 
 pub fn init() {
     UART::init();
+    awkernel_lib::console::register_unsafe_puts(unsafe_puts);
 }
 
 pub fn init_logger() {
-    let _ = log::set_logger(&SERIAL);
+    let _ = log::set_logger(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
+
+    awkernel_lib::console::register_console(&CONSOLE);
 }
 
 impl Write for UART {
@@ -65,7 +68,7 @@ impl Write for UART {
     }
 }
 
-pub unsafe fn unsafe_puts(data: &str) {
+unsafe fn unsafe_puts(data: &str) {
     let mut port = unsafe { uart_16550::SerialPort::new(0x3F8) };
     let _ = port.write_str(data);
 }
