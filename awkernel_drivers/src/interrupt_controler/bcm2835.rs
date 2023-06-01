@@ -15,12 +15,12 @@ mod registers {
     mmio_w!(offset 0x24 => pub IRQ_DISABLE_BASIC<u32>);
 }
 
-pub struct GenericInterruptController {
+pub struct BCM2835IntCtrl {
     iter: Option<PendingInterruptIterator>,
     base: usize,
 }
 
-impl GenericInterruptController {
+impl BCM2835IntCtrl {
     pub fn new(base: usize) -> Self {
         log::info!("BCM2835 IRQ: Initializing the interrupt controller.");
 
@@ -45,7 +45,7 @@ impl GenericInterruptController {
     }
 }
 
-impl InterruptController for GenericInterruptController {
+impl InterruptController for BCM2835IntCtrl {
     fn enable_irq(&mut self, irq: usize) {
         if irq >= 64 {
             log::warn!("BCM2835 IRQ: Failed to enable IRQ #{irq} because it is greater than 63.");

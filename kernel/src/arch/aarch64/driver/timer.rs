@@ -17,7 +17,7 @@ impl SystemTimer {
     pub fn init(irq: usize) {
         log::info!("timer: initializing generic arm timer to trigger context switch");
 
-        interrupt::register_irq(irq, SystemTimer::handle_irq).unwrap();
+        interrupt::register_handler(irq, SystemTimer::handle_irq).unwrap();
         interrupt::enable_irq(irq);
 
         let value = registers::COUNT_LOW.read(BASE) + 2000000;

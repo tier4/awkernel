@@ -1,4 +1,7 @@
-use super::driver::uart::{self, DevUART};
+use super::{
+    config,
+    driver::uart::{self, DevUART},
+};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::fmt::Write;
 use log::Log;
@@ -23,7 +26,7 @@ impl Console {
         let mut node = MCSNode::new();
         let mut guard = self.port.lock(&mut node);
         if guard.is_none() {
-            let mut port = DevUART::new();
+            let mut port = DevUART::new(config::UART_IRQ);
             let _ = port.write_str("Initialized a serial port.\n");
             *guard = Some(port);
         }
@@ -32,34 +35,57 @@ impl Console {
 
 impl awkernel_lib::console::Console for Console {
     fn enable(&self) {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.enable()
-        }
+        let uart = DevUART::new(config::UART_IRQ);
+        uart.enable();
     }
 
     fn disable(&self) {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.disable()
-        }
+        let uart = DevUART::new(config::UART_IRQ);
+        uart.disable();
     }
 
     fn enable_recv_interrupt(&self) {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.enable_recv_interrupt()
-        }
+        let uart = DevUART::new(config::UART_IRQ);
+        uart.enable_recv_interrupt();
     }
 
     fn disable_recv_interrupt(&self) {
+        let uart = DevUART::new(config::UART_IRQ);
+        uart.disable_recv_interrupt();
+    }
+
+    fn acknowledge_recv_interrupt(&self) {
+        let uart = DevUART::new(config::UART_IRQ);
+        uart.acknowledge_recv_interrupt();
+    }
+
+    fn irq_id(&self) -> usize {
+        config::UART_IRQ
+    }
+
+    fn get(&self) -> Option<u8> {
         let mut node = MCSNode::new();
         let guard = self.port.lock(&mut node);
         if let Some(console) = guard.as_ref() {
-            console.disable_recv_interrupt()
+            console.get()
+        } else {
+            None
+        }
+    }
+
+    fn put(&self, data: u8) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.put(data);
+        }
+    }
+
+    fn print(&self, data: &str) {
+        let mut node = MCSNode::new();
+        let guard = self.port.lock(&mut node);
+        if let Some(console) = guard.as_ref() {
+            console.print(data);
         }
     }
 }

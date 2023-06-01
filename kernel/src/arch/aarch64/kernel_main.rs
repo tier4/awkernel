@@ -48,6 +48,7 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 3. Enable MMU.
 /// 4. Enable heap allocator.
 /// 5. Enable serial port.
+/// 6. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu() {
     // Initialize UART.
     console::init_device();
@@ -119,15 +120,29 @@ unsafe fn primary_cpu() {
         log::info!("Use SP_ELx.");
     }
 
-    // Board specific initialization.
+    // 6. Board specific initialization.
     super::bsp::init();
 
     awkernel_lib::console::enable_recv_interrupt();
-    interrupt::enable_irq(121 + 32); // Enable UART0
+
+    let console_irq = awkernel_lib::console::irq_id().unwrap();
+    interrupt::enable_irq(console_irq); // Enable UART0
+    interrupt::register_handler(console_irq, || {
+        while let Some(c) = awkernel_lib::console::get() {
+            awkernel_lib::console::put(c);
+        }
+        awkernel_lib::console::acknowledge_recv_interrupt();
+    })
+    .unwrap();
+
+    // SystemTimer::init(1);
 
     interrupt::enable();
 
-    loop {}
+    loop {
+        awkernel_lib::delay::wait_sec(10);
+        log::info!("heartbeat");
+    }
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

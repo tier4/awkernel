@@ -17,7 +17,7 @@ pub trait InterruptController: Sync + Send {
 
 type IrqHandler = fn();
 
-const MAX_IRQS: usize = 64;
+const MAX_IRQS: usize = 1024;
 
 static INTERRUPT_CONTROLLER: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
 static IRQ_HANDLERS: Mutex<[Option<IrqHandler>; MAX_IRQS]> = Mutex::new([None; MAX_IRQS]);
@@ -28,7 +28,7 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     *ctrl = Some(controller);
 }
 
-pub fn register_irq(irq: usize, func: IrqHandler) -> Result<(), ()> {
+pub fn register_handler(irq: usize, func: IrqHandler) -> Result<(), ()> {
     let mut node = MCSNode::new();
     if irq >= MAX_IRQS || IRQ_HANDLERS.lock(&mut node)[irq].is_some() {
         return Err(());
@@ -71,6 +71,14 @@ pub fn handle_irqs() {
 }
 
 /// Disable interrupts and automatically restored the configuration.
+///
+/// ```
+/// {
+///     let _int_guard = InterruptGuard::new();
+///     // interrupts are disabled.
+/// }
+/// // The configuration will be restored here.
+/// ```
 pub struct InterruptGuard {
     flag: usize,
 }

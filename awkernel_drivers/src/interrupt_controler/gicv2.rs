@@ -5,7 +5,7 @@ const GIC_MAX_INTS: usize = 1020;
 const NUM_INTS_PER_REG: usize = 32;
 
 mod registers {
-    use awkernel_lib::mmio_rw;
+    use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
     use bitflags::bitflags;
 
     bitflags! {
@@ -25,6 +25,8 @@ mod registers {
 
     mmio_rw!(offset 0x000 => pub GICC_CTLR<GiccCtlrNonSecure>);
     mmio_rw!(offset 0x004 => pub GICC_PMR<u32>);
+    mmio_r! (offset 0x00C => pub GICC_IAR<u32>);
+    mmio_w! (offset 0x010 => pub GICC_EOIR<u32>);
 
     mmio_rw!(offset 0x000 => pub GICD_CTLR<GicdCtlrNonSecure>);
     mmio_rw!(offset 0x080 => pub GICD_IGROUPR<u32>);
@@ -42,6 +44,7 @@ pub struct GICv2 {
     gicc_base: usize,
     gicd_base: usize,
     max_it: usize,
+    iter: Option<PendingInterruptIterator>,
 }
 
 fn div_ceil(a: usize, b: usize) -> usize {
@@ -54,6 +57,7 @@ impl GICv2 {
             gicc_base,
             gicd_base,
             max_it: 0,
+            iter: None,
         };
 
         // Disable the distributor.
@@ -162,6 +166,13 @@ impl GICv2 {
 
         registers::GICD_ITARGETSR.write(target, base);
     }
+
+    fn iter(&mut self) -> PendingInterruptIterator {
+        PendingInterruptIterator {
+            gicc_base: self.gicc_base,
+            done: false,
+        }
+    }
 }
 
 pub type IRQNumber = u16;
@@ -204,6 +215,37 @@ impl InterruptController for GICv2 {
     }
 
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
-        todo!()
+        self.iter = Some(self.iter());
+        self.iter.as_mut().unwrap()
+    }
+}
+
+pub struct PendingInterruptIterator {
+    gicc_base: usize,
+    done: bool,
+}
+
+const ID_SPURIOUS: u32 = 1023;
+
+impl Iterator for PendingInterruptIterator {
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        let iar = registers::GICC_IAR.read(self.gicc_base);
+        registers::GICC_EOIR.write(iar, self.gicc_base);
+
+        let id = iar & (1024 - 1);
+
+        self.done = true;
+
+        if id == ID_SPURIOUS {
+            return None;
+        } else {
+            Some(id as usize)
+        }
     }
 }
