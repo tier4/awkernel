@@ -376,6 +376,7 @@ sysreg!(daif);
 
 sysreg!(cntp_ctl_el0);
 sysreg!(cntp_cval_el0);
+sysreg!(cntp_tval_el0);
 sysreg!(cntv_ctl_el0);
 sysreg!(cntv_cval_el0);
 sysreg!(cntfrq_el0);

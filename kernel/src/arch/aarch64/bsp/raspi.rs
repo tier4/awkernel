@@ -22,18 +22,40 @@ pub fn start_non_primary() {
 }
 
 #[cfg(feature = "raspi4")]
+mod timer {
+    use awkernel_lib::arch::aarch64::arm_timer::ArmTimer;
+    pub static TIMER: ArmTimer = ArmTimer::new(30);
+}
+
+#[cfg(feature = "raspi4")]
 pub fn init() {
+    // Set-up the interrupt controller.
     let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
         memory::GIC_V2_CPU_INTERFACE_BASE,
         memory::GIC_V2_DISTRIBUTOR_BASE,
     );
     register_interrupt_controller(Box::new(gic));
+
+    // Set-up timer.
+    awkernel_lib::timer::register_timer(&timer::TIMER);
+}
+
+#[cfg(feature = "raspi3")]
+mod timer {
+    use awkernel_lib::arch::aarch64::rpi_system_timer::RpiSystemTimer;
+
+    use super::memory::MMIO_BASE;
+    pub static TIMER: RpiSystemTimer = RpiSystemTimer::new(1, MMIO_BASE + 0x3000);
 }
 
 #[cfg(feature = "raspi3")]
 pub fn init() {
+    // Set-up the interrupt controller.
     let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
         memory::INTERRUPT_CTRL_BASE,
     );
     register_interrupt_controller(Box::new(ctrl));
+
+    // Set-up timer.
+    awkernel_lib::timer::register_timer(&timer::TIMER);
 }

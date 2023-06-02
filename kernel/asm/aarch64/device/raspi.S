@@ -153,6 +153,7 @@ _start:
 .L4:
     msr     sp_el0, x10  // set stack pointer
     msr     sp_el1, x10
+    msr     spsel, #0
 
     mrs     x0, hcr_el2
     orr     x0, x0, #(1 << 31) // AArch64

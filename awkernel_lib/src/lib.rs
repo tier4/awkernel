@@ -15,6 +15,7 @@ pub mod interrupt;
 pub mod logger;
 pub mod mmio;
 pub mod sync;
+pub mod timer;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;

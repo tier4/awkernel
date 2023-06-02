@@ -144,6 +144,14 @@ pub fn curr_el_spx_irq_el1(ctx: *mut AllContext, sp: usize, esr: usize) {
         esr,
         context.elr
     );
+
+    if awkernel_aarch64::spsel::get() & 1 == 0 {
+        log::info!("Use SP_EL0.");
+    } else {
+        log::info!("Use SP_ELx.");
+    }
+
+    wait_forever();
 }
 
 #[no_mangle]

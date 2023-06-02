@@ -4,11 +4,12 @@ use awkernel_lib::{mmio_rw, mmio_w};
 // Raspberry Pi 3
 #[cfg(feature = "raspi3")]
 mod raspi {
-    pub const MMIO_BASE: usize = 0x3F000000;
-    pub const DEVICE_MEM_START: u64 = 0x3C000000;
-    pub const DEVICE_MEM_END: u64 = 0x40000000;
+    pub const DEVICE_MEM_START: u64 = 0x3c00_0000;
+    pub const DEVICE_MEM_END: u64 = 0x4004_0000;
 
+    pub const MMIO_BASE: usize = 0x3f00_0000;
     pub const INTERRUPT_CTRL_BASE: usize = MMIO_BASE + 0xB200;
+    pub const LOCAL_PERIPHERAL_BASE: usize = 0x4000_0000;
 }
 //-----------------------------------------------------------------------------
 
@@ -16,15 +17,15 @@ mod raspi {
 // Raspberry Pi 4
 #[cfg(feature = "raspi4")]
 mod raspi {
-    pub const MMIO_BASE: usize = 0xfe000000;
-    pub const DEVICE_MEM_START: u64 = 0xfd500000;
-    pub const DEVICE_MEM_END: u64 = 0x100000000;
+    pub const DEVICE_MEM_START: u64 = 0xfd50_0000;
+    pub const DEVICE_MEM_END: u64 = 0x1_0000_0000;
 
-    pub const INTERRUPT_CTRL_BASE: usize = 0xff800000;
-    pub const GIC_V2_DISTRIBUTOR_BASE: usize = INTERRUPT_CTRL_BASE + 0x00041000;
-    pub const GIC_V2_CPU_INTERFACE_BASE: usize = INTERRUPT_CTRL_BASE + 0x00042000;
-    pub const _GIC_V2_HYPERVISOR_BASE: usize = INTERRUPT_CTRL_BASE + 0x00044000;
-    pub const _GIC_V2_VIRTUAL_CPU_BASE: usize = INTERRUPT_CTRL_BASE + 0x00046000;
+    pub const MMIO_BASE: usize = 0xfe00_0000;
+    pub const LOCAL_PERIPHERAL_BASE: usize = 0xff80_0000;
+    pub const GIC_V2_DISTRIBUTOR_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_1000;
+    pub const GIC_V2_CPU_INTERFACE_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_2000;
+    pub const _GIC_V2_HYPERVISOR_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_4000;
+    pub const _GIC_V2_VIRTUAL_CPU_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_6000;
 }
 //-----------------------------------------------------------------------------
 
@@ -68,4 +69,4 @@ mmio_rw!(GPIO_BASE + 0x094 => pub GPPUD<u32>);
 mmio_rw!(GPIO_BASE + 0x098 => pub GPPUDCLK0<u32>);
 mmio_rw!(GPIO_BASE + 0x09c => pub GPPUDCLK1<u32>);
 
-pub const UART0_BASE: usize = MMIO_BASE + 0x00201000;
+pub const UART0_BASE: usize = MMIO_BASE + 0x0020_1000;

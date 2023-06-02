@@ -11,7 +11,6 @@ use super::{bsp::raspi, console, cpu, mmu};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
-        driver::timer::SystemTimer,
         mmu::{get_stack_el1_end, get_stack_el1_start},
     },
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
@@ -134,15 +133,6 @@ unsafe fn primary_cpu() {
         awkernel_lib::console::acknowledge_recv_interrupt();
     })
     .unwrap();
-
-    // SystemTimer::init(1);
-
-    interrupt::enable();
-
-    loop {
-        awkernel_lib::delay::wait_sec(10);
-        log::info!("heartbeat");
-    }
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

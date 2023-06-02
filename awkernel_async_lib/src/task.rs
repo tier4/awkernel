@@ -387,10 +387,10 @@ pub fn run_main() {
                 }
             }
         } else {
-            #[cfg(target_os = "linux")]
+            #[cfg(feature = "std")]
             wait_microsec(10);
 
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(feature = "std"))]
             wait_microsec(1);
         }
     }
