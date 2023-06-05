@@ -387,10 +387,10 @@ pub fn run_main() {
                 }
             }
         } else {
-            #[cfg(target_os = "linux")]
+            #[cfg(feature = "std")]
             wait_microsec(10);
 
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(feature = "std"))]
             wait_microsec(1);
         }
     }
@@ -412,7 +412,6 @@ pub unsafe fn run(_cpu_id: usize) {
 #[cfg(not(feature = "no_preempt"))]
 pub unsafe fn preemption() {
     let _int_guard = InterruptGuard::new();
-    interrupt::disable();
 
     #[cfg(not(feature = "std"))]
     let _heap_guard = {

@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
+bitflags = "2.3"
 
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"

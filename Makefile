@@ -66,7 +66,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 
 QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -kernel kernel8.img
 QEMU_RASPI3_ARGS+= -serial stdio -display none
-QEMU_RASPI3_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait -d int
+QEMU_RASPI3_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
 
 qemu-raspi3:
 	qemu-system-aarch64  $(QEMU_RASPI3_ARGS)

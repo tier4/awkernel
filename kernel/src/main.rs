@@ -15,7 +15,6 @@ use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
-use awkernel_lib::delay::pause;
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
 
@@ -34,12 +33,22 @@ mod nostd;
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
-    // TODO: currently interrupt is supported for only AArch64
-    #[cfg(all(feature = "aarch64", not(feature = "std")))]
-    awkernel_lib::interrupt::enable();
-
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
+
+        // TODO: currently interrupt and timer is supported for only AArch64
+        #[cfg(feature = "aarch64")]
+        {
+            let irq = awkernel_lib::timer::irq_id().unwrap();
+            awkernel_lib::interrupt::enable_irq(irq);
+            awkernel_lib::interrupt::register_handler(irq, || {
+                awkernel_lib::timer::reset();
+            })
+            .unwrap();
+
+            awkernel_lib::timer::reset();
+            awkernel_lib::interrupt::enable();
+        }
 
         // Userland.
         task::spawn(
@@ -49,7 +58,16 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         loop {
             wake_task(); // Wake executable tasks periodically.
-            pause();
+
+            #[cfg(not(feature = "std"))]
+            {
+                awkernel_lib::delay::wait_microsec(1);
+            }
+
+            #[cfg(feature = "std")]
+            {
+                awkernel_lib::delay::wait_microsec(10);
+            }
         }
     } else {
         // Non-primary CPUs.

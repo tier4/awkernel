@@ -1,71 +1,18 @@
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
 pub mod pl011;
 
-use alloc::vec::Vec;
-
-pub trait Uart {
-    fn new(base: usize) -> Self;
-    fn send(&self, c: u32);
-    fn recv(&self) -> u32;
-    fn enable_recv_interrupt(&self);
-    fn disable_recv_interrupt(&self);
-    fn on(&self);
-    fn off(&self);
-
-    fn init(clock: usize, baudrate: usize);
-
-    fn puts(&self, data: &str) {
-        for c in data.bytes() {
-            self.send(c as u32);
-            if c == b'\n' {
-                self.send(b'\r' as u32);
-            }
-        }
-    }
-
-    unsafe fn unsafe_puts(data: &str);
-
-    #[allow(clippy::same_item_push)]
-    fn read_line(&self) -> Vec<u8> {
-        let mut res = Vec::new();
-
-        loop {
-            let c = self.recv() as u8;
-            if c == b'\r' || c == b'\n' {
-                break;
-            } else if c == 0x08 || c == 0x7F {
-                if !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else if c == b'\t' {
-                let c = b' ';
-                for _ in 0..8 {
-                    self.send(c as u32);
-                    res.push(c);
-                }
-            } else if c == 0x15 {
-                while !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else {
-                self.send(c as u32);
-                res.push(c);
-            }
-        }
-
-        self.puts("\n");
-
-        res
-    }
-}
+use crate::arch::aarch64::console::{UART_BAUDRATE, UART_CLOCK};
+use awkernel_lib::console::Console;
 
 #[cfg(any(feature = "raspi3", feature = "raspi4"))]
-pub type DevUART = pl011::RaspiUART;
+pub type DevUART = pl011::PL011;
 
-impl DevUART where DevUART: Uart {}
+impl DevUART where DevUART: Console {}
+
+pub unsafe fn init_device() {
+    DevUART::init_device(UART_CLOCK, UART_BAUDRATE);
+}
+
+pub unsafe fn unsafe_puts(data: &str) {
+    DevUART::unsafe_puts(data);
+}
