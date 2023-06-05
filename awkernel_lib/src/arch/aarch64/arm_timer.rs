@@ -23,8 +23,8 @@ impl ArmTimer {
 
 impl crate::timer::Timer for ArmTimer {
     fn reset(&self) {
-        // every 1/(2^20) = 0.000_000_954 [s].
-        let t = awkernel_aarch64::cntfrq_el0::get() >> 20;
+        // every 1/(2^10) = 0.000_976 [s].
+        let t = awkernel_aarch64::cntfrq_el0::get() >> 10;
         unsafe {
             awkernel_aarch64::cntp_tval_el0::set(t);
             awkernel_aarch64::cntp_ctl_el0::set(1); // Enable interrupt.

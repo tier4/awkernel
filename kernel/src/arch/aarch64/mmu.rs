@@ -18,7 +18,7 @@ use core::arch::asm;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
 // higher address space offset
-pub const EL1_ADDR_OFFSET: u64 = 0x1FFFFFF << 39;
+pub const _EL1_ADDR_OFFSET: u64 = 0x1FFFFFF << 39;
 
 pub const STACK_SIZE: u64 = 2 * 1024 * 1024; // 2MiB
 
@@ -199,6 +199,7 @@ pub unsafe fn enable() {
     assert!(addr.ttbr0 != 0 && addr.ttbr1 != 0);
 
     set_reg_el1(addr.ttbr0 as usize, addr.ttbr1 as usize);
+    init_sp_el1();
 }
 
 /// initialize transition tables
@@ -454,17 +455,16 @@ pub fn _tlb_flush_addr(vm_addr: usize) {
     };
 }
 
+#[allow(unused_assignments)]
 fn init_sp_el1() {
-    let stack = get_stack_el1_start();
-    for i in 0..NUM_CPU {
-        let addr = stack - i * STACK_SIZE + EL1_ADDR_OFFSET;
-        unsafe {
-            asm!(
-                "msr spsel, #1
-                 mov sp, {}
-                 msr spsel, #0",
-                in(reg) addr
-            );
-        }
-    }
+    let mut sp = 0;
+    unsafe {
+        asm!(
+            "
+        mov {0:x}, sp
+        msr spsel, #1
+        mov sp, {0:x}",
+            inout(reg) sp
+        )
+    };
 }

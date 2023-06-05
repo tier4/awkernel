@@ -86,8 +86,20 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_sp0_irq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {
-    interrupt::handle_irqs();
+pub fn curr_el_sp0_irq_el1(ctx: *mut AllContext, _sp: usize, esr: usize) {
+    let r = unsafe { &*ctx };
+    log::debug!(
+        r#"EL1 exception: SPX Sync
+ELR  = 0x{:x}
+SPSR = 0x{:x}
+ESR  = 0x{:x}
+"#,
+        r.elr,
+        r.spsr,
+        esr
+    );
+
+    wait_forever();
 }
 
 #[no_mangle]
@@ -131,27 +143,8 @@ ESR  = 0x{:x}
 }
 
 #[no_mangle]
-pub fn curr_el_spx_irq_el1(ctx: *mut AllContext, sp: usize, esr: usize) {
-    let context = unsafe { &mut *ctx };
-
-    // Log the context of the interrupt for debugging
-    log::info!(
-        "IRQ received at EL1:
-        Stack pointer: 0x{:x}
-        Exception Syndrome Register (ESR): 0x{:x}
-        Return address: 0x{:x}",
-        sp,
-        esr,
-        context.elr
-    );
-
-    if awkernel_aarch64::spsel::get() & 1 == 0 {
-        log::info!("Use SP_EL0.");
-    } else {
-        log::info!("Use SP_ELx.");
-    }
-
-    wait_forever();
+pub fn curr_el_spx_irq_el1(_ctx: *mut AllContext, _sp: usize, _esr: usize) {
+    interrupt::handle_irqs();
 }
 
 #[no_mangle]

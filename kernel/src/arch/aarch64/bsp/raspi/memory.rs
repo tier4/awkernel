@@ -9,7 +9,7 @@ mod raspi {
 
     pub const MMIO_BASE: usize = 0x3f00_0000;
     pub const INTERRUPT_CTRL_BASE: usize = MMIO_BASE + 0xB200;
-    pub const LOCAL_PERIPHERAL_BASE: usize = 0x4000_0000;
+    pub const _LOCAL_PERIPHERAL_BASE: usize = 0x4000_0000;
 }
 //-----------------------------------------------------------------------------
 

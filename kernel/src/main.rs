@@ -37,16 +37,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Primary CPU.
 
         // TODO: currently interrupt and timer is supported for only AArch64
-        #[cfg(all(feature = "aarch64", not(feature = "std")))]
+        #[cfg(feature = "aarch64")]
         {
             let irq = awkernel_lib::timer::irq_id().unwrap();
             awkernel_lib::interrupt::enable_irq(irq);
             awkernel_lib::interrupt::register_handler(irq, || {
-                awkernel_lib::timer::disable();
+                awkernel_lib::timer::reset();
             })
             .unwrap();
 
-            // awkernel_lib::interrupt::enable();
+            awkernel_lib::timer::reset();
+            awkernel_lib::interrupt::enable();
         }
 
         // Userland.
@@ -58,14 +59,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            // TODO: currently interrupt and timer is supported for only AArch64
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
-            {
-                awkernel_lib::timer::reset(); // Re-enable the timer interrupt.
-                awkernel_lib::delay::wait_interrupt();
-            }
-
-            #[cfg(all(not(feature = "aarch64"), not(feature = "std")))]
+            #[cfg(not(feature = "std"))]
             {
                 awkernel_lib::delay::wait_microsec(1);
             }

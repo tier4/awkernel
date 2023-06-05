@@ -27,7 +27,7 @@ impl crate::timer::Timer for RpiSystemTimer {
     }
 
     fn disable(&self) {
-        registers::CONTROL.write(0, self.base);
+        registers::CONTROL.write(1 << 1, self.base);
     }
 
     fn irq_id(&self) -> usize {
