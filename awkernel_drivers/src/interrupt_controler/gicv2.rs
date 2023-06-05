@@ -137,7 +137,7 @@ impl GICv2 {
         registers::GICC_CTLR.write(old_ctlr, self.gicc_base);
     }
 
-    fn set_priority(&self, irq: usize, priority: u8) {
+    fn _set_priority(&self, irq: usize, priority: u8) {
         if irq > self.max_it {
             return;
         }
@@ -152,7 +152,7 @@ impl GICv2 {
             .write((old_priority & mask) | ((priority as u32) << shift), base);
     }
 
-    fn set_target_processor(&self, irq: usize, processor: u8) {
+    fn _set_target_processor(&self, irq: usize, processor: u8) {
         if irq > self.max_it {
             return;
         }

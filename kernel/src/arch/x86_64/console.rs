@@ -89,4 +89,24 @@ impl Console for UART {
     fn disable_recv_interrupt(&self) {
         // TODO
     }
+
+    fn acknowledge_recv_interrupt(&self) {
+        // TODO
+    }
+
+    fn irq_id(&self) -> usize {
+        todo!()
+    }
+
+    fn get(&self) -> Option<u8> {
+        todo!()
+    }
+
+    fn put(&self, data: u8) {
+        // TODO
+    }
+
+    fn print(&self, data: &str) {
+        // TODO
+    }
 }

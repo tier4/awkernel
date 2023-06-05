@@ -98,4 +98,22 @@ impl awkernel_lib::console::Console for Console {
     fn disable_recv_interrupt(&self) {
         todo!()
     }
+
+    fn acknowledge_recv_interrupt(&self) {
+        todo!()
+    }
+
+    fn get(&self) -> Option<u8> {
+        todo!()
+    }
+
+    fn put(&self, data: u8) {}
+
+    fn irq_id(&self) -> usize {
+        todo!()
+    }
+
+    fn print(&self, data: &str) {
+        todo!()
+    }
 }
