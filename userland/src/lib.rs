@@ -24,6 +24,8 @@ fn add_rtt(rtt: u64) {
 }
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
+    awkernel_async_lib::shell::init();
+
     spawn(
         async move {
             loop {
@@ -47,7 +49,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                 if count > 0 {
                     let ave = total as f64 / count as f64;
-                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                    // log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
                 }
             }
         },
@@ -105,9 +107,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         spawn(
             async move {
                 loop {
-                    log::debug!("do preemption: task = {i}");
+                    // log::debug!("do preemption: task = {i}");
                     unsafe { awkernel_async_lib::task::preemption() };
-                    log::debug!("end preemption: task = {i}");
+                    // log::debug!("end preemption: task = {i}");
 
                     awkernel_async_lib::sleep(Duration::from_millis(5000)).await;
                 }

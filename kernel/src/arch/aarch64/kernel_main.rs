@@ -122,18 +122,6 @@ unsafe fn primary_cpu() {
     // 6. Board specific initialization.
     super::bsp::init();
 
-    awkernel_lib::console::enable_recv_interrupt();
-
-    let console_irq = awkernel_lib::console::irq_id().unwrap();
-    interrupt::enable_irq(console_irq); // Enable UART0
-    interrupt::register_handler(console_irq, || {
-        while let Some(c) = awkernel_lib::console::get() {
-            awkernel_lib::console::put(c);
-        }
-        awkernel_lib::console::acknowledge_recv_interrupt();
-    })
-    .unwrap();
-
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 

@@ -1,4 +1,4 @@
-//! Define types and trait for the T4OS scheduler.
+//! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
 use crate::{delay::uptime, task::Task};
@@ -103,7 +103,7 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
 /// Wake executable tasks up.
 /// Waked tasks will be enqueued to their scheduler's queue.
 ///
-/// This function should be called by T4OS's kernel.
+/// This function should be called from only Autoware Kernel.
 /// So, do not call this from userland.
 pub fn wake_task() {
     let mut node = MCSNode::new();

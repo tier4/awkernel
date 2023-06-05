@@ -541,3 +541,10 @@ where
     use core::panic::AssertUnwindSafe;
     unwinding::panic::catch_unwind(AssertUnwindSafe(f))
 }
+
+/// Wake `task_id` up.
+pub fn wake(task_id: u64) {
+    let mut node = MCSNode::new();
+    let gurad = TASKS.lock(&mut node);
+    gurad.wake(task_id);
+}

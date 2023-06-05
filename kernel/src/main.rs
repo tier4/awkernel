@@ -41,12 +41,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         {
             let irq = awkernel_lib::timer::irq_id().unwrap();
             awkernel_lib::interrupt::enable_irq(irq);
-            awkernel_lib::interrupt::register_handler(irq, || {
-                awkernel_lib::timer::reset();
-            })
-            .unwrap();
 
-            awkernel_lib::timer::reset();
+            // awkernel_lib::timer::reset();
             awkernel_lib::interrupt::enable();
         }
 
