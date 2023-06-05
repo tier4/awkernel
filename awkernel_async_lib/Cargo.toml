@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 pin-project = "1"
 log = "0.4"
+blisp = "0.4"
 
 [dependencies.futures]
 version = "0.3"

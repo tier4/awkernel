@@ -4,7 +4,8 @@ use crate::{
     task::{self, TaskResult},
 };
 use alloc::{boxed::Box, vec::Vec};
-use awkernel_lib::console;
+use awkernel_lib::{console, sync::mutex::MCSNode};
+use blisp::embedded;
 use core::time::Duration;
 
 pub fn init() {
@@ -20,10 +21,16 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
+    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(InfoFfi)]).unwrap();
+    let blisp_ctx = blisp::typing(exprs).unwrap();
+
     let mut line = Vec::new();
 
     console::print("\nWelcome to Autoware Kernel!\n\n");
     console::print("You can use BLisp language as follows.\n");
+    console::print("https://ytakano.github.io/blisp/\n");
+    console::print("> (factorial 20)\n");
+    console::print("2432902008176640000\n");
     console::print("> (+ 10 20)\n");
     console::print("30\n");
 
@@ -50,9 +57,11 @@ async fn console_handler() -> TaskResult {
 
                 if let Ok(line_u8) = alloc::str::from_utf8(&line) {
                     console::print("\n");
-                    console::print(line_u8);
 
-                    console::print("\r\n> ");
+                    // Evaluate the line.
+                    eval(line_u8, &blisp_ctx);
+
+                    console::print("\n> ");
                 } else {
                     console::print("Error: Input string is not UTF-8.");
                 }
@@ -66,5 +75,68 @@ async fn console_handler() -> TaskResult {
         }
 
         sleep(Duration::from_millis(100)).await;
+    }
+}
+
+fn eval(expr: &str, ctx: &blisp::semantics::Context) {
+    match blisp::eval(expr, ctx) {
+        Ok(results) => {
+            for result in results {
+                match result {
+                    Ok(msg) => {
+                        console::print(&msg);
+                    }
+                    Err(e) => {
+                        console::print(&e);
+                        console::print("\n\ntry as follows\n> (help)\n");
+                    }
+                }
+            }
+        }
+        Err(err) => {
+            console::print(&err.msg);
+            console::print("\n\ntry as follows\n> (help)\n");
+        }
+    }
+}
+
+const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
+    (if (<= n 0)
+        1
+        (* n (factorial (- n 1)))))
+
+(export help () (IO (-> () []))
+    (help_ffi))
+
+(export info () (IO (-> () []))
+    (info_ffi))
+";
+
+#[embedded]
+fn help_ffi() {
+    console::print("Autoware Kernel\n");
+    console::print("version 202306\n\n");
+
+    console::print("BLisp functions:\n");
+    console::print(CODE);
+}
+
+#[embedded]
+fn info_ffi() {
+    print_tasks();
+}
+
+fn print_tasks() {
+    let tasks = task::get_tasks();
+
+    console::print("Tasks:\n");
+    console::print("ID\tState\tScheduler\n");
+
+    for t in tasks {
+        let mut node = MCSNode::new();
+        let task = t.info.lock(&mut node);
+
+        let msg = format!("{}\t{:?}\t{:?}\n", t.id, task.state, task.scheduler_type);
+        console::print(&msg);
     }
 }
