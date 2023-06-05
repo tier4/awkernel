@@ -34,6 +34,11 @@ optional = true
 version = "0.12"
 optional = true
 
+[dependencies.unwinding]
+version = "0.1"
+default-features = false
+features = ["panic"]
+
 [features]
 default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]

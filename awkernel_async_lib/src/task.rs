@@ -25,6 +25,7 @@ use alloc::{
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
     sync::mutex::{MCSNode, Mutex},
+    unwind::catch_unwind,
 };
 use core::{
     any::Any,
@@ -530,25 +531,6 @@ extern "C" fn thread_entry(_arg: usize) -> ! {
     run_main();
 
     awkernel_lib::delay::wait_forever();
-}
-
-#[cfg(feature = "std")]
-pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
-where
-    F: FnOnce() -> R,
-{
-    use core::panic::AssertUnwindSafe;
-
-    std::panic::catch_unwind(AssertUnwindSafe(f))
-}
-
-#[cfg(not(feature = "std"))]
-pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
-where
-    F: FnOnce() -> R,
-{
-    use core::panic::AssertUnwindSafe;
-    unwinding::panic::catch_unwind(AssertUnwindSafe(f))
 }
 
 /// Wake `task_id` up.

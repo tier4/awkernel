@@ -114,8 +114,7 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel\n");
-    console::print("version 202306\n\n");
+    console::print("Autoware Kernel v202306\n\n");
 
     console::print("BLisp functions:\n");
     console::print(CODE);

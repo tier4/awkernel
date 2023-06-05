@@ -103,7 +103,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         not(any(target_os = "linux", target_os = "macos")),
         target_arch = "aarch64"
     ))]
-    for i in 0..4 {
+    for _i in 0..4 {
         spawn(
             async move {
                 loop {

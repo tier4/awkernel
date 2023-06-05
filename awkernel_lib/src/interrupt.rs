@@ -1,5 +1,7 @@
 use crate::arch::ArchInterrupt;
+use crate::heap;
 use crate::sync::mutex::{MCSNode, Mutex};
+use crate::unwind::catch_unwind;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
@@ -67,7 +69,14 @@ pub fn handle_irqs() {
         let iter = ctrl.pending_irqs();
         while let Some(irq) = iter.next() {
             if let Some(handler) = handlers.get_mut(&irq) {
-                handler();
+                if let Err(err) = catch_unwind(|| {
+                    let _guard = unsafe { heap::TALLOC.save() };
+                    unsafe { heap::TALLOC.use_primary() };
+
+                    handler();
+                }) {
+                    log::warn!("an interrupt handler has been panicked\n{err:?}");
+                }
             }
         }
     }

@@ -15,11 +15,6 @@ version = "0.3"
 default-features = false
 features = ["alloc", "async-await", "cfg-target-has-atomic"]
 
-[dependencies.unwinding]
-version = "0.1"
-default-features = false
-features = ["panic"]
-
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
 default-features = false

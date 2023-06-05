@@ -1,4 +1,4 @@
-use crate::task::{catch_unwind, Task, TaskList};
+use crate::task::{Task, TaskList};
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -11,6 +11,7 @@ use awkernel_lib::{
     interrupt::InterruptGuard,
     memory::{self, Flags, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
+    unwind::catch_unwind,
 };
 use core::{
     alloc::{GlobalAlloc, Layout},

@@ -16,7 +16,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap, interrupt};
+use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
