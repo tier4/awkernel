@@ -13,3 +13,5 @@ pub const UART_IRQ: usize = 57;
 
 #[cfg(feature = "raspi4")]
 pub const UART_IRQ: usize = 121 + 32;
+
+pub const UART_CLOCK: usize = 48000000;

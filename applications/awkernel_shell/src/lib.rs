@@ -14,9 +14,9 @@ use blisp::embedded;
 use core::time::Duration;
 
 pub fn init() {
-    if let Some(irq) = awkernel_lib::console::irq_id() {
-        let task_id = task::spawn(console_handler(), SchedulerType::RoundRobin);
+    let task_id = task::spawn(console_handler(), SchedulerType::RoundRobin);
 
+    if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
             .is_err()
         {

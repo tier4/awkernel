@@ -1,6 +1,10 @@
 use alloc::boxed::Box;
-use awkernel_lib::interrupt::register_interrupt_controller;
+use awkernel_lib::{console::register_console, interrupt::register_interrupt_controller};
 use core::arch::asm;
+
+use crate::arch::aarch64::driver::uart;
+
+use self::config::UART_IRQ;
 
 pub mod config;
 pub mod memory;
@@ -29,6 +33,8 @@ mod timer {
 
 #[cfg(feature = "raspi4")]
 pub fn init() {
+    init_uart();
+
     // Set-up the interrupt controller.
     let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
         memory::GIC_V2_CPU_INTERFACE_BASE,
@@ -50,6 +56,8 @@ mod timer {
 
 #[cfg(feature = "raspi3")]
 pub fn init() {
+    init_uart();
+
     // Set-up the interrupt controller.
     let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
         memory::INTERRUPT_CTRL_BASE,
@@ -58,4 +66,17 @@ pub fn init() {
 
     // Set-up timer.
     awkernel_lib::timer::register_timer(&timer::TIMER);
+}
+
+fn init_uart() {
+    let port = Box::new(uart::pl011::PL011::new(UART_IRQ));
+    register_console(port);
+
+    // let _ = log::set_logger(&CONSOLE);
+    // log::set_max_level(log::LevelFilter::Debug);
+}
+
+pub unsafe fn init_device() {
+    uart::init_device();
+    awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
 }

@@ -55,7 +55,7 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
 /// 4. Initialize the backup heap memory allocator.
-/// 5. Initialize the logger.
+/// 5. Enable logger.
 /// 6. Initialize interrupt handlers.
 /// 7. Initialize ACPI.
 /// 8. Initialize stack memory regions for non-primary CPUs.
@@ -67,7 +67,7 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
-    super::console::init(); // 2. Initialize the serial port.
+    super::console::init_device(); // 2. Initialize the serial port.
 
     unsafe { unsafe_puts("The primary CPU is waking up.\n") };
 
@@ -113,20 +113,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_size,
     );
 
+    // Initialize.
+    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
+
+    // Set to use the backup allocator in kernel.
+    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
+
+    // 5. Enable logger.
+    super::console::register_console();
+
     log::info!(
         "Backup heap: start = 0x{:x}, size = {}",
         backup_start,
         backup_size
     );
-
-    // Initialize.
-    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
-
-    // Use the backup allocator in kernel.
-    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
-
-    // 5. Initialize the logger.
-    super::console::init_logger();
 
     // 6. Initialize interrupt handlers.
 
@@ -314,7 +314,7 @@ fn non_primary_kernel_main() -> ! {
 
     enable_fpu(); // Enable SSE.
 
-    // use backup allocator
+    // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     // Initialize interrupt handlers.

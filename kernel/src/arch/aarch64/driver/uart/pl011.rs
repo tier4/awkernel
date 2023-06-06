@@ -1,5 +1,4 @@
 use crate::arch::aarch64::bsp::memory::*;
-use alloc::vec::Vec;
 use awkernel_lib::console::Console;
 use core::{arch::asm, fmt::Write};
 
@@ -132,59 +131,6 @@ impl PL011 {
         // write the character to the buffer
         registers::UART0_DR.write(c);
     }
-
-    fn recv(&self) -> u32 {
-        // wait until something is in the buffer
-        unsafe { asm!("nop;") };
-        while registers::UART0_FR.read() & 0x10 != 0 {
-            unsafe { asm!("nop;") };
-        }
-
-        registers::UART0_DR.read()
-    }
-
-    fn send(&self, c: u32) {
-        unsafe { Self::putc(c) }
-    }
-
-    #[allow(clippy::same_item_push)]
-    fn _read_line(&self) -> Vec<u8> {
-        let mut res = Vec::new();
-
-        loop {
-            let c = self.recv() as u8;
-            if c == b'\r' || c == b'\n' {
-                break;
-            } else if c == 0x08 || c == 0x7F {
-                if !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else if c == b'\t' {
-                let c = b' ';
-                for _ in 0..8 {
-                    self.send(c as u32);
-                    res.push(c);
-                }
-            } else if c == 0x15 {
-                while !res.is_empty() {
-                    self.send(0x08);
-                    self.send(b' ' as u32);
-                    self.send(0x08);
-                    res.pop();
-                }
-            } else {
-                self.send(c as u32);
-                res.push(c);
-            }
-        }
-
-        self.send('\n' as u32);
-
-        res
-    }
 }
 
 impl Write for PL011 {
@@ -195,24 +141,24 @@ impl Write for PL011 {
 }
 
 impl Console for PL011 {
-    fn enable(&self) {
+    fn enable(&mut self) {
         use registers::CR;
         registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE); // enable, Rx, Tx
     }
 
-    fn disable(&self) {
+    fn disable(&mut self) {
         registers::UART0_CR.write(registers::CR::empty());
     }
 
-    fn enable_recv_interrupt(&self) {
+    fn enable_recv_interrupt(&mut self) {
         registers::UART0_IMSC.setbits(IMSC_RXIM);
     }
 
-    fn disable_recv_interrupt(&self) {
+    fn disable_recv_interrupt(&mut self) {
         registers::UART0_IMSC.clrbits(IMSC_RXIM);
     }
 
-    fn acknowledge_recv_interrupt(&self) {
+    fn acknowledge_recv_interrupt(&mut self) {
         registers::UART0_ICR.write(registers::ICR::RXIC);
     }
 
@@ -220,7 +166,7 @@ impl Console for PL011 {
         self.irq
     }
 
-    fn get(&self) -> Option<u8> {
+    fn get(&mut self) -> Option<u8> {
         if registers::UART0_FR.read() & 0x10 != 0 {
             None
         } else {
@@ -228,11 +174,7 @@ impl Console for PL011 {
         }
     }
 
-    fn put(&self, data: u8) {
+    fn put(&mut self, data: u8) {
         unsafe { Self::putc(data as u32) };
-    }
-
-    fn print(&self, data: &str) {
-        unsafe { Self::unsafe_puts(data) };
     }
 }
