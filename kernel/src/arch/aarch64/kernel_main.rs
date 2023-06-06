@@ -46,8 +46,7 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 2. Start non-primary CPUs.
 /// 3. Enable MMU.
 /// 4. Enable heap allocator.
-/// 5. Enable serial port.
-/// 6. Board specific initialization (IRQ controller, etc).
+/// 5. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu() {
     // Initialize UART.
     console::init_device();
@@ -86,8 +85,8 @@ unsafe fn primary_cpu() {
     heap::init_backup(backup_start, backup_size);
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    // 5. Enable serial port.
-    console::init();
+    // 5. Board specific initialization.
+    super::bsp::init();
 
     log::info!(
         "Stack memory: start = 0x{:x}, end = 0x{:x}",
@@ -118,9 +117,6 @@ unsafe fn primary_cpu() {
     } else {
         log::info!("Use SP_ELx.");
     }
-
-    // 6. Board specific initialization.
-    super::bsp::init();
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

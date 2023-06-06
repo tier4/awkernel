@@ -1,31 +1,32 @@
-use core::ptr::write_volatile;
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use alloc::boxed::Box;
+use core::{fmt::Write, ptr::write_volatile};
+use log::Log;
 
-pub trait Console {
+pub trait Console: Write + Send {
     /// Enable the serial port.
-    fn enable(&self);
+    fn enable(&mut self);
 
     /// Disable the serial port.
-    fn disable(&self);
+    fn disable(&mut self);
 
     /// Enable the reception interrupt.
-    fn enable_recv_interrupt(&self);
+    fn enable_recv_interrupt(&mut self);
 
     /// Disable the reception interrupt.
-    fn disable_recv_interrupt(&self);
+    fn disable_recv_interrupt(&mut self);
 
     /// Acknowledge to the reception interrupt.
-    fn acknowledge_recv_interrupt(&self);
+    fn acknowledge_recv_interrupt(&mut self);
 
     /// Get IRQ#.
     fn irq_id(&self) -> usize;
 
     /// Read a byte.
-    fn get(&self) -> Option<u8>;
+    fn get(&mut self) -> Option<u8>;
 
     /// Write a byte.
-    fn put(&self, data: u8);
-
-    fn print(&self, data: &str);
+    fn put(&mut self, data: u8);
 }
 
 static mut UNSAFE_PUTS: Option<unsafe fn(&str)> = None;
@@ -40,50 +41,103 @@ pub unsafe fn unsafe_puts(data: &str) {
     }
 }
 
-static mut CONSOLE: Option<&'static dyn Console> = None;
+static CONSOLE: ConsoleContainer = ConsoleContainer {
+    console: Mutex::new(None),
+};
 
-pub fn register_console(console: &'static dyn Console) {
-    unsafe { write_volatile(&mut CONSOLE, Some(console)) };
+struct ConsoleContainer {
+    console: Mutex<Option<Box<dyn Console>>>,
+}
+
+impl Log for ConsoleContainer {
+    fn enabled(&self, _metadata: &log::Metadata) -> bool {
+        let mut node = MCSNode::new();
+        let c = CONSOLE.console.lock(&mut node);
+        c.is_some()
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+
+        let mut node = MCSNode::new();
+        let mut guard = self.console.lock(&mut node);
+
+        if let Some(serial) = guard.as_mut() {
+            crate::logger::write_msg(serial.as_mut(), record);
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+pub fn register_console(console: Box<dyn Console>) {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    *c = Some(console);
+
+    let _ = log::set_logger(&CONSOLE);
+    log::set_max_level(log::LevelFilter::Debug);
 }
 
 /// Enable console.
 pub fn enable() {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.enable();
     }
 }
 
 /// Disable console.
 pub fn disable() {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.disable();
     }
 }
 
 /// Enable the reception interrupt.
 pub fn enable_recv_interrupt() {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.enable_recv_interrupt();
     }
 }
 
 /// Disable the reception interrupt.
 pub fn disable_recv_interrupt() {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.disable_recv_interrupt();
     }
 }
 
 /// Acknowledge to the reception interrupt.
 pub fn acknowledge_recv_interrupt() {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.acknowledge_recv_interrupt();
     }
 }
 
 /// Get IRQ#.
 pub fn irq_id() -> Option<usize> {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         Some(console.irq_id())
     } else {
         None
@@ -92,7 +146,10 @@ pub fn irq_id() -> Option<usize> {
 
 /// Read a byte.
 pub fn get() -> Option<u8> {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.get()
     } else {
         None
@@ -101,14 +158,20 @@ pub fn get() -> Option<u8> {
 
 /// Write a byte.
 pub fn put(data: u8) {
-    if let Some(console) = unsafe { CONSOLE } {
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
         console.put(data);
     }
 }
 
 /// Write a string.
 pub fn print(data: &str) {
-    if let Some(console) = unsafe { CONSOLE } {
-        console.print(data);
+    let mut node = MCSNode::new();
+    let mut c = CONSOLE.console.lock(&mut node);
+
+    if let Some(console) = c.as_mut() {
+        let _ = console.write_str(data);
     }
 }

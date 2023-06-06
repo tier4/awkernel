@@ -33,62 +33,54 @@ impl Console {
     }
 }
 
-impl awkernel_lib::console::Console for Console {
-    fn enable(&self) {
-        let uart = DevUART::new(config::UART_IRQ);
-        uart.enable();
-    }
+// impl awkernel_lib::console::Console for Console {
+//     fn enable(&self) {
+//         let uart = DevUART::new(config::UART_IRQ);
+//         uart.enable();
+//     }
 
-    fn disable(&self) {
-        let uart = DevUART::new(config::UART_IRQ);
-        uart.disable();
-    }
+//     fn disable(&self) {
+//         let uart = DevUART::new(config::UART_IRQ);
+//         uart.disable();
+//     }
 
-    fn enable_recv_interrupt(&self) {
-        let uart = DevUART::new(config::UART_IRQ);
-        uart.enable_recv_interrupt();
-    }
+//     fn enable_recv_interrupt(&self) {
+//         let uart = DevUART::new(config::UART_IRQ);
+//         uart.enable_recv_interrupt();
+//     }
 
-    fn disable_recv_interrupt(&self) {
-        let uart = DevUART::new(config::UART_IRQ);
-        uart.disable_recv_interrupt();
-    }
+//     fn disable_recv_interrupt(&self) {
+//         let uart = DevUART::new(config::UART_IRQ);
+//         uart.disable_recv_interrupt();
+//     }
 
-    fn acknowledge_recv_interrupt(&self) {
-        let uart = DevUART::new(config::UART_IRQ);
-        uart.acknowledge_recv_interrupt();
-    }
+//     fn acknowledge_recv_interrupt(&self) {
+//         let uart = DevUART::new(config::UART_IRQ);
+//         uart.acknowledge_recv_interrupt();
+//     }
 
-    fn irq_id(&self) -> usize {
-        config::UART_IRQ
-    }
+//     fn irq_id(&self) -> usize {
+//         config::UART_IRQ
+//     }
 
-    fn get(&self) -> Option<u8> {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.get()
-        } else {
-            None
-        }
-    }
+//     fn get(&self) -> Option<u8> {
+//         let mut node = MCSNode::new();
+//         let guard = self.port.lock(&mut node);
+//         if let Some(console) = guard.as_ref() {
+//             console.get()
+//         } else {
+//             None
+//         }
+//     }
 
-    fn put(&self, data: u8) {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.put(data);
-        }
-    }
-
-    fn print(&self, data: &str) {
-        let mut node = MCSNode::new();
-        let guard = self.port.lock(&mut node);
-        if let Some(console) = guard.as_ref() {
-            console.print(data);
-        }
-    }
-}
+//     fn put(&self, data: u8) {
+//         let mut node = MCSNode::new();
+//         let guard = self.port.lock(&mut node);
+//         if let Some(console) = guard.as_ref() {
+//             console.put(data);
+//         }
+//     }
+// }
 
 impl Log for Console {
     fn enabled(&self, _metadata: &log::Metadata) -> bool {
@@ -119,9 +111,9 @@ pub unsafe fn init_device() {
 }
 
 pub fn init() {
-    CONSOLE.init();
-    let _ = log::set_logger(&CONSOLE);
-    log::set_max_level(log::LevelFilter::Debug);
+    // CONSOLE.init();
+    // let _ = log::set_logger(&CONSOLE);
+    // log::set_max_level(log::LevelFilter::Debug);
 
-    awkernel_lib::console::register_console(&CONSOLE);
+    // awkernel_lib::console::register_console(DevUART::new());
 }
