@@ -236,7 +236,7 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             return ptr.as_mut();
         } else {
             drop(guard);
-            unsafe_puts("Backup allocator: failed to allocate heap memory\n");
+            unsafe_puts("failed to allocate heap memory\n");
             unsafe_puts("aborting...\n");
             abort(); // there is no free memory left
         }
@@ -256,7 +256,6 @@ unsafe impl GlobalAlloc for Allocator {
         if let Some(mut ptr) = guard.allocate(layout) {
             ptr.as_mut()
         } else {
-            unsafe_puts("Primary allocator: failed to allocate heap memory\n");
             ptr::null_mut()
         }
     }

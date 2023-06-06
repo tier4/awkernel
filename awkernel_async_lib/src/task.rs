@@ -17,7 +17,6 @@ use crate::{
 };
 use alloc::{
     borrow::Cow,
-    boxed::Box,
     collections::{btree_map, BTreeMap},
     sync::Arc,
     vec::Vec,
@@ -28,7 +27,6 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    any::Any,
     ptr::{read_volatile, write_volatile},
     task::{Context, Poll},
 };

@@ -1,10 +1,10 @@
+use awkernel_drivers::uart::uart_16550;
 use awkernel_lib::{
     console::Console,
     sync::mutex::{MCSNode, Mutex},
 };
 use core::fmt::Write;
 use log::Log;
-use uart_16550::SerialPort;
 
 static CONSOLE: UART = UART::new();
 
@@ -39,7 +39,7 @@ impl Log for UART {
         let mut node = MCSNode::new();
         let mut guard = self.port.lock(&mut node);
 
-        let serial: &mut SerialPort = &mut guard;
+        let serial: &mut uart_16550::SerialPort = &mut guard;
         awkernel_lib::logger::write_msg(serial, record);
     }
 
@@ -63,7 +63,7 @@ impl Write for UART {
         let mut node = MCSNode::new();
         let mut guard = self.port.lock(&mut node);
 
-        let serial: &mut SerialPort = &mut guard;
+        let serial = &mut guard;
         serial.write_str(s)
     }
 }
@@ -76,37 +76,49 @@ unsafe fn unsafe_puts(data: &str) {
 impl Console for UART {
     fn enable(&self) {
         // TODO
+        log::warn!("console::enable is not yet implemented.");
     }
 
     fn disable(&self) {
         // TODO
+        log::warn!("console::disable is not yet implemented.");
     }
 
     fn enable_recv_interrupt(&self) {
         // TODO
+        log::warn!("console::enable_recv_interrupt is not yet implemented.");
     }
 
     fn disable_recv_interrupt(&self) {
         // TODO
+        log::warn!("console::disable_recv_interrupt is not yet implemented.");
     }
 
     fn acknowledge_recv_interrupt(&self) {
         // TODO
+        log::warn!("console::acknowledge_recv_interrupt is not yet implemented.");
     }
 
     fn irq_id(&self) -> usize {
-        todo!()
+        log::warn!("console::irq_id is not yet implemented.");
+        0
     }
 
     fn get(&self) -> Option<u8> {
-        todo!()
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+        guard.try_receive()
     }
 
     fn put(&self, data: u8) {
-        // TODO
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+        let _ = guard.write_char(data as char);
     }
 
     fn print(&self, data: &str) {
-        // TODO
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+        let _ = guard.write_str(data);
     }
 }

@@ -70,6 +70,7 @@ pub fn handle_irqs() {
         while let Some(irq) = iter.next() {
             if let Some(handler) = handlers.get_mut(&irq) {
                 if let Err(err) = catch_unwind(|| {
+                    // Use the primary allocator.
                     let _guard = unsafe { heap::TALLOC.save() };
                     unsafe { heap::TALLOC.use_primary() };
 

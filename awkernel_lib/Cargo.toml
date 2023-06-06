@@ -40,7 +40,7 @@ default-features = false
 features = ["panic"]
 
 [features]
-default = ["aarch64"]
+default = ["x86"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
