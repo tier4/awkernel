@@ -1,10 +1,15 @@
-use crate::{
+#![no_std]
+
+#[macro_use]
+extern crate alloc;
+
+use alloc::{boxed::Box, vec::Vec};
+use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
     task::{self, TaskResult},
 };
-use alloc::{boxed::Box, vec::Vec};
-use awkernel_lib::{console, sync::mutex::MCSNode};
+use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::embedded;
 use core::time::Duration;
 
@@ -28,7 +33,7 @@ async fn console_handler() -> TaskResult {
 
     console::print("\nWelcome to Autoware Kernel!\n\n");
     console::print("You can use BLisp language as follows.\n");
-    console::print("https://ytakano.github.io/blisp/\n");
+    console::print("https://ytakano.github.io/blisp/\n\n");
     console::print("> (factorial 20)\n");
     console::print("2432902008176640000\n");
     console::print("> (+ 10 20)\n");
@@ -42,12 +47,12 @@ async fn console_handler() -> TaskResult {
             if c == 0x08 || c == 0x7F || c == 0x15 {
                 // backspace, delete
                 if !line.is_empty() {
-                    #[cfg(not(feature = "std"))]
-                    {
+                    if !IS_STD {
                         console::put(0x08);
                         console::put(b' ');
                         console::put(0x08);
                     }
+
                     line.pop();
                 }
                 continue;
@@ -59,7 +64,9 @@ async fn console_handler() -> TaskResult {
                 }
 
                 if let Ok(line_u8) = alloc::str::from_utf8(&line) {
-                    console::print("\n");
+                    if !IS_STD {
+                        console::print("\n");
+                    }
 
                     // Evaluate the line.
                     eval(line_u8, &blisp_ctx);
@@ -73,8 +80,9 @@ async fn console_handler() -> TaskResult {
             } else {
                 // normal character
 
-                #[cfg(not(feature = "std"))]
-                console::put(c); // echo back
+                if !IS_STD {
+                    console::put(c); // echo back
+                }
 
                 line.push(c);
             }
@@ -123,7 +131,8 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel v202306\n\n");
+    console::print("Autoware Kernel v202306\n");
+    console::print("BLisp grammer: https://ytakano.github.io/blisp/\n\n");
 
     console::print("BLisp functions:\n");
     console::print(CODE);
@@ -144,7 +153,12 @@ fn print_tasks() {
         let mut node = MCSNode::new();
         let task = t.info.lock(&mut node);
 
-        let msg = format!("{}\t{:?}\t{:?}\n", t.id, task.state, task.scheduler_type);
+        let msg = format!(
+            "{}\t{:?}\t{:?}\n",
+            t.id,
+            task.get_state(),
+            task.get_scheduler_type()
+        );
         console::print(&msg);
     }
 }

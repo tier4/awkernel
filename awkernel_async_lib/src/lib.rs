@@ -7,7 +7,6 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
-#[macro_use]
 extern crate alloc;
 
 mod accepter;
@@ -22,7 +21,6 @@ mod ringq;
 pub mod scheduler;
 pub mod service;
 pub mod session_types;
-pub mod shell;
 mod sleep_task;
 pub mod sync;
 pub mod task;

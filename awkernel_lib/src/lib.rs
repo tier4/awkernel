@@ -31,3 +31,9 @@ extern crate alloc;
 
 pub type PhantomUnsync = PhantomData<Cell<()>>;
 pub type PhantomUnsend = PhantomData<Rc<()>>;
+
+#[cfg(feature = "std")]
+pub const IS_STD: bool = true;
+
+#[cfg(not(feature = "std"))]
+pub const IS_STD: bool = false;
