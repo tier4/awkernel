@@ -56,6 +56,8 @@ mod timer {
 
 #[cfg(feature = "raspi3")]
 pub fn init() {
+    init_uart();
+
     // Set-up the interrupt controller.
     let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
         memory::INTERRUPT_CTRL_BASE,
