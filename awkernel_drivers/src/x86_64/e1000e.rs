@@ -214,12 +214,12 @@ impl E1000E {
 }
 
 impl Ether for E1000E {
-    // poll for the received packet
-    fn recv(&self) -> Result<&mut [u8], EtherErr> {
-        loop {}
-    } // Initialize receive
-    fn send(&self, buffer: &mut [u8]) -> Result<(), EtherErr> {
-        unimplemented!()
+    fn recv(&self) -> Result<&mut [u8], smoltcp::Error> {
+        unimplemented!();
+    }
+
+    fn send(&self, buffer: &mut [u8]) -> Result<(), smoltcp::Error> {
+        unimplemented!();
     }
 
     unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
@@ -271,49 +271,49 @@ impl Ether for E1000E {
     }
 }
 
-pub struct RxToken<'a>(&'a E1000E);
+pub struct E1000ERxToken<'a>(&'a E1000E);
 
-pub struct TxToken<'a>(&'a E1000E);
+pub struct E1000ETxToken<'a>(&'a E1000E);
 
 /// Adapting a lazy method such that
 /// the receiving and sending operations only occur
 /// when the tokens are consumed.
 /// Thus the `receive` and ` transmit` only create the token.
 impl<'a> phy::Device<'a> for E1000E {
-    type RxToken = RxToken<'a> where Self : 'a;
-    type TxToken = TxToken<'a> where Self : 'a;
+    type RxToken = E1000ERxToken<'a> where Self : 'a;
+    type TxToken = E1000ETxToken<'a> where Self : 'a;
     fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
         let mut cap = DeviceCapabilities::default();
-        cap.max_transmission_unit = 1536;
-        cap.max_burst_size = Some(32);
+        cap.max_transmission_unit = 1500; // Standard Ethernet MTU
+        cap.max_burst_size = Some(64);
         cap.medium = Medium::Ethernet;
         cap
     }
 
-    fn receive(&mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        None
+    fn receive(self: &'a mut E1000E) -> Option<(Self::RxToken, Self::TxToken)> {
+        Some((E1000ERxToken(self), E1000ETxToken(self)))
     }
 
-    fn transmit(&mut self) -> Option<Self::TxToken> {
-        None
+    fn transmit(self: &'a mut E1000E) -> Option<Self::TxToken> {
+        Some(E1000ETxToken(self))
     }
 }
 
-impl<'a> phy::RxToken for RxToken<'a> {
+impl<'a> phy::RxToken for E1000ERxToken<'a> {
     /// Store packet data into the buffer.
     /// Closure f will map the raw bytes to the form that
-    /// could be used in the higher layer of smoltcp.
+    /// could be used in the higher layer of `smoltcp`.
     fn consume<R, F>(self, timestamp: smoltcp::time::Instant, f: F) -> smoltcp::Result<R>
     where
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
-        let buffer = self.0.recv().unwrap();
+        let buffer = self.0.recv()?;
         let result = f(buffer);
         result
     }
 }
 
-impl<'a> phy::TxToken for TxToken<'a> {
+impl<'a> phy::TxToken for E1000ETxToken<'a> {
     /// create a buffer of size `len`
     /// Closure f will construct a packet in the buffer.
     /// Real packet data transmissions occur here.
@@ -331,7 +331,7 @@ impl<'a> phy::TxToken for TxToken<'a> {
         // construct packet in buffer
         let result = f(&mut buffer[0..len]);
         // send the buffer
-        let _ = self.0.send(&mut buffer);
+        self.0.send(&mut buffer)?;
         result
     }
 }
