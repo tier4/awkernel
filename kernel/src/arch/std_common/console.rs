@@ -1,22 +1,12 @@
-use awkernel_lib::{
-    console::register_console,
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::console::register_console;
 use core::fmt::{Error, Write};
-use log::Log;
 use std::io::{BufReader, Read, Stdin};
 
-pub static CONSOLE: Console = Console::new();
-
 pub struct Console {
-    lock: Mutex<StdInOut>,
+    reader: BufReader<Stdin>,
 }
 
-pub struct StdInOut {
-    stdin: Option<BufReader<Stdin>>,
-}
-
-impl Write for StdInOut {
+impl Write for Console {
     fn write_str(&mut self, msg: &str) -> core::fmt::Result {
         let buf = msg.as_bytes();
         if unsafe { libc::write(0, buf.as_ptr() as _, buf.len()) } == 0 {
@@ -27,73 +17,35 @@ impl Write for StdInOut {
     }
 }
 
-impl StdInOut {
-    fn init(&mut self) {
-        if self.stdin.is_none() {
-            self.stdin = Some(BufReader::new(std::io::stdin()));
-        }
-    }
-}
-
 impl Console {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            lock: Mutex::new(StdInOut { stdin: None }),
+            reader: BufReader::new(std::io::stdin()),
         }
     }
-}
-
-impl Log for Console {
-    fn enabled(&self, _metadata: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::Record) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
-
-        let mut node = MCSNode::new();
-        let mut guard = self.lock.lock(&mut node);
-
-        let stdout: &mut StdInOut = &mut guard;
-        awkernel_lib::logger::write_msg(stdout, record);
-    }
-
-    fn flush(&self) {}
 }
 
 pub fn init() {
-    let _ = log::set_logger(&CONSOLE);
-    log::set_max_level(log::LevelFilter::Debug);
-
-    register_console(&CONSOLE);
+    register_console(Box::new(Console::new()));
 }
 
 impl awkernel_lib::console::Console for Console {
-    fn acknowledge_recv_interrupt(&self) {
+    fn acknowledge_recv_interrupt(&mut self) {
         // TODO
     }
 
-    fn enable(&self) {
+    fn enable(&mut self) {
         // TODO
     }
 
-    fn disable(&self) {
+    fn disable(&mut self) {
         // TODO
     }
 
-    fn get(&self) -> Option<u8> {
-        let mut node = MCSNode::new();
-        let mut inout = self.lock.lock(&mut node);
-
-        inout.init();
-
-        let ref_stdin = inout.stdin.as_mut().unwrap();
-
+    fn get(&mut self) -> Option<u8> {
         let mut buf = [0; 1];
 
-        let n = ref_stdin.read(&mut buf).ok()?;
+        let n = self.reader.read(&mut buf).ok()?;
         if n == 1 {
             Some(buf[0])
         } else {
@@ -101,30 +53,20 @@ impl awkernel_lib::console::Console for Console {
         }
     }
 
-    fn put(&self, data: u8) {
-        let mut node = MCSNode::new();
-        let mut inout = self.lock.lock(&mut node);
-
-        let _ = inout.write_char(data as char);
+    fn put(&mut self, data: u8) {
+        unsafe { libc::write(0, &data as *const u8 as _, 1) };
     }
 
-    fn enable_recv_interrupt(&self) {
+    fn enable_recv_interrupt(&mut self) {
         // TODO
     }
 
-    fn disable_recv_interrupt(&self) {
+    fn disable_recv_interrupt(&mut self) {
         // TODO
     }
 
     fn irq_id(&self) -> usize {
         // TODO
         0
-    }
-
-    fn print(&self, data: &str) {
-        let mut node = MCSNode::new();
-        let mut inout = self.lock.lock(&mut node);
-
-        let _ = inout.write_str(data);
     }
 }
