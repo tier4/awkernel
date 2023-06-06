@@ -129,7 +129,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::console::init_logger();
 
     // 6. Initialize interrupt handlers.
-    unsafe { interrupt::init() };
 
     log::info!("Physical memory offset: 0x{:x}", offset);
 

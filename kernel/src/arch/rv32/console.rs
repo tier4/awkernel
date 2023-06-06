@@ -84,36 +84,63 @@ pub fn init(devaddr: usize) {
 
 impl awkernel_lib::console::Console for Console {
     fn enable(&self) {
-        todo!()
+        // TODO
+        log::warn!("console::enable is not yet implemented.");
     }
 
     fn disable(&self) {
-        todo!()
+        // TODO
+        log::warn!("console::disable is not yet implemented.");
     }
 
     fn enable_recv_interrupt(&self) {
-        todo!()
+        // TODO
+        log::warn!("console::enable_recv_interrupt is not yet implemented.");
     }
 
     fn disable_recv_interrupt(&self) {
-        todo!()
+        // TODO
+        log::warn!("console::disable_recv_interrupt is not yet implemented.");
     }
 
     fn acknowledge_recv_interrupt(&self) {
-        todo!()
+        // TODO
+        log::warn!("console::acknowledge_recv_interrupt is not yet implemented.");
     }
 
     fn get(&self) -> Option<u8> {
-        todo!()
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+
+        if let Some(serial) = guard.as_mut() {
+            serial.get()
+        } else {
+            None
+        }
     }
 
-    fn put(&self, data: u8) {}
+    fn put(&self, data: u8) {
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+
+        if let Some(serial) = guard.as_mut() {
+            let _ = serial.put(data);
+        }
+    }
 
     fn irq_id(&self) -> usize {
-        todo!()
+        // TODO
+        log::warn!("console::irq_id is not yet implemented.");
+
+        0
     }
 
     fn print(&self, data: &str) {
-        todo!()
+        let mut node = MCSNode::new();
+        let mut guard = self.port.lock(&mut node);
+
+        if let Some(serial) = guard.as_mut() {
+            let _ = serial.write_str(data);
+        }
     }
 }

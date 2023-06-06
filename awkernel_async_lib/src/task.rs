@@ -17,16 +17,16 @@ use crate::{
 };
 use alloc::{
     borrow::Cow,
-    boxed::Box,
     collections::{btree_map, BTreeMap},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
     sync::mutex::{MCSNode, Mutex},
+    unwind::catch_unwind,
 };
 use core::{
-    any::Any,
     ptr::{read_volatile, write_volatile},
     task::{Context, Poll},
 };
@@ -109,10 +109,10 @@ impl TaskList {
 }
 
 /// Task has ID, future, information, and a reference to a scheduler.
-pub(crate) struct Task {
-    id: u64,
+pub struct Task {
+    pub id: u64,
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
-    pub(crate) info: Mutex<TaskInfo>,
+    pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
 }
 
@@ -131,25 +131,33 @@ impl ArcWake for Task {
 }
 
 /// Information of task.
-pub(crate) struct TaskInfo {
+pub struct TaskInfo {
     pub(crate) state: State,
-    pub(crate) _scheduler_type: SchedulerType,
+    pub(crate) scheduler_type: SchedulerType,
     next: Option<Arc<Task>>,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
 }
 
-#[cfg(not(feature = "no_preempt"))]
 impl TaskInfo {
+    #[cfg(not(feature = "no_preempt"))]
     fn preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
         self.thread.take()
+    }
+
+    pub fn get_state(&self) -> State {
+        self.state
+    }
+
+    pub fn get_scheduler_type(&self) -> SchedulerType {
+        self.scheduler_type
     }
 }
 
 /// State of task.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum State {
+pub enum State {
     Ready,
     Running,
     InQueue,
@@ -184,7 +192,7 @@ impl Tasks {
             // Find an unused task ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 let info = Mutex::new(TaskInfo {
-                    _scheduler_type: scheduler_type,
+                    scheduler_type,
                     state: State::Ready,
                     next: None,
 
@@ -523,21 +531,22 @@ extern "C" fn thread_entry(_arg: usize) -> ! {
     awkernel_lib::delay::wait_forever();
 }
 
-#[cfg(feature = "std")]
-pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
-where
-    F: FnOnce() -> R,
-{
-    use core::panic::AssertUnwindSafe;
-
-    std::panic::catch_unwind(AssertUnwindSafe(f))
+/// Wake `task_id` up.
+pub fn wake(task_id: u64) {
+    let mut node = MCSNode::new();
+    let gurad = TASKS.lock(&mut node);
+    gurad.wake(task_id);
 }
 
-#[cfg(not(feature = "std"))]
-pub(crate) fn catch_unwind<F, R>(f: F) -> Result<R, Box<(dyn Any + Send + 'static)>>
-where
-    F: FnOnce() -> R,
-{
-    use core::panic::AssertUnwindSafe;
-    unwinding::panic::catch_unwind(AssertUnwindSafe(f))
+pub fn get_tasks() -> Vec<Arc<Task>> {
+    let mut result = Vec::new();
+
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    for (_, task) in tasks.id_to_task.iter() {
+        result.push(task.clone());
+    }
+
+    result
 }

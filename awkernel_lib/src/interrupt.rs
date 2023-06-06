@@ -1,6 +1,11 @@
 use crate::arch::ArchInterrupt;
 use crate::sync::mutex::{MCSNode, Mutex};
+use crate::unwind::catch_unwind;
 use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+
+#[cfg(not(feature = "std"))]
+use crate::heap;
 
 pub trait Interrupt {
     fn get_flag() -> usize;
@@ -15,12 +20,10 @@ pub trait InterruptController: Sync + Send {
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize>;
 }
 
-type IrqHandler = fn();
-
 const MAX_IRQS: usize = 1024;
 
 static INTERRUPT_CONTROLLER: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
-static IRQ_HANDLERS: Mutex<[Option<IrqHandler>; MAX_IRQS]> = Mutex::new([None; MAX_IRQS]);
+static IRQ_HANDLERS: Mutex<BTreeMap<usize, Box<dyn FnMut() + Send>>> = Mutex::new(BTreeMap::new());
 
 pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     let mut node = MCSNode::new();
@@ -28,13 +31,17 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     *ctrl = Some(controller);
 }
 
-pub fn register_handler(irq: usize, func: IrqHandler) -> Result<(), ()> {
-    let mut node = MCSNode::new();
-    if irq >= MAX_IRQS || IRQ_HANDLERS.lock(&mut node)[irq].is_some() {
+pub fn register_handler<F>(irq: usize, func: Box<F>) -> Result<(), ()>
+where
+    F: FnMut() + Send + 'static,
+{
+    if irq >= MAX_IRQS {
         return Err(());
     }
 
-    IRQ_HANDLERS.lock(&mut node)[irq] = Some(func);
+    let mut node = MCSNode::new();
+    IRQ_HANDLERS.lock(&mut node).insert(irq, func);
+
     Ok(())
 }
 
@@ -56,15 +63,28 @@ pub fn disable_irq(irq: usize) {
 
 pub fn handle_irqs() {
     let mut node = MCSNode::new();
-    let handlers = IRQ_HANDLERS.lock(&mut node);
+    let mut handlers = IRQ_HANDLERS.lock(&mut node);
 
     let mut node2 = MCSNode::new();
     let mut controller = INTERRUPT_CONTROLLER.lock(&mut node2);
     if let Some(ctrl) = controller.as_mut() {
         let iter = ctrl.pending_irqs();
         while let Some(irq) = iter.next() {
-            if let Some(handler) = handlers[irq] {
-                handler();
+            if let Some(handler) = handlers.get_mut(&irq) {
+                if let Err(err) = catch_unwind(|| {
+                    // Use the primary allocator.
+                    #[cfg(not(feature = "std"))]
+                    let _guard = unsafe { heap::TALLOC.save() };
+
+                    #[cfg(not(feature = "std"))]
+                    unsafe {
+                        heap::TALLOC.use_primary()
+                    };
+
+                    handler();
+                }) {
+                    log::warn!("an interrupt handler has been panicked\n{err:?}");
+                }
             }
         }
     }

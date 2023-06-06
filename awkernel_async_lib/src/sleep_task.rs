@@ -39,7 +39,7 @@ impl Future for Sleep {
                 let state = self.state.clone();
                 let waker = cx.waker().clone();
 
-                *guard = State::Wait;
+                *guard = State::Canceled;
 
                 // Invoke `sleep_handler` after `self.dur` time.
                 scheduler::sleep_task(

@@ -154,8 +154,6 @@ impl crate::context::Context for CalleeSavedContext {
     }
 
     unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
-        log::debug!("entry = 0x{:x}", entry as *const () as u64);
-
         self.gp_regs.x19 = arg as u64;
         self.gp_regs.x20 = entry as u64;
         self.gp_regs.x30 = entry_point as *const () as u64;

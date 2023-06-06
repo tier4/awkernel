@@ -1,6 +1,6 @@
-//! # awkernel_async_lib: Asynchronous library for T4OS
+//! # awkernel_async_lib: Asynchronous library for Autoware Kernel
 //!
-//! T4OS is an operating system, and this is an asynchronous library
+//! Autoware Kernel is an operating system, and this is an asynchronous library
 //! to provide APIs like to Robot Operating System 2 (ROS2).
 //! For example, there are asynchronous APIs for publish and subscribe
 //! communications.

@@ -46,6 +46,7 @@ type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
 use crate::{
+    console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
     sync::{mcs::MCSNode, mutex::Mutex},
 };
@@ -108,7 +109,12 @@ pub struct Talloc {
 unsafe impl GlobalAlloc for Talloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if self.is_primary() {
-            self.primary.alloc(layout)
+            let ptr = self.primary.alloc(layout);
+            if ptr.is_null() {
+                panic!();
+            } else {
+                ptr
+            }
         } else {
             let ptr = self.primary.alloc(layout);
             if ptr.is_null() {
@@ -230,6 +236,8 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             return ptr.as_mut();
         } else {
             drop(guard);
+            unsafe_puts("failed to allocate heap memory\n");
+            unsafe_puts("aborting...\n");
             abort(); // there is no free memory left
         }
     }

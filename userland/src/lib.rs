@@ -24,6 +24,8 @@ fn add_rtt(rtt: u64) {
 }
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
+    awkernel_shell::init();
+
     spawn(
         async move {
             loop {
@@ -47,7 +49,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                 if count > 0 {
                     let ave = total as f64 / count as f64;
-                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                    // log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
                 }
             }
         },
@@ -55,7 +57,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..1024 {
+    for i in 0..8 {
         let topic_a = format!("topic_a_{i}");
         let topic_b = format!("topic_b_{i}");
 
@@ -101,13 +103,13 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         not(any(target_os = "linux", target_os = "macos")),
         target_arch = "aarch64"
     ))]
-    for i in 0..4 {
+    for _i in 0..4 {
         spawn(
             async move {
                 loop {
-                    log::debug!("do preemption: task = {i}");
+                    // log::debug!("do preemption: task = {i}");
                     unsafe { awkernel_async_lib::task::preemption() };
-                    log::debug!("end preemption: task = {i}");
+                    // log::debug!("end preemption: task = {i}");
 
                     awkernel_async_lib::sleep(Duration::from_millis(5000)).await;
                 }
