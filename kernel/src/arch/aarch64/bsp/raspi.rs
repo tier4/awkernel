@@ -73,3 +73,8 @@ fn init_uart() {
     // let _ = log::set_logger(&CONSOLE);
     // log::set_max_level(log::LevelFilter::Debug);
 }
+
+pub unsafe fn init_device() {
+    uart::init_device();
+    awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
+}

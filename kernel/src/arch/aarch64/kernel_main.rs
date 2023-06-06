@@ -7,7 +7,7 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, console, cpu, mmu};
+use super::{bsp::raspi, cpu, mmu};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -49,7 +49,7 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 5. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu() {
     // Initialize UART.
-    console::init_device();
+    super::bsp::init_device();
 
     match awkernel_aarch64::get_current_el() {
         0 => unsafe_puts("EL0\n"),
