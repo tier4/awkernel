@@ -29,7 +29,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     spawn(
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(120)).await;
 
                 let mut total = 0;
                 let mut count = 0;
@@ -49,7 +49,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                 if count > 0 {
                     let ave = total as f64 / count as f64;
-                    // log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
                 }
             }
         },

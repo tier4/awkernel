@@ -135,9 +135,9 @@ pub fn acknowledge_recv_interrupt() {
 /// Get IRQ#.
 pub fn irq_id() -> Option<usize> {
     let mut node = MCSNode::new();
-    let mut c = CONSOLE.console.lock(&mut node);
+    let c = CONSOLE.console.lock(&mut node);
 
-    if let Some(console) = c.as_mut() {
+    if let Some(console) = c.as_ref() {
         Some(console.irq_id())
     } else {
         None
