@@ -98,13 +98,13 @@ macro_rules! wait_for {
 /// Memory mapped implementation
 mod mmio;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(feature = "x86")]
 /// Port asm commands implementation
 mod port;
 
 pub use mmio::MmioSerialPort;
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(feature = "x86")]
 pub use port::SerialPort;
 
 bitflags! {

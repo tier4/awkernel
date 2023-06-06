@@ -42,9 +42,12 @@ async fn console_handler() -> TaskResult {
             if c == 0x08 || c == 0x7F || c == 0x15 {
                 // backspace, delete
                 if !line.is_empty() {
-                    console::put(0x08);
-                    console::put(b' ');
-                    console::put(0x08);
+                    #[cfg(not(feature = "std"))]
+                    {
+                        console::put(0x08);
+                        console::put(b' ');
+                        console::put(0x08);
+                    }
                     line.pop();
                 }
                 continue;
@@ -69,12 +72,15 @@ async fn console_handler() -> TaskResult {
                 line.clear();
             } else {
                 // normal character
-                console::put(c);
+
+                #[cfg(not(feature = "std"))]
+                console::put(c); // echo back
+
                 line.push(c);
             }
         }
 
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(20)).await;
     }
 }
 

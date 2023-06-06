@@ -1,9 +1,11 @@
 use crate::arch::ArchInterrupt;
-use crate::heap;
 use crate::sync::mutex::{MCSNode, Mutex};
 use crate::unwind::catch_unwind;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
+
+#[cfg(not(feature = "std"))]
+use crate::heap;
 
 pub trait Interrupt {
     fn get_flag() -> usize;
@@ -71,8 +73,13 @@ pub fn handle_irqs() {
             if let Some(handler) = handlers.get_mut(&irq) {
                 if let Err(err) = catch_unwind(|| {
                     // Use the primary allocator.
+                    #[cfg(not(feature = "std"))]
                     let _guard = unsafe { heap::TALLOC.save() };
-                    unsafe { heap::TALLOC.use_primary() };
+
+                    #[cfg(not(feature = "std"))]
+                    unsafe {
+                        heap::TALLOC.use_primary()
+                    };
 
                     handler();
                 }) {

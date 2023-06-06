@@ -18,7 +18,7 @@ version = "0.14"
 optional = true
 
 [features]
-default = ["x86"]
+default = []
 x86 = ["awkernel_lib/x86", "x86_64"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64"]

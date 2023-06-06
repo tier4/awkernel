@@ -23,6 +23,6 @@ default-features = false
 path = "../awkernel_async_lib_verified"
 
 [features]
-default = []
+default = ["std"]
 std = ["awkernel_lib/std", "no_preempt"]
 no_preempt = []
