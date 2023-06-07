@@ -18,6 +18,9 @@ pub trait InterruptController: Sync + Send {
     fn enable_irq(&mut self, irq: usize);
     fn disable_irq(&mut self, irq: usize);
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize>;
+
+    /// Initialization for non-primary core.
+    fn init_non_primary(&mut self) {}
 }
 
 const MAX_IRQS: usize = 1024;
@@ -50,6 +53,8 @@ pub fn enable_irq(irq: usize) {
     let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
     if let Some(ctrl) = controller.as_mut() {
         ctrl.enable_irq(irq);
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
     }
 }
 
@@ -58,6 +63,8 @@ pub fn disable_irq(irq: usize) {
     let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
     if let Some(ctrl) = controller.as_mut() {
         ctrl.disable_irq(irq);
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
     }
 }
 
@@ -124,4 +131,15 @@ pub fn enable() {
 
 pub fn disable() {
     ArchInterrupt::disable();
+}
+
+/// Initialization for non-primary core.
+pub fn init_non_primary() {
+    let mut node = MCSNode::new();
+    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.init_non_primary();
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+    }
 }

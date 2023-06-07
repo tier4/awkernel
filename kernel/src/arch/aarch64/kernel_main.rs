@@ -137,6 +137,8 @@ unsafe fn non_primary_cpu() {
 
     unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
 
+    awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
+
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: cpu::core_pos(),

@@ -88,12 +88,18 @@ impl GICv2 {
         // Direct all interrupts to core 0 (=01) with default priority a0.
         for i in 0..div_ceil(gic.max_it, 4) {
             let base = gicd_base + i * 4;
-            registers::GICD_ITARGETSR.write(0x01010101, base);
+
+            if i < 8 {
+                // GICD_ITARGETSR0 to GICD_ITARGETSR7 are read-only.
+                registers::GICD_ITARGETSR.write(0x01010101, base);
+            }
+
             registers::GICD_IPRIORITYR.write(0xa0a0a0a0, base);
         }
 
         // Config all interrupts to level triggered.
-        for i in 0..div_ceil(gic.max_it, NUM_INTS_PER_REG / 2) {
+        // GICD_ICFGR0 is read-only.
+        for i in 1..div_ceil(gic.max_it, NUM_INTS_PER_REG / 2) {
             let base = gicd_base + i * 4;
             registers::GICD_ICFGR.write(0, base);
         }
@@ -217,6 +223,34 @@ impl InterruptController for GICv2 {
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
         self.iter = Some(self.iter());
         self.iter.as_mut().unwrap()
+    }
+
+    fn init_non_primary(&mut self) {
+        // Disable.
+        registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::empty(), self.gicc_base);
+
+        // Disable interrupts.
+        registers::GICD_ICENABLER.write(!0, self.gicd_base);
+
+        // Make interrupts non-pending.
+        registers::GICD_ICPENDR.write(!0, self.gicd_base);
+
+        // Make interrupts group 1.
+        registers::GICD_IGROUPR.write(!0, self.gicd_base);
+
+        // Deactivates interrupts.
+        registers::GICD_ICACTIVER.write(!0, self.gicd_base);
+
+        // Default priority is a0.
+        for i in 0..8 {
+            registers::GICD_IPRIORITYR.write(0xa0a0a0a0, self.gicd_base + 4 * i);
+        }
+
+        // Mask interrupts whose priority is greater than 0x80.
+        registers::GICC_PMR.write(0xF0, self.gicc_base);
+
+        // Enable the CPU interface.
+        registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, self.gicc_base);
     }
 }
 
