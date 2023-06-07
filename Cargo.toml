@@ -12,3 +12,5 @@ members = [
     "awkernel_drivers",
     "applications/awkernel_shell"
 ]
+
+resolver = "2"
