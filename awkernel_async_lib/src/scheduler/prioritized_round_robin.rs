@@ -31,7 +31,7 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::PrioritizedRoundRobin
+        SchedulerType::PrioritizedRoundRobin(0)
     }
 }
 

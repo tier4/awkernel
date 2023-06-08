@@ -15,7 +15,7 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerType {
     RoundRobin,
-    PrioritizedRoundRobin,
+    PrioritizedRoundRobin(u8),
 }
 
 pub(crate) trait Scheduler {
@@ -47,7 +47,7 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::RoundRobin => &round_robin::SCHEDULER,
-        SchedulerType::PrioritizedRoundRobin => &prioritized_round_robin::SCHEDULER,
+        SchedulerType::PrioritizedRoundRobin(priority) => &prioritized_round_robin::SCHEDULER,
     }
 }
 
