@@ -158,6 +158,10 @@ impl crate::context::Context for CalleeSavedContext {
         self.gp_regs.x20 = entry as u64;
         self.gp_regs.x30 = entry_point as *const () as u64;
     }
+
+    unsafe fn set_argument(&mut self, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+    }
 }
 
 extern "C" {

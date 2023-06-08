@@ -41,7 +41,7 @@ use futures::{
 pub use preempt::deallocate_thread_pool;
 
 #[cfg(not(feature = "no_preempt"))]
-use crate::preempt::{self, current_context, PtrWorkerThreadContext};
+use crate::preempt::{self, PtrWorkerThreadContext};
 
 #[cfg(not(feature = "no_preempt"))]
 use alloc::collections::LinkedList;
@@ -143,8 +143,13 @@ pub struct TaskInfo {
 
 impl TaskInfo {
     #[cfg(not(feature = "no_preempt"))]
-    fn preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
+    pub(crate) fn take_preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
         self.thread.take()
+    }
+
+    #[cfg(not(feature = "no_preempt"))]
+    pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
+        self.thread = Some(ctx)
     }
 
     pub fn get_state(&self) -> State {
@@ -309,7 +314,7 @@ pub fn run_main() {
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
-                if let Some(ctx) = info.preempt_context() {
+                if let Some(ctx) = info.take_preempt_context() {
                     drop(info);
 
                     unsafe { preempt::yield_and_pool(ctx) };
@@ -420,9 +425,9 @@ pub fn run_main() {
 ///
 /// This function must be called from worker threads.
 /// So, do not call this function in application code.
-pub unsafe fn run(_cpu_id: usize) {
+pub unsafe fn run() {
     #[cfg(not(feature = "std"))]
-    preempt::init(_cpu_id);
+    preempt::init();
 
     run_main();
 }
@@ -449,7 +454,6 @@ pub unsafe fn preemption() {
 #[cfg(not(feature = "no_preempt"))]
 unsafe fn do_preemption() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
-    let current_thread = current_context();
 
     // If there is a running task on this CPU core, preemption is performed.
     // Otherwise, this function just returns.
@@ -463,30 +467,21 @@ unsafe fn do_preemption() {
         let current_task = {
             let mut node = MCSNode::new();
             let tasks = TASKS.lock(&mut node);
-
-            // Make the current running task preempted.
-            {
-                let current_task = tasks.id_to_task.get(&task_id).unwrap();
-                let mut node = MCSNode::new();
-                let mut task_info = current_task.info.lock(&mut node);
-
-                task_info.thread = Some(current_thread);
-
-                current_task.clone()
-            }
+            let current_task = tasks.id_to_task.get(&task_id).unwrap();
+            current_task.clone()
         };
 
         if let Some(next_thread) = {
             let mut node = MCSNode::new();
             let mut task_info = next.info.lock(&mut node);
-            task_info.preempt_context()
+            task_info.take_preempt_context()
         } {
             // If the next task is a preempted task, yield to it.
             preempt::yield_preempted_and_wake_task(next_thread, current_task);
         } else {
             // Otherwise, get a thread from the thread pool or create a new thread.
 
-            let next_thread = if let Some(t) = preempt::get_pooled_thread() {
+            let mut next_thread = if let Some(t) = preempt::get_pooled_thread() {
                 // If there is a thread in the thread pool, use it,
                 t
             } else if let Ok(t) = preempt::new_thread(thread_entry, 0) {
@@ -496,6 +491,8 @@ unsafe fn do_preemption() {
                 next.wake();
                 return;
             };
+
+            next_thread.set_argument(next_thread.0 as usize);
 
             {
                 let mut node = MCSNode::new();
@@ -521,12 +518,19 @@ unsafe fn do_preemption() {
 
 #[cfg(not(feature = "no_preempt"))]
 #[no_mangle]
-extern "C" fn thread_entry(_arg: usize) -> ! {
+extern "C" fn thread_entry(arg: usize) -> ! {
     // Use only the primary heap memory region.
+
+    use crate::preempt::set_current_context;
+
     #[cfg(not(feature = "std"))]
     unsafe {
         awkernel_lib::heap::TALLOC.use_primary()
     };
+
+    let ctx = arg as *mut preempt::WorkerThreadContext;
+    let ctx = PtrWorkerThreadContext(ctx);
+    set_current_context(ctx);
 
     // Disable interrupt.
     interrupt::disable();
