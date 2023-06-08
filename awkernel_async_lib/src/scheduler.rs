@@ -6,6 +6,7 @@ use alloc::{boxed::Box, sync::Arc};
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
+mod prioritized_round_robin;
 mod round_robin;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
