@@ -27,9 +27,6 @@ pub mod task;
 mod timeout_call;
 mod yield_task;
 
-#[cfg(not(feature = "no_preempt"))]
-pub(crate) mod preempt;
-
 #[cfg(test)]
 pub(crate) mod mini_task;
 

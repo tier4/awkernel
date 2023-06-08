@@ -112,6 +112,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     //     awkernel_async_lib::cpu_id()
                     // );
 
+                    unsafe { awkernel_async_lib::task::preemption() };
+
                     // log::debug!(
                     //     "end preemption: task = {i}, cpu_id = {}",
                     //     awkernel_async_lib::cpu_id()
