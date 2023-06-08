@@ -103,13 +103,19 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         not(any(target_os = "linux", target_os = "macos")),
         target_arch = "aarch64"
     ))]
-    for _i in 0..4 {
+    for i in 0..4 {
         spawn(
             async move {
                 loop {
-                    // log::debug!("do preemption: task = {i}");
-                    // unsafe { awkernel_async_lib::task::preemption() };
-                    // log::debug!("end preemption: task = {i}");
+                    // log::debug!(
+                    //     "do preemption: task = {i}, cpu_id = {}",
+                    //     awkernel_async_lib::cpu_id()
+                    // );
+
+                    // log::debug!(
+                    //     "end preemption: task = {i}, cpu_id = {}",
+                    //     awkernel_async_lib::cpu_id()
+                    // );
 
                     awkernel_async_lib::sleep(Duration::from_millis(5000)).await;
                 }

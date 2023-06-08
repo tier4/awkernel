@@ -3,8 +3,8 @@ use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
-    vec::Vec,
 };
+use array_macro::array;
 use awkernel_lib::{
     context::{ArchContext, Context},
     cpu::NUM_MAX_CPU,
@@ -20,7 +20,8 @@ use core::{
 use futures::task::ArcWake;
 
 static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
-static mut TASKS: Vec<Mutex<TaskList>> = Vec::new();
+static TASKS: [Mutex<TaskList>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(TaskList::new()); NUM_MAX_CPU];
 
 struct Threads {
     pooled: VecDeque<PtrWorkerThreadContext>,
@@ -131,13 +132,14 @@ pub(crate) fn yield_preempted_and_wake_task(
     {
         // The current task will be re-scheduled.
         let mut node = MCSNode::new();
-        let mut tasks = unsafe { TASKS[cpu_id].lock(&mut node) };
+        let mut tasks = TASKS[cpu_id].lock(&mut node);
         tasks.push(current_task);
     }
 
     unsafe {
         // Save the current context.
         let ctx = &mut *current_ctx as &mut ArchContext;
+
         if !Context::set_jump(ctx) {
             // Jump to the next thread.
             let target = &*next_thread.0;
@@ -151,7 +153,7 @@ pub(crate) fn yield_preempted_and_wake_task(
 pub fn re_schedule() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
     let mut node = MCSNode::new();
-    let mut tasks = unsafe { TASKS[cpu_id].lock(&mut node) };
+    let mut tasks = TASKS[cpu_id].lock(&mut node);
 
     while let Some(task) = tasks.pop() {
         task.wake();
@@ -235,10 +237,6 @@ fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
 }
 
 pub fn init(cpu_id: usize) {
-    unsafe {
-        TASKS.resize_with(NUM_MAX_CPU, || Mutex::new(TaskList::new()));
-    }
-
     let ctx = PtrWorkerThreadContext::new();
 
     let mut node = MCSNode::new();

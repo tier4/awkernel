@@ -21,13 +21,14 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
 use core::{
-    ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -52,7 +53,7 @@ use awkernel_lib::interrupt::{self, InterruptGuard};
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
-static mut RUNNING: [Option<u64>; NUM_MAX_CPU] = [None; NUM_MAX_CPU]; // IDs of running tasks.
+static RUNNING: [AtomicU64; NUM_MAX_CPU] = array![_ => AtomicU64::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
 #[cfg(not(feature = "no_preempt"))]
 static NEXT_TASK: Mutex<BTreeMap<usize, LinkedList<Arc<Task>>>> = Mutex::new(BTreeMap::new());
@@ -176,7 +177,7 @@ struct Tasks {
 impl Tasks {
     const fn new() -> Self {
         Self {
-            candidate_id: 0,
+            candidate_id: 1,
             id_to_task: BTreeMap::new(),
         }
     }
@@ -189,6 +190,10 @@ impl Tasks {
     ) -> u64 {
         let mut id = self.candidate_id;
         loop {
+            if self.candidate_id == 0 {
+                self.candidate_id += 1;
+            }
+
             // Find an unused task ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_task.entry(id) {
                 let info = Mutex::new(TaskInfo {
@@ -268,7 +273,12 @@ pub fn spawn(
 /// if let Some(task_id) = awkernel_async_lib::task::get_current_task(1) { }
 /// ```
 pub fn get_current_task(cpu_id: usize) -> Option<u64> {
-    unsafe { read_volatile(&RUNNING[cpu_id]) }
+    let id = RUNNING[cpu_id].load(Ordering::Relaxed);
+    if id == 0 {
+        None
+    } else {
+        Some(id)
+    }
 }
 
 fn get_next_task() -> Option<Arc<Task>> {
@@ -326,7 +336,7 @@ pub fn run_main() {
 
                 let cpu_id = awkernel_lib::cpu::cpu_id();
 
-                unsafe { write_volatile(&mut RUNNING[cpu_id], Some(task.id)) };
+                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
                 let result = {
@@ -342,7 +352,7 @@ pub fn run_main() {
                     })
                 };
 
-                unsafe { write_volatile(&mut RUNNING[cpu_id], None) };
+                RUNNING[cpu_id].store(0, Ordering::Relaxed);
 
                 result
             };
@@ -443,11 +453,10 @@ unsafe fn do_preemption() {
 
     // If there is a running task on this CPU core, preemption is performed.
     // Otherwise, this function just returns.
-    let task_id = if let Some(task_id) = unsafe { read_volatile(&mut RUNNING[cpu_id]) } {
-        task_id
-    } else {
+    let task_id = RUNNING[cpu_id].load(Ordering::Relaxed);
+    if task_id == 0 {
         return;
-    };
+    }
 
     // If there is a task to be invoked next, execute the task.
     if let Some(next) = scheduler::get_next_task() {
@@ -470,7 +479,7 @@ unsafe fn do_preemption() {
         if let Some(next_thread) = {
             let mut node = MCSNode::new();
             let mut task_info = next.info.lock(&mut node);
-            task_info.thread.take()
+            task_info.preempt_context()
         } {
             // If the next task is a preempted task, yield to it.
             preempt::yield_preempted_and_wake_task(next_thread, current_task);

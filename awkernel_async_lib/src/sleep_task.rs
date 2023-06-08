@@ -32,14 +32,17 @@ impl Future for Sleep {
         let mut guard = self.state.lock(&mut node);
 
         match &*guard {
-            State::Wait => Poll::Pending,
+            State::Wait => {
+                *guard = State::Canceled;
+                Poll::Ready(State::Canceled)
+            }
             State::Canceled => Poll::Ready(State::Canceled),
             State::Finished => Poll::Ready(State::Finished),
             State::Ready => {
                 let state = self.state.clone();
                 let waker = cx.waker().clone();
 
-                *guard = State::Canceled;
+                *guard = State::Wait;
 
                 // Invoke `sleep_handler` after `self.dur` time.
                 scheduler::sleep_task(
