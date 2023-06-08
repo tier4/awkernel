@@ -11,6 +11,9 @@
 //!     - `TaskInfo::next` is used by `TaskList` to construct a linked list.
 //! - `Tasks` is a set of tasks.
 
+#[cfg(not(feature = "no_preempt"))]
+mod preempt;
+
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
@@ -41,7 +44,7 @@ use futures::{
 pub use preempt::deallocate_thread_pool;
 
 #[cfg(not(feature = "no_preempt"))]
-use crate::preempt::{self, PtrWorkerThreadContext};
+use preempt::PtrWorkerThreadContext;
 
 #[cfg(not(feature = "no_preempt"))]
 use alloc::collections::LinkedList;
@@ -521,8 +524,6 @@ unsafe fn do_preemption() {
 extern "C" fn thread_entry(arg: usize) -> ! {
     // Use only the primary heap memory region.
 
-    use crate::preempt::set_current_context;
-
     #[cfg(not(feature = "std"))]
     unsafe {
         awkernel_lib::heap::TALLOC.use_primary()
@@ -530,7 +531,7 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 
     let ctx = arg as *mut preempt::WorkerThreadContext;
     let ctx = PtrWorkerThreadContext(ctx);
-    set_current_context(ctx);
+    preempt::set_current_context(ctx);
 
     // Disable interrupt.
     interrupt::disable();
