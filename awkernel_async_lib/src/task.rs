@@ -31,7 +31,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -56,7 +56,7 @@ use awkernel_lib::interrupt::{self, InterruptGuard};
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
-static RUNNING: [AtomicU64; NUM_MAX_CPU] = array![_ => AtomicU64::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
 #[cfg(not(feature = "no_preempt"))]
 static NEXT_TASK: Mutex<BTreeMap<usize, LinkedList<Arc<Task>>>> = Mutex::new(BTreeMap::new());
@@ -114,7 +114,7 @@ impl TaskList {
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
-    pub id: u64,
+    pub id: u32,
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
@@ -178,8 +178,8 @@ pub enum State {
 /// Tasks.
 #[derive(Default)]
 struct Tasks {
-    candidate_id: u64, // Next candidate of task ID.
-    id_to_task: BTreeMap<u64, Arc<Task>>,
+    candidate_id: u32, // Next candidate of task ID.
+    id_to_task: BTreeMap<u32, Arc<Task>>,
 }
 
 impl Tasks {
@@ -195,7 +195,7 @@ impl Tasks {
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
-    ) -> u64 {
+    ) -> u32 {
         let mut id = self.candidate_id;
         loop {
             if self.candidate_id == 0 {
@@ -232,13 +232,13 @@ impl Tasks {
         }
     }
 
-    fn wake(&self, id: u64) {
+    fn wake(&self, id: u32) {
         if let Some(task) = self.id_to_task.get(&id) {
             task.clone().wake();
         }
     }
 
-    fn remove(&mut self, id: u64) {
+    fn remove(&mut self, id: u32) {
         self.id_to_task.remove(&id);
     }
 }
@@ -260,7 +260,7 @@ impl Tasks {
 pub fn spawn(
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
-) -> u64 {
+) -> u32 {
     let future = future.boxed();
 
     let scheduler = get_scheduler(sched_type);
@@ -280,7 +280,7 @@ pub fn spawn(
 /// ```
 /// if let Some(task_id) = awkernel_async_lib::task::get_current_task(1) { }
 /// ```
-pub fn get_current_task(cpu_id: usize) -> Option<u64> {
+pub fn get_current_task(cpu_id: usize) -> Option<u32> {
     let id = RUNNING[cpu_id].load(Ordering::Relaxed);
     if id == 0 {
         None
@@ -546,7 +546,7 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 }
 
 /// Wake `task_id` up.
-pub fn wake(task_id: u64) {
+pub fn wake(task_id: u32) {
     let mut node = MCSNode::new();
     let gurad = TASKS.lock(&mut node);
     gurad.wake(task_id);

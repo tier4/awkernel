@@ -17,4 +17,8 @@ impl crate::context::Context for Context {
     unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
         todo!();
     }
+
+    unsafe fn set_argument(&mut self, arg: usize) {
+        todo!();
+    }
 }
