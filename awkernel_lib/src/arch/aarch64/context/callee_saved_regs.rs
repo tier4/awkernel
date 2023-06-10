@@ -61,8 +61,10 @@ pub struct CalleeSavedFPRegs {
 
 core::arch::global_asm!(
     "
-.global save_context
-save_context:
+.global context_switch
+context_switch:
+// Save the current context.
+
 // Store floating-point registers.
 stp      d8,  d9, [x0], #16
 stp     d10, d11, [x0], #16
@@ -91,43 +93,39 @@ str     w11, [x0]
 mov     x12, sp
 str     x12, [x0, #8]
 
-mov     x0, #1
 
-ret
+// Restore the next context.
 
-
-restore_context:
 // Load floating-point registers.
-ldp      d8,  d9, [x0], #16
-ldp     d10, d11, [x0], #16
-ldp     d12, d13, [x0], #16
-ldp     d14, d15, [x0], #16
+ldp      d8,  d9, [x1], #16
+ldp     d10, d11, [x1], #16
+ldp     d12, d13, [x1], #16
+ldp     d14, d15, [x1], #16
 
 // Load general purpose registers.
-ldp     x19, x20, [x0, #16 * 1]
-ldp     x21, x22, [x0, #16 * 2]
-ldp     x23, x24, [x0, #16 * 3]
-ldp     x25, x26, [x0, #16 * 4]
-ldp     x27, x28, [x0, #16 * 5]
-ldp     x29, x30, [x0, #16 * 6]
+ldp     x19, x20, [x1, #16 * 1]
+ldp     x21, x22, [x1, #16 * 2]
+ldp     x23, x24, [x1, #16 * 3]
+ldp     x25, x26, [x1, #16 * 4]
+ldp     x27, x28, [x1, #16 * 5]
+ldp     x29, x30, [x1, #16 * 6]
 
 // Load FPSR and FPCR registers.
-ldp     x9, x10, [x0]
+ldp     x9, x10, [x1]
 msr     fpsr, x9
 msr     fpcr, x10
 
 // Load SPSR.
-add     x0, x0, #16 * 7
-ldr     w11, [x0]
+add     x1, x1, #16 * 7
+ldr     w11, [x1]
 msr     spsr_el1, x11
 
 // Load SP.
-ldr     x12, [x0, #8]
+ldr     x12, [x1, #8]
 mov     sp, x12
 
-mov     x0, #0
-
 ret
+
 "
 );
 
@@ -137,18 +135,6 @@ extern "C" {
 }
 
 impl crate::context::Context for CalleeSavedContext {
-    #[inline(always)]
-    fn set_jump(&mut self) -> bool {
-        let ptr = self as *mut _;
-        let val = unsafe { save_context(ptr) };
-        val == 0
-    }
-
-    unsafe fn long_jump(&self) -> ! {
-        unsafe { restore_context(self as *const _) };
-        unreachable!()
-    }
-
     unsafe fn set_stack_pointer(&mut self, sp: usize) {
         self.sp = sp as u64;
     }

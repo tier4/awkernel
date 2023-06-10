@@ -1,12 +1,12 @@
 use crate::task::{Task, TaskList};
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, LinkedList, VecDeque},
     sync::Arc,
 };
 use array_macro::array;
 use awkernel_lib::{
-    context::{ArchContext, Context},
+    context::{context_switch, ArchContext, Context},
     cpu::NUM_MAX_CPU,
     interrupt::InterruptGuard,
     memory::{self, Flags, PAGESIZE},
@@ -22,6 +22,8 @@ use futures::task::ArcWake;
 static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
 static RUNNABLE_TASKS: [Mutex<TaskList>; NUM_MAX_CPU] =
     array![_ => Mutex::new(TaskList::new()); NUM_MAX_CPU];
+static THREAD_POOL: [Mutex<LinkedList<PtrWorkerThreadContext>>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(LinkedList::new()); NUM_MAX_CPU];
 
 struct Threads {
     pooled: VecDeque<PtrWorkerThreadContext>,
@@ -85,18 +87,26 @@ impl Threads {
 pub(crate) unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
     let current_ctx = take_current_context();
 
-    unsafe {
-        let ctx = &mut *(current_ctx.0);
-        let target = &*next.0;
+    push_to_thread_pool(current_ctx.clone());
 
-        if !ctx.cpu_ctx.set_jump() {
-            push_to_thread_pool(current_ctx);
-            target.cpu_ctx.long_jump();
-        } else {
-            set_current_context(current_ctx);
-            re_schedule();
-        }
+    unsafe {
+        let current = &mut *(current_ctx.0);
+        let next = &*next.0;
+
+        context_switch(&mut current.cpu_ctx, &next.cpu_ctx);
+
+        set_current_context(current_ctx);
+
+        // if !ctx.cpu_ctx.set_jump() {
+        //     push_to_thread_pool(current_ctx);
+        //     target.cpu_ctx.long_jump();
+        // } else {
+        //     set_current_context(current_ctx);
+        //     re_schedule();
+        // }
     }
+
+    re_schedule();
 }
 
 /// The thread of `current_task` yields to `next_thread`.
@@ -126,26 +136,48 @@ pub(crate) fn yield_preempted_and_wake_task(
 
     unsafe {
         // Save the current context.
-        let ctx = &mut *(current_ctx.clone().0);
-        let target = &*next_thread.0;
+        let current = &mut *(current_ctx.clone().0);
+        let next = &*next_thread.0;
 
-        if !ctx.cpu_ctx.set_jump() {
-            // Jump to the next thread.
-            target.cpu_ctx.long_jump();
-        } else {
-            set_current_context(current_ctx);
-            re_schedule();
-        }
+        context_switch(&mut current.cpu_ctx, &next.cpu_ctx);
+
+        set_current_context(current_ctx);
     }
+
+    re_schedule();
+
+    // if !ctx.cpu_ctx.set_jump() {
+    //     // Jump to the next thread.
+    //     target.cpu_ctx.long_jump();
+    // } else {
+    //     set_current_context(current_ctx);
+    //     re_schedule();
+    // }
+    // }
 }
 
 pub fn re_schedule() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
-    let mut node = MCSNode::new();
-    let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
 
-    while let Some(task) = tasks.pop() {
-        task.wake();
+    {
+        let mut node = MCSNode::new();
+        let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
+
+        while let Some(task) = tasks.pop() {
+            task.wake();
+        }
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut pool = THREAD_POOL[cpu_id].lock(&mut node);
+
+        let mut node = MCSNode::new();
+        let mut threads = THREADS.lock(&mut node);
+
+        while let Some(thread) = pool.pop_front() {
+            threads.pooled.push_front(thread);
+        }
     }
 }
 
@@ -250,9 +282,12 @@ pub fn set_current_context(ctx: PtrWorkerThreadContext) {
 }
 
 fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+
     let mut node = MCSNode::new();
-    let mut threads = THREADS.lock(&mut node);
-    threads.pooled.push_front(ctx);
+    let mut pool = THREAD_POOL[cpu_id].lock(&mut node);
+
+    pool.push_back(ctx);
 }
 
 pub fn get_pooled_thread() -> Option<PtrWorkerThreadContext> {
