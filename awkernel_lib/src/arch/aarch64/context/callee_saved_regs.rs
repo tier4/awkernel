@@ -16,16 +16,15 @@ pub struct CalleeSavedContext {
 
     //------------------------------ offset: 16 * 5 (+1)
 
-    // 8 * 11 bytes
+    // 8 * 12 bytes
     pub gp_regs: CalleeSavedGpRegs,
-
-    pub sp: u64, // stack pointer
 
     // ----------------------------- offset: 16 * 11 (+6)
 
     // 8 * 2 bytes
     pub spsr: u32, // saved program status register
-    _unused: [u8; 12],
+    _unused: [u8; 4],
+    pub sp: u64, // stack pointer
 }
 
 /// Callee saved general purpose registers.
@@ -42,6 +41,7 @@ pub struct CalleeSavedGpRegs {
     pub x26: u64,
     pub x27: u64,
     pub x28: u64,
+    pub x29: u64,
     pub x30: u64, // link register
 }
 
@@ -75,7 +75,7 @@ stp     x21, x22, [x0, #16 * 2]
 stp     x23, x24, [x0, #16 * 3]
 stp     x25, x26, [x0, #16 * 4]
 stp     x27, x28, [x0, #16 * 5]
-str     x30, [x0, #16 * 6]
+stp     x29, x30, [x0, #16 * 6]
 
 // Store FPSR and FPCR registers.
 mrs     x9, fpsr
@@ -89,7 +89,7 @@ str     w11, [x0]
 
 // Store SP.
 mov     x12, sp
-str     x12, [x0, #-8]
+str     x12, [x0, #8]
 
 mov     x0, #1
 
@@ -109,7 +109,7 @@ ldp     x21, x22, [x0, #16 * 2]
 ldp     x23, x24, [x0, #16 * 3]
 ldp     x25, x26, [x0, #16 * 4]
 ldp     x27, x28, [x0, #16 * 5]
-ldr     x30, [x0, #16 * 6]
+ldp     x29, x30, [x0, #16 * 6]
 
 // Load FPSR and FPCR registers.
 ldp     x9, x10, [x0]
@@ -122,7 +122,7 @@ ldr     w11, [x0]
 msr     spsr_el1, x11
 
 // Load SP.
-ldr     x12, [x0, #-8]
+ldr     x12, [x0, #8]
 mov     sp, x12
 
 mov     x0, #0
