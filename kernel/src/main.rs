@@ -36,6 +36,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
+        #[cfg(not(feature = "std"))]
+        awkernel_lib::interrupt::set_preempt_irq(
+            config::PREEMPT_IRQ,
+            awkernel_async_lib::task::preemption,
+        );
+
         // TODO: currently interrupt and timer is supported for only AArch64
         #[cfg(feature = "aarch64")]
         {
@@ -56,16 +62,15 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             wake_task(); // Wake executable tasks periodically.
 
             #[cfg(not(feature = "std"))]
-            {
-                awkernel_lib::delay::wait_microsec(1);
-            }
+            awkernel_lib::delay::wait_microsec(1);
 
             #[cfg(feature = "std")]
-            {
-                awkernel_lib::delay::wait_microsec(10);
-            }
+            awkernel_lib::delay::wait_microsec(10);
         }
     } else {
+        #[cfg(not(feature = "std"))]
+        awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+
         // Non-primary CPUs.
         unsafe { task::run() }; // Execute tasks.
     }

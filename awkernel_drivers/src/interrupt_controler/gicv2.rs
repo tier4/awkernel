@@ -252,6 +252,18 @@ impl InterruptController for GICv2 {
         // Enable the CPU interface.
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, self.gicc_base);
     }
+
+    fn send_ipi(&mut self, target: usize) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast(&mut self) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast_without_self(&mut self) {
+        todo!()
+    }
 }
 
 pub struct PendingInterruptIterator {

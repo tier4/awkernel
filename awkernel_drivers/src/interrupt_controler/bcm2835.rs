@@ -76,6 +76,18 @@ impl InterruptController for BCM2835IntCtrl {
         self.iter = Some(self.iter());
         self.iter.as_mut().unwrap()
     }
+
+    fn send_ipi(&mut self, target: usize) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast(&mut self) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast_without_self(&mut self) {
+        todo!()
+    }
 }
 
 pub struct PendingInterruptIterator {

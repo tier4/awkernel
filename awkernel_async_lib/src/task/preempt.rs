@@ -306,7 +306,7 @@ pub fn deallocate_thread_pool() {
     }
 }
 
-fn do_preemption() {
+unsafe fn do_preemption() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
     // If there is a running task on this CPU core, preemption is performed.
@@ -387,21 +387,23 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 }
 
 /// Preempt to the next executable task.
-pub fn preemption() {
+///
+/// # Safety
+///
+/// Do not call this function during mutex locking.
+pub unsafe fn preemption() {
     let _int_guard = InterruptGuard::new();
 
     #[cfg(not(feature = "std"))]
-    let _heap_guard = unsafe {
+    let _heap_guard = {
         let heap_guard = awkernel_lib::heap::TALLOC.save();
         awkernel_lib::heap::TALLOC.use_primary();
         heap_guard
     };
 
-    if let Err(e) = catch_unwind(do_preemption) {
+    if let Err(e) = catch_unwind(|| do_preemption) {
         #[cfg(not(feature = "std"))]
-        unsafe {
-            awkernel_lib::heap::TALLOC.use_primary_then_backup()
-        };
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
 
         log::error!("caught panic!: {e:?}");
     }

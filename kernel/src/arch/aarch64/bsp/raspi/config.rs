@@ -15,3 +15,9 @@ pub const UART_IRQ: usize = 57;
 pub const UART_IRQ: usize = 121 + 32;
 
 pub const UART_CLOCK: usize = 48000000;
+
+#[cfg(feature = "raspi3")]
+pub const PREEMPT_IRQ: usize = !0; // TODO
+
+#[cfg(feature = "raspi4")]
+pub const PREEMPT_IRQ: usize = 0;
