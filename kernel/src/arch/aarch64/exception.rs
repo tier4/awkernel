@@ -106,7 +106,7 @@ ESR  = 0x{:x}
 
 #[no_mangle]
 pub fn curr_el_sp0_fiq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
-    loop {}
+    wait_forever();
 }
 
 #[no_mangle]

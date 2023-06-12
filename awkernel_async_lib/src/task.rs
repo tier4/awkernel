@@ -41,25 +41,16 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::deallocate_thread_pool;
+pub use preempt::{deallocate_thread_pool, preemption};
 
 #[cfg(not(feature = "no_preempt"))]
 use preempt::PtrWorkerThreadContext;
-
-#[cfg(not(feature = "no_preempt"))]
-use alloc::collections::LinkedList;
-
-#[cfg(not(feature = "no_preempt"))]
-use awkernel_lib::interrupt::{self, InterruptGuard};
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
-
-#[cfg(not(feature = "no_preempt"))]
-static NEXT_TASK: Mutex<BTreeMap<usize, LinkedList<Arc<Task>>>> = Mutex::new(BTreeMap::new());
 
 /// List of tasks.
 pub(crate) struct TaskList {
@@ -292,14 +283,8 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
-        let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        let mut node = MCSNode::new();
-        let mut next_task = NEXT_TASK.lock(&mut node);
-        if let Some(tasks) = next_task.get_mut(&cpu_id) {
-            if let Some(task) = tasks.pop_front() {
-                return Some(task);
-            }
+        if let Some(next) = preempt::get_next_task() {
+            return Some(next);
         }
     }
 
@@ -433,116 +418,6 @@ pub unsafe fn run() {
     preempt::init();
 
     run_main();
-}
-
-#[cfg(not(feature = "no_preempt"))]
-pub unsafe fn preemption() {
-    let _int_guard = InterruptGuard::new();
-
-    #[cfg(not(feature = "std"))]
-    let _heap_guard = {
-        let heap_guard = awkernel_lib::heap::TALLOC.save();
-        awkernel_lib::heap::TALLOC.use_primary();
-        heap_guard
-    };
-
-    if let Err(e) = catch_unwind(|| do_preemption()) {
-        #[cfg(not(feature = "std"))]
-        awkernel_lib::heap::TALLOC.use_primary_then_backup();
-
-        log::error!("caught panic!: {e:?}");
-    }
-}
-
-#[cfg(not(feature = "no_preempt"))]
-unsafe fn do_preemption() {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-
-    // If there is a running task on this CPU core, preemption is performed.
-    // Otherwise, this function just returns.
-    let task_id = RUNNING[cpu_id].load(Ordering::Relaxed);
-    if task_id == 0 {
-        return;
-    }
-
-    // If there is a task to be invoked next, execute the task.
-    if let Some(next) = scheduler::get_next_task() {
-        let current_task = {
-            let mut node = MCSNode::new();
-            let tasks = TASKS.lock(&mut node);
-            let current_task = tasks.id_to_task.get(&task_id).unwrap();
-            current_task.clone()
-        };
-
-        if let Some(next_thread) = {
-            let mut node = MCSNode::new();
-            let mut task_info = next.info.lock(&mut node);
-            task_info.take_preempt_context()
-        } {
-            // If the next task is a preempted task, yield to it.
-            preempt::yield_preempted_and_wake_task(next_thread, current_task);
-        } else {
-            // Otherwise, get a thread from the thread pool or create a new thread.
-
-            let mut next_thread = if let Some(t) = preempt::get_pooled_thread() {
-                // If there is a thread in the thread pool, use it,
-                t
-            } else if let Ok(t) = preempt::new_thread(thread_entry, 0) {
-                // or create a new thread.
-                t
-            } else {
-                next.wake();
-                return;
-            };
-
-            next_thread.set_argument(next_thread.0 as usize);
-
-            {
-                let mut node = MCSNode::new();
-                let mut next_task = NEXT_TASK.lock(&mut node);
-
-                // Insert the next task to the queue.
-                match next_task.entry(cpu_id) {
-                    btree_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().push_back(next);
-                    }
-                    btree_map::Entry::Vacant(entry) => {
-                        let mut queue = LinkedList::new();
-                        queue.push_back(next);
-                        entry.insert(queue);
-                    }
-                }
-            }
-
-            preempt::yield_preempted_and_wake_task(next_thread, current_task);
-        }
-    }
-}
-
-#[cfg(not(feature = "no_preempt"))]
-#[no_mangle]
-extern "C" fn thread_entry(arg: usize) -> ! {
-    // Use only the primary heap memory region.
-
-    #[cfg(not(feature = "std"))]
-    unsafe {
-        awkernel_lib::heap::TALLOC.use_primary()
-    };
-
-    let ctx = arg as *mut preempt::WorkerThreadContext;
-    let ctx = PtrWorkerThreadContext(ctx);
-    preempt::set_current_context(ctx);
-
-    // Disable interrupt.
-    interrupt::disable();
-
-    // Re-schedule the preempted task.
-    preempt::re_schedule();
-
-    // Run the main function.
-    run_main();
-
-    awkernel_lib::delay::wait_forever();
 }
 
 /// Wake `task_id` up.
