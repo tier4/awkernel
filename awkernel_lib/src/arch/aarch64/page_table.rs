@@ -45,7 +45,7 @@ pub trait FrameAllocator {
     fn allocate_frame(&mut self) -> Option<u64>;
 }
 
-const ENTRY_COUNT: usize = PAGESIZE as usize / 8;
+const ENTRY_COUNT: usize = PAGESIZE / 8;
 
 #[repr(align(4096))] // 4KiB
 #[repr(C)]
@@ -103,6 +103,9 @@ impl PageTable {
         Self { root }
     }
 
+    /// # Safety
+    ///
+    /// `addr` must be the root of a page table.
     pub unsafe fn with_root(addr: usize) -> Self {
         let root = PageTableEntry::from_addr(addr as u64);
         Self { root }
@@ -154,27 +157,26 @@ impl PageTable {
         unsafe { write_volatile(ptr, e) };
     }
 
+    /// # Safety
+    ///
+    /// Ensure that the page tables regarding the virtual address must be allocated before calling this function.
     pub unsafe fn unsafe_map(&mut self, vm_addr: u64, phy_addr: u64, flag: u64) -> bool {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
-        let lv2_table;
-
-        if lv1_table[lv1_idx] == 0 {
+        let lv2_table = if lv1_table[lv1_idx] == 0 {
             return false;
         } else {
             let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
-            lv2_table = PageTableEntry::from_addr(addr).entries;
-        }
+            PageTableEntry::from_addr(addr).entries
+        };
 
         let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
-        let lv3_table;
-
-        if lv2_table[lv2_idx] == 0 {
+        let lv3_table = if lv2_table[lv2_idx] == 0 {
             return false;
         } else {
             let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-            lv3_table = PageTableEntry::from_addr(addr).entries;
-        }
+            PageTableEntry::from_addr(addr).entries
+        };
 
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
         let e = phy_addr & !0xfff | flag;
@@ -185,6 +187,9 @@ impl PageTable {
         true
     }
 
+    /// # Safety
+    ///
+    /// The unmapped address must not be used after calling this function.
     pub unsafe fn unmap(&mut self, vm_addr: u64) {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);

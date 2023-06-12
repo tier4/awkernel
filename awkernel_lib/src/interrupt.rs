@@ -34,12 +34,12 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     *ctrl = Some(controller);
 }
 
-pub fn register_handler<F>(irq: usize, func: Box<F>) -> Result<(), ()>
+pub fn register_handler<F>(irq: usize, func: Box<F>) -> Result<(), &'static str>
 where
     F: FnMut() + Send + 'static,
 {
     if irq >= MAX_IRQS {
-        return Err(());
+        return Err("The IRQ# is greater than MAX_IRQS.");
     }
 
     let mut node = MCSNode::new();
@@ -81,7 +81,7 @@ pub fn handle_irqs() {
                 if let Err(err) = catch_unwind(|| {
                     // Use the primary allocator.
                     #[cfg(not(feature = "std"))]
-                    let _guard = unsafe { heap::TALLOC.save() };
+                    let _guard = heap::TALLOC.save();
 
                     #[cfg(not(feature = "std"))]
                     unsafe {
@@ -108,6 +108,12 @@ pub fn handle_irqs() {
 /// ```
 pub struct InterruptGuard {
     flag: usize,
+}
+
+impl Default for InterruptGuard {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl InterruptGuard {

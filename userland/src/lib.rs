@@ -36,7 +36,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 let mut worst = 0;
 
                 for i in 0..RTT_SIZE {
-                    let rtt = unsafe { read_volatile(&mut RTT[i]) };
+                    let rtt = unsafe { read_volatile(&RTT[i]) };
                     if rtt > 0 {
                         total += rtt;
                         count += 1;
@@ -112,7 +112,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     //     awkernel_async_lib::cpu_id()
                     // );
 
-                    unsafe { awkernel_async_lib::task::preemption() };
+                    awkernel_async_lib::task::preemption();
 
                     // log::debug!(
                     //     "end preemption: task = {i}, cpu_id = {}",

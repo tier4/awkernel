@@ -31,7 +31,7 @@
 //!
 //! ```
 //! // Save current configuration.
-//! let guard = unsafe { heap::Talloc::save() };
+//! let guard = heap::Talloc::save();
 //!
 //! // Switch to use only the primary allocator.
 //! unsafe { heap::Talloc::use_primary() };
@@ -71,10 +71,16 @@ pub enum InitErr {
 #[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 
+/// # Safety
+///
+/// This must be called at initialization.
 pub unsafe fn init_primary(primary_start: usize, primary_size: usize) {
     TALLOC.init_primary(primary_start, primary_size);
 }
 
+/// # Safety
+///
+/// This must be called at initialization.
 pub unsafe fn init_backup(backup_start: usize, backup_size: usize) {
     TALLOC.init_backup(backup_start, backup_size);
 }
@@ -118,9 +124,9 @@ unsafe impl GlobalAlloc for Talloc {
         } else {
             let ptr = self.primary.alloc(layout);
             if ptr.is_null() {
-                return self.backup.alloc(layout);
+                self.backup.alloc(layout)
             } else {
-                return ptr;
+                ptr
             }
         }
     }
@@ -183,6 +189,9 @@ impl Talloc {
     }
 
     /// use both the primary and backup allocators
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses both the primary and backup allocators.
     pub unsafe fn use_primary_then_backup(&self) {
         let (index, cpu_id) = Self::cpu_index();
         let mask = !(1 << cpu_id);
@@ -190,6 +199,10 @@ impl Talloc {
     }
 
     /// use only the primary allocator
+    ///
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses only the primary allocator.
     pub unsafe fn use_primary(&self) {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
@@ -197,7 +210,7 @@ impl Talloc {
     }
 
     /// Save the configuration and it will be restored when dropping `Guard`.
-    pub unsafe fn save(&self) -> Guard {
+    pub fn save(&self) -> Guard {
         let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
         let flag = mask & self.flags[index].load(Ordering::Relaxed);
@@ -213,7 +226,7 @@ impl Talloc {
     }
 
     /// check whether using the primary allocator
-    pub unsafe fn is_primary(&self) -> bool {
+    pub fn is_primary(&self) -> bool {
         let (index, cpu_id) = Self::cpu_index();
         let val = self.flags[index].load(Ordering::Relaxed);
         (val & (1 << cpu_id)) != 0

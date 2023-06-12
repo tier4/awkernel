@@ -26,11 +26,7 @@ pub fn reset() {
 
 /// Get IRQ#.
 pub fn irq_id() -> Option<usize> {
-    if let Some(timer) = unsafe { TIMER } {
-        Some(timer.irq_id())
-    } else {
-        None
-    }
+    unsafe { TIMER }.map(|timer| timer.irq_id())
 }
 
 /// Disable the timer interrupt.

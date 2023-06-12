@@ -35,6 +35,10 @@ pub fn register_unsafe_puts(console: unsafe fn(&str)) {
     unsafe { write_volatile(&mut UNSAFE_PUTS, Some(console)) }
 }
 
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
 pub unsafe fn unsafe_puts(data: &str) {
     if let Some(console) = UNSAFE_PUTS {
         console(data);
@@ -137,11 +141,7 @@ pub fn irq_id() -> Option<usize> {
     let mut node = MCSNode::new();
     let c = CONSOLE.console.lock(&mut node);
 
-    if let Some(console) = c.as_ref() {
-        Some(console.irq_id())
-    } else {
-        None
-    }
+    c.as_ref().map(|console| console.irq_id())
 }
 
 /// Read a byte.

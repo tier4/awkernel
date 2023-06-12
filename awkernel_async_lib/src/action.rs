@@ -165,9 +165,11 @@ type ProtoServerResult<R> = S::Send<
     S::Var<S::Z>,    /* Goto ProtoServerInn. */
 >;
 
+type ChanServerRecvGoal<G, F, R> = S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerInn<G, F, R>>;
+
 #[must_use]
 pub struct ServerRecvGoal<G, F: Send, R> {
-    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerInn<G, F, R>>,
+    chan: ChanServerRecvGoal<G, F, R>,
     name: Cow<'static, str>,
 }
 
@@ -194,9 +196,12 @@ where
     }
 }
 
+type ChanServerSendGoalResult<G, F, R> =
+    S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerGoalResult<F, R>>;
+
 #[must_use]
 pub struct ServerSendGoalResult<G, F: Send, R> {
-    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerGoalResult<F, R>>,
+    chan: ChanServerSendGoalResult<G, F, R>,
     name: Cow<'static, str>,
 }
 
@@ -249,9 +254,11 @@ pub enum ServerFeedbackOrCancel<G, F: Send, R> {
     Cancel(ServerSendCancel<G, F, R>),
 }
 
+type ChanServerSendFeedback<G, F, R> = S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>;
+
 #[must_use]
 pub struct ServerSendFeedback<G, F: Send, R> {
-    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    chan: ChanServerSendFeedback<G, F, R>,
     name: Cow<'static, str>,
     tx: bounded::Sender<F>,
     cancel: Arc<AtomicBool>,
@@ -308,9 +315,11 @@ where
     }
 }
 
+type ChanServerSendCancel<G, F, R> = S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>;
+
 #[must_use]
 pub struct ServerSendCancel<G, F: Send, R> {
-    chan: S::Chan<(ProtoServerInn<G, F, R>, ()), ProtoServerResult<R>>,
+    chan: ChanServerSendCancel<G, F, R>,
     name: Cow<'static, str>,
     cancel: Arc<AtomicBool>,
 }
@@ -372,7 +381,7 @@ where
         offer! {c,
             REJECT => {
                 let chan = c.zero();
-                AcceptOrRejectGoal::Reject(Self { chan, _phantom: PhantomData::default() })
+                AcceptOrRejectGoal::Reject(Self { chan, _phantom: PhantomData })
             },
             ACCEPT => {
                 let (c, (id, response)) = c.recv().await;
@@ -399,10 +408,12 @@ where
 }
 
 type ChanClientChoose<G, F, R> = S::Chan<(ProtoClientInn<G, F, R>, ()), S::Var<S::Z>>;
+type ChanClientRecvFeedback<'a, G, F, R> =
+    Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, ResultStatus<R>)>>;
 
 #[must_use]
 pub struct ClientRecvFeedback<'a, G, F: Send, R> {
-    chan: Fuse<BoxFuture<'a, (ChanClientChoose<G, F, R>, ResultStatus<R>)>>,
+    chan: ChanClientRecvFeedback<'a, G, F, R>,
     rx: Fuse<BoxFuture<'a, Result<F, bounded::RecvErr>>>,
 }
 
@@ -424,7 +435,7 @@ where
 
         futures::select_biased! {
             (c, status) = chan => {
-                FeedbackOrResult::Result(ClientSendGoal { chan: c.zero(), _phantom: PhantomData::default() } , status)
+                FeedbackOrResult::Result(ClientSendGoal { chan: c.zero(), _phantom: PhantomData } , status)
             },
             result = rx => {
                 let feedback = result.unwrap();
@@ -470,7 +481,7 @@ pub async fn create_client<G: 'static, F: 'static + Send, R: 'static>(
 
     Ok(ClientSendGoal {
         chan,
-        _phantom: PhantomData::default(),
+        _phantom: PhantomData,
     })
 }
 
@@ -531,7 +542,7 @@ impl Actions {
             }
         }
 
-        match self.ids.entry(name.into()) {
+        match self.ids.entry(name) {
             Entry::Occupied(mut e) => {
                 let map = e.get_mut();
                 let id = get_id(map, &mut self.current_id);
@@ -540,7 +551,7 @@ impl Actions {
             }
             Entry::Vacant(e) => {
                 let mut map = BTreeMap::new();
-                let id = get_id(&mut map, &mut self.current_id);
+                let id = get_id(&map, &mut self.current_id);
                 map.insert(id, flag);
                 e.insert(map);
                 id
