@@ -4,14 +4,14 @@ use core::arch::global_asm;
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedContext {
+pub struct Context {
     // 8 * 8 bytes
-    pub fp_regs: CalleeSavedFPRegs,
+    pub fp_regs: FPRegs,
 
     //------------------------------ offset: 16 * 4 (+4)
 
     // 8 * 12 bytes
-    pub gp_regs: CalleeSavedGpRegs,
+    pub gp_regs: GPRegs,
 
     // ----------------------------- offset: 16 * 10 (+6)
 
@@ -23,7 +23,7 @@ pub struct CalleeSavedContext {
 /// Callee saved general purpose registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedGpRegs {
+pub struct GPRegs {
     pub x19: u64,
     pub x20: u64,
     pub x21: u64,
@@ -41,7 +41,7 @@ pub struct CalleeSavedGpRegs {
 /// Callee saved floating-point registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedFPRegs {
+pub struct FPRegs {
     v8: u64,
     v9: u64,
     v10: u64,
@@ -102,11 +102,11 @@ ret
 );
 
 extern "C" {
-    pub fn save_context(ptr: *mut CalleeSavedContext) -> u64;
-    pub fn restore_context(ptr: *const CalleeSavedContext);
+    pub fn save_context(ptr: *mut Context) -> u64;
+    pub fn restore_context(ptr: *const Context);
 }
 
-impl crate::context::Context for CalleeSavedContext {
+impl crate::context::Context for Context {
     unsafe fn set_stack_pointer(&mut self, sp: usize) {
         self.sp = sp as u64;
     }

@@ -16,8 +16,8 @@
     cbz     x18, data_abort
 
     // Store x0 - x3 on the stack.
-    stp     x0, x1, [sp, #16 * -17]
-    stp     x2, x3, [sp, #16 * -16]
+    stp     x0, x1, [sp, #16 * -11]
+    stp     x2, x3, [sp, #16 * -10]
 
     // Store x31 and ELR.
     mrs     x3, elr_\el
@@ -31,10 +31,10 @@
     str     w3, [sp, #16 * -1] // Context::spsr
 
     // Make room on the stack for the exception context.
-    sub     sp, sp, #16 * 50 // size of Context
+    sub     sp, sp, #16 * 44 // size of Context
 
     // x1 is the second argument for the function called through `\handler`.
-    add     x1, sp, #16 * 50 // SP (original)
+    add     x1, sp, #16 * 44 // SP (original)
 
     bl      exception_store_registers
 
@@ -44,7 +44,7 @@
     // Call `\handler`.
     bl      \handler
 
-    add     x0, sp, #16 * 48
+    add     x0, sp, #16 * 42
     ldp     lr, x1, [x0], #16 // x30 and ELR.
     ldr     x2, [x0] // SPSR
 
@@ -69,19 +69,13 @@ exception_store_registers:
     str     x1, [x1, -8] // Context::sp
 
     // Store general purpose registers.
-    stp      x4,  x5, [x1, #16 * -15]
-    stp      x6,  x7, [x1, #16 * -14]
-    stp      x8,  x9, [x1, #16 * -13]
-    stp     x10, x11, [x1, #16 * -12]
-    stp     x12, x13, [x1, #16 * -11]
-    stp     x14, x15, [x1, #16 * -10]
-    stp     x16, x17, [x1, #16 *  -9]
-    stp     x18, x19, [x1, #16 *  -8]
-    stp     x20, x21, [x1, #16 *  -7]
-    stp     x22, x23, [x1, #16 *  -6]
-    stp     x24, x25, [x1, #16 *  -5]
-    stp     x26, x27, [x1, #16 *  -4]
-    stp     x28, x29, [x1, #16 *  -3]
+    stp      x4,  x5, [x1, #16 * -9]
+    stp      x6,  x7, [x1, #16 * -8]
+    stp      x8,  x9, [x1, #16 * -7]
+    stp     x10, x11, [x1, #16 * -6]
+    stp     x12, x13, [x1, #16 * -5]
+    stp     x14, x15, [x1, #16 * -4]
+    stp     x16, x17, [x1, #16 * -3]
 
     mov     x3, sp // Context::fp_regs
 
@@ -111,47 +105,41 @@ exception_store_registers:
     ret
 
 exception_restore_context:
-    mov     x28, sp
+    mov     x17, sp
 
-    ldp       q0,  q1, [x28], #32
-    ldp       q2,  q3, [x28], #32
-    ldp       q4,  q5, [x28], #32
-    ldp       q6,  q7, [x28], #32
-    ldp       q8,  q9, [x28], #32
-    ldp      q10, q11, [x28], #32
-    ldp      q12, q13, [x28], #32
-    ldp      q14, q15, [x28], #32
-    ldp      q16, q17, [x28], #32
-    ldp      q18, q19, [x28], #32
-    ldp      q20, q21, [x28], #32
-    ldp      q22, q23, [x28], #32
-    ldp      q24, q25, [x28], #32
-    ldp      q26, q27, [x28], #32
-    ldp      q28, q29, [x28], #32
-    ldp      q30, q31, [x28], #32
+    ldp       q0,  q1, [x17], #32
+    ldp       q2,  q3, [x17], #32
+    ldp       q4,  q5, [x17], #32
+    ldp       q6,  q7, [x17], #32
+    ldp       q8,  q9, [x17], #32
+    ldp      q10, q11, [x17], #32
+    ldp      q12, q13, [x17], #32
+    ldp      q14, q15, [x17], #32
+    ldp      q16, q17, [x17], #32
+    ldp      q18, q19, [x17], #32
+    ldp      q20, q21, [x17], #32
+    ldp      q22, q23, [x17], #32
+    ldp      q24, q25, [x17], #32
+    ldp      q26, q27, [x17], #32
+    ldp      q28, q29, [x17], #32
+    ldp      q30, q31, [x17], #32
 
-    ldp     x0, x1, [x28], #16 // Load FPSR and FPCR.
+    ldp     x0, x1, [x17], #16 // Load FPSR and FPCR.
 
     msr     fpsr, x0 // Restore FPSR
     msr     fpcr, x1 // Restore FPCR.
 
-    ldp      x0,  x1, [x28], #16
-    ldp      x2,  x3, [x28], #16
-    ldp      x4,  x5, [x28], #16
-    ldp      x6,  x7, [x28], #16
-    ldp      x8,  x9, [x28], #16
-    ldp     x10, x11, [x28], #16
-    ldp     x12, x13, [x28], #16
-    ldp     x14, x15, [x28], #16
-    ldp     x16, x17, [x28], #16
-    ldp     x18, x19, [x28], #16
-    ldp     x20, x21, [x28], #16
-    ldp     x22, x23, [x28], #16
-    ldp     x24, x25, [x28], #16
-    ldp     x26, x27, [x28], #16
-    ldp     x28, x29, [x28]
+    ldp      x0,  x1, [x17], #16
+    ldp      x2,  x3, [x17], #16
+    ldp      x4,  x5, [x17], #16
+    ldp      x6,  x7, [x17], #16
+    ldp      x8,  x9, [x17], #16
+    ldp     x10, x11, [x17], #16
+    ldp     x12, x13, [x17], #16
+    ldp     x14, x15, [x17], #16
+    ldp     x16, x17, [x17]
 
-    add     sp, sp, #16 * 50 // Restore SP.
+    add     sp, sp, #16 * 44 // Restore SP.
 
     // enable all interrupt
     msr     DAIFClr, #0x0f
