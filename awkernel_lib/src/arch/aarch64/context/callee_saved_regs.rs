@@ -4,34 +4,26 @@ use core::arch::global_asm;
 
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedContext {
+pub struct Context {
     // 8 * 8 bytes
-    pub fp_regs: CalleeSavedFPRegs,
+    pub fp_regs: FPRegs,
 
-    //------------------------------ offset: 16 * 4
+    //------------------------------ offset: 16 * 4 (+4)
+
+    // 8 * 12 bytes
+    pub gp_regs: GPRegs,
+
+    // ----------------------------- offset: 16 * 10 (+6)
 
     // 8 * 2 bytes
-    pub fp_fpsr: u64,
-    pub fp_fpcr: u64,
-
-    //------------------------------ offset: 16 * 5 (+1)
-
-    // 8 * 11 bytes
-    pub gp_regs: CalleeSavedGpRegs,
-
     pub sp: u64, // stack pointer
-
-    // ----------------------------- offset: 16 * 11 (+6)
-
-    // 8 * 2 bytes
-    pub spsr: u32, // saved program status register
-    _unused: [u8; 12],
+    _unused: [u8; 8],
 }
 
 /// Callee saved general purpose registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedGpRegs {
+pub struct GPRegs {
     pub x19: u64,
     pub x20: u64,
     pub x21: u64,
@@ -42,13 +34,14 @@ pub struct CalleeSavedGpRegs {
     pub x26: u64,
     pub x27: u64,
     pub x28: u64,
+    pub x29: u64,
     pub x30: u64, // link register
 }
 
 /// Callee saved floating-point registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct CalleeSavedFPRegs {
+pub struct FPRegs {
     v8: u64,
     v9: u64,
     v10: u64,
@@ -61,8 +54,10 @@ pub struct CalleeSavedFPRegs {
 
 core::arch::global_asm!(
     "
-.global save_context
-save_context:
+.global context_switch
+context_switch:
+// Save the current context.
+
 // Store floating-point registers.
 stp      d8,  d9, [x0], #16
 stp     d10, d11, [x0], #16
@@ -70,85 +65,48 @@ stp     d12, d13, [x0], #16
 stp     d14, d15, [x0], #16
 
 // Store general purpose registers.
-stp     x19, x20, [x0, #16 * 1]
-stp     x21, x22, [x0, #16 * 2]
-stp     x23, x24, [x0, #16 * 3]
-stp     x25, x26, [x0, #16 * 4]
-stp     x27, x28, [x0, #16 * 5]
-str     x30, [x0, #16 * 6]
-
-// Store FPSR and FPCR registers.
-mrs     x9, fpsr
-mrs     x10, fpcr
-stp     x9, x10, [x0]
-
-// Store SPSR.
-add     x0, x0, #16 * 7
-mrs     x11, spsr_el1
-str     w11, [x0]
+stp     x19, x20, [x0], #16
+stp     x21, x22, [x0], #16
+stp     x23, x24, [x0], #16
+stp     x25, x26, [x0], #16
+stp     x27, x28, [x0], #16
+stp     x29, x30, [x0], #16
 
 // Store SP.
-mov     x12, sp
-str     x12, [x0, #-8]
-
-mov     x0, #1
-
-ret
+mov     x9, sp
+str     x9, [x0]
 
 
-restore_context:
+// Restore the next context.
+
 // Load floating-point registers.
-ldp      d8,  d9, [x0], #16
-ldp     d10, d11, [x0], #16
-ldp     d12, d13, [x0], #16
-ldp     d14, d15, [x0], #16
+ldp      d8,  d9, [x1], #16
+ldp     d10, d11, [x1], #16
+ldp     d12, d13, [x1], #16
+ldp     d14, d15, [x1], #16
 
 // Load general purpose registers.
-ldp     x19, x20, [x0, #16 * 1]
-ldp     x21, x22, [x0, #16 * 2]
-ldp     x23, x24, [x0, #16 * 3]
-ldp     x25, x26, [x0, #16 * 4]
-ldp     x27, x28, [x0, #16 * 5]
-ldr     x30, [x0, #16 * 6]
-
-// Load FPSR and FPCR registers.
-ldp     x9, x10, [x0]
-msr     fpsr, x9
-msr     fpcr, x10
-
-// Load SPSR.
-add     x0, x0, #16 * 7
-ldr     w11, [x0]
-msr     spsr_el1, x11
+ldp     x19, x20, [x1], #16
+ldp     x21, x22, [x1], #16
+ldp     x23, x24, [x1], #16
+ldp     x25, x26, [x1], #16
+ldp     x27, x28, [x1], #16
+ldp     x29, x30, [x1], #16
 
 // Load SP.
-ldr     x12, [x0, #-8]
-mov     sp, x12
-
-mov     x0, #0
+ldr     x9, [x1]
+mov     sp, x9
 
 ret
 "
 );
 
 extern "C" {
-    pub fn save_context(ptr: *mut CalleeSavedContext) -> u64;
-    pub fn restore_context(ptr: *const CalleeSavedContext);
+    pub fn save_context(ptr: *mut Context) -> u64;
+    pub fn restore_context(ptr: *const Context);
 }
 
-impl crate::context::Context for CalleeSavedContext {
-    #[inline(always)]
-    fn set_jump(&mut self) -> bool {
-        let ptr = self as *mut _;
-        let val = unsafe { save_context(ptr) };
-        val == 0
-    }
-
-    unsafe fn long_jump(&self) -> ! {
-        unsafe { restore_context(self as *const _) };
-        unreachable!()
-    }
-
+impl crate::context::Context for Context {
     unsafe fn set_stack_pointer(&mut self, sp: usize) {
         self.sp = sp as u64;
     }

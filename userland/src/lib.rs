@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..8 {
+    for i in 0..1024 {
         let topic_a = format!("topic_a_{i}");
         let topic_b = format!("topic_b_{i}");
 
@@ -112,7 +112,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     //     awkernel_async_lib::cpu_id()
                     // );
 
-                    // unsafe { awkernel_async_lib::task::preemption() };
+                    unsafe { awkernel_async_lib::task::preemption() };
 
                     // log::debug!(
                     //     "end preemption: task = {i}, cpu_id = {}",

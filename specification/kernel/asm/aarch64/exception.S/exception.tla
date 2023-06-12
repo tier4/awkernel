@@ -28,18 +28,6 @@ variables
         x15 |-> 15,
         x16 |-> 16,
         x17 |-> 17,
-        x18 |-> 18,
-        x19 |-> 19,
-        x20 |-> 20,
-        x21 |-> 21,
-        x22 |-> 22,
-        x23 |-> 23,
-        x24 |-> 24,
-        x25 |-> 25,
-        x26 |-> 26,
-        x27 |-> 27,
-        x28 |-> 28,
-        x29 |-> 29,
         lr |-> 30, \* equivalent to "x30"
 
         \* floating-point registers
@@ -308,8 +296,8 @@ begin
     \* cbz     x18, data_abort
 
     \* Store x0 - x3 on the stack.
-    C0: call stp("x0", "x1", "sp", 16 * (-17));
-    C1: call stp("x2", "x3", "sp", 16 * (-16));
+    C0: call stp("x0", "x1", "sp", 16 * (-11));
+    C1: call stp("x2", "x3", "sp", 16 * (-10));
 
     \* Store x31 and ELR.
     C2: mrs("x3", "elr");
@@ -323,7 +311,7 @@ begin
     C7: call str("x3", "sp", 16 * (-1));
 
     \* Make room on the stack for the exception context.
-    C5: sub("sp", "sp", 16 * 50);
+    C5: sub("sp", "sp", 16 * 44);
 
     \* enable all interrupt
     \* msr     DAIFClr, #0x0f
@@ -331,7 +319,7 @@ begin
     C_INT00: call interrupt();
 
     \* x1 is the second argument for the function called through `\handler`.
-    C9: add("x1", "sp", 16 * 50);
+    C9: add("x1", "sp", 16 * 44);
 
     C_INT01: call interrupt();
 
@@ -345,7 +333,7 @@ begin
 
     C_INT02: call interrupt();
 
-    C12: add("x0", "sp", 16 * 48);
+    C12: add("x0", "sp", 16 * 42);
     C13: call ldp_add("lr", "x1", "x0", 16);
     C14: call ldr("x2", "x0", 0);
 
@@ -370,19 +358,13 @@ procedure exception_store_registers() begin
     S_INT00: call interrupt();
 
     \* Store general purpose registers.
-    S001: call stp( "x4",  "x5", "x1", 16 * (-15));
-    S002: call stp( "x6",  "x7", "x1", 16 * (-14));
-    S003: call stp( "x8",  "x9", "x1", 16 * (-13));
-    S004: call stp("x10", "x11", "x1", 16 * (-12));
-    S005: call stp("x12", "x13", "x1", 16 * (-11));
-    S006: call stp("x14", "x15", "x1", 16 * (-10));
-    S007: call stp("x16", "x17", "x1", 16 *  (-9));
-    S008: call stp("x18", "x19", "x1", 16 *  (-8));
-    S009: call stp("x20", "x21", "x1", 16 *  (-7));
-    S010: call stp("x22", "x23", "x1", 16 *  (-6));
-    S011: call stp("x24", "x25", "x1", 16 *  (-5));
-    S012: call stp("x26", "x27", "x1", 16 *  (-4));
-    S013: call stp("x28", "x29", "x1", 16 *  (-3));
+    S001: call stp( "x4",  "x5", "x1", 16 * (-9));
+    S002: call stp( "x6",  "x7", "x1", 16 * (-8));
+    S003: call stp( "x8",  "x9", "x1", 16 * (-7));
+    S004: call stp("x10", "x11", "x1", 16 * (-6));
+    S005: call stp("x12", "x13", "x1", 16 * (-5));
+    S006: call stp("x14", "x15", "x1", 16 * (-4));
+    S007: call stp("x16", "x17", "x1", 16 * (-3));
 
     S_INT01: call interrupt();
 
@@ -419,55 +401,49 @@ procedure exception_store_registers() begin
 end procedure;
 
 procedure exception_restore_context() begin
-    R000: mov("x28", "sp");
+    R000: mov("x17", "sp");
 
     R_INT00: call interrupt();
 
-    R100: call ldp16_add( "q0",  "q1", "x28", 32);
-    R101: call ldp16_add( "q2",  "q3", "x28", 32);
-    R102: call ldp16_add( "q4",  "q5", "x28", 32);
-    R103: call ldp16_add( "q6",  "q7", "x28", 32);
-    R104: call ldp16_add( "q8",  "q9", "x28", 32);
-    R105: call ldp16_add("q10", "q11", "x28", 32);
-    R106: call ldp16_add("q12", "q13", "x28", 32);
-    R107: call ldp16_add("q14", "q15", "x28", 32);
-    R108: call ldp16_add("q16", "q17", "x28", 32);
-    R109: call ldp16_add("q18", "q19", "x28", 32);
-    R110: call ldp16_add("q20", "q21", "x28", 32);
-    R111: call ldp16_add("q22", "q23", "x28", 32);
-    R112: call ldp16_add("q24", "q25", "x28", 32);
-    R113: call ldp16_add("q26", "q27", "x28", 32);
-    R114: call ldp16_add("q28", "q29", "x28", 32);
-    R115: call ldp16_add("q30", "q31", "x28", 32);
+    R100: call ldp16_add( "q0",  "q1", "x17", 32);
+    R101: call ldp16_add( "q2",  "q3", "x17", 32);
+    R102: call ldp16_add( "q4",  "q5", "x17", 32);
+    R103: call ldp16_add( "q6",  "q7", "x17", 32);
+    R104: call ldp16_add( "q8",  "q9", "x17", 32);
+    R105: call ldp16_add("q10", "q11", "x17", 32);
+    R106: call ldp16_add("q12", "q13", "x17", 32);
+    R107: call ldp16_add("q14", "q15", "x17", 32);
+    R108: call ldp16_add("q16", "q17", "x17", 32);
+    R109: call ldp16_add("q18", "q19", "x17", 32);
+    R110: call ldp16_add("q20", "q21", "x17", 32);
+    R111: call ldp16_add("q22", "q23", "x17", 32);
+    R112: call ldp16_add("q24", "q25", "x17", 32);
+    R113: call ldp16_add("q26", "q27", "x17", 32);
+    R114: call ldp16_add("q28", "q29", "x17", 32);
+    R115: call ldp16_add("q30", "q31", "x17", 32);
 
     R_INT01: call interrupt();
 
-    R200: call ldp_add("x0", "x1", "x28", 16); \* Load FPSR and FPCR.
+    R200: call ldp_add("x0", "x1", "x17", 16); \* Load FPSR and FPCR.
 
     R201: msr("fpsr", "x0"); \* Restore FPSR
     R202: msr("fpcr", "x1"); \* Restore FPCR.
 
     R_INT02: call interrupt();
 
-    R300: call ldp_add( "x0",  "x1", "x28", 16);
-    R301: call ldp_add( "x2",  "x3", "x28", 16);
-    R302: call ldp_add( "x4",  "x5", "x28", 16);
-    R303: call ldp_add( "x6",  "x7", "x28", 16);
-    R304: call ldp_add( "x8",  "x9", "x28", 16);
-    R305: call ldp_add("x10", "x11", "x28", 16);
-    R306: call ldp_add("x12", "x13", "x28", 16);
-    R307: call ldp_add("x14", "x15", "x28", 16);
-    R308: call ldp_add("x16", "x17", "x28", 16);
-    R309: call ldp_add("x18", "x19", "x28", 16);
-    R310: call ldp_add("x20", "x21", "x28", 16);
-    R311: call ldp_add("x22", "x23", "x28", 16);
-    R312: call ldp_add("x24", "x25", "x28", 16);
-    R313: call ldp_add("x26", "x27", "x28", 16);
-    R314: call ldp("x28", "x29", "x28", 0);
+    R300: call ldp_add( "x0",  "x1", "x17", 16);
+    R301: call ldp_add( "x2",  "x3", "x17", 16);
+    R302: call ldp_add( "x4",  "x5", "x17", 16);
+    R303: call ldp_add( "x6",  "x7", "x17", 16);
+    R304: call ldp_add( "x8",  "x9", "x17", 16);
+    R305: call ldp_add("x10", "x11", "x17", 16);
+    R306: call ldp_add("x12", "x13", "x17", 16);
+    R307: call ldp_add("x14", "x15", "x17", 16);
+    R308: call ldp("x16", "x17", "x17");
 
     R_INT03: call interrupt();
 
-    R400: add("sp", "sp", 16 * 50); \* Restore SP.
+    R400: add("sp", "sp", 16 * 44); \* Restore SP.
 
     return;
 end procedure;

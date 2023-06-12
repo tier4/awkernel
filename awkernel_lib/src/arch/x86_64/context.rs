@@ -1,15 +1,15 @@
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Context;
 
+core::arch::global_asm!(
+    "
+.global context_switch
+context_switch:
+    jmp context_switch
+"
+);
+
 impl crate::context::Context for Context {
-    fn set_jump(&mut self) -> bool {
-        todo!();
-    }
-
-    unsafe fn long_jump(&self) -> ! {
-        todo!();
-    }
-
     unsafe fn set_stack_pointer(&mut self, sp: usize) {
         todo!();
     }
