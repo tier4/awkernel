@@ -253,15 +253,15 @@ impl InterruptController for GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, self.gicc_base);
     }
 
-    fn send_ipi(&mut self, target: usize) {
+    fn send_ipi(&mut self, irq: usize, target: usize) {
         todo!()
     }
 
-    fn send_ipi_broadcast(&mut self) {
+    fn send_ipi_broadcast(&mut self, irq: usize) {
         todo!()
     }
 
-    fn send_ipi_broadcast_without_self(&mut self) {
+    fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
         todo!()
     }
 }

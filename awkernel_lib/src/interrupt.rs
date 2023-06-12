@@ -28,13 +28,13 @@ pub trait InterruptController: Sync + Send {
     fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize>;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, target: usize);
+    fn send_ipi(&mut self, irq: usize, target: usize);
 
     /// Send an inter-process interrupt to every CPU.
-    fn send_ipi_broadcast(&mut self);
+    fn send_ipi_broadcast(&mut self, irq: usize);
 
     /// Send an inter-process interrupt to every CPU except the sender CPU.
-    fn send_ipi_broadcast_without_self(&mut self);
+    fn send_ipi_broadcast_without_self(&mut self, irq: usize);
 
     /// Initialization for non-primary core.
     fn init_non_primary(&mut self) {}
