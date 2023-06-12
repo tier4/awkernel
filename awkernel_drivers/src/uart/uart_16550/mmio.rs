@@ -18,6 +18,8 @@ pub struct MmioSerialPort {
 impl MmioSerialPort {
     /// Creates a new UART interface on the given memory mapped address.
     ///
+    /// # Safety
+    ///
     /// This function is unsafe because the caller must ensure that the given base address
     /// really points to a serial port device.
     pub const unsafe fn new(base: usize) -> Self {

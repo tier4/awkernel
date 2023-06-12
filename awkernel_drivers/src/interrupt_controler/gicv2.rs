@@ -277,7 +277,7 @@ impl Iterator for PendingInterruptIterator {
         self.done = true;
 
         if id == ID_SPURIOUS {
-            return None;
+            None
         } else {
             Some(id as usize)
         }

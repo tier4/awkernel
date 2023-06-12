@@ -133,7 +133,7 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
     {
         let mut node = MCSNode::new();
         let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
-        tasks.push(current_task.clone());
+        tasks.push(current_task);
     }
 
     unsafe {
@@ -306,7 +306,7 @@ pub fn deallocate_thread_pool() {
     }
 }
 
-unsafe fn do_preemption() {
+fn do_preemption() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
     // If there is a running task on this CPU core, preemption is performed.
@@ -346,7 +346,7 @@ unsafe fn do_preemption() {
                 return;
             };
 
-            next_thread.set_argument(next_thread.0 as usize);
+            unsafe { next_thread.set_argument(next_thread.0 as usize) };
 
             {
                 // Insert the next task to the queue.
@@ -386,19 +386,22 @@ extern "C" fn thread_entry(arg: usize) -> ! {
     awkernel_lib::delay::wait_forever();
 }
 
-pub unsafe fn preemption() {
+/// Preempt to the next executable task.
+pub fn preemption() {
     let _int_guard = InterruptGuard::new();
 
     #[cfg(not(feature = "std"))]
-    let _heap_guard = {
+    let _heap_guard = unsafe {
         let heap_guard = awkernel_lib::heap::TALLOC.save();
         awkernel_lib::heap::TALLOC.use_primary();
         heap_guard
     };
 
-    if let Err(e) = catch_unwind(|| do_preemption()) {
+    if let Err(e) = catch_unwind(do_preemption) {
         #[cfg(not(feature = "std"))]
-        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+        unsafe {
+            awkernel_lib::heap::TALLOC.use_primary_then_backup()
+        };
 
         log::error!("caught panic!: {e:?}");
     }

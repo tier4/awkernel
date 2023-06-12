@@ -337,6 +337,7 @@ pub fn run_main() {
                         #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
                         awkernel_lib::interrupt::enable();
 
+                        #[allow(clippy::let_and_return)]
                         let result = guard.poll_unpin(&mut ctx);
 
                         #[cfg(all(target_arch = "aarch64", not(feature = "std")))]

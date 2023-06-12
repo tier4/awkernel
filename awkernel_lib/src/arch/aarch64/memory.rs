@@ -40,11 +40,9 @@ impl crate::memory::Memory for Memory {
         let lower = vm_addr & (PAGESIZE - 1);
         let page_table = get_page_table(higher);
 
-        if let Some(phy) = page_table.translate(higher as u64) {
-            Some(phy as usize | lower)
-        } else {
-            None
-        }
+        page_table
+            .translate(higher as u64)
+            .map(|phy| phy as usize | lower)
     }
 }
 
