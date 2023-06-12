@@ -8,23 +8,16 @@ pub struct CalleeSavedContext {
     // 8 * 8 bytes
     pub fp_regs: CalleeSavedFPRegs,
 
-    //------------------------------ offset: 16 * 4
-
-    // 8 * 2 bytes
-    pub fp_fpsr: u64,
-    pub fp_fpcr: u64,
-
-    //------------------------------ offset: 16 * 5 (+1)
+    //------------------------------ offset: 16 * 4 (+4)
 
     // 8 * 12 bytes
     pub gp_regs: CalleeSavedGpRegs,
 
-    // ----------------------------- offset: 16 * 11 (+6)
+    // ----------------------------- offset: 16 * 10 (+6)
 
     // 8 * 2 bytes
-    pub spsr: u32, // saved program status register
-    _unused: [u8; 4],
     pub sp: u64, // stack pointer
+    _unused: [u8; 8],
 }
 
 /// Callee saved general purpose registers.
@@ -72,26 +65,16 @@ stp     d12, d13, [x0], #16
 stp     d14, d15, [x0], #16
 
 // Store general purpose registers.
-stp     x19, x20, [x0, #16 * 1]
-stp     x21, x22, [x0, #16 * 2]
-stp     x23, x24, [x0, #16 * 3]
-stp     x25, x26, [x0, #16 * 4]
-stp     x27, x28, [x0, #16 * 5]
-stp     x29, x30, [x0, #16 * 6]
-
-// Store FPSR and FPCR registers.
-mrs     x9, fpsr
-mrs     x10, fpcr
-stp     x9, x10, [x0]
-
-// Store SPSR.
-add     x0, x0, #16 * 7
-mrs     x11, spsr_el1
-str     w11, [x0]
+stp     x19, x20, [x0], #16
+stp     x21, x22, [x0], #16
+stp     x23, x24, [x0], #16
+stp     x25, x26, [x0], #16
+stp     x27, x28, [x0], #16
+stp     x29, x30, [x0], #16
 
 // Store SP.
-mov     x12, sp
-str     x12, [x0, #8]
+mov     x9, sp
+str     x9, [x0]
 
 
 // Restore the next context.
@@ -103,29 +86,18 @@ ldp     d12, d13, [x1], #16
 ldp     d14, d15, [x1], #16
 
 // Load general purpose registers.
-ldp     x19, x20, [x1, #16 * 1]
-ldp     x21, x22, [x1, #16 * 2]
-ldp     x23, x24, [x1, #16 * 3]
-ldp     x25, x26, [x1, #16 * 4]
-ldp     x27, x28, [x1, #16 * 5]
-ldp     x29, x30, [x1, #16 * 6]
-
-// Load FPSR and FPCR registers.
-ldp     x9, x10, [x1]
-msr     fpsr, x9
-msr     fpcr, x10
-
-// Load SPSR.
-add     x1, x1, #16 * 7
-ldr     w11, [x1]
-msr     spsr_el1, x11
+ldp     x19, x20, [x1], #16
+ldp     x21, x22, [x1], #16
+ldp     x23, x24, [x1], #16
+ldp     x25, x26, [x1], #16
+ldp     x27, x28, [x1], #16
+ldp     x29, x30, [x1], #16
 
 // Load SP.
-ldr     x12, [x1, #8]
-mov     sp, x12
+ldr     x9, [x1]
+mov     sp, x9
 
 ret
-
 "
 );
 
