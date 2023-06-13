@@ -141,7 +141,8 @@ ESR  = 0x{:x}
         esr
     );
 
-    wait_forever();
+    // wait_forever();
+    interrupt::handle_irqs();
 }
 
 #[no_mangle]

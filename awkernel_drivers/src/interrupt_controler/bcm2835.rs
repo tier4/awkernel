@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use awkernel_lib::interrupt::InterruptController;
 
 mod registers {
@@ -35,7 +36,7 @@ impl BCM2835IntCtrl {
         gic
     }
 
-    pub fn iter(&mut self) -> PendingInterruptIterator {
+    pub fn iter(&self) -> PendingInterruptIterator {
         let pending = [
             registers::IRQ_PENDING1.read(self.base),
             registers::IRQ_PENDING2.read(self.base),
@@ -72,9 +73,8 @@ impl InterruptController for BCM2835IntCtrl {
         log::info!("BCM2835 IRQ: IRQ #{irq} has been disabled.");
     }
 
-    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
-        self.iter = Some(self.iter());
-        self.iter.as_mut().unwrap()
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>> {
+        Box::new(self.iter())
     }
 
     fn send_ipi(&mut self, irq: usize, target: usize) {

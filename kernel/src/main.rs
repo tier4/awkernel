@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
@@ -48,8 +49,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             let irq = awkernel_lib::timer::irq_id().unwrap();
             awkernel_lib::interrupt::enable_irq(irq);
 
-            // awkernel_lib::timer::reset();
+            awkernel_lib::timer::reset();
             awkernel_lib::interrupt::enable();
+
+            awkernel_lib::interrupt::register_handler(
+                irq,
+                Box::new(|| {
+                    awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
+                    awkernel_lib::timer::reset();
+                }),
+            )
+            .unwrap();
         }
 
         // Userland.

@@ -29,7 +29,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     spawn(
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(120)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(2)).await;
 
                 let mut total = 0;
                 let mut count = 0;
@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..1024 {
+    for i in 0..4 {
         let topic_a = format!("topic_a_{i}");
         let topic_b = format!("topic_b_{i}");
 
@@ -91,35 +91,11 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    awkernel_async_lib::sleep(Duration::from_millis(200)).await;
-                }
-            },
-            SchedulerType::RoundRobin,
-        )
-        .await;
-    }
+                    for _ in 0..1000000 {
+                        unsafe { core::arch::asm!("nop") };
+                    }
 
-    #[cfg(all(
-        not(any(target_os = "linux", target_os = "macos")),
-        target_arch = "aarch64"
-    ))]
-    for i in 0..4 {
-        spawn(
-            async move {
-                loop {
-                    // log::debug!(
-                    //     "do preemption: task = {i}, cpu_id = {}",
-                    //     awkernel_async_lib::cpu_id()
-                    // );
-
-                    unsafe { awkernel_async_lib::task::preemption() };
-
-                    // log::debug!(
-                    //     "end preemption: task = {i}, cpu_id = {}",
-                    //     awkernel_async_lib::cpu_id()
-                    // );
-
-                    awkernel_async_lib::sleep(Duration::from_millis(5000)).await;
+                    awkernel_async_lib::sleep(Duration::from_millis(100)).await;
                 }
             },
             SchedulerType::RoundRobin,

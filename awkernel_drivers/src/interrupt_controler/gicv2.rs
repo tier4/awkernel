@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use awkernel_lib::interrupt::InterruptController;
 use core::default::Default;
 
@@ -23,6 +24,11 @@ mod registers {
         }
     }
 
+    // TargetListFilter
+    pub const GIDG_SGIR_TARGET_LIST: u32 = 0b00;
+    pub const GIDG_SGIR_TARGET_ALL_EXCEPT_SELF: u32 = 0b01 << 24;
+    pub const _GIDG_SGIR_TARGET_SELF: u32 = 0b10 << 24;
+
     mmio_rw!(offset 0x000 => pub GICC_CTLR<GiccCtlrNonSecure>);
     mmio_rw!(offset 0x004 => pub GICC_PMR<u32>);
     mmio_r! (offset 0x00C => pub GICC_IAR<u32>);
@@ -37,6 +43,7 @@ mod registers {
     mmio_rw!(offset 0x400 => pub GICD_IPRIORITYR<u32>);
     mmio_rw!(offset 0x800 => pub GICD_ITARGETSR<u32>);
     mmio_rw!(offset 0xc00 => pub GICD_ICFGR<u32>);
+    mmio_w! (offset 0xF00 => pub GICD_SGIR<u32>);
 }
 
 #[derive(Default)]
@@ -44,7 +51,6 @@ pub struct GICv2 {
     gicc_base: usize,
     gicd_base: usize,
     max_it: usize,
-    iter: Option<PendingInterruptIterator>,
 }
 
 fn div_ceil(a: usize, b: usize) -> usize {
@@ -57,7 +63,6 @@ impl GICv2 {
             gicc_base,
             gicd_base,
             max_it: 0,
-            iter: None,
         };
 
         // Disable the distributor.
@@ -173,7 +178,7 @@ impl GICv2 {
         registers::GICD_ITARGETSR.write(target, base);
     }
 
-    fn iter(&mut self) -> PendingInterruptIterator {
+    fn iter(&self) -> PendingInterruptIterator {
         PendingInterruptIterator {
             gicc_base: self.gicc_base,
             done: false,
@@ -220,9 +225,8 @@ impl InterruptController for GICv2 {
         log::info!("GICv2: IRQ #{irq} has been disabled.");
     }
 
-    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize> {
-        self.iter = Some(self.iter());
-        self.iter.as_mut().unwrap()
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>> {
+        Box::new(self.iter())
     }
 
     fn init_non_primary(&mut self) {
@@ -254,15 +258,19 @@ impl InterruptController for GICv2 {
     }
 
     fn send_ipi(&mut self, irq: usize, target: usize) {
-        todo!()
+        let value =
+            registers::GIDG_SGIR_TARGET_LIST | (1 << (target & 0xff) + 16) | (irq as u32 & 0x0f);
+        registers::GICD_SGIR.write(value, self.gicd_base);
     }
 
     fn send_ipi_broadcast(&mut self, irq: usize) {
-        todo!()
+        let value = registers::GIDG_SGIR_TARGET_LIST | (0xff << 16) | (irq as u32 & 0x0f);
+        registers::GICD_SGIR.write(value, self.gicd_base);
     }
 
     fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
-        todo!()
+        let value = registers::GIDG_SGIR_TARGET_ALL_EXCEPT_SELF | (irq as u32 & 0x0f);
+        registers::GICD_SGIR.write(value, self.gicd_base);
     }
 }
 
@@ -286,9 +294,8 @@ impl Iterator for PendingInterruptIterator {
 
         let id = iar & (1024 - 1);
 
-        self.done = true;
-
         if id == ID_SPURIOUS {
+            self.done = true;
             None
         } else {
             Some(id as usize)

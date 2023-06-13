@@ -102,6 +102,8 @@ pub unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
 
     push_to_thread_pool(current_ctx.clone());
 
+    log::debug!("context_switch 1");
+
     unsafe {
         let current = &mut *(current_ctx.0);
         let next = &*next.0;
@@ -136,6 +138,8 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
         tasks.push(current_task);
     }
 
+    log::debug!("context_switch 2");
+
     unsafe {
         // Save the current context.
         let current = &mut *(current_ctx.clone().0);
@@ -145,6 +149,8 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
 
         set_current_context(current_ctx);
     }
+
+    log::debug!("end context_switch 2");
 
     re_schedule();
 }
@@ -401,7 +407,7 @@ pub unsafe fn preemption() {
         heap_guard
     };
 
-    if let Err(e) = catch_unwind(|| do_preemption) {
+    if let Err(e) = catch_unwind(|| do_preemption()) {
         #[cfg(not(feature = "std"))]
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
 

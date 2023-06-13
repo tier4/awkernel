@@ -6,7 +6,7 @@ mod registers {
     mmio_w!(offset 0x10 => pub COMPARE_1<u32>);
 }
 
-const PERIOD: u32 = 1000; // micro second
+const PERIOD: u32 = 20_000; // micro second
 
 pub struct RpiSystemTimer {
     irq: usize,

@@ -1,11 +1,4 @@
-use crate::{
-    arch::ArchInterrupt,
-    sync::{
-        mutex::{MCSNode, Mutex},
-        rwlock::RwLock,
-    },
-    unwind::catch_unwind,
-};
+use crate::{arch::ArchInterrupt, sync::rwlock::RwLock, unwind::catch_unwind};
 use alloc::{boxed::Box, collections::BTreeMap};
 use core::{
     mem::transmute,
@@ -25,15 +18,15 @@ pub trait Interrupt {
 pub trait InterruptController: Sync + Send {
     fn enable_irq(&mut self, irq: usize);
     fn disable_irq(&mut self, irq: usize);
-    fn pending_irqs(&mut self) -> &mut dyn Iterator<Item = usize>;
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>>;
 
     /// Send an inter-process interrupt to `target` CPU.
     fn send_ipi(&mut self, irq: usize, target: usize);
 
-    /// Send an inter-process interrupt to every CPU.
+    /// Send an inter-process interrupt to all CPUs.
     fn send_ipi_broadcast(&mut self, irq: usize);
 
-    /// Send an inter-process interrupt to every CPU except the sender CPU.
+    /// Send an inter-process interrupt to all CPUs except the sender CPU.
     fn send_ipi_broadcast_without_self(&mut self, irq: usize);
 
     /// Initialization for non-primary core.
@@ -42,7 +35,7 @@ pub trait InterruptController: Sync + Send {
 
 const MAX_IRQS: usize = 1024;
 
-static INTERRUPT_CONTROLLER: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
+static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<usize, Box<dyn Fn() + Send>>> = RwLock::new(BTreeMap::new());
 
 static PREEMPT_IRQ: AtomicUsize = AtomicUsize::new(!0);
@@ -51,8 +44,7 @@ static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 fn empty() {}
 
 pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
-    let mut node = MCSNode::new();
-    let mut ctrl = INTERRUPT_CONTROLLER.lock(&mut node);
+    let mut ctrl = INTERRUPT_CONTROLLER.write();
     *ctrl = Some(controller);
 }
 
@@ -70,8 +62,7 @@ where
 }
 
 pub fn enable_irq(irq: usize) {
-    let mut node = MCSNode::new();
-    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.enable_irq(irq);
     } else {
@@ -80,10 +71,39 @@ pub fn enable_irq(irq: usize) {
 }
 
 pub fn disable_irq(irq: usize) {
-    let mut node = MCSNode::new();
-    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.disable_irq(irq);
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+    }
+}
+
+/// Send an inter-process interrupt to `target` CPU.
+pub fn send_ipi(irq: usize, target: usize) {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.send_ipi(irq, target);
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+    }
+}
+
+/// Send an inter-process interrupt to all CPUs.
+pub fn send_ipi_broadcast(irq: usize) {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.send_ipi_broadcast(irq);
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+    }
+}
+
+/// Send an inter-process interrupt to all CPUs except the sender CPU.
+pub fn send_ipi_broadcast_without_self(irq: usize) {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.send_ipi_broadcast_without_self(irq);
     } else {
         log::warn!("Interrupt controller is not yet enabled.");
     }
@@ -93,10 +113,11 @@ pub fn handle_irqs() {
     let handlers = IRQ_HANDLERS.read();
     let mut need_preemption = false;
 
-    let mut node2 = MCSNode::new();
-    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node2);
-    if let Some(ctrl) = controller.as_mut() {
-        let iter = ctrl.pending_irqs();
+    let controller = INTERRUPT_CONTROLLER.read();
+    if let Some(ctrl) = controller.as_ref() {
+        let mut iter = ctrl.pending_irqs();
+        drop(controller); // unlock
+
         while let Some(irq) = iter.next() {
             if irq == PREEMPT_IRQ.load(Ordering::Relaxed) {
                 need_preemption = true;
@@ -172,8 +193,7 @@ pub fn disable() {
 
 /// Initialization for non-primary core.
 pub fn init_non_primary() {
-    let mut node = MCSNode::new();
-    let mut controller = INTERRUPT_CONTROLLER.lock(&mut node);
+    let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.init_non_primary();
     } else {
