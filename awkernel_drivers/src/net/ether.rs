@@ -9,7 +9,7 @@ pub enum EtherErr {
 
 pub trait Ether {
     // send a packet in buffer
-    fn send(&self, buffer: &mut [u8]) -> Result<(), smoltcp::Error>;
+    fn send(&mut self, buffer: &mut [u8]) -> Result<(), smoltcp::Error>;
 
     // check whether ready to be sent
     fn is_ready(&self) -> bool;

@@ -6,6 +6,7 @@ use awkernel_lib::arch::x86_64::mmu::map_to;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
+use core::sync::atomic::fence;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
@@ -42,7 +43,7 @@ struct RxDescriptor {
 pub struct E1000E {
     register_start: usize,
     info: DeviceInfo,
-    page_size: u64,
+    page_size: usize,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -123,7 +124,7 @@ impl PCIeDevice for E1000E {
         Self {
             register_start,
             info,
-            page_size,
+            page_size: page_size as usize,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_u64(),
             rx_bufs,
@@ -138,26 +139,45 @@ impl PCIeDevice for E1000E {
 impl Ether for E1000E {
     // Try to receive a packet
     fn recv(&mut self) -> Option<Vec<u8>> {
+        let tdh = unsafe { self.read_reg(TDH) };
         let tdt = unsafe { self.read_reg(TDT) };
+
+        if tdh == tdt {
+            return None;
+        }
+
         let tx_status = self.tx_ring[tdt as usize].status;
         if tx_status & 1 == 0 {
             return None;
         }
 
+        let rdh = unsafe { self.read_reg(RDH) };
         let curr_rdt = unsafe { self.read_reg(RDT) };
+
+        // receive ring is empty
+        if rdh == curr_rdt {
+            return None;
+        }
+
         let rx_status = self.rx_ring[curr_rdt as usize].status;
 
         if rx_status & 1 == 0 {
             return None;
         }
 
+        fence(core::sync::atomic::Ordering::SeqCst); // barrier
+
         // Copy the data in buffer
         let buf_len = self.rx_ring[curr_rdt as usize].len as usize;
         let buf_addr = self.rx_bufs[curr_rdt as usize].as_mut_ptr();
         let data = unsafe { slice::from_raw_parts_mut(buf_addr, buf_len) }.to_vec();
-        // update status and rdt.
+
+        // Reset the descriptor.
         self.rx_ring[curr_rdt as usize].status = 0;
 
+        fence(core::sync::atomic::Ordering::SeqCst); // barrier
+
+        // Increment tail pointer
         let next_rdt = (curr_rdt + 1) % self.rx_ring.len() as u32;
         unsafe {
             self.write_reg(RDT, next_rdt);
@@ -170,20 +190,30 @@ impl Ether for E1000E {
         let tdt = unsafe { self.read_reg(TDT) };
         let tx_status = self.tx_ring[tdt as usize].status;
 
-        tx_status & 1 != 0
+        tx_status & 1 != 0 && !unsafe { self.tx_ring_empty() }
     }
 
     // Send a packet
-    fn send(&self, data: &mut [u8]) -> Result<(), smoltcp::Error> {
+    fn send(&mut self, data: &mut [u8]) -> Result<(), smoltcp::Error> {
         let curr_tdt = unsafe { self.read_reg(TDT) };
         let next_tdt = (curr_tdt + 1) % self.tx_ring.len() as u32;
 
+        let data_len = data.len();
+        // data should not be longer than buffer
+        if data_len >= self.page_size {
+            return Err(smoltcp::Error::NotSupported);
+        }
+
         // Copy the data into the buffer
         let buf_ptr: *mut u8 = self.tx_bufs[curr_tdt as usize].as_mut_ptr();
-        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, self.page_size as usize) };
-        buf.copy_from_slice(data);
+        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, self.page_size) };
+        buf[..data_len].copy_from_slice(data);
 
-        // Increment tail
+        self.tx_ring[curr_tdt as usize].status = 0;
+
+        fence(core::sync::atomic::Ordering::SeqCst); // barrier
+
+        // Increment tail pointer
         unsafe {
             self.write_reg(TDT, next_tdt);
         }
@@ -243,12 +273,11 @@ impl Ether for E1000E {
 
 //===========================================================================
 pub struct E1000ERxToken(Vec<u8>);
+pub struct E1000ETxToken<'a>(&'a mut E1000E);
 
-pub struct E1000ETxToken(&'static E1000E);
-
-impl phy::Device<'static> for E1000E {
+impl<'a> phy::Device<'a> for E1000E {
     type RxToken = E1000ERxToken;
-    type TxToken = E1000ETxToken;
+    type TxToken  = E1000ETxToken<'a> where Self : 'a;
     fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
         let mut cap = DeviceCapabilities::default();
         cap.max_transmission_unit = 1500; // Standard Ethernet MTU
@@ -259,7 +288,7 @@ impl phy::Device<'static> for E1000E {
 
     //  The additional transmit token makes it possible to generate a reply packet
     //  based on the contents of the received packet, without heap allocation.
-    fn receive(&'static mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(self: &'a mut E1000E) -> Option<(Self::RxToken, Self::TxToken)> {
         let data = self.recv()?;
 
         let rx_token = E1000ERxToken(data);
@@ -270,7 +299,7 @@ impl phy::Device<'static> for E1000E {
 
     //  The real  packet transmission occurrs when the token is consumed.
     //  Only create the token when the send ring is ready.
-    fn transmit(&'static mut self) -> Option<Self::TxToken> {
+    fn transmit(self: &'a mut E1000E) -> Option<Self::TxToken> {
         if self.is_ready() {
             Some(E1000ETxToken(self))
         } else {
@@ -293,7 +322,7 @@ impl phy::RxToken for E1000ERxToken {
     }
 }
 
-impl phy::TxToken for E1000ETxToken {
+impl<'a> phy::TxToken for E1000ETxToken<'a> {
     /// create a buffer of size `len`
     /// Closure f will construct a packet in the buffer.
     /// Real packet data transmissions occur here.
@@ -398,6 +427,14 @@ impl E1000E {
         let val = self.read_reg(CTRL) | CTRL_RST;
         self.write_reg(CTRL, val);
         self.write_reg(IMS, 0);
+    }
+
+    unsafe fn tx_ring_empty(&self) -> bool {
+        self.read_reg(TDH) == self.read_reg(TDT)
+    }
+
+    unsafe fn _rx_ring_empty(&self) -> bool {
+        self.read_reg(RDH) == self.read_reg(RDT)
     }
 }
 
