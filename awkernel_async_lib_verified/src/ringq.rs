@@ -3,7 +3,7 @@
 use alloc::vec::Vec;
 
 /// Ring queue.
-pub(super) struct RingQ<T> {
+pub struct RingQ<T> {
     queue: Vec<Option<T>>,
     size: usize,
     head: usize,
@@ -122,6 +122,48 @@ mod tests {
         for i in 0..10 {
             let data = q.pop().unwrap();
             assert_eq!(i, data);
+        }
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    #[kani::proof]
+    #[kani::unwind(11)]
+    pub fn verify_ringq() {
+        let q_size = 10;
+        let mut q = RingQ::new(q_size);
+
+        let num1: usize = kani::any();
+        kani::assume(num1 <= q_size);
+    
+        let num2: usize = kani::any();
+        kani::assume(num2 <= q_size && num1 + num2 > q_size);
+
+        let num3: usize = kani::any();
+        kani::assume(num3 < num1);
+        kani::assume(num1 - num3 + num2 <= q_size);
+
+        for i in 0..num1 {
+            q.push(i);
+        }
+
+        let mut expected = 0;
+        for _ in 0..num3 {
+            let data = q.pop().unwrap();
+            assert!(expected == data);
+            expected += 1;
+        }
+
+        for i in num1..num1+num2 {
+            q.push(i);
+        }
+
+        while let Some(data) = q.pop() {
+            assert!(expected == data);
+            expected += 1;
         }
     }
 }
