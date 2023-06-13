@@ -81,7 +81,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     } else {
         #[cfg(not(feature = "std"))]
-        awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+        {
+            awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+            awkernel_lib::interrupt::disable();
+        }
 
         // Non-primary CPUs.
         unsafe { task::run() }; // Execute tasks.

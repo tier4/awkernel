@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, fmt::format, vec::Vec};
+use alloc::{boxed::Box, vec::Vec};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,

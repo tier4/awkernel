@@ -1,8 +1,8 @@
 //! A basic round robin scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{self, TaskList};
-use alloc::sync::Arc;
+use crate::task;
+use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RoundRobinScheduler {
@@ -10,13 +10,13 @@ pub struct RoundRobinScheduler {
 }
 
 struct RoundRobinData {
-    queue: TaskList,
+    queue: VecDeque<Arc<Task>>,
 }
 
 impl RoundRobinData {
     fn new() -> Self {
         Self {
-            queue: TaskList::new(),
+            queue: VecDeque::new(),
         }
     }
 }
@@ -49,7 +49,7 @@ impl Scheduler for RoundRobinScheduler {
             task_info.state = task::State::InQueue;
         }
 
-        data.queue.push(task);
+        data.queue.push_back(task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -58,7 +58,7 @@ impl Scheduler for RoundRobinScheduler {
 
         // Pop a task from the run queue.
         let data = data.as_mut()?;
-        let task = data.queue.pop()?;
+        let task = data.queue.pop_front()?;
 
         // Make the state of the task Running.
         {

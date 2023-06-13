@@ -3,12 +3,7 @@
 //! - `Task` represents a task. This is handled as `Arc<Task>`.
 //!     - `Task::wake()` and `Task::wake_by_ref()` call `Task::scheduler::wake_task()` to wake the task up.
 //!     - `Task::info`, which type is `TaskInfo`, contains information of the task.
-//! - `TaskList` is a list of tasks.
-//!     - This is used by schedulers. See `awkernel_async_lib::scheduler::round_robin`.
-//!     - `TaskList::push()` takes `Arc<Task>` and pushes it to the tail.
-//!     - `TaskList::pop()` returns `Arc<Task>` from the head.`
 //! - `TaskInfo` represents information of task.
-//!     - `TaskInfo::next` is used by `TaskList` to construct a linked list.
 //! - `Tasks` is a set of tasks.
 
 #[cfg(not(feature = "no_preempt"))]
@@ -52,57 +47,6 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
-/// List of tasks.
-pub(crate) struct TaskList {
-    head: Option<Arc<Task>>,
-    tail: Option<Arc<Task>>,
-}
-
-impl TaskList {
-    pub(crate) const fn new() -> Self {
-        TaskList {
-            head: None,
-            tail: None,
-        }
-    }
-
-    /// Push a task to the tail.
-    pub(crate) fn push(&mut self, task: Arc<Task>) {
-        if let Some(tail) = &self.tail {
-            {
-                let mut node = MCSNode::new();
-                let mut info = tail.info.lock(&mut node);
-                info.next = Some(task.clone());
-            }
-
-            self.tail = Some(task);
-        } else {
-            self.head = Some(task.clone());
-            self.tail = Some(task);
-        }
-    }
-
-    /// Pop a task from the head.
-    pub(crate) fn pop(&mut self) -> Option<Arc<Task>> {
-        if let Some(head) = self.head.take() {
-            let next = {
-                let mut node = MCSNode::new();
-                let mut info = head.info.lock(&mut node);
-                info.next.take()
-            };
-
-            if next.is_none() {
-                self.tail = None;
-            }
-            self.head = next;
-
-            Some(head)
-        } else {
-            None
-        }
-    }
-}
-
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
@@ -129,7 +73,6 @@ impl ArcWake for Task {
 pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
-    next: Option<Arc<Task>>,
     last_executed_time: u64,
 
     #[cfg(not(feature = "no_preempt"))]
@@ -215,7 +158,6 @@ impl Tasks {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
                     state: State::Ready,
-                    next: None,
                     last_executed_time: 0,
 
                     #[cfg(not(feature = "no_preempt"))]

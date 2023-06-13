@@ -127,11 +127,10 @@ pub fn handle_irqs() {
                 if let Err(err) = catch_unwind(|| {
                     // Use the primary allocator.
                     #[cfg(not(feature = "std"))]
-                    let _guard = heap::TALLOC.save();
-
-                    #[cfg(not(feature = "std"))]
-                    unsafe {
-                        heap::TALLOC.use_primary()
+                    let _guard = {
+                        let g = heap::TALLOC.save();
+                        unsafe { heap::TALLOC.use_primary() };
+                        g
                     };
 
                     handler();
@@ -145,7 +144,7 @@ pub fn handle_irqs() {
     if need_preemption {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
-        preemption();
+        // preemption();
     }
 }
 

@@ -58,6 +58,7 @@
 // TODO
 data_abort:
 1:
+    b       handle_data_abort
     wfi
     b       1b
 

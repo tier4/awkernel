@@ -10,6 +10,11 @@ const _ESR_EL1_EC_SVC64: u64 = 0b010101 << 26;
 const _ESR_LE1_EC_DATA: u64 = 0b100100 << 26;
 const _ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
 
+#[no_mangle]
+pub fn handle_data_abort() {
+    log::debug!("data abort");
+}
+
 //------------------------------------------------------------------------------
 
 // EL2
