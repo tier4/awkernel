@@ -1,14 +1,13 @@
-#![allow(dead_code)]
-#![allow(unused_variables)]
 use super::pcie::{DeviceInfo, PCIeDevice};
 use crate::net::ether::{Ether, EtherErr};
 use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
+use alloc::vec::Vec;
 use awkernel_lib::arch::x86_64::mmu::map_to;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
-use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
+use x86_64::structures::paging::{FrameAllocator, Page, PageSize, PageTableFlags, Size4KiB};
 use x86_64::{PhysAddr, VirtAddr};
 
 const BUFFER_PAGE_SIZE: usize = 4096;
@@ -29,6 +28,7 @@ struct TxDescriptor {
 
 #[repr(C)]
 /// Legacy Receive Descriptor Format
+///  TODO : check if RFCTL.EXSTEN bit is clear and the RCTL.DTYP equals 00b.
 /// valid when RCTL.DTYP = 00b
 /// and RFCTL.EXSTEN bit is clear
 struct RxDescriptor {
@@ -43,18 +43,21 @@ struct RxDescriptor {
 ///! intel e1000e driver
 pub struct E1000E {
     register_start: usize,
-    register_end: usize,
     info: DeviceInfo,
-    // ring buffer for receiving data
-    rx_ring: &'static [RxDescriptor],
+
+    // Receive Descriptor Ring
+    rx_ring: &'static mut [RxDescriptor],
     rx_ring_pa: u64,
-    // ring buffer for sending data
-    tx_ring: &'static [TxDescriptor],
+    rx_bufs: Vec<VirtAddr>,
+    // Transmission Descriptor Ring
+    tx_ring: &'static mut [TxDescriptor],
     tx_ring_pa: u64,
+    tx_bufs: Vec<VirtAddr>,
 }
 
 const E1000E_BAR0_MASK: usize = 0xFFFFFFF0;
 
+//===========================================================================
 impl PCIeDevice for E1000E {
     const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
 
@@ -69,8 +72,8 @@ impl PCIeDevice for E1000E {
             write_volatile(command_reg as *mut u16, 0b111);
         }
 
-        if let Err(e) = unsafe { self.init_hw() } {
-            panic!("failed to init the E1000E.");
+        if let Err(_) = unsafe { self.init_hw() } {
+            panic!("failed to init the E1000E. ");
         }
     }
 
@@ -85,7 +88,6 @@ impl PCIeDevice for E1000E {
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
         let register_start = (bar0 as usize) | E1000E_BAR0_MASK;
-        let register_end = register_start + Self::ADDR_SPACE_SIZE as usize;
         let info = info.clone();
 
         // allocate virtual memory for register space
@@ -103,29 +105,201 @@ impl PCIeDevice for E1000E {
             slice::from_raw_parts_mut(rx_ring_va.as_u64() as *mut RxDescriptor, rx_ring_len)
         };
 
+        let mut tx_bufs = Vec::new();
+        let mut rx_bufs = Vec::new();
+
         // allocate buffer for descriptors
         for tx_desc in tx_ring.iter_mut() {
             let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator);
             tx_desc.buf = buf_pa.as_u64();
+            tx_bufs.push(buf_va);
         }
 
         for rx_desc in rx_ring.iter_mut() {
             let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator);
             rx_desc.buf = buf_pa.as_u64();
+            rx_bufs.push(buf_va);
         }
 
         Self {
             register_start,
-            register_end,
             info,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_u64(),
+            rx_bufs,
             tx_ring,
             tx_ring_pa: tx_ring_pa.as_u64(),
+            tx_bufs,
         }
     }
 }
 
+//===========================================================================
+impl Ether for E1000E {
+    fn recv(&mut self) -> Option<VirtAddr> {
+        let tdt = unsafe { self.read_reg(TDT) };
+        let tx_status = self.tx_ring[tdt as usize].status;
+        if tx_status & 1 == 0 {
+            return None;
+        }
+
+        let rdt = unsafe { self.read_reg(RDT) };
+        let rx_ring_len = self.rx_ring.len();
+        let rx_status = self.rx_ring[rdt as usize].status;
+        if rx_status & 1 == 0 {
+            return None;
+        }
+
+        // update status and rdt
+        self.rx_ring[rdt as usize].status = rx_status | 1;
+        unsafe {
+            self.write_reg(RDT, (rdt + 1) % rx_ring_len as u32);
+        }
+
+        Some(self.rx_bufs[rdt as usize])
+    }
+
+    fn is_ready(&self) -> bool {
+        let tdt = unsafe { self.read_reg(TDT) };
+        let tx_status = self.tx_ring[tdt as usize].status;
+
+        tx_status & 1 != 0
+    }
+
+    fn send(&self, buffer: &mut [u8]) -> Result<(), smoltcp::Error> {
+        unimplemented!()
+    }
+
+    /// initialize the e1000e hardware
+    unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
+        log::info!("{:#x}", self.read_reg(STATUS));
+
+        // PCIe Register
+        // GCR bit 22 should be set to 1b during initialization
+        self.write_reg(GCR, 0b1 << 22);
+        // 4.6.2 Global Reset and General Configuration
+        self.reset();
+
+        // Setup the PHY and the link
+
+        // 4.6.6 Transmit Initialization
+        //  Install the transmit ring
+        self.write_reg(TDBAL, self.tx_ring_pa as u32);
+        self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
+        self.write_reg(TDLEN, self.rx_ring.len() as u32);
+        self.write_reg(TDH, 0);
+        self.write_reg(TDT, 0);
+        // Transmit Registers Initialization
+        self.write_reg(TXDCTL, TXDCTL_GRAN | TXDCTL_WTHRESH);
+        self.write_reg(TCTL, TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN);
+        self.write_reg(TIPG, TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT);
+        //  4.6.5 Receive Initialization
+        //  Install the receive ring
+        self.write_reg(RDBAL, self.rx_ring_pa as u32);
+        self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
+        self.write_reg(RDLEN, self.rx_ring.len() as u32);
+        self.write_reg(RDH, 0);
+        self.write_reg(RDT, (self.rx_ring.len() - 1) as u32);
+        // Clear the Multicast Table Array
+        for offset in 0..128 {
+            self.write_reg(MTA + offset, 0);
+        }
+        // Receive Registers Intialization
+        self.write_reg(RAH, 0); // MAC Low
+        self.write_reg(RAL, 0); // MAC High
+        self.write_reg(
+            RCTL,
+            RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
+        );
+
+        log::info!("{:#x}", self.read_reg(STATUS));
+
+        // Enable interrupt
+
+        Ok(())
+    }
+}
+
+//===========================================================================
+pub struct E1000ERxToken(Page);
+
+pub struct E1000ETxToken(&'static E1000E);
+
+impl phy::Device<'static> for E1000E {
+    type RxToken = E1000ERxToken;
+    type TxToken = E1000ETxToken;
+    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
+        let mut cap = DeviceCapabilities::default();
+        cap.max_transmission_unit = 1500; // Standard Ethernet MTU
+        cap.max_burst_size = Some(64);
+        cap.medium = Medium::Ethernet;
+        cap
+    }
+
+    //  The additional transmit token makes it possible to generate a reply packet
+    //  based on the contents of the received packet, without heap allocation.
+    fn receive(&'static mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+        let addr = self.recv()?;
+        let page: Page<Size4KiB> = unsafe { Page::from_start_address_unchecked(addr) };
+
+        let rx_token = E1000ERxToken(page);
+        let tx_token = E1000ETxToken(self);
+
+        Some((rx_token, tx_token))
+    }
+
+    //  The real  packet transmission occurrs when the token is consumed.
+    //  Only create the token when the send ring is ready.
+    fn transmit(&'static mut self) -> Option<Self::TxToken> {
+        if self.is_ready() {
+            Some(E1000ETxToken(self))
+        } else {
+            None
+        }
+    }
+}
+
+impl phy::RxToken for E1000ERxToken {
+    /// Store packet data into the buffer.
+    /// Closure f will map the raw bytes to the form that
+    /// could be used in the higher layer of `smoltcp`.
+    fn consume<R, F>(self, _timestamp: smoltcp::time::Instant, f: F) -> smoltcp::Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+    {
+        let page = self.0;
+        let buffer_start_ptr = page.start_address().as_mut_ptr();
+        let buffer_len = page.size() as usize;
+        let buffer = unsafe { slice::from_raw_parts_mut(buffer_start_ptr, buffer_len) };
+        let result = f(buffer);
+        result
+    }
+}
+
+impl phy::TxToken for E1000ETxToken {
+    /// create a buffer of size `len`
+    /// Closure f will construct a packet in the buffer.
+    /// Real packet data transmissions occur here.
+    fn consume<R, F>(
+        self,
+        _timestamp: smoltcp::time::Instant,
+        len: usize,
+        f: F,
+    ) -> smoltcp::Result<R>
+    where
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+    {
+        // allocate a buffer for raw data
+        let mut buffer: [u8; BUFFER_PAGE_SIZE] = [0; BUFFER_PAGE_SIZE];
+        // construct packet in buffer
+        let result = f(&mut buffer[0..len]);
+        // send the buffer
+        self.0.send(&mut buffer)?;
+        result
+    }
+}
+
+//===========================================================================
 impl E1000E {
     fn map_register_space<T>(
         register_start: usize,
@@ -188,11 +362,6 @@ impl E1000E {
         (ring_va, ring_pa)
     }
 
-    unsafe fn get_regs(&self) -> &mut [u32] {
-        let regs_len = (Self::ADDR_SPACE_SIZE / 4) as usize;
-        slice::from_raw_parts_mut(self.register_start as *mut u32, regs_len)
-    }
-
     unsafe fn write_reg(&self, reg: usize, val: u32) {
         (self.register_start as *mut u32)
             .add(reg / 4)
@@ -213,129 +382,7 @@ impl E1000E {
     }
 }
 
-impl Ether for E1000E {
-    fn recv(&self) -> Result<&mut [u8], smoltcp::Error> {
-        unimplemented!();
-    }
-
-    fn send(&self, buffer: &mut [u8]) -> Result<(), smoltcp::Error> {
-        unimplemented!();
-    }
-
-    unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
-        log::info!("{:#x}", self.read_reg(STATUS));
-
-        // PCIe Register
-        // GCR bit 22 should be set to 1b during initialization
-        self.write_reg(GCR, 0b1 << 22);
-        // 4.6.2 Global Reset and General Configuration
-        self.reset();
-
-        // Setup the PHY and the link
-
-        // 4.6.6 Transmit Initialization
-        //  Install the transmit ring
-        self.write_reg(TDBAL, self.tx_ring_pa as u32);
-        self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
-        self.write_reg(TDLEN, self.rx_ring.len() as u32);
-        self.write_reg(TDH, 0);
-        self.write_reg(TDT, 0);
-        // Transmit Registers Initialization
-        self.write_reg(TXDCTL, TXDCTL_GRAN | TXDCTL_WTHRESH);
-        self.write_reg(TCTL, TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN);
-        self.write_reg(TIPG, TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT);
-        //  4.6.5 Receive Initialization
-        //  Install the receive ring
-        self.write_reg(RDBAL, self.rx_ring_pa as u32);
-        self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
-        self.write_reg(RDLEN, self.rx_ring.len() as u32);
-        self.write_reg(RDH, 0);
-        self.write_reg(RDT, (self.rx_ring.len() - 1) as u32);
-        // Clear the Multicast Table Array
-        for offset in 0..128 {
-            self.write_reg(MTA + offset, 0);
-        }
-        // Receive Registers Intialization
-        self.write_reg(RAH, 0); // MAC Low
-        self.write_reg(RAL, 0); // MAC High
-        self.write_reg(
-            RCTL,
-            RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
-        );
-
-        log::info!("{:#x}", self.read_reg(STATUS));
-
-        // Enable interrupt
-
-        Ok(())
-    }
-}
-
-pub struct E1000ERxToken<'a>(&'a E1000E);
-
-pub struct E1000ETxToken<'a>(&'a E1000E);
-
-/// Adapting a lazy method such that
-/// the receiving and sending operations only occur
-/// when the tokens are consumed.
-/// Thus the `receive` and ` transmit` only create the token.
-impl<'a> phy::Device<'a> for E1000E {
-    type RxToken = E1000ERxToken<'a> where Self : 'a;
-    type TxToken = E1000ETxToken<'a> where Self : 'a;
-    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
-        let mut cap = DeviceCapabilities::default();
-        cap.max_transmission_unit = 1500; // Standard Ethernet MTU
-        cap.max_burst_size = Some(64);
-        cap.medium = Medium::Ethernet;
-        cap
-    }
-
-    fn receive(self: &'a mut E1000E) -> Option<(Self::RxToken, Self::TxToken)> {
-        Some((E1000ERxToken(self), E1000ETxToken(self)))
-    }
-
-    fn transmit(self: &'a mut E1000E) -> Option<Self::TxToken> {
-        Some(E1000ETxToken(self))
-    }
-}
-
-impl<'a> phy::RxToken for E1000ERxToken<'a> {
-    /// Store packet data into the buffer.
-    /// Closure f will map the raw bytes to the form that
-    /// could be used in the higher layer of `smoltcp`.
-    fn consume<R, F>(self, timestamp: smoltcp::time::Instant, f: F) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        let buffer = self.0.recv()?;
-        let result = f(buffer);
-        result
-    }
-}
-
-impl<'a> phy::TxToken for E1000ETxToken<'a> {
-    /// create a buffer of size `len`
-    /// Closure f will construct a packet in the buffer.
-    /// Real packet data transmissions occur here.
-    fn consume<R, F>(
-        self,
-        timestamp: smoltcp::time::Instant,
-        len: usize,
-        f: F,
-    ) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        // allocate a buffer for raw data
-        let mut buffer: [u8; BUFFER_PAGE_SIZE] = [0; BUFFER_PAGE_SIZE];
-        // construct packet in buffer
-        let result = f(&mut buffer[0..len]);
-        // send the buffer
-        self.0.send(&mut buffer)?;
-        result
-    }
-}
-
+//===========================================================================
 const CTRL: usize = 0x00000; // Device Control Register
 const STATUS: usize = 0x00008; // Device Status register
 const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
