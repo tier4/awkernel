@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..4 {
+    for i in 0..64 {
         let topic_a = format!("topic_a_{i}");
         let topic_b = format!("topic_b_{i}");
 
@@ -90,10 +90,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                     let elapsed = end - start;
                     add_rtt(elapsed);
-
-                    for _ in 0..1000000 {
-                        unsafe { core::arch::asm!("nop") };
-                    }
 
                     awkernel_async_lib::sleep(Duration::from_millis(100)).await;
                 }

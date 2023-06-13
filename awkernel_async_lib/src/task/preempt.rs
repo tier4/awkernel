@@ -1,6 +1,6 @@
 use crate::{
     scheduler,
-    task::{Task, TaskList},
+    task::{get_current_task, Task, TaskList},
 };
 use alloc::{
     boxed::Box,
@@ -102,8 +102,6 @@ pub unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
 
     push_to_thread_pool(current_ctx.clone());
 
-    log::debug!("context_switch 1");
-
     unsafe {
         let current = &mut *(current_ctx.0);
         let next = &*next.0;
@@ -138,8 +136,6 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
         tasks.push(current_task);
     }
 
-    log::debug!("context_switch 2");
-
     unsafe {
         // Save the current context.
         let current = &mut *(current_ctx.clone().0);
@@ -149,8 +145,6 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
 
         set_current_context(current_ctx);
     }
-
-    log::debug!("end context_switch 2");
 
     re_schedule();
 }
@@ -315,12 +309,9 @@ pub fn deallocate_thread_pool() {
 unsafe fn do_preemption() {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
-    // If there is a running task on this CPU core, preemption is performed.
+    // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
-    let task_id = super::RUNNING[cpu_id].load(Ordering::Relaxed);
-    if task_id == 0 {
-        return;
-    }
+    let task_id = super::RUNNING[cpu_id].swap(0, Ordering::Relaxed);
 
     // If there is a task to be invoked next, execute the task.
     if let Some(next) = scheduler::get_next_task() {
@@ -348,7 +339,9 @@ unsafe fn do_preemption() {
                 // or create a new thread.
                 t
             } else {
+                // failed to create thread.
                 next.wake();
+                super::RUNNING[cpu_id].store(task_id, Ordering::Relaxed);
                 return;
             };
 
@@ -365,6 +358,9 @@ unsafe fn do_preemption() {
             yield_preempted_and_wake_task(next_thread, current_task);
         }
     }
+
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    super::RUNNING[cpu_id].store(task_id, Ordering::Relaxed);
 }
 
 #[no_mangle]
@@ -385,6 +381,8 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 
     // Re-schedule the preempted task.
     re_schedule();
+
+    assert_eq!(None, get_current_task(awkernel_lib::cpu::cpu_id()));
 
     // Run the main function.
     super::run_main();

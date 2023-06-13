@@ -327,26 +327,36 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
 
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-
-                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+                {
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+                }
 
                 // Invoke a task.
                 let result = {
                     catch_unwind(|| {
                         #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
-                        awkernel_lib::interrupt::enable();
+                        {
+                            awkernel_lib::interrupt::enable();
+                        }
 
                         #[allow(clippy::let_and_return)]
                         let result = guard.poll_unpin(&mut ctx);
 
                         #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
-                        awkernel_lib::interrupt::disable();
+                        {
+                            awkernel_lib::interrupt::disable();
+                        }
+
                         result
                     })
                 };
 
-                RUNNING[cpu_id].store(0, Ordering::Relaxed);
+                {
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+                    assert_eq!(running_id, task.id);
+                }
 
                 result
             };
