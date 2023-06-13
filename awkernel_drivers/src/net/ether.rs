@@ -1,4 +1,4 @@
-use x86_64::VirtAddr;
+use alloc::vec::Vec;
 
 #[derive(Debug)]
 pub enum EtherErr {
@@ -15,7 +15,7 @@ pub trait Ether {
     fn is_ready(&self) -> bool;
 
     // receive a packet, and store it into a buffer
-    fn recv(&mut self) -> Option<VirtAddr>;
+    fn recv(&mut self) -> Option<Vec<u8>>;
 
     // init the NIC hardware
     unsafe fn init_hw(&mut self) -> Result<(), EtherErr>;

@@ -7,7 +7,7 @@ use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
-use x86_64::structures::paging::{FrameAllocator, Page, PageSize, PageTableFlags, Size4KiB};
+use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
 
 const BUFFER_PAGE_SIZE: usize = 4096;
@@ -19,8 +19,6 @@ struct TxDescriptor {
     length: u16,
     cso: u8,
     cmd: u8,
-    // Bit0: Descriptor done status
-    // Bit4: Time stamp
     status: u8,
     css: u8,
     vtags: u16,
@@ -44,6 +42,7 @@ struct RxDescriptor {
 pub struct E1000E {
     register_start: usize,
     info: DeviceInfo,
+    page_size: u64,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -124,6 +123,7 @@ impl PCIeDevice for E1000E {
         Self {
             register_start,
             info,
+            page_size,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_u64(),
             rx_bufs,
@@ -136,27 +136,34 @@ impl PCIeDevice for E1000E {
 
 //===========================================================================
 impl Ether for E1000E {
-    fn recv(&mut self) -> Option<VirtAddr> {
+    // Try to receive a packet
+    fn recv(&mut self) -> Option<Vec<u8>> {
         let tdt = unsafe { self.read_reg(TDT) };
         let tx_status = self.tx_ring[tdt as usize].status;
         if tx_status & 1 == 0 {
             return None;
         }
 
-        let rdt = unsafe { self.read_reg(RDT) };
-        let rx_ring_len = self.rx_ring.len();
-        let rx_status = self.rx_ring[rdt as usize].status;
+        let curr_rdt = unsafe { self.read_reg(RDT) };
+        let rx_status = self.rx_ring[curr_rdt as usize].status;
+
         if rx_status & 1 == 0 {
             return None;
         }
 
-        // update status and rdt
-        self.rx_ring[rdt as usize].status = rx_status | 1;
+        // Copy the data in buffer
+        let buf_len = self.rx_ring[curr_rdt as usize].len as usize;
+        let buf_addr = self.rx_bufs[curr_rdt as usize].as_mut_ptr();
+        let data = unsafe { slice::from_raw_parts_mut(buf_addr, buf_len) }.to_vec();
+        // update status and rdt.
+        self.rx_ring[curr_rdt as usize].status = 0;
+
+        let next_rdt = (curr_rdt + 1) % self.rx_ring.len() as u32;
         unsafe {
-            self.write_reg(RDT, (rdt + 1) % rx_ring_len as u32);
+            self.write_reg(RDT, next_rdt);
         }
 
-        Some(self.rx_bufs[rdt as usize])
+        Some(data)
     }
 
     fn is_ready(&self) -> bool {
@@ -166,8 +173,22 @@ impl Ether for E1000E {
         tx_status & 1 != 0
     }
 
-    fn send(&self, buffer: &mut [u8]) -> Result<(), smoltcp::Error> {
-        unimplemented!()
+    // Send a packet
+    fn send(&self, data: &mut [u8]) -> Result<(), smoltcp::Error> {
+        let curr_tdt = unsafe { self.read_reg(TDT) };
+        let next_tdt = (curr_tdt + 1) % self.tx_ring.len() as u32;
+
+        // Copy the data into the buffer
+        let buf_ptr: *mut u8 = self.tx_bufs[curr_tdt as usize].as_mut_ptr();
+        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, self.page_size as usize) };
+        buf.copy_from_slice(data);
+
+        // Increment tail
+        unsafe {
+            self.write_reg(TDT, next_tdt);
+        }
+
+        Ok(())
     }
 
     /// initialize the e1000e hardware
@@ -177,7 +198,7 @@ impl Ether for E1000E {
         // PCIe Register
         // GCR bit 22 should be set to 1b during initialization
         self.write_reg(GCR, 0b1 << 22);
-        // 4.6.2 Global Reset and General Configuration
+        // 4.6.2: Global Reset and General Configuration
         self.reset();
 
         // Setup the PHY and the link
@@ -221,7 +242,7 @@ impl Ether for E1000E {
 }
 
 //===========================================================================
-pub struct E1000ERxToken(Page);
+pub struct E1000ERxToken(Vec<u8>);
 
 pub struct E1000ETxToken(&'static E1000E);
 
@@ -239,10 +260,9 @@ impl phy::Device<'static> for E1000E {
     //  The additional transmit token makes it possible to generate a reply packet
     //  based on the contents of the received packet, without heap allocation.
     fn receive(&'static mut self) -> Option<(Self::RxToken, Self::TxToken)> {
-        let addr = self.recv()?;
-        let page: Page<Size4KiB> = unsafe { Page::from_start_address_unchecked(addr) };
+        let data = self.recv()?;
 
-        let rx_token = E1000ERxToken(page);
+        let rx_token = E1000ERxToken(data);
         let tx_token = E1000ETxToken(self);
 
         Some((rx_token, tx_token))
@@ -267,11 +287,8 @@ impl phy::RxToken for E1000ERxToken {
     where
         F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
-        let page = self.0;
-        let buffer_start_ptr = page.start_address().as_mut_ptr();
-        let buffer_len = page.size() as usize;
-        let buffer = unsafe { slice::from_raw_parts_mut(buffer_start_ptr, buffer_len) };
-        let result = f(buffer);
+        let mut data = self.0;
+        let result = f(&mut data);
         result
     }
 }
@@ -362,12 +379,14 @@ impl E1000E {
         (ring_va, ring_pa)
     }
 
+    // volatile write the certain register
     unsafe fn write_reg(&self, reg: usize, val: u32) {
         (self.register_start as *mut u32)
             .add(reg / 4)
             .write_volatile(val)
     }
 
+    // volatile read the certain  register
     unsafe fn read_reg(&self, reg: usize) -> u32 {
         (self.register_start as *const u32)
             .add(reg / 4)
@@ -386,7 +405,7 @@ impl E1000E {
 const CTRL: usize = 0x00000; // Device Control Register
 const STATUS: usize = 0x00008; // Device Status register
 const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
-const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+const _IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
 // Transmit Registers
 const TCTL: usize = 0x00400; // Transmit Control Register
