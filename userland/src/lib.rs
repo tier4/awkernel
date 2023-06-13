@@ -91,7 +91,13 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    awkernel_async_lib::sleep(Duration::from_millis(100)).await;
+                    // awkernel_async_lib::sleep(Duration::from_millis(1)).await;
+
+                    for _ in 0..10000 {
+                        unsafe { core::arch::asm!("nop") };
+                    }
+
+                    // unsafe { awkernel_async_lib::task::preemption() };
                 }
             },
             SchedulerType::RoundRobin,

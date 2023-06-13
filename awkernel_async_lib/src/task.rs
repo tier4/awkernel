@@ -41,7 +41,7 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::{deallocate_thread_pool, preemption};
+pub use preempt::{deallocate_thread_pool, get_num_preemption, preemption};
 
 #[cfg(not(feature = "no_preempt"))]
 use preempt::PtrWorkerThreadContext;
@@ -130,6 +130,7 @@ pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
     next: Option<Arc<Task>>,
+    last_executed_time: u64,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -152,6 +153,22 @@ impl TaskInfo {
 
     pub fn get_scheduler_type(&self) -> SchedulerType {
         self.scheduler_type
+    }
+
+    pub fn is_preempted(&self) -> bool {
+        #[cfg(not(feature = "no_preempt"))]
+        return self.thread.is_some();
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    pub fn update_last_executed(&mut self) {
+        self.last_executed_time = awkernel_lib::delay::uptime();
+    }
+
+    pub fn get_last_executed(&self) -> u64 {
+        self.last_executed_time
     }
 }
 
@@ -199,6 +216,7 @@ impl Tasks {
                     scheduler_type,
                     state: State::Ready,
                     next: None,
+                    last_executed_time: 0,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -294,19 +312,23 @@ fn get_next_task() -> Option<Arc<Task>> {
 pub fn run_main() {
     loop {
         if let Some(task) = get_next_task() {
-            #[cfg(not(feature = "no_preempt"))]
             {
-                // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
-                // After that, the current thread will be stored in the thread pool.
-
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
-                if let Some(ctx) = info.take_preempt_context() {
-                    drop(info);
+                info.update_last_executed();
 
-                    unsafe { preempt::yield_and_pool(ctx) };
-                    continue;
+                #[cfg(not(feature = "no_preempt"))]
+                {
+                    // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
+                    // After that, the current thread will be stored in the thread pool.
+
+                    if let Some(ctx) = info.take_preempt_context() {
+                        drop(info);
+
+                        unsafe { preempt::yield_and_pool(ctx) };
+                        continue;
+                    }
                 }
             }
 
@@ -449,4 +471,19 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     }
 
     result
+}
+
+pub fn get_tasks_running() -> Vec<u32> {
+    let mut tasks = Vec::new();
+    let num_cpus = awkernel_lib::cpu::num_cpu();
+
+    for (cpu_id, task) in RUNNING.iter().enumerate() {
+        if cpu_id >= num_cpus {
+            break;
+        }
+
+        tasks.push(task.load(Ordering::Relaxed));
+    }
+
+    tasks
 }

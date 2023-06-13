@@ -289,13 +289,14 @@ impl Iterator for PendingInterruptIterator {
             return None;
         }
 
+        self.done = true;
+
         let iar = registers::GICC_IAR.read(self.gicc_base);
         registers::GICC_EOIR.write(iar, self.gicc_base);
 
         let id = iar & (1024 - 1);
 
         if id == ID_SPURIOUS {
-            self.done = true;
             None
         } else {
             Some(id as usize)

@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, fmt::format, vec::Vec};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
@@ -26,7 +26,7 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
-    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(InfoFfi)]).unwrap();
+    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(TaskFfi)]).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
@@ -125,8 +125,8 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export help () (IO (-> () []))
     (help_ffi))
 
-(export info () (IO (-> () []))
-    (info_ffi))
+(export task () (IO (-> () []))
+    (task_ffi))
 ";
 
 #[embedded]
@@ -139,26 +139,54 @@ fn help_ffi() {
 }
 
 #[embedded]
-fn info_ffi() {
+fn task_ffi() {
+    let msg = format!("Uptime: {}\n", awkernel_async_lib::uptime(),);
+    console::print(&msg);
+
     print_tasks();
+
+    console::print("\n");
+
+    print_tasks_running();
+
+    console::print("\n");
+
+    let msg = format!(
+        "Total preemption: {}\n",
+        awkernel_async_lib::task::get_num_preemption(),
+    );
+    console::print(&msg);
 }
 
 fn print_tasks() {
     let tasks = task::get_tasks();
 
     console::print("Tasks:\n");
-    console::print("ID\tState\tScheduler\n");
+    console::print("ID\tState\tScheduler\tPreempted\tLast Executed\n");
 
     for t in tasks {
         let mut node = MCSNode::new();
         let task = t.info.lock(&mut node);
 
         let msg = format!(
-            "{}\t{:?}\t{:?}\n",
+            "{}\t{:?}\t{:?}\t{}\t\t{}\n",
             t.id,
             task.get_state(),
-            task.get_scheduler_type()
+            task.get_scheduler_type(),
+            task.is_preempted(),
+            task.get_last_executed()
         );
+        console::print(&msg);
+    }
+}
+
+fn print_tasks_running() {
+    console::print("Tasks running:\n");
+    console::print("CPU\tTask\n");
+
+    let tasks = awkernel_async_lib::task::get_tasks_running();
+    for (cpu, task) in tasks.iter().enumerate() {
+        let msg = format!("{}\t{}\n", cpu, task);
         console::print(&msg);
     }
 }

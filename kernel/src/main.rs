@@ -34,6 +34,8 @@ mod nostd;
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
+    unsafe { awkernel_lib::cpu::increment_num_cpu() };
+
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 

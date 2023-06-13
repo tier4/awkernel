@@ -19,7 +19,7 @@ use awkernel_lib::{
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use futures::task::ArcWake;
 
@@ -37,6 +37,8 @@ static RUNNABLE_TASKS: [Mutex<TaskList>; NUM_MAX_CPU] =
 /// Tasks to be executed next.
 static NEXT_TASK: [Mutex<TaskList>; NUM_MAX_CPU] =
     array![_ => Mutex::new(TaskList::new()); NUM_MAX_CPU];
+
+static NUM_PREEMPTION: AtomicUsize = AtomicUsize::new(0);
 
 struct Threads {
     pooled: VecDeque<PtrWorkerThreadContext>,
@@ -102,6 +104,8 @@ pub unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
 
     push_to_thread_pool(current_ctx.clone());
 
+    NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
+
     unsafe {
         let current = &mut *(current_ctx.0);
         let next = &*next.0;
@@ -133,8 +137,10 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
     {
         let mut node = MCSNode::new();
         let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
-        tasks.push(current_task);
+        tasks.push(current_task.clone());
     }
+
+    NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
     unsafe {
         // Save the current context.
@@ -144,6 +150,12 @@ fn yield_preempted_and_wake_task(next_thread: PtrWorkerThreadContext, current_ta
         context_switch(&mut current.cpu_ctx, &next.cpu_ctx);
 
         set_current_context(current_ctx);
+    }
+
+    {
+        let mut node = MCSNode::new();
+        let mut info = current_task.info.lock(&mut node);
+        info.update_last_executed();
     }
 
     re_schedule();
@@ -417,4 +429,8 @@ pub fn get_next_task() -> Option<Arc<Task>> {
     let mut node = MCSNode::new();
     let mut next_task = NEXT_TASK[awkernel_lib::cpu::cpu_id()].lock(&mut node);
     next_task.pop()
+}
+
+pub fn get_num_preemption() -> usize {
+    NUM_PREEMPTION.load(Ordering::Relaxed)
 }
