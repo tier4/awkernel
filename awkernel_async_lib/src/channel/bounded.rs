@@ -10,7 +10,8 @@
 //! };
 //! ```
 
-use crate::{pubsub::Lifespan, r#yield, ringq::RingQ};
+use crate::{pubsub::Lifespan, r#yield};
+use awkernel_async_lib_verified::ringq::RingQ;
 use alloc::sync::Arc;
 use awkernel_lib::{
     delay::uptime,

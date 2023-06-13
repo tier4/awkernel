@@ -17,7 +17,6 @@ mod delay;
 mod join_handle;
 mod never_return;
 pub mod pubsub;
-mod ringq;
 pub mod scheduler;
 pub mod service;
 pub mod session_types;

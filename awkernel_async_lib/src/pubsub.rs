@@ -30,8 +30,8 @@
 use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
-    ringq::RingQ,
 };
+use awkernel_async_lib_verified::ringq::RingQ;
 use crate::delay::uptime;
 use alloc::{
     borrow::Cow,
