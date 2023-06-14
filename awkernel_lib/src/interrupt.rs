@@ -1,5 +1,11 @@
-use crate::{arch::ArchInterrupt, sync::rwlock::RwLock, unwind::catch_unwind};
+use crate::{
+    arch::ArchInterrupt,
+    cpu::{self, NUM_MAX_CPU},
+    sync::rwlock::RwLock,
+    unwind::catch_unwind,
+};
 use alloc::{boxed::Box, collections::BTreeMap};
+use array_macro::array;
 use core::{
     mem::transmute,
     sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
@@ -40,6 +46,8 @@ static IRQ_HANDLERS: RwLock<BTreeMap<usize, Box<dyn Fn() + Send>>> = RwLock::new
 
 static PREEMPT_IRQ: AtomicUsize = AtomicUsize::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
+
+static NUM_INTERRUPT: [AtomicUsize; NUM_MAX_CPU] = array![_ => AtomicUsize::new(0); NUM_MAX_CPU];
 
 fn empty() {}
 
@@ -110,6 +118,12 @@ pub fn send_ipi_broadcast_without_self(irq: usize) {
 }
 
 pub fn handle_irqs() {
+    let cpu_id = cpu::cpu_id();
+    let num = NUM_INTERRUPT[cpu_id].fetch_add(1, Ordering::Relaxed);
+    if num & 0xff == 0 {
+        log::debug!("interrupt: cpu_id = {cpu_id}");
+    }
+
     let handlers = IRQ_HANDLERS.read();
     let mut need_preemption = false;
 
@@ -144,7 +158,7 @@ pub fn handle_irqs() {
     if need_preemption {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
-        // preemption();
+        preemption();
     }
 }
 

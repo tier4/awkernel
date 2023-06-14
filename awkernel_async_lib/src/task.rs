@@ -87,6 +87,7 @@ impl TaskInfo {
 
     #[cfg(not(feature = "no_preempt"))]
     pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
+        assert!(self.thread.is_none());
         self.thread = Some(ctx)
     }
 
@@ -252,7 +253,13 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub fn run_main() {
+    let mut n = 0;
     loop {
+        n += 1;
+        if n & 0xfffff == 0 {
+            log::debug!("run_main: cpu_id = {}", awkernel_lib::cpu::cpu_id());
+        }
+
         if let Some(task) = get_next_task() {
             {
                 let mut node = MCSNode::new();

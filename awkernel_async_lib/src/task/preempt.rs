@@ -2,29 +2,20 @@ use crate::{
     scheduler,
     task::{get_current_task, Task},
 };
-use alloc::{
-    boxed::Box,
-    collections::{BTreeMap, VecDeque},
-    sync::Arc,
-};
+use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
-    context::{context_switch, ArchContext, Context},
+    context::context_switch,
     cpu::NUM_MAX_CPU,
     interrupt::{self, InterruptGuard},
-    memory::{self, Flags, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
-use core::{
-    alloc::{GlobalAlloc, Layout},
-    ptr::null_mut,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use futures::task::ArcWake;
+use thread::PtrWorkerThreadContext;
 
-/// Pooled and running threads.
-static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
+pub mod thread;
 
 /// Threads to be moved to THREADS::pooled.
 static THREAD_POOL: [Mutex<VecDeque<PtrWorkerThreadContext>>; NUM_MAX_CPU] =
@@ -40,80 +31,20 @@ static NEXT_TASK: [Mutex<VecDeque<Arc<Task>>>; NUM_MAX_CPU] =
 
 static NUM_PREEMPTION: AtomicUsize = AtomicUsize::new(0);
 
-struct Threads {
-    pooled: VecDeque<PtrWorkerThreadContext>,
-    running: BTreeMap<usize, PtrWorkerThreadContext>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PtrWorkerThreadContext(*mut WorkerThreadContext);
-
-unsafe impl Sync for PtrWorkerThreadContext {}
-unsafe impl Send for PtrWorkerThreadContext {}
-
-impl PtrWorkerThreadContext {
-    fn new() -> Self {
-        let ctx = Box::new(WorkerThreadContext::new());
-        let ptr = Box::into_raw(ctx);
-        PtrWorkerThreadContext(ptr)
-    }
-
-    fn with_stack_and_entry(
-        stack_size: usize,
-        entry: extern "C" fn(usize) -> !,
-        arg: usize,
-    ) -> Result<Self, &'static str> {
-        let ctx = WorkerThreadContext::with_stack_and_entry(stack_size, entry, arg)?;
-        let ptr_ctx = Box::new(ctx);
-        let ptr = Box::into_raw(ptr_ctx);
-        Ok(PtrWorkerThreadContext(ptr))
-    }
-
-    unsafe fn delete(self) {
-        let ctx = Box::from_raw(self.0);
-        unsafe {
-            memory::map(
-                ctx.stack_mem as usize,
-                ctx.stack_mem_phy,
-                Flags {
-                    execute: false,
-                    write: true,
-                },
-            )
-        };
-    }
-
-    unsafe fn set_argument(&mut self, arg: usize) {
-        let ptr = &mut *self.0;
-        ptr.cpu_ctx.set_argument(arg);
-    }
-}
-
-impl Threads {
-    const fn new() -> Self {
-        Threads {
-            pooled: VecDeque::new(),
-            running: BTreeMap::new(),
-        }
-    }
-}
-
-/// The current thread yields to `next` and it will be pooled.
-pub unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
-    let current_ctx = take_current_context();
+/// The current thread yields to `next_ctx`, and the current thread will be pooled.
+pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
+    let mut current_ctx = thread::take_current_context();
 
     push_to_thread_pool(current_ctx.clone());
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
-    unsafe {
-        let current = &mut *(current_ctx.0);
-        let next = &*next.0;
+    let current_cpu_ctx = current_ctx.get_cpu_context_mut();
+    let next_cpu_ctx = next_ctx.get_cpu_context();
 
-        context_switch(&mut current.cpu_ctx, &next.cpu_ctx);
+    unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
 
-        set_current_context(current_ctx);
-    }
+    thread::set_current_context(current_ctx);
 
     re_schedule();
 }
@@ -123,7 +54,7 @@ pub unsafe fn yield_and_pool(next: PtrWorkerThreadContext) {
 fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorkerThreadContext) {
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
-    let current_ctx = take_current_context();
+    let mut current_ctx = thread::take_current_context();
 
     {
         let mut node = MCSNode::new();
@@ -139,14 +70,14 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
+    let current_cpu_ctx = current_ctx.get_cpu_context_mut();
+    let next_cpu_ctx = next_thread.get_cpu_context();
+
     unsafe {
         // Save the current context.
-        let current = &mut *(current_ctx.clone().0);
-        let next = &*next_thread.0;
+        context_switch(current_cpu_ctx, next_cpu_ctx);
 
-        context_switch(&mut current.cpu_ctx, &next.cpu_ctx);
-
-        set_current_context(current_ctx);
+        thread::set_current_context(current_ctx);
     }
 
     re_schedule();
@@ -168,113 +99,16 @@ fn re_schedule() {
         let mut node = MCSNode::new();
         let mut pool = THREAD_POOL[cpu_id].lock(&mut node);
 
-        let mut node = MCSNode::new();
-        let mut threads = THREADS.lock(&mut node);
-
         while let Some(thread) = pool.pop_front() {
-            threads.pooled.push_front(thread);
+            thread::make_thread_pooled(thread);
         }
-    }
-}
-
-struct WorkerThreadContext {
-    cpu_ctx: ArchContext,
-    stack_mem: *mut u8,
-    stack_mem_phy: usize,
-    stack_size: usize,
-}
-
-impl WorkerThreadContext {
-    fn new() -> Self {
-        WorkerThreadContext {
-            cpu_ctx: ArchContext::default(),
-            stack_mem: null_mut(),
-            stack_mem_phy: 0,
-            stack_size: 0,
-        }
-    }
-
-    fn with_stack_and_entry(
-        stack_size: usize,
-        entry: extern "C" fn(usize) -> !,
-        arg: usize,
-    ) -> Result<Self, &'static str> {
-        let stack_mem = allocate_stack(stack_size)?;
-        let stack_pointer = unsafe { stack_mem.add(stack_size) };
-
-        let Some(stack_mem_phy) = memory::vm_to_phy(stack_mem as usize) else {
-            return Err("failed to translate VM to Phy");
-        };
-
-        unsafe { memory::unmap(stack_mem as usize) };
-
-        let mut cpu_ctx = ArchContext::default();
-
-        unsafe {
-            cpu_ctx.set_entry_point(entry, arg);
-            cpu_ctx.set_stack_pointer(stack_pointer as usize);
-        }
-
-        Ok(WorkerThreadContext {
-            cpu_ctx,
-            stack_mem,
-            stack_mem_phy,
-            stack_size,
-        })
-    }
-}
-
-impl Drop for WorkerThreadContext {
-    fn drop(&mut self) {
-        if !self.stack_mem.is_null() {
-            let layout = Layout::from_size_align(self.stack_size, PAGESIZE).unwrap();
-            unsafe { awkernel_lib::heap::TALLOC.dealloc(self.stack_mem, layout) };
-        }
-    }
-}
-
-fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
-    let Ok(layout) = Layout::from_size_align(size, PAGESIZE) else {
-        return Err("invalid layout")
-    };
-
-    let result = catch_unwind(|| unsafe {
-        let _config = awkernel_lib::heap::TALLOC.save();
-        awkernel_lib::heap::TALLOC.use_primary();
-        awkernel_lib::heap::TALLOC.alloc(layout)
-    });
-
-    match result {
-        Ok(ptr) => {
-            assert_eq!(ptr as usize & (PAGESIZE - 1), 0);
-            Ok(ptr)
-        }
-        Err(_) => Err("failed to allocate stack memory"),
     }
 }
 
 /// Initialization for worker threads executed first.
 pub fn init() {
     let ctx = PtrWorkerThreadContext::new();
-    set_current_context(ctx);
-}
-
-fn take_current_context() -> PtrWorkerThreadContext {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-
-    let mut node = MCSNode::new();
-    let mut threads = THREADS.lock(&mut node);
-
-    threads.running.remove(&cpu_id).unwrap()
-}
-
-fn set_current_context(ctx: PtrWorkerThreadContext) {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-
-    let mut node = MCSNode::new();
-    let mut threads = THREADS.lock(&mut node);
-
-    assert!(threads.running.insert(cpu_id, ctx).is_none())
+    thread::set_current_context(ctx);
 }
 
 fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
@@ -286,27 +120,11 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
     pool.push_back(ctx);
 }
 
-fn get_pooled_thread() -> Option<PtrWorkerThreadContext> {
-    let mut node = MCSNode::new();
-    let mut threads = THREADS.lock(&mut node);
-
-    threads.pooled.pop_front()
-}
-
 fn new_thread(
     entry: extern "C" fn(usize) -> !,
     arg: usize,
 ) -> Result<PtrWorkerThreadContext, &'static str> {
     PtrWorkerThreadContext::with_stack_and_entry(1024 * 1024 * 2, entry, arg)
-}
-
-pub fn deallocate_thread_pool() {
-    let mut node = MCSNode::new();
-    let mut threads = THREADS.lock(&mut node);
-
-    while let Some(thread) = threads.pooled.pop_front() {
-        unsafe { thread.delete() };
-    }
 }
 
 /// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
@@ -356,7 +174,7 @@ unsafe fn do_preemption() {
         } else {
             // Otherwise, get a thread from the thread pool or create a new thread.
 
-            let mut next_thread = if let Some(t) = get_pooled_thread() {
+            let mut next_thread = if let Some(t) = thread::take_pooled_thread() {
                 // If there is a thread in the thread pool, use it,
                 t
             } else if let Ok(t) = new_thread(thread_entry, 0) {
@@ -368,7 +186,7 @@ unsafe fn do_preemption() {
                 return;
             };
 
-            unsafe { next_thread.set_argument(next_thread.0 as usize) };
+            unsafe { next_thread.set_argument(next_thread.get_cpu_context() as *const _ as usize) };
 
             {
                 let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -385,7 +203,6 @@ unsafe fn do_preemption() {
     }
 }
 
-#[no_mangle]
 extern "C" fn thread_entry(arg: usize) -> ! {
     // Use only the primary heap memory region.
 
@@ -394,9 +211,8 @@ extern "C" fn thread_entry(arg: usize) -> ! {
         awkernel_lib::heap::TALLOC.use_primary()
     };
 
-    let ctx = arg as *mut WorkerThreadContext;
-    let ctx = PtrWorkerThreadContext(ctx);
-    set_current_context(ctx);
+    let ctx = unsafe { PtrWorkerThreadContext::with_context(arg) };
+    thread::set_current_context(ctx);
 
     // Disable interrupt.
     interrupt::disable();
