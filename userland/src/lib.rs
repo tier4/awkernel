@@ -57,7 +57,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..64 {
+    for i in 0..8 {
         let topic_a = format!("topic_a_{i}");
         let topic_b = format!("topic_b_{i}");
 
@@ -91,13 +91,13 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    // awkernel_async_lib::sleep(Duration::from_millis(1)).await;
+                    awkernel_async_lib::sleep(Duration::from_millis(1)).await;
+
+                    // unsafe { awkernel_async_lib::task::preemption() };
 
                     for _ in 0..10000 {
                         unsafe { core::arch::asm!("nop") };
                     }
-
-                    // unsafe { awkernel_async_lib::task::preemption() };
                 }
             },
             SchedulerType::RoundRobin,

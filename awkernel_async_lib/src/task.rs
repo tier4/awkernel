@@ -36,10 +36,10 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::{deallocate_thread_pool, get_num_preemption, preemption};
+pub use preempt::{get_num_preemption, preemption, thread::deallocate_thread_pool};
 
 #[cfg(not(feature = "no_preempt"))]
-use preempt::PtrWorkerThreadContext;
+use preempt::thread::PtrWorkerThreadContext;
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
@@ -73,6 +73,7 @@ impl ArcWake for Task {
 pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
+    pub(crate) num_preempt: u64,
     last_executed_time: u64,
 
     #[cfg(not(feature = "no_preempt"))]
@@ -113,6 +114,10 @@ impl TaskInfo {
 
     pub fn get_last_executed(&self) -> u64 {
         self.last_executed_time
+    }
+
+    pub fn get_num_preemption(&self) -> u64 {
+        self.num_preempt
     }
 }
 
@@ -159,6 +164,7 @@ impl Tasks {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
                     state: State::Ready,
+                    num_preempt: 0,
                     last_executed_time: 0,
 
                     #[cfg(not(feature = "no_preempt"))]

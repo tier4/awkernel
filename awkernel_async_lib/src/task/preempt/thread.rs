@@ -10,6 +10,7 @@ use awkernel_lib::{
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
+    mem::transmute,
     ptr::null_mut,
 };
 
@@ -24,8 +25,8 @@ struct Threads {
 impl Threads {
     const fn new() -> Self {
         Threads {
-            pooled: Default::default(),
-            running: Default::default(),
+            pooled: VecDeque::new(),
+            running: BTreeMap::new(),
         }
     }
 }
@@ -82,12 +83,13 @@ impl PtrWorkerThreadContext {
     }
 
     pub fn get_cpu_context_mut(&mut self) -> &mut ArchContext {
-        let ptr = &mut unsafe { *(self.0 as *mut WorkerThreadContext) };
+        let ptr =
+            unsafe { transmute::<*mut WorkerThreadContext, &mut WorkerThreadContext>(self.0) };
         &mut ptr.cpu_ctx
     }
 
     pub fn get_cpu_context(&self) -> &ArchContext {
-        let ptr = &unsafe { *(self.0 as *mut WorkerThreadContext) };
+        let ptr = unsafe { transmute::<*const WorkerThreadContext, &WorkerThreadContext>(self.0) };
         &ptr.cpu_ctx
     }
 }

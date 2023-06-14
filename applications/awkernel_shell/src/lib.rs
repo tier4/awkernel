@@ -162,18 +162,19 @@ fn print_tasks() {
     let tasks = task::get_tasks();
 
     console::print("Tasks:\n");
-    console::print("ID\tState\tScheduler\tPreempted\tLast Executed\n");
+    console::print("ID\tState\tScheduler\tPreempted\t#Preemption\tLast Executed\n");
 
     for t in tasks {
         let mut node = MCSNode::new();
         let task = t.info.lock(&mut node);
 
         let msg = format!(
-            "{}\t{:?}\t{:?}\t{}\t\t{}\n",
+            "{}\t{:?}\t{:?}\t{}\t\t{}\t\t{}\n",
             t.id,
             task.get_state(),
             task.get_scheduler_type(),
             task.is_preempted(),
+            task.get_num_preemption(),
             task.get_last_executed()
         );
         console::print(&msg);

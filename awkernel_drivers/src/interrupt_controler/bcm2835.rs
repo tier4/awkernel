@@ -88,6 +88,10 @@ impl InterruptController for BCM2835IntCtrl {
     fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
         todo!()
     }
+
+    fn next_pending_irq(&self) -> Option<usize> {
+        None
+    }
 }
 
 pub struct PendingInterruptIterator {

@@ -55,10 +55,18 @@
     b       exception_restore_context
 .endm
 
-// TODO
 data_abort:
+    // set stack before _start
+    ldr     x1, =__stack_data_abort_start
+    mrs     x2, mpidr_el1 // read cpu id
+    and     x2, x2, #0xFF
+    mov     x4, #4096 // stack size
+    mul     x3, x2, x4
+    sub     x1, x1, x3
+    mov     sp, x1
+
+    bl      handle_data_abort
 1:
-    b       handle_data_abort
     wfi
     b       1b
 

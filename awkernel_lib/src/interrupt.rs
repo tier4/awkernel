@@ -26,6 +26,8 @@ pub trait InterruptController: Sync + Send {
     fn disable_irq(&mut self, irq: usize);
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>>;
 
+    fn next_pending_irq(&self) -> Option<usize>;
+
     /// Send an inter-process interrupt to `target` CPU.
     fn send_ipi(&mut self, irq: usize, target: usize);
 
@@ -129,36 +131,38 @@ pub fn handle_irqs() {
 
     let controller = INTERRUPT_CONTROLLER.read();
     if let Some(ctrl) = controller.as_ref() {
-        let mut iter = ctrl.pending_irqs();
-        drop(controller); // unlock
+        while let Some(irqs) = ctrl.next_pending_irq() {}
 
-        while let Some(irq) = iter.next() {
-            if irq == PREEMPT_IRQ.load(Ordering::Relaxed) {
-                need_preemption = true;
-            }
+        // let mut iter = ctrl.pending_irqs();
+        // drop(controller); // unlock
 
-            if let Some(handler) = handlers.get(&irq) {
-                if let Err(err) = catch_unwind(|| {
-                    // Use the primary allocator.
-                    #[cfg(not(feature = "std"))]
-                    let _guard = {
-                        let g = heap::TALLOC.save();
-                        unsafe { heap::TALLOC.use_primary() };
-                        g
-                    };
+        // Use the primary allocator.
+        // #[cfg(not(feature = "std"))]
+        // let _guard = {
+        //     let g = heap::TALLOC.save();
+        //     unsafe { heap::TALLOC.use_primary() };
+        //     g
+        // };
 
-                    handler();
-                }) {
-                    log::warn!("an interrupt handler has been panicked\n{err:?}");
-                }
-            }
-        }
+        // while let Some(irq) = iter.next() {
+        //     if irq == PREEMPT_IRQ.load(Ordering::Relaxed) {
+        //         need_preemption = true;
+        //     }
+
+        //     if let Some(handler) = handlers.get(&irq) {
+        //         if let Err(err) = catch_unwind(|| {
+        //             handler();
+        //         }) {
+        //             log::warn!("an interrupt handler has been panicked\n{err:?}");
+        //         }
+        //     }
+        // }
     }
 
     if need_preemption {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
-        preemption();
+        // preemption();
     }
 }
 

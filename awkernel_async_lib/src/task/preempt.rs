@@ -60,6 +60,7 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
         let mut node = MCSNode::new();
         let mut info = current_task.info.lock(&mut node);
         info.set_preempt_context(current_ctx.clone());
+        info.num_preempt += 1;
     }
 
     {
