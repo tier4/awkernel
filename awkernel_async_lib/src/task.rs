@@ -295,14 +295,27 @@ pub fn run_main() {
 
             let mut node = MCSNode::new();
             let Some(mut guard) = task.future.try_lock(&mut node) else {
-                    // This task is running on another CPU,
-                    // and re-schedule the task to avoid starvation just in case.
-                    task.wake();
-                    continue;
-                };
+                // This task is running on another CPU,
+                // and re-schedule the task to avoid starvation just in case.
+                task.wake();
+                continue;
+            };
 
+            // Can remove this?
             if guard.is_terminated() {
                 continue;
+            }
+
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+
+                if matches!(info.state, State::Terminated | State::Panicked) {
+                    continue;
+                }
+
+                info.update_last_executed();
+                info.state = State::Running;
             }
 
             // Use the primary memory allocator.
@@ -310,14 +323,6 @@ pub fn run_main() {
             unsafe {
                 awkernel_lib::heap::TALLOC.use_primary()
             };
-
-            {
-                let mut node = MCSNode::new();
-                let mut info = task.info.lock(&mut node);
-
-                info.update_last_executed();
-                info.state = State::Running;
-            }
 
             {
                 let cpu_id = awkernel_lib::cpu::cpu_id();
