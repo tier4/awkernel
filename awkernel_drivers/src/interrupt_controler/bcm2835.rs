@@ -17,7 +17,6 @@ mod registers {
 }
 
 pub struct BCM2835IntCtrl {
-    iter: Option<PendingInterruptIterator>,
     base: usize,
 }
 
@@ -25,7 +24,7 @@ impl BCM2835IntCtrl {
     pub fn new(base: usize) -> Self {
         log::info!("BCM2835 IRQ: Initializing the interrupt controller.");
 
-        let gic = Self { base, iter: None };
+        let gic = Self { base };
 
         registers::IRQ_DISABLE1.write(!0, base);
         registers::IRQ_DISABLE2.write(!0, base);
@@ -78,19 +77,15 @@ impl InterruptController for BCM2835IntCtrl {
     }
 
     fn send_ipi(&mut self, irq: usize, target: usize) {
-        todo!()
+        // todo!()
     }
 
     fn send_ipi_broadcast(&mut self, irq: usize) {
-        todo!()
+        // todo!()
     }
 
     fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
-        todo!()
-    }
-
-    fn next_pending_irq(&self) -> Option<usize> {
-        None
+        // todo!()
     }
 }
 

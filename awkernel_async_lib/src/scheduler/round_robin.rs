@@ -32,21 +32,23 @@ impl Scheduler for RoundRobinScheduler {
 
         let data = data.as_mut().unwrap();
 
-        // Make the state of the task InQueue.
+        // Put the state in queue.
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
 
-            // If the state is Terminated or InQueue, it must not be enqueued.
-            if matches!(
-                task_info.state,
-                task::State::Terminated | task::State::InQueue
-            ) {
+            // If the task is in queue or the state is Terminated, it must not be enqueued.
+            if task_info.in_queue
+                || matches!(
+                    task_info.state,
+                    task::State::Terminated | task::State::Panicked
+                )
+            {
                 return;
             }
 
-            // The task is in the run queue or a preempted task.
-            task_info.state = task::State::InQueue;
+            // The task is in queue.
+            task_info.in_queue = true;
         }
 
         data.queue.push_back(task);
@@ -64,8 +66,7 @@ impl Scheduler for RoundRobinScheduler {
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
-
-            task_info.state = task::State::Running;
+            task_info.in_queue = false;
         }
 
         Some(task)

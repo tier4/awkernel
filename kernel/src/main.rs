@@ -78,9 +78,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_lib::delay::wait_microsec(1);
 
             let now = uptime();
-            if now - send_ipi >= 10_000 {
-                awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
-                send_ipi = now;
+            if now >= send_ipi {
+                if now - send_ipi >= 10_000 {
+                    awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
+                    send_ipi = now;
+                }
             }
 
             #[cfg(feature = "std")]

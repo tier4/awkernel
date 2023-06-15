@@ -371,8 +371,6 @@ procedure exception_store_registers() begin
     S011: call stp_add("x26", "x27", "x0", 16);
     S012: call stp_add("x28", "x29", "x0", 32);
 
-    S_INT01: call interrupt();
-
     \* Store ESR and SPSR.
     S100: call str_add("x2", "x0", 8);
     S101: call str_add("x3", "x0", 8);
@@ -382,7 +380,7 @@ procedure exception_store_registers() begin
     S104: mrs("x5", "fpcr");
     S103: call stp_add("x4", "x5", "x0", 16);
 
-    S_INT02: call interrupt();
+    S_INT01: call interrupt();
 
     \* Store all floating-point registers.
     S200: call stp16_add( "q0",  "q1", "x0", 32);
@@ -411,8 +409,6 @@ procedure exception_restore_context() begin
     R001: msr("fpsr", "x1");
     R002: msr("fpcr", "x2");
 
-    R_INT00: call interrupt();
-
     R100: call ldp16_add( "q0",  "q1", "x0", 32);
     R101: call ldp16_add( "q2",  "q3", "x0", 32);
     R102: call ldp16_add( "q4",  "q5", "x0", 32);
@@ -430,11 +426,9 @@ procedure exception_restore_context() begin
     R114: call ldp16_add("q28", "q29", "x0", 32);
     R115: call ldp16_add("q30", "q31", "x0", 0);
 
-    R_INT01: call interrupt();
-
     R200: mov("x30", "sp");
 
-    R_INT02: call interrupt();
+    R_INT01: call interrupt();
 
     R300: call ldp_add( "x0",  "x1", "x30", 16);
     R301: call ldp_add( "x2",  "x3", "x30", 16);
@@ -453,7 +447,7 @@ procedure exception_restore_context() begin
     R314: call ldp_add("x28", "x29", "x30", 16);
     R315: call ldr_add("x30", "x30", 0);
 
-    R_INT03: call interrupt();
+    R_INT02: call interrupt();
 
     R400: add("sp", "sp", 800); \* Restore SP.
 
@@ -546,7 +540,7 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "fd16b9d3" /\ chksum(tla) = "cc4e1b63")
+\* BEGIN TRANSLATION (chksum(pcal) = "7c93441d" /\ chksum(tla) = "65634d8e")
 \* Label ldp_add0 of procedure ldp_add at line 261 col 9 changed to ldp_add0_
 \* Label ldp_add1 of procedure ldp_add at line 266 col 9 changed to ldp_add1_
 \* Label ldp_add2 of procedure ldp_add at line 268 col 9 changed to ldp_add2_
@@ -1737,7 +1731,7 @@ S012 == /\ pc = "S012"
            /\ reg2_st' = "x29"
            /\ reg3_s' = "x0"
            /\ stack' = << [ procedure |->  "stp_add",
-                            pc        |->  "S_INT01",
+                            pc        |->  "S100",
                             addr_st   |->  addr_st,
                             reg1_st   |->  reg1_st,
                             reg2_st   |->  reg2_st,
@@ -1752,19 +1746,6 @@ S012 == /\ pc = "S012"
                         reg2_stp, reg3_st, offset_stp, addr_stp, reg1_ld, 
                         reg2_ld, reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, 
                         offset, addr, ctx_start >>
-
-S_INT01 == /\ pc = "S_INT01"
-           /\ stack' = << [ procedure |->  "interrupt",
-                            pc        |->  "S100" ] >>
-                        \o stack
-           /\ pc' = "start_interrupt"
-           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
-                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                           reg1_s, reg2_s, reg3_, offset_s, addr_s, reg1_st, 
-                           reg2_st, reg3_s, offset_st, addr_st, reg1_stp, 
-                           reg2_stp, reg3_st, offset_stp, addr_stp, reg1_ld, 
-                           reg2_ld, reg3_l, offset_ld, addr_ld, reg1, reg2, 
-                           reg3, offset, addr, ctx_start >>
 
 S100 == /\ pc = "S100"
         /\ /\ offset_' = 8
@@ -1834,7 +1815,7 @@ S103 == /\ pc = "S103"
            /\ reg2_st' = "x5"
            /\ reg3_s' = "x0"
            /\ stack' = << [ procedure |->  "stp_add",
-                            pc        |->  "S_INT02",
+                            pc        |->  "S_INT01",
                             addr_st   |->  addr_st,
                             reg1_st   |->  reg1_st,
                             reg2_st   |->  reg2_st,
@@ -1850,7 +1831,7 @@ S103 == /\ pc = "S103"
                         reg2_ld, reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, 
                         offset, addr, ctx_start >>
 
-S_INT02 == /\ pc = "S_INT02"
+S_INT01 == /\ pc = "S_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "S200" ] >>
                         \o stack
@@ -2217,11 +2198,11 @@ S215 == /\ pc = "S215"
 
 exception_store_registers == S000 \/ S001 \/ S002 \/ S003 \/ S004 \/ S005
                                 \/ S006 \/ S007 \/ S008 \/ S009 \/ S010
-                                \/ S011 \/ S012 \/ S_INT01 \/ S100 \/ S101
-                                \/ S102 \/ S104 \/ S103 \/ S_INT02 \/ S200
-                                \/ S201 \/ S202 \/ S203 \/ S204 \/ S205
-                                \/ S206 \/ S207 \/ S208 \/ S209 \/ S210
-                                \/ S211 \/ S212 \/ S213 \/ S214 \/ S215
+                                \/ S011 \/ S012 \/ S100 \/ S101 \/ S102
+                                \/ S104 \/ S103 \/ S_INT01 \/ S200 \/ S201
+                                \/ S202 \/ S203 \/ S204 \/ S205 \/ S206
+                                \/ S207 \/ S208 \/ S209 \/ S210 \/ S211
+                                \/ S212 \/ S213 \/ S214 \/ S215
 
 R000 == /\ pc = "R000"
         /\ /\ offset_ld' = 16
@@ -2258,7 +2239,7 @@ R001 == /\ pc = "R001"
 
 R002 == /\ pc = "R002"
         /\ registers' = [registers EXCEPT !["fpcr"] = registers["x2"]]
-        /\ pc' = "R_INT00"
+        /\ pc' = "R100"
         /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
                         addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
                         reg2_s, reg3_, offset_s, addr_s, reg1_st, reg2_st, 
@@ -2266,19 +2247,6 @@ R002 == /\ pc = "R002"
                         reg3_st, offset_stp, addr_stp, reg1_ld, reg2_ld, 
                         reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
-
-R_INT00 == /\ pc = "R_INT00"
-           /\ stack' = << [ procedure |->  "interrupt",
-                            pc        |->  "R100" ] >>
-                        \o stack
-           /\ pc' = "start_interrupt"
-           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
-                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                           reg1_s, reg2_s, reg3_, offset_s, addr_s, reg1_st, 
-                           reg2_st, reg3_s, offset_st, addr_st, reg1_stp, 
-                           reg2_stp, reg3_st, offset_stp, addr_stp, reg1_ld, 
-                           reg2_ld, reg3_l, offset_ld, addr_ld, reg1, reg2, 
-                           reg3, offset, addr, ctx_start >>
 
 R100 == /\ pc = "R100"
         /\ /\ offset' = 32
@@ -2616,7 +2584,7 @@ R115 == /\ pc = "R115"
            /\ reg2' = "q31"
            /\ reg3' = "x0"
            /\ stack' = << [ procedure |->  "ldp16_add",
-                            pc        |->  "R_INT01",
+                            pc        |->  "R200",
                             addr      |->  addr,
                             reg1      |->  reg1,
                             reg2      |->  reg2,
@@ -2632,22 +2600,9 @@ R115 == /\ pc = "R115"
                         reg2_stp, reg3_st, offset_stp, addr_stp, reg1_ld, 
                         reg2_ld, reg3_l, offset_ld, addr_ld, ctx_start >>
 
-R_INT01 == /\ pc = "R_INT01"
-           /\ stack' = << [ procedure |->  "interrupt",
-                            pc        |->  "R200" ] >>
-                        \o stack
-           /\ pc' = "start_interrupt"
-           /\ UNCHANGED << data_abort, stack_memory, registers, reg1_, reg2_, 
-                           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, 
-                           reg1_s, reg2_s, reg3_, offset_s, addr_s, reg1_st, 
-                           reg2_st, reg3_s, offset_st, addr_st, reg1_stp, 
-                           reg2_stp, reg3_st, offset_stp, addr_stp, reg1_ld, 
-                           reg2_ld, reg3_l, offset_ld, addr_ld, reg1, reg2, 
-                           reg3, offset, addr, ctx_start >>
-
 R200 == /\ pc = "R200"
         /\ registers' = [registers EXCEPT !["x30"] = registers["sp"]]
-        /\ pc' = "R_INT02"
+        /\ pc' = "R_INT01"
         /\ UNCHANGED << data_abort, stack_memory, stack, reg1_, reg2_, offset_, 
                         addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
                         reg2_s, reg3_, offset_s, addr_s, reg1_st, reg2_st, 
@@ -2656,7 +2611,7 @@ R200 == /\ pc = "R200"
                         reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, offset, 
                         addr, ctx_start >>
 
-R_INT02 == /\ pc = "R_INT02"
+R_INT01 == /\ pc = "R_INT01"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R300" ] >>
                         \o stack
@@ -3004,7 +2959,7 @@ R315 == /\ pc = "R315"
            /\ reg1_l' = "x30"
            /\ reg2_l' = "x30"
            /\ stack' = << [ procedure |->  "ldr_add",
-                            pc        |->  "R_INT03",
+                            pc        |->  "R_INT02",
                             addr_l    |->  addr_l,
                             reg1_l    |->  reg1_l,
                             reg2_l    |->  reg2_l,
@@ -3019,7 +2974,7 @@ R315 == /\ pc = "R315"
                         reg1_ld, reg2_ld, reg3_l, offset_ld, addr_ld, reg1, 
                         reg2, reg3, offset, addr, ctx_start >>
 
-R_INT03 == /\ pc = "R_INT03"
+R_INT02 == /\ pc = "R_INT02"
            /\ stack' = << [ procedure |->  "interrupt",
                             pc        |->  "R400" ] >>
                         \o stack
@@ -3044,15 +2999,14 @@ R400 == /\ pc = "R400"
                         offset_ld, addr_ld, reg1, reg2, reg3, offset, addr, 
                         ctx_start >>
 
-exception_restore_context == R000 \/ R001 \/ R002 \/ R_INT00 \/ R100
-                                \/ R101 \/ R102 \/ R103 \/ R104 \/ R105
-                                \/ R106 \/ R107 \/ R108 \/ R109 \/ R110
-                                \/ R111 \/ R112 \/ R113 \/ R114 \/ R115
-                                \/ R_INT01 \/ R200 \/ R_INT02 \/ R300
-                                \/ R301 \/ R302 \/ R303 \/ R304 \/ R305
-                                \/ R306 \/ R307 \/ R308 \/ R309 \/ R310
-                                \/ R311 \/ R312 \/ R313 \/ R314 \/ R315
-                                \/ R_INT03 \/ R400
+exception_restore_context == R000 \/ R001 \/ R002 \/ R100 \/ R101 \/ R102
+                                \/ R103 \/ R104 \/ R105 \/ R106 \/ R107
+                                \/ R108 \/ R109 \/ R110 \/ R111 \/ R112
+                                \/ R113 \/ R114 \/ R115 \/ R200 \/ R_INT01
+                                \/ R300 \/ R301 \/ R302 \/ R303 \/ R304
+                                \/ R305 \/ R306 \/ R307 \/ R308 \/ R309
+                                \/ R310 \/ R311 \/ R312 \/ R313 \/ R314
+                                \/ R315 \/ R_INT02 \/ R400
 
 H000 == /\ pc = "H000"
         /\ registers' = [registers EXCEPT !["x0"] = registers["x0"] + 1]

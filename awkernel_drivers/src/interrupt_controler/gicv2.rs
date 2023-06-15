@@ -272,19 +272,6 @@ impl InterruptController for GICv2 {
         let value = registers::GIDG_SGIR_TARGET_ALL_EXCEPT_SELF | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);
     }
-
-    fn next_pending_irq(&self) -> Option<usize> {
-        let iar = registers::GICC_IAR.read(self.gicc_base);
-        let id = iar & (1024 - 1);
-
-        registers::GICC_EOIR.write(iar, self.gicc_base);
-
-        if id == ID_SPURIOUS {
-            None
-        } else {
-            Some(id as usize)
-        }
-    }
 }
 
 pub struct PendingInterruptIterator {

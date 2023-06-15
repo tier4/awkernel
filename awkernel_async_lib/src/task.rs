@@ -75,6 +75,7 @@ pub struct TaskInfo {
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
     last_executed_time: u64,
+    pub(crate) in_queue: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -119,15 +120,19 @@ impl TaskInfo {
     pub fn get_num_preemption(&self) -> u64 {
         self.num_preempt
     }
+
+    pub fn in_queue(&self) -> bool {
+        self.in_queue
+    }
 }
 
 /// State of task.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
     Running,
-    InQueue,
     Waiting,
+    Preempted,
     Terminated,
     Panicked,
 }
@@ -166,6 +171,7 @@ impl Tasks {
                     state: State::Ready,
                     num_preempt: 0,
                     last_executed_time: 0,
+                    in_queue: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -267,23 +273,20 @@ pub fn run_main() {
         }
 
         if let Some(task) = get_next_task() {
+            #[cfg(not(feature = "no_preempt"))]
             {
+                // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
+                // After that, the current thread will be stored in the thread pool.
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
-                info.update_last_executed();
+                if let Some(ctx) = info.take_preempt_context() {
+                    info.update_last_executed();
+                    info.state = State::Running;
+                    drop(info);
 
-                #[cfg(not(feature = "no_preempt"))]
-                {
-                    // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
-                    // After that, the current thread will be stored in the thread pool.
-
-                    if let Some(ctx) = info.take_preempt_context() {
-                        drop(info);
-
-                        unsafe { preempt::yield_and_pool(ctx) };
-                        continue;
-                    }
+                    unsafe { preempt::yield_and_pool(ctx) };
+                    continue;
                 }
             }
 
@@ -292,7 +295,12 @@ pub fn run_main() {
 
             let result = {
                 let mut node = MCSNode::new();
-                let mut guard = task.future.lock(&mut node);
+                let Some(mut guard) = task.future.try_lock(&mut node) else {
+                    // This task is running on another CPU,
+                    // and re-schedule the task to avoid starvation just in case.
+                    task.wake();
+                    continue;
+                };
 
                 if guard.is_terminated() {
                     continue;
@@ -303,6 +311,14 @@ pub fn run_main() {
                 unsafe {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
+
+                {
+                    let mut node = MCSNode::new();
+                    let mut info = task.info.lock(&mut node);
+
+                    info.update_last_executed();
+                    info.state = State::Running;
+                }
 
                 {
                     let cpu_id = awkernel_lib::cpu::cpu_id();

@@ -147,10 +147,6 @@ fn task_ffi() {
 
     console::print("\n");
 
-    print_tasks_running();
-
-    console::print("\n");
-
     let msg = format!(
         "Total preemption: {}\n",
         awkernel_async_lib::task::get_num_preemption(),
@@ -162,32 +158,28 @@ fn print_tasks() {
     let tasks = task::get_tasks();
 
     console::print("Tasks:\n");
-    console::print("ID\tState\tScheduler\tPreempted\t#Preemption\tLast Executed\n");
+
+    let msg = format!(
+        "{:>5} {:<10} {:<8} {:>14} {:>14}\n",
+        "ID", "State", "In Queue", "#Preemption", "Last Executed"
+    );
+    console::print(&msg);
 
     for t in tasks {
         let mut node = MCSNode::new();
         let task = t.info.lock(&mut node);
 
+        let state = format!("{:?}", task.get_state());
+
         let msg = format!(
-            "{}\t{:?}\t{:?}\t{}\t\t{}\t\t{}\n",
+            "{:>5} {:<10} {:<8} {:>14} {:>14}\n",
             t.id,
-            task.get_state(),
-            task.get_scheduler_type(),
-            task.is_preempted(),
+            state,
+            task.in_queue(),
             task.get_num_preemption(),
             task.get_last_executed()
         );
-        console::print(&msg);
-    }
-}
 
-fn print_tasks_running() {
-    console::print("Tasks running:\n");
-    console::print("CPU\tTask\n");
-
-    let tasks = awkernel_async_lib::task::get_tasks_running();
-    for (cpu, task) in tasks.iter().enumerate() {
-        let msg = format!("{}\t{}\n", cpu, task);
         console::print(&msg);
     }
 }
