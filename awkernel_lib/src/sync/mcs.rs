@@ -39,6 +39,35 @@ impl<T: Send> MCSLock<T> {
         }
     }
 
+    pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<MCSLockGuard<T>> {
+        node.next = AtomicPtr::new(null_mut());
+        node.locked = AtomicBool::new(false);
+
+        let _interrupt_guard = crate::interrupt::InterruptGuard::new();
+
+        // set myself as the last node
+        let mut guard = MCSLockGuard {
+            node,
+            mcs_lock: self,
+            need_unlock: true,
+            _interrupt_guard,
+            _phantom: PhantomData,
+        };
+
+        let ptr = guard.node as *mut MCSNode<T>;
+
+        if self
+            .last
+            .compare_exchange(null_mut(), ptr, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            Some(guard)
+        } else {
+            guard.need_unlock = false;
+            None
+        }
+    }
+
     /// acquire lock
     pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<T> {
         node.next = AtomicPtr::new(null_mut());
@@ -50,6 +79,7 @@ impl<T: Send> MCSLock<T> {
         let guard = MCSLockGuard {
             node,
             mcs_lock: self,
+            need_unlock: true,
             _interrupt_guard,
             _phantom: Default::default(),
         };
@@ -84,12 +114,17 @@ unsafe impl<T: Send> Send for MCSLock<T> {}
 pub struct MCSLockGuard<'a, T: Send> {
     node: &'a mut MCSNode<T>,
     mcs_lock: &'a MCSLock<T>,
+    need_unlock: bool,
     _interrupt_guard: crate::interrupt::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
 impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
     fn drop(&mut self) {
+        if !self.need_unlock {
+            return;
+        }
+
         // if next node is null and self is the last node
         // set the last node to null
         if self.node.next.load(Ordering::Relaxed).is_null() {
