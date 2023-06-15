@@ -293,65 +293,55 @@ pub fn run_main() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let result = {
-                let mut node = MCSNode::new();
-                let Some(mut guard) = task.future.try_lock(&mut node) else {
+            let mut node = MCSNode::new();
+            let Some(mut guard) = task.future.try_lock(&mut node) else {
                     // This task is running on another CPU,
                     // and re-schedule the task to avoid starvation just in case.
                     task.wake();
                     continue;
                 };
 
-                if guard.is_terminated() {
-                    continue;
-                }
+            if guard.is_terminated() {
+                continue;
+            }
 
-                // Use the primary memory allocator.
-                #[cfg(not(feature = "std"))]
-                unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
-                };
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
 
-                {
-                    let mut node = MCSNode::new();
-                    let mut info = task.info.lock(&mut node);
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
 
-                    info.update_last_executed();
-                    info.state = State::Running;
-                }
+                info.update_last_executed();
+                info.state = State::Running;
+            }
 
-                {
-                    let cpu_id = awkernel_lib::cpu::cpu_id();
-                    RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-                }
+            {
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+            }
 
-                // Invoke a task.
-                let result = {
-                    catch_unwind(|| {
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
-                        {
-                            awkernel_lib::interrupt::enable();
-                        }
+            // Invoke a task.
+            let result = {
+                catch_unwind(|| {
+                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    {
+                        awkernel_lib::interrupt::enable();
+                    }
 
-                        #[allow(clippy::let_and_return)]
-                        let result = guard.poll_unpin(&mut ctx);
+                    #[allow(clippy::let_and_return)]
+                    let result = guard.poll_unpin(&mut ctx);
 
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
-                        {
-                            awkernel_lib::interrupt::disable();
-                        }
+                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    {
+                        awkernel_lib::interrupt::disable();
+                    }
 
-                        result
-                    })
-                };
-
-                {
-                    let cpu_id = awkernel_lib::cpu::cpu_id();
-                    let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
-                    assert_eq!(running_id, task.id);
-                }
-
-                result
+                    result
+                })
             };
 
             // If the primary memory allocator is available, it will be used.
@@ -361,21 +351,23 @@ pub fn run_main() {
                 awkernel_lib::heap::TALLOC.use_primary_then_backup()
             };
 
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+            assert_eq!(running_id, task.id);
+
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+
             match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
-                    let mut node = MCSNode::new();
-                    let mut info = task.info.lock(&mut node);
                     info.state = State::Waiting;
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
 
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Terminated;
-                    }
+                    info.state = State::Terminated;
+                    drop(info);
 
                     if let Err(msg) = result {
                         log::warn!("Task has been terminated but failed: {msg}");
@@ -387,12 +379,8 @@ pub fn run_main() {
                 }
                 Err(err) => {
                     // Caught panic.
-
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Panicked;
-                    }
+                    info.state = State::Panicked;
+                    drop(info);
 
                     log::error!("Task has panicked!: {:?}", err);
 

@@ -243,7 +243,6 @@ begin
         stack_memory[addr] := registers[reg1];
     stp16_2:
         stack_memory[addr + 16] := registers[reg2];
-    stp16_3:
         registers[reg3] := addr + offset;
         return;
 end procedure;
@@ -300,6 +299,10 @@ variables
 begin
     start_call_with_context:
         ctx_start := registers;
+
+        if registers["sp"] < 0 \/ registers["sp"] >= STACK_SIZE then
+            call data_abort_exception();
+        end if;
 
     \* disable interrupt
     \* msr     DAIFSet, #0x02
@@ -540,17 +543,17 @@ begin
         call CALL_WITH_CONTEXT();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "7c93441d" /\ chksum(tla) = "65634d8e")
-\* Label ldp_add0 of procedure ldp_add at line 261 col 9 changed to ldp_add0_
-\* Label ldp_add1 of procedure ldp_add at line 266 col 9 changed to ldp_add1_
-\* Label ldp_add2 of procedure ldp_add at line 268 col 9 changed to ldp_add2_
-\* Label ldp_add3 of procedure ldp_add at line 270 col 9 changed to ldp_add3_
+\* BEGIN TRANSLATION (chksum(pcal) = "bc775fdf" /\ chksum(tla) = "ce418341")
+\* Label ldp_add0 of procedure ldp_add at line 260 col 9 changed to ldp_add0_
+\* Label ldp_add1 of procedure ldp_add at line 265 col 9 changed to ldp_add1_
+\* Label ldp_add2 of procedure ldp_add at line 267 col 9 changed to ldp_add2_
+\* Label ldp_add3 of procedure ldp_add at line 269 col 9 changed to ldp_add3_
 \* Procedure variable addr of procedure str_add at line 153 col 5 changed to addr_
 \* Procedure variable addr of procedure ldr_add at line 172 col 5 changed to addr_l
 \* Procedure variable addr of procedure stp at line 192 col 5 changed to addr_s
 \* Procedure variable addr of procedure stp_add at line 213 col 5 changed to addr_st
 \* Procedure variable addr of procedure stp16_add at line 235 col 5 changed to addr_stp
-\* Procedure variable addr of procedure ldp_add at line 258 col 5 changed to addr_ld
+\* Procedure variable addr of procedure ldp_add at line 257 col 5 changed to addr_ld
 \* Parameter reg1 of procedure str_add at line 151 col 19 changed to reg1_
 \* Parameter reg2 of procedure str_add at line 151 col 25 changed to reg2_
 \* Parameter offset of procedure str_add at line 151 col 31 changed to offset_
@@ -569,10 +572,10 @@ end algorithm;*)
 \* Parameter reg2 of procedure stp16_add at line 233 col 27 changed to reg2_stp
 \* Parameter reg3 of procedure stp16_add at line 233 col 33 changed to reg3_st
 \* Parameter offset of procedure stp16_add at line 233 col 39 changed to offset_stp
-\* Parameter reg1 of procedure ldp_add at line 256 col 19 changed to reg1_ld
-\* Parameter reg2 of procedure ldp_add at line 256 col 25 changed to reg2_ld
-\* Parameter reg3 of procedure ldp_add at line 256 col 31 changed to reg3_l
-\* Parameter offset of procedure ldp_add at line 256 col 37 changed to offset_ld
+\* Parameter reg1 of procedure ldp_add at line 255 col 19 changed to reg1_ld
+\* Parameter reg2 of procedure ldp_add at line 255 col 25 changed to reg2_ld
+\* Parameter reg3 of procedure ldp_add at line 255 col 31 changed to reg3_l
+\* Parameter offset of procedure ldp_add at line 255 col 37 changed to offset_ld
 CONSTANT defaultInitValue
 VARIABLES data_abort, stack_memory, registers, pc, stack, reg1_, reg2_, 
           offset_, addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, reg2_s, 
@@ -964,16 +967,6 @@ stp16_1 == /\ pc = "stp16_1"
 
 stp16_2 == /\ pc = "stp16_2"
            /\ stack_memory' = [stack_memory EXCEPT ![addr_stp + 16] = registers[reg2_stp]]
-           /\ pc' = "stp16_3"
-           /\ UNCHANGED << data_abort, registers, stack, reg1_, reg2_, offset_, 
-                           addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                           reg2_s, reg3_, offset_s, addr_s, reg1_st, reg2_st, 
-                           reg3_s, offset_st, addr_st, reg1_stp, reg2_stp, 
-                           reg3_st, offset_stp, addr_stp, reg1_ld, reg2_ld, 
-                           reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
-
-stp16_3 == /\ pc = "stp16_3"
            /\ registers' = [registers EXCEPT ![reg3_st] = addr_stp + offset_stp]
            /\ pc' = Head(stack).pc
            /\ addr_stp' = Head(stack).addr_stp
@@ -982,14 +975,14 @@ stp16_3 == /\ pc = "stp16_3"
            /\ reg3_st' = Head(stack).reg3_st
            /\ offset_stp' = Head(stack).offset_stp
            /\ stack' = Tail(stack)
-           /\ UNCHANGED << data_abort, stack_memory, reg1_, reg2_, offset_, 
-                           addr_, reg1_l, reg2_l, offset_l, addr_l, reg1_s, 
-                           reg2_s, reg3_, offset_s, addr_s, reg1_st, reg2_st, 
-                           reg3_s, offset_st, addr_st, reg1_ld, reg2_ld, 
-                           reg3_l, offset_ld, addr_ld, reg1, reg2, reg3, 
-                           offset, addr, ctx_start >>
+           /\ UNCHANGED << data_abort, reg1_, reg2_, offset_, addr_, reg1_l, 
+                           reg2_l, offset_l, addr_l, reg1_s, reg2_s, reg3_, 
+                           offset_s, addr_s, reg1_st, reg2_st, reg3_s, 
+                           offset_st, addr_st, reg1_ld, reg2_ld, reg3_l, 
+                           offset_ld, addr_ld, reg1, reg2, reg3, offset, addr, 
+                           ctx_start >>
 
-stp16_add == stp16_0 \/ stp16_1 \/ stp16_2 \/ stp16_3
+stp16_add == stp16_0 \/ stp16_1 \/ stp16_2
 
 ldp_add0_ == /\ pc = "ldp_add0_"
              /\ addr_ld' = registers[reg3_l]
@@ -1107,9 +1100,15 @@ ldp16_add == ldp_add0 \/ ldp_add1 \/ ldp_add2 \/ ldp_add3
 
 start_call_with_context == /\ pc = "start_call_with_context"
                            /\ ctx_start' = registers
-                           /\ pc' = "C000"
+                           /\ IF registers["sp"] < 0 \/ registers["sp"] >= STACK_SIZE
+                                 THEN /\ stack' = << [ procedure |->  "data_abort_exception",
+                                                       pc        |->  "C000" ] >>
+                                                   \o stack
+                                      /\ pc' = "loop_data_abort"
+                                 ELSE /\ pc' = "C000"
+                                      /\ stack' = stack
                            /\ UNCHANGED << data_abort, stack_memory, registers, 
-                                           stack, reg1_, reg2_, offset_, addr_, 
+                                           reg1_, reg2_, offset_, addr_, 
                                            reg1_l, reg2_l, offset_l, addr_l, 
                                            reg1_s, reg2_s, reg3_, offset_s, 
                                            addr_s, reg1_st, reg2_st, reg3_s, 
@@ -1441,7 +1440,7 @@ C206 == /\ pc = "C206"
 
 end_call_with_context == /\ pc = "end_call_with_context"
                          /\ Assert(ctx_start = registers, 
-                                   "Failure of assertion at line 354, column 9.")
+                                   "Failure of assertion at line 357, column 9.")
                          /\ pc' = Head(stack).pc
                          /\ ctx_start' = Head(stack).ctx_start
                          /\ stack' = Tail(stack)
