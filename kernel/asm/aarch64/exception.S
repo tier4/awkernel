@@ -20,7 +20,7 @@
     // Make room on the stack for the exception context.
     sub     sp, sp, #800
 
-    // Store x0 - x3, and x30 on the stack.
+    // Store x0 - x3, x30, and ELR on the stack.
     stp     x0, x1, [sp]
 
     mrs     x1, elr_\el
@@ -48,7 +48,7 @@
     ldr     w3, [x0], #8 // SPSR
 
     msr     elr_\el, x1 // Restore ELR.
-    msr     esr_\el, x2 // Restore ELR.
+    msr     esr_\el, x2 // Restore ESR.
     msr     \spsr_reg, x3 // Restore SPSR.
 
     // After returning from exception handling code, replay the saved context and return via `eret`.
