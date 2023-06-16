@@ -122,13 +122,6 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
     pool.push_back(ctx);
 }
 
-fn new_thread(
-    entry: extern "C" fn(usize) -> !,
-    arg: usize,
-) -> Result<PtrWorkerThreadContext, &'static str> {
-    PtrWorkerThreadContext::with_stack_and_entry(1024 * 1024 * 2, entry, arg)
-}
-
 /// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
 /// `super::RUNNING[cpu_id]` will be restored after dropping.
 struct RunningTaskGuard(u32);
@@ -179,7 +172,7 @@ unsafe fn do_preemption() {
             let mut next_thread = if let Some(t) = thread::take_pooled_thread() {
                 // If there is a thread in the thread pool, use it,
                 t
-            } else if let Ok(t) = new_thread(thread_entry, 0) {
+            } else if let Ok(t) = thread::create_thread(thread_entry, 0) {
                 // or create a new thread.
                 t
             } else {
