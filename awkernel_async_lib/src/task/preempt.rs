@@ -9,7 +9,6 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::sync::atomic::{AtomicUsize, Ordering};
-use futures::task::ArcWake;
 use thread::PtrWorkerThreadContext;
 
 pub mod thread;
@@ -157,7 +156,13 @@ unsafe fn do_preemption() {
         if let Some(next_thread) = {
             let mut node = MCSNode::new();
             let mut task_info = next.info.lock(&mut node);
-            task_info.take_preempt_context()
+            let ctx = task_info.take_preempt_context();
+
+            if ctx.is_some() {
+                assert_eq!(task_info.state, super::State::Preempted);
+            }
+
+            ctx
         } {
             // If the next task is a preempted task, yield to it.
             yield_preempted_and_wake_task(current_task, next_thread);
@@ -176,7 +181,8 @@ unsafe fn do_preemption() {
                 t
             } else {
                 // failed to create thread.
-                next.wake();
+                log::warn!("failed to create a worker thread.");
+                next.scheduler.wake_task(next);
                 return;
             };
 
@@ -214,8 +220,6 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 
     let cpu_id = awkernel_lib::cpu::cpu_id();
     assert_eq!(None, get_current_task(cpu_id));
-
-    log::debug!("thread_entry: cpu_id = {cpu_id}");
 
     // Run the main function.
     super::run_main();

@@ -24,7 +24,7 @@ pub trait Interrupt {
 pub trait InterruptController: Sync + Send {
     fn enable_irq(&mut self, irq: usize);
     fn disable_irq(&mut self, irq: usize);
-    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>>;
+    fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = usize>>;
 
     /// Send an inter-process interrupt to `target` CPU.
     fn send_ipi(&mut self, irq: usize, target: usize);
@@ -119,10 +119,7 @@ pub fn send_ipi_broadcast_without_self(irq: usize) {
 
 pub fn handle_irqs() {
     let cpu_id = cpu::cpu_id();
-    let num = NUM_INTERRUPT[cpu_id].fetch_add(1, Ordering::Relaxed);
-    if num & 0xff == 0 {
-        log::debug!("interrupt: cpu_id = {cpu_id}");
-    }
+    NUM_INTERRUPT[cpu_id].fetch_add(1, Ordering::Relaxed);
 
     let handlers = IRQ_HANDLERS.read();
     let mut need_preemption = false;

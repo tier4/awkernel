@@ -1,10 +1,6 @@
 #![no_std]
 use alloc::{borrow::Cow, format};
-use awkernel_async_lib::{
-    pubsub::{create_publisher, create_subscriber, Attribute},
-    scheduler::SchedulerType,
-    spawn, uptime,
-};
+use awkernel_async_lib::{channel::bounded, scheduler::SchedulerType, spawn, uptime};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicUsize, Ordering},
@@ -30,7 +26,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         "timer".into(),
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(2)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(10)).await;
 
                 let mut total = 0;
                 let mut count = 0;
@@ -59,23 +55,15 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     .await;
 
     for i in 0..8 {
-        let topic_a = format!("topic_a_{i}");
-        let topic_b = format!("topic_b_{i}");
-
-        let publisher1 =
-            create_publisher::<()>(topic_a.clone().into(), Attribute::default()).unwrap();
-        let subscriber1 =
-            create_subscriber::<()>(topic_b.clone().into(), Attribute::default()).unwrap();
-
-        let publisher2 = create_publisher::<()>(topic_b.into(), Attribute::default()).unwrap();
-        let subscriber2 = create_subscriber::<()>(topic_a.into(), Attribute::default()).unwrap();
+        let (tx1, rx1) = bounded::new::<()>(bounded::Attribute::default());
+        let (tx2, rx2) = bounded::new::<()>(bounded::Attribute::default());
 
         spawn(
             format!("{i}-server").into(),
             async move {
                 loop {
-                    subscriber2.recv().await;
-                    publisher2.send(()).await;
+                    rx1.recv().await.unwrap();
+                    tx2.send(()).await.unwrap();
                 }
             },
             SchedulerType::RoundRobin,
@@ -87,16 +75,12 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             async move {
                 loop {
                     let start = uptime();
-                    publisher1.send(()).await;
-                    subscriber1.recv().await;
+                    tx1.send(()).await.unwrap();
+                    rx2.recv().await.unwrap();
                     let end = uptime();
 
                     let elapsed = end - start;
                     add_rtt(elapsed);
-
-                    awkernel_async_lib::sleep(Duration::from_millis(1)).await;
-
-                    // unsafe { awkernel_async_lib::task::preemption() };
 
                     for _ in 0..10000 {
                         unsafe { core::arch::asm!("nop") };

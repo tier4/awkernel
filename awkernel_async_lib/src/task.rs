@@ -66,6 +66,15 @@ impl ArcWake for Task {
     }
 
     fn wake(self: Arc<Self>) {
+        {
+            let mut node = MCSNode::new();
+            let mut info = self.info.lock(&mut node);
+            if matches!(info.state, State::Running | State::Preempted) {
+                info.need_sched = true;
+                return;
+            }
+        }
+
         self.scheduler.wake_task(self);
     }
 }
@@ -203,15 +212,6 @@ impl Tasks {
 
     fn wake(&self, id: u32) {
         if let Some(task) = self.id_to_task.get(&id) {
-            {
-                let mut node = MCSNode::new();
-                let mut info = task.info.lock(&mut node);
-                if matches!(info.state, State::Running | State::Preempted) {
-                    info.need_sched = true;
-                    return;
-                }
-            }
-
             task.clone().wake();
         }
     }
@@ -280,13 +280,7 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub fn run_main() {
-    let mut n = 0;
     loop {
-        n += 1;
-        if n & 0xfffff == 0 {
-            log::debug!("run_main: cpu_id = {}", awkernel_lib::cpu::cpu_id());
-        }
-
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
             {
