@@ -1,7 +1,4 @@
-use crate::{
-    scheduler,
-    task::{get_current_task, Task},
-};
+use crate::task::{get_current_task, Task};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -22,7 +19,7 @@ static THREAD_POOL: [Mutex<VecDeque<PtrWorkerThreadContext>>; NUM_MAX_CPU] =
     array![_ => Mutex::new(VecDeque::new()); NUM_MAX_CPU];
 
 /// Tasks to be rescheduled.
-static RUNNABLE_TASKS: [Mutex<VecDeque<Arc<Task>>>; NUM_MAX_CPU] =
+static PREEMPTED_TASKS: [Mutex<VecDeque<Arc<Task>>>; NUM_MAX_CPU] =
     array![_ => Mutex::new(VecDeque::new()); NUM_MAX_CPU];
 
 /// Tasks to be executed next.
@@ -36,8 +33,6 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let mut current_ctx = thread::take_current_context();
 
     push_to_thread_pool(current_ctx.clone());
-
-    NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
 
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_ctx.get_cpu_context();
@@ -66,8 +61,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     {
         let mut node = MCSNode::new();
-        let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
-        tasks.push_back(current_task.clone());
+        let mut tasks = PREEMPTED_TASKS[cpu_id].lock(&mut node);
+        tasks.push_front(current_task);
     }
 
     NUM_PREEMPTION.fetch_add(1, Ordering::Relaxed);
@@ -90,10 +85,10 @@ fn re_schedule() {
 
     {
         let mut node = MCSNode::new();
-        let mut tasks = RUNNABLE_TASKS[cpu_id].lock(&mut node);
+        let mut tasks = PREEMPTED_TASKS[cpu_id].lock(&mut node);
 
         while let Some(task) = tasks.pop_front() {
-            task.wake();
+            task.scheduler.wake_task(task);
         }
     }
 
@@ -151,7 +146,7 @@ unsafe fn do_preemption() {
     let Some(task_id) = RunningTaskGuard::take() else { return; };
 
     // If there is a task to be invoked next, execute the task.
-    if let Some(next) = scheduler::get_next_task() {
+    if let Some(next) = super::get_next_task() {
         let current_task = {
             let mut node = MCSNode::new();
             let tasks = super::TASKS.lock(&mut node);
@@ -169,19 +164,21 @@ unsafe fn do_preemption() {
         } else {
             // Otherwise, get a thread from the thread pool or create a new thread.
 
-            let mut next_thread = if let Some(t) = thread::take_pooled_thread() {
+            let next_thread = if let Some(t) = thread::take_pooled_thread() {
                 // If there is a thread in the thread pool, use it,
                 t
-            } else if let Ok(t) = thread::create_thread(thread_entry, 0) {
+            } else if let Ok(mut t) = thread::create_thread(thread_entry, 0) {
                 // or create a new thread.
+
+                // Set an argument.
+                unsafe { t.set_argument(t.get_cpu_context() as *const _ as usize) };
+
                 t
             } else {
                 // failed to create thread.
                 next.wake();
                 return;
             };
-
-            unsafe { next_thread.set_argument(next_thread.get_cpu_context() as *const _ as usize) };
 
             {
                 let cpu_id = awkernel_lib::cpu::cpu_id();

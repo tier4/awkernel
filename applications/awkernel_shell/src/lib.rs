@@ -14,7 +14,11 @@ use blisp::embedded;
 use core::time::Duration;
 
 pub fn init() {
-    let task_id = task::spawn(console_handler(), SchedulerType::RoundRobin);
+    let task_id = task::spawn(
+        "awkenel_shell".into(),
+        console_handler(),
+        SchedulerType::RoundRobin,
+    );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
@@ -160,24 +164,25 @@ fn print_tasks() {
     console::print("Tasks:\n");
 
     let msg = format!(
-        "{:>5} {:<10} {:<8} {:>14} {:>14}\n",
+        "{:>5} {:<10} {:<8} {:>14} {:>14} name\n",
         "ID", "State", "In Queue", "#Preemption", "Last Executed"
     );
     console::print(&msg);
 
     for t in tasks {
         let mut node = MCSNode::new();
-        let task = t.info.lock(&mut node);
+        let info = t.info.lock(&mut node);
 
-        let state = format!("{:?}", task.get_state());
+        let state = format!("{:?}", info.get_state());
 
         let msg = format!(
-            "{:>5} {:<10} {:<8} {:>14} {:>14}\n",
+            "{:>5} {:<10} {:<8} {:>14} {:>14} {}\n",
             t.id,
             state,
-            task.in_queue(),
-            task.get_num_preemption(),
-            task.get_last_executed()
+            info.in_queue(),
+            info.get_num_preemption(),
+            info.get_last_executed(),
+            t.name,
         );
 
         console::print(&msg);

@@ -66,6 +66,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         // Userland.
         task::spawn(
+            "main".into(),
             async move { userland::main().await },
             SchedulerType::RoundRobin,
         );
@@ -79,7 +80,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             let now = uptime();
             if now >= send_ipi {
-                if now - send_ipi >= 10_000 {
+                if now - send_ipi >= 20_000 {
                     awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
                     send_ipi = now;
                 }

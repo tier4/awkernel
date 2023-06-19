@@ -30,6 +30,7 @@ mod yield_task;
 pub(crate) mod mini_task;
 
 use crate::scheduler::SchedulerType;
+use alloc::borrow::Cow;
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
@@ -128,6 +129,7 @@ pub async fn forever() -> ! {
 /// let _ = async {
 ///     // Spawn a detached task.
 ///     let join_handler = awkernel_async_lib::spawn(
+///         "name".into(),
 ///         async { /* do something */ },
 ///         SchedulerType::RoundRobin, // Scheduler type.
 ///     ).await;
@@ -137,6 +139,7 @@ pub async fn forever() -> ! {
 /// };
 /// ```
 pub async fn spawn<T>(
+    name: Cow<'static, str>,
     future: impl Future<Output = T> + 'static + Send,
     sched_type: SchedulerType,
 ) -> JoinHandle<T>
@@ -146,6 +149,7 @@ where
     let (tx, rx) = oneshot::channel();
 
     crate::task::spawn(
+        name,
         async move {
             let result = future.await;
             let _ = tx.send(result);

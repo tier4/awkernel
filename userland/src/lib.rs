@@ -27,6 +27,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_shell::init();
 
     spawn(
+        "timer".into(),
         async move {
             loop {
                 awkernel_async_lib::sleep(Duration::from_secs(2)).await;
@@ -70,6 +71,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         let subscriber2 = create_subscriber::<()>(topic_a.into(), Attribute::default()).unwrap();
 
         spawn(
+            format!("{i}-server").into(),
             async move {
                 loop {
                     subscriber2.recv().await;
@@ -81,6 +83,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         .await;
 
         spawn(
+            format!("{i}-client").into(),
             async move {
                 loop {
                     let start = uptime();

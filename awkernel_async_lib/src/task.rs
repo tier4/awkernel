@@ -50,6 +50,7 @@ static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MA
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
+    pub name: Cow<'static, str>,
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
@@ -76,6 +77,7 @@ pub struct TaskInfo {
     pub(crate) num_preempt: u64,
     last_executed_time: u64,
     pub(crate) in_queue: bool,
+    need_sched: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -154,6 +156,7 @@ impl Tasks {
 
     fn spawn(
         &mut self,
+        name: Cow<'static, str>,
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
@@ -172,12 +175,14 @@ impl Tasks {
                     num_preempt: 0,
                     last_executed_time: 0,
                     in_queue: false,
+                    need_sched: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
                 });
 
                 let task = Task {
+                    name,
                     future: Mutex::new(future),
                     scheduler,
                     id,
@@ -198,6 +203,15 @@ impl Tasks {
 
     fn wake(&self, id: u32) {
         if let Some(task) = self.id_to_task.get(&id) {
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+                if matches!(info.state, State::Running | State::Preempted) {
+                    info.need_sched = true;
+                    return;
+                }
+            }
+
             task.clone().wake();
         }
     }
@@ -222,6 +236,7 @@ impl Tasks {
 /// let task_id = task::spawn(async { Ok(()) }, SchedulerType::RoundRobin);
 /// ```
 pub fn spawn(
+    name: Cow<'static, str>,
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
@@ -231,7 +246,7 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(future.fuse(), scheduler, sched_type);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
     tasks.wake(id);
 
     id
@@ -316,6 +331,7 @@ pub fn run_main() {
 
                 info.update_last_executed();
                 info.state = State::Running;
+                info.need_sched = false;
             }
 
             // Use the primary memory allocator.
@@ -367,6 +383,12 @@ pub fn run_main() {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
                     info.state = State::Waiting;
+
+                    if info.need_sched {
+                        info.need_sched = false;
+                        drop(info);
+                        task.clone().wake();
+                    }
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
