@@ -26,7 +26,7 @@ variables
     result_next = [x \in WORKERS |-> -1]; \* return value of get_next
     result_future = [x \in WORKERS |-> ""]; \* return value of future
 
-    \* Does a task whose id > TASK_NUM \div 2 wakes nother task up?
+    \* Does a task whose id > TASK_NUM \div 2 wakes another task up?
     wake_other = [x \in ((TASK_NUM \div 2) + 1)..TASK_NUM |-> FALSE];
 
 define
