@@ -36,7 +36,7 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::{get_num_preemption, preemption, thread::deallocate_thread_pool};
+pub use preempt::{preemption, thread::deallocate_thread_pool};
 
 #[cfg(not(feature = "no_preempt"))]
 use preempt::thread::PtrWorkerThreadContext;
@@ -466,4 +466,16 @@ pub fn get_tasks_running() -> Vec<u32> {
     }
 
     tasks
+}
+
+pub fn get_num_preemption() -> usize {
+    #[cfg(not(feature = "no_preempt"))]
+    {
+        preempt::get_num_preemption()
+    }
+
+    #[cfg(feature = "no_preempt")]
+    {
+        0
+    }
 }

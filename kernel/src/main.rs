@@ -46,23 +46,21 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         // TODO: currently interrupt and timer is supported for only AArch64
-        // #[cfg(feature = "aarch64")]
-        // {
-        //     let irq = awkernel_lib::timer::irq_id().unwrap();
-        //     awkernel_lib::interrupt::enable_irq(irq);
+        // Test for timer.
+        #[cfg(feature = "aarch64")]
+        {
+            let irq = awkernel_lib::timer::irq_id().unwrap();
+            awkernel_lib::interrupt::enable_irq(irq);
 
-        //     awkernel_lib::timer::reset();
-        //     awkernel_lib::interrupt::enable();
+            awkernel_lib::timer::reset();
+            awkernel_lib::interrupt::enable();
 
-        //     awkernel_lib::interrupt::register_handler(
-        //         irq,
-        //         Box::new(|| {
-        //             awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
-        //             awkernel_lib::timer::reset()
-        //         }),
-        //     )
-        //     .unwrap();
-        // }
+            awkernel_lib::interrupt::register_handler(
+                irq,
+                Box::new(|| awkernel_lib::timer::reset()),
+            )
+            .unwrap();
+        }
 
         // Userland.
         task::spawn(
@@ -71,18 +69,25 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::RoundRobin,
         );
 
+        #[cfg(feature = "aarch64")]
         let mut send_ipi = uptime();
+
         loop {
             wake_task(); // Wake executable tasks periodically.
 
             #[cfg(not(feature = "std"))]
             awkernel_lib::delay::wait_microsec(1);
 
-            let now = uptime();
-            if now >= send_ipi {
-                if now - send_ipi >= 20_000 {
-                    awkernel_lib::interrupt::send_ipi_broadcast_without_self(config::PREEMPT_IRQ);
-                    send_ipi = now;
+            #[cfg(feature = "aarch64")]
+            {
+                let now = uptime();
+                if now >= send_ipi {
+                    if now - send_ipi >= 20_000 {
+                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                            config::PREEMPT_IRQ,
+                        );
+                        send_ipi = now;
+                    }
                 }
             }
 

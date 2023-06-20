@@ -130,6 +130,7 @@ pub fn handle_irqs() {
         drop(controller); // unlock
 
         // Use the primary allocator.
+        #[cfg(not(feature = "std"))]
         let _guard = {
             let g = heap::TALLOC.save();
             unsafe { heap::TALLOC.use_primary() };

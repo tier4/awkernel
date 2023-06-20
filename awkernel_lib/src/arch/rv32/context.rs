@@ -1,4 +1,5 @@
 #[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
 pub struct Context;
 
 core::arch::global_asm!(

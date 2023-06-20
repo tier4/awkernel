@@ -78,7 +78,7 @@ impl awkernel_lib::console::Console for Console {
         self.port.put(data);
     }
 
-    fn irq_id(&self) -> usize {
+    fn irq_id(&self) -> u16 {
         // TODO
         0
     }

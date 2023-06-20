@@ -7,7 +7,7 @@ pub trait Timer {
     fn reset(&self);
 
     /// Get IRQ#.
-    fn irq_id(&self) -> usize;
+    fn irq_id(&self) -> u16;
 
     /// Disable the timer interrupt.
     fn disable(&self);
@@ -25,7 +25,7 @@ pub fn reset() {
 }
 
 /// Get IRQ#.
-pub fn irq_id() -> Option<usize> {
+pub fn irq_id() -> Option<u16> {
     unsafe { TIMER }.map(|timer| timer.irq_id())
 }
 

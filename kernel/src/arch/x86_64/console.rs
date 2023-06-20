@@ -62,7 +62,7 @@ impl Console for UART {
         // TODO
     }
 
-    fn irq_id(&self) -> usize {
+    fn irq_id(&self) -> u16 {
         // TODO
         0
     }
