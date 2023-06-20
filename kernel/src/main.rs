@@ -11,7 +11,6 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task, uptime,
@@ -44,23 +43,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             config::PREEMPT_IRQ,
             awkernel_async_lib::task::preemption,
         );
-
-        // TODO: currently interrupt and timer is supported for only AArch64
-        // Test for timer.
-        #[cfg(feature = "aarch64")]
-        {
-            let irq = awkernel_lib::timer::irq_id().unwrap();
-            awkernel_lib::interrupt::enable_irq(irq);
-
-            awkernel_lib::timer::reset();
-            awkernel_lib::interrupt::enable();
-
-            awkernel_lib::interrupt::register_handler(
-                irq,
-                Box::new(|| awkernel_lib::timer::reset()),
-            )
-            .unwrap();
-        }
 
         // Userland.
         task::spawn(
