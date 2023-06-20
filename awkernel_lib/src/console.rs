@@ -20,7 +20,7 @@ pub trait Console: Write + Send {
     fn acknowledge_recv_interrupt(&mut self);
 
     /// Get IRQ#.
-    fn irq_id(&self) -> usize;
+    fn irq_id(&self) -> u16;
 
     /// Read a byte.
     fn get(&mut self) -> Option<u8>;
@@ -137,7 +137,7 @@ pub fn acknowledge_recv_interrupt() {
 }
 
 /// Get IRQ#.
-pub fn irq_id() -> Option<usize> {
+pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let c = CONSOLE.console.lock(&mut node);
 

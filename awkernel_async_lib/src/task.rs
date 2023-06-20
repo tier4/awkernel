@@ -3,12 +3,7 @@
 //! - `Task` represents a task. This is handled as `Arc<Task>`.
 //!     - `Task::wake()` and `Task::wake_by_ref()` call `Task::scheduler::wake_task()` to wake the task up.
 //!     - `Task::info`, which type is `TaskInfo`, contains information of the task.
-//! - `TaskList` is a list of tasks.
-//!     - This is used by schedulers. See `awkernel_async_lib::scheduler::round_robin`.
-//!     - `TaskList::push()` takes `Arc<Task>` and pushes it to the tail.
-//!     - `TaskList::pop()` returns `Arc<Task>` from the head.`
 //! - `TaskInfo` represents information of task.
-//!     - `TaskInfo::next` is used by `TaskList` to construct a linked list.
 //! - `Tasks` is a set of tasks.
 
 #[cfg(not(feature = "no_preempt"))]
@@ -41,10 +36,10 @@ use futures::{
 };
 
 #[cfg(not(feature = "no_preempt"))]
-pub use preempt::{deallocate_thread_pool, preemption};
+pub use preempt::{preemption, thread::deallocate_thread_pool};
 
 #[cfg(not(feature = "no_preempt"))]
-use preempt::PtrWorkerThreadContext;
+use preempt::thread::PtrWorkerThreadContext;
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
@@ -52,60 +47,10 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
-/// List of tasks.
-pub(crate) struct TaskList {
-    head: Option<Arc<Task>>,
-    tail: Option<Arc<Task>>,
-}
-
-impl TaskList {
-    pub(crate) const fn new() -> Self {
-        TaskList {
-            head: None,
-            tail: None,
-        }
-    }
-
-    /// Push a task to the tail.
-    pub(crate) fn push(&mut self, task: Arc<Task>) {
-        if let Some(tail) = &self.tail {
-            {
-                let mut node = MCSNode::new();
-                let mut info = tail.info.lock(&mut node);
-                info.next = Some(task.clone());
-            }
-
-            self.tail = Some(task);
-        } else {
-            self.head = Some(task.clone());
-            self.tail = Some(task);
-        }
-    }
-
-    /// Pop a task from the head.
-    pub(crate) fn pop(&mut self) -> Option<Arc<Task>> {
-        if let Some(head) = self.head.take() {
-            let next = {
-                let mut node = MCSNode::new();
-                let mut info = head.info.lock(&mut node);
-                info.next.take()
-            };
-
-            if next.is_none() {
-                self.tail = None;
-            }
-            self.head = next;
-
-            Some(head)
-        } else {
-            None
-        }
-    }
-}
-
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
+    pub name: Cow<'static, str>,
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
@@ -121,6 +66,15 @@ impl ArcWake for Task {
     }
 
     fn wake(self: Arc<Self>) {
+        {
+            let mut node = MCSNode::new();
+            let mut info = self.info.lock(&mut node);
+            if matches!(info.state, State::Running | State::Preempted) {
+                info.need_sched = true;
+                return;
+            }
+        }
+
         self.scheduler.wake_task(self);
     }
 }
@@ -129,7 +83,10 @@ impl ArcWake for Task {
 pub struct TaskInfo {
     pub(crate) state: State,
     pub(crate) scheduler_type: SchedulerType,
-    next: Option<Arc<Task>>,
+    pub(crate) num_preempt: u64,
+    last_executed_time: u64,
+    pub(crate) in_queue: bool,
+    need_sched: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -143,6 +100,7 @@ impl TaskInfo {
 
     #[cfg(not(feature = "no_preempt"))]
     pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
+        assert!(self.thread.is_none());
         self.thread = Some(ctx)
     }
 
@@ -153,15 +111,39 @@ impl TaskInfo {
     pub fn get_scheduler_type(&self) -> SchedulerType {
         self.scheduler_type
     }
+
+    pub fn is_preempted(&self) -> bool {
+        #[cfg(not(feature = "no_preempt"))]
+        return self.thread.is_some();
+
+        #[allow(unreachable_code)]
+        false
+    }
+
+    pub fn update_last_executed(&mut self) {
+        self.last_executed_time = awkernel_lib::delay::uptime();
+    }
+
+    pub fn get_last_executed(&self) -> u64 {
+        self.last_executed_time
+    }
+
+    pub fn get_num_preemption(&self) -> u64 {
+        self.num_preempt
+    }
+
+    pub fn in_queue(&self) -> bool {
+        self.in_queue
+    }
 }
 
 /// State of task.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
     Running,
-    InQueue,
     Waiting,
+    Preempted,
     Terminated,
     Panicked,
 }
@@ -183,6 +165,7 @@ impl Tasks {
 
     fn spawn(
         &mut self,
+        name: Cow<'static, str>,
         future: Fuse<BoxFuture<'static, TaskResult>>,
         scheduler: &'static dyn Scheduler,
         scheduler_type: SchedulerType,
@@ -198,13 +181,17 @@ impl Tasks {
                 let info = Mutex::new(TaskInfo {
                     scheduler_type,
                     state: State::Ready,
-                    next: None,
+                    num_preempt: 0,
+                    last_executed_time: 0,
+                    in_queue: false,
+                    need_sched: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
                 });
 
                 let task = Task {
+                    name,
                     future: Mutex::new(future),
                     scheduler,
                     id,
@@ -249,6 +236,7 @@ impl Tasks {
 /// let task_id = task::spawn(async { Ok(()) }, SchedulerType::RoundRobin);
 /// ```
 pub fn spawn(
+    name: Cow<'static, str>,
     future: impl Future<Output = TaskResult> + 'static + Send,
     sched_type: SchedulerType,
 ) -> u32 {
@@ -258,7 +246,7 @@ pub fn spawn(
 
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
-    let id = tasks.spawn(future.fuse(), scheduler, sched_type);
+    let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
     tasks.wake(id);
 
     id
@@ -298,11 +286,12 @@ pub fn run_main() {
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
                 // After that, the current thread will be stored in the thread pool.
-
                 let mut node = MCSNode::new();
                 let mut info = task.info.lock(&mut node);
 
                 if let Some(ctx) = info.take_preempt_context() {
+                    info.update_last_executed();
+                    info.state = State::Running;
                     drop(info);
 
                     unsafe { preempt::yield_and_pool(ctx) };
@@ -313,42 +302,61 @@ pub fn run_main() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let result = {
-                let mut node = MCSNode::new();
-                let mut guard = task.future.lock(&mut node);
+            let mut node = MCSNode::new();
+            let Some(mut guard) = task.future.try_lock(&mut node) else {
+                // This task is running on another CPU,
+                // and re-schedule the task to avoid starvation just in case.
+                task.wake();
+                continue;
+            };
 
-                if guard.is_terminated() {
+            // Can remove this?
+            if guard.is_terminated() {
+                continue;
+            }
+
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+
+                if matches!(info.state, State::Terminated | State::Panicked) {
                     continue;
                 }
 
-                // Use the primary memory allocator.
-                #[cfg(not(feature = "std"))]
-                unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
-                };
+                info.update_last_executed();
+                info.state = State::Running;
+                info.need_sched = false;
+            }
 
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
+
+            {
                 let cpu_id = awkernel_lib::cpu::cpu_id();
-
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+            }
 
-                // Invoke a task.
-                let result = {
-                    catch_unwind(|| {
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+            // Invoke a task.
+            let result = {
+                catch_unwind(|| {
+                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    {
                         awkernel_lib::interrupt::enable();
+                    }
 
-                        #[allow(clippy::let_and_return)]
-                        let result = guard.poll_unpin(&mut ctx);
+                    #[allow(clippy::let_and_return)]
+                    let result = guard.poll_unpin(&mut ctx);
 
-                        #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    {
                         awkernel_lib::interrupt::disable();
-                        result
-                    })
-                };
+                    }
 
-                RUNNING[cpu_id].store(0, Ordering::Relaxed);
-
-                result
+                    result
+                })
             };
 
             // If the primary memory allocator is available, it will be used.
@@ -358,21 +366,29 @@ pub fn run_main() {
                 awkernel_lib::heap::TALLOC.use_primary_then_backup()
             };
 
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+            assert_eq!(running_id, task.id);
+
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+
             match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
-                    let mut node = MCSNode::new();
-                    let mut info = task.info.lock(&mut node);
                     info.state = State::Waiting;
+
+                    if info.need_sched {
+                        info.need_sched = false;
+                        drop(info);
+                        task.clone().wake();
+                    }
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
 
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Terminated;
-                    }
+                    info.state = State::Terminated;
+                    drop(info);
 
                     if let Err(msg) = result {
                         log::warn!("Task has been terminated but failed: {msg}");
@@ -384,12 +400,8 @@ pub fn run_main() {
                 }
                 Err(err) => {
                     // Caught panic.
-
-                    {
-                        let mut node = MCSNode::new();
-                        let mut info = task.info.lock(&mut node);
-                        info.state = State::Panicked;
-                    }
+                    info.state = State::Panicked;
+                    drop(info);
 
                     log::error!("Task has panicked!: {:?}", err);
 
@@ -439,4 +451,31 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     }
 
     result
+}
+
+pub fn get_tasks_running() -> Vec<u32> {
+    let mut tasks = Vec::new();
+    let num_cpus = awkernel_lib::cpu::num_cpu();
+
+    for (cpu_id, task) in RUNNING.iter().enumerate() {
+        if cpu_id >= num_cpus {
+            break;
+        }
+
+        tasks.push(task.load(Ordering::Relaxed));
+    }
+
+    tasks
+}
+
+pub fn get_num_preemption() -> usize {
+    #[cfg(not(feature = "no_preempt"))]
+    {
+        preempt::get_num_preemption()
+    }
+
+    #[cfg(feature = "no_preempt")]
+    {
+        0
+    }
 }

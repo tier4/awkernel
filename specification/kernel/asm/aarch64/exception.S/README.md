@@ -11,7 +11,7 @@
 
 ## Prerequisite
 
-1. x18 registers can be ignored because it is not used by the compiler.
+1. x18 register can be ignored because it is not used by the compiler.
 
 ## Result
 
@@ -32,15 +32,20 @@ begin
     start_call_with_context:
         ctx_start := registers;
 
+    \* disable interrupt
+    \* msr     DAIFSet, #0x02
+
+    \* Make room on the stack for the exception context.
+    C000: sub("sp", "sp", 800);
+
+    C_INT00: call interrupt();
+
     \* omitted
 
-    C_INT04: call interrupt(); \* recursive exception
-
-    C17: call exception_restore_context();
+    C206: call exception_restore_context();
 
     end_call_with_context:
         assert ctx_start = registers;
-        counter := counter - 1;
         return;
 end procedure;
 ```
@@ -94,11 +99,10 @@ end procedure;
 | msr sys, r        | macro msr(sys, r)          | sys = r       |
 | add r1, r2, imm   | macro add(r1, r2, imm)     | r1 = r2 + imm |
 | sub r1, r2, imm   | macro sub(r1, r2, imm)     | r1 = r2 - imm |
-| str r1, [r2, imm] | procedure str(r1, r2, imm) | [r2 + imm] = r1 |
-| ldr r1, [r2, imm] | procedure ldr(r1, r2, imm) | r1 = [r2 + imm] |
+| str r1, [r2], imm | procedure str_add(r1, r2, imm) | [r2] = r1; r2 += imm |
+| ldr r1, [r2], imm | procedure ldr_add(r1, r2, imm) | r1 = [r2]; r2 += imm |
 | stp, r1, r2, [r3, imm] | procedure stp(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 8] = r2|
 | stp, r1, r2, [r3], imm | procedure stp16_add(r1, r2, r3, imm) | [r3 + imm] = r1; [r3 + imm + 16] = r2|
-| ldp, r1, r2, [r3, imm] | procedure ldp(r1, r2, r3, imm) | r1 = [r3 + imm]; r2 = [r3 + imm + 8] |
 | ldp, r1, r2, [r3], imm | procedure ldp_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 8]; r3 += imm |
 | ldp, r1, r2, [r3], imm | procedure ldp16_add(r1, r2, r3, imm) | r1 = [r3]; r2 = [r3 + 16]; r3 += imm |
 

@@ -31,6 +31,16 @@ impl<T: Send> Mutex<T> {
     pub fn lock<'a>(&'a self, _node: &mut MCSNode<T>) -> LockGuard<'a, T> {
         self.mutex.lock()
     }
+
+    #[cfg(not(feature = "std"))]
+    pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
+        self.mutex.try_lock(node)
+    }
+
+    #[cfg(feature = "std")]
+    pub fn try_lock<'a>(&'a self, _node: &mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
+        self.mutex.try_lock()
+    }
 }
 
 pub use super::mcs::MCSNode;

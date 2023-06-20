@@ -6,15 +6,15 @@ mod registers {
     mmio_w!(offset 0x10 => pub COMPARE_1<u32>);
 }
 
-const PERIOD: u32 = 1000; // micro second
+const PERIOD: u32 = 30_000; // micro second
 
 pub struct RpiSystemTimer {
-    irq: usize,
+    irq: u16,
     base: usize,
 }
 
 impl RpiSystemTimer {
-    pub const fn new(irq: usize, base: usize) -> Self {
+    pub const fn new(irq: u16, base: usize) -> Self {
         RpiSystemTimer { irq, base }
     }
 }
@@ -30,7 +30,7 @@ impl crate::timer::Timer for RpiSystemTimer {
         registers::CONTROL.write(1 << 1, self.base);
     }
 
-    fn irq_id(&self) -> usize {
+    fn irq_id(&self) -> u16 {
         self.irq
     }
 }

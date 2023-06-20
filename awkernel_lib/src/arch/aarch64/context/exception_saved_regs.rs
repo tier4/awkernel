@@ -1,29 +1,27 @@
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
 pub struct Context {
-    // 8 * 64 bytes
-    pub fp_regs: FPRegs,
+    // 8 * 31 bytes
+    pub gp_regs: AllGpRegs,
 
-    // 8 * 2 bytes ---------- offset: 16 * 32
+    // 8 * 3 bytes
+    pub elr: u64,  // exception link register
+    pub esr: u64,  // exception syndrome register
+    pub spsr: u32, // saved program status register
+    _unused: [u8; 4],
+
+    // 8 * 2 bytes
     pub fp_fpsr: u64,
     pub fp_fpcr: u64,
 
-    // 8 * 19 bytes --------- offset: 16 * 33 (+1)
-    pub gp_regs: GPRegs,
-
-    // 8 bytes
-    pub elr: u64, // exception link register,
-
-    // 8 * 2 bytes ---------- offset: 16 * 43 (+10)
-    pub spsr: u32, // saved program status register
-    _unused: [u8; 4],
-    pub sp: u64, // stack pointer
+    // 8 * 64 bytes
+    pub fp_regs: AllFPRegs,
 }
 
 /// General Purpose Registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct GPRegs {
+pub struct AllGpRegs {
     pub x0: u64,
     pub x1: u64,
     pub x2: u64,
@@ -42,13 +40,25 @@ pub struct GPRegs {
     pub x15: u64,
     pub x16: u64,
     pub x17: u64,
+    pub x18: u64,
+    pub x19: u64,
+    pub x20: u64,
+    pub x21: u64,
+    pub x22: u64,
+    pub x23: u64,
+    pub x24: u64,
+    pub x25: u64,
+    pub x26: u64,
+    pub x27: u64,
+    pub x28: u64,
+    pub x29: u64,
     pub x30: u64, // link register
 }
 
 /// Floating Point Registers.
 #[derive(Debug, Copy, Clone, Default)]
 #[repr(C)]
-pub struct FPRegs {
+pub struct AllFPRegs {
     fp_q0: [u8; 16],
     fp_q1: [u8; 16],
     fp_q2: [u8; 16],

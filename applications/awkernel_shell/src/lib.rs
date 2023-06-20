@@ -14,7 +14,11 @@ use blisp::embedded;
 use core::time::Duration;
 
 pub fn init() {
-    let task_id = task::spawn(console_handler(), SchedulerType::RoundRobin);
+    let task_id = task::spawn(
+        "awkenel_shell".into(),
+        console_handler(),
+        SchedulerType::RoundRobin,
+    );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
@@ -26,7 +30,7 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
-    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(InfoFfi)]).unwrap();
+    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(TaskFfi)]).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
@@ -125,8 +129,8 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export help () (IO (-> () []))
     (help_ffi))
 
-(export info () (IO (-> () []))
-    (info_ffi))
+(export task () (IO (-> () []))
+    (task_ffi))
 ";
 
 #[embedded]
@@ -139,26 +143,48 @@ fn help_ffi() {
 }
 
 #[embedded]
-fn info_ffi() {
+fn task_ffi() {
+    let msg = format!("Uptime: {}\n", awkernel_async_lib::uptime(),);
+    console::print(&msg);
+
     print_tasks();
+
+    console::print("\n");
+
+    let msg = format!(
+        "Total preemption: {}\n",
+        awkernel_async_lib::task::get_num_preemption(),
+    );
+    console::print(&msg);
 }
 
 fn print_tasks() {
     let tasks = task::get_tasks();
 
     console::print("Tasks:\n");
-    console::print("ID\tState\tScheduler\n");
+
+    let msg = format!(
+        "{:>5} {:<10} {:<8} {:>14} {:>14} name\n",
+        "ID", "State", "In Queue", "#Preemption", "Last Executed"
+    );
+    console::print(&msg);
 
     for t in tasks {
         let mut node = MCSNode::new();
-        let task = t.info.lock(&mut node);
+        let info = t.info.lock(&mut node);
+
+        let state = format!("{:?}", info.get_state());
 
         let msg = format!(
-            "{}\t{:?}\t{:?}\n",
+            "{:>5} {:<10} {:<8} {:>14} {:>14} {}\n",
             t.id,
-            task.get_state(),
-            task.get_scheduler_type()
+            state,
+            info.in_queue(),
+            info.get_num_preemption(),
+            info.get_last_executed(),
+            t.name,
         );
+
         console::print(&msg);
     }
 }

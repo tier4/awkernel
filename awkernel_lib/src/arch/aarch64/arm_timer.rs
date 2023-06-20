@@ -12,26 +12,26 @@
 //! - `CNTP_CVAL_EL0`: Counter-timer Physical Timer CompareValue Register
 
 pub struct ArmTimer {
-    irq: usize,
+    irq: u16,
 }
 
 impl ArmTimer {
-    pub const fn new(irq: usize) -> Self {
+    pub const fn new(irq: u16) -> Self {
         ArmTimer { irq }
     }
 }
 
 impl crate::timer::Timer for ArmTimer {
     fn reset(&self) {
-        // every 1/(2^10) = 0.000_976 [s].
-        let t = awkernel_aarch64::cntfrq_el0::get() >> 10;
+        // every 1/32 = .031_250 [s].
+        let t = awkernel_aarch64::cntfrq_el0::get() >> 5;
         unsafe {
             awkernel_aarch64::cntp_tval_el0::set(t);
             awkernel_aarch64::cntp_ctl_el0::set(1); // Enable interrupt.
         }
     }
 
-    fn irq_id(&self) -> usize {
+    fn irq_id(&self) -> u16 {
         self.irq
     }
 

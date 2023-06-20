@@ -3,7 +3,7 @@ use awkernel_lib::console::Console;
 use core::{arch::asm, fmt::Write};
 
 pub struct PL011 {
-    irq: usize,
+    irq: u16,
 }
 
 mod registers {
@@ -71,7 +71,7 @@ fn wait_cycles(n: usize) {
 }
 
 impl PL011 {
-    pub fn new(irq: usize) -> Self {
+    pub fn new(irq: u16) -> Self {
         Self { irq }
     }
 
@@ -162,7 +162,7 @@ impl Console for PL011 {
         registers::UART0_ICR.write(registers::ICR::RXIC);
     }
 
-    fn irq_id(&self) -> usize {
+    fn irq_id(&self) -> u16 {
         self.irq
     }
 

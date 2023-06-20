@@ -9,6 +9,7 @@ edition = "2021"
 log = "0.4"
 rlsf = "0.2"
 bitflags = "2.3"
+array-macro = "2.1"
 
 [dependencies.libc]
 version = "0.2"
