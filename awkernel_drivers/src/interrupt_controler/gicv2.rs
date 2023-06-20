@@ -2,8 +2,8 @@ use alloc::boxed::Box;
 use awkernel_lib::interrupt::InterruptController;
 use core::default::Default;
 
-const GIC_MAX_INTS: usize = 1020;
-const NUM_INTS_PER_REG: usize = 32;
+const GIC_MAX_INTS: u16 = 1020;
+const NUM_INTS_PER_REG: u16 = 32;
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -50,7 +50,7 @@ mod registers {
 pub struct GICv2 {
     gicc_base: usize,
     gicd_base: usize,
-    max_it: usize,
+    max_it: u16,
 }
 
 fn div_ceil(a: usize, b: usize) -> usize {
@@ -74,7 +74,7 @@ impl GICv2 {
 
         log::info!("GICv2: The number of interrupts is {}.", gic.max_it);
 
-        for i in 0..div_ceil(gic.max_it, NUM_INTS_PER_REG) {
+        for i in 0..div_ceil(gic.max_it as usize, NUM_INTS_PER_REG as usize) {
             let base = gicd_base + i * 4;
 
             // Disable interrupts.
@@ -91,7 +91,7 @@ impl GICv2 {
         }
 
         // Direct all interrupts to core 0 (=01) with default priority a0.
-        for i in 0..div_ceil(gic.max_it, 4) {
+        for i in 0..div_ceil(gic.max_it as usize, 4) {
             let base = gicd_base + i * 4;
 
             if i < 8 {
@@ -104,7 +104,7 @@ impl GICv2 {
 
         // Config all interrupts to level triggered.
         // GICD_ICFGR0 is read-only.
-        for i in 1..div_ceil(gic.max_it, NUM_INTS_PER_REG / 2) {
+        for i in 1..div_ceil(gic.max_it as usize, NUM_INTS_PER_REG as usize / 2) {
             let base = gicd_base + i * 4;
             registers::GICD_ICFGR.write(0, base);
         }
@@ -127,7 +127,7 @@ impl GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::empty(), self.gicc_base);
 
         for i in (0..=max_regs).rev() {
-            let base = self.gicd_base + i * 4;
+            let base = self.gicd_base + i as usize * 4;
 
             let old_reg = registers::GICD_ISENABLER.read(base);
             registers::GICD_ISENABLER.write(!0, base);
@@ -148,14 +148,14 @@ impl GICv2 {
         registers::GICC_CTLR.write(old_ctlr, self.gicc_base);
     }
 
-    fn _set_priority(&self, irq: usize, priority: u8) {
+    fn _set_priority(&self, irq: u16, priority: u8) {
         if irq > self.max_it {
             return;
         }
 
         let shift = (irq as u32 & 0b11) * 8;
         let mask = !(0xff << shift);
-        let base = self.gicd_base + (irq >> 2) * 4;
+        let base = self.gicd_base + (irq as usize >> 2) * 4;
 
         let old_priority = registers::GICD_IPRIORITYR.read(base);
 
@@ -163,12 +163,12 @@ impl GICv2 {
             .write((old_priority & mask) | ((priority as u32) << shift), base);
     }
 
-    fn _set_target_processor(&self, irq: usize, processor: u8) {
+    fn _set_target_processor(&self, irq: u16, processor: u8) {
         if irq > self.max_it {
             return;
         }
 
-        let base = self.gicd_base + (irq >> 2) * 4;
+        let base = self.gicd_base + (irq as usize >> 2) * 4;
         let target_shift = (irq & 0b11) * 8;
 
         let mut target = registers::GICD_ITARGETSR.read(base);
@@ -189,7 +189,7 @@ impl GICv2 {
 pub type IRQNumber = u16;
 
 impl InterruptController for GICv2 {
-    fn enable_irq(&mut self, irq: usize) {
+    fn enable_irq(&mut self, irq: u16) {
         if irq > self.max_it {
             log::warn!(
                 "GICv2: Failed to enable IRQ #{irq}, because it is greater than {}.",
@@ -200,14 +200,14 @@ impl InterruptController for GICv2 {
 
         let idx = irq >> 5;
         let mask = 1 << (irq & (NUM_INTS_PER_REG - 1)) as u32;
-        let base = self.gicd_base + idx * 4;
+        let base = self.gicd_base + idx as usize * 4;
 
         registers::GICD_ISENABLER.write(mask, base);
 
         log::info!("GICv2: IRQ #{irq} has been enabled.");
     }
 
-    fn disable_irq(&mut self, irq: usize) {
+    fn disable_irq(&mut self, irq: u16) {
         if irq > self.max_it {
             log::warn!(
                 "GICv2: Failed to disable IRQ #{irq}, because it is greater than {}.",
@@ -218,14 +218,14 @@ impl InterruptController for GICv2 {
 
         let idx = irq >> 5;
         let mask = 1 << (irq & (NUM_INTS_PER_REG - 1)) as u32;
-        let base = self.gicd_base + idx * 4;
+        let base = self.gicd_base + idx as usize * 4;
 
         registers::GICD_ICENABLER.write(mask, base);
 
         log::info!("GICv2: IRQ #{irq} has been disabled.");
     }
 
-    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>> {
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>> {
         Box::new(self.iter())
     }
 
@@ -257,18 +257,18 @@ impl InterruptController for GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, self.gicc_base);
     }
 
-    fn send_ipi(&mut self, irq: usize, target: usize) {
+    fn send_ipi(&mut self, irq: u16, target: u16) {
         let value =
             registers::GIDG_SGIR_TARGET_LIST | (1 << (target & 0xff) + 16) | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);
     }
 
-    fn send_ipi_broadcast(&mut self, irq: usize) {
+    fn send_ipi_broadcast(&mut self, irq: u16) {
         let value = registers::GIDG_SGIR_TARGET_LIST | (0xff << 16) | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);
     }
 
-    fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
         let value = registers::GIDG_SGIR_TARGET_ALL_EXCEPT_SELF | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);
     }
@@ -279,10 +279,10 @@ pub struct PendingInterruptIterator {
     done: bool,
 }
 
-const ID_SPURIOUS: u32 = 1023;
+const ID_SPURIOUS: u16 = 1023;
 
 impl Iterator for PendingInterruptIterator {
-    type Item = usize;
+    type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
@@ -294,12 +294,12 @@ impl Iterator for PendingInterruptIterator {
         let iar = registers::GICC_IAR.read(self.gicc_base);
         registers::GICC_EOIR.write(iar, self.gicc_base);
 
-        let id = iar & (1024 - 1);
+        let id = iar as u16 & (1024 - 1);
 
         if id == ID_SPURIOUS {
             None
         } else {
-            Some(id as usize)
+            Some(id)
         }
     }
 }

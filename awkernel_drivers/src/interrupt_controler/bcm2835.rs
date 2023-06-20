@@ -46,7 +46,7 @@ impl BCM2835IntCtrl {
 }
 
 impl InterruptController for BCM2835IntCtrl {
-    fn enable_irq(&mut self, irq: usize) {
+    fn enable_irq(&mut self, irq: u16) {
         if irq >= 64 {
             log::warn!("BCM2835 IRQ: Failed to enable IRQ #{irq} because it is greater than 63.");
             return;
@@ -59,7 +59,7 @@ impl InterruptController for BCM2835IntCtrl {
         log::info!("BCM2835 IRQ: IRQ #{irq} has been enabled.");
     }
 
-    fn disable_irq(&mut self, irq: usize) {
+    fn disable_irq(&mut self, irq: u16) {
         if irq >= 64 {
             log::warn!("BCM2835 IRQ: Failed to disable IRQ #{irq} because it is greater than 63.");
             return;
@@ -72,19 +72,19 @@ impl InterruptController for BCM2835IntCtrl {
         log::info!("BCM2835 IRQ: IRQ #{irq} has been disabled.");
     }
 
-    fn pending_irqs(&self) -> Box<dyn Iterator<Item = usize>> {
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>> {
         Box::new(self.iter())
     }
 
-    fn send_ipi(&mut self, irq: usize, target: usize) {
+    fn send_ipi(&mut self, irq: u16, target: u16) {
         // todo!()
     }
 
-    fn send_ipi_broadcast(&mut self, irq: usize) {
+    fn send_ipi_broadcast(&mut self, irq: u16) {
         // todo!()
     }
 
-    fn send_ipi_broadcast_without_self(&mut self, irq: usize) {
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
         // todo!()
     }
 }
@@ -95,7 +95,7 @@ pub struct PendingInterruptIterator {
 }
 
 impl Iterator for PendingInterruptIterator {
-    type Item = usize;
+    type Item = u16;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (mut index, mut bit) = if self.next < 32 {
@@ -116,6 +116,6 @@ impl Iterator for PendingInterruptIterator {
         }
 
         self.next = index * 32 + bit + 1;
-        Some(index * 32 + bit)
+        Some((index * 32 + bit) as u16)
     }
 }

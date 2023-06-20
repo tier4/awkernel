@@ -8,7 +8,7 @@ use alloc::{boxed::Box, collections::BTreeMap};
 use array_macro::array;
 use core::{
     mem::transmute,
-    sync::atomic::{AtomicPtr, AtomicUsize, Ordering},
+    sync::atomic::{AtomicPtr, AtomicU16, AtomicUsize, Ordering},
 };
 
 #[cfg(not(feature = "std"))]
@@ -22,29 +22,29 @@ pub trait Interrupt {
 }
 
 pub trait InterruptController: Sync + Send {
-    fn enable_irq(&mut self, irq: usize);
-    fn disable_irq(&mut self, irq: usize);
-    fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = usize>>;
+    fn enable_irq(&mut self, irq: u16);
+    fn disable_irq(&mut self, irq: u16);
+    fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>>;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: usize, target: usize);
+    fn send_ipi(&mut self, irq: u16, target: u16);
 
     /// Send an inter-process interrupt to all CPUs.
-    fn send_ipi_broadcast(&mut self, irq: usize);
+    fn send_ipi_broadcast(&mut self, irq: u16);
 
     /// Send an inter-process interrupt to all CPUs except the sender CPU.
-    fn send_ipi_broadcast_without_self(&mut self, irq: usize);
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16);
 
     /// Initialization for non-primary core.
     fn init_non_primary(&mut self) {}
 }
 
-const MAX_IRQS: usize = 1024;
+const MAX_IRQS: u16 = 1024;
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
-static IRQ_HANDLERS: RwLock<BTreeMap<usize, Box<dyn Fn() + Send>>> = RwLock::new(BTreeMap::new());
+static IRQ_HANDLERS: RwLock<BTreeMap<u16, Box<dyn Fn() + Send>>> = RwLock::new(BTreeMap::new());
 
-static PREEMPT_IRQ: AtomicUsize = AtomicUsize::new(!0);
+static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
 static NUM_INTERRUPT: [AtomicUsize; NUM_MAX_CPU] = array![_ => AtomicUsize::new(0); NUM_MAX_CPU];
@@ -56,7 +56,7 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     *ctrl = Some(controller);
 }
 
-pub fn register_handler<F>(irq: usize, func: Box<F>) -> Result<(), &'static str>
+pub fn register_handler<F>(irq: u16, func: Box<F>) -> Result<(), &'static str>
 where
     F: Fn() + Send + 'static,
 {
@@ -69,7 +69,7 @@ where
     Ok(())
 }
 
-pub fn enable_irq(irq: usize) {
+pub fn enable_irq(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.enable_irq(irq);
@@ -78,7 +78,7 @@ pub fn enable_irq(irq: usize) {
     }
 }
 
-pub fn disable_irq(irq: usize) {
+pub fn disable_irq(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.disable_irq(irq);
@@ -88,7 +88,7 @@ pub fn disable_irq(irq: usize) {
 }
 
 /// Send an inter-process interrupt to `target` CPU.
-pub fn send_ipi(irq: usize, target: usize) {
+pub fn send_ipi(irq: u16, target: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.send_ipi(irq, target);
@@ -98,7 +98,7 @@ pub fn send_ipi(irq: usize, target: usize) {
 }
 
 /// Send an inter-process interrupt to all CPUs.
-pub fn send_ipi_broadcast(irq: usize) {
+pub fn send_ipi_broadcast(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.send_ipi_broadcast(irq);
@@ -108,7 +108,7 @@ pub fn send_ipi_broadcast(irq: usize) {
 }
 
 /// Send an inter-process interrupt to all CPUs except the sender CPU.
-pub fn send_ipi_broadcast_without_self(irq: usize) {
+pub fn send_ipi_broadcast_without_self(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.send_ipi_broadcast_without_self(irq);
@@ -212,7 +212,7 @@ pub fn init_non_primary() {
 
 /// When the interrupt request of `irq` is received,
 /// `preemption` will be called.
-pub fn set_preempt_irq(irq: usize, preemption: unsafe fn()) {
+pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
     PREEMPT_IRQ.store(irq, Ordering::Relaxed);
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
 }
