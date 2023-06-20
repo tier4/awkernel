@@ -1,0 +1,46 @@
+use crate::{delay::wait_forever, memory::PAGESIZE};
+use alloc::slice;
+use core::ptr::{read_volatile, write_volatile};
+use bitflags::*;
+use super::PhysAddr;
+
+pub trait FrameAllocator {
+    fn new() -> Self;
+    fn alloc(&mut self) -> Option<PhysPageNum>;
+    fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
+    fn dealloc(&mut self, ppn: PhysPageNum);
+}
+
+/// PTE Flags of RISC V SV32 page table
+///  V - Valid
+///  R - Read
+///  W - Write
+///  X - eXecute
+///  U - User
+///  G - Global
+///  A - Accessed
+///  D - Dirty
+bitflags!{
+    pub struct PTEFlags: u8 {
+        const V = 1 << 0;
+        const R = 1 << 1;
+        const W = 1 << 2;
+        const X = 1 << 3;
+        const U = 1 << 4;
+        const G = 1 << 5;
+        const A = 1 << 6;
+        const D = 1 << 7;
+    }
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct PageTableEntry {
+    pub bits: usize,
+}
+
+impl PageTableEntry {
+    pub fn new(ppn: PhysAddr) -> Self {
+
+    }
+}
