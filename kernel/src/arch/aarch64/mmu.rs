@@ -17,8 +17,6 @@ use awkernel_lib::{
 use core::arch::asm;
 
 const NUM_CPU: u64 = super::config::CORE_COUNT as u64;
-// higher address space offset
-pub const _EL1_ADDR_OFFSET: u64 = 0x1FFFFFF << 39;
 
 pub const STACK_SIZE: u64 = 2 * 1024 * 1024; // 2MiB
 
@@ -360,10 +358,6 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         pager_start += PAGESIZE as u64;
     }
 
-    //-------------------------------------------------------------------------
-    // TTBR1: user space
-    let mut table1 = PageTable::new(&mut allocator);
-
     // map heap memory
     let mut vm_addr = crate::config::HEAP_START;
     let flag = user_page_flag();
@@ -376,9 +370,14 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
             unsafe { unsafe_puts("failed to allocate page.\n") };
             wait_forever();
         };
-        table1.map_to(vm_addr, phy_addr, flag, &mut allocator);
+        table0.map_to(vm_addr, phy_addr, flag, &mut allocator);
         vm_addr += PAGESIZE as u64;
     }
+
+    //-------------------------------------------------------------------------
+    // TTBR1: user space
+    let table1 = PageTable::new(&mut allocator);
+
     addr.ttbr0 = table0.addr();
     addr.ttbr1 = table1.addr();
 

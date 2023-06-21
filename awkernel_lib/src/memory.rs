@@ -2,6 +2,12 @@ use crate::arch::ArchMemory;
 
 pub const PAGESIZE: usize = 4 * 1024;
 
+#[cfg(any(feature = "x86", feature = "aarch64"))]
+pub const USER_START: usize = 0x1FFFFFF << 39;
+
+#[cfg(any(feature = "rv32"))]
+pub const USER_START: usize = 1024 * 1024 * 1024 * 2; // 2 GiB
+
 /// Flag for a page.
 /// Note that every page is readable.
 #[derive(Debug, Clone, Copy)]

@@ -12,7 +12,7 @@ use crate::{
         apic::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
-    config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
@@ -182,7 +182,7 @@ fn init_primary_heap<T>(
     T: Iterator<Item = PhysFrame> + Send,
 {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = 1 << 48;
+    let primary_size = 1 << 48; // up to 256TiB
 
     let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
 
