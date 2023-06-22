@@ -1,11 +1,14 @@
 #[derive(Debug, Copy, Clone, Default)]
-pub struct Context;
+#[repr(C)]
+pub struct Context {
+    _todo: usize,
+}
 
 core::arch::global_asm!(
     "
 .global context_switch
 context_switch:
-    jmp context_switch
+    j context_switch
 "
 );
 
