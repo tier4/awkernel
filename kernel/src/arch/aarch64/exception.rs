@@ -1,7 +1,5 @@
 use super::driver::uart::unsafe_puts;
-use awkernel_lib::{
-    arch::aarch64::context::exception_saved_regs::Context, delay::wait_forever, interrupt,
-};
+use awkernel_lib::{arch::aarch64::exception_saved_regs::Context, delay::wait_forever, interrupt};
 use core::str::from_utf8_unchecked;
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
