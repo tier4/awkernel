@@ -10,7 +10,7 @@ pub use aarch64::Context as ArchContext;
 mod x86_64;
 
 #[cfg(target_arch = "x86_64")]
-pub use x86_64::Context as ArchContext;
+pub use self::x86_64::Context as ArchContext;
 
 #[cfg(target_arch = "riscv32")]
 mod rv32;
