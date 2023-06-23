@@ -2,7 +2,7 @@
 
 ## Target
 
-[awkernel_lib/src/arch/aarch64/context/callee_saved_regs.rs](../../../../../../../awkernel_lib/src/arch/aarch64/context/callee_saved_regs.rs).
+[awkernel_lib/src/context/aarch64.rs](../../../../../awkernel_lib/src/context/aarch64.rs).
 
 ## Subjects to be Verified
 
@@ -14,7 +14,7 @@
 
 ## Detail
 
-This specification is similar to [exception.tla](../../../../../../kernel/asm/aarch64/exception.S/README.md).
+This specification is similar to [exception.tla](../../../../kernel/asm/aarch64/exception.S/README.md).
 Please see exception.tla before read this.
 
 ### Target Functions
@@ -31,12 +31,12 @@ assert registers = ctx_start;
 
 ## Context
 
-`Context`, which is a structure, defined in [awkernel_lib/src/arch/aarch64/context/callee_saved_regs.rs](../../../../../../../awkernel_lib/src/arch/aarch64/context/callee_saved_regs.rs) can be represented by a sequence in TLA+
+`Context`, which is a structure, defined in [awkernel_lib/src/context/aarch64.rs](../../../../../awkernel_lib/src/context/aarch64.rs) can be represented by a sequence in TLA+
 as follows.
 
 ```
 [x \in 0..(SIZE_CONTEXT - 1) |-> 0]
 ```
 
-`CalleeSavedContext::gp_regs::x0` in Rust can be thus accessed as `Context[16 * 5]` in TLA+,
+`Context::gp_regs::x0` in Rust can be thus accessed as `Context[16 * 5]` in TLA+,
 where `16 * 5` is the offset address.

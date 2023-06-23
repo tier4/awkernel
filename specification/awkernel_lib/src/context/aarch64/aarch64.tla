@@ -1,9 +1,9 @@
------------------ MODULE callee_saved_regs ----------------
+----------------- MODULE aarch64 ----------------
 EXTENDS TLC, Integers, Sequences
 
 CONSTANT SIZE_CONTEXT
 
-(*--algorithm callee_saved_regs
+(*--algorithm aarch64
 
 variables
     \* struct Context
@@ -280,7 +280,7 @@ begin
         call test();
 end algorithm;*)
 
-\* BEGIN TRANSLATION (chksum(pcal) = "d42ef3b4" /\ chksum(tla) = "3306c342")
+\* BEGIN TRANSLATION (chksum(pcal) = "4d2bfff4" /\ chksum(tla) = "3306c342")
 \* Procedure variable addr of procedure str at line 114 col 5 changed to addr_
 \* Procedure variable addr of procedure ldr at line 129 col 5 changed to addr_l
 \* Procedure variable addr of procedure stp_add at line 145 col 5 changed to addr_s
