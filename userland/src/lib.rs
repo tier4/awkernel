@@ -55,7 +55,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 }
             }
         },
-        SchedulerType::Random,
+        SchedulerType::RoundRobin,
     )
     .await;
 
