@@ -6,6 +6,8 @@ pub mod hal;
 pub mod interrupt_controler;
 pub mod net;
 pub mod uart;
+
+#[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod x86_64;
 
 #[cfg(feature = "aarch64")]
