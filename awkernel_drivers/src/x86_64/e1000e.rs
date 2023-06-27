@@ -10,6 +10,7 @@ use core::slice;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering::SeqCst;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
+use smoltcp::wire::EthernetAddress;
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
 
@@ -54,8 +55,6 @@ pub struct E1000E {
     tx_bufs: Vec<VirtAddr>,
 }
 
-const E1000E_BAR0_MASK: usize = 0xFFFFFFF0;
-
 //===========================================================================
 impl PCIeDevice for E1000E {
     const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
@@ -87,7 +86,7 @@ impl PCIeDevice for E1000E {
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
         log::debug!("BAR0: {:#x}", bar0);
-        let register_start = (bar0 as usize) & E1000E_BAR0_MASK;
+        let register_start = (bar0 as usize) & 0xFFFFFFF0;
         let info = info.clone();
 
         // allocate virtual memory for register space
@@ -281,17 +280,14 @@ impl Ether for E1000E {
         for i in 0..128 {
             self.write_reg(MTA + i, 0);
         }
-       
-        let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL)); 
+
+        let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL));
+        log::debug!("RAH: {:#x?}", rah_nvm);
+        log::debug!("RAL: {:#x?}", ral_nvm);
+        log::debug!("MAC: {:x?}", self.get_mac());
         // Receive Registers Intialization
         let (rah, ral) = self.read_mac();
-        if (rah, ral) != (rah_nvm, ral_nvm) {
-            log::info!("NVM not exist on e1000e");
-        }
-        self.write_reg(RAH, rah); // MAC Low
-        self.write_reg(RAL, ral); // MAC Low
-        log::debug!("RAL : {:#x?}", self.read_reg(RAL));
-        log::debug!("RAH : {:#x?}", self.read_reg(RAH));
+        assert_eq!((rah, ral), (rah_nvm, ral_nvm));
 
         self.write_reg(
             RCTL,
@@ -470,9 +466,19 @@ impl E1000E {
     unsafe fn read_mac(&self) -> (u32, u32) {
         let ral = self.read_eeprom(0) | self.read_eeprom(1) << 16;
 
-        let rah = self.read_eeprom(3) | (1 << 31);
+        let rah = self.read_eeprom(2) | (1 << 31);
 
         (rah, ral)
+    }
+
+    unsafe fn get_mac(&self) -> EthernetAddress {
+        let mut addr = [0u8; 6]; 
+        for i in 0..3 {
+            let word = self.read_eeprom(i as u32);
+            addr[i * 2]  = (word & 0xFFFF) as u8;
+            addr[i * 2 + 1] = (word >> 8) as u8;   
+        }
+        EthernetAddress(addr)
     }
 
     unsafe fn read_eeprom(&self, reg: u32) -> u32 {
@@ -507,7 +513,7 @@ impl E1000E {
 //===========================================================================
 const CTRL: usize = 0x00000; // Device Control Register
 const _STATUS: usize = 0x00008; // Device Status register
-const EEC: usize = 0x00010; // EEPROM Control Register
+const _EEC: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
