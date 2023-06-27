@@ -1,6 +1,11 @@
 #![no_std]
 use alloc::{borrow::Cow, format};
-use awkernel_async_lib::{channel::bounded, scheduler::SchedulerType, spawn, uptime};
+use awkernel_async_lib::{
+    channel::bounded,
+    pubsub::{self, create_publisher, create_subscriber},
+    scheduler::SchedulerType,
+    sleep, spawn, uptime,
+};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicUsize, Ordering},
@@ -85,6 +90,36 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     for _ in 0..10000 {
                         unsafe { core::arch::asm!("nop") };
                     }
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+    }
+
+    for i in 0..4 {
+        let name = format!("pubsub[{i}]");
+        let subscriber =
+            create_subscriber::<()>(name.clone().into(), pubsub::Attribute::default()).unwrap();
+        let publisher = create_publisher::<()>(name.into(), pubsub::Attribute::default()).unwrap();
+
+        spawn(
+            format!("{i}-subscriber").into(),
+            async move {
+                loop {
+                    subscriber.recv().await;
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+
+        spawn(
+            format!("{i}-publisher").into(),
+            async move {
+                loop {
+                    sleep(Duration::from_secs(1)).await;
+                    publisher.send(()).await;
                 }
             },
             SchedulerType::RoundRobin,
