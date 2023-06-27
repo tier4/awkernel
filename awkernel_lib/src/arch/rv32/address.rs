@@ -8,10 +8,10 @@ pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 /// to guarantee memory safty by borrow check in compilation
 
 
-const PA_WIDTH: usize = 34; // SV32 Physical Address Length
-const VA_WIDTH: usize = 32; // SV32 Virtual Address Length
-const PPN_WIDTH: usize = PA_WIDTH - PAGE_OFFSET; // SV32 Physical Page Number Range
-const VPN_WIDTH: usize = VA_WIDTH - PAGE_OFFSET; // SV32 Virtual Page Number Range
+pub const PA_WIDTH: usize = 34; // SV32 Physical Address Length
+pub const VA_WIDTH: usize = 32; // SV32 Virtual Address Length
+pub const PPN_WIDTH: usize = PA_WIDTH - PAGE_OFFSET; // SV32 Physical Page Number Range
+pub const VPN_WIDTH: usize = VA_WIDTH - PAGE_OFFSET; // SV32 Virtual Page Number Range
 
 #[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -55,3 +55,69 @@ impl Debug for VirtPageNum {
     }
 }
 
+/// From<usize> trait
+impl From<usize> for PhysAddr {
+    fn from(v: usize) -> Self { Self(v & ((1 << PA_WIDTH) - 1)) }
+}
+
+impl From<usize> for VirtAddr {
+    fn from(v: usize) -> Self { Self(v & ((1 << VA_WIDTH) - 1)) }
+}
+
+impl From<usize> for PhysPageNum{
+    fn from(v: usize) -> Self { Self(v & ((1 << PPN_WIDTH) - 1)) }
+}
+
+impl From<usize> for VirtPageNum{
+    fn from(v: usize) -> Self { Self(v & ((1 << VPN_WIDTH) - 1)) }
+}
+
+impl From<PhysAddr> for usize {
+    fn from(v: PhysAddr) -> Self { 
+        v.0
+    }
+}
+
+impl From<VirtAddr> for usize {
+    fn from(v: VirtAddr) -> Self {
+        if v.0 >= ((1 << VPN_WIDTH) - 1) {
+            v.0 | (!((1 << VPN_WIDTH) - 1))
+        } else {
+            v.0
+        }
+    }
+}
+
+impl From<PhysPageNum> for usize {
+    fn from(v: PhysPageNum) -> Self {
+        v.0
+    }
+}
+
+impl From<VirtPageNum> for usize {
+    fn from(v: VirtPageNum) -> Self {
+        v.0
+    }
+}
+
+impl VirtAddr {
+    pub fn floor(&self) -> VirtPageNum {
+        VirtPageNum(self.0 / PAGE_SIZE)
+    }
+
+    pub fn ceil(&self) -> VirtPageNum {
+        if self.0 == 0 {
+            VirtPageNum(0)
+        } else {
+            VirtPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
+        }
+    }
+
+    pub fn page_offset(&self) -> usize {
+        self.0 & (PAGE_SIZE - 1)
+    }
+
+    pub fn aligned(&self) -> bool {
+        self.page_offset() == 0
+    }
+}

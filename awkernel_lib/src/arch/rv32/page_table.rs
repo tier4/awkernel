@@ -2,7 +2,8 @@ use crate::{delay::wait_forever, memory::PAGESIZE};
 use alloc::slice;
 use core::ptr::{read_volatile, write_volatile};
 use bitflags::*;
-use super::PhysAddr;
+use super::address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, 
+                    PPN_WIDTH, VPN_WIDTH, PA_WIDTH, VA_WIDTH, PAGE_SIZE};
 
 pub trait FrameAllocator {
     fn new() -> Self;
@@ -21,7 +22,7 @@ pub trait FrameAllocator {
 ///  A - Accessed
 ///  D - Dirty
 bitflags!{
-    pub struct PTEFlags: u8 {
+    pub struct Flags: u8 {
         const V = 1 << 0;
         const R = 1 << 1;
         const W = 1 << 2;
@@ -40,7 +41,17 @@ pub struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    pub fn new(ppn: PhysAddr) -> Self {
-
+    pub fn new(ppn: PhysAddr, flags: Flags) -> Self {
+        Self {
+            bits: ppn.0 << 10 | flags.bits as usize,
+        }
     }
+
+    pub fn ppn(&self) -> PhysPageNum {
+        (self.bits >> 10 & ((1usize << PPN_WIDTH) - 1)).into()
+    }
+}
+
+pub struct PageTable {
+    root_ppn: PhysPageNum,
 }
