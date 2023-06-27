@@ -3,10 +3,12 @@ use crate::net::ether::{Ether, EtherErr};
 use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
 use alloc::vec::Vec;
 use awkernel_lib::arch::x86_64::mmu::map_to;
+use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use core::sync::atomic::fence;
+use core::sync::atomic::Ordering::SeqCst;
 use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
@@ -14,7 +16,7 @@ use x86_64::{PhysAddr, VirtAddr};
 const BUFFER_PAGE_SIZE: usize = 4096;
 
 #[repr(C)]
-/// Legacy Transmit Descriptor Format
+/// Legacy Transmit Descriptor Format (16B)
 struct TxDescriptor {
     buf: u64,
     length: u16,
@@ -26,10 +28,7 @@ struct TxDescriptor {
 }
 
 #[repr(C)]
-/// Legacy Receive Descriptor Format
-///  TODO : check if RFCTL.EXSTEN bit is clear and the RCTL.DTYP equals 00b.
-/// valid when RCTL.DTYP = 00b
-/// and RFCTL.EXSTEN bit is clear
+/// Legacy Receive Descriptor Format (16B)
 struct RxDescriptor {
     buf: u64,
     len: u16,
@@ -87,7 +86,8 @@ impl PCIeDevice for E1000E {
         T: Iterator<Item = PhysFrame> + Send,
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
-        let register_start = (bar0 as usize) | E1000E_BAR0_MASK;
+        log::debug!("BAR0: {:#x}", bar0);
+        let register_start = (bar0 as usize) & E1000E_BAR0_MASK;
         let info = info.clone();
 
         // allocate virtual memory for register space
@@ -151,11 +151,11 @@ impl Ether for E1000E {
             return None;
         }
 
-        let rdh = unsafe { self.read_reg(RDH) };
+        let curr_rdh = unsafe { self.read_reg(RDH) };
         let curr_rdt = unsafe { self.read_reg(RDT) };
 
         // receive ring is empty
-        if rdh == curr_rdt {
+        if curr_rdh == curr_rdt {
             return None;
         }
 
@@ -165,17 +165,18 @@ impl Ether for E1000E {
             return None;
         }
 
-        fence(core::sync::atomic::Ordering::SeqCst); // barrier
-
         // Copy the data in buffer
         let buf_len = self.rx_ring[curr_rdt as usize].len as usize;
         let buf_addr = self.rx_bufs[curr_rdt as usize].as_mut_ptr();
         let data = unsafe { slice::from_raw_parts_mut(buf_addr, buf_len) }.to_vec();
 
+        // Memory barrier before resetting descriptor
+        fence(SeqCst);
+
         // Reset the descriptor.
         self.rx_ring[curr_rdt as usize].status = 0;
 
-        fence(core::sync::atomic::Ordering::SeqCst); // barrier
+        fence(SeqCst); // barrier
 
         // Increment tail pointer
         let next_rdt = (curr_rdt + 1) % self.rx_ring.len() as u32;
@@ -195,23 +196,40 @@ impl Ether for E1000E {
 
     // Send a packet
     fn send(&mut self, data: &mut [u8]) -> Result<(), smoltcp::Error> {
+        let curr_tdh = unsafe { self.read_reg(TDH) };
         let curr_tdt = unsafe { self.read_reg(TDT) };
+
+        // Rx queue is empty
+        if curr_tdh == curr_tdt {
+            return Err(smoltcp::Error::Exhausted);
+        }
+
         let next_tdt = (curr_tdt + 1) % self.tx_ring.len() as u32;
 
         let data_len = data.len();
         // data should not be longer than buffer
         if data_len >= self.page_size {
+            return Err(smoltcp::Error::Truncated);
+        }
+
+        //  By Datasheet 7.2.10.1.2
+        if data_len >= 16288 {
             return Err(smoltcp::Error::NotSupported);
         }
 
         // Copy the data into the buffer
         let buf_ptr: *mut u8 = self.tx_bufs[curr_tdt as usize].as_mut_ptr();
-        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, self.page_size) };
-        buf[..data_len].copy_from_slice(data);
+        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, data_len) };
+        buf.copy_from_slice(data);
 
+        fence(SeqCst); // barrier
+
+        // Mark this descriptor ready.
         self.tx_ring[curr_tdt as usize].status = 0;
+        self.tx_ring[curr_tdt as usize].length = data_len as u16;
+        self.tx_ring[curr_tdt as usize].cmd = (1 << 3) | (1 << 1) | (1 << 0);
 
-        fence(core::sync::atomic::Ordering::SeqCst); // barrier
+        fence(SeqCst); // barrier
 
         // Increment tail pointer
         unsafe {
@@ -223,49 +241,66 @@ impl Ether for E1000E {
 
     /// initialize the e1000e hardware
     unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
-        log::info!("{:#x}", self.read_reg(STATUS));
-
-        // PCIe Register
-        // GCR bit 22 should be set to 1b during initialization
-        self.write_reg(GCR, 0b1 << 22);
+        log::info!("Initializing e1000e hardware");
+        // ============================================
         // 4.6.2: Global Reset and General Configuration
+        self.disable_intr();
         self.reset();
-
-        // Setup the PHY and the link
-
-        // 4.6.6 Transmit Initialization
+        self.disable_intr();
+        fence(SeqCst);
+        // ============================================
+        //  4.6.6 Transmit Initialization
         //  Install the transmit ring
         self.write_reg(TDBAL, self.tx_ring_pa as u32);
         self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
-        self.write_reg(TDLEN, self.rx_ring.len() as u32);
+        self.write_reg(
+            TDLEN,
+            (self.tx_ring.len() * size_of::<TxDescriptor>()) as u32,
+        );
         self.write_reg(TDH, 0);
         self.write_reg(TDT, 0);
+
         // Transmit Registers Initialization
         self.write_reg(TXDCTL, TXDCTL_GRAN | TXDCTL_WTHRESH);
         self.write_reg(TCTL, TCTL_COLD | TCTL_CT | TCTL_PSP | TCTL_EN);
         self.write_reg(TIPG, TIPG_IPGR2 | TIPG_IPGR1 | TIPG_IPGT);
-        //  4.6.5 Receive Initialization
-        //  Install the receive ring
+        // ============================================
+        // 4.6.5 Receive Initialization
+        // Install the receive ring
         self.write_reg(RDBAL, self.rx_ring_pa as u32);
+        assert_eq!(self.read_reg(RDBAL), self.rx_ring_pa as u32);
         self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
-        self.write_reg(RDLEN, self.rx_ring.len() as u32);
+        self.write_reg(
+            RDLEN,
+            (self.rx_ring.len() * size_of::<RxDescriptor>()) as u32,
+        );
         self.write_reg(RDH, 0);
         self.write_reg(RDT, (self.rx_ring.len() - 1) as u32);
-        // Clear the Multicast Table Array
-        for offset in 0..128 {
-            self.write_reg(MTA + offset, 0);
+
+        // Clear Multicast Table Array (MTA).
+        for i in 0..128 {
+            self.write_reg(MTA + i, 0);
         }
+       
+        let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL)); 
         // Receive Registers Intialization
-        self.write_reg(RAH, 0); // MAC Low
-        self.write_reg(RAL, 0); // MAC High
+        let (rah, ral) = self.read_mac();
+        if (rah, ral) != (rah_nvm, ral_nvm) {
+            log::info!("NVM not exist on e1000e");
+        }
+        self.write_reg(RAH, rah); // MAC Low
+        self.write_reg(RAL, ral); // MAC Low
+        log::debug!("RAL : {:#x?}", self.read_reg(RAL));
+        log::debug!("RAH : {:#x?}", self.read_reg(RAH));
+
         self.write_reg(
             RCTL,
             RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
         );
 
-        log::info!("{:#x}", self.read_reg(STATUS));
-
-        // Enable interrupt
+        fence(SeqCst);
+        // ============================================
+        self.enable_intr();
 
         Ok(())
     }
@@ -422,11 +457,42 @@ impl E1000E {
             .read_volatile()
     }
 
+    // disable interrupts
+    unsafe fn disable_intr(&self) {
+        self.write_reg(IMC, !0);
+    }
+
+    //  enable intr
+    unsafe fn enable_intr(&self) {
+        self.write_reg(IMS, IMS_ENABLE_MASK);
+    }
+
+    unsafe fn read_mac(&self) -> (u32, u32) {
+        let ral = self.read_eeprom(0) | self.read_eeprom(1) << 16;
+
+        let rah = self.read_eeprom(3) | (1 << 31);
+
+        (rah, ral)
+    }
+
+    unsafe fn read_eeprom(&self, reg: u32) -> u32 {
+        self.write_reg(EERD, 1 | (reg << 2));
+        fence(SeqCst);
+        while self.read_reg(EERD) & 2 == 0 {
+            spin_loop();
+        }
+        fence(SeqCst);
+        let val = self.read_reg(EERD) >> 16;
+        val
+    }
+
     unsafe fn reset(&self) {
-        self.write_reg(IMS, 0);
-        let val = self.read_reg(CTRL) | CTRL_RST;
-        self.write_reg(CTRL, val);
-        self.write_reg(IMS, 0);
+        log::info!("Issuing a global reset to e1000e");
+        //  Assert a Device Reset Signal
+        let ctrl = self.read_reg(CTRL) | CTRL_RST;
+        self.write_reg(CTRL, ctrl);
+        // GCR bit 22 should be set to 1b during initialization
+        self.write_reg(GCR, 0b1 << 22);
     }
 
     unsafe fn tx_ring_empty(&self) -> bool {
@@ -440,9 +506,19 @@ impl E1000E {
 
 //===========================================================================
 const CTRL: usize = 0x00000; // Device Control Register
-const STATUS: usize = 0x00008; // Device Status register
-const IMS: usize = 0x000D0; // Interrupt Mask Set/Read Register
-const _IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+const _STATUS: usize = 0x00008; // Device Status register
+const EEC: usize = 0x00010; // EEPROM Control Register
+const EERD: usize = 0x00014; // EEPROM Read Register
+const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+
+// Interrupt Mask Set/Read Register
+const IMS: usize = 0x000D0;
+const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
+const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
+const IMS_TXDW: u32 = 0x00000001; // Transmit Descriptor Written Back
+const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
+const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
+const IMS_LSC: u32 = 0x00000004; // Link Status Change
 
 // Transmit Registers
 const TCTL: usize = 0x00400; // Transmit Control Register

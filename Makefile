@@ -128,7 +128,7 @@ QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
-QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0,mac=52:54:00:12:34:56
+QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 
 tcp-dump:
