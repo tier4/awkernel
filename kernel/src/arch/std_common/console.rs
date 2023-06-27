@@ -1,16 +1,12 @@
+use awkernel_lib::console::register_console;
 use core::fmt::{Error, Write};
-use log::Log;
-use synctools::mcs::{MCSLock, MCSNode};
-
-pub static CONSOLE: Console = Console::new();
+use std::io::{BufReader, Read, Stdin};
 
 pub struct Console {
-    lock: MCSLock<StdOut>,
+    reader: BufReader<Stdin>,
 }
 
-pub struct StdOut(());
-
-impl Write for StdOut {
+impl Write for Console {
     fn write_str(&mut self, msg: &str) -> core::fmt::Result {
         let buf = msg.as_bytes();
         if unsafe { libc::write(0, buf.as_ptr() as _, buf.len()) } == 0 {
@@ -22,34 +18,55 @@ impl Write for StdOut {
 }
 
 impl Console {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            lock: MCSLock::new(StdOut(())),
+            reader: BufReader::new(std::io::stdin()),
         }
     }
-}
-
-impl Log for Console {
-    fn enabled(&self, _metadata: &log::Metadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::Record) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
-
-        let mut node = MCSNode::new();
-        let mut guard = self.lock.lock(&mut node);
-
-        let stdout: &mut StdOut = &mut guard;
-        awkernel_lib::logger::write_msg(stdout, record);
-    }
-
-    fn flush(&self) {}
 }
 
 pub fn init() {
-    let _ = log::set_logger(&CONSOLE);
-    log::set_max_level(log::LevelFilter::Debug);
+    register_console(Box::new(Console::new()));
+}
+
+impl awkernel_lib::console::Console for Console {
+    fn acknowledge_recv_interrupt(&mut self) {
+        // TODO
+    }
+
+    fn enable(&mut self) {
+        // TODO
+    }
+
+    fn disable(&mut self) {
+        // TODO
+    }
+
+    fn get(&mut self) -> Option<u8> {
+        let mut buf = [0; 1];
+
+        let n = self.reader.read(&mut buf).ok()?;
+        if n == 1 {
+            Some(buf[0])
+        } else {
+            None
+        }
+    }
+
+    fn put(&mut self, data: u8) {
+        unsafe { libc::write(0, &data as *const u8 as _, 1) };
+    }
+
+    fn enable_recv_interrupt(&mut self) {
+        // TODO
+    }
+
+    fn disable_recv_interrupt(&mut self) {
+        // TODO
+    }
+
+    fn irq_id(&self) -> u16 {
+        // TODO
+        0
+    }
 }

@@ -24,9 +24,9 @@
 
 use crate::r#yield;
 use alloc::{collections::VecDeque, sync::Arc};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::task::{Poll, Waker};
 use futures::Future;
-use synctools::mcs::{MCSLock, MCSNode};
 
 /// Channel.
 struct Channel<T> {
@@ -36,11 +36,11 @@ struct Channel<T> {
 }
 
 /// Sender of a channel.
-pub struct Sender<T> {
-    chan: Arc<MCSLock<Channel<T>>>,
+pub struct Sender<T: Send> {
+    chan: Arc<Mutex<Channel<T>>>,
 }
 
-impl<T> Clone for Sender<T> {
+impl<T: Send> Clone for Sender<T> {
     fn clone(&self) -> Self {
         Self {
             chan: self.chan.clone(),
@@ -48,7 +48,7 @@ impl<T> Clone for Sender<T> {
     }
 }
 
-impl<T> Sender<T> {
+impl<T: Send> Sender<T> {
     /// Send data.
     /// A task will yield automatically after sending data.
     ///
@@ -89,7 +89,7 @@ impl<T> Sender<T> {
     }
 }
 
-impl<T> Drop for Sender<T> {
+impl<T: Send> Drop for Sender<T> {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
@@ -107,11 +107,11 @@ pub enum RecvErr {
 }
 
 /// Receiver of a channel.
-pub struct Receiver<T> {
-    chan: Arc<MCSLock<Channel<T>>>,
+pub struct Receiver<T: Send> {
+    chan: Arc<Mutex<Channel<T>>>,
 }
 
-impl<T> Receiver<T> {
+impl<T: Send> Receiver<T> {
     /// Receive data.
     /// If there is no data in the queue,
     /// the task will await data arrival.
@@ -154,7 +154,7 @@ impl<T> Receiver<T> {
     }
 }
 
-impl<T> Drop for Receiver<T> {
+impl<T: Send> Drop for Receiver<T> {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
@@ -162,11 +162,11 @@ impl<T> Drop for Receiver<T> {
     }
 }
 
-struct AsyncReceiver<'a, T> {
+struct AsyncReceiver<'a, T: Send> {
     receiver: &'a Receiver<T>,
 }
 
-impl<'a, T> Future for AsyncReceiver<'a, T> {
+impl<'a, T: Send> Future for AsyncReceiver<'a, T> {
     type Output = Result<T, RecvErr>;
 
     fn poll(
@@ -199,14 +199,14 @@ impl<'a, T> Future for AsyncReceiver<'a, T> {
 /// let _ = async move { tx.send(10).await.unwrap(); };
 /// let _ = async move { rx.recv().await.unwrap(); };
 /// ```
-pub fn new<T>() -> (Sender<T>, Receiver<T>) {
+pub fn new<T: Send>() -> (Sender<T>, Receiver<T>) {
     let chan = Channel {
         queue: Default::default(),
         waker_receiver: None,
         terminated: false,
     };
 
-    let chan = Arc::new(MCSLock::new(chan));
+    let chan = Arc::new(Mutex::new(chan));
 
     let sender = Sender { chan: chan.clone() };
     let receiver = Receiver { chan };
@@ -214,8 +214,8 @@ pub fn new<T>() -> (Sender<T>, Receiver<T>) {
     (sender, receiver)
 }
 
-unsafe impl<T> Send for Receiver<T> {}
-unsafe impl<T> Send for Sender<T> {}
+unsafe impl<T: Send> Send for Receiver<T> {}
+unsafe impl<T: Send> Send for Sender<T> {}
 
 #[cfg(test)]
 mod tests {

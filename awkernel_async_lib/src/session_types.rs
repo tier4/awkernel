@@ -86,6 +86,7 @@ pub struct Chan<E, P>(
 );
 
 unsafe impl<E: marker::Send, P: marker::Send> marker::Send for Chan<E, P> {}
+unsafe impl<E: marker::Sync, P: marker::Sync> Sync for Chan<E, P> {}
 
 unsafe fn write_chan<A: marker::Send + 'static, E, P>(Chan(tx, _, _): &Chan<E, P>, x: A) {
     let ptr = AtomicPtr::new(Box::into_raw(Box::new(x)) as *mut _);
@@ -201,8 +202,6 @@ impl<E> Chan<E, Eps> {
         drop(receiver); // drop them
     }
 }
-
-unsafe impl<E, P> Sync for Chan<E, P> {}
 
 impl<E, P> Chan<E, P> {
     unsafe fn cast<E2, P2>(self) -> Chan<E2, P2> {

@@ -1,19 +1,25 @@
-use crate::config::{PAGE_SIZE, STACK_SIZE, STACK_START};
+use crate::config::{STACK_SIZE, STACK_START};
 use acpi::AcpiTables;
 use awkernel_lib::{
     arch::x86_64::{acpi::AcpiMapper, page_allocator::PageAllocator},
     heap::InitErr,
+    memory::PAGESIZE,
 };
 use x86_64::{
-    structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
+    },
     VirtAddr,
 };
 
-pub(super) fn map_stack(
+pub(super) fn map_stack<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) -> Result<(), InitErr> {
+    page_allocator: &mut PageAllocator<T>,
+) -> Result<(), InitErr>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let num_cpu = if let Ok(platform_info) = acpi.platform_info() {
         if let Some(processor_info) = platform_info.processor_info {
             processor_info.application_processors.len()
@@ -30,8 +36,8 @@ pub(super) fn map_stack(
     let mut stack_start = STACK_START;
     for _ in 0..num_cpu {
         let page_range = {
-            let stack_start = VirtAddr::new(stack_start + PAGE_SIZE);
-            let stack_end = stack_start + STACK_SIZE - PAGE_SIZE - 1u64;
+            let stack_start = VirtAddr::new(stack_start + PAGESIZE as u64);
+            let stack_end = stack_start + STACK_SIZE - PAGESIZE as u64 - 1u64;
             let stack_start_page: Page<Size4KiB> = Page::containing_address(stack_start);
             let stack_end_page: Page<_> = Page::containing_address(stack_end);
             Page::range_inclusive(stack_start_page, stack_end_page)

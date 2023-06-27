@@ -1,6 +1,6 @@
 //! Use a second-level segregated list.
-//! FLLEN represents the length of first level lists.
-//! SLLEN represents the length of second level lists.
+//! `FLLEN` represents the length of first level lists.
+//! `SLLEN` represents the length of second level lists.
 //!
 //! `minimum_size = size_of::<usize>() * 4`
 //!
@@ -8,21 +8,56 @@
 //! while the maximum block size is `(32 << FLLEN) - 1`.
 //! The maximum size requested  should be smaller than this.
 //! The worst-case internal fragmentation is `(32 << FLLEN) / SLLEN - 2` bytes.
+//!
+//! # Limitation
+//!
+//! Only 32 or 64 CPUs are supported for 32 or 64 bits CPU architectures.
+//!
+//! # Example
+//!
+//! ## Switch Allocators
+//!
+//! ```
+//! use awkernel_lib::heap;
+//!
+//! // Use only the primary allocator.
+//! unsafe { heap::Talloc::use_primary() };
+//!
+//! // Use both the primary and backup allocators.
+//! unsafe { heap::Talloc::use_primary_then_backup() };
+//! ```
+//!
+//! ## Save Configuration
+//!
+//! ```
+//! // Save current configuration.
+//! let guard = heap::Talloc::save();
+//!
+//! // Switch to use only the primary allocator.
+//! unsafe { heap::Talloc::use_primary() };
+//!
+//! // Restore the configuration.
+//! drop(guard)
+//! ```
 
 const FLLEN: usize = 28; // The maximum block size is (32 << 28) - 1 = 8_589_934_591 (nearly 8GiB)
 const SLLEN: usize = 64; // The worst-case internal fragmentation is ((32 << 28) / 64 - 2) = 134_217_726 (nearly 128MiB)
 type FLBitmap = u32; // must be longer than FLLEN
 type SLBitmap = u64; // must be longer than SLLEN
 
-use crate::cpu;
+use crate::{
+    console::unsafe_puts,
+    cpu::{self, NUM_MAX_CPU},
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
 use core::{
     alloc::{GlobalAlloc, Layout},
     intrinsics::abort,
+    mem::transmute,
     ptr::{self, NonNull},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 use rlsf::Tlsf;
-use synctools::mcs::{MCSLock, MCSNode};
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -36,25 +71,31 @@ pub enum InitErr {
 #[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
 
+/// # Safety
+///
+/// This must be called at initialization.
 pub unsafe fn init_primary(primary_start: usize, primary_size: usize) {
     TALLOC.init_primary(primary_start, primary_size);
 }
 
+/// # Safety
+///
+/// This must be called at initialization.
 pub unsafe fn init_backup(backup_start: usize, backup_size: usize) {
     TALLOC.init_backup(backup_start, backup_size);
 }
 
 type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
 
-struct Allocator(MCSLock<TLSFAlloc>);
-struct BackUpAllocator(MCSLock<TLSFAlloc>);
+struct Allocator(Mutex<TLSFAlloc>);
+struct BackUpAllocator(Mutex<TLSFAlloc>);
 
 pub struct Talloc {
     primary: Allocator,
     backup: BackUpAllocator,
 
     /// bitmap for each CPU to decide which allocator to use
-    flags: AtomicUsize,
+    flags: [AtomicU32; NUM_MAX_CPU / 32],
 
     primary_start: AtomicUsize,
     primary_size: AtomicUsize,
@@ -62,24 +103,30 @@ pub struct Talloc {
     backup_size: AtomicUsize,
 }
 
-/// Use a primary allocator and a backup allocator.
-/// In the userland, only the primary allocator is used.
-/// If OOM occurs in the userland, the primary allocator returns the null pointer,
-/// caught it by the OOM handler and `alloc_error_handler` is called.
-/// Otherwise, `alloc_error_handler`,  `panic_handler`
-/// and kernel would also first use the primary allocator.
-/// If the primary allocator is OOM, then use the backup allocator.
-/// If the backup allocator is also OOM, then abort the kernel.
+/// `Talloc` uses the primary and backup allocators.
+///
+/// In the userland, only the primary allocator will be used.
+/// If OOM occurs in the userland, the primary allocator returns the null pointer and
+/// invokes the OOM handler, `alloc_error_handler`.
+///
+/// Otherwise, the kernel will first use the primary allocator.
+/// If the primary allocator is exhausted, then the kernel uses the backup allocator.
+/// If the backup allocator is also exhausted, then the kernel will aborted.
 unsafe impl GlobalAlloc for Talloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if self.is_primary() {
-            self.primary.alloc(layout)
+            let ptr = self.primary.alloc(layout);
+            if ptr.is_null() {
+                panic!();
+            } else {
+                ptr
+            }
         } else {
             let ptr = self.primary.alloc(layout);
             if ptr.is_null() {
-                return self.backup.alloc(layout);
+                self.backup.alloc(layout)
             } else {
-                return ptr;
+                ptr
             }
         }
     }
@@ -95,21 +142,24 @@ unsafe impl GlobalAlloc for Talloc {
 
 pub struct Guard<'a> {
     talloc: &'a Talloc,
-    flag: usize,
+    index: usize,
+    flag: u32,
 }
 
 impl<'a> Drop for Guard<'a> {
     fn drop(&mut self) {
-        unsafe { self.talloc.restore(self.flag) };
+        unsafe { self.talloc.restore(self.index, self.flag) };
     }
 }
 
 impl Talloc {
     pub const fn new() -> Self {
+        let flags = [0; NUM_MAX_CPU / 32];
+
         Self {
             primary: Allocator::new(),
             backup: BackUpAllocator::new(),
-            flags: AtomicUsize::new(0),
+            flags: unsafe { transmute(flags) },
             primary_start: AtomicUsize::new(0),
             primary_size: AtomicUsize::new(0),
             backup_start: AtomicUsize::new(0),
@@ -131,35 +181,54 @@ impl Talloc {
         unsafe { self.backup.init(backup_start, backup_size) };
     }
 
-    /// switch to backup allocator
-    pub unsafe fn use_backup(&self) {
+    fn cpu_index() -> (usize, u32) {
         let cpu_id = cpu::cpu_id();
+        let index = cpu_id >> 5;
+        let id = cpu_id & (32 - 1);
+        (index, id as u32)
+    }
+
+    /// use both the primary and backup allocators
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses both the primary and backup allocators.
+    pub unsafe fn use_primary_then_backup(&self) {
+        let (index, cpu_id) = Self::cpu_index();
         let mask = !(1 << cpu_id);
-        self.flags.fetch_and(mask, Ordering::Relaxed);
+        self.flags[index].fetch_and(mask, Ordering::Relaxed);
     }
 
-    /// switch to primary allocator
+    /// use only the primary allocator
+    ///
+    /// # Safety
+    ///
+    /// After calling this function, the heap memory allocator uses only the primary allocator.
     pub unsafe fn use_primary(&self) {
-        let cpu_id = cpu::cpu_id();
+        let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
-        self.flags.fetch_or(mask, Ordering::Relaxed);
+        self.flags[index].fetch_or(mask, Ordering::Relaxed);
     }
 
-    pub unsafe fn save<'a>(&'a self) -> Guard<'a> {
-        let cpu_id = cpu::cpu_id();
+    /// Save the configuration and it will be restored when dropping `Guard`.
+    pub fn save(&self) -> Guard {
+        let (index, cpu_id) = Self::cpu_index();
         let mask = 1 << cpu_id;
-        let flag = mask & self.flags.load(Ordering::Relaxed);
-        Guard { talloc: self, flag }
+        let flag = mask & self.flags[index].load(Ordering::Relaxed);
+        Guard {
+            talloc: self,
+            index,
+            flag,
+        }
     }
 
-    pub unsafe fn restore(&self, flag: usize) {
-        self.flags.fetch_or(flag, Ordering::Relaxed);
+    unsafe fn restore(&self, index: usize, flag: u32) {
+        self.flags[index].fetch_or(flag, Ordering::Relaxed);
     }
 
     /// check whether using the primary allocator
-    pub unsafe fn is_primary(&self) -> bool {
-        let cpu_id = cpu::cpu_id();
-        let val = self.flags.load(Ordering::Relaxed);
+    pub fn is_primary(&self) -> bool {
+        let (index, cpu_id) = Self::cpu_index();
+        let val = self.flags[index].load(Ordering::Relaxed);
         (val & (1 << cpu_id)) != 0
     }
 
@@ -179,6 +248,9 @@ unsafe impl GlobalAlloc for BackUpAllocator {
         if let Some(mut ptr) = guard.allocate(layout) {
             return ptr.as_mut();
         } else {
+            drop(guard);
+            unsafe_puts("failed to allocate heap memory\n");
+            unsafe_puts("aborting...\n");
             abort(); // there is no free memory left
         }
     }
@@ -195,9 +267,9 @@ unsafe impl GlobalAlloc for Allocator {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         if let Some(mut ptr) = guard.allocate(layout) {
-            return ptr.as_mut();
+            ptr.as_mut()
         } else {
-            return ptr::null_mut();
+            ptr::null_mut()
         }
     }
 
@@ -210,7 +282,7 @@ unsafe impl GlobalAlloc for Allocator {
 
 impl Allocator {
     pub const fn new() -> Self {
-        Self(MCSLock::new(Tlsf::new()))
+        Self(Mutex::new(Tlsf::new()))
     }
 
     pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {
@@ -222,7 +294,7 @@ impl Allocator {
 
 impl BackUpAllocator {
     pub const fn new() -> Self {
-        Self(MCSLock::new(Tlsf::new()))
+        Self(Mutex::new(Tlsf::new()))
     }
 
     pub unsafe fn init(&self, heap_start: usize, heap_size: usize) {

@@ -1,11 +1,8 @@
 mod bsp;
 pub mod config;
-mod context;
 pub mod cpu;
 mod driver;
 mod exception;
 mod kernel_main;
 mod mmu;
-mod page_allocator;
-mod page_table;
-mod serial;
+mod types;

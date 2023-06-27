@@ -16,8 +16,8 @@ type ProtoServerFeedback<F, R> = S::Recv<
     S::Send<bounded::Receiver<F> /* Send Rx. */, ProtoServerResult<R>>,
 >;
 type ProtoServerResult<R> = S::Send<
-    (ResultStatus, R), /* Send a result. */
-    S::Var<S::Z>,      /* Goto ProtoServerInn. */
+    ResultStatus<R>, /* Send a result. */
+    S::Var<S::Z>,    /* Goto ProtoServerInn. */
 >;
 ```
 
@@ -64,11 +64,13 @@ This can be described by [action_server.tla](./action_server.tla) in TLA+.
 stateDiagram
     [*] --> ServerRecvGoal
     ServerRecvGoal --> [*]: close
-    ServerRecvGoal --> ServerSendGoalResult: recv goal
+    ServerRecvGoal --> ServerSendGoalResult: recv_goal
     ServerSendGoalResult --> ServerRecvGoal: reject
     ServerSendGoalResult --> ServerSendFeedback: accept
-    ServerSendFeedback --> ServerSendFeedback: send feedback
-    ServerSendFeedback --> ServerRecvGoal: send result
+    ServerSendFeedback --> ServerSendFeedback: send_feedback
+    ServerSendFeedback --> ServerRecvGoal: send_result
+    ServerSendFeedback --> ServerSendCancel: send_feedback (cancel)
+    ServerSendCancel --> ServerRecvGoal: send_cancel
 ```
 
 ## State Machine of Client

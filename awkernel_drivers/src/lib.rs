@@ -1,6 +1,10 @@
 #![cfg_attr(not(test), no_std)]
 
+extern crate alloc;
+
+pub mod interrupt_controler;
 pub mod net;
+pub mod uart;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

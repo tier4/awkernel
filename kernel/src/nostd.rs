@@ -5,8 +5,8 @@ use awkernel_lib::{delay::wait_forever, heap::TALLOC};
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     {
-        let _guard = unsafe { TALLOC.save() };
-        unsafe { TALLOC.use_backup() };
+        let _guard = TALLOC.save();
+        unsafe { TALLOC.use_primary_then_backup() };
         log::error!("panic: {}", info);
     }
 

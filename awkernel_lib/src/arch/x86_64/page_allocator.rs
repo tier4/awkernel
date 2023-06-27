@@ -1,24 +1,45 @@
+use crate::sync::mutex::{MCSNode, Mutex};
 use bootloader_api::BootInfo;
-use synctools::mcs::{MCSLock, MCSNode};
+use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     VirtAddr,
 };
 
-pub struct PageAllocator<'a> {
-    frames: MCSLock<&'a mut dyn Iterator<Item = PhysFrame>>,
+static mut PHYSICAL_MEORY_OFFSET: usize = 0;
+
+pub unsafe fn init(boot_info: &BootInfo) {
+    let addr = boot_info.physical_memory_offset.as_ref().unwrap();
+    write_volatile(&mut PHYSICAL_MEORY_OFFSET, (*addr) as usize);
 }
 
-impl<'a> PageAllocator<'a> {
-    pub fn new(frames: &'a mut dyn Iterator<Item = PhysFrame>) -> Self {
+fn physical_memory_offset() -> usize {
+    unsafe { read_volatile(&PHYSICAL_MEORY_OFFSET) }
+}
+
+pub struct PageAllocator<'a, T>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
+    frames: Mutex<&'a mut T>,
+}
+
+impl<'a, T> PageAllocator<'a, T>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
+    pub fn new(frames: &'a mut T) -> Self {
         PageAllocator {
-            frames: MCSLock::new(frames),
+            frames: Mutex::new(frames),
         }
     }
 }
 
-unsafe impl<'a> FrameAllocator<Size4KiB> for PageAllocator<'a> {
+unsafe impl<'a, T> FrameAllocator<Size4KiB> for PageAllocator<'a, T>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
         let mut node = MCSNode::new();
         let mut guard = self.frames.lock(&mut node);
@@ -26,8 +47,8 @@ unsafe impl<'a> FrameAllocator<Size4KiB> for PageAllocator<'a> {
     }
 }
 
-pub unsafe fn get_page_table(boot_info: &BootInfo) -> Option<OffsetPageTable<'static>> {
-    let physical_memory_offset = VirtAddr::new(*boot_info.physical_memory_offset.as_ref()?);
+pub unsafe fn get_page_table() -> Option<OffsetPageTable<'static>> {
+    let physical_memory_offset = VirtAddr::new(physical_memory_offset() as u64);
 
     let level_4_table = active_level_4_table(physical_memory_offset);
     Some(OffsetPageTable::new(level_4_table, physical_memory_offset))

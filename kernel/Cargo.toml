@@ -6,9 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-synctools = "0.3"
 log = "0.4"
-bitflags = "2.1"
+bitflags = "2.3"
 
 [dependencies.unwinding]
 version = "0.1"
@@ -17,7 +16,7 @@ optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
 
 [dependencies.acpi]
-version = "4.1"
+git = "https://github.com/sun-jacobi/acpi.git"
 optional = true
 
 [dependencies.libc]
@@ -35,6 +34,10 @@ default-features = false
 path = "../awkernel_lib"
 default-features = false
 
+[dependencies.awkernel_drivers]
+path = "../awkernel_drivers"
+default-features = false
+
 [dependencies.awkernel_aarch64]
 path = "../awkernel_aarch64"
 optional = true
@@ -47,21 +50,17 @@ optional = true
 version = "0.11"
 optional = true
 
-[dependencies.uart_16550]
-version = "0.2"
-optional = true
-
 [dependencies.ns16550a]
 version = "0.2.0"
 optional = true
 
 [features]
-default = ["std"]
+default = ["raspi4"]
 no_std_unwinding = ["dep:unwinding"]
-x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:uart_16550", "dep:acpi"]
+x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:acpi", "awkernel_drivers/x86"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
-rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a"]
+rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a", "awkernel_drivers/rv32"]
 raspi = ["aarch64"]
-aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64"]
+aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64", "awkernel_drivers/aarch64"]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]

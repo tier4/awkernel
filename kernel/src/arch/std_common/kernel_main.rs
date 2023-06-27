@@ -3,14 +3,15 @@ use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::null_mut};
 use libc::c_void;
 
-#[cfg(target_os = "linux")]
-use core::mem::size_of;
+// #[cfg(target_os = "linux")]
+// use core::mem::size_of;
 
 #[start]
 #[no_mangle]
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Initialize.
     awkernel_lib::arch::std_common::init();
+    awkernel_lib::arch::std_common::init_per_thread(0);
     console::init();
 
     #[cfg(target_os = "linux")]
@@ -85,8 +86,9 @@ fn thread_create(cpu: usize) -> Option<libc::pthread_t> {
         let mut thread: libc::pthread_t = MaybeUninit::zeroed().assume_init();
         let result = libc::pthread_create(&mut thread, &attr, thread_func, cpu as *mut _);
         if result == 0 {
-            #[cfg(target_os = "linux")]
-            set_affinity(thread, cpu);
+            // #[cfg(target_os = "linux")]
+            // set_affinity(thread, cpu);
+
             Some(thread)
         } else {
             None
@@ -95,6 +97,8 @@ fn thread_create(cpu: usize) -> Option<libc::pthread_t> {
 }
 
 extern "C" fn thread_func(cpu: *mut c_void) -> *mut c_void {
+    awkernel_lib::arch::std_common::init_per_thread(cpu as usize);
+
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: cpu as usize,

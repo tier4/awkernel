@@ -8,7 +8,7 @@ isolated zero-copy communications written in Rust.
 - [x] Zero-copy communication
   - [x] Publish and subscribe
   - [x] Service
-  - [ ] Action
+  - [x] Action
 - [ ] Isolation
   - [x] Memory space isolation
   - [ ] Temporal isolation

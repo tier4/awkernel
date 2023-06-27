@@ -23,6 +23,9 @@ use self::rv32 as arch_mod;
 use self::std_common as arch_mod;
 
 pub(crate) type ArchDelay = arch_mod::delay::ArchDelay;
+pub(crate) type ArchInterrupt = arch_mod::interrupt::ArchInterrupt;
+
+pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;
 
 #[cfg(not(feature = "std"))]
-pub(crate) type ArchCPU = arch_mod::cpu::ArchCPU;
+pub(crate) type ArchMemory = arch_mod::memory::Memory;

@@ -1,6 +1,6 @@
 //! Dictionary mapping from string to any value.
 
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, vec::Vec};
 use core::any::Any;
 
 /// Return value of `AnyDict`.
@@ -12,7 +12,7 @@ pub(super) enum AnyDictResult<T> {
 
 /// Dictionary from `Cow<'static, str>` to any value.
 pub(super) struct AnyDict {
-    dict: BTreeMap<Cow<'static, str>, Box<dyn Any>>,
+    dict: BTreeMap<Cow<'static, str>, Box<dyn Any + Send>>,
 }
 
 impl AnyDict {
@@ -23,10 +23,14 @@ impl AnyDict {
         }
     }
 
+    pub(super) fn keys(&self) -> Vec<Cow<'static, str>> {
+        self.dict.keys().cloned().collect()
+    }
+
     /// Insert a key value pair.
     pub(super) fn insert<T>(&mut self, key: Cow<'static, str>, value: T)
     where
-        T: Any,
+        T: Any + Send,
     {
         self.dict.insert(key, Box::new(value));
     }
@@ -68,7 +72,7 @@ impl AnyDict {
     }
 
     /// Remove the value mapped by `key`.
-    pub(super) fn remove(&mut self, key: &str) -> Option<Box<dyn Any>> {
+    pub(super) fn remove(&mut self, key: &str) -> Option<Box<dyn Any + Send>> {
         self.dict.remove(key)
     }
 }

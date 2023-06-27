@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 bootloader = "0.11"
 ovmf-prebuilt = "0.1.0-alpha.1"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.2", features = ["derive"] }
+home = "0.5"

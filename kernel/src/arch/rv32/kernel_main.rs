@@ -1,21 +1,18 @@
+use super::console;
+use crate::{
+    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    kernel_info::KernelInfo,
+};
+use awkernel_lib::{cpu, heap};
 use core::{
     arch::global_asm,
-//    mem::MaybeUninit,
-    sync::atomic::{AtomicBool, Ordering},
     fmt::Write,
+    //    mem::MaybeUninit,
+    sync::atomic::{AtomicBool, Ordering},
 };
 use ns16550a::Uart;
-use awkernel_lib::{
-    cpu,
-    heap,
-};
-use crate::{
-    kernel_info::KernelInfo,
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
-};
-use super::console;
 
-const UART_BASE: u32 = 0x1000_0000;
+const UART_BASE: usize = 0x1000_0000;
 
 // TODO: set initial stack 4MB for each CPU on 0x8040_0000. see boot.S
 // const MAX_HARTS: usize = 8;
@@ -43,6 +40,8 @@ pub unsafe extern "C" fn kernel_main() {
 unsafe fn primary_hart(hartid: usize) {
     // setup interrupt; TODO;
 
+    super::console::init_port(UART_BASE);
+
     // setup the VM
     let backup_start = HEAP_START as usize;
     let backup_size = BACKUP_HEAP_SIZE as usize;
@@ -52,7 +51,7 @@ unsafe fn primary_hart(hartid: usize) {
     // enable heap allocator
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
-    heap::TALLOC.use_backup(); // use backup allocator
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     // initialize serial device and dump booting logo
     let mut port = Uart::new(UART_BASE as usize);
@@ -64,7 +63,7 @@ unsafe fn primary_hart(hartid: usize) {
         ns16550a::StickParity::DISABLE,
         ns16550a::Break::DISABLE,
         ns16550a::DMAMode::MODE0,
-        ns16550a::Divisor::BAUD115200
+        ns16550a::Divisor::BAUD115200,
     );
 
     let _ = port.write_str("\nautoware kernel is booting\n\n");
@@ -91,6 +90,8 @@ unsafe fn non_primary_hart(hartid: usize) {
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
+
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     let kernel_info = KernelInfo {
         info: (),

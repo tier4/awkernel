@@ -10,13 +10,16 @@
 //! };
 //! ```
 
-use crate::{pubsub::Lifespan, r#yield, ringq::RingQ};
+use crate::{pubsub::Lifespan, r#yield};
 use alloc::sync::Arc;
-use awkernel_lib::delay::uptime;
+use awkernel_async_lib_verified::ringq::RingQ;
+use awkernel_lib::{
+    delay::uptime,
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::task::{Poll, Waker};
 use futures::Future;
-use pin_project_lite::pin_project;
-use synctools::mcs::{MCSLock, MCSNode};
+use pin_project::pin_project;
 
 /// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,12 +65,12 @@ struct ChannelData<T> {
     data: T,
 }
 
-pub struct Receiver<T> {
-    chan: Arc<MCSLock<Channel<T>>>,
+pub struct Receiver<T: Send> {
+    chan: Arc<Mutex<Channel<T>>>,
 }
 
-pub struct Sender<T> {
-    chan: Arc<MCSLock<Channel<T>>>,
+pub struct Sender<T: Send> {
+    chan: Arc<Mutex<Channel<T>>>,
 }
 
 /// Create a bounded single producer and single consumer channel.
@@ -82,7 +85,7 @@ pub struct Sender<T> {
 /// let _ = async move { tx.send(10).await.unwrap(); };
 /// let _ = async move { rx.recv().await.unwrap(); };
 /// ```
-pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
+pub fn new<T: Send>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
     let queue = RingQ::new(attribute.queue_size);
 
     let chan = Channel {
@@ -93,7 +96,7 @@ pub fn new<T>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
         attribute,
     };
 
-    let chan = Arc::new(MCSLock::new(chan));
+    let chan = Arc::new(Mutex::new(chan));
     let sender = Sender { chan: chan.clone() };
     let receiver = Receiver { chan };
 
@@ -181,14 +184,13 @@ pub enum SendErr {
     Full,
 }
 
-pin_project! {
-    struct AsyncSender<'a, T> {
-        sender: &'a Sender<T>,
-        data: Option<ChannelData<T>>,
-    }
+#[pin_project]
+struct AsyncSender<'a, T: Send> {
+    sender: &'a Sender<T>,
+    data: Option<ChannelData<T>>,
 }
 
-impl<'a, T> Future for AsyncSender<'a, T> {
+impl<'a, T: Send> Future for AsyncSender<'a, T> {
     type Output = Result<(), SendErr>;
 
     fn poll(
@@ -215,6 +217,10 @@ impl<'a, T> Future for AsyncSender<'a, T> {
             }
         }
 
+        if let Some(waker_receiver) = chan.waker_receiver.take() {
+            waker_receiver.wake();
+        }
+
         let data = this.data.take().unwrap();
         assert!(matches!(chan.queue.push(data), Ok(())));
 
@@ -222,7 +228,7 @@ impl<'a, T> Future for AsyncSender<'a, T> {
     }
 }
 
-impl<T> Drop for Sender<T> {
+impl<T: Send> Drop for Sender<T> {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);
@@ -242,7 +248,7 @@ pub enum RecvErr {
     NoData,
 }
 
-impl<T> Receiver<T> {
+impl<T: Send> Receiver<T> {
     /// Receive data.
     /// If there is no data in the queue,
     /// the task will await data arrival.
@@ -294,11 +300,11 @@ impl<T> Receiver<T> {
     }
 }
 
-struct AsyncReceiver<'a, T> {
+struct AsyncReceiver<'a, T: Send> {
     receiver: &'a Receiver<T>,
 }
 
-impl<'a, T> Future for AsyncReceiver<'a, T> {
+impl<'a, T: Send> Future for AsyncReceiver<'a, T> {
     type Output = Result<T, RecvErr>;
 
     fn poll(
@@ -325,7 +331,7 @@ impl<'a, T> Future for AsyncReceiver<'a, T> {
     }
 }
 
-impl<T> Drop for Receiver<T> {
+impl<T: Send> Drop for Receiver<T> {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut chan = self.chan.lock(&mut node);

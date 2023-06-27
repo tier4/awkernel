@@ -3,13 +3,13 @@
 use super::Cancel;
 use crate::scheduler;
 use alloc::{boxed::Box, sync::Arc};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::task::Poll;
 use futures::{future::FusedFuture, Future};
-use synctools::mcs::{MCSLock, MCSNode};
 
 #[must_use = "use `.await` to sleep"]
 pub struct Sleep {
-    state: Arc<MCSLock<State>>,
+    state: Arc<Mutex<State>>,
     dur: u64,
 }
 
@@ -32,7 +32,10 @@ impl Future for Sleep {
         let mut guard = self.state.lock(&mut node);
 
         match &*guard {
-            State::Wait => Poll::Pending,
+            State::Wait => {
+                *guard = State::Canceled;
+                Poll::Ready(State::Canceled)
+            }
             State::Canceled => Poll::Ready(State::Canceled),
             State::Finished => Poll::Ready(State::Finished),
             State::Ready => {
@@ -79,7 +82,7 @@ impl Cancel for Sleep {
 impl Sleep {
     // Create a `Sleep`.
     pub(super) fn new(dur: u64) -> Self {
-        let state = Arc::new(MCSLock::new(State::Ready));
+        let state = Arc::new(Mutex::new(State::Ready));
         Self { state, dur }
     }
 }

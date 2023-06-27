@@ -27,9 +27,10 @@
         "--target=x86_64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "std"
+        "raspi4"
     ],
     "rust-analyzer.showUnlinkedFileNotification": false,
+    "tlaplus.tlc.modelChecker.options": "-workers auto",
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
@@ -41,5 +42,7 @@
     //     "+nightly",
     //     "check_std",
     // ],
-    // "rust-analyzer.cargo.features": ["linux"],
+    // "rust-analyzer.cargo.features": [
+    //     "std"
+    // ],
 }

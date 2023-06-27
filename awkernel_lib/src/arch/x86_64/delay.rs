@@ -5,7 +5,7 @@ use crate::{
 };
 use acpi::AcpiTables;
 use core::ptr::{read_volatile, write_volatile};
-use x86_64::structures::paging::{OffsetPageTable, PageTableFlags};
+use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
 mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
@@ -54,11 +54,13 @@ impl Delay for ArchDelay {
     }
 }
 
-pub(super) fn init(
+pub(super) fn init<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) {
+    page_allocator: &mut PageAllocator<T>,
+) where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let hpet_info = acpi::hpet::HpetInfo::new(acpi).unwrap();
 
     if !hpet_info.main_counter_is_64bits() {

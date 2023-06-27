@@ -376,6 +376,7 @@ sysreg!(daif);
 
 sysreg!(cntp_ctl_el0);
 sysreg!(cntp_cval_el0);
+sysreg!(cntp_tval_el0);
 sysreg!(cntv_ctl_el0);
 sysreg!(cntv_cval_el0);
 sysreg!(cntfrq_el0);
@@ -393,6 +394,7 @@ sysreg_read!(ctr_el0);
 
 sysreg!(elr_el1);
 sysreg!(spsr_el1);
+sysreg!(spsel);
 sysreg!(cntkctl_el1);
 sysreg!(sctlr_el1);
 sysreg!(actlr_el1);

@@ -8,7 +8,8 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 rlsf = "0.2"
-synctools = "0.3"
+bitflags = "2.3"
+array-macro = "2.1"
 
 [dependencies.libc]
 version = "0.2"
@@ -19,7 +20,7 @@ version = "0.14"
 optional = true
 
 [dependencies.acpi]
-version = "4.1"
+git = "https://github.com/sun-jacobi/acpi.git"
 optional = true
 
 [dependencies.bootloader_api]
@@ -30,9 +31,18 @@ optional = true
 path = "../awkernel_aarch64"
 optional = true
 
+[dependencies.parking_lot]
+version = "0.12"
+optional = true
+
+[dependencies.unwinding]
+version = "0.1"
+default-features = false
+features = ["panic"]
+
 [features]
-default = []
+default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
-std = ["dep:libc"]
+std = ["dep:libc", "dep:parking_lot"]

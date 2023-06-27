@@ -3,12 +3,12 @@ use crate::{
     channel::unbounded::{self, Receiver, RecvErr, Sender},
     session_types::{self as S},
 };
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 
 /// Channel so that a server accepts a connection.
 
-type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
+pub(crate) type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
 
 /// `P` is a protocol of a server.
 pub struct Accepter<P: 'static> {
@@ -29,6 +29,7 @@ impl<P> Accepter<P> {
     }
 
     /// Accept a connection.
+    /// If accepted, it returns the name and a channel.
     pub async fn accept(&self) -> Result<S::Chan<(), P>, RecvErr> {
         let (tx, rx) = self.receiver.as_ref().unwrap().recv().await?;
         Ok(S::mk_chan(tx, rx))
@@ -43,7 +44,7 @@ impl<P> Accepter<P> {
             receiver: self.receiver.take(),
             name: self.name.clone(),
             drop_fn: self.drop_fn,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -97,6 +98,10 @@ impl Services {
         Self {
             services: AnyDict::new(),
         }
+    }
+
+    pub fn get_services(&self) -> Vec<Cow<'static, str>> {
+        self.services.keys()
     }
 
     /// `P` is a protocol of a server.

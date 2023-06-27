@@ -38,7 +38,11 @@ ifndef $(LD)
 	# LD = ld.gold
 endif
 
-all: raspi x86_64 std
+
+QEMUPORT=5556
+
+
+all: raspi x86_64 riscv32 std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
@@ -59,18 +63,23 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
+
+QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -kernel kernel8.img
+QEMU_RASPI3_ARGS+= -serial stdio -display none
+QEMU_RASPI3_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
+
 qemu-raspi3:
-	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int
+	qemu-system-aarch64  $(QEMU_RASPI3_ARGS)
 
 debug-raspi3:
-	qemu-system-aarch64 -m 1024 -M raspi3b -kernel kernel8.img -serial stdio -display none -monitor telnet::5556,server,nowait -d int -s -S
+	qemu-system-aarch64 $(QEMU_RASPI3_ARGS) -s -S
 
 gdb-raspi3:
 	gdb-multiarch -x aarch64-debug.gdb
 
 ## x86_64
 
-x86_64: x86_64_boot.img
+x86_64: x86_64_uefi.img
 
 kernel-x86_64.elf: $(X86ASM) FORCE
 	cargo +nightly x86 $(OPT)
@@ -84,11 +93,15 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
+QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_uefi.img
+QEMU_X86_ARGS+= -machine q35
+QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::$(QEMUPORT),server,nowait
+
 qemu-x86_64:
-	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`
 
 debug-x86_64:
-	qemu-system-x86_64 -m 512 -drive format=raw,file=x86_64_boot.img -serial stdio -smp 4 -display none -monitor telnet::5556,server,nowait -s -S
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
 
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb
@@ -99,7 +112,7 @@ riscv32:
 	cargo +nightly rv32 $(OPT)
 
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
-	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4
+	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
 ## Linux / macOS
 
@@ -122,3 +135,10 @@ clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
 	cargo clean
 	$(MAKE) -C $(X86ASM) clean
+
+
+### QEMU Monitor
+
+monitor : FORCE
+	telnet localhost $(QEMUPORT)
+

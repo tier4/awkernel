@@ -7,7 +7,7 @@ use bitflags::bitflags;
 use core::{arch::x86_64::__cpuid, fmt::Debug};
 use x86_64::{
     registers::model_specific::Msr,
-    structures::paging::{OffsetPageTable, PageTableFlags},
+    structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame},
 };
 
 mmio_r!(offset 0x020 => XAPIC_LOCAL_APIC_ID<u32>);
@@ -50,10 +50,13 @@ pub trait Apic {
 
 const IA32_APIC_BASE_MSR: u32 = 0x1B;
 
-pub fn new(
+pub fn new<T>(
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator,
-) -> TypeApic {
+    page_allocator: &mut PageAllocator<T>,
+) -> TypeApic
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
     let cpuid = unsafe { __cpuid(1) };
     if cpuid.ecx & (1 << 21) != 0 {
         log::info!("x2APIC is available.");

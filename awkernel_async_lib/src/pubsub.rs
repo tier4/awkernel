@@ -30,24 +30,24 @@
 use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
-    ringq::RingQ,
 };
+use awkernel_async_lib_verified::ringq::RingQ;
 use crate::delay::uptime;
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
+use awkernel_lib::sync::{
+    mutex::{MCSNode, Mutex},
+    rwlock::RwLock,
+};
 use core::{
     task::{Poll, Waker},
     time::Duration,
 };
 use futures::Future;
-use pin_project_lite::pin_project;
-use synctools::{
-    mcs::{MCSLock, MCSNode},
-    rwlock::RwLock,
-};
+use pin_project::pin_project;
 
 /// Data and timestamp.
 #[derive(Clone)]
@@ -57,27 +57,27 @@ pub struct Data<T> {
 }
 
 /// Publisher.
-pub struct Publisher<T: 'static> {
+pub struct Publisher<T: 'static + Send> {
     subscribers: Subscribers<T>,
 }
 
 /// Subscriber.
-pub struct Subscriber<T: 'static + Clone> {
+pub struct Subscriber<T: 'static + Clone + Send> {
     inner: ArcInner<T>,
     subscribers: Subscribers<T>,
 }
 
-struct Subscribers<T> {
+struct Subscribers<T: Send> {
     id_to_subscriber: Arc<RwLock<BTreeMap<usize, ArcInner<T>>>>,
     name: Cow<'static, str>,
-    sender_buf: Option<Arc<MCSLock<RingQ<Data<T>>>>>,
+    sender_buf: Option<Arc<Mutex<RingQ<Data<T>>>>>,
     attribute: Attribute,
 }
 
-impl<T> Subscribers<T> {
+impl<T: Send> Subscribers<T> {
     fn new(name: Cow<'static, str>, attribute: Attribute) -> Self {
         let sender_buf = if attribute.transient_local {
-            Some(Arc::new(MCSLock::new(RingQ::new(attribute.queue_size))))
+            Some(Arc::new(Mutex::new(RingQ::new(attribute.queue_size))))
         } else {
             None
         };
@@ -92,7 +92,7 @@ impl<T> Subscribers<T> {
 }
 
 /// Subscriber.
-impl<T> Clone for Subscribers<T> {
+impl<T: Send> Clone for Subscribers<T> {
     fn clone(&self) -> Self {
         Self {
             id_to_subscriber: self.id_to_subscriber.clone(),
@@ -103,7 +103,7 @@ impl<T> Clone for Subscribers<T> {
     }
 }
 
-fn inner_id<T>(inner: &ArcInner<T>) -> usize {
+fn inner_id<T: Send>(inner: &ArcInner<T>) -> usize {
     inner.as_ref() as *const _ as _
 }
 
@@ -114,7 +114,7 @@ struct InnerSubscriber<T> {
     closed: bool,
 }
 
-type ArcInner<T> = Arc<MCSLock<InnerSubscriber<T>>>;
+type ArcInner<T> = Arc<Mutex<InnerSubscriber<T>>>;
 
 impl<T> InnerSubscriber<T> {
     fn new(queue_size: usize) -> Self {
@@ -139,11 +139,11 @@ impl<T> InnerSubscriber<T> {
 }
 
 #[must_use = "use `.await` to receive"]
-struct Receiver<'a, T: 'static + Clone> {
+struct Receiver<'a, T: 'static + Clone + Send> {
     subscriber: &'a Subscriber<T>,
 }
 
-impl<'a, T: Clone> Future for Receiver<'a, T> {
+impl<'a, T: Clone + Send> Future for Receiver<'a, T> {
     type Output = Data<T>;
 
     fn poll(
@@ -168,7 +168,7 @@ impl<'a, T: Clone> Future for Receiver<'a, T> {
     }
 }
 
-impl<T: Clone> Subscriber<T> {
+impl<T: Clone + Send> Subscriber<T> {
     pub async fn recv(&self) -> Data<T> {
         let receiver = Receiver { subscriber: self };
         receiver.await
@@ -179,27 +179,26 @@ impl<T: Clone> Subscriber<T> {
     }
 }
 
-impl<T: Clone> Drop for Subscriber<T> {
+impl<T: Clone + Send> Drop for Subscriber<T> {
     fn drop(&mut self) {
         destroy_subscriber::<T>(self);
     }
 }
 
-impl<T> Drop for Publisher<T> {
+impl<T: Send> Drop for Publisher<T> {
     fn drop(&mut self) {
         destroy_publisher(self);
     }
 }
 
-pin_project! {
-    #[must_use = "use `.await` to send"]
-    struct Sender<'a, T: 'static> {
-        publisher: &'a Publisher<T>,
-        data: Option<T>,
-        subscribers: VecDeque<ArcInner<T>>,
-        state: SenderState,
-        timestamp: u64,
-    }
+#[must_use = "use `.await` to send"]
+#[pin_project]
+struct Sender<'a, T: 'static + Send> {
+    publisher: &'a Publisher<T>,
+    data: Option<T>,
+    subscribers: VecDeque<ArcInner<T>>,
+    state: SenderState,
+    timestamp: u64,
 }
 
 enum SenderState {
@@ -208,7 +207,7 @@ enum SenderState {
     Finished,
 }
 
-impl<'a, T> Sender<'a, T> {
+impl<'a, T: Send> Sender<'a, T> {
     pub(super) fn new(publisher: &'a Publisher<T>, data: T) -> Self {
         Self {
             publisher,
@@ -271,7 +270,7 @@ where
                         if !inner.waker_publishers.is_empty() {
                             // If there are other publishers waiting send, enqueue itself to `waker_publishers`,
                             inner.waker_publishers.push_back(cx.waker().clone());
-                            inner.unlock();
+                            drop(inner);
 
                             this.subscribers.push_front(subscriber);
                             return Poll::Pending;
@@ -293,7 +292,7 @@ where
                                 if this.publisher.subscribers.attribute.flow_control {
                                     // If there are no room in the queue to send data, enqueue itself to `waker_publishers`.
                                     inner.waker_publishers.push_back(cx.waker().clone());
-                                    inner.unlock();
+                                    drop(inner);
 
                                     this.subscribers.push_front(subscriber);
                                     return Poll::Pending;
@@ -342,9 +341,9 @@ where
 ///     let data = subscriber.recv().await;
 /// };
 /// ```
-pub fn create_pubsub<T: Clone>(attribute: Attribute) -> (Publisher<T>, Subscriber<T>) {
+pub fn create_pubsub<T: Clone + Send>(attribute: Attribute) -> (Publisher<T>, Subscriber<T>) {
     let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
-    let inner = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
+    let inner = Arc::new(Mutex::new(InnerSubscriber::new(attribute.queue_size)));
 
     {
         let mut guard = subscribers.id_to_subscriber.write();
@@ -361,9 +360,9 @@ pub fn create_pubsub<T: Clone>(attribute: Attribute) -> (Publisher<T>, Subscribe
     (publisher, subscriber)
 }
 
-impl<T: Clone> Clone for Subscriber<T> {
+impl<T: Clone + Send> Clone for Subscriber<T> {
     fn clone(&self) -> Self {
-        let inner = Arc::new(MCSLock::new(InnerSubscriber::new(
+        let inner = Arc::new(Mutex::new(InnerSubscriber::new(
             self.subscribers.attribute.queue_size,
         )));
 
@@ -377,7 +376,7 @@ impl<T: Clone> Clone for Subscriber<T> {
     }
 }
 
-static PUBLISH_SUBSCRIBE: MCSLock<PubSub> = MCSLock::new(PubSub::new());
+static PUBLISH_SUBSCRIBE: Mutex<PubSub> = Mutex::new(PubSub::new());
 
 /// Channel attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -411,7 +410,7 @@ pub enum Lifespan {
 }
 
 #[derive(Clone)]
-struct InnerPubSub<T> {
+struct InnerPubSub<T: Send> {
     subscribers: Subscribers<T>,
     num_publisher: u64,
 }
@@ -428,7 +427,7 @@ impl PubSub {
         }
     }
 
-    fn create_publisher<T: 'static>(
+    fn create_publisher<T: 'static + Send>(
         &mut self,
         name: Cow<'static, str>,
         attribute: Attribute,
@@ -467,7 +466,7 @@ impl PubSub {
         }
     }
 
-    fn create_subscriber<T: 'static + Clone>(
+    fn create_subscriber<T: 'static + Clone + Send>(
         &mut self,
         name: Cow<'static, str>,
         attribute: Attribute,
@@ -479,7 +478,7 @@ impl PubSub {
                 let subscribers = Subscribers::new(name.clone(), attribute.clone());
 
                 // Create `InnerSubscriber`.
-                let inner_sub = Arc::new(MCSLock::new(InnerSubscriber::new(attribute.queue_size)));
+                let inner_sub = Arc::new(Mutex::new(InnerSubscriber::new(attribute.queue_size)));
                 {
                     let mut guard = subscribers.id_to_subscriber.write();
                     guard.insert(inner_id(&inner_sub), inner_sub.clone());
@@ -518,7 +517,7 @@ impl PubSub {
                         }
                     }
 
-                    let inner_sub = Arc::new(MCSLock::new(inner_sub));
+                    let inner_sub = Arc::new(Mutex::new(inner_sub));
 
                     {
                         let mut guard = inner.subscribers.id_to_subscriber.write();
@@ -537,7 +536,7 @@ impl PubSub {
         }
     }
 
-    fn destroy_publisher<T: 'static>(&mut self, publisher: &Publisher<T>) {
+    fn destroy_publisher<T: 'static + Send>(&mut self, publisher: &Publisher<T>) {
         match self
             .name_to_inner
             .get_mut::<InnerPubSub<T>>(&publisher.subscribers.name)
@@ -556,7 +555,7 @@ impl PubSub {
         }
     }
 
-    fn destroy_subscriber<T: 'static + Clone>(&mut self, subscriber: &mut Subscriber<T>) {
+    fn destroy_subscriber<T: 'static + Clone + Send>(&mut self, subscriber: &mut Subscriber<T>) {
         {
             let mut guard = subscriber.subscribers.id_to_subscriber.write();
             guard.remove(&subscriber.id());
@@ -605,7 +604,7 @@ impl PubSub {
 ///     publisher.send(100).await;
 /// };
 /// ```
-pub fn create_publisher<T: 'static>(
+pub fn create_publisher<T: 'static + Send>(
     name: Cow<'static, str>,
     attribute: Attribute,
 ) -> Result<Publisher<T>, &'static str> {
@@ -626,7 +625,7 @@ pub fn create_publisher<T: 'static>(
 ///     let data = subscriber.recv().await;
 /// };
 /// ```
-pub fn create_subscriber<T: 'static + Clone>(
+pub fn create_subscriber<T: 'static + Clone + Send>(
     name: Cow<'static, str>,
     attribute: Attribute,
 ) -> Result<Subscriber<T>, &'static str> {
@@ -636,14 +635,14 @@ pub fn create_subscriber<T: 'static + Clone>(
 }
 
 /// Destroy a publisher.
-fn destroy_publisher<T: 'static>(publisher: &Publisher<T>) {
+fn destroy_publisher<T: 'static + Send>(publisher: &Publisher<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_publisher(publisher);
 }
 
 /// Destroy a subscriber.
-fn destroy_subscriber<T: 'static + Clone>(subscriber: &mut Subscriber<T>) {
+fn destroy_subscriber<T: 'static + Clone + Send>(subscriber: &mut Subscriber<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_subscriber(subscriber);

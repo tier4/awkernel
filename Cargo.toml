@@ -9,5 +9,8 @@ members = [
     "awkernel_async_lib_verified",
     "awkernel_lib",
     "awkernel_aarch64",
-    "awkernel_drivers"
+    "awkernel_drivers",
+    "applications/*"
 ]
+
+resolver = "2"

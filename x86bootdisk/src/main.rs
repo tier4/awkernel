@@ -1,7 +1,6 @@
-use std::path::Path;
-
 use bootloader::{BiosBoot, UefiBoot};
 use clap::Parser;
+use std::{fs::File, io::Write, path::Path};
 
 #[derive(Debug, clap::ValueEnum, Clone)]
 enum BootType {
@@ -39,6 +38,12 @@ fn main() {
                 .unwrap();
 
             let ovmf_path = ovmf_prebuilt::ovmf_pure_efi();
+
+            let ovfmpath = home::home_dir().unwrap().join(".ovfmpath");
+            let mut file = File::create(ovfmpath).unwrap();
+            file.write_fmt(format_args!("{}", ovmf_path.display()))
+                .unwrap();
+
             println!("Prebuild OVMF binaries: {}", ovmf_path.display());
             println!(
                 "\nRun:\nqemu-system-x86_64 -bios {} -drive format=raw,file={} -serial stdio -monitor telnet::5556,server,nowait -smp 4 -m 512",
