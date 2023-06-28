@@ -16,6 +16,7 @@ pub mod mmio;
 pub mod sync;
 pub mod timer;
 pub mod unwind;
+pub mod device_tree;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;
