@@ -12,6 +12,7 @@ use crate::device_tree::error::DeviceTreeError::{NotEnoughLength, ParsingFailed}
 use crate::device_tree::error::Result;
 use crate::device_tree::header::DeviceTreeHeader;
 
+/// Enum representing different possible property values in a Device Tree
 pub enum PropertyValue<'a> {
     None,
     Integer(u64),
@@ -25,6 +26,7 @@ pub enum PropertyValue<'a> {
     Unknown,
 }
 
+/// Implements the Display trait for PropertyValue to allow it to be printed
 impl<'a> Display for PropertyValue<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -73,8 +75,8 @@ pub struct NodeProperty<'a> {
     value: PropertyValue<'a>,
 }
 
-// it wont create value, node does
 impl<'a> NodeProperty<'a> {
+    /// Creates a new NodeProperty instance from raw bytes
     pub(crate) fn from_bytes(
         data: &'a [u8],
         header: &DeviceTreeHeader,
@@ -117,6 +119,7 @@ impl<'a> NodeProperty<'a> {
         }
     }
 
+    /// Parses a raw value into a PropertyValue
     pub(crate) fn parse_value(
         raw_value: &'a [u8],
         name: &str,
@@ -254,15 +257,18 @@ impl<'a> NodeProperty<'a> {
         }
     }
 
+    /// Returns the name of the NodeProperty
     pub fn name(&self) -> &'a str {
         self.name
     }
 
+    /// Returns the PropertyValue of the NodeProperty
     pub fn value(&self) -> &PropertyValue {
         &self.value
     }
 }
 
+/// Implements the Display trait for NodeProperty to allow it to be printed
 impl<'a> Display for NodeProperty<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match &self.value {

@@ -9,6 +9,7 @@ use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::prop::{NodeProperty, PropertyValue};
 use crate::device_tree::traits::HasNamedChildNode;
 
+/// Represents a node in the device tree
 pub struct DeviceTreeNode<'a> {
     pub(crate) block_count: usize,
     name: &'a str,
@@ -17,6 +18,8 @@ pub struct DeviceTreeNode<'a> {
 }
 
 impl<'a> DeviceTreeNode<'a> {
+
+    /// Construct a DeviceTreeNode from raw bytes
     pub(crate) fn from_bytes(
         data: &'a [u8],
         header: &DeviceTreeHeader,
@@ -25,78 +28,27 @@ impl<'a> DeviceTreeNode<'a> {
         mut owned: InheritedValues<'a>,
     ) -> Result<Self> {
         let block_start = align_size(start);
-        if let Some(begin_node) = read_aligned_be_u32(data, block_start) {
-            if begin_node == 0x1 {
-                if let Some(name) = read_aligned_name(data, block_start + 1) {
-                    let mut props = Vec::<NodeProperty>::new();
-                    let mut nodes = Vec::<DeviceTreeNode>::new();
-                    let name_blocks = if align_size(name.len() + 1) == 0 {
-                        1
-                    } else {
-                        align_size(name.len() + 1)
-                    };
-
-                    let mut current_block = block_start + name_blocks + 1;
-
-                    while let Some(token) = read_aligned_be_u32(data, current_block) {
-                        match token {
-                            0x3 => {
-                                if let Ok(prop) = NodeProperty::from_bytes(
-                                    data,
-                                    header,
-                                    locate_block(current_block),
-                                    &inherited,
-                                    &owned,
-                                ) {
-                                    current_block += prop.block_count;
-                                    if nodes.is_empty() {
-                                        if let PropertyValue::Integer(v) = prop.value() {
-                                            owned.update(prop.name(), *v);
-                                        }
-                                    }
-                                    props.push(prop);
-                                } else {
-                                    return Err(DeviceTreeError::ParsingFailed);
-                                }
-                            }
-                            0x1 => {
-                                if let Ok(node) = DeviceTreeNode::from_bytes(
-                                    data,
-                                    header,
-                                    locate_block(current_block),
-                                    owned.clone(),
-                                    owned.clone(),
-                                ) {
-                                    current_block += node.block_count;
-                                    nodes.push(node);
-                                } else {
-                                    return Err(DeviceTreeError::ParsingFailed);
-                                }
-                            }
-                            0x2 | 0x9 => {
-                                current_block += 1;
-                                break;
-                            }
-                            _ => current_block += 1,
-                        };
-                    }
-                    Ok(Self {
-                        block_count: current_block - block_start,
-                        name,
-                        props,
-                        nodes,
-                    })
-                } else {
-                    Err(DeviceTreeError::ParsingFailed)
-                }
-            } else {
-                Err(DeviceTreeError::InvalidToken)
-            }
-        } else {
-            Err(DeviceTreeError::ParsingFailed)
+    
+        let begin_node = read_aligned_be_u32(data, block_start)
+            .ok_or(DeviceTreeError::ParsingFailed)?;
+        
+        if begin_node != 0x1 {
+            return Err(DeviceTreeError::InvalidToken);
         }
+    
+        let name = read_aligned_name(data, block_start + 1)
+            .ok_or(DeviceTreeError::ParsingFailed)?;
+    
+        let (props, nodes, block_count) = parse_properties_and_nodes(data, header, block_start, name, inherited, owned)?;
+    
+        Ok(Self {
+            block_count,
+            name,
+            props,
+           nodes,
+        })
     }
-
+    
     pub fn name(&self) -> &'a str {
         self.name
     }
@@ -108,6 +60,69 @@ impl<'a> DeviceTreeNode<'a> {
     pub fn nodes(&self) -> &[DeviceTreeNode<'a>] {
         &self.nodes
     }
+}
+
+/// Parse properties and nodes
+fn parse_properties_and_nodes<'a>(
+    data: &'a [u8],
+    header: &DeviceTreeHeader,
+    block_start: usize,
+    name: &'a str,
+    inherited: InheritedValues<'a>,
+    mut owned: InheritedValues<'a>,
+) -> Result<(Vec<NodeProperty<'a>>, Vec<DeviceTreeNode<'a>>, usize)> {
+    let mut props = Vec::<NodeProperty>::new();
+    let mut nodes = Vec::<DeviceTreeNode>::new();
+
+    let name_blocks = if align_size(name.len() + 1) == 0 {
+        1
+    } else {
+        align_size(name.len() + 1)
+    };
+
+    let mut current_block = block_start + name_blocks + 1;
+
+    while let Some(token) = read_aligned_be_u32(data, current_block) {
+        match token {
+            0x3 => {
+                let prop = NodeProperty::from_bytes(
+                    data,
+                    header,
+                    locate_block(current_block),
+                    &inherited,
+                    &owned,
+                ).map_err(|_| DeviceTreeError::ParsingFailed)?;
+
+                current_block += prop.block_count;
+                if nodes.is_empty() {
+                    if let PropertyValue::Integer(v) = prop.value() {
+                        owned.update(prop.name(), *v);
+                    }
+                }
+                props.push(prop);
+            }
+            0x1 => {
+                let node = DeviceTreeNode::from_bytes(
+                    data,
+                    header,
+                    locate_block(current_block),
+                    owned.clone(),
+                    owned.clone(),
+                ).map_err(|_| DeviceTreeError::ParsingFailed)?;
+
+                current_block += node.block_count;
+                nodes.push(node);
+            }
+            0x2 | 0x9 => {
+                current_block += 1;
+                break;
+            }
+            _ => current_block += 1,
+        };
+    }
+
+    let block_count = current_block - block_start;
+    Ok((props, nodes, block_count))
 }
 
 impl<'a> Display for DeviceTreeNode<'a> {
@@ -143,6 +158,7 @@ impl<'a> Display for DeviceTreeNode<'a> {
     }
 }
 
+/// Check if a node has children
 impl<'a> HasNamedChildNode for DeviceTreeNode<'a> {
     fn has_children(&self) -> bool {
         !self.nodes().is_empty()

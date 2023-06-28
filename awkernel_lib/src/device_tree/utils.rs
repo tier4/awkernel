@@ -2,22 +2,22 @@ use alloc::vec::Vec;
 
 pub(crate) const BLOCK_SIZE: usize = 4;
 
-// ブロックインデックスをアラインする
+/// Aligns the block index
 pub(crate) fn align_block(index: usize) -> usize {
     index / BLOCK_SIZE
 }
 
-// ブロックの位置を特定する
+/// Identifies the position of a block
 pub(crate) fn locate_block(index: usize) -> usize {
     index * BLOCK_SIZE
 }
 
-// サイズをアラインする
+/// Aligns the size
 pub(crate) fn align_size(raw_size: usize) -> usize {
     (raw_size + BLOCK_SIZE - 1) / BLOCK_SIZE
 }
 
-// アラインされたブロックを読み取る
+/// Reads an aligned block
 pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Option<[u8; BLOCK_SIZE]> {
     let first = locate_block(index);
     if first + BLOCK_SIZE > data.len() {
@@ -32,12 +32,12 @@ pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Option<[u8; BLOCK
     }
 }
 
-// アラインされたビッグエンディアンの u32 を読み取る
+/// Reads an aligned big-endian u32
 pub(crate) fn read_aligned_be_u32(data: &[u8], index: usize) -> Option<u32> {
     read_aligned_block(data, index).map(|block| u32::from_be_bytes(block))
 }
 
-// アラインされたビッグエンディアンの数値を読み取る
+/// Reads an aligned big-endian number
 pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Option<u64> {
     match block_size {
         0 => Some(0),
@@ -53,7 +53,7 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
     }
 }
 
-// 名前を読み取る
+/// Reads a name
 pub(crate) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
     let first = offset;
     if first > data.len() {
@@ -70,12 +70,12 @@ pub(crate) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
     }
 }
 
-// アラインされた名前を読み取る
+/// Reads an aligned name
 pub(crate) fn read_aligned_name(data: &[u8], index: usize) -> Option<&str> {
     read_name(data, locate_block(index))
 }
 
-// アラインされたサイズ付き文字列を読み取る
+/// Reads an aligned string with size
 pub(crate) fn read_aligned_sized_strings(
     data: &[u8],
     index: usize,
@@ -90,7 +90,6 @@ pub(crate) fn read_aligned_sized_strings(
         let mut res = Vec::<&str>::new();
         while current < first + size {
             if data[current] == b'\0' {
-                // 収集する
                 let value = core::str::from_utf8(&data[last..current]).unwrap();
                 res.push(value);
                 last = current + 1;

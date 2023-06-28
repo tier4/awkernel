@@ -15,14 +15,19 @@ pub struct DeviceTree<'a> {
 }
 
 impl<'a> DeviceTree<'a> {
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self> {
-        let magic = &data[0..4];
+    /// Checks if the magic number of the device tree is valid
+    fn check_magic(magic: &[u8]) -> Result<()> {
         if magic != [0xd0, 0x0d, 0xfe, 0xed] {
-            return Err(DeviceTreeError::InvalidMagicNumber);
+            Err(DeviceTreeError::InvalidMagicNumber)
+        } else {
+            Ok(())
         }
+    }
 
+    /// Constructs a device tree from bytes
+    pub fn from_bytes(data: &'a [u8]) -> Result<Self> {
+        Self::check_magic(&data[0..4])?;
         let header = DeviceTreeHeader::from_bytes(data)?;
-
         let root = DeviceTreeNode::from_bytes(
             data,
             &header,
@@ -34,12 +39,10 @@ impl<'a> DeviceTree<'a> {
         Ok(Self { header, root })
     }
 
+    /// Constructs a device tree from a specific address in memory
     pub fn from_address(addr: usize) -> Result<Self> {
         let header_bytes = unsafe { core::slice::from_raw_parts(addr as *const u8, 40) };
-        let magic = &header_bytes[0..4];
-        if magic != [0xd0, 0x0d, 0xfe, 0xed] {
-            return Err(DeviceTreeError::InvalidMagicNumber);
-        }
+        Self::check_magic(&header_bytes[0..4])?;
         let header = DeviceTreeHeader::from_bytes(header_bytes)?;
         let data =
             unsafe { core::slice::from_raw_parts(addr as *const u8, header.total_size as usize) };
@@ -100,7 +103,7 @@ impl<'a> DeviceTree<'a> {
     }
 }
 
-
+/// Iterates over nodes in a device tree
 pub struct DeviceTreeNodeIter<'a> {
     queue: VecDeque<&'a DeviceTreeNode<'a>>,
 }
@@ -143,10 +146,12 @@ impl<'a> IntoIterator for &'a DeviceTree<'a> {
 pub(crate) struct InheritedValues<'a>(Vec<(&'a str, u64)>);
 
 impl<'a> InheritedValues<'a> {
+    /// Constructs a new InheritedValues instance
     pub const fn new() -> InheritedValues<'a> {
         InheritedValues(vec![])
     }
 
+    /// Finds a value in the inherited values by its name
     pub fn find(&self, name: &str) -> Option<u64> {
         for i in &self.0 {
             if i.0 == name {
@@ -156,6 +161,7 @@ impl<'a> InheritedValues<'a> {
         None
     }
 
+    /// Updates a value in the inherited values
     pub fn update(&mut self, name: &'a str, value: u64) {
         let mut dirty = false;
         for i in 0..self.0.len() {
