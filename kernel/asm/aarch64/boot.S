@@ -43,21 +43,21 @@ boot_entry:
     sub     x1, x1, x3
     mov     x10, x1 // save stack pointer
 
-    cbnz    x2, .L4
+    cbnz    x2, 2f
 
     // if cpu id == 0
-.L2:
+
     // clear bss
     ldr     x1, =__bss_start
     ldr     w2, =__bss_size
 
-.L3:
-    cbz     w2, .L4
+1:
+    cbz     w2, 2f
     str     xzr, [x1], #8
     sub     w2, w2, #1
-    cbnz    w2, .L3
+    cbnz    w2, 1b
 
-.L4:
+2:
     msr     sp_el0, x10  // set stack pointer
     msr     sp_el1, x10
     msr     spsel, #0
