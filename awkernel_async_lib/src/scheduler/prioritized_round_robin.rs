@@ -11,12 +11,14 @@ pub struct PrioritizedRoundRobinScheduler {
 
 struct PrioritizedRoundRobinData {
     queue: VecDeque<Arc<Task>>,
+    priority: u8,
 }
 
 impl PrioritizedRoundRobinData {
     fn new() -> Self {
         Self {
             queue: VecDeque::new(),
+            priority: 0,
         }
     }
 }
@@ -44,6 +46,17 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
             )
         {
             return;
+        }
+
+        //Assign priorities in the order in which they become available for execution
+        match task_info.scheduler_type {
+            SchedulerType::PrioritizedRoundRobin(priority) => {
+                task_info.scheduler_type = SchedulerType::PrioritizedRoundRobin(data.priority);
+                data.priority += 1;
+            }
+            _ => {
+                panic!("The scheduler type of the task is not PrioritizedRoundRobin.")
+            }
         }
 
         data.queue.push_back(task.clone());
