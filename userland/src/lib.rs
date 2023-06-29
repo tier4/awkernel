@@ -31,7 +31,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         "timer".into(),
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(10)).await;
 
                 let mut total = 0;
                 let mut count = 0;
