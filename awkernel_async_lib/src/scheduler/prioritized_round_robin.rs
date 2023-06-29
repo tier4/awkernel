@@ -53,7 +53,40 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
-        todo!("PrioritizedRoundRobinScheduler::get_next");
+        let mut node = MCSNode::new();
+        let mut data = self.data.lock(&mut node);
+
+        let data = data.as_mut()?;
+
+        // Sort the queue by priority.
+        data.queue.make_contiguous().sort_by(|a, b| {
+            let mut node = MCSNode::new();
+            let a_info = a.info.lock(&mut node);
+            let mut node = MCSNode::new();
+            let b_info = b.info.lock(&mut node);
+
+            match (a_info.scheduler_type, b_info.scheduler_type) {
+                (
+                    SchedulerType::PrioritizedRoundRobin(priority_a),
+                    SchedulerType::PrioritizedRoundRobin(priority_b),
+                ) => priority_a.cmp(&priority_b),
+                _ => {
+                    panic!("The scheduler type of the task is not PrioritizedRoundRobin.")
+                }
+            }
+        });
+
+        // Pop a task from the run queue.
+        let task = data.queue.pop_front()?;
+
+        // Make the state of the task Running.
+        {
+            let mut node = MCSNode::new();
+            let mut task_info = task.info.lock(&mut node);
+            task_info.in_queue = false;
+        }
+
+        Some(task)
     }
 
     fn scheduler_name(&self) -> SchedulerType {
