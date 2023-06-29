@@ -13,9 +13,8 @@ extern crate alloc;
 
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
-    task,
+    task, uptime,
 };
-use awkernel_lib::delay::pause;
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
 
@@ -34,25 +33,57 @@ mod nostd;
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
-    // TODO: currently interrupt is supported for only AArch64
-    #[cfg(all(feature = "aarch64", not(feature = "std")))]
-    awkernel_lib::interrupt::enable();
+    unsafe { awkernel_lib::cpu::increment_num_cpu() };
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
+        #[cfg(not(feature = "std"))]
+        awkernel_lib::interrupt::set_preempt_irq(
+            config::PREEMPT_IRQ,
+            awkernel_async_lib::task::preemption,
+        );
+
         // Userland.
         task::spawn(
+            "main".into(),
             async move { userland::main().await },
             SchedulerType::RoundRobin,
         );
 
+        #[cfg(feature = "aarch64")]
+        let mut send_ipi = uptime();
+
         loop {
             wake_task(); // Wake executable tasks periodically.
-            pause();
+
+            #[cfg(not(feature = "std"))]
+            awkernel_lib::delay::wait_microsec(1);
+
+            #[cfg(feature = "aarch64")]
+            {
+                let now = uptime();
+                if now >= send_ipi {
+                    if now - send_ipi >= 20_000 {
+                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                            config::PREEMPT_IRQ,
+                        );
+                        send_ipi = now;
+                    }
+                }
+            }
+
+            #[cfg(feature = "std")]
+            awkernel_lib::delay::wait_microsec(10);
         }
     } else {
+        #[cfg(not(feature = "std"))]
+        {
+            awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+            awkernel_lib::interrupt::disable();
+        }
+
         // Non-primary CPUs.
-        task::run(kernel_info.cpu_id); // Execute tasks.
+        unsafe { task::run() }; // Execute tasks.
     }
 }

@@ -12,7 +12,7 @@ use core::{
 };
 use ns16550a::Uart;
 
-const UART_BASE: u32 = 0x1000_0000;
+const UART_BASE: usize = 0x1000_0000;
 
 // TODO: set initial stack 4MB for each CPU on 0x8040_0000. see boot.S
 // const MAX_HARTS: usize = 8;
@@ -39,6 +39,8 @@ pub unsafe extern "C" fn kernel_main() {
 
 unsafe fn primary_hart(hartid: usize) {
     // setup interrupt; TODO;
+
+    super::console::init_port(UART_BASE);
 
     // setup the VM
     let backup_start = HEAP_START as usize;

@@ -8,16 +8,12 @@ edition = "2021"
 [dependencies]
 pin-project = "1"
 log = "0.4"
+array-macro = "2.1"
 
 [dependencies.futures]
 version = "0.3"
 default-features = false
 features = ["alloc", "async-await", "cfg-target-has-atomic"]
-
-[dependencies.unwinding]
-version = "0.1"
-default-features = false
-features = ["panic"]
 
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
@@ -28,4 +24,5 @@ path = "../awkernel_async_lib_verified"
 
 [features]
 default = []
-std = ["awkernel_lib/std"]
+std = ["awkernel_lib/std", "no_preempt"]
+no_preempt = []

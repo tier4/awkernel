@@ -1,8 +1,8 @@
 //! A basic round robin scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{self, TaskList};
-use alloc::sync::Arc;
+use crate::task;
+use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RoundRobinScheduler {
@@ -10,13 +10,13 @@ pub struct RoundRobinScheduler {
 }
 
 struct RoundRobinData {
-    queue: TaskList,
+    queue: VecDeque<Arc<Task>>,
 }
 
 impl RoundRobinData {
     fn new() -> Self {
         Self {
-            queue: TaskList::new(),
+            queue: VecDeque::new(),
         }
     }
 }
@@ -32,24 +32,24 @@ impl Scheduler for RoundRobinScheduler {
 
         let data = data.as_mut().unwrap();
 
-        // Make the state of the task InQueue.
-        {
-            let mut node = MCSNode::new();
-            let mut task_info = task.info.lock(&mut node);
+        // Put the state in queue.
+        let mut node = MCSNode::new();
+        let mut task_info = task.info.lock(&mut node);
 
-            // If the state is Terminated or InQueue, it must not be enqueued.
-            if matches!(
+        // If the task is in queue or the state is Terminated, it must not be enqueued.
+        if task_info.in_queue
+            || matches!(
                 task_info.state,
-                task::State::Terminated | task::State::InQueue
-            ) {
-                return;
-            }
-
-            // The task is in the run queue.
-            task_info.state = task::State::InQueue;
+                task::State::Terminated | task::State::Panicked
+            )
+        {
+            return;
         }
 
-        data.queue.push(task);
+        data.queue.push_back(task.clone());
+
+        // The task is in queue.
+        task_info.in_queue = true;
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -58,14 +58,13 @@ impl Scheduler for RoundRobinScheduler {
 
         // Pop a task from the run queue.
         let data = data.as_mut()?;
-        let task = data.queue.pop()?;
+        let task = data.queue.pop_front()?;
 
         // Make the state of the task Running.
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
-
-            task_info.state = task::State::Running;
+            task_info.in_queue = false;
         }
 
         Some(task)

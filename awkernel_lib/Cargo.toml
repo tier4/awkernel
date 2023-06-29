@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 rlsf = "0.2"
+bitflags = "2.3"
+array-macro = "2.1"
 
 [dependencies.libc]
 version = "0.2"
@@ -32,6 +34,11 @@ optional = true
 [dependencies.parking_lot]
 version = "0.12"
 optional = true
+
+[dependencies.unwinding]
+version = "0.1"
+default-features = false
+features = ["panic"]
 
 [features]
 default = ["aarch64"]

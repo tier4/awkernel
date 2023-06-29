@@ -1,6 +1,6 @@
-//! # awkernel_async_lib: Asynchronous library for T4OS
+//! # awkernel_async_lib: Asynchronous library for Autoware Kernel
 //!
-//! T4OS is an operating system, and this is an asynchronous library
+//! Autoware Kernel is an operating system, and this is an asynchronous library
 //! to provide APIs like to Robot Operating System 2 (ROS2).
 //! For example, there are asynchronous APIs for publish and subscribe
 //! communications.
@@ -17,7 +17,6 @@ mod delay;
 mod join_handle;
 mod never_return;
 pub mod pubsub;
-mod ringq;
 pub mod scheduler;
 pub mod service;
 pub mod session_types;
@@ -27,18 +26,19 @@ pub mod task;
 mod timeout_call;
 mod yield_task;
 
-#[cfg(not(feature = "std"))]
-pub(crate) mod preempt;
-
 #[cfg(test)]
 pub(crate) mod mini_task;
 
 use crate::scheduler::SchedulerType;
+use alloc::borrow::Cow;
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use awkernel_lib::delay::{cpu_counter, uptime};
+pub use awkernel_lib::{
+    cpu::cpu_id,
+    delay::{cpu_counter, uptime},
+};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -129,6 +129,7 @@ pub async fn forever() -> ! {
 /// let _ = async {
 ///     // Spawn a detached task.
 ///     let join_handler = awkernel_async_lib::spawn(
+///         "name".into(),
 ///         async { /* do something */ },
 ///         SchedulerType::RoundRobin, // Scheduler type.
 ///     ).await;
@@ -138,6 +139,7 @@ pub async fn forever() -> ! {
 /// };
 /// ```
 pub async fn spawn<T>(
+    name: Cow<'static, str>,
     future: impl Future<Output = T> + 'static + Send,
     sched_type: SchedulerType,
 ) -> JoinHandle<T>
@@ -147,6 +149,7 @@ where
     let (tx, rx) = oneshot::channel();
 
     crate::task::spawn(
+        name,
         async move {
             let result = future.await;
             let _ = tx.send(result);

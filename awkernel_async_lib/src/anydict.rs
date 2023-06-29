@@ -23,7 +23,7 @@ impl AnyDict {
         }
     }
 
-    pub(super) fn keys<'a>(&'a self) -> Vec<Cow<'static, str>> {
+    pub(super) fn keys(&self) -> Vec<Cow<'static, str>> {
         self.dict.keys().cloned().collect()
     }
 

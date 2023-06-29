@@ -6,3 +6,19 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+log = "0.4"
+bitflags = "2.3"
+
+[dependencies.awkernel_lib]
+path = "../awkernel_lib"
+default-features = false
+
+[dependencies.x86_64]
+version = "0.14"
+optional = true
+
+[features]
+default = []
+x86 = ["awkernel_lib/x86", "x86_64"]
+rv32 = ["awkernel_lib/rv32"]
+aarch64 = ["awkernel_lib/aarch64"]

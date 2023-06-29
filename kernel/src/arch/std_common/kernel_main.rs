@@ -11,6 +11,7 @@ use libc::c_void;
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Initialize.
     awkernel_lib::arch::std_common::init();
+    awkernel_lib::arch::std_common::init_per_thread(0);
     console::init();
 
     #[cfg(target_os = "linux")]
@@ -96,6 +97,8 @@ fn thread_create(cpu: usize) -> Option<libc::pthread_t> {
 }
 
 extern "C" fn thread_func(cpu: *mut c_void) -> *mut c_void {
+    awkernel_lib::arch::std_common::init_per_thread(cpu as usize);
+
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: cpu as usize,

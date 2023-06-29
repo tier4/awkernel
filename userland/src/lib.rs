@@ -1,9 +1,10 @@
 #![no_std]
 use alloc::{borrow::Cow, format};
 use awkernel_async_lib::{
-    pubsub::{create_publisher, create_subscriber, Attribute},
+    channel::bounded,
+    pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    spawn, uptime,
+    sleep, spawn, uptime,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -24,17 +25,20 @@ fn add_rtt(rtt: u64) {
 }
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
+    awkernel_shell::init();
+
     spawn(
+        "timer".into(),
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(10)).await;
 
                 let mut total = 0;
                 let mut count = 0;
                 let mut worst = 0;
 
                 for i in 0..RTT_SIZE {
-                    let rtt = unsafe { read_volatile(&mut RTT[i]) };
+                    let rtt = unsafe { read_volatile(&RTT[i]) };
                     if rtt > 0 {
                         total += rtt;
                         count += 1;
@@ -55,23 +59,16 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     )
     .await;
 
-    for i in 0..1024 {
-        let topic_a = format!("topic_a_{i}");
-        let topic_b = format!("topic_b_{i}");
-
-        let publisher1 =
-            create_publisher::<()>(topic_a.clone().into(), Attribute::default()).unwrap();
-        let subscriber1 =
-            create_subscriber::<()>(topic_b.clone().into(), Attribute::default()).unwrap();
-
-        let publisher2 = create_publisher::<()>(topic_b.into(), Attribute::default()).unwrap();
-        let subscriber2 = create_subscriber::<()>(topic_a.into(), Attribute::default()).unwrap();
+    for i in 0..8 {
+        let (tx1, rx1) = bounded::new::<()>(bounded::Attribute::default());
+        let (tx2, rx2) = bounded::new::<()>(bounded::Attribute::default());
 
         spawn(
+            format!("{i}-server").into(),
             async move {
                 loop {
-                    subscriber2.recv().await;
-                    publisher2.send(()).await;
+                    rx1.recv().await.unwrap();
+                    tx2.send(()).await.unwrap();
                 }
             },
             SchedulerType::RoundRobin,
@@ -79,17 +76,50 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         .await;
 
         spawn(
+            format!("{i}-client").into(),
             async move {
                 loop {
                     let start = uptime();
-                    publisher1.send(()).await;
-                    subscriber1.recv().await;
+                    tx1.send(()).await.unwrap();
+                    rx2.recv().await.unwrap();
                     let end = uptime();
 
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    awkernel_async_lib::sleep(Duration::from_millis(200)).await;
+                    for _ in 0..10000 {
+                        unsafe { core::arch::asm!("nop") };
+                    }
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+    }
+
+    for i in 0..4 {
+        let name = format!("pubsub[{i}]");
+        let subscriber =
+            create_subscriber::<()>(name.clone().into(), pubsub::Attribute::default()).unwrap();
+        let publisher = create_publisher::<()>(name.into(), pubsub::Attribute::default()).unwrap();
+
+        spawn(
+            format!("{i}-subscriber").into(),
+            async move {
+                loop {
+                    subscriber.recv().await;
+                }
+            },
+            SchedulerType::RoundRobin,
+        )
+        .await;
+
+        spawn(
+            format!("{i}-publisher").into(),
+            async move {
+                loop {
+                    sleep(Duration::from_secs(1)).await;
+                    publisher.send(()).await;
                 }
             },
             SchedulerType::RoundRobin,

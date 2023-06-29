@@ -7,12 +7,7 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{
-    bsp::raspi,
-    cpu,
-    driver::uart::{DevUART, Uart},
-    mmu, serial,
-};
+use super::{bsp::raspi, cpu, mmu};
 use crate::{
     arch::aarch64::{
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
@@ -21,7 +16,7 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{delay::wait_forever, heap};
+use awkernel_lib::{console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -51,22 +46,23 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 2. Start non-primary CPUs.
 /// 3. Enable MMU.
 /// 4. Enable heap allocator.
-/// 5. Enable serial port.
+/// 5. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu() {
-    DevUART::init(serial::UART_CLOCK, serial::UART_BAUD);
+    // Initialize UART.
+    super::bsp::init_device();
 
     match awkernel_aarch64::get_current_el() {
-        0 => DevUART::unsafe_puts("EL0\n"),
-        1 => DevUART::unsafe_puts("EL1\n"),
-        2 => DevUART::unsafe_puts("EL2\n"),
-        3 => DevUART::unsafe_puts("EL3\n"),
+        0 => unsafe_puts("EL0\n"),
+        1 => unsafe_puts("EL1\n"),
+        2 => unsafe_puts("EL2\n"),
+        3 => unsafe_puts("EL3\n"),
         _ => (),
     }
 
     // 1. Initialize MMU.
     mmu::init_memory_map();
     if mmu::init().is_none() {
-        DevUART::unsafe_puts("Failed to init MMU.\n");
+        unsafe_puts("Failed to init MMU.\n");
         wait_forever();
     }
 
@@ -89,8 +85,8 @@ unsafe fn primary_cpu() {
     heap::init_backup(backup_start, backup_size);
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    // 5. Enable serial port.
-    serial::init();
+    // 5. Board specific initialization.
+    super::bsp::init();
 
     log::info!(
         "Stack memory: start = 0x{:x}, end = 0x{:x}",
@@ -130,6 +126,12 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
+    let mut dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
+
+    let tree = DeviceTree::from_bytes(&mut dtb).unwrap();
+
+    log::info!("{}", tree);
+
     crate::main::<()>(kernel_info);
 }
 
@@ -141,6 +143,8 @@ unsafe fn non_primary_cpu() {
     }
 
     unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
+
+    awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
 
     let kernel_info = KernelInfo {
         info: (),

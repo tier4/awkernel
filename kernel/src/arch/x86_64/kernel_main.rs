@@ -12,13 +12,15 @@ use crate::{
         apic::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
-    config::{BACKUP_HEAP_SIZE, HEAP_START, PAGE_SIZE, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
 use awkernel_lib::{
-    arch::x86_64::page_allocator::{get_page_table, PageAllocator},
+    arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
+    console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
+    memory::PAGESIZE,
 };
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
@@ -53,7 +55,7 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
 /// 4. Initialize the backup heap memory allocator.
-/// 5. Initialize the logger.
+/// 5. Enable logger.
 /// 6. Initialize interrupt handlers.
 /// 7. Initialize ACPI.
 /// 8. Initialize stack memory regions for non-primary CPUs.
@@ -65,13 +67,15 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
-    super::serial::init(); // 2. Initialize the serial port.
-    unsafe { super::puts("The primary CPU is waking up.\n") };
+    super::console::init_device(); // 2. Initialize the serial port.
 
-    let mut page_table = if let Some(page_table) = unsafe { get_page_table(boot_info) } {
+    unsafe { unsafe_puts("The primary CPU is waking up.\n") };
+
+    unsafe { page_allocator::init(boot_info) };
+    let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
     } else {
-        unsafe { super::puts("Physical memory is not mapped.\n") };
+        unsafe { unsafe_puts("Physical memory is not mapped.\n") };
         wait_forever();
     };
 
@@ -82,14 +86,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         .memory_regions
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Usable)
-        .flat_map(|m| (m.start..m.end).step_by(PAGE_SIZE as _))
+        .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
 
     let mut page_allocator = PageAllocator::new(&mut frames);
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
-        unsafe { super::puts("Failed to get the physical memory offset.\n") };
+        unsafe { unsafe_puts("Failed to get the physical memory offset.\n") };
         wait_forever();
     };
     let offset = *offset;
@@ -109,23 +113,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_size,
     );
 
+    // Initialize.
+    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
+
+    // Set to use the backup allocator in kernel.
+    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
+
+    // 5. Enable logger.
+    super::console::register_console();
+
     log::info!(
         "Backup heap: start = 0x{:x}, size = {}",
         backup_start,
         backup_size
     );
 
-    // Initialize.
-    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
-
-    // Use the backup allocator in kernel.
-    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
-
-    // 5. Initialize the logger.
-    super::serial::init_logger();
-
     // 6. Initialize interrupt handlers.
-    unsafe { interrupt::init() };
 
     log::info!("Physical memory offset: 0x{:x}", offset);
 
@@ -179,11 +182,11 @@ fn init_primary_heap<T>(
     T: Iterator<Item = PhysFrame> + Send,
 {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = 1 << 48;
+    let primary_size = 1 << 48; // up to 256TiB
 
     let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
 
-    let heap_size = num_pages * PAGE_SIZE as usize;
+    let heap_size = num_pages * PAGESIZE as usize;
     unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
 
     log::info!(
@@ -250,8 +253,8 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
 
     // Save original data.
-    let _original = Box::<[u8; PAGE_SIZE as usize]>::new(unsafe {
-        read_volatile::<[u8; PAGE_SIZE as usize]>(boot16_phy_addr.as_ptr())
+    let _original = Box::<[u8; PAGESIZE as usize]>::new(unsafe {
+        read_volatile::<[u8; PAGESIZE as usize]>(boot16_phy_addr.as_ptr())
     });
 
     unsafe {
@@ -311,7 +314,7 @@ fn non_primary_kernel_main() -> ! {
 
     enable_fpu(); // Enable SSE.
 
-    // use backup allocator
+    // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     // Initialize interrupt handlers.

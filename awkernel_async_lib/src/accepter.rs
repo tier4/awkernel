@@ -44,7 +44,7 @@ impl<P> Accepter<P> {
             receiver: self.receiver.take(),
             name: self.name.clone(),
             drop_fn: self.drop_fn,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 }

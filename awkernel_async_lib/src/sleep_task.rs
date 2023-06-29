@@ -32,7 +32,10 @@ impl Future for Sleep {
         let mut guard = self.state.lock(&mut node);
 
         match &*guard {
-            State::Wait => Poll::Pending,
+            State::Wait => {
+                *guard = State::Canceled;
+                Poll::Ready(State::Canceled)
+            }
             State::Canceled => Poll::Ready(State::Canceled),
             State::Finished => Poll::Ready(State::Finished),
             State::Ready => {

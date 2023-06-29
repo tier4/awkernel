@@ -10,8 +10,9 @@
 //! };
 //! ```
 
-use crate::{pubsub::Lifespan, r#yield, ringq::RingQ};
+use crate::{pubsub::Lifespan, r#yield};
 use alloc::sync::Arc;
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     delay::uptime,
     sync::mutex::{MCSNode, Mutex},
@@ -214,6 +215,10 @@ impl<'a, T: Send> Future for AsyncSender<'a, T> {
             } else {
                 let _ = chan.queue.pop();
             }
+        }
+
+        if let Some(waker_receiver) = chan.waker_receiver.take() {
+            waker_receiver.wake();
         }
 
         let data = this.data.take().unwrap();
