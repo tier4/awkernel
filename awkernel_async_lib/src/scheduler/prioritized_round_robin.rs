@@ -50,7 +50,7 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
 
         //Assign priorities in the order in which they become available for execution
         match task_info.scheduler_type {
-            SchedulerType::PrioritizedRoundRobin(priority) => {
+            SchedulerType::PrioritizedRoundRobin(_) => {
                 task_info.scheduler_type = SchedulerType::PrioritizedRoundRobin(data.priority);
                 data.priority += 1;
             }
