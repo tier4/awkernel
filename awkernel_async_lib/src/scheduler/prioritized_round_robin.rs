@@ -72,17 +72,17 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
         let data = data.as_mut()?;
 
         // Sort the queue by priority.
-        data.queue.make_contiguous().sort_by(|a, b| {
+        data.queue.make_contiguous().sort_by(|task1, task2| {
             let mut node = MCSNode::new();
-            let a_info = a.info.lock(&mut node);
+            let task1_info = task1.info.lock(&mut node);
             let mut node = MCSNode::new();
-            let b_info = b.info.lock(&mut node);
+            let task2_info = task2.info.lock(&mut node);
 
-            match (a_info.scheduler_type, b_info.scheduler_type) {
+            match (task1_info.scheduler_type, task2_info.scheduler_type) {
                 (
-                    SchedulerType::PrioritizedRoundRobin(priority_a),
-                    SchedulerType::PrioritizedRoundRobin(priority_b),
-                ) => priority_a.cmp(&priority_b),
+                    SchedulerType::PrioritizedRoundRobin(priority1),
+                    SchedulerType::PrioritizedRoundRobin(priority2),
+                ) => priority1.cmp(&priority2),
                 _ => {
                     panic!("The scheduler type of the task is not PrioritizedRoundRobin.")
                 }
