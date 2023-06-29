@@ -47,7 +47,7 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
         SchedulerType::RoundRobin => &round_robin::SCHEDULER,
-        SchedulerType::PrioritizedRoundRobin(priority) => &prioritized_round_robin::SCHEDULER,
+        SchedulerType::PrioritizedRoundRobin(_) => &prioritized_round_robin::SCHEDULER,
     }
 }
 

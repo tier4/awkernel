@@ -48,7 +48,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         task::spawn(
             "main".into(),
             async move { userland::main().await },
-            SchedulerType::RoundRobin,
+            SchedulerType::PrioritizedRoundRobin(0),
         );
 
         #[cfg(feature = "aarch64")]

@@ -31,7 +31,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         "timer".into(),
         async move {
             loop {
-                awkernel_async_lib::sleep(Duration::from_secs(10)).await;
+                awkernel_async_lib::sleep(Duration::from_secs(1)).await;
 
                 let mut total = 0;
                 let mut count = 0;
@@ -55,7 +55,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 }
             }
         },
-        SchedulerType::RoundRobin,
+        SchedulerType::PrioritizedRoundRobin(0),
     )
     .await;
 
@@ -71,7 +71,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     tx2.send(()).await.unwrap();
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::PrioritizedRoundRobin(0),
         )
         .await;
 
@@ -92,7 +92,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     }
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::PrioritizedRoundRobin(0),
         )
         .await;
     }
@@ -110,7 +110,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     subscriber.recv().await;
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::PrioritizedRoundRobin(0),
         )
         .await;
 
@@ -122,7 +122,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     publisher.send(()).await;
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::PrioritizedRoundRobin(0),
         )
         .await;
     }
