@@ -1,5 +1,5 @@
-use crate::device_tree::utils::read_aligned_be_u32;
 use crate::device_tree::error::{DeviceTreeError, Result};
+use crate::device_tree::utils::read_aligned_be_u32;
 
 #[derive(Debug)]
 pub(crate) struct DeviceTreeHeader {

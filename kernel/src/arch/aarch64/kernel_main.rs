@@ -16,7 +16,9 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap};
+use awkernel_lib::{
+    console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
+};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -126,11 +128,10 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
-    let mut dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-
-    let tree = DeviceTree::from_bytes(&mut dtb).unwrap();
-
-    log::info!("{}", tree);
+    // TODO
+    // let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
+    // let tree = DeviceTree::from_bytes(&dtb).unwrap();
+    // log::info!("{}", tree);
 
     crate::main::<()>(kernel_info);
 }

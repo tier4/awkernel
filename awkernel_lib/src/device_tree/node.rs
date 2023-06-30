@@ -1,78 +1,92 @@
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::alloc::Allocator;
 use core::fmt::{Display, Formatter, Write};
 
-use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, read_aligned_name};
 use crate::device_tree::device_tree::InheritedValues;
 use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::prop::{NodeProperty, PropertyValue};
 use crate::device_tree::traits::HasNamedChildNode;
+use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, read_aligned_name};
 
 /// Represents a node in the device tree
-pub struct DeviceTreeNode<'a> {
+pub struct DeviceTreeNode<'a, A: Allocator + Clone> {
     pub(crate) block_count: usize,
     name: &'a str,
-    props: Vec<NodeProperty<'a>>,
-    nodes: Vec<DeviceTreeNode<'a>>,
+    props: Vec<NodeProperty<'a, A>, A>,
+    nodes: Vec<DeviceTreeNode<'a, A>, A>,
 }
 
-impl<'a> DeviceTreeNode<'a> {
-
+impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     /// Construct a DeviceTreeNode from raw bytes
     pub(crate) fn from_bytes(
         data: &'a [u8],
         header: &DeviceTreeHeader,
         start: usize,
         inherited: InheritedValues<'a>,
-        mut owned: InheritedValues<'a>,
+        owned: InheritedValues<'a>,
+        allocator: A,
     ) -> Result<Self> {
         let block_start = align_size(start);
-    
-        let begin_node = read_aligned_be_u32(data, block_start)
-            .ok_or(DeviceTreeError::ParsingFailed)?;
-        
+
+        let begin_node =
+            read_aligned_be_u32(data, block_start).ok_or(DeviceTreeError::ParsingFailed)?;
+
         if begin_node != 0x1 {
             return Err(DeviceTreeError::InvalidToken);
         }
-    
-        let name = read_aligned_name(data, block_start + 1)
-            .ok_or(DeviceTreeError::ParsingFailed)?;
-    
-        let (props, nodes, block_count) = parse_properties_and_nodes(data, header, block_start, name, inherited, owned)?;
-    
+
+        let name =
+            read_aligned_name(data, block_start + 1).ok_or(DeviceTreeError::ParsingFailed)?;
+
+        let (props, nodes, block_count) = parse_properties_and_nodes(
+            data,
+            header,
+            block_start,
+            name,
+            inherited,
+            owned,
+            allocator,
+        )?;
+
         Ok(Self {
             block_count,
             name,
             props,
-           nodes,
+            nodes,
         })
     }
-    
+
     pub fn name(&self) -> &'a str {
         self.name
     }
 
-    pub fn props(&self) -> &[NodeProperty<'a>] {
+    pub fn props(&self) -> &[NodeProperty<'a, A>] {
         &self.props
     }
 
-    pub fn nodes(&self) -> &[DeviceTreeNode<'a>] {
+    pub fn nodes(&self) -> &[Self] {
         &self.nodes
     }
 }
 
 /// Parse properties and nodes
-fn parse_properties_and_nodes<'a>(
+fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
     data: &'a [u8],
     header: &DeviceTreeHeader,
     block_start: usize,
     name: &'a str,
     inherited: InheritedValues<'a>,
     mut owned: InheritedValues<'a>,
-) -> Result<(Vec<NodeProperty<'a>>, Vec<DeviceTreeNode<'a>>, usize)> {
-    let mut props = Vec::<NodeProperty>::new();
-    let mut nodes = Vec::<DeviceTreeNode>::new();
+    allocator: A,
+) -> Result<(
+    Vec<NodeProperty<'a, A>, A>,
+    Vec<DeviceTreeNode<'a, A>, A>,
+    usize,
+)> {
+    let mut props = Vec::<NodeProperty<'a, A>, A>::new_in(allocator.clone());
+    let mut nodes = Vec::<DeviceTreeNode<'a, A>, A>::new_in(allocator.clone());
 
     let name_blocks = if align_size(name.len() + 1) == 0 {
         1
@@ -91,7 +105,9 @@ fn parse_properties_and_nodes<'a>(
                     locate_block(current_block),
                     &inherited,
                     &owned,
-                ).map_err(|_| DeviceTreeError::ParsingFailed)?;
+                    allocator.clone(),
+                )
+                .map_err(|_| DeviceTreeError::ParsingFailed)?;
 
                 current_block += prop.block_count;
                 if nodes.is_empty() {
@@ -108,7 +124,9 @@ fn parse_properties_and_nodes<'a>(
                     locate_block(current_block),
                     owned.clone(),
                     owned.clone(),
-                ).map_err(|_| DeviceTreeError::ParsingFailed)?;
+                    allocator.clone(),
+                )
+                .map_err(|_| DeviceTreeError::ParsingFailed)?;
 
                 current_block += node.block_count;
                 nodes.push(node);
@@ -125,7 +143,7 @@ fn parse_properties_and_nodes<'a>(
     Ok((props, nodes, block_count))
 }
 
-impl<'a> Display for DeviceTreeNode<'a> {
+impl<'a, A: Allocator + Clone> Display for DeviceTreeNode<'a, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         if let Err(err) = writeln!(f, "{} {{", self.name) {
             return Err(err);
@@ -159,13 +177,13 @@ impl<'a> Display for DeviceTreeNode<'a> {
 }
 
 /// Check if a node has children
-impl<'a> HasNamedChildNode for DeviceTreeNode<'a> {
+impl<'a, A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'a, A> {
     fn has_children(&self) -> bool {
         !self.nodes().is_empty()
     }
 
-    fn find_child(&self, name: &str) -> Option<&DeviceTreeNode> {
-        let mut option: Option<&DeviceTreeNode> = None;
+    fn find_child(&self, name: &str) -> Option<&Self> {
+        let mut option: Option<&Self> = None;
         for i in &self.nodes {
             if i.name() == name {
                 option = Some(i);
@@ -175,4 +193,3 @@ impl<'a> HasNamedChildNode for DeviceTreeNode<'a> {
         option
     }
 }
-

@@ -1,3 +1,5 @@
+use core::alloc::Allocator;
+
 use alloc::vec::Vec;
 
 pub(crate) const BLOCK_SIZE: usize = 4;
@@ -76,18 +78,19 @@ pub(crate) fn read_aligned_name(data: &[u8], index: usize) -> Option<&str> {
 }
 
 /// Reads an aligned string with size
-pub(crate) fn read_aligned_sized_strings(
+pub(crate) fn read_aligned_sized_strings<A: Allocator>(
     data: &[u8],
     index: usize,
     size: usize,
-) -> Option<Vec<&str>> {
+    allocator: A,
+) -> Option<Vec<&str, A>> {
     let first = locate_block(index);
     if first + size > data.len() {
         None
     } else {
         let mut current = first;
         let mut last = current;
-        let mut res = Vec::<&str>::new();
+        let mut res = Vec::<&str, A>::new_in(allocator);
         while current < first + size {
             if data[current] == b'\0' {
                 let value = core::str::from_utf8(&data[last..current]).unwrap();

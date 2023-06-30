@@ -1,33 +1,34 @@
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
 
-use crate::device_tree::utils::{
-    align_block, align_size, locate_block, read_aligned_be_number, read_aligned_be_u32,
-    read_aligned_sized_strings, read_name, BLOCK_SIZE,
-};
 use crate::device_tree::device_tree::InheritedValues;
 use crate::device_tree::error::DeviceTreeError::{NotEnoughLength, ParsingFailed};
 use crate::device_tree::error::Result;
 use crate::device_tree::header::DeviceTreeHeader;
+use crate::device_tree::utils::{
+    align_block, align_size, locate_block, read_aligned_be_number, read_aligned_be_u32,
+    read_aligned_sized_strings, read_name, BLOCK_SIZE,
+};
 
 /// Enum representing different possible property values in a Device Tree
-pub enum PropertyValue<'a> {
+pub enum PropertyValue<'a, A: Allocator + Clone> {
     None,
     Integer(u64),
-    Integers(Vec<u64>),
+    Integers(Vec<u64, A>),
     PHandle(u32),
     String(&'a str),
-    Strings(Vec<&'a str>),
+    Strings(Vec<&'a str, A>),
     Address(u64, u64),
-    Addresses(Vec<(u64, u64)>),
-    Ranges(Vec<(u64, u64, u64)>),
+    Addresses(Vec<(u64, u64), A>),
+    Ranges(Vec<(u64, u64, u64), A>),
     Unknown,
 }
 
 /// Implements the Display trait for PropertyValue to allow it to be printed
-impl<'a> Display for PropertyValue<'a> {
+impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             PropertyValue::None => write!(f, ""),
@@ -69,13 +70,13 @@ impl<'a> Display for PropertyValue<'a> {
 }
 
 /// A property of [crate::node::DeviceTreeNode]
-pub struct NodeProperty<'a> {
+pub struct NodeProperty<'a, A: Allocator + Clone> {
     pub(crate) block_count: usize,
     name: &'a str,
-    value: PropertyValue<'a>,
+    value: PropertyValue<'a, A>,
 }
 
-impl<'a> NodeProperty<'a> {
+impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
     /// Creates a new NodeProperty instance from raw bytes
     pub(crate) fn from_bytes(
         data: &'a [u8],
@@ -83,7 +84,8 @@ impl<'a> NodeProperty<'a> {
         start: usize,
         inherited: &InheritedValues,
         owned: &InheritedValues,
-    ) -> Result<NodeProperty<'a>> {
+        allocator: A,
+    ) -> Result<Self> {
         let prop_block_start = align_block(start);
         if let Some(prop_val_size) = read_aligned_be_u32(data, prop_block_start + 1) {
             if let Some(name_offset) = read_aligned_be_u32(data, prop_block_start + 2) {
@@ -93,7 +95,9 @@ impl<'a> NodeProperty<'a> {
                     if prop_val_size > 0 {
                         let raw_value = &data[locate_block(value_index)
                             ..(locate_block(value_index) + prop_val_size as usize)];
-                        match NodeProperty::parse_value(raw_value, name, inherited, owned) {
+                        match NodeProperty::parse_value(
+                            raw_value, name, inherited, owned, allocator,
+                        ) {
                             Ok(value) => Ok(Self {
                                 block_count: 3 + align_size(prop_val_size as usize),
                                 name,
@@ -125,10 +129,13 @@ impl<'a> NodeProperty<'a> {
         name: &str,
         inherited: &InheritedValues,
         owned: &InheritedValues,
-    ) -> Result<PropertyValue<'a>> {
+        allocator: A,
+    ) -> Result<PropertyValue<'a, A>> {
         match name {
             "compatible" | "model" | "status" => {
-                if let Some(strs) = read_aligned_sized_strings(raw_value, 0, raw_value.len()) {
+                if let Some(strs) =
+                    read_aligned_sized_strings(raw_value, 0, raw_value.len(), allocator)
+                {
                     if strs.len() > 1 {
                         Ok(PropertyValue::Strings(strs))
                     } else {
@@ -157,7 +164,7 @@ impl<'a> NodeProperty<'a> {
 
                 let group_size = align_size(raw_value.len()) / (address_cells + size_cells);
                 if group_size > 1 {
-                    let mut regs = Vec::<(u64, u64)>::new();
+                    let mut regs = Vec::<(u64, u64), A>::new_in(allocator);
                     for i in 0..group_size {
                         let group_index = i * (address_cells + size_cells);
                         let res = (
@@ -194,7 +201,7 @@ impl<'a> NodeProperty<'a> {
                 };
                 let single_size = child_cells + parent_cells + size_cells;
                 let group_size = align_size(raw_value.len()) / single_size;
-                let mut rags = Vec::<(u64, u64, u64)>::new();
+                let mut rags = Vec::<(u64, u64, u64), A>::new_in(allocator);
                 for i in 0..group_size {
                     let group_index = i * single_size;
                     let res = (
@@ -221,12 +228,14 @@ impl<'a> NodeProperty<'a> {
                 }
             }
             _ => {
-                let a = raw_value.len() as usize % BLOCK_SIZE == 0; 
+                let a = raw_value.len() as usize % BLOCK_SIZE == 0;
                 let b = raw_value[0] != b'\0'
-                && raw_value[(raw_value.len() - 1) as usize] == b'\0'
-                && raw_value.is_ascii(); 
+                    && raw_value[(raw_value.len() - 1) as usize] == b'\0'
+                    && raw_value.is_ascii();
                 if !a || a && b {
-                    if let Some(strs) = read_aligned_sized_strings(raw_value, 0, raw_value.len()) {
+                    if let Some(strs) =
+                        read_aligned_sized_strings(raw_value, 0, raw_value.len(), allocator)
+                    {
                         if strs.len() > 1 {
                             Ok(PropertyValue::Strings(strs))
                         } else {
@@ -238,7 +247,7 @@ impl<'a> NodeProperty<'a> {
                 } else {
                     let size = raw_value.len() as usize / BLOCK_SIZE;
                     if size > 1 {
-                        let mut res = Vec::<u64>::new();
+                        let mut res = Vec::<u64, A>::new_in(allocator);
                         for i in 0..size {
                             if let Some(num) = read_aligned_be_u32(raw_value, i) {
                                 res.push(num as u64);
@@ -263,13 +272,13 @@ impl<'a> NodeProperty<'a> {
     }
 
     /// Returns the PropertyValue of the NodeProperty
-    pub fn value(&self) -> &PropertyValue {
+    pub fn value(&self) -> &PropertyValue<'a, A> {
         &self.value
     }
 }
 
 /// Implements the Display trait for NodeProperty to allow it to be printed
-impl<'a> Display for NodeProperty<'a> {
+impl<'a, A: Allocator + Clone> Display for NodeProperty<'a, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match &self.value {
             PropertyValue::Unknown | PropertyValue::None => write!(f, "{};", self.name),

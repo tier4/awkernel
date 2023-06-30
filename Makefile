@@ -1,5 +1,5 @@
 ifndef $(BSP)
-	BSP = raspi3
+	BSP = aarch64_virt
 endif
 
 ifeq ($(RELEASE), 1)
@@ -12,15 +12,21 @@ endif
 # 2MiB Stack
 STACKSIZE = 1024 * 1024 * 2
 
-# 4 CPUs
-NUMCPU = 4
 
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
 	INITADDR = 0x80000
+	OPT = --features raspi3
+	NUMCPU = 4
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0
+	OPT = --features raspi4
+	NUMCPU = 4
+else ifeq ($(BSP),aarch64_virt)
+	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
+	INITADDR = 0x40080000
+	NUMCPU = 4
 endif
 
 ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/device/raspi.S kernel/asm/aarch64/exception.S
@@ -42,17 +48,17 @@ endif
 QEMUPORT=5556
 
 
-all: raspi x86_64 riscv32 std
+all: aarch64 x86_64 riscv32 std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
 FORCE:
 
 # AArch64
-raspi: kernel8.img
+aarch64: kernel8.img
 
-target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds kernel FORCE
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly $(BSP) $(OPT)
+target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds FORCE
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(OPT)
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
@@ -63,13 +69,16 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
+QEMU_AARCH64_ARGS= -m 1024 -kernel kernel8.img
+QEMU_AARCH64_ARGS+= -serial stdio -display none
+QEMU_AARCH64_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
 
-QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -kernel kernel8.img
-QEMU_RASPI3_ARGS+= -serial stdio -display none
-QEMU_RASPI3_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
+## Raspi3
+
+QEMU_RASPI3_ARGS= -M raspi3b $(QEMU_AARCH64_ARGS)
 
 qemu-raspi3:
-	qemu-system-aarch64  $(QEMU_RASPI3_ARGS)
+	qemu-system-aarch64 $(QEMU_RASPI3_ARGS)
 
 debug-raspi3:
 	qemu-system-aarch64 $(QEMU_RASPI3_ARGS) -s -S
@@ -77,7 +86,14 @@ debug-raspi3:
 gdb-raspi3:
 	gdb-multiarch -x aarch64-debug.gdb
 
-## x86_64
+## Virt
+
+QEMU_AARCH64_VIRT_ARGS= -M virt -cpu cortex-a72 -smp 4 $(QEMU_AARCH64_ARGS)
+
+qemu-aarch64-virt:
+	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
+
+# x86_64
 
 x86_64: x86_64_uefi.img
 
@@ -106,7 +122,7 @@ debug-x86_64:
 gdb-x86_64:
 	gdb-multiarch -x x86-debug.gdb
 
-## riscv32
+# riscv32
 
 riscv32:
 	cargo +nightly rv32 $(OPT)
@@ -114,7 +130,7 @@ riscv32:
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
 
-## Linux / macOS
+# Linux / macOS
 
 std: FORCE
 	cargo +nightly std $(OPT)
@@ -122,14 +138,14 @@ std: FORCE
 run-std:
 	cargo +nightly run --package awkernel --no-default-features --features std $(OPT)
 
-## Test
+# Test
 
 test: FORCE
 	cargo test_awkernel_lib
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
 
-## Clean
+# Clean
 
 clean: FORCE
 	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
@@ -137,7 +153,7 @@ clean: FORCE
 	$(MAKE) -C $(X86ASM) clean
 
 
-### QEMU Monitor
+## QEMU Monitor
 
 monitor : FORCE
 	telnet localhost $(QEMUPORT)
