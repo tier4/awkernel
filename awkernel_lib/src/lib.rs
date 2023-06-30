@@ -15,6 +15,7 @@ pub mod device_tree;
 pub mod interrupt;
 pub mod logger;
 pub mod mmio;
+pub mod static_alloc;
 pub mod sync;
 pub mod timer;
 pub mod unwind;

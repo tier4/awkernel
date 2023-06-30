@@ -20,6 +20,7 @@ use awkernel_lib::{
     console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
 };
 use core::{
+    mem::MaybeUninit,
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -27,6 +28,10 @@ use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START};
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+const DEVICE_TREE_MEMORY_SIZE: usize = 1024 * 8;
+static mut DEVICE_TREE_MEMORY: [MaybeUninit<u8>; DEVICE_TREE_MEMORY_SIZE] =
+    [MaybeUninit::new(0); DEVICE_TREE_MEMORY_SIZE];
 
 /// Entry point from assembly code.
 #[no_mangle]
