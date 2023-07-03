@@ -16,11 +16,8 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{
-    console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
-};
+use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap};
 use core::{
-    mem::MaybeUninit,
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -28,10 +25,6 @@ use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START};
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
-const DEVICE_TREE_MEMORY_SIZE: usize = 1024 * 8;
-static mut DEVICE_TREE_MEMORY: [MaybeUninit<u8>; DEVICE_TREE_MEMORY_SIZE] =
-    [MaybeUninit::new(0); DEVICE_TREE_MEMORY_SIZE];
 
 /// Entry point from assembly code.
 #[no_mangle]
@@ -134,9 +127,9 @@ unsafe fn primary_cpu() {
     };
 
     // TODO
-    // let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-    // let tree = DeviceTree::from_bytes(&dtb).unwrap();
-    // log::info!("{}", tree);
+    let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
+    let tree = super::device_tree::from_bytes(dtb).unwrap();
+    log::info!("{}", tree);
 
     crate::main::<()>(kernel_info);
 }

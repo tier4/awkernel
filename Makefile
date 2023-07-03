@@ -16,12 +16,12 @@ STACKSIZE = 1024 * 1024 * 2
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
 	INITADDR = 0x80000
-	OPT = --features raspi3
+	OPT += --features raspi3
 	NUMCPU = 4
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0
-	OPT = --features raspi4
+	OPT += --features raspi4
 	NUMCPU = 4
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72

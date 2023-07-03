@@ -42,6 +42,16 @@ pub struct StaticAlloc<
     tlsf: *mut TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>,
 }
 
+impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
+    StaticAlloc<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+{
+    pub fn new(tlsf: &mut TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>) -> Self {
+        Self {
+            tlsf: tlsf as *mut _,
+        }
+    }
+}
+
 unsafe impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
     for StaticAlloc<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
 where
