@@ -12,6 +12,7 @@ use awkernel_async_lib::{
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::embedded;
 use core::time::Duration;
+mod ping;
 
 pub fn init() {
     let task_id = task::spawn(
@@ -30,7 +31,7 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
-    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(TaskFfi)]).unwrap();
+    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(TaskFfi), Box::new(PingFfi)]).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
@@ -131,6 +132,9 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 (export task () (IO (-> () []))
     (task_ffi))
+
+(export ping () (IO (-> () []))
+    (ping_ffi))
 ";
 
 #[embedded]
@@ -141,6 +145,7 @@ fn help_ffi() {
     console::print("BLisp functions:\n");
     console::print(CODE);
 }
+
 
 #[embedded]
 fn task_ffi() {
@@ -166,6 +171,12 @@ fn task_ffi() {
         };
         console::print(&msg);
     }
+}
+
+#[embedded]
+fn ping_ffi() {
+    console::print("ping\n");
+    ping::icmp_test();
 }
 
 fn print_tasks() {
