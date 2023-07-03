@@ -1,5 +1,4 @@
 use alloc::collections::VecDeque;
-use alloc::vec;
 use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
@@ -33,8 +32,8 @@ impl<'a, A: Allocator + Clone> DeviceTree<'a, A> {
             data,
             &header,
             header.off_dt_struct as usize,
-            InheritedValues::new(),
-            InheritedValues::new(),
+            InheritedValues::new(allocator.clone()),
+            InheritedValues::new(allocator.clone()),
             allocator.clone(),
         )?;
 
@@ -141,12 +140,12 @@ impl<'a, A: Allocator + Clone> IntoIterator for &'a DeviceTree<'a, A> {
 }
 
 #[derive(Clone)]
-pub(crate) struct InheritedValues<'a>(Vec<(&'a str, u64)>);
+pub(crate) struct InheritedValues<'a, A: Allocator + Clone>(Vec<(&'a str, u64), A>);
 
-impl<'a> InheritedValues<'a> {
+impl<'a, A: Allocator + Clone> InheritedValues<'a, A> {
     /// Constructs a new InheritedValues instance
-    pub const fn new() -> InheritedValues<'a> {
-        InheritedValues(vec![])
+    pub const fn new(alloc: A) -> InheritedValues<'a, A> {
+        InheritedValues(Vec::new_in(alloc))
     }
 
     /// Finds a value in the inherited values by its name

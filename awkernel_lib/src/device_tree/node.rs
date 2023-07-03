@@ -24,8 +24,8 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
         data: &'a [u8],
         header: &DeviceTreeHeader,
         start: usize,
-        inherited: InheritedValues<'a>,
-        owned: InheritedValues<'a>,
+        inherited: InheritedValues<'a, A>,
+        owned: InheritedValues<'a, A>,
         allocator: A,
     ) -> Result<Self> {
         let block_start = align_size(start);
@@ -77,8 +77,8 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
     header: &DeviceTreeHeader,
     block_start: usize,
     name: &'a str,
-    inherited: InheritedValues<'a>,
-    mut owned: InheritedValues<'a>,
+    inherited: InheritedValues<'a, A>,
+    mut owned: InheritedValues<'a, A>,
     allocator: A,
 ) -> Result<(
     Vec<NodeProperty<'a, A>, A>,

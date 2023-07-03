@@ -1,7 +1,5 @@
 [alias]
 x86 = "build --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi3 = "build --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi4 = "build --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 aarch64 = "build --package awkernel --no-default-features --features aarch64 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 rv32 = "build --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 std = "build --package awkernel --no-default-features --features std"

@@ -1,5 +1,23 @@
-use core::{alloc::Allocator, mem::MaybeUninit, ptr::NonNull};
+//! A allocator which uses a dedicated memory region.
+//! This can be used for `Box`, `Vec`, etc. instead of the global allocator.
+//!
+//! # Example
+//!
+//! ```
+//! #![feature(allocator_api)]
+//!
+//! use awkernel_lib::local_heap::{TLSF, LocalHeap};
+//! use core::mem::MaybeUninit;
+//!
+//! let mut memory_pool = [MaybeUninit::new(0); 1024];
+//! let mut tlsf: TLSF = TLSF::new(&mut memory_pool);
+//! let alloc = LocalHeap::new(&mut tlsf);
+//!
+//! // create a `Box`
+//! let value = Box::new_in(100, alloc.clone());
+//! ```
 
+use core::{alloc::Allocator, mem::MaybeUninit, ptr::NonNull};
 use rlsf::int::BinInteger;
 
 const FLLEN_DEFAULT: usize = 14; // The maximum block size is (32 << 14) - 1 = 512KiB - 1
@@ -7,6 +25,12 @@ const SLLEN_DEFAULT: usize = 64; // The worst-case internal fragmentation is ((3
 type FLBitmapDefault = u16; // must be equal to or larger than FLLEN
 type SLBitmapDefault = u64; // must be equal to or longer than SLLEN
 
+/// TLSF O(1) memory allocator.
+///
+/// # Default Configuration
+///
+/// - `FLBitmap = 14`: The maximum block size is (32 << 14) - 1 = 512KiB - 1
+/// - `SLBitmap =  64`: The worst-case internal fragmentation is ((32 << 14) / 64 - 2) = 8190
 pub struct TLSF<
     'pool,
     FLBitmap = FLBitmapDefault,
@@ -31,8 +55,9 @@ where
     }
 }
 
+/// A local heap allocator.
 #[derive(Clone)]
-pub struct StaticAlloc<
+pub struct LocalHeap<
     'pool,
     FLBitmap = FLBitmapDefault,
     SLBitmap = SLBitmapDefault,
@@ -43,7 +68,7 @@ pub struct StaticAlloc<
 }
 
 impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
-    StaticAlloc<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+    LocalHeap<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
 {
     pub fn new(tlsf: &mut TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>) -> Self {
         Self {
@@ -53,7 +78,7 @@ impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
 }
 
 unsafe impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
-    for StaticAlloc<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+    for LocalHeap<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
 where
     FLBitmap: BinInteger,
     SLBitmap: BinInteger,
@@ -75,5 +100,23 @@ where
         let ptr = ptr.as_ptr();
         let tlsf = unsafe { &mut (*self.tlsf).allocator };
         tlsf.deallocate(NonNull::new_unchecked(ptr), layout.align());
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use alloc::{boxed::Box, vec::Vec};
+
+    use super::*;
+
+    #[test]
+    fn test_local_heap() {
+        let mut memory_pool = [MaybeUninit::new(0); 1024];
+        let mut tlsf: TLSF = TLSF::new(&mut memory_pool);
+        let alloc = LocalHeap::new(&mut tlsf);
+
+        let _a = Box::new_in(100, alloc.clone());
+        let mut b = Vec::new_in(alloc);
+        b.push(20);
     }
 }

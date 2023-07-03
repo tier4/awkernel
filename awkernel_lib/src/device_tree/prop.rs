@@ -82,8 +82,8 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
         data: &'a [u8],
         header: &DeviceTreeHeader,
         start: usize,
-        inherited: &InheritedValues,
-        owned: &InheritedValues,
+        inherited: &InheritedValues<A>,
+        owned: &InheritedValues<A>,
         allocator: A,
     ) -> Result<Self> {
         let prop_block_start = align_block(start);
@@ -127,8 +127,8 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
     pub(crate) fn parse_value(
         raw_value: &'a [u8],
         name: &str,
-        inherited: &InheritedValues,
-        owned: &InheritedValues,
+        inherited: &InheritedValues<A>,
+        owned: &InheritedValues<A>,
         allocator: A,
     ) -> Result<PropertyValue<'a, A>> {
         match name {

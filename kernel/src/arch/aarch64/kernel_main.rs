@@ -48,6 +48,13 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 4. Enable heap allocator.
 /// 5. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu() {
+    // Read the device tree.
+    let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
+    let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
+        unsafe_puts("kernel panic: failed to load the device tree\n");
+        return;
+    };
+
     // Initialize UART.
     super::bsp::init_device();
 
@@ -127,8 +134,6 @@ unsafe fn primary_cpu() {
     };
 
     // TODO
-    let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-    let tree = super::device_tree::from_bytes(dtb).unwrap();
     log::info!("{}", tree);
 
     crate::main::<()>(kernel_info);
