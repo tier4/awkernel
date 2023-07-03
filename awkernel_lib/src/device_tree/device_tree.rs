@@ -26,8 +26,13 @@ impl<'a, A: Allocator + Clone> DeviceTree<'a, A> {
 
     /// Constructs a device tree from bytes
     pub fn from_bytes(data: &'a [u8], allocator: A) -> Result<Self> {
+        unsafe { crate::console::unsafe_puts("checking magic number\n") };
         Self::check_magic(&data[0..4])?;
+
+        unsafe { crate::console::unsafe_puts("loading the device tree header\n") };
         let header = DeviceTreeHeader::from_bytes(data)?;
+
+        unsafe { crate::console::unsafe_puts("loading the device tree root\n") };
         let root = DeviceTreeNode::from_bytes(
             data,
             &header,

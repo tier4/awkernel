@@ -21,9 +21,9 @@ use core::{alloc::Allocator, mem::MaybeUninit, ptr::NonNull};
 use rlsf::int::BinInteger;
 
 const FLLEN_DEFAULT: usize = 14; // The maximum block size is (32 << 14) - 1 = 512KiB - 1
-const SLLEN_DEFAULT: usize = 64; // The worst-case internal fragmentation is ((32 << 14) / 64 - 2) = 8190
+const SLLEN_DEFAULT: usize = 32; // The worst-case internal fragmentation is ((32 << 14) / 64 - 2) = 8190
 type FLBitmapDefault = u16; // must be equal to or larger than FLLEN
-type SLBitmapDefault = u64; // must be equal to or longer than SLLEN
+type SLBitmapDefault = u32; // must be equal to or longer than SLLEN
 
 /// TLSF O(1) memory allocator.
 ///
@@ -48,7 +48,9 @@ where
     SLBitmap: BinInteger,
 {
     pub fn new(memory_pool: &'pool mut [MaybeUninit<u8>]) -> Self {
+        unsafe { crate::console::unsafe_puts("TLSF::new 1\n") };
         let mut allocator = rlsf::Tlsf::new();
+        unsafe { crate::console::unsafe_puts("TLSF::new 2\n") };
         allocator.insert_free_block(memory_pool);
 
         Self { allocator }
