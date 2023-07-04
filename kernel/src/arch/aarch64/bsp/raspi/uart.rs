@@ -4,7 +4,7 @@ use crate::{
 };
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::console::Console;
-use core::arch::asm;
+use core::{arch::asm, fmt::Write};
 
 pub fn init() -> impl Console {
     let mut pl011 = PL011::new(UART0_BASE, UART_IRQ);
@@ -34,8 +34,8 @@ pub fn init() -> impl Console {
 }
 
 pub unsafe fn unsafe_puts(data: &str) {
-    let pl011 = PL011::new(UART0_BASE, UART_IRQ);
-    pl011.unsafe_puts(data);
+    let mut pl011 = PL011::new(UART0_BASE, UART_IRQ);
+    let _ = pl011.write_str(data);
 }
 
 /// Wait N CPU cycles

@@ -65,15 +65,6 @@ impl PL011 {
         Self { base_addr, irq }
     }
 
-    pub unsafe fn unsafe_puts(&self, data: &str) {
-        for c in data.bytes() {
-            self.putc(c as u32);
-            if c == b'\n' {
-                self.putc(b'\r' as u32);
-            }
-        }
-    }
-
     /// Initialiaze UART0 for serial console.
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".
@@ -92,22 +83,17 @@ impl PL011 {
         ); // 8n1, FIFO
         registers::UART0_IFLS.write(registers::IFLS_RXIFLSEL_1_8, self.base_addr);
     }
-
-    unsafe fn putc(&self, c: u32) {
-        // wait until we can send
-        unsafe { asm!("nop;") };
-        while registers::UART0_FR.read(self.base_addr) & 0x20 != 0 {
-            unsafe { asm!("nop;") };
-        }
-
-        // write the character to the buffer
-        registers::UART0_DR.write(c, self.base_addr);
-    }
 }
 
 impl Write for PL011 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        unsafe { self.unsafe_puts(s) };
+        for c in s.bytes() {
+            self.put(c);
+            if c == b'\n' {
+                self.put(b'\r');
+            }
+        }
+
         Ok(())
     }
 }
@@ -147,6 +133,13 @@ impl Console for PL011 {
     }
 
     fn put(&mut self, data: u8) {
-        unsafe { self.putc(data as u32) };
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while registers::UART0_FR.read(self.base_addr) & 0x20 != 0 {
+            unsafe { asm!("nop;") };
+        }
+
+        // write the character to the buffer
+        registers::UART0_DR.write(data as u32, self.base_addr);
     }
 }
