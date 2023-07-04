@@ -1,3 +1,7 @@
+//! Board Support Package (BSP).
+//!
+//! - `raspi` is for Raspberry Pi 3 (Qemu) and 4.
+
 pub mod config;
 pub mod memory;
 

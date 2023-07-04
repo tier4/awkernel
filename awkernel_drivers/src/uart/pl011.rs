@@ -1,13 +1,12 @@
-use crate::arch::aarch64::bsp::memory::*;
 use awkernel_lib::console::Console;
 use core::{arch::asm, fmt::Write};
 
 pub struct PL011 {
+    base_addr: usize,
     irq: u16,
 }
 
 mod registers {
-    use crate::arch::aarch64::bsp::memory::UART0_BASE;
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
     use bitflags::bitflags;
 
@@ -44,42 +43,33 @@ mod registers {
     pub const LCR_H_WLEN_8BITS: u32 = 0b11 << 5; // Word length (8bits)
     pub const LCR_H_FEN_FIFO: u32 = 1 << 4; // Enable FIFOs
 
-    mmio_rw!(UART0_BASE         => pub UART0_DR<u32>);
-    mmio_rw!(UART0_BASE + 0x018 => pub UART0_FR<u32>);
-    mmio_rw!(UART0_BASE + 0x020 => pub UART0_ILPR<u32>);
-    mmio_rw!(UART0_BASE + 0x024 => pub UART0_IBRD<u32>);
-    mmio_rw!(UART0_BASE + 0x028 => pub UART0_FBRD<u32>);
-    mmio_rw!(UART0_BASE + 0x02c => pub UART0_LCR_H<u32>);
-    mmio_rw!(UART0_BASE + 0x030 => pub UART0_CR<CR>);
-    mmio_rw!(UART0_BASE + 0x034 => pub UART0_IFLS<u32>);
-    mmio_rw!(UART0_BASE + 0x038 => pub UART0_IMSC<u32>);
-    mmio_r! (UART0_BASE + 0x03c => pub UART0_RIS<u32>);
-    mmio_r! (UART0_BASE + 0x040 => pub UART0_MIS<u32>);
-    mmio_w! (UART0_BASE + 0x044 => pub UART0_ICR<ICR>);
-    mmio_rw!(UART0_BASE + 0x048 => pub UART0_DMACR<u32>);
+    mmio_rw!(offset 0x000 => pub UART0_DR<u32>);
+    mmio_rw!(offset 0x018 => pub UART0_FR<u32>);
+    mmio_rw!(offset 0x020 => pub UART0_ILPR<u32>);
+    mmio_rw!(offset 0x024 => pub UART0_IBRD<u32>);
+    mmio_rw!(offset 0x028 => pub UART0_FBRD<u32>);
+    mmio_rw!(offset 0x02c => pub UART0_LCR_H<u32>);
+    mmio_rw!(offset 0x030 => pub UART0_CR<CR>);
+    mmio_rw!(offset 0x034 => pub UART0_IFLS<u32>);
+    mmio_rw!(offset 0x038 => pub UART0_IMSC<u32>);
+    mmio_r! (offset 0x03c => pub UART0_RIS<u32>);
+    mmio_r! (offset 0x040 => pub UART0_MIS<u32>);
+    mmio_w! (offset 0x044 => pub UART0_ICR<ICR>);
+    mmio_rw!(offset 0x048 => pub UART0_DMACR<u32>);
 }
 
 const IMSC_RXIM: u32 = 1 << 4;
 
-/// Wait N CPU cycles
-fn wait_cycles(n: usize) {
-    if n > 0 {
-        for _ in 0..n {
-            unsafe { asm!("nop;") };
-        }
-    }
-}
-
 impl PL011 {
-    pub fn new(irq: u16) -> Self {
-        Self { irq }
+    pub fn new(base_addr: usize, irq: u16) -> Self {
+        Self { base_addr, irq }
     }
 
-    pub unsafe fn unsafe_puts(data: &str) {
+    pub unsafe fn unsafe_puts(&self, data: &str) {
         for c in data.bytes() {
-            Self::putc(c as u32);
+            self.putc(c as u32);
             if c == b'\n' {
-                Self::putc(b'\r' as u32);
+                self.putc(b'\r' as u32);
             }
         }
     }
@@ -87,55 +77,37 @@ impl PL011 {
     /// Initialiaze UART0 for serial console.
     /// Set baud rate and characteristics (8N1) and map to GPIO 14 (Tx) and 15 (Rx).
     /// 8N1 stands for "eight data bits, no parity, one stop bit".
-    pub unsafe fn init_device(uart_clock: usize, baudrate: usize) {
-        registers::UART0_CR.write(registers::CR::empty()); // turn off UART0
-
-        // map UART1 to GPIO pins
-        let mut r = GPFSEL1.read();
-        r &= !((7 << 12) | (7 << 15)); // gpio14, gpio15
-        r |= (4 << 12) | (4 << 15); // alt0
-
-        // enable pins 14 and 15
-        GPFSEL1.write(r);
-        GPPUD.write(0);
-
-        wait_cycles(150);
-
-        GPPUDCLK0.write((1 << 14) | (1 << 15));
-
-        wait_cycles(150);
-
+    pub unsafe fn init_device(&self, uart_clock: usize, baudrate: usize) {
         let bauddiv: u32 = ((1000 * uart_clock) / (16 * baudrate)) as u32;
         let ibrd: u32 = bauddiv / 1000;
         let fbrd: u32 = ((bauddiv - ibrd * 1000) * 64 + 500) / 1000;
 
-        GPPUDCLK0.write(0); // flush GPIO setup
-        registers::UART0_ICR.write(registers::ICR::all()); // clear interrupts
-        registers::UART0_IBRD.write(ibrd);
-        registers::UART0_FBRD.write(fbrd);
+        registers::UART0_ICR.write(registers::ICR::all(), self.base_addr); // clear interrupts
+        registers::UART0_IBRD.write(ibrd, self.base_addr);
+        registers::UART0_FBRD.write(fbrd, self.base_addr);
 
-        registers::UART0_LCR_H.write(registers::LCR_H_WLEN_8BITS | registers::LCR_H_FEN_FIFO); // 8n1, FIFO
-        registers::UART0_IFLS.write(registers::IFLS_RXIFLSEL_1_8); // RX FIFO fill level at 1/8
-
-        // enable, Rx, Tx
-        registers::UART0_CR.write(registers::CR::EN | registers::CR::RXE | registers::CR::TXE);
+        registers::UART0_LCR_H.write(
+            registers::LCR_H_WLEN_8BITS | registers::LCR_H_FEN_FIFO,
+            self.base_addr,
+        ); // 8n1, FIFO
+        registers::UART0_IFLS.write(registers::IFLS_RXIFLSEL_1_8, self.base_addr);
     }
 
-    unsafe fn putc(c: u32) {
+    unsafe fn putc(&self, c: u32) {
         // wait until we can send
         unsafe { asm!("nop;") };
-        while registers::UART0_FR.read() & 0x20 != 0 {
+        while registers::UART0_FR.read(self.base_addr) & 0x20 != 0 {
             unsafe { asm!("nop;") };
         }
 
         // write the character to the buffer
-        registers::UART0_DR.write(c);
+        registers::UART0_DR.write(c, self.base_addr);
     }
 }
 
 impl Write for PL011 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        unsafe { Self::unsafe_puts(s) };
+        unsafe { self.unsafe_puts(s) };
         Ok(())
     }
 }
@@ -143,23 +115,23 @@ impl Write for PL011 {
 impl Console for PL011 {
     fn enable(&mut self) {
         use registers::CR;
-        registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE); // enable, Rx, Tx
+        registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE, self.base_addr); // enable, Rx, Tx
     }
 
     fn disable(&mut self) {
-        registers::UART0_CR.write(registers::CR::empty());
+        registers::UART0_CR.write(registers::CR::empty(), self.base_addr);
     }
 
     fn enable_recv_interrupt(&mut self) {
-        registers::UART0_IMSC.setbits(IMSC_RXIM);
+        registers::UART0_IMSC.setbits(IMSC_RXIM, self.base_addr);
     }
 
     fn disable_recv_interrupt(&mut self) {
-        registers::UART0_IMSC.clrbits(IMSC_RXIM);
+        registers::UART0_IMSC.clrbits(IMSC_RXIM, self.base_addr);
     }
 
     fn acknowledge_recv_interrupt(&mut self) {
-        registers::UART0_ICR.write(registers::ICR::RXIC);
+        registers::UART0_ICR.write(registers::ICR::RXIC, self.base_addr);
     }
 
     fn irq_id(&self) -> u16 {
@@ -167,14 +139,14 @@ impl Console for PL011 {
     }
 
     fn get(&mut self) -> Option<u8> {
-        if registers::UART0_FR.read() & 0x10 != 0 {
+        if registers::UART0_FR.read(self.base_addr) & 0x10 != 0 {
             None
         } else {
-            Some(registers::UART0_DR.read() as u8)
+            Some(registers::UART0_DR.read(self.base_addr) as u8)
         }
     }
 
     fn put(&mut self, data: u8) {
-        unsafe { Self::putc(data as u32) };
+        unsafe { self.putc(data as u32) };
     }
 }

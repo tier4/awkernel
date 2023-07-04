@@ -1,13 +1,12 @@
+use self::{config::UART_IRQ, memory::UART0_BASE};
 use alloc::boxed::Box;
+use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{console::register_console, interrupt::register_interrupt_controller};
 use core::arch::asm;
 
-use crate::arch::aarch64::driver::uart;
-
-use self::config::UART_IRQ;
-
 pub mod config;
 pub mod memory;
+mod uart;
 
 pub fn start_non_primary() {
     if cfg!(feature = "raspi3") {
@@ -69,7 +68,7 @@ pub fn init() {
 }
 
 fn init_uart() {
-    let port = Box::new(uart::pl011::PL011::new(UART_IRQ));
+    let port = Box::new(PL011::new(UART0_BASE, UART_IRQ));
     register_console(port);
 
     // let _ = log::set_logger(&CONSOLE);
@@ -77,6 +76,6 @@ fn init_uart() {
 }
 
 pub unsafe fn init_device() {
-    uart::init_device();
+    uart::init();
     awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
 }
