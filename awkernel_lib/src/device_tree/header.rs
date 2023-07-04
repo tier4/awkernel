@@ -21,16 +21,16 @@ impl DeviceTreeHeader {
             Err(DeviceTreeError::NotEnoughLength)
         } else {
             Ok(Self {
-                magic: read_aligned_be_u32(data, 0).unwrap(),
-                total_size: read_aligned_be_u32(data, 1).unwrap(),
-                off_dt_struct: read_aligned_be_u32(data, 2).unwrap(),
-                off_dt_strings: read_aligned_be_u32(data, 3).unwrap(),
-                off_mem_reserved: read_aligned_be_u32(data, 4).unwrap(),
-                version: read_aligned_be_u32(data, 5).unwrap(),
-                last_comp_version: read_aligned_be_u32(data, 6).unwrap(),
-                boot_cpu_id: read_aligned_be_u32(data, 7).unwrap(),
-                size_dt_strings: read_aligned_be_u32(data, 8).unwrap(),
-                size_dt_struct: read_aligned_be_u32(data, 9).unwrap(),
+                magic: read_aligned_be_u32(data, 0)?,
+                total_size: read_aligned_be_u32(data, 1)?,
+                off_dt_struct: read_aligned_be_u32(data, 2)?,
+                off_dt_strings: read_aligned_be_u32(data, 3)?,
+                off_mem_reserved: read_aligned_be_u32(data, 4)?,
+                version: read_aligned_be_u32(data, 5)?,
+                last_comp_version: read_aligned_be_u32(data, 6)?,
+                boot_cpu_id: read_aligned_be_u32(data, 7)?,
+                size_dt_strings: read_aligned_be_u32(data, 8)?,
+                size_dt_struct: read_aligned_be_u32(data, 9)?,
             })
         }
     }

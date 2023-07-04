@@ -30,8 +30,7 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     ) -> Result<Self> {
         let block_start = align_size(start);
 
-        let begin_node =
-            read_aligned_be_u32(data, block_start).ok_or(DeviceTreeError::ParsingFailed)?;
+        let begin_node = read_aligned_be_u32(data, block_start)?;
 
         if begin_node != 0x1 {
             return Err(DeviceTreeError::InvalidToken);
@@ -96,7 +95,7 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
 
     let mut current_block = block_start + name_blocks + 1;
 
-    while let Some(token) = read_aligned_be_u32(data, current_block) {
+    while let Ok(token) = read_aligned_be_u32(data, current_block) {
         match token {
             0x3 => {
                 let prop = NodeProperty::from_bytes(

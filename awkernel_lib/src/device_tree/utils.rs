@@ -1,6 +1,6 @@
-use core::alloc::Allocator;
-
+use super::error::{DeviceTreeError, Result};
 use alloc::vec::Vec;
+use core::alloc::Allocator;
 
 pub(crate) const BLOCK_SIZE: usize = 4;
 
@@ -20,12 +20,12 @@ pub(crate) fn align_size(raw_size: usize) -> usize {
 }
 
 /// Reads an aligned block
-pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Option<[u8; BLOCK_SIZE]> {
+pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK_SIZE]> {
     let first = locate_block(index);
     if first + BLOCK_SIZE > data.len() {
-        None
+        Err(DeviceTreeError::ParsingFailed)
     } else {
-        Some([
+        Ok([
             data[first],
             data[first + 1],
             data[first + 2],
@@ -35,21 +35,21 @@ pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Option<[u8; BLOCK
 }
 
 /// Reads an aligned big-endian u32
-pub(crate) fn read_aligned_be_u32(data: &[u8], index: usize) -> Option<u32> {
+pub(crate) fn read_aligned_be_u32(data: &[u8], index: usize) -> Result<u32> {
     read_aligned_block(data, index).map(|block| u32::from_be_bytes(block))
 }
 
 /// Reads an aligned big-endian number
-pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Option<u128> {
+pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Result<u128> {
     match block_size {
-        0 => Some(0),
+        0 => Ok(0),
         1 => read_aligned_be_u32(data, index).map(|res| res as u128),
         2 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
             let num = u64::from_be_bytes([
                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
             ]);
-            Some(num as u128)
+            Ok(num as u128)
         }
         3 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
@@ -57,7 +57,7 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
                 bytes[8], bytes[9], bytes[10], bytes[11], 0, 0, 0, 0,
             ]);
-            Some(num as u128)
+            Ok(num as u128)
         }
         4 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
@@ -66,9 +66,9 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
                 bytes[15],
             ]);
-            Some(num)
+            Ok(num)
         }
-        _ => None,
+        _ => Err(DeviceTreeError::NotEnoughLength),
     }
 }
 
@@ -110,7 +110,7 @@ pub(crate) fn read_aligned_sized_strings<A: Allocator>(
         let mut res = Vec::<&str, A>::new_in(allocator);
         while current < first + size {
             if data[current] == b'\0' {
-                let value = core::str::from_utf8(&data[last..current]).unwrap();
+                let value = core::str::from_utf8(&data[last..current]).ok()?;
                 res.push(value);
                 last = current + 1;
             }

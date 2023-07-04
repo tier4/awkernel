@@ -87,8 +87,8 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
         allocator: A,
     ) -> Result<Self> {
         let prop_block_start = align_block(start);
-        if let Some(prop_val_size) = read_aligned_be_u32(data, prop_block_start + 1) {
-            if let Some(name_offset) = read_aligned_be_u32(data, prop_block_start + 2) {
+        if let Ok(prop_val_size) = read_aligned_be_u32(data, prop_block_start + 1) {
+            if let Ok(name_offset) = read_aligned_be_u32(data, prop_block_start + 2) {
                 if let Some(name) = read_name(data, (header.off_dt_strings + name_offset) as usize)
                 {
                     let value_index = prop_block_start + 3;
@@ -146,7 +146,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 }
             }
             "phandle" | "virtual-reg" => {
-                if let Some(int) = read_aligned_be_u32(raw_value, 0) {
+                if let Ok(int) = read_aligned_be_u32(raw_value, 0) {
                     Ok(PropertyValue::Integer(int as u64))
                 } else {
                     Err(ParsingFailed)
@@ -168,21 +168,20 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                     for i in 0..group_size {
                         let group_index = i * (address_cells + size_cells);
                         let res = (
-                            read_aligned_be_number(raw_value, group_index, address_cells).unwrap(),
+                            read_aligned_be_number(raw_value, group_index, address_cells)?,
                             read_aligned_be_number(
                                 raw_value,
                                 group_index + address_cells,
                                 size_cells,
-                            )
-                            .unwrap(),
+                            )?,
                         );
                         regs.push(res);
                     }
                     Ok(PropertyValue::Addresses(regs))
                 } else {
                     Ok(PropertyValue::Address(
-                        read_aligned_be_number(raw_value, 0, address_cells).unwrap(),
-                        read_aligned_be_number(raw_value, address_cells, size_cells).unwrap(),
+                        read_aligned_be_number(raw_value, 0, address_cells)?,
+                        read_aligned_be_number(raw_value, address_cells, size_cells)?,
                     ))
                 }
             }
@@ -205,23 +204,23 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 for i in 0..group_size {
                     let group_index = i * single_size;
                     let res = (
-                        read_aligned_be_number(raw_value, group_index, child_cells).unwrap(),
-                        read_aligned_be_number(raw_value, group_index, parent_cells).unwrap(),
-                        read_aligned_be_number(raw_value, group_index, size_cells).unwrap(),
+                        read_aligned_be_number(raw_value, group_index, child_cells)?,
+                        read_aligned_be_number(raw_value, group_index, parent_cells)?,
+                        read_aligned_be_number(raw_value, group_index, size_cells)?,
                     );
                     rags.push(res);
                 }
                 Ok(PropertyValue::Ranges(rags))
             }
             x if x.ends_with("-parent") => {
-                if let Some(int) = read_aligned_be_u32(raw_value, 0) {
+                if let Ok(int) = read_aligned_be_u32(raw_value, 0) {
                     Ok(PropertyValue::PHandle(int))
                 } else {
                     Err(ParsingFailed)
                 }
             }
             x if x.starts_with("#") && x.ends_with("cells") => {
-                if let Some(int) = read_aligned_be_u32(raw_value, 0) {
+                if let Ok(int) = read_aligned_be_u32(raw_value, 0) {
                     Ok(PropertyValue::Integer(int as u64))
                 } else {
                     Err(ParsingFailed)
@@ -252,7 +251,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                     if size > 1 {
                         let mut res = Vec::<u64, A>::new_in(allocator);
                         for i in 0..size {
-                            if let Some(num) = read_aligned_be_u32(raw_value, i) {
+                            if let Ok(num) = read_aligned_be_u32(raw_value, i) {
                                 res.push(num as u64);
                             } else {
                                 return Err(ParsingFailed);
@@ -261,7 +260,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                         Ok(PropertyValue::Integers(res))
                     } else {
                         Ok(PropertyValue::Integer(
-                            read_aligned_be_u32(raw_value, 0).unwrap() as u64,
+                            read_aligned_be_u32(raw_value, 0)? as u64
                         ))
                     }
                 }
