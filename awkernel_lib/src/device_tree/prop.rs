@@ -13,6 +13,8 @@ use crate::device_tree::utils::{
     read_aligned_sized_strings, read_name, BLOCK_SIZE,
 };
 
+use super::utils::safe_index;
+
 /// Enum representing different possible property values in a Device Tree
 pub enum PropertyValue<'a, A: Allocator + Clone> {
     None,
@@ -138,8 +140,10 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 {
                     if strs.len() > 1 {
                         Ok(PropertyValue::Strings(strs))
-                    } else {
+                    } else if strs.len() == 1 {
                         Ok(PropertyValue::String(strs[0]))
+                    } else {
+                        Ok(PropertyValue::String(""))
                     }
                 } else {
                     Err(ParsingFailed)
@@ -228,7 +232,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
             }
             _ => {
                 let a = raw_value.len() as usize % BLOCK_SIZE == 0;
-                let b = raw_value[0] != b'\0'
+                let b = *safe_index(raw_value, 0)? != b'\0'
                     && raw_value[(raw_value.len() - 1) as usize] == b'\0'
                     && raw_value.is_ascii();
 

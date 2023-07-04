@@ -19,6 +19,10 @@ pub(crate) fn align_size(raw_size: usize) -> usize {
     (raw_size + BLOCK_SIZE - 1) / BLOCK_SIZE
 }
 
+pub(crate) fn safe_index<T>(data: &[T], index: usize) -> Result<&T> {
+    data.get(index).ok_or(DeviceTreeError::ParsingFailed)
+}
+
 /// Reads an aligned block
 pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK_SIZE]> {
     let first = locate_block(index);
@@ -26,10 +30,10 @@ pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK
         Err(DeviceTreeError::ParsingFailed)
     } else {
         Ok([
-            data[first],
-            data[first + 1],
-            data[first + 2],
-            data[first + 3],
+            *safe_index(data, first)?,
+            *safe_index(data, first + 1)?,
+            *safe_index(data, first + 2)?,
+            *safe_index(data, first + 3)?,
         ])
     }
 }
@@ -47,24 +51,58 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
         2 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
             let num = u64::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                *safe_index(bytes, 0)?,
+                *safe_index(bytes, 1)?,
+                *safe_index(bytes, 2)?,
+                *safe_index(bytes, 3)?,
+                *safe_index(bytes, 4)?,
+                *safe_index(bytes, 5)?,
+                *safe_index(bytes, 6)?,
+                *safe_index(bytes, 7)?,
             ]);
             Ok(num as u128)
         }
         3 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
             let num = u128::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                bytes[8], bytes[9], bytes[10], bytes[11], 0, 0, 0, 0,
+                *safe_index(bytes, 0)?,
+                *safe_index(bytes, 1)?,
+                *safe_index(bytes, 2)?,
+                *safe_index(bytes, 3)?,
+                *safe_index(bytes, 4)?,
+                *safe_index(bytes, 5)?,
+                *safe_index(bytes, 6)?,
+                *safe_index(bytes, 7)?,
+                *safe_index(bytes, 8)?,
+                *safe_index(bytes, 9)?,
+                *safe_index(bytes, 10)?,
+                *safe_index(bytes, 11)?,
+                0,
+                0,
+                0,
+                0,
             ]);
             Ok(num as u128)
         }
         4 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
             let num = u128::from_be_bytes([
-                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
-                bytes[15],
+                *safe_index(bytes, 0)?,
+                *safe_index(bytes, 1)?,
+                *safe_index(bytes, 2)?,
+                *safe_index(bytes, 3)?,
+                *safe_index(bytes, 4)?,
+                *safe_index(bytes, 5)?,
+                *safe_index(bytes, 6)?,
+                *safe_index(bytes, 7)?,
+                *safe_index(bytes, 8)?,
+                *safe_index(bytes, 9)?,
+                *safe_index(bytes, 10)?,
+                *safe_index(bytes, 11)?,
+                *safe_index(bytes, 12)?,
+                *safe_index(bytes, 13)?,
+                *safe_index(bytes, 14)?,
+                *safe_index(bytes, 15)?,
             ]);
             Ok(num)
         }
