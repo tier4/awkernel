@@ -49,7 +49,9 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
         0 => Ok(0),
         1 => read_aligned_be_u32(data, index).map(|res| res as u128),
         2 => {
-            let bytes = &data[locate_block(index)..locate_block(index + block_size)];
+            let bytes = &data
+                .get(locate_block(index)..locate_block(index + block_size))
+                .ok_or(DeviceTreeError::ParsingFailed)?;
             let num = u64::from_be_bytes([
                 *safe_index(bytes, 0)?,
                 *safe_index(bytes, 1)?,
@@ -63,7 +65,9 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
             Ok(num as u128)
         }
         3 => {
-            let bytes = &data[locate_block(index)..locate_block(index + block_size)];
+            let bytes = &data
+                .get(locate_block(index)..locate_block(index + block_size))
+                .ok_or(DeviceTreeError::ParsingFailed)?;
             let num = u128::from_be_bytes([
                 *safe_index(bytes, 0)?,
                 *safe_index(bytes, 1)?,
@@ -85,7 +89,9 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
             Ok(num as u128)
         }
         4 => {
-            let bytes = &data[locate_block(index)..locate_block(index + block_size)];
+            let bytes = &data
+                .get(locate_block(index)..locate_block(index + block_size))
+                .ok_or(DeviceTreeError::ParsingFailed)?;
             let num = u128::from_be_bytes([
                 *safe_index(bytes, 0)?,
                 *safe_index(bytes, 1)?,
@@ -117,10 +123,10 @@ pub(crate) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
         None
     } else {
         let mut end = first;
-        while data[end] != '\0' as u8 {
+        while *data.get(end)? != '\0' as u8 {
             end = end + 1;
         }
-        match core::str::from_utf8(&data[first..end]) {
+        match core::str::from_utf8(&data.get(first..end)?) {
             Ok(s) => Some(s),
             _ => None,
         }
@@ -147,8 +153,8 @@ pub(crate) fn read_aligned_sized_strings<A: Allocator>(
         let mut last = current;
         let mut res = Vec::<&str, A>::new_in(allocator);
         while current < first + size {
-            if data[current] == b'\0' {
-                let value = core::str::from_utf8(&data[last..current]).ok()?;
+            if *data.get(current)? == b'\0' {
+                let value = core::str::from_utf8(&data.get(last..current)?).ok()?;
                 res.push(value);
                 last = current + 1;
             }

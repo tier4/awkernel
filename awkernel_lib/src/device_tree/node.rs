@@ -111,7 +111,7 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
                 current_block += prop.block_count;
                 if nodes.is_empty() {
                     if let PropertyValue::Integer(v) = prop.value() {
-                        owned.update(prop.name(), *v);
+                        owned.update(prop.name(), *v)?;
                     }
                 }
                 props.push(prop);

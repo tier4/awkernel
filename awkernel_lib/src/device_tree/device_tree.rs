@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
 
+use super::utils::safe_index;
 use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::node::DeviceTreeNode;
@@ -160,10 +161,10 @@ impl<'a, A: Allocator + Clone> InheritedValues<'a, A> {
     }
 
     /// Updates a value in the inherited values
-    pub fn update(&mut self, name: &'a str, value: u64) {
+    pub fn update(&mut self, name: &'a str, value: u64) -> Result<()> {
         let mut dirty = false;
         for i in 0..self.0.len() {
-            if self.0[i].0 == name {
+            if safe_index(&self.0, i)?.0 == name {
                 self.0[i].1 = value;
                 dirty = true;
                 break;
@@ -172,5 +173,7 @@ impl<'a, A: Allocator + Clone> InheritedValues<'a, A> {
         if !dirty {
             self.0.push((name, value));
         }
+
+        Ok(())
     }
 }

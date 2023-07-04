@@ -95,8 +95,12 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 {
                     let value_index = prop_block_start + 3;
                     if prop_val_size > 0 {
-                        let raw_value = &data[locate_block(value_index)
-                            ..(locate_block(value_index) + prop_val_size as usize)];
+                        let raw_value = &data
+                            .get(
+                                locate_block(value_index)
+                                    ..(locate_block(value_index) + prop_val_size as usize),
+                            )
+                            .ok_or(ParsingFailed)?;
                         match NodeProperty::parse_value(
                             raw_value, name, inherited, owned, allocator,
                         ) {
@@ -233,7 +237,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
             _ => {
                 let a = raw_value.len() as usize % BLOCK_SIZE == 0;
                 let b = *safe_index(raw_value, 0)? != b'\0'
-                    && raw_value[(raw_value.len() - 1) as usize] == b'\0'
+                    && *safe_index(raw_value, (raw_value.len() - 1) as usize)? == b'\0'
                     && raw_value.is_ascii();
 
                 if !a || a && b {
