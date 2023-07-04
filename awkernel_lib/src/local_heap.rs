@@ -48,9 +48,7 @@ where
     SLBitmap: BinInteger,
 {
     pub fn new(memory_pool: &'pool mut [MaybeUninit<u8>]) -> Self {
-        unsafe { crate::console::unsafe_puts("TLSF::new 1\n") };
         let mut allocator = rlsf::Tlsf::new();
-        unsafe { crate::console::unsafe_puts("TLSF::new 2\n") };
         allocator.insert_free_block(memory_pool);
 
         Self { allocator }

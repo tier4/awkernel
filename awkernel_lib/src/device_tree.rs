@@ -29,17 +29,24 @@ static mut MEMORY_POOL: [MaybeUninit<u8>; DEVICE_TREE_MEMORY_SIZE] =
     [MaybeUninit::new(0); DEVICE_TREE_MEMORY_SIZE];
 static mut LOCAL_TLSF: Option<local_heap::TLSF> = None;
 static mut LOCAL_ALLOCATOR: Option<local_heap::LocalHeap> = None;
+static mut DEVICE_TREE: Option<DeviceTree<local_heap::LocalHeap<'static>>> = None;
 
 /// Read a device tree blog.
-pub fn from_bytes<'a>(
-    bytes: &'a [u8],
-) -> Result<DeviceTree<'a, local_heap::LocalHeap<'static>>, DeviceTreeError> {
-    unsafe { crate::console::unsafe_puts("getting allocator\n") };
+pub fn from_bytes(
+    bytes: &'static [u8],
+) -> Result<&'static DeviceTree<'static, local_heap::LocalHeap<'static>>, DeviceTreeError> {
+    if let Some(tree) = unsafe { &DEVICE_TREE } {
+        return Ok(tree);
+    }
 
     let allocator = unsafe { get_allocator() };
-    unsafe { crate::console::unsafe_puts("got allocator\n") };
 
-    DeviceTree::from_bytes(bytes, allocator.clone())
+    let tree = DeviceTree::from_bytes(bytes, allocator.clone())?;
+
+    unsafe {
+        DEVICE_TREE = Some(tree);
+        Ok(DEVICE_TREE.as_ref().unwrap())
+    }
 }
 
 unsafe fn get_allocator() -> &'static mut local_heap::LocalHeap<'static> {
@@ -47,23 +54,14 @@ unsafe fn get_allocator() -> &'static mut local_heap::LocalHeap<'static> {
         return allocator;
     }
 
-    unsafe { crate::console::unsafe_puts("here 1\n") };
-
     let tlsf = local_heap::TLSF::new(&mut MEMORY_POOL);
-
-    unsafe { crate::console::unsafe_puts("here 2\n") };
 
     write_volatile(&mut LOCAL_TLSF, Some(tlsf));
 
-    unsafe { crate::console::unsafe_puts("here 3\n") };
-
     let ref_tlsf = LOCAL_TLSF.as_mut().unwrap();
-
     let allocator = local_heap::LocalHeap::new(ref_tlsf);
 
     write_volatile(&mut LOCAL_ALLOCATOR, Some(allocator));
-
-    unsafe { crate::console::unsafe_puts("here 6\n") };
 
     LOCAL_ALLOCATOR.as_mut().unwrap()
 }
