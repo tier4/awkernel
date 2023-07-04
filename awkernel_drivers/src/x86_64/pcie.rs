@@ -1,5 +1,8 @@
 use acpi::AcpiTables;
+use alloc::sync::Arc;
 use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
+use awkernel_lib::net::NETMASTER;
+use awkernel_lib::sync::mutex::MCSNode;
 
 use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
 use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
@@ -105,6 +108,9 @@ impl DeviceInfo {
             (0x10d3, 0x8086) => {
                 let mut e1000e = E1000E::new(&self, page_table, page_allocator, page_size);
                 e1000e.init();
+                NETMASTER
+                    .lock(&mut MCSNode::new())
+                    .add_driver(Arc::new(e1000e));
             }
             _ => (),
         }

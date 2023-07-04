@@ -40,7 +40,7 @@ aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 
 
 [dependencies.smoltcp]
-version = "0.8.0"
+version = "0.10.0"
 default-features = false
 features = [
     "alloc", 

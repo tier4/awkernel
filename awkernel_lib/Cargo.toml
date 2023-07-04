@@ -41,6 +41,23 @@ version = "0.1"
 default-features = false
 features = ["panic"]
 
+
+[dependencies.smoltcp]
+version = "0.10.0"
+default-features = false
+features = [
+    "alloc", 
+    "log", 
+    "socket-udp", 
+    "socket-tcp", 
+    "proto-ipv4", 
+    "proto-ipv6",
+    "socket-icmp",
+    "medium-ethernet", 
+]
+
+
+
 [features]
 default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]

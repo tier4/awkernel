@@ -1,20 +1,18 @@
 use super::pcie::{DeviceInfo, PCIeDevice};
-use crate::net::ether::{Ether, EtherErr};
 use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
 use alloc::vec::Vec;
 use awkernel_lib::arch::x86_64::mmu::map_to;
+use awkernel_lib::net::NetDevice;
 use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering::SeqCst;
-use smoltcp::phy::{self, DeviceCapabilities, Medium};
 use smoltcp::wire::EthernetAddress;
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
 
-const BUFFER_PAGE_SIZE: usize = 4096;
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -69,9 +67,8 @@ impl PCIeDevice for E1000E {
         unsafe {
             write_volatile(command_reg as *mut u16, 0b111);
         }
-
-        if let Err(_) = unsafe { self.init_hw() } {
-            panic!("failed to init the E1000E. ");
+        unsafe {
+            self.init_hw();
         }
     }
 
@@ -134,9 +131,14 @@ impl PCIeDevice for E1000E {
     }
 }
 
-//===========================================================================
-impl Ether for E1000E {
-    // Try to receive a packet
+impl NetDevice for E1000E {
+    fn can_send(&self) -> bool {
+        let tdt = unsafe { self.read_reg(TDT) };
+        let tx_status = self.tx_ring[tdt as usize].status;
+
+        tx_status & 1 != 0 && !unsafe { self.tx_ring_empty() }
+    }
+
     fn recv(&mut self) -> Option<Vec<u8>> {
         let tdh = unsafe { self.read_reg(TDH) };
         let tdt = unsafe { self.read_reg(TDT) };
@@ -186,21 +188,13 @@ impl Ether for E1000E {
         Some(data)
     }
 
-    fn is_ready(&self) -> bool {
-        let tdt = unsafe { self.read_reg(TDT) };
-        let tx_status = self.tx_ring[tdt as usize].status;
-
-        tx_status & 1 != 0 && !unsafe { self.tx_ring_empty() }
-    }
-
-    // Send a packet
-    fn send(&mut self, data: &mut [u8]) -> Result<(), smoltcp::Error> {
+    fn send(&mut self, data: &mut [u8]) -> Option<()> {
         let curr_tdh = unsafe { self.read_reg(TDH) };
         let curr_tdt = unsafe { self.read_reg(TDT) };
 
         // Rx queue is empty
         if curr_tdh == curr_tdt {
-            return Err(smoltcp::Error::Exhausted);
+            return None;
         }
 
         let next_tdt = (curr_tdt + 1) % self.tx_ring.len() as u32;
@@ -208,12 +202,12 @@ impl Ether for E1000E {
         let data_len = data.len();
         // data should not be longer than buffer
         if data_len >= self.page_size {
-            return Err(smoltcp::Error::Truncated);
+            return None;
         }
 
         //  By Datasheet 7.2.10.1.2
         if data_len >= 16288 {
-            return Err(smoltcp::Error::NotSupported);
+            return None;
         }
 
         // Copy the data into the buffer
@@ -235,11 +229,13 @@ impl Ether for E1000E {
             self.write_reg(TDT, next_tdt);
         }
 
-        Ok(())
+        Some(())
     }
+}
 
-    /// initialize the e1000e hardware
-    unsafe fn init_hw(&mut self) -> Result<(), EtherErr> {
+//===========================================================================
+impl E1000E {
+    unsafe fn init_hw(&mut self) {
         log::info!("Initializing e1000e hardware");
         // ============================================
         // 4.6.2: Global Reset and General Configuration
@@ -297,87 +293,7 @@ impl Ether for E1000E {
         fence(SeqCst);
         // ============================================
         self.enable_intr();
-
-        Ok(())
     }
-}
-
-//===========================================================================
-pub struct E1000ERxToken(Vec<u8>);
-pub struct E1000ETxToken<'a>(&'a mut E1000E);
-
-impl<'a> phy::Device<'a> for E1000E {
-    type RxToken = E1000ERxToken;
-    type TxToken  = E1000ETxToken<'a> where Self : 'a;
-    fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
-        let mut cap = DeviceCapabilities::default();
-        cap.max_transmission_unit = 1500; // Standard Ethernet MTU
-        cap.max_burst_size = Some(64);
-        cap.medium = Medium::Ethernet;
-        cap
-    }
-
-    //  The additional transmit token makes it possible to generate a reply packet
-    //  based on the contents of the received packet, without heap allocation.
-    fn receive(self: &'a mut E1000E) -> Option<(Self::RxToken, Self::TxToken)> {
-        let data = self.recv()?;
-
-        let rx_token = E1000ERxToken(data);
-        let tx_token = E1000ETxToken(self);
-
-        Some((rx_token, tx_token))
-    }
-
-    //  The real  packet transmission occurrs when the token is consumed.
-    //  Only create the token when the send ring is ready.
-    fn transmit(self: &'a mut E1000E) -> Option<Self::TxToken> {
-        if self.is_ready() {
-            Some(E1000ETxToken(self))
-        } else {
-            None
-        }
-    }
-}
-
-impl phy::RxToken for E1000ERxToken {
-    /// Store packet data into the buffer.
-    /// Closure f will map the raw bytes to the form that
-    /// could be used in the higher layer of `smoltcp`.
-    fn consume<R, F>(self, _timestamp: smoltcp::time::Instant, f: F) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        let mut data = self.0;
-        let result = f(&mut data);
-        result
-    }
-}
-
-impl<'a> phy::TxToken for E1000ETxToken<'a> {
-    /// create a buffer of size `len`
-    /// Closure f will construct a packet in the buffer.
-    /// Real packet data transmissions occur here.
-    fn consume<R, F>(
-        self,
-        _timestamp: smoltcp::time::Instant,
-        len: usize,
-        f: F,
-    ) -> smoltcp::Result<R>
-    where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
-    {
-        // allocate a buffer for raw data
-        let mut buffer: [u8; BUFFER_PAGE_SIZE] = [0; BUFFER_PAGE_SIZE];
-        // construct packet in buffer
-        let result = f(&mut buffer[0..len]);
-        // send the buffer
-        self.0.send(&mut buffer)?;
-        result
-    }
-}
-
-//===========================================================================
-impl E1000E {
     fn map_register_space<T>(
         register_start: usize,
         page_table: &mut OffsetPageTable<'static>,
@@ -472,11 +388,11 @@ impl E1000E {
     }
 
     unsafe fn get_mac(&self) -> EthernetAddress {
-        let mut addr = [0u8; 6]; 
+        let mut addr = [0u8; 6];
         for i in 0..3 {
             let word = self.read_eeprom(i as u32);
-            addr[i * 2]  = (word & 0xFFFF) as u8;
-            addr[i * 2 + 1] = (word >> 8) as u8;   
+            addr[i * 2] = (word & 0xFFFF) as u8;
+            addr[i * 2 + 1] = (word >> 8) as u8;
         }
         EthernetAddress(addr)
     }
