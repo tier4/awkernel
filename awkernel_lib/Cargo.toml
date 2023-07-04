@@ -39,9 +39,14 @@ version = "0.1"
 default-features = false
 features = ["panic"]
 
+[dependencies.lazy_static]
+version = "1.4.0"
+optional = true
+
+
 [features]
 default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
-rv32 = []
+rv32 = ["dep:lazy_static"]
 std = ["dep:libc", "dep:parking_lot"]

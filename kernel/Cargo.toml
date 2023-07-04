@@ -54,13 +54,17 @@ optional = true
 version = "0.2.0"
 optional = true
 
+[dependencies.lazy_static]
+version = "1.4.0"
+optional = true
+
 [features]
 default = ["raspi4"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:acpi", "awkernel_drivers/x86"]
 raspi3 = ["raspi", "no_std_unwinding"]
 raspi4 = ["raspi", "no_std_unwinding"]
-rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a", "awkernel_drivers/rv32"]
+rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a", "awkernel_drivers/rv32", "dep:lazy_static"]
 raspi = ["aarch64"]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64", "awkernel_drivers/aarch64"]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]

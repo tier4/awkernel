@@ -1,16 +1,9 @@
 use crate::{delay::wait_forever, memory::PAGESIZE};
-use alloc::slice;
-use core::ptr::{read_volatile, write_volatile};
 use bitflags::*;
 use super::address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, 
                     PPN_WIDTH, VPN_WIDTH, PA_WIDTH, VA_WIDTH, PAGE_SIZE};
 
-pub trait FrameAllocator {
-    fn new() -> Self;
-    fn alloc(&mut self) -> Option<PhysPageNum>;
-    fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
-    fn dealloc(&mut self, ppn: PhysPageNum);
-}
+use super::frame_allocator::*;
 
 /// PTE Flags of RISC V SV32 page table
 ///  V - Valid
@@ -34,6 +27,7 @@ bitflags!{
     }
 }
 
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub struct PageTableEntry {
@@ -49,6 +43,14 @@ impl PageTableEntry {
 
     pub fn ppn(&self) -> PhysPageNum {
         (self.bits >> 10 & ((1usize << PPN_WIDTH) - 1)).into()
+    }
+
+    pub fn flags(&self) -> Flags {
+        Flags::from_bits(self.bits as u8).unwrap()
+    }
+
+    pub fn is_valid(&self) -> bool {
+        (self.flags() & Flags::V) != Flags::empty()
     }
 }
 

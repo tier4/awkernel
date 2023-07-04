@@ -7,3 +7,4 @@ pub(super) mod interrupt;
 pub(super) mod memory;
 pub(super) mod address;
 pub(super) mod page_table;
+pub(super) mod frame_allocator;

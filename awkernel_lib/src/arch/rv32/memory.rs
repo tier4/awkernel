@@ -2,6 +2,8 @@ use crate::{
     page_table::Flags,
 };
 
+/// We should set memory end based on specific device
+pub const MEMORY_END: u64 = 0x88000000;
 pub struct Memory;
 
 impl crate::memory::Memory for Memory {
