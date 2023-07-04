@@ -21,9 +21,9 @@ pub enum PropertyValue<'a, A: Allocator + Clone> {
     PHandle(u32),
     String(&'a str),
     Strings(Vec<&'a str, A>),
-    Address(u64, u64),
-    Addresses(Vec<(u64, u64), A>),
-    Ranges(Vec<(u64, u64, u64), A>),
+    Address(u128, u128),
+    Addresses(Vec<(u128, u128), A>),
+    Ranges(Vec<(u128, u128, u128), A>),
     Unknown,
 }
 
@@ -164,7 +164,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
 
                 let group_size = align_size(raw_value.len()) / (address_cells + size_cells);
                 if group_size > 1 {
-                    let mut regs = Vec::<(u64, u64), A>::new_in(allocator);
+                    let mut regs = Vec::<_, A>::new_in(allocator);
                     for i in 0..group_size {
                         let group_index = i * (address_cells + size_cells);
                         let res = (
@@ -201,7 +201,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 };
                 let single_size = child_cells + parent_cells + size_cells;
                 let group_size = align_size(raw_value.len()) / single_size;
-                let mut rags = Vec::<(u64, u64, u64), A>::new_in(allocator);
+                let mut rags = Vec::<_, A>::new_in(allocator);
                 for i in 0..group_size {
                     let group_index = i * single_size;
                     let res = (
@@ -232,14 +232,17 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 let b = raw_value[0] != b'\0'
                     && raw_value[(raw_value.len() - 1) as usize] == b'\0'
                     && raw_value.is_ascii();
+
                 if !a || a && b {
                     if let Some(strs) =
                         read_aligned_sized_strings(raw_value, 0, raw_value.len(), allocator)
                     {
                         if strs.len() > 1 {
                             Ok(PropertyValue::Strings(strs))
-                        } else {
+                        } else if strs.len() == 1 {
                             Ok(PropertyValue::String(strs[0]))
+                        } else {
+                            Ok(PropertyValue::String(""))
                         }
                     } else {
                         Err(ParsingFailed)

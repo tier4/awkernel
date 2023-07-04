@@ -10,6 +10,8 @@ mod raspi {
     pub const MMIO_BASE: usize = 0x3f00_0000;
     pub const INTERRUPT_CTRL_BASE: usize = MMIO_BASE + 0xB200;
     pub const _LOCAL_PERIPHERAL_BASE: usize = 0x4000_0000;
+
+    pub const DEVICE_TREE_ADDRESS: Option<usize> = None;
 }
 //-----------------------------------------------------------------------------
 
@@ -26,6 +28,8 @@ mod raspi {
     pub const GIC_V2_CPU_INTERFACE_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_2000;
     pub const _GIC_V2_HYPERVISOR_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_4000;
     pub const _GIC_V2_VIRTUAL_CPU_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_6000;
+
+    pub const DEVICE_TREE_ADDRESS: Option<usize> = Some(0x02000000);
 }
 //-----------------------------------------------------------------------------
 

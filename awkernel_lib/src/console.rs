@@ -1,6 +1,6 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::boxed::Box;
-use core::{fmt::Write, ptr::write_volatile};
+use core::{fmt::Write, ptr::write_volatile, str::from_utf8_unchecked};
 use log::Log;
 
 pub trait Console: Write + Send {
@@ -43,6 +43,41 @@ pub unsafe fn unsafe_puts(data: &str) {
     if let Some(console) = UNSAFE_PUTS {
         console(data);
     }
+}
+
+pub unsafe fn unsafe_print_hex(num: u64) {
+    let hex = to_hex(num);
+
+    let mut msg = [b'0'];
+
+    for n in hex.iter().rev() {
+        msg[0] = *n;
+
+        unsafe {
+            let msg = from_utf8_unchecked(&msg);
+            unsafe_puts(msg);
+        };
+    }
+}
+
+fn to_hex(mut num: u64) -> [u8; 16] {
+    let mut result = [b'0'; 16];
+
+    let mut i = 0;
+    while num > 0 {
+        let n = num & 0xf;
+
+        result[i] = if n < 10 {
+            b'0' + n as u8
+        } else {
+            b'a' + (n as u8 - 10)
+        };
+
+        num /= 16;
+        i += 1;
+    }
+
+    result
 }
 
 static CONSOLE: ConsoleContainer = ConsoleContainer {

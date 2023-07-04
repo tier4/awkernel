@@ -40,14 +40,31 @@ pub(crate) fn read_aligned_be_u32(data: &[u8], index: usize) -> Option<u32> {
 }
 
 /// Reads an aligned big-endian number
-pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Option<u64> {
+pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Option<u128> {
     match block_size {
         0 => Some(0),
-        1 => read_aligned_be_u32(data, index).map(|res| res as u64),
+        1 => read_aligned_be_u32(data, index).map(|res| res as u128),
         2 => {
             let bytes = &data[locate_block(index)..locate_block(index + block_size)];
             let num = u64::from_be_bytes([
                 bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ]);
+            Some(num as u128)
+        }
+        3 => {
+            let bytes = &data[locate_block(index)..locate_block(index + block_size)];
+            let num = u128::from_be_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], 0, 0, 0, 0,
+            ]);
+            Some(num as u128)
+        }
+        4 => {
+            let bytes = &data[locate_block(index)..locate_block(index + block_size)];
+            let num = u128::from_be_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+                bytes[15],
             ]);
             Some(num)
         }

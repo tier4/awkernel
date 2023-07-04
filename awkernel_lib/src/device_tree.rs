@@ -20,7 +20,10 @@ pub mod traits;
 pub mod utils;
 
 use self::{device_tree::DeviceTree, error::DeviceTreeError};
-use crate::local_heap;
+use crate::{
+    console::{unsafe_print_hex, unsafe_puts},
+    local_heap,
+};
 use core::{mem::MaybeUninit, ptr::write_volatile};
 
 const DEVICE_TREE_MEMORY_SIZE: usize = 1024 * 1024 * 4;
@@ -64,4 +67,68 @@ unsafe fn get_allocator() -> &'static mut local_heap::LocalHeap<'static> {
     write_volatile(&mut LOCAL_ALLOCATOR, Some(allocator));
 
     LOCAL_ALLOCATOR.as_mut().unwrap()
+}
+
+/// Print device tree nodes without the global allocator.
+///
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
+pub unsafe fn print_device_tree_node(
+    node: &node::DeviceTreeNode<'static, local_heap::LocalHeap>,
+    depth: usize,
+) {
+    fn print_white_spaces(depth: usize) {
+        for _ in 0..depth {
+            unsafe { unsafe_puts("    ") };
+        }
+    }
+
+    unsafe {
+        print_white_spaces(depth);
+        unsafe_puts(node.name());
+        unsafe_puts("\n");
+    }
+
+    for prop in node.props() {
+        unsafe {
+            print_white_spaces(depth + 1);
+            unsafe_puts(prop.name());
+
+            match prop.value() {
+                prop::PropertyValue::Address(x, y) => {
+                    unsafe_puts(": <<");
+                    unsafe_print_hex(*x as u64);
+                    unsafe_puts(", ");
+                    unsafe_print_hex(*y as u64);
+                    unsafe_puts(">>\n");
+                }
+                prop::PropertyValue::Addresses(addrs) => {
+                    unsafe_puts(": <<\n");
+                    for (addr, size) in addrs {
+                        print_white_spaces(depth + 2);
+
+                        unsafe_puts("(");
+                        unsafe_print_hex(*addr as u64);
+                        unsafe_puts(", ");
+                        unsafe_print_hex(*size as u64);
+                        unsafe_puts(")\n");
+                    }
+                    print_white_spaces(depth + 1);
+                    unsafe_puts(">>\n");
+                }
+                prop::PropertyValue::String(s) => {
+                    unsafe_puts(": ");
+                    unsafe_puts(s);
+                    unsafe_puts("\n");
+                }
+                _ => unsafe_puts("\n"),
+            }
+        }
+    }
+
+    for node in node.nodes() {
+        print_device_tree_node(node, depth + 1);
+    }
 }

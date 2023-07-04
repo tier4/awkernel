@@ -20,7 +20,8 @@ ifeq ($(BSP),raspi3)
 	NUMCPU = 4
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-	INITADDR = 0
+# 2MiB
+	INITADDR = 0x200000
 	OPT += --features raspi4
 	NUMCPU = 4
 else ifeq ($(BSP),aarch64_virt)

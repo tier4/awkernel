@@ -82,9 +82,9 @@ _start:
      * Bit 9 clear: Increment by 1 (vs. 2).
      * Bit 8 clear: Timer source is 19.2MHz crystal (vs. APB).
      */
-    mov     x0, LOCAL_CONTROL
-    str     wzr, [x0]
+    mov     x4, LOCAL_CONTROL
+    str     wzr, [x4]
     /* LOCAL_PRESCALER; divide-by (0x80000000 / register_val) == 1 */
-    mov     w1, 0x80000000
-    str     w1, [x0, #(LOCAL_PRESCALER - LOCAL_CONTROL)]
+    mov     w5, 0x80000000
+    str     w5, [x4, #(LOCAL_PRESCALER - LOCAL_CONTROL)]
     b       boot_entry

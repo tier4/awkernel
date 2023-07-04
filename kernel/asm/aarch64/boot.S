@@ -18,14 +18,14 @@
 
 boot_entry:
     /* Set SMPEN */
-    mov     x0, #CPUECTLR_EL1_SMPEN
-    msr     CPUECTLR_EL1, x0
+    mov     x4, #CPUECTLR_EL1_SMPEN
+    msr     CPUECTLR_EL1, x4
 
     /* Set L2 read/write cache latency to 3 */
-    mrs     x0, L2CTLR_EL1
-    mov     x1, #0x22
-    orr     x0, x0, x1
-    msr     L2CTLR_EL1, x0
+    mrs     x4, L2CTLR_EL1
+    mov     x5, #0x22
+    orr     x4, x4, x5
+    msr     L2CTLR_EL1, x4
 
     // disable all interrupt (daif at bits 9..6)
     msr     DAIFSet, #0x0f
@@ -62,11 +62,10 @@ boot_entry:
     msr     sp_el1, x10
     msr     spsel, #0
 
-    mrs     x0, hcr_el2
-    orr     x0, x0, #(1 << 31) // AArch64
-    orr     x0, x0, #(1 << 1)  // SWIO hardwired on Pi3
-    msr     hcr_el2, x0
-    mrs     x0, hcr_el2
+    mrs     x4, hcr_el2
+    orr     x4, x4, #(1 << 31) // AArch64
+    orr     x4, x4, #(1 << 1)  // SWIO hardwired on Pi3
+    msr     hcr_el2, x4
 
     // enable CNTP for EL1
     mrs     x1, cnthctl_el2
@@ -81,31 +80,31 @@ boot_entry:
      * Set up sctlr_el2
      * All set bits below are res1. LE, no WXN/I/SA/C/A/M
      */
-    ldr     x0, =0x30c50830
-    msr     sctlr_el2, x0
+    ldr     x4, =0x30c50830
+    msr     sctlr_el2, x4
 
     // get current EL
-    mrs     x0, CurrentEL
-    and     x0, x0, #(0b1100) // clear reserved bits
+    mrs     x4, CurrentEL
+    and     x4, x4, #(0b1100) // clear reserved bits
 
     // running at EL3?
-    cmp     x0, #(3 << 2)
+    cmp     x4, #(3 << 2)
     beq     .EL3
 
     // running at EL2?
-    cmp     x0, #(2 << 2)
+    cmp     x4, #(2 << 2)
     beq     .EL2
 
 .EL3:
-    ldr     x0, =SCR_VAL
-    msr     SCR_EL3, x0
+    ldr     x4, =SCR_VAL
+    msr     SCR_EL3, x4
 
     /* Set up CNTFRQ_EL0 */
-    ldr     x0, =OSC_FREQ
-    msr     CNTFRQ_EL0, x0
+    ldr     x4, =OSC_FREQ
+    msr     CNTFRQ_EL0, x4
 
-    mov     x0, #0x33ff
-    msr     cptr_el3, x0 // Disable coprocessor traps to EL3
+    mov     x4, #0x33ff
+    msr     cptr_el3, x4 // Disable coprocessor traps to EL3
 
     mov     x1, #0b100   // EL1t
     msr     spsr_el3, x1
@@ -152,25 +151,25 @@ boot_entry:
 
 // Called from secure mode - set all interrupts to group 1 and enable.
 setup_gicv2:
-    mrs     x0, MPIDR_EL1
+    mrs     x4, MPIDR_EL1
     ldr     x2, =GIC_DISTB
-    tst     x0, #0x3
+    tst     x4, #0x3
     b.eq    1f // primary core
 
-    mov     w0, #3 // Enable group 0 and 1 IRQs from distributor
-    str     w0, [x2, #GICD_CTRLR]
+    mov     w4, #3 // Enable group 0 and 1 IRQs from distributor
+    str     w4, [x2, #GICD_CTRLR]
 1:
     add     x1, x2, #(GIC_CPUB - GIC_DISTB)
-    mov     w0, #0x1e7
-    str     w0, [x1, #GICC_CTRLR] // Enable group 1 IRQs from CPU interface
-    mov     w0, #0xff
-    str     w0, [x1, #GICC_PMR] // priority mask
+    mov     w4, #0x1e7
+    str     w4, [x1, #GICC_CTRLR] // Enable group 1 IRQs from CPU interface
+    mov     w4, #0xff
+    str     w4, [x1, #GICC_PMR] // priority mask
     add     x2, x2, #GICD_IGROUPR
-    mov     x0, #(IT_NR * 4)
+    mov     x4, #(IT_NR * 4)
     mov     w1, #~0 // group 1 all the things
 2:
-    subs    x0, x0, #4
-    str     w1, [x2, x0]
+    subs    x4, x4, #4
+    str     w1, [x2, x4]
     b.ne    2b
     ret
 

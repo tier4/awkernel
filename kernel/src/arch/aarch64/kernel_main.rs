@@ -16,7 +16,12 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use awkernel_lib::{console::unsafe_puts, delay::wait_forever, heap};
+use awkernel_lib::{
+    console::{unsafe_print_hex, unsafe_puts},
+    delay::wait_forever,
+    device_tree::{device_tree::DeviceTree, node::DeviceTreeNode, prop::PropertyValue},
+    heap, local_heap,
+};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -28,12 +33,14 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 /// Entry point from assembly code.
 #[no_mangle]
-pub unsafe extern "C" fn kernel_main() -> ! {
+pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
+
+    awkernel_lib::delay::wait_millisec(10);
 
     if cpu::core_pos() == 0 {
         raspi::start_non_primary(); // Wake non-primary CPUs up.
-        primary_cpu();
+        primary_cpu(device_tree_base);
     } else {
         while !unsafe { read_volatile(&PRIMARY_READY) } {}
         non_primary_cpu();
@@ -47,18 +54,45 @@ pub unsafe extern "C" fn kernel_main() -> ! {
 /// 3. Enable MMU.
 /// 4. Enable heap allocator.
 /// 5. Board specific initialization (IRQ controller, etc).
-unsafe fn primary_cpu() {
+unsafe fn primary_cpu(device_tree_base: usize) {
     // Initialize UART.
     super::bsp::init_device();
 
-    awkernel_lib::delay::wait_millisec(1);
+    unsafe_puts("device_tree_base = 0x");
+    unsafe_print_hex(device_tree_base as u64);
+    unsafe_puts("\n");
+
+    let magic_number = read_volatile(device_tree_base as *const u32);
+    let total_size = read_volatile((device_tree_base + 4) as *const u32);
+
+    unsafe_puts("magic_number = 0x");
+    unsafe_print_hex(u32::from_be(magic_number as u32) as u64);
+    unsafe_puts("\n");
+    unsafe_puts("total_size = 0x");
+    unsafe_print_hex(u32::from_be(total_size as u32) as u64);
+    unsafe_puts("\n");
+
+    let tree = load_device_tree(device_tree_base);
+
+    unsafe_puts("loaded the device tree\n");
+
+    awkernel_lib::device_tree::print_device_tree_node(tree.root(), 0);
+
+    // 1. Initialize MMU.
+    mmu::init_memory_map();
+    if mmu::init().is_none() {
+        unsafe_puts("Failed to init MMU.\n");
+        wait_forever();
+    }
+
+    // awkernel_lib::delay::wait_millisec(2000);
 
     // Read the device tree.
-    let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-    let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
-        // unsafe_puts("kernel panic: failed to load the device tree\n");
-        wait_forever();
-    };
+    // let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
+    // let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
+    //     // unsafe_puts("kernel panic: failed to load the device tree\n");
+    // wait_forever();
+    // };
 
     match awkernel_aarch64::get_current_el() {
         0 => unsafe_puts("EL0\n"),
@@ -66,13 +100,6 @@ unsafe fn primary_cpu() {
         2 => unsafe_puts("EL2\n"),
         3 => unsafe_puts("EL3\n"),
         _ => (),
-    }
-
-    // 1. Initialize MMU.
-    mmu::init_memory_map();
-    if mmu::init().is_none() {
-        unsafe_puts("Failed to init MMU.\n");
-        wait_forever();
     }
 
     // 2. Start non-primary CPUs.
@@ -136,7 +163,9 @@ unsafe fn primary_cpu() {
     };
 
     // TODO
-    log::info!("{}", tree);
+    // log::info!("{}", tree);
+
+    log::info!("device_tree_base: 0x{device_tree_base:x}");
 
     crate::main::<()>(kernel_info);
 }
@@ -160,4 +189,35 @@ unsafe fn non_primary_cpu() {
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     crate::main::<()>(kernel_info);
+}
+
+unsafe fn load_device_tree(
+    device_tree_base: usize,
+) -> &'static DeviceTree<'static, local_heap::LocalHeap<'static>> {
+    const MAGIC: u32 = 0xd00d_feed;
+
+    let magic_number = read_volatile(device_tree_base as *const u32);
+    let total_size = read_volatile((device_tree_base + 4) as *const u32);
+
+    let magic_number = u32::from_be(magic_number);
+
+    if magic_number != MAGIC {
+        unsafe_puts("kernel panic: failed to load the device tree.\n");
+        wait_forever();
+    }
+
+    let total_size = u32::from_be(total_size);
+
+    let dtb = core::slice::from_raw_parts(device_tree_base as *const u8, total_size as usize);
+
+    unsafe {
+        unsafe_puts("hello world\n");
+    }
+
+    let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
+        unsafe_puts("kernel panic: failed to parse the device tree\n");
+        wait_forever();
+    };
+
+    tree
 }
