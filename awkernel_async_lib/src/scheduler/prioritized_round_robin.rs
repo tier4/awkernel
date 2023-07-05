@@ -2,9 +2,11 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task;
-use alloc::{collections::VecDeque, sync::Arc, vec::Vec};
+use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
+/// The tasks with lower numeric priority values are considered higher in priority (with 0 being the highest).
+/// If the new task's priority is lower than all existing tasks, it will be added to the end.
 pub struct PrioritizedRoundRobinScheduler {
     data: Mutex<Option<PrioritizedRoundRobinData>>, // Run queue.
 }
@@ -47,7 +49,7 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
         }
 
         drop(task_info);
-        insert_into_sorted_queue(&mut data.queue, task.clone());
+        insert_in_priority_order(&mut data.queue, task.clone());
 
         // The task is in queue.
         let mut node = MCSNode::new();
@@ -84,9 +86,7 @@ pub static SCHEDULER: PrioritizedRoundRobinScheduler = PrioritizedRoundRobinSche
     data: Mutex::new(None),
 };
 
-/// The tasks with lower numeric priority values are considered higher in priority (with 0 being the highest).
-/// If the new task's priority is lower than all existing tasks, it will be added to the end.
-fn insert_into_sorted_queue(data_queue: &mut VecDeque<Arc<Task>>, new_task: Arc<Task>) {
+fn insert_in_priority_order(data_queue: &mut VecDeque<Arc<Task>>, new_task: Arc<Task>) {
     let new_priority = get_priority(&new_task);
 
     let index = data_queue
@@ -94,7 +94,7 @@ fn insert_into_sorted_queue(data_queue: &mut VecDeque<Arc<Task>>, new_task: Arc<
         .position(|task| get_priority(task) < new_priority)
         .unwrap_or_else(|| data_queue.len());
 
-    data_queue.insert(index, new_task.clone());
+    data_queue.insert(index, new_task);
 }
 
 fn get_priority(task: &Arc<Task>) -> u8 {
