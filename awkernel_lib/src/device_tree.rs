@@ -21,7 +21,7 @@ pub mod utils;
 
 use self::{device_tree::DeviceTree, error::DeviceTreeError};
 use crate::{
-    console::{unsafe_print_hex, unsafe_puts},
+    console::{unsafe_print_hex_u128, unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
     local_heap,
 };
 use core::{mem::MaybeUninit, ptr::write_volatile};
@@ -98,10 +98,10 @@ pub unsafe fn print_device_tree_node(
 
             match prop.value() {
                 prop::PropertyValue::Address(x, y) => {
-                    unsafe_puts(": <<");
-                    unsafe_print_hex(*x as u64);
-                    unsafe_puts(", ");
-                    unsafe_print_hex(*y as u64);
+                    unsafe_puts(": <<0x");
+                    unsafe_print_hex_u128(*x);
+                    unsafe_puts(", 0x");
+                    unsafe_print_hex_u128(*y);
                     unsafe_puts(">>\n");
                 }
                 prop::PropertyValue::Addresses(addrs) => {
@@ -109,11 +109,11 @@ pub unsafe fn print_device_tree_node(
                     for (addr, size) in addrs {
                         print_white_spaces(depth + 2);
 
-                        unsafe_puts("(");
-                        unsafe_print_hex(*addr as u64);
-                        unsafe_puts(", ");
-                        unsafe_print_hex(*size as u64);
-                        unsafe_puts(")\n");
+                        unsafe_puts("(0x");
+                        unsafe_print_hex_u128(*addr);
+                        unsafe_puts(", 0x");
+                        unsafe_print_hex_u128(*size);
+                        unsafe_puts("),\n");
                     }
                     print_white_spaces(depth + 1);
                     unsafe_puts(">>\n");
@@ -121,6 +121,27 @@ pub unsafe fn print_device_tree_node(
                 prop::PropertyValue::String(s) => {
                     unsafe_puts(": ");
                     unsafe_puts(s);
+                    unsafe_puts("\n");
+                }
+                prop::PropertyValue::Integer(n) => {
+                    unsafe_puts(": 0x");
+                    unsafe_print_hex_u64(*n);
+                    unsafe_puts("\n");
+                }
+                prop::PropertyValue::Integers(v) => {
+                    unsafe_puts(": [\n");
+                    for n in v.iter() {
+                        print_white_spaces(depth + 2);
+                        unsafe_puts("0x");
+                        unsafe_print_hex_u64(*n);
+                        unsafe_puts(",\n");
+                    }
+                    print_white_spaces(depth + 1);
+                    unsafe_puts("]\n");
+                }
+                prop::PropertyValue::PHandle(h) => {
+                    unsafe_puts(": 0x");
+                    unsafe_print_hex_u32(*h);
                     unsafe_puts("\n");
                 }
                 _ => unsafe_puts("\n"),

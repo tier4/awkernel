@@ -17,9 +17,9 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
-    console::{unsafe_print_hex, unsafe_puts},
+    console::{unsafe_print_hex_u64, unsafe_puts},
     delay::wait_forever,
-    device_tree::{device_tree::DeviceTree, node::DeviceTreeNode, prop::PropertyValue},
+    device_tree::device_tree::DeviceTree,
     heap, local_heap,
 };
 use core::{
@@ -59,17 +59,17 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     super::bsp::init_device();
 
     unsafe_puts("device_tree_base = 0x");
-    unsafe_print_hex(device_tree_base as u64);
+    unsafe_print_hex_u64(device_tree_base as u64);
     unsafe_puts("\n");
 
     let magic_number = read_volatile(device_tree_base as *const u32);
     let total_size = read_volatile((device_tree_base + 4) as *const u32);
 
     unsafe_puts("magic_number = 0x");
-    unsafe_print_hex(u32::from_be(magic_number as u32) as u64);
+    unsafe_print_hex_u64(u32::from_be(magic_number as u32) as u64);
     unsafe_puts("\n");
     unsafe_puts("total_size = 0x");
-    unsafe_print_hex(u32::from_be(total_size as u32) as u64);
+    unsafe_print_hex_u64(u32::from_be(total_size as u32) as u64);
     unsafe_puts("\n");
 
     let tree = load_device_tree(device_tree_base);
