@@ -2,7 +2,7 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task;
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::{collections::VecDeque, sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PrioritizedRoundRobinScheduler {
@@ -11,14 +11,12 @@ pub struct PrioritizedRoundRobinScheduler {
 
 struct PrioritizedRoundRobinData {
     queue: VecDeque<Arc<Task>>,
-    priority: u8,
 }
 
 impl PrioritizedRoundRobinData {
     fn new() -> Self {
         Self {
             queue: VecDeque::new(),
-            priority: 0,
         }
     }
 }
@@ -36,7 +34,7 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
 
         // Put the state in queue.
         let mut node = MCSNode::new();
-        let mut task_info = task.info.lock(&mut node);
+        let task_info = task.info.lock(&mut node);
 
         // If the task is in queue or the state is Terminated, it must not be enqueued.
         if task_info.in_queue
@@ -48,20 +46,13 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
             return;
         }
 
-        //Assign priorities in the order in which they become available for execution
-        match task_info.scheduler_type {
-            SchedulerType::PrioritizedRoundRobin(_) => {
-                task_info.scheduler_type = SchedulerType::PrioritizedRoundRobin(data.priority);
-                data.priority += 1;
-            }
-            _ => {
-                panic!("The scheduler type of the task is not PrioritizedRoundRobin.")
-            }
-        }
-
-        data.queue.push_back(task.clone());
+        drop(task_info);
+        insert_into_sorted_queue(&mut data.queue, task.clone());
 
         // The task is in queue.
+        let mut node = MCSNode::new();
+        let mut task_info = task.info.lock(&mut node);
+
         task_info.in_queue = true;
     }
 
@@ -70,24 +61,6 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
         let mut data = self.data.lock(&mut node);
 
         let data = data.as_mut()?;
-
-        // Sort the queue by priority.
-        data.queue.make_contiguous().sort_by(|task1, task2| {
-            let mut node = MCSNode::new();
-            let task1_info = task1.info.lock(&mut node);
-            let mut node = MCSNode::new();
-            let task2_info = task2.info.lock(&mut node);
-
-            match (task1_info.scheduler_type, task2_info.scheduler_type) {
-                (
-                    SchedulerType::PrioritizedRoundRobin(priority1),
-                    SchedulerType::PrioritizedRoundRobin(priority2),
-                ) => priority1.cmp(&priority2),
-                _ => {
-                    panic!("The scheduler type of the task is not PrioritizedRoundRobin.")
-                }
-            }
-        });
 
         // Pop a task from the run queue.
         let task = data.queue.pop_front()?;
@@ -110,3 +83,26 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
 pub static SCHEDULER: PrioritizedRoundRobinScheduler = PrioritizedRoundRobinScheduler {
     data: Mutex::new(None),
 };
+
+/// The tasks with lower numeric priority values are considered higher in priority (with 0 being the highest).
+/// If the new task's priority is lower than all existing tasks, it will be added to the end.
+fn insert_into_sorted_queue(data_queue: &mut VecDeque<Arc<Task>>, new_task: Arc<Task>) {
+    let new_priority = get_priority(&new_task);
+
+    let index = data_queue
+        .iter()
+        .position(|task| get_priority(task) < new_priority)
+        .unwrap_or_else(|| data_queue.len());
+
+    data_queue.insert(index, new_task.clone());
+}
+
+fn get_priority(task: &Arc<Task>) -> u8 {
+    let mut node = MCSNode::new();
+    let task_info = task.info.lock(&mut node);
+
+    match task_info.scheduler_type {
+        SchedulerType::PrioritizedRoundRobin(priority) => priority,
+        _ => unreachable!(),
+    }
+}
