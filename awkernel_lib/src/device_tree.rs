@@ -173,7 +173,7 @@ pub unsafe fn print_device_tree_node(
 
                         unsafe_puts("0x");
                         print_address(*addr3);
-                        unsafe_puts(")");
+                        unsafe_puts("),\n");
                     }
 
                     print_white_spaces(depth + 1);

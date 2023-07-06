@@ -55,8 +55,10 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 4. Enable heap allocator.
 /// 5. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
+    let device_tree = load_device_tree(device_tree_base);
+
     // Initialize UART.
-    super::bsp::init_device();
+    super::bsp::init_device(device_tree);
 
     unsafe_puts("device_tree_base = 0x");
     unsafe_print_hex_u64(device_tree_base as u64);
@@ -72,11 +74,9 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     unsafe_print_hex_u64(u32::from_be(total_size as u32) as u64);
     unsafe_puts("\n");
 
-    let tree = load_device_tree(device_tree_base);
-
     unsafe_puts("loaded the device tree\n");
 
-    awkernel_lib::device_tree::print_device_tree_node(tree.root(), 0);
+    awkernel_lib::device_tree::print_device_tree_node(device_tree.root(), 0);
 
     // 1. Initialize MMU.
     mmu::init_memory_map();

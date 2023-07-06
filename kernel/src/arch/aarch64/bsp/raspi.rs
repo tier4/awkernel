@@ -1,7 +1,13 @@
 use self::{config::UART_IRQ, memory::UART0_BASE};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
-use awkernel_lib::{console::register_console, interrupt::register_interrupt_controller};
+use awkernel_lib::{
+    console::register_console,
+    delay,
+    device_tree::{device_tree::DeviceTree, prop::PropertyValue},
+    interrupt::register_interrupt_controller,
+    local_heap,
+};
 use core::arch::asm;
 
 pub mod config;
@@ -70,12 +76,36 @@ pub fn init() {
 fn init_uart() {
     let port = Box::new(PL011::new(UART0_BASE, UART_IRQ));
     register_console(port);
-
-    // let _ = log::set_logger(&CONSOLE);
-    // log::set_max_level(log::LevelFilter::Debug);
 }
 
 pub unsafe fn init_device() {
     uart::init();
     awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
+}
+
+fn init_uart0(device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>) {
+    let mut uart0 = "";
+    for node in device_tree.root().nodes().iter() {
+        if node.name() == "aliases" {
+            for alias in node.props() {
+                if alias.name() == "uart0" {
+                    match alias.value() {
+                        PropertyValue::String(s) => {
+                            uart0 = s;
+                            break;
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+    }
+
+    if uart0 == "" {
+        delay::wait_forever();
+    }
+
+    let Some(path) = uart0.split("/").next() else {
+        delay::wait_forever();
+    };
 }

@@ -76,22 +76,22 @@ macro_rules! unsafe_print_hex {
 
 pub unsafe fn unsafe_print_hex_u32(num: u32) {
     let mut result = [b'0'; 8];
-    let hex = unsafe_print_hex!(num, result);
+    unsafe_print_hex!(num, result);
 }
 
 pub unsafe fn unsafe_print_hex_u64(num: u64) {
     let mut result = [b'0'; 16];
-    let hex = unsafe_print_hex!(num, result);
+    unsafe_print_hex!(num, result);
 }
 
 pub unsafe fn unsafe_print_hex_u96(num: u128) {
     let mut result = [b'0'; 24];
-    let hex = unsafe_print_hex!(num, result);
+    unsafe_print_hex!(num, result);
 }
 
 pub unsafe fn unsafe_print_hex_u128(num: u128) {
     let mut result = [b'0'; 32];
-    let hex = unsafe_print_hex!(num, result);
+    unsafe_print_hex!(num, result);
 }
 
 static CONSOLE: ConsoleContainer = ConsoleContainer {
