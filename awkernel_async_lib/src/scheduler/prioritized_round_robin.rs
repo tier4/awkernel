@@ -36,7 +36,7 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
 
         // Put the state in queue.
         let mut node = MCSNode::new();
-        let task_info = task.info.lock(&mut node);
+        let mut task_info = task.info.lock(&mut node);
 
         // If the task is in queue or the state is Terminated, it must not be enqueued.
         if task_info.in_queue
@@ -48,14 +48,12 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
             return;
         }
 
+        task_info.in_queue = true;
+
         drop(task_info);
-        insert_in_priority_order(&mut data.queue, task.clone());
 
         // The task is in queue.
-        let mut node = MCSNode::new();
-        let mut task_info = task.info.lock(&mut node);
-
-        task_info.in_queue = true;
+        insert_in_priority_order(&mut data.queue, task.clone());
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
