@@ -142,7 +142,7 @@ impl<'a, A: Allocator + Clone> IntoIterator for &'a DeviceTree<'a, A> {
 }
 
 #[derive(Clone)]
-pub(crate) struct InheritedValues<'a, A: Allocator + Clone>(Vec<(&'a str, u64), A>);
+pub(super) struct InheritedValues<'a, A: Allocator + Clone>(Vec<(&'a str, u64), A>);
 
 impl<'a, A: Allocator + Clone> InheritedValues<'a, A> {
     /// Constructs a new InheritedValues instance

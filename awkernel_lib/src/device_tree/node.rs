@@ -12,7 +12,7 @@ use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, r
 
 /// Represents a node in the device tree
 pub struct DeviceTreeNode<'a, A: Allocator + Clone> {
-    pub(crate) block_count: usize,
+    pub(super) block_count: usize,
     name: &'a str,
     props: Vec<NodeProperty<'a, A>, A>,
     nodes: Vec<DeviceTreeNode<'a, A>, A>,
@@ -20,7 +20,7 @@ pub struct DeviceTreeNode<'a, A: Allocator + Clone> {
 
 impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     /// Construct a DeviceTreeNode from raw bytes
-    pub(crate) fn from_bytes(
+    pub(super) fn from_bytes(
         data: &'a [u8],
         header: &DeviceTreeHeader,
         start: usize,

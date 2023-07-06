@@ -2,7 +2,7 @@ use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::utils::read_aligned_be_u32;
 
 #[derive(Debug)]
-pub(crate) struct DeviceTreeHeader {
+pub(super) struct DeviceTreeHeader {
     pub magic: u32,
     pub total_size: u32,
     pub off_dt_struct: u32,
@@ -16,7 +16,7 @@ pub(crate) struct DeviceTreeHeader {
 }
 
 impl DeviceTreeHeader {
-    pub(crate) fn from_bytes(data: &[u8]) -> Result<DeviceTreeHeader> {
+    pub(super) fn from_bytes(data: &[u8]) -> Result<DeviceTreeHeader> {
         if data.len() < 10 {
             Err(DeviceTreeError::NotEnoughLength)
         } else {

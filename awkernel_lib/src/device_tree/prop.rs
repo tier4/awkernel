@@ -13,7 +13,7 @@ use crate::device_tree::utils::{
     read_aligned_sized_strings, read_name, BLOCK_SIZE,
 };
 
-use super::utils::safe_index;
+use super::utils::{safe_index, Addr};
 
 /// Enum representing different possible property values in a Device Tree
 pub enum PropertyValue<'a, A: Allocator + Clone> {
@@ -23,9 +23,9 @@ pub enum PropertyValue<'a, A: Allocator + Clone> {
     PHandle(u32),
     String(&'a str),
     Strings(Vec<&'a str, A>),
-    Address(u128, u128),
-    Addresses(Vec<(u128, u128), A>),
-    Ranges(Vec<(u128, u128, u128), A>),
+    Address(Addr, Addr),
+    Addresses(Vec<(Addr, Addr), A>),
+    Ranges(Vec<(Addr, Addr, Addr), A>),
     Unknown,
 }
 
@@ -46,12 +46,12 @@ impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
             PropertyValue::String(it) => write!(f, "\"{}\"", it),
             PropertyValue::Strings(it) => write!(f, "[\"{}\"]", it.join("\",\"")),
             PropertyValue::PHandle(it) => write!(f, "<{:#x}>", it),
-            PropertyValue::Address(address, size) => write!(f, "<{:#x} {:#x}>", address, size),
+            PropertyValue::Address(address, size) => write!(f, "<{} {}>", address, size),
             PropertyValue::Addresses(it) => write!(
                 f,
                 "<{}>",
                 it.iter()
-                    .map(|(address, size)| format!("{:#x} {:#x}", address, size))
+                    .map(|(address, size)| format!("{} {}", address, size))
                     .collect::<Vec<String>>()
                     .join(" ")
             ),
@@ -59,10 +59,7 @@ impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
                 f,
                 "<{}>",
                 it.iter()
-                    .map(|(child, parent, length)| format!(
-                        "{:#x} {:#x} {:#x}",
-                        child, parent, length
-                    ))
+                    .map(|(child, parent, length)| format!("{} {} {}", child, parent, length))
                     .collect::<Vec<String>>()
                     .join(" ")
             ),
@@ -73,14 +70,14 @@ impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
 
 /// A property of [crate::node::DeviceTreeNode]
 pub struct NodeProperty<'a, A: Allocator + Clone> {
-    pub(crate) block_count: usize,
+    pub(super) block_count: usize,
     name: &'a str,
     value: PropertyValue<'a, A>,
 }
 
 impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
     /// Creates a new NodeProperty instance from raw bytes
-    pub(crate) fn from_bytes(
+    pub(super) fn from_bytes(
         data: &'a [u8],
         header: &DeviceTreeHeader,
         start: usize,
@@ -130,7 +127,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
     }
 
     /// Parses a raw value into a PropertyValue
-    pub(crate) fn parse_value(
+    pub(super) fn parse_value(
         raw_value: &'a [u8],
         name: &str,
         inherited: &InheritedValues<A>,

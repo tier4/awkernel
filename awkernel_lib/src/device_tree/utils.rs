@@ -1,30 +1,30 @@
 use super::error::{DeviceTreeError, Result};
 use alloc::vec::Vec;
-use core::alloc::Allocator;
+use core::{alloc::Allocator, fmt::Display};
 
-pub(crate) const BLOCK_SIZE: usize = 4;
+pub(super) const BLOCK_SIZE: usize = 4;
 
 /// Aligns the block index
-pub(crate) fn align_block(index: usize) -> usize {
+pub(super) fn align_block(index: usize) -> usize {
     index / BLOCK_SIZE
 }
 
 /// Identifies the position of a block
-pub(crate) fn locate_block(index: usize) -> usize {
+pub(super) fn locate_block(index: usize) -> usize {
     index * BLOCK_SIZE
 }
 
 /// Aligns the size
-pub(crate) fn align_size(raw_size: usize) -> usize {
+pub(super) fn align_size(raw_size: usize) -> usize {
     (raw_size + BLOCK_SIZE - 1) / BLOCK_SIZE
 }
 
-pub(crate) fn safe_index<T>(data: &[T], index: usize) -> Result<&T> {
+pub(super) fn safe_index<T>(data: &[T], index: usize) -> Result<&T> {
     data.get(index).ok_or(DeviceTreeError::ParsingFailed)
 }
 
 /// Reads an aligned block
-pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK_SIZE]> {
+pub(super) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK_SIZE]> {
     let first = locate_block(index);
     if first + BLOCK_SIZE > data.len() {
         Err(DeviceTreeError::ParsingFailed)
@@ -39,15 +39,39 @@ pub(crate) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK
 }
 
 /// Reads an aligned big-endian u32
-pub(crate) fn read_aligned_be_u32(data: &[u8], index: usize) -> Result<u32> {
+pub(super) fn read_aligned_be_u32(data: &[u8], index: usize) -> Result<u32> {
     read_aligned_block(data, index).map(|block| u32::from_be_bytes(block))
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Addr {
+    Zero,
+    U32(u32),
+    U64(u64),
+    U96(u128),
+    U128(u128),
+}
+
+impl Display for Addr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Addr::Zero => write!(f, "0"),
+            Addr::U32(n) => write!(f, "0x{n:08x}"),
+            Addr::U64(n) => write!(f, "0x{n:016x}"),
+            Addr::U96(n) => write!(f, "0x{n:024x}"),
+            Addr::U128(n) => write!(f, "0x{n:032x}"),
+        }
+    }
+}
+
 /// Reads an aligned big-endian number
-pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Result<u128> {
+pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usize) -> Result<Addr> {
     match block_size {
-        0 => Ok(0),
-        1 => read_aligned_be_u32(data, index).map(|res| res as u128),
+        0 => Ok(Addr::Zero),
+        1 => {
+            let num = read_aligned_be_u32(data, index).map(|res| res)?;
+            Ok(Addr::U32(num))
+        }
         2 => {
             let bytes = &data
                 .get(locate_block(index)..locate_block(index + block_size))
@@ -62,7 +86,7 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 *safe_index(bytes, 6)?,
                 *safe_index(bytes, 7)?,
             ]);
-            Ok(num as u128)
+            Ok(Addr::U64(num))
         }
         3 => {
             let bytes = &data
@@ -86,7 +110,7 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 0,
                 0,
             ]);
-            Ok(num as u128)
+            Ok(Addr::U96(num))
         }
         4 => {
             let bytes = &data
@@ -110,14 +134,14 @@ pub(crate) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 *safe_index(bytes, 14)?,
                 *safe_index(bytes, 15)?,
             ]);
-            Ok(num)
+            Ok(Addr::U128(num))
         }
         _ => Err(DeviceTreeError::NotEnoughLength),
     }
 }
 
 /// Reads a name
-pub(crate) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
+pub(super) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
     let first = offset;
     if first > data.len() {
         None
@@ -134,12 +158,12 @@ pub(crate) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
 }
 
 /// Reads an aligned name
-pub(crate) fn read_aligned_name(data: &[u8], index: usize) -> Option<&str> {
+pub(super) fn read_aligned_name(data: &[u8], index: usize) -> Option<&str> {
     read_name(data, locate_block(index))
 }
 
 /// Reads an aligned string with size
-pub(crate) fn read_aligned_sized_strings<A: Allocator>(
+pub(super) fn read_aligned_sized_strings<A: Allocator>(
     data: &[u8],
     index: usize,
     size: usize,
