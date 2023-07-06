@@ -48,11 +48,11 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
             return;
         }
 
+        // The task is in queue.
         task_info.in_queue = true;
 
         drop(task_info);
 
-        // The task is in queue.
         insert_in_priority_order(&mut data.queue, task.clone());
     }
 
