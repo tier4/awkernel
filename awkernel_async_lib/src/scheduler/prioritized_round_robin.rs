@@ -5,8 +5,6 @@ use crate::task;
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-/// The tasks with lower numeric priority values are considered higher in priority (with 0 being the highest).
-/// If the new task's priority is lower than all existing tasks, it will be added to the end.
 pub struct PrioritizedRoundRobinScheduler {
     data: Mutex<Option<PrioritizedRoundRobinData>>, // Run queue.
 }
@@ -52,7 +50,6 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
         task_info.in_queue = true;
 
         drop(task_info);
-
         insert_in_priority_order(&mut data.queue, task.clone());
     }
 
