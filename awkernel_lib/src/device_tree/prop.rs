@@ -210,8 +210,12 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                     let group_index = i * single_size;
                     let res = (
                         read_aligned_be_number(raw_value, group_index, child_cells)?,
-                        read_aligned_be_number(raw_value, group_index, parent_cells)?,
-                        read_aligned_be_number(raw_value, group_index, size_cells)?,
+                        read_aligned_be_number(raw_value, group_index + child_cells, parent_cells)?,
+                        read_aligned_be_number(
+                            raw_value,
+                            group_index + child_cells + parent_cells,
+                            size_cells,
+                        )?,
                     );
                     rags.push(res);
                 }
