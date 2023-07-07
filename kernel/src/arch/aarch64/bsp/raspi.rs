@@ -3,16 +3,19 @@ use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
     console::register_console,
-    delay,
-    device_tree::{device_tree::DeviceTree, prop::PropertyValue},
+    device_tree::{device_tree::DeviceTree, node::DeviceTreeNode, prop::PropertyValue},
     interrupt::register_interrupt_controller,
     local_heap,
 };
 use core::arch::asm;
 
+use super::DeviceTreeRef;
+
 pub mod config;
 pub mod memory;
 mod uart;
+
+type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
 
 pub fn start_non_primary() {
     if cfg!(feature = "raspi3") {
@@ -83,29 +86,106 @@ pub unsafe fn init_device() {
     awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
 }
 
-fn init_uart0(device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>) {
-    let mut uart0 = "";
-    for node in device_tree.root().nodes().iter() {
-        if node.name() == "aliases" {
-            for alias in node.props() {
-                if alias.name() == "uart0" {
-                    match alias.value() {
-                        PropertyValue::String(s) => {
-                            uart0 = s;
-                            break;
-                        }
-                        _ => (),
-                    }
-                }
+fn get_soc_node(device_tree: DeviceTreeRef) -> Option<DeviceTreeNodeRef> {
+    device_tree
+        .root()
+        .nodes()
+        .iter()
+        .find(|n| n.name() == "soc")
+}
+
+fn init_uart0(
+    device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
+) -> Option<()> {
+    // Find "aliases" node.
+    let aliases = device_tree
+        .root()
+        .nodes()
+        .iter()
+        .find(|node| node.name() == "aliases")?;
+
+    // Find "uart0" property.
+    let uart0_alias = aliases.props().iter().find(|prop| prop.name() == "uart0")?;
+
+    // Get the path to "uart0".
+    let uart0_path = match uart0_alias.value() {
+        PropertyValue::String(p) => *p,
+        _ => return None,
+    };
+
+    // Split the path by "/".
+    let mut path_it = uart0_path.split("/");
+
+    // The root node must be empty.
+    let root = path_it.next()?;
+    if root != "" {
+        return None;
+    }
+
+    // The root node must be empty.
+    let soc = path_it.next()?;
+    if soc != "soc" {
+        return None;
+    }
+
+    let uart0_name = path_it.next()?;
+
+    let soc_node = get_soc_node(device_tree)?;
+
+    let uart0_node = soc_node.nodes().iter().find(|n| n.name() == uart0_name)?;
+
+    let compatible = uart0_node
+        .props()
+        .iter()
+        .find(|p| p.name() == "compatible")?;
+
+    // UART0 must be PL011.
+    match compatible.value() {
+        PropertyValue::Strings(comps) => {
+            if !comps.contains(&"arm,pl011") {
+                return None;
             }
+        }
+        _ => return None,
+    }
+
+    let soc_ranges = match soc_node
+        .props()
+        .iter()
+        .find(|p| p.name() == "ranges")?
+        .value()
+    {
+        PropertyValue::Ranges(ranges) => ranges,
+        _ => return None,
+    };
+
+    let uart0_addr = match uart0_node
+        .props()
+        .iter()
+        .find(|p| p.name() == "reg")?
+        .value()
+    {
+        PropertyValue::Address(addr, _) => addr,
+        _ => return None,
+    };
+
+    for range in soc_ranges {
+        if let Some(addr) = range.map_to(*uart0_addr) {
+            // TODO
+
+            return Some(());
         }
     }
 
-    if uart0 == "" {
-        delay::wait_forever();
-    }
+    None
+}
 
-    let Some(path) = uart0.split("/").next() else {
-        delay::wait_forever();
-    };
+struct Raspi;
+
+impl super::SoC for Raspi {
+    unsafe fn init_device(device_tree: super::DeviceTreeRef) {}
+
+    unsafe fn init_memory_map(device_tree: super::DeviceTreeRef) {}
+
+    unsafe fn init(device_tree: super::DeviceTreeRef) {}
 }

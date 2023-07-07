@@ -11,6 +11,8 @@ use awkernel_lib::{
 pub mod config;
 pub mod memory;
 
+type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
+
 #[cfg(feature = "raspi")]
 pub mod raspi;
 
@@ -24,4 +26,12 @@ pub unsafe fn init_device(
 ) {
     #[cfg(feature = "raspi")]
     raspi::init_device();
+}
+
+pub trait SoC {
+    unsafe fn init_device(device_tree: DeviceTreeRef);
+
+    unsafe fn init_memory_map(device_tree: DeviceTreeRef);
+
+    unsafe fn init(device_tree: DeviceTreeRef);
 }

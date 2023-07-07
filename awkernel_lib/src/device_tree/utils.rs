@@ -46,7 +46,7 @@ pub(super) fn read_aligned_be_u32(data: &[u8], index: usize) -> Result<u32> {
 #[derive(Debug, Clone, Copy)]
 pub enum Addr {
     Zero,
-    U32(u32),
+    U32(u64),
     U64(u64),
     U96(u128),
     U128(u128),
@@ -70,7 +70,7 @@ pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
         0 => Ok(Addr::Zero),
         1 => {
             let num = read_aligned_be_u32(data, index).map(|res| res)?;
-            Ok(Addr::U32(num))
+            Ok(Addr::U32(num as u64))
         }
         2 => {
             let bytes = &data

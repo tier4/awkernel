@@ -15,6 +15,33 @@ use crate::device_tree::utils::{
 
 use super::utils::{safe_index, Addr};
 
+pub struct Range {
+    pub range: (Addr, Addr, Addr),
+}
+
+impl Range {
+    pub fn map_to(&self, addr: Addr) -> Option<u128> {
+        fn to_u128(addr: Addr) -> u128 {
+            match addr {
+                Addr::Zero => 0,
+                Addr::U32(a) | Addr::U64(a) => a as u128,
+                Addr::U96(a) | Addr::U128(a) => a,
+            }
+        }
+
+        let src = to_u128(addr);
+        let from_addr = to_u128(self.range.0);
+        let to_addr = to_u128(self.range.1);
+        let size = to_u128(self.range.2);
+
+        if (from_addr..(from_addr + size)).contains(&src) {
+            Some(src - from_addr + to_addr)
+        } else {
+            None
+        }
+    }
+}
+
 /// Enum representing different possible property values in a Device Tree
 pub enum PropertyValue<'a, A: Allocator + Clone> {
     None,
@@ -25,7 +52,7 @@ pub enum PropertyValue<'a, A: Allocator + Clone> {
     Strings(Vec<&'a str, A>),
     Address(Addr, Addr),
     Addresses(Vec<(Addr, Addr), A>),
-    Ranges(Vec<(Addr, Addr, Addr), A>),
+    Ranges(Vec<Range, A>),
     Unknown,
 }
 
@@ -59,7 +86,7 @@ impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
                 f,
                 "<{}>",
                 it.iter()
-                    .map(|(child, parent, length)| format!("{} {} {}", child, parent, length))
+                    .map(|r| format!("{} {} {}", r.range.0, r.range.1, r.range.2))
                     .collect::<Vec<String>>()
                     .join(" ")
             ),
@@ -208,7 +235,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 let mut rags = Vec::<_, A>::new_in(allocator);
                 for i in 0..group_size {
                     let group_index = i * single_size;
-                    let res = (
+                    let range = (
                         read_aligned_be_number(raw_value, group_index, child_cells)?,
                         read_aligned_be_number(raw_value, group_index + child_cells, parent_cells)?,
                         read_aligned_be_number(
@@ -217,7 +244,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                             size_cells,
                         )?,
                     );
-                    rags.push(res);
+                    rags.push(Range { range });
                 }
                 Ok(PropertyValue::Ranges(rags))
             }

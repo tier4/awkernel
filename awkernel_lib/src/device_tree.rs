@@ -91,7 +91,7 @@ pub unsafe fn print_device_tree_node(
     unsafe fn print_address(address: utils::Addr) {
         match address {
             utils::Addr::Zero => unsafe_puts("0"),
-            utils::Addr::U32(num) => unsafe_print_hex_u32(num),
+            utils::Addr::U32(num) => unsafe_print_hex_u32(num as u32),
             utils::Addr::U64(num) => unsafe_print_hex_u64(num),
             utils::Addr::U96(num) => unsafe_print_hex_u96(num),
             utils::Addr::U128(num) => unsafe_print_hex_u128(num),
@@ -160,19 +160,19 @@ pub unsafe fn print_device_tree_node(
                 prop::PropertyValue::Ranges(ranges) => {
                     unsafe_puts(": [\n");
 
-                    for (addr1, addr2, addr3) in ranges {
+                    for r in ranges {
                         print_white_spaces(depth + 2);
 
                         unsafe_puts("(0x");
-                        print_address(*addr1);
+                        print_address(r.range.0);
                         unsafe_puts(", ");
 
                         unsafe_puts("0x");
-                        print_address(*addr2);
+                        print_address(r.range.1);
                         unsafe_puts(", ");
 
                         unsafe_puts("0x");
-                        print_address(*addr3);
+                        print_address(r.range.2);
                         unsafe_puts("),\n");
                     }
 
