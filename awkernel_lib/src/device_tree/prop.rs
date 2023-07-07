@@ -199,8 +199,8 @@ impl<'a> NodeProperty<'a> {
                     let group_index = i * single_size;
                     let res = (
                         read_aligned_be_number(raw_value, group_index, child_cells).unwrap(),
-                        read_aligned_be_number(raw_value, group_index, parent_cells).unwrap(),
-                        read_aligned_be_number(raw_value, group_index, size_cells).unwrap(),
+                        read_aligned_be_number(raw_value, group_index + child_cells, parent_cells).unwrap(),
+                        read_aligned_be_number(raw_value, group_index + child_cells + parent_cells, size_cells).unwrap(),
                     );
                     rags.push(res);
                 }
