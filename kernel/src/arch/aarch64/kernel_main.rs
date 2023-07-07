@@ -16,12 +16,9 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
-use core::arch::asm;
-
-use crate::arch::aarch64::driver::hal::gpio_hal::*;
-use embedded_hal::digital::v2::{OutputPin, InputPin};
-
-use awkernel_lib::{console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap};
+use awkernel_lib::{
+    console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
+};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
@@ -45,14 +42,6 @@ pub unsafe extern "C" fn kernel_main() -> ! {
     }
 
     wait_forever();
-}
-
-fn busy_wait(time: usize) {
-    for _ in 0..time {
-        unsafe {
-            asm!("");
-        }
-    }
 }
 
 /// 1. Initialize MMU.
@@ -139,36 +128,13 @@ unsafe fn primary_cpu() {
         cpu_id: 0,
     };
 
-    let mut led = GpioPin::new(21);
+    let mut dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
 
-    led.set_function(GpioFunction::INPUT);
-    led.is_low();
-    led.is_high();
-    
-    led.set_function(GpioFunction::OUTPUT); 
+    let tree = DeviceTree::from_bytes(&mut dtb).unwrap();
 
-    let mut dur;
-    loop {
-        dur = 500000000;
-        while dur > 5000 {
-            led.set_high().unwrap();
-            busy_wait(dur);
-            led.set_low().unwrap();
-            busy_wait(dur);
-            dur -= 5000;
-        }
-        led.set_low().unwrap();
-    }
-  
+    log::info!("{}", tree);
 
-
-    // let mut dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-
-    // let tree = DeviceTree::from_bytes(&mut dtb).unwrap();
-
-    // log::info!("{}", tree);
-
-    // crate::main::<()>(kernel_info);
+    crate::main::<()>(kernel_info);
 }
 
 unsafe fn non_primary_cpu() {
