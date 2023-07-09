@@ -5,15 +5,15 @@ use crate::task;
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-pub struct RoundRobinScheduler {
-    data: Mutex<Option<RoundRobinData>>, // Run queue.
+pub struct FIFOScheduler {
+    data: Mutex<Option<FIFOData>>, // Run queue.
 }
 
-struct RoundRobinData {
+struct FIFOData {
     queue: VecDeque<Arc<Task>>,
 }
 
-impl RoundRobinData {
+impl FIFOData {
     fn new() -> Self {
         Self {
             queue: VecDeque::new(),
@@ -21,13 +21,13 @@ impl RoundRobinData {
     }
 }
 
-impl Scheduler for RoundRobinScheduler {
+impl Scheduler for FIFOScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
         if data.is_none() {
-            *data = Some(RoundRobinData::new());
+            *data = Some(FIFOData::new());
         }
 
         let data = data.as_mut().unwrap();
@@ -71,10 +71,10 @@ impl Scheduler for RoundRobinScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::RoundRobin
+        SchedulerType::FIFO
     }
 }
 
-pub static SCHEDULER: RoundRobinScheduler = RoundRobinScheduler {
+pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
     data: Mutex::new(None),
 };

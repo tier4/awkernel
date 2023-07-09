@@ -6,7 +6,7 @@ CONSTANTS TASK_NUM, WORKERS
 (*--algorithm cooperative
 
 variables
-    \* awkernel_async_lib::scheduler::round_robin::RoundRobinData::queue
+    \* awkernel_async_lib::scheduler::round_robin::FIFOData::queue
     queue = <<>>;
 
     \* lock variables
@@ -35,7 +35,7 @@ define
     eventually_terminate == <> \A x \in 1..TASK_NUM: (state[x] = "Terminated")
 end define
 
-\* awkernel_async_lib::scheduler::round_robin::RoundRobinScheduler::wake_task()
+\* awkernel_async_lib::scheduler::round_robin::FIFOScheduler::wake_task()
 procedure wake_task(task) begin
     start_wake_task:
         await ~lock_scheduler;
@@ -83,7 +83,7 @@ begin
         return;
 end procedure;
 
-\* awkernel_async_lib::scheduler::round_robin::RoundRobinScheduler::get_next()
+\* awkernel_async_lib::scheduler::round_robin::FIFOScheduler::get_next()
 procedure get_next(pid)
 variables
     head;

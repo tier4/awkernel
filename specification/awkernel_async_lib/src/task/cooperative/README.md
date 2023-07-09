@@ -57,7 +57,7 @@ Finished in 02h 29min at (2023-06-19 16:36:21)
 Variables are straightly defined as follows.
 
 ```
-\* awkernel_async_lib::scheduler::round_robin::RoundRobinData::queue
+\* awkernel_async_lib::scheduler::round_robin::FIFOData::queue
 queue = <<>>;
 
 \* lock variables

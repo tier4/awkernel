@@ -131,7 +131,7 @@ pub async fn forever() -> ! {
 ///     let join_handler = awkernel_async_lib::spawn(
 ///         "name".into(),
 ///         async { /* do something */ },
-///         SchedulerType::RoundRobin, // Scheduler type.
+///         SchedulerType::FIFO, // Scheduler type.
 ///     ).await;
 ///
 ///     // Join the task, but it is not necessary.
