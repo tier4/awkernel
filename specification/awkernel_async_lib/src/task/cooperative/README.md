@@ -3,7 +3,7 @@
 ## Targets
 
 - [awkernel_async_lib/src/task.rs](../../../../../awkernel_async_lib/src/task.rs).
-- [awkernel_async_lib/src/scheduler/round_robin.rs](../../../../../awkernel_async_lib/src/scheduler/round_robin.rs).
+- [awkernel_async_lib/src/scheduler/fifo.rs](../../../../../awkernel_async_lib/src/scheduler/fifo.rs).
 
 ## Subjects to be Verified
 
@@ -57,7 +57,7 @@ Finished in 02h 29min at (2023-06-19 16:36:21)
 Variables are straightly defined as follows.
 
 ```
-\* awkernel_async_lib::scheduler::round_robin::FIFOData::queue
+\* awkernel_async_lib::scheduler::fifo::FIFOData::queue
 queue = <<>>;
 
 \* lock variables
