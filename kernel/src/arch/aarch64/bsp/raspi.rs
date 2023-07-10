@@ -24,7 +24,7 @@ mod uart;
 
 type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
 
-static mut ALIASES_NODE: Option<super::DeviceTreeNodeRef> = None;
+static mut SYMBOLS_NODE: Option<super::DeviceTreeNodeRef> = None;
 static mut INTERRUPT_NODE: Option<super::DeviceTreeNodeRef> = None;
 
 pub fn start_non_primary() {
@@ -107,7 +107,7 @@ fn get_soc_node(device_tree: DeviceTreeRef) -> Option<DeviceTreeNodeRef> {
 fn init_uart0(
     device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
 ) -> Result<(), DeviceTreeError> {
-    let arrayed_node = get_device_from_aliases(device_tree, "uart0")?;
+    let arrayed_node = get_device_from_symbols(device_tree, "uart0")?;
 
     let base_addr = arrayed_node.get_address()?;
 
@@ -120,16 +120,16 @@ fn init_uart0(
     Ok(())
 }
 
-/// Find "aliases" node and initialize `ALIASES_NODE` by the node.
-fn init_alias_node(device_tree: super::DeviceTreeRef) -> Option<()> {
+/// Find "__symbols__" node and initialize `ALIASES_NODE` by the node.
+fn init_symbols_node(device_tree: super::DeviceTreeRef) -> Option<()> {
     // Find "aliases" node.
-    let aliases = device_tree
+    let symbols = device_tree
         .root()
         .nodes()
         .iter()
-        .find(|node| node.name() == "aliases")?;
+        .find(|node| node.name() == "__symbols__")?;
 
-    unsafe { write_volatile(&mut ALIASES_NODE, Some(aliases)) };
+    unsafe { write_volatile(&mut SYMBOLS_NODE, Some(symbols)) };
 
     Some(())
 }
@@ -139,14 +139,12 @@ fn init_alias_node(device_tree: super::DeviceTreeRef) -> Option<()> {
 /// will be returned.
 ///
 /// If there is no such node, `None` will be returned.
-fn get_device_from_aliases(
+fn get_device_from_symbols(
     device_tree: super::DeviceTreeRef,
     name: &str,
 ) -> Result<StaticArrayedNode, DeviceTreeError> {
-    let mut result = ArrayedNode::new();
-
-    let aliases = unsafe { ALIASES_NODE.ok_or(DeviceTreeError::InvalidSemantics)? };
-    let alias = aliases
+    let symbol_node = unsafe { SYMBOLS_NODE.ok_or(DeviceTreeError::InvalidSemantics)? };
+    let alias = symbol_node
         .props()
         .iter()
         .find(|prop| prop.name() == name)
@@ -157,34 +155,28 @@ fn get_device_from_aliases(
         _ => return Err(DeviceTreeError::InvalidSemantics),
     };
 
-    let mut node = device_tree.root();
+    device_tree.root().get_arrayed_node(abs_path)
+}
 
-    let mut path_it = abs_path.split("/");
-    let first = path_it.next().ok_or(DeviceTreeError::InvalidSemantics)?;
+fn init_interrupt_node(device_tree: super::DeviceTreeRef) -> Result<(), DeviceTreeError> {
+    let intc = get_device_from_symbols(device_tree, "gicv2")
+        .or(get_device_from_symbols(device_tree, "intc"))?;
 
-    if first != "" {
-        return Err(DeviceTreeError::InvalidSemantics);
-    }
+    let leaf = intc
+        .get_leaf_node()
+        .ok_or(DeviceTreeError::InvalidSemantics)?;
 
-    result.push(node)?;
+    unsafe { write_volatile(&mut INTERRUPT_NODE, Some(leaf)) };
 
-    for p in path_it {
-        node = node
-            .nodes()
-            .iter()
-            .find(|n| n.name() == p)
-            .ok_or(DeviceTreeError::InvalidSemantics)?;
-        result.push(node)?;
-    }
-
-    Ok(result)
+    Ok(())
 }
 
 pub(super) struct Raspi;
 
 impl super::SoC for Raspi {
     unsafe fn init_device(device_tree: super::DeviceTreeRef) {
-        init_alias_node(device_tree);
+        init_symbols_node(device_tree);
+        let _ = init_interrupt_node(device_tree);
         let _ = init_uart0(device_tree);
     }
 

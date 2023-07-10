@@ -70,6 +70,31 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     pub fn nodes(&self) -> &[Self] {
         &self.nodes
     }
+
+    pub fn get_arrayed_node(&'a self, abs_path: &str) -> Result<ArrayedNode<'a, A>> {
+        let mut result = ArrayedNode::new();
+        let mut node = self;
+
+        let mut path_it = abs_path.split("/");
+        let first = path_it.next().ok_or(DeviceTreeError::InvalidSemantics)?;
+
+        if first != "" {
+            return Err(DeviceTreeError::InvalidSemantics);
+        }
+
+        result.push(node)?;
+
+        for p in path_it {
+            node = node
+                .nodes()
+                .iter()
+                .find(|n| n.name() == p)
+                .ok_or(DeviceTreeError::InvalidSemantics)?;
+            result.push(node)?;
+        }
+
+        Ok(result)
+    }
 }
 
 /// Parse properties and nodes
