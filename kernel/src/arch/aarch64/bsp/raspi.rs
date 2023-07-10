@@ -5,7 +5,8 @@ use awkernel_lib::{
     console::{register_console, unsafe_print_hex_u128, unsafe_print_hex_u32},
     device_tree::{
         device_tree::DeviceTree,
-        node::DeviceTreeNode,
+        error::DeviceTreeError,
+        node::{ArrayedNode, DeviceTreeNode},
         print_device_tree_node,
         prop::{NodeProperty, PropertyValue, Range},
         utils::Addr,
@@ -15,7 +16,7 @@ use awkernel_lib::{
 };
 use core::{arch::asm, ptr::write_volatile};
 
-use super::DeviceTreeRef;
+use super::{DeviceTreeRef, StaticArrayedNode};
 
 pub mod config;
 pub mod memory;
@@ -23,8 +24,8 @@ mod uart;
 
 type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
 
-static mut ALIASES_NODE: Option<super::DeviceTreeNoeRef> = None;
-static mut INTERRUPT_NODE: Option<super::DeviceTreeNoeRef> = None;
+static mut ALIASES_NODE: Option<super::DeviceTreeNodeRef> = None;
+static mut INTERRUPT_NODE: Option<super::DeviceTreeNodeRef> = None;
 
 pub fn start_non_primary() {
     if cfg!(feature = "raspi3") {
@@ -105,47 +106,10 @@ fn get_soc_node(device_tree: DeviceTreeRef) -> Option<DeviceTreeNodeRef> {
 
 fn init_uart0(
     device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
-) -> Option<()> {
-    let nodes = get_device_from_aliases(device_tree, "uart0")?;
+) -> Result<(), DeviceTreeError> {
+    let arrayed_node = get_device_from_aliases(device_tree, "uart0")?;
 
-    let mut uart0_node = None;
-    let mut base_addr = 0;
-    'node: for node in nodes.iter().rev() {
-        if node.is_some() {
-            // Find UART0 node and its base address.
-            if uart0_node.is_none() {
-                let uart0 = node.unwrap();
-                let reg = uart0.props().iter().find(|prop| prop.name() == "reg")?;
-
-                match reg.value() {
-                    PropertyValue::Address(base, _len) => {
-                        base_addr = base.to_u128();
-                    }
-                    _ => return None,
-                }
-
-                uart0_node = Some(uart0);
-            } else {
-                let n = node.unwrap();
-                if let Some(ranges) = n.props().iter().find(|p| p.name() == "ranges") {
-                    match ranges.value() {
-                        PropertyValue::Ranges(rgs) => {
-                            // `base_addr` must be in the ranges,
-                            // and it will be mapped by the ranges.
-                            for range in rgs {
-                                if let Some(addr) = range.map_to(Addr::U128(base_addr)) {
-                                    base_addr = addr;
-                                    continue 'node;
-                                }
-                            }
-                            return None; // Invalid address.
-                        }
-                        _ => return None, // Must be ranges.
-                    }
-                }
-            }
-        }
-    }
+    let base_addr = arrayed_node.get_address()?;
 
     unsafe {
         unsafe_puts("init_uart0: base_addr = ");
@@ -153,7 +117,7 @@ fn init_uart0(
         unsafe_puts("\n");
     }
 
-    Some(())
+    Ok(())
 }
 
 /// Find "aliases" node and initialize `ALIASES_NODE` by the node.
@@ -178,33 +142,42 @@ fn init_alias_node(device_tree: super::DeviceTreeRef) -> Option<()> {
 fn get_device_from_aliases(
     device_tree: super::DeviceTreeRef,
     name: &str,
-) -> Option<[Option<DeviceTreeNodeRef>; 10]> {
-    let aliases = unsafe { ALIASES_NODE? };
-    let alias = aliases.props().iter().find(|prop| prop.name() == name)?;
+) -> Result<StaticArrayedNode, DeviceTreeError> {
+    let mut result = ArrayedNode::new();
+
+    let aliases = unsafe { ALIASES_NODE.ok_or(DeviceTreeError::InvalidSemantics)? };
+    let alias = aliases
+        .props()
+        .iter()
+        .find(|prop| prop.name() == name)
+        .ok_or(DeviceTreeError::InvalidSemantics)?;
 
     let abs_path = match alias.value() {
         PropertyValue::String(p) => *p,
-        _ => return None,
+        _ => return Err(DeviceTreeError::InvalidSemantics),
     };
 
     let mut node = device_tree.root();
-    let mut result = [None; 10];
 
     let mut path_it = abs_path.split("/");
-    let first = path_it.next()?;
+    let first = path_it.next().ok_or(DeviceTreeError::InvalidSemantics)?;
 
     if first != "" {
-        return None;
+        return Err(DeviceTreeError::InvalidSemantics);
     }
 
-    result[0] = Some(node);
+    result.push(node)?;
 
-    for (i, p) in path_it.enumerate() {
-        node = node.nodes().iter().find(|n| n.name() == p)?;
-        result[i + 1] = Some(node);
+    for p in path_it {
+        node = node
+            .nodes()
+            .iter()
+            .find(|n| n.name() == p)
+            .ok_or(DeviceTreeError::InvalidSemantics)?;
+        result.push(node)?;
     }
 
-    Some(result)
+    Ok(result)
 }
 
 pub(super) struct Raspi;
@@ -212,7 +185,7 @@ pub(super) struct Raspi;
 impl super::SoC for Raspi {
     unsafe fn init_device(device_tree: super::DeviceTreeRef) {
         init_alias_node(device_tree);
-        init_uart0(device_tree);
+        let _ = init_uart0(device_tree);
     }
 
     unsafe fn init_memory_map(device_tree: super::DeviceTreeRef) {}

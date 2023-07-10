@@ -3,7 +3,10 @@
 //! - `raspi` is for Raspberry Pi 3 (Qemu) and 4.
 
 use awkernel_lib::{
-    device_tree::{device_tree::DeviceTree, node::DeviceTreeNode},
+    device_tree::{
+        device_tree::DeviceTree,
+        node::{ArrayedNode, DeviceTreeNode},
+    },
     local_heap,
 };
 
@@ -11,7 +14,8 @@ pub mod config;
 pub mod memory;
 
 type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
-type DeviceTreeNoeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
 
 #[cfg(feature = "raspi")]
 pub mod raspi;

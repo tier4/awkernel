@@ -10,6 +10,8 @@ use crate::device_tree::prop::{NodeProperty, PropertyValue};
 use crate::device_tree::traits::HasNamedChildNode;
 use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, read_aligned_name};
 
+use super::utils::Addr;
+
 /// Represents a node in the device tree
 pub struct DeviceTreeNode<'a, A: Allocator + Clone> {
     pub(super) block_count: usize,
@@ -190,5 +192,118 @@ impl<'a, A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'a, A> {
             }
         }
         option
+    }
+}
+
+const ARRAYED_NODE_SIZE: usize = 8;
+
+pub struct ArrayedNode<'a, A: Allocator + Clone> {
+    array: [Option<&'a DeviceTreeNode<'a, A>>; ARRAYED_NODE_SIZE],
+    index: usize,
+}
+
+impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
+    pub fn new() -> Self {
+        ArrayedNode {
+            array: [None; ARRAYED_NODE_SIZE],
+            index: 0,
+        }
+    }
+
+    /// Push a node.
+    pub fn push(&mut self, node: &'a DeviceTreeNode<'a, A>) -> Result<()> {
+        if self.index >= ARRAYED_NODE_SIZE {
+            return Err(DeviceTreeError::NotEnoughLength);
+        }
+
+        self.array[self.index] = Some(node);
+        self.index += 1;
+
+        Ok(())
+    }
+
+    /// Get the leaf node.
+    pub fn get_leaf_node(&self) -> Option<&'a DeviceTreeNode<'a, A>> {
+        for node in self.array.iter().rev() {
+            if node.is_some() {
+                return Some(node.unwrap());
+            }
+        }
+
+        None
+    }
+
+    /// Get the base address of the device.
+    /// The base address is calculated by using the ranges of the parent nodes.
+    ///
+    /// For example, `device@0`'s `reg` is `<0x0 0x1000>`, and the parent node has a ranges
+    /// of `<0x0 0x40000000 0x1000>` as follows.
+    /// This function will return `0x40001000` as the base address.
+    ///
+    /// ```plain
+    /// / {
+    ///     #address-cells = <1>;
+    ///     #size-cells = <1>;
+    ///
+    ///     soc {
+    ///         #address-cells = <1>;
+    ///         #size-cells = <1>;
+    ///         compatible = "simple-bus";
+    ///         ranges = <0x0 0x40000000 0x1000>;
+    ///
+    ///         device@0 {
+    ///             compatible = "vendor,device";
+    ///             reg = <0x0 0x1000>;
+    ///         };
+    ///     };
+    /// };
+    /// ```
+    pub fn get_address(&self) -> Result<u128> {
+        let mut leaf = None;
+        let mut base_addr = 0;
+        'node: for node in self.array.iter().rev() {
+            if node.is_some() {
+                // Find the leaf node and its base address.
+                if leaf.is_none() {
+                    let tail = node.as_ref().unwrap();
+                    let reg = tail
+                        .props()
+                        .iter()
+                        .find(|prop| prop.name() == "reg")
+                        .ok_or(DeviceTreeError::InvalidSemantics)?;
+
+                    match reg.value() {
+                        PropertyValue::Address(base, _len) => {
+                            base_addr = base.to_u128();
+                        }
+                        _ => return Err(DeviceTreeError::InvalidSemantics),
+                    }
+
+                    leaf = Some(tail);
+                } else {
+                    let n = node.as_ref().unwrap();
+                    if let Some(ranges) = n.props().iter().find(|p| p.name() == "ranges") {
+                        match ranges.value() {
+                            PropertyValue::Ranges(rgs) => {
+                                // `base_addr` must be in the ranges,
+                                // and it will be mapped by the ranges.
+                                for range in rgs {
+                                    if let Some(addr) = range.map_to(Addr::U128(base_addr)) {
+                                        base_addr = addr;
+                                        continue 'node;
+                                    }
+                                }
+
+                                // Invalid address.
+                                return Err(DeviceTreeError::MemoryAccessFailed);
+                            }
+                            _ => return Err(DeviceTreeError::InvalidSemantics), // Must be ranges.
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(base_addr)
     }
 }

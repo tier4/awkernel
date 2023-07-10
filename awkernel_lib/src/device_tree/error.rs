@@ -7,4 +7,5 @@ pub enum DeviceTreeError {
     InvalidToken,
     ParsingFailed,
     MemoryAccessFailed,
+    InvalidSemantics,
 }
