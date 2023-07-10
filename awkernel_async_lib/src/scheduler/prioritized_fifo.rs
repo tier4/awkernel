@@ -5,15 +5,15 @@ use crate::task;
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-pub struct PrioritizedRoundRobinScheduler {
-    data: Mutex<Option<PrioritizedRoundRobinData>>, // Run queue.
+pub struct PrioritizedFIFOScheduler {
+    data: Mutex<Option<PrioritizedFIFOData>>, // Run queue.
 }
 
-struct PrioritizedRoundRobinData {
+struct PrioritizedFIFOData {
     queue: VecDeque<Arc<Task>>,
 }
 
-impl PrioritizedRoundRobinData {
+impl PrioritizedFIFOData {
     fn new() -> Self {
         Self {
             queue: VecDeque::new(),
@@ -21,13 +21,13 @@ impl PrioritizedRoundRobinData {
     }
 }
 
-impl Scheduler for PrioritizedRoundRobinScheduler {
+impl Scheduler for PrioritizedFIFOScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
         if data.is_none() {
-            *data = Some(PrioritizedRoundRobinData::new());
+            *data = Some(PrioritizedFIFOData::new());
         }
 
         let data = data.as_mut().unwrap();
@@ -73,11 +73,11 @@ impl Scheduler for PrioritizedRoundRobinScheduler {
     }
 
     fn scheduler_name(&self) -> SchedulerType {
-        SchedulerType::PrioritizedRoundRobin(0)
+        SchedulerType::PrioritizedFIFO(0)
     }
 }
 
-pub static SCHEDULER: PrioritizedRoundRobinScheduler = PrioritizedRoundRobinScheduler {
+pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
     data: Mutex::new(None),
 };
 
@@ -97,7 +97,7 @@ fn get_priority(task: &Arc<Task>) -> u8 {
     let task_info = task.info.lock(&mut node);
 
     match task_info.scheduler_type {
-        SchedulerType::PrioritizedRoundRobin(priority) => priority,
+        SchedulerType::PrioritizedFIFO(priority) => priority,
         _ => unreachable!(),
     }
 }

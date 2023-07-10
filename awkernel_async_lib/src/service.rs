@@ -51,11 +51,11 @@
 //!                     async move {
 //!                         srv(chan).await;
 //!                     },
-//!                     SchedulerType::RoundRobin,
+//!                     SchedulerType::FIFO,
 //!                 ).await;
 //!             }
 //!         },
-//!         SchedulerType::RoundRobin,
+//!         SchedulerType::FIFO,
 //!     ).await;
 //!
 //!     // Start a client.
@@ -64,7 +64,7 @@
 //!             let chan = service::create_client::<Client>("simple service".into()).await.unwrap();
 //!             cli(chan).await;
 //!         },
-//!         SchedulerType::RoundRobin,
+//!         SchedulerType::FIFO,
 //!     ).await;
 //! }
 //! ```
@@ -216,9 +216,9 @@
 //!     let (pr_srv1, pr_cli1) = session_channel::<ProxySrv1>(); // Channel between client and proxy.
 //!     let (pr_srv2, pr_cli2) = session_channel::<ProxySrv2>(); // Channel between proxy and server.
 //!
-//!     awkernel_async_lib::spawn(async move { cli(pr_cli1).await; }, SchedulerType::RoundRobin,).await;
-//!     awkernel_async_lib::spawn(async move { srv(pr_cli2).await; }, SchedulerType::RoundRobin,).await;
-//!     awkernel_async_lib::spawn(async move { proxy(pr_srv1, pr_srv2).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn(async move { cli(pr_cli1).await; }, SchedulerType::FIFO,).await;
+//!     awkernel_async_lib::spawn(async move { srv(pr_cli2).await; }, SchedulerType::FIFO,).await;
+//!     awkernel_async_lib::spawn(async move { proxy(pr_srv1, pr_srv2).await; }, SchedulerType::FIFO).await;
 //! };
 //! ```
 
@@ -259,7 +259,7 @@ fn drop_accepter<P>(acc: &mut Accepter<P>) {
 ///                 let c = c.send(n % 2 == 1).await;
 ///                 c.close();
 ///             },
-///             SchedulerType::RoundRobin,
+///             SchedulerType::FIFO,
 ///         ).await;
 ///     }
 /// };
