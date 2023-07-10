@@ -52,6 +52,18 @@ pub enum Addr {
     U128(u128),
 }
 
+impl Addr {
+    pub fn to_u128(&self) -> u128 {
+        match self {
+            Addr::Zero => 0,
+            Addr::U32(n) => *n as u128,
+            Addr::U64(n) => *n as u128,
+            Addr::U96(n) => *n as u128,
+            Addr::U128(n) => *n,
+        }
+    }
+}
+
 impl Display for Addr {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
@@ -93,6 +105,10 @@ pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 .get(locate_block(index)..locate_block(index + block_size))
                 .ok_or(DeviceTreeError::ParsingFailed)?;
             let num = u128::from_be_bytes([
+                0,
+                0,
+                0,
+                0,
                 *safe_index(bytes, 0)?,
                 *safe_index(bytes, 1)?,
                 *safe_index(bytes, 2)?,
@@ -105,10 +121,6 @@ pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
                 *safe_index(bytes, 9)?,
                 *safe_index(bytes, 10)?,
                 *safe_index(bytes, 11)?,
-                0,
-                0,
-                0,
-                0,
             ]);
             Ok(Addr::U96(num))
         }

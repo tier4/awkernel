@@ -76,7 +76,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     unsafe_puts("loaded the device tree\n");
 
-    awkernel_lib::device_tree::print_device_tree_node(device_tree.root(), 0);
+    // awkernel_lib::device_tree::print_device_tree_node(device_tree.root(), 0);
 
     // 1. Initialize MMU.
     mmu::init_memory_map();
@@ -84,15 +84,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         unsafe_puts("Failed to init MMU.\n");
         wait_forever();
     }
-
-    // awkernel_lib::delay::wait_millisec(2000);
-
-    // Read the device tree.
-    // let dtb: &[u8] = include_bytes!("../../../../bcm2710-rpi-3-b-plus.dtb");
-    // let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
-    //     // unsafe_puts("kernel panic: failed to load the device tree\n");
-    // wait_forever();
-    // };
 
     match awkernel_aarch64::get_current_el() {
         0 => unsafe_puts("EL0\n"),

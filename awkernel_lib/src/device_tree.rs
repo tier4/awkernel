@@ -100,8 +100,9 @@ pub unsafe fn print_device_tree_node(
 
     unsafe {
         print_white_spaces(depth);
+        unsafe_puts("\"");
         unsafe_puts(node.name());
-        unsafe_puts("\n");
+        unsafe_puts("\"\n");
     }
 
     for prop in node.props() {

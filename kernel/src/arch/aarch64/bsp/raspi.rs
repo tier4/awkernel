@@ -1,13 +1,19 @@
-use self::{config::UART_IRQ, memory::UART0_BASE};
+use self::{config::UART_IRQ, memory::UART0_BASE, uart::unsafe_puts};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::register_console,
-    device_tree::{device_tree::DeviceTree, node::DeviceTreeNode, prop::PropertyValue},
+    console::{register_console, unsafe_print_hex_u128, unsafe_print_hex_u32},
+    device_tree::{
+        device_tree::DeviceTree,
+        node::DeviceTreeNode,
+        print_device_tree_node,
+        prop::{NodeProperty, PropertyValue, Range},
+        utils::Addr,
+    },
     interrupt::register_interrupt_controller,
     local_heap,
 };
-use core::arch::asm;
+use core::{arch::asm, ptr::write_volatile};
 
 use super::DeviceTreeRef;
 
@@ -16,6 +22,9 @@ pub mod memory;
 mod uart;
 
 type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+
+static mut ALIASES_NODE: Option<super::DeviceTreeNoeRef> = None;
+static mut INTERRUPT_NODE: Option<super::DeviceTreeNoeRef> = None;
 
 pub fn start_non_primary() {
     if cfg!(feature = "raspi3") {
@@ -97,6 +106,58 @@ fn get_soc_node(device_tree: DeviceTreeRef) -> Option<DeviceTreeNodeRef> {
 fn init_uart0(
     device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
 ) -> Option<()> {
+    let nodes = get_device_from_aliases(device_tree, "uart0")?;
+
+    let mut uart0_node = None;
+    let mut base_addr = 0;
+    'node: for node in nodes.iter().rev() {
+        if node.is_some() {
+            // Find UART0 node and its base address.
+            if uart0_node.is_none() {
+                let uart0 = node.unwrap();
+                let reg = uart0.props().iter().find(|prop| prop.name() == "reg")?;
+
+                match reg.value() {
+                    PropertyValue::Address(base, _len) => {
+                        base_addr = base.to_u128();
+                    }
+                    _ => return None,
+                }
+
+                uart0_node = Some(uart0);
+            } else {
+                let n = node.unwrap();
+                if let Some(ranges) = n.props().iter().find(|p| p.name() == "ranges") {
+                    match ranges.value() {
+                        PropertyValue::Ranges(rgs) => {
+                            // `base_addr` must be in the ranges,
+                            // and it will be mapped by the ranges.
+                            for range in rgs {
+                                if let Some(addr) = range.map_to(Addr::U128(base_addr)) {
+                                    base_addr = addr;
+                                    continue 'node;
+                                }
+                            }
+                            return None; // Invalid address.
+                        }
+                        _ => return None, // Must be ranges.
+                    }
+                }
+            }
+        }
+    }
+
+    unsafe {
+        unsafe_puts("init_uart0: base_addr = ");
+        unsafe_print_hex_u32(base_addr as u32);
+        unsafe_puts("\n");
+    }
+
+    Some(())
+}
+
+/// Find "aliases" node and initialize `ALIASES_NODE` by the node.
+fn init_alias_node(device_tree: super::DeviceTreeRef) -> Option<()> {
     // Find "aliases" node.
     let aliases = device_tree
         .root()
@@ -104,86 +165,55 @@ fn init_uart0(
         .iter()
         .find(|node| node.name() == "aliases")?;
 
-    // Find "uart0" property.
-    let uart0_alias = aliases.props().iter().find(|prop| prop.name() == "uart0")?;
+    unsafe { write_volatile(&mut ALIASES_NODE, Some(aliases)) };
 
-    // Get the path to "uart0".
-    let uart0_path = match uart0_alias.value() {
+    Some(())
+}
+
+/// If `name = "/soc/serial"`,
+/// then `Some([Some(root node), Some(soc node), Some(serial node), None, ...])`
+/// will be returned.
+///
+/// If there is no such node, `None` will be returned.
+fn get_device_from_aliases(
+    device_tree: super::DeviceTreeRef,
+    name: &str,
+) -> Option<[Option<DeviceTreeNodeRef>; 10]> {
+    let aliases = unsafe { ALIASES_NODE? };
+    let alias = aliases.props().iter().find(|prop| prop.name() == name)?;
+
+    let abs_path = match alias.value() {
         PropertyValue::String(p) => *p,
         _ => return None,
     };
 
-    // Split the path by "/".
-    let mut path_it = uart0_path.split("/");
+    let mut node = device_tree.root();
+    let mut result = [None; 10];
 
-    // The root node must be empty.
-    let root = path_it.next()?;
-    if root != "" {
+    let mut path_it = abs_path.split("/");
+    let first = path_it.next()?;
+
+    if first != "" {
         return None;
     }
 
-    // The root node must be empty.
-    let soc = path_it.next()?;
-    if soc != "soc" {
-        return None;
+    result[0] = Some(node);
+
+    for (i, p) in path_it.enumerate() {
+        node = node.nodes().iter().find(|n| n.name() == p)?;
+        result[i + 1] = Some(node);
     }
 
-    let uart0_name = path_it.next()?;
-
-    let soc_node = get_soc_node(device_tree)?;
-
-    let uart0_node = soc_node.nodes().iter().find(|n| n.name() == uart0_name)?;
-
-    let compatible = uart0_node
-        .props()
-        .iter()
-        .find(|p| p.name() == "compatible")?;
-
-    // UART0 must be PL011.
-    match compatible.value() {
-        PropertyValue::Strings(comps) => {
-            if !comps.contains(&"arm,pl011") {
-                return None;
-            }
-        }
-        _ => return None,
-    }
-
-    let soc_ranges = match soc_node
-        .props()
-        .iter()
-        .find(|p| p.name() == "ranges")?
-        .value()
-    {
-        PropertyValue::Ranges(ranges) => ranges,
-        _ => return None,
-    };
-
-    let uart0_addr = match uart0_node
-        .props()
-        .iter()
-        .find(|p| p.name() == "reg")?
-        .value()
-    {
-        PropertyValue::Address(addr, _) => addr,
-        _ => return None,
-    };
-
-    for range in soc_ranges {
-        if let Some(addr) = range.map_to(*uart0_addr) {
-            // TODO
-
-            return Some(());
-        }
-    }
-
-    None
+    Some(result)
 }
 
-struct Raspi;
+pub(super) struct Raspi;
 
 impl super::SoC for Raspi {
-    unsafe fn init_device(device_tree: super::DeviceTreeRef) {}
+    unsafe fn init_device(device_tree: super::DeviceTreeRef) {
+        init_alias_node(device_tree);
+        init_uart0(device_tree);
+    }
 
     unsafe fn init_memory_map(device_tree: super::DeviceTreeRef) {}
 
