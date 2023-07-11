@@ -10,6 +10,7 @@
 use super::{bsp::raspi, cpu, mmu};
 use crate::{
     arch::aarch64::{
+        bsp::SoC,
         cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
         mmu::{get_stack_el1_end, get_stack_el1_start},
     },
@@ -17,10 +18,8 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
-    console::{unsafe_print_hex_u64, unsafe_puts},
-    delay::wait_forever,
-    device_tree::device_tree::DeviceTree,
-    heap, local_heap,
+    console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
+    local_heap,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -49,39 +48,18 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     wait_forever();
 }
 
-/// 1. Initialize MMU.
-/// 2. Start non-primary CPUs.
-/// 3. Enable MMU.
-/// 4. Enable heap allocator.
-/// 5. Board specific initialization (IRQ controller, etc).
+/// 1. Initialize the device (UART, etc.).
+/// 2. Initialize the virtual memory.
+/// 3. Start non-primary CPUs.
+/// 4. Enable MMU.
+/// 5. Enable heap allocator.
+/// 6. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
     let device_tree = load_device_tree(device_tree_base);
+    let mut initializer = super::bsp::SoCInitializer::new(device_tree);
 
-    // Initialize UART.
-    super::bsp::init_device(device_tree);
-
-    unsafe_puts("device_tree_base = 0x");
-    unsafe_print_hex_u64(device_tree_base as u64);
-    unsafe_puts("\n");
-
-    let magic_number = read_volatile(device_tree_base as *const u32);
-    let total_size = read_volatile((device_tree_base + 4) as *const u32);
-
-    unsafe_puts("magic_number = 0x");
-    unsafe_print_hex_u64(u32::from_be(magic_number as u32) as u64);
-    unsafe_puts("\n");
-    unsafe_puts("total_size = 0x");
-    unsafe_print_hex_u64(u32::from_be(total_size as u32) as u64);
-    unsafe_puts("\n");
-
-    unsafe_puts("loaded the device tree\n");
-
-    // awkernel_lib::device_tree::print_device_tree_node(device_tree.root(), 0);
-
-    // 1. Initialize MMU.
-    mmu::init_memory_map();
-    if mmu::init().is_none() {
-        unsafe_puts("Failed to init MMU.\n");
+    // 1. Initialize device (UART, etc.).
+    if initializer.init_device().is_err() {
         wait_forever();
     }
 
@@ -90,13 +68,20 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         1 => unsafe_puts("EL1\n"),
         2 => unsafe_puts("EL2\n"),
         3 => unsafe_puts("EL3\n"),
-        _ => (),
+        _ => unsafe_puts("EL other\n"),
     }
 
-    // 2. Start non-primary CPUs.
+    // 2. Initialize the virtual memory.
+    mmu::init_memory_map();
+    if mmu::init().is_none() {
+        unsafe_puts("Failed to init MMU.\n");
+        wait_forever();
+    }
+
+    // 3. Start non-primary CPUs.
     write_volatile(&mut PRIMARY_READY, true);
 
-    // 3. Enable MMU.
+    // 4. Enable MMU.
     mmu::enable();
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
@@ -107,12 +92,12 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
     let primary_size = HEAP_SIZE as usize;
 
-    // 4. Enable heap allocator.
+    // 5. Enable heap allocator.
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    // 5. Board specific initialization.
+    // 6. Board specific initialization.
     super::bsp::init();
 
     log::info!(

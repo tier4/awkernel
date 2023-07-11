@@ -1,12 +1,11 @@
-use self::{config::UART_IRQ, memory::UART0_BASE, uart::unsafe_puts};
+use self::{config::UART_IRQ, memory::UART0_BASE};
 use crate::arch::aarch64::interrupt_ctl;
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::register_console,
-    device_tree::{device_tree::DeviceTree, prop::PropertyValue},
+    console::{register_console, register_unsafe_puts, unsafe_puts},
+    device_tree::prop::PropertyValue,
     interrupt::register_interrupt_controller,
-    local_heap,
 };
 use core::arch::asm;
 
@@ -80,50 +79,52 @@ fn init_uart() {
     register_console(port);
 }
 
-pub(super) struct Raspi {
+pub struct Raspi {
     symbols: Option<DeviceTreeNodeRef>,
     interrupt: Option<DeviceTreeNodeRef>,
     interrupt_compatible: &'static str,
+    device_tree: DeviceTreeRef,
 }
 
 impl super::SoC for Raspi {
-    unsafe fn init_device(&mut self, device_tree: DeviceTreeRef) -> Result<(), &'static str> {
-        self.init_symbols(device_tree)
+    unsafe fn init_device(&mut self) -> Result<(), &'static str> {
+        self.init_symbols()
             .ok_or("failed to initialize __symbols__ node")?;
-        self.init_interrupt(device_tree)?;
-        self.init_uart0(device_tree)?;
+        self.init_interrupt()?;
+        self.init_uart0()?;
 
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self, device_tree: DeviceTreeRef) {}
+    unsafe fn init_virtual_memory(&self) {}
 
-    unsafe fn init(&self, device_tree: DeviceTreeRef) {}
+    unsafe fn init(&self) {}
 }
 
 impl Raspi {
-    pub const fn new() -> Self {
+    pub const fn new(device_tree: DeviceTreeRef) -> Self {
         Raspi {
             symbols: None,
             interrupt: None,
             interrupt_compatible: "",
+            device_tree,
         }
     }
 
     /// Find "__symbols__" node and initialize `ALIASES_NODE` by the node.
-    fn init_symbols(&mut self, device_tree: DeviceTreeRef) -> Option<()> {
+    fn init_symbols(&mut self) -> Option<()> {
         // Find "aliases" node.
-        let symbols = device_tree.root().get_node("__symbols__")?;
+        let symbols = self.device_tree.root().get_node("__symbols__")?;
 
         self.symbols = Some(symbols);
 
         Some(())
     }
 
-    fn init_interrupt(&mut self, device_tree: DeviceTreeRef) -> Result<(), &'static str> {
+    fn init_interrupt(&mut self) -> Result<(), &'static str> {
         let intc = self
-            .get_device_from_symbols(device_tree, "gicv2")
-            .or(self.get_device_from_symbols(device_tree, "intc"))
+            .get_device_from_symbols("gicv2")
+            .or(self.get_device_from_symbols("intc"))
             .or(Err("failed to get the interrupt node"))?;
 
         let leaf = intc.get_leaf_node().unwrap();
@@ -147,11 +148,7 @@ impl Raspi {
     /// will be returned.
     ///
     /// If there is no such node, `None` will be returned.
-    fn get_device_from_symbols(
-        &self,
-        device_tree: DeviceTreeRef,
-        name: &str,
-    ) -> Result<StaticArrayedNode, &'static str> {
+    fn get_device_from_symbols(&self, name: &str) -> Result<StaticArrayedNode, &'static str> {
         let Some(symbols) = self.symbols.as_ref() else {
             return Err("the symbols node has not been initialized");
         };
@@ -165,26 +162,23 @@ impl Raspi {
             _ => return Err("__symbols__ is not a string"),
         };
 
-        device_tree
+        self.device_tree
             .root()
             .get_arrayed_node(abs_path)
             .or(Err("invalid path"))
     }
 
-    fn init_uart0(
-        &self,
-        device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
-    ) -> Result<(), &'static str> {
-        let arrayed_node = self
-            .get_device_from_symbols(device_tree, "uart0")
+    fn init_uart0(&self) -> Result<(), &'static str> {
+        let uart0_arrayed_node = self
+            .get_device_from_symbols("uart0")
             .or(Err("could not find uart0"))?;
 
         // Get the base address.
-        let base_addr = arrayed_node
+        let uart_base = uart0_arrayed_node
             .get_address()
             .or(Err("failed to calculate uart0's base address"))?;
 
-        let uart0_node = arrayed_node.get_leaf_node().unwrap();
+        let uart0_node = uart0_arrayed_node.get_leaf_node().unwrap();
 
         // Get the compatible property.
         let compatible_prop = uart0_node
@@ -214,7 +208,14 @@ impl Raspi {
         let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
             .ok_or("failed to get UART0's IRQ#")?;
 
-        uart::init(base_addr as usize, irq);
+        let gpio_arrayed_node = self.get_device_from_symbols("gpio")?;
+        let gpio_base = gpio_arrayed_node
+            .get_address()
+            .or(Err("failed to get GPIO's base address"))?;
+
+        uart::init(uart_base as usize, gpio_base as usize, irq);
+
+        register_unsafe_puts(uart::unsafe_puts);
 
         unsafe { unsafe_puts("uart0 has been successfully initialized.\n") };
 
