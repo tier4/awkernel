@@ -46,7 +46,10 @@ const NUM_RANGES: usize = 8;
 
 pub struct VM {
     num_cpus: usize,
+
+    idx_dev: usize,
     device_ranges: [Option<MemoryRange>; NUM_RANGES],
+
     heap: MemoryRange, // RW and used by the page table.
     ro_ranges: [Option<MemoryRange>; NUM_RANGES],
     rw_ranges: [Option<MemoryRange>; NUM_RANGES],
@@ -98,12 +101,28 @@ impl VM {
     pub fn new() -> Self {
         VM {
             num_cpus: 0,
+            idx_dev: 0,
             device_ranges: [None; NUM_RANGES],
             heap: MemoryRange { start: 0, end: 0 },
             ro_ranges: [None; NUM_RANGES],
             rw_ranges: [None; NUM_RANGES],
             exec_ranges: [None; NUM_RANGES],
         }
+    }
+
+    pub fn set_num_cpus(&mut self, num_cpus: usize) {
+        self.num_cpus = num_cpus;
+    }
+
+    pub fn push_device_range(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+        if self.idx_dev >= self.device_ranges.len() {
+            return Err("too many device range");
+        }
+
+        self.device_ranges[self.idx_dev] = Some(MemoryRange { start, end });
+        self.idx_dev += 1;
+
+        Ok(())
     }
 
     /// Return the length of heap memory.

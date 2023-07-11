@@ -35,7 +35,7 @@ pub trait SoC {
 
     /// Initialize the virtual memory.
     /// This method will be invoked after `init_device()` and before `init()`.
-    unsafe fn init_virtual_memory(&self);
+    unsafe fn init_virtual_memory(&self) -> Result<(), &'static str>;
 
     /// Initialize the AWkernel.
     /// This method will be invoked after `init_device()` and `init_virtual_memory()`.

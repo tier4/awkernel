@@ -1,10 +1,13 @@
 use self::{config::UART_IRQ, memory::UART0_BASE};
-use crate::arch::aarch64::interrupt_ctl;
+use crate::arch::aarch64::{interrupt_ctl, vm::VM};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::{register_console, register_unsafe_puts, unsafe_puts},
-    device_tree::prop::PropertyValue,
+    console::{register_console, register_unsafe_puts, unsafe_print_hex_u32, unsafe_puts},
+    device_tree::{
+        prop::{PropertyValue, Range},
+        traits::HasNamedChildNode,
+    },
     interrupt::register_interrupt_controller,
 };
 use core::arch::asm;
@@ -96,7 +99,27 @@ impl super::SoC for Raspi {
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) {}
+    unsafe fn init_virtual_memory(&self) -> Result<(), &'static str> {
+        let mut vm = VM::new();
+
+        let num_cpus = self.num_cpus()?;
+        vm.set_num_cpus(num_cpus);
+
+        let ranges = self.device_ranges()?;
+        for range in ranges {
+            unsafe_puts("range: addr = 0x");
+            unsafe_print_hex_u32(range.range.1.to_u128() as u32);
+            unsafe_puts(", len = 0x");
+            unsafe_print_hex_u32(range.range.2.to_u128() as u32);
+            unsafe_puts("\n");
+
+            let start = range.range.1.to_u128() as usize;
+            let end = start + range.range.2.to_u128() as usize;
+            vm.push_device_range(start, end)?;
+        }
+
+        Ok(())
+    }
 
     unsafe fn init(&self) {}
 }
@@ -114,7 +137,7 @@ impl Raspi {
     /// Find "__symbols__" node and initialize `ALIASES_NODE` by the node.
     fn init_symbols(&mut self) -> Option<()> {
         // Find "aliases" node.
-        let symbols = self.device_tree.root().get_node("__symbols__")?;
+        let symbols = self.device_tree.root().find_child("__symbols__")?;
 
         self.symbols = Some(symbols);
 
@@ -220,5 +243,40 @@ impl Raspi {
         unsafe { unsafe_puts("uart0 has been successfully initialized.\n") };
 
         Ok(())
+    }
+
+    fn num_cpus(&self) -> Result<usize, &'static str> {
+        let cpus = self
+            .get_device_from_symbols("cpus")?
+            .get_leaf_node()
+            .unwrap();
+
+        let num = cpus.nodes().iter().fold(0, |acc, node| {
+            if node.name().starts_with("cpu@") {
+                acc + 1
+            } else {
+                acc
+            }
+        });
+
+        Ok(num)
+    }
+
+    fn device_ranges(&self) -> Result<&[Range], &'static str> {
+        let soc = self
+            .get_device_from_symbols("soc")?
+            .get_leaf_node()
+            .unwrap();
+
+        let ranges_prop = soc
+            .get_property("ranges")
+            .ok_or("could not find ranges property")?;
+
+        let ranges = match ranges_prop.value() {
+            PropertyValue::Ranges(r) => r,
+            _ => return Err("ranges property has invalid value"),
+        };
+
+        Ok(&ranges)
     }
 }

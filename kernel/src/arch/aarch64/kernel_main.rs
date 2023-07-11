@@ -18,8 +18,10 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
-    console::unsafe_puts, delay::wait_forever, device_tree::device_tree::DeviceTree, heap,
-    local_heap,
+    console::{unsafe_print_hex_u32, unsafe_puts},
+    delay::wait_forever,
+    device_tree::device_tree::DeviceTree,
+    heap, local_heap,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -69,6 +71,17 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         2 => unsafe_puts("EL2\n"),
         3 => unsafe_puts("EL3\n"),
         _ => unsafe_puts("EL other\n"),
+    }
+
+    unsafe_puts("device_tree_base = 0x");
+    unsafe_print_hex_u32(device_tree_base as u32);
+    unsafe_puts("\n");
+
+    if let Err(msg) = initializer.init_virtual_memory() {
+        unsafe_puts("failed to initialize the virtual memory\n");
+        unsafe_puts(msg);
+        unsafe_puts("\n");
+        wait_forever();
     }
 
     // 2. Initialize the virtual memory.

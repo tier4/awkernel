@@ -99,10 +99,6 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     pub fn get_property(&'a self, property: &str) -> Option<&'a NodeProperty<'a, A>> {
         self.props().iter().find(|p| p.name() == property)
     }
-
-    pub fn get_node(&'a self, node: &str) -> Option<&'a Self> {
-        self.nodes().iter().find(|n| n.name() == node)
-    }
 }
 
 /// Parse properties and nodes
