@@ -9,10 +9,8 @@ use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering::SeqCst;
-use smoltcp::wire::EthernetAddress;
 use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
 use x86_64::{PhysAddr, VirtAddr};
-
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -132,6 +130,10 @@ impl PCIeDevice for E1000E {
 }
 
 impl NetDevice for E1000E {
+    fn mac_address(&self) -> [u8; 6] {
+        unsafe { self.get_mac() }
+    }
+
     fn can_send(&self) -> bool {
         let tdt = unsafe { self.read_reg(TDT) };
         let tx_status = self.tx_ring[tdt as usize].status;
@@ -387,14 +389,14 @@ impl E1000E {
         (rah, ral)
     }
 
-    unsafe fn get_mac(&self) -> EthernetAddress {
+    unsafe fn get_mac(&self) -> [u8; 6] {
         let mut addr = [0u8; 6];
         for i in 0..3 {
             let word = self.read_eeprom(i as u32);
             addr[i * 2] = (word & 0xFFFF) as u8;
             addr[i * 2 + 1] = (word >> 8) as u8;
         }
-        EthernetAddress(addr)
+        addr
     }
 
     unsafe fn read_eeprom(&self, reg: u32) -> u32 {

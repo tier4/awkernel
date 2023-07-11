@@ -1,8 +1,9 @@
 use acpi::AcpiTables;
+use alloc::boxed::Box;
 use alloc::sync::Arc;
-use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use awkernel_lib::net::NETMASTER;
 use awkernel_lib::sync::mutex::MCSNode;
+use awkernel_lib::{arch::x86_64::acpi::AcpiMapper, sync::mutex::Mutex};
 
 use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
 use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
@@ -110,7 +111,7 @@ impl DeviceInfo {
                 e1000e.init();
                 NETMASTER
                     .lock(&mut MCSNode::new())
-                    .add_driver(Arc::new(e1000e));
+                    .add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
             }
             _ => (),
         }

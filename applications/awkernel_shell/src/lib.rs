@@ -31,7 +31,11 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
-    let exprs = blisp::init(CODE, vec![Box::new(HelpFfi), Box::new(TaskFfi), Box::new(PingFfi)]).unwrap();
+    let exprs = blisp::init(
+        CODE,
+        vec![Box::new(HelpFfi), Box::new(TaskFfi), Box::new(PingFfi)],
+    )
+    .unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
@@ -145,7 +149,6 @@ fn help_ffi() {
     console::print("BLisp functions:\n");
     console::print(CODE);
 }
-
 
 #[embedded]
 fn task_ffi() {
