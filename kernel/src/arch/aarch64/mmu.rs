@@ -35,7 +35,7 @@ static mut MEMORY_MAP: Addr = Addr {
 };
 
 extern "C" {
-    static __ram_start: u64;
+    static __kernel_start: u64;
     static __free_mem_start: u64;
     static __data_start: u64;
     static __data_end: u64;
@@ -50,7 +50,7 @@ pub fn get_free_mem_start() -> u64 {
 }
 
 pub fn get_ram_start() -> u64 {
-    unsafe { &__ram_start as *const u64 as u64 }
+    unsafe { &__kernel_start as *const u64 as u64 }
 }
 
 pub fn get_stack_el1_start() -> u64 {

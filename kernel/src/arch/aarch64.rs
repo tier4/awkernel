@@ -6,3 +6,4 @@ mod interrupt_ctl;
 mod kernel_main;
 mod mmu;
 mod types;
+mod vm;
