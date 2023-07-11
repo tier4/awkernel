@@ -1,31 +1,20 @@
 use self::{config::UART_IRQ, memory::UART0_BASE, uart::unsafe_puts};
+use crate::arch::aarch64::interrupt_ctl;
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::{register_console, unsafe_print_hex_u128, unsafe_print_hex_u32},
-    device_tree::{
-        device_tree::DeviceTree,
-        error::DeviceTreeError,
-        node::{ArrayedNode, DeviceTreeNode},
-        print_device_tree_node,
-        prop::{NodeProperty, PropertyValue, Range},
-        utils::Addr,
-    },
+    console::register_console,
+    device_tree::{device_tree::DeviceTree, prop::PropertyValue},
     interrupt::register_interrupt_controller,
     local_heap,
 };
-use core::{arch::asm, ptr::write_volatile};
+use core::arch::asm;
 
-use super::{DeviceTreeRef, StaticArrayedNode};
+use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
 pub mod config;
 pub mod memory;
 mod uart;
-
-type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
-
-static mut SYMBOLS_NODE: Option<super::DeviceTreeNodeRef> = None;
-static mut INTERRUPT_NODE: Option<super::DeviceTreeNodeRef> = None;
 
 pub fn start_non_primary() {
     if cfg!(feature = "raspi3") {
@@ -91,96 +80,144 @@ fn init_uart() {
     register_console(port);
 }
 
-pub unsafe fn init_device() {
-    uart::init();
-    awkernel_lib::console::register_unsafe_puts(uart::unsafe_puts);
+pub(super) struct Raspi {
+    symbols: Option<DeviceTreeNodeRef>,
+    interrupt: Option<DeviceTreeNodeRef>,
+    interrupt_compatible: &'static str,
 }
-
-fn get_soc_node(device_tree: DeviceTreeRef) -> Option<DeviceTreeNodeRef> {
-    device_tree
-        .root()
-        .nodes()
-        .iter()
-        .find(|n| n.name() == "soc")
-}
-
-fn init_uart0(
-    device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
-) -> Result<(), DeviceTreeError> {
-    let arrayed_node = get_device_from_symbols(device_tree, "uart0")?;
-
-    let base_addr = arrayed_node.get_address()?;
-
-    unsafe {
-        unsafe_puts("init_uart0: base_addr = ");
-        unsafe_print_hex_u32(base_addr as u32);
-        unsafe_puts("\n");
-    }
-
-    Ok(())
-}
-
-/// Find "__symbols__" node and initialize `ALIASES_NODE` by the node.
-fn init_symbols_node(device_tree: super::DeviceTreeRef) -> Option<()> {
-    // Find "aliases" node.
-    let symbols = device_tree
-        .root()
-        .nodes()
-        .iter()
-        .find(|node| node.name() == "__symbols__")?;
-
-    unsafe { write_volatile(&mut SYMBOLS_NODE, Some(symbols)) };
-
-    Some(())
-}
-
-/// If `name = "/soc/serial"`,
-/// then `Some([Some(root node), Some(soc node), Some(serial node), None, ...])`
-/// will be returned.
-///
-/// If there is no such node, `None` will be returned.
-fn get_device_from_symbols(
-    device_tree: super::DeviceTreeRef,
-    name: &str,
-) -> Result<StaticArrayedNode, DeviceTreeError> {
-    let symbol_node = unsafe { SYMBOLS_NODE.ok_or(DeviceTreeError::InvalidSemantics)? };
-    let alias = symbol_node
-        .props()
-        .iter()
-        .find(|prop| prop.name() == name)
-        .ok_or(DeviceTreeError::InvalidSemantics)?;
-
-    let abs_path = match alias.value() {
-        PropertyValue::String(p) => *p,
-        _ => return Err(DeviceTreeError::InvalidSemantics),
-    };
-
-    device_tree.root().get_arrayed_node(abs_path)
-}
-
-fn init_interrupt_node(device_tree: super::DeviceTreeRef) -> Result<(), DeviceTreeError> {
-    let intc = get_device_from_symbols(device_tree, "gicv2")
-        .or(get_device_from_symbols(device_tree, "intc"))?;
-
-    let leaf = intc
-        .get_leaf_node()
-        .ok_or(DeviceTreeError::InvalidSemantics)?;
-
-    unsafe { write_volatile(&mut INTERRUPT_NODE, Some(leaf)) };
-
-    Ok(())
-}
-
-pub(super) struct Raspi;
 
 impl super::SoC for Raspi {
-    unsafe fn init_device(device_tree: super::DeviceTreeRef) {
-        init_symbols_node(device_tree);
-        let _ = init_interrupt_node(device_tree);
-        let _ = init_uart0(device_tree);
+    unsafe fn init_device(&mut self, device_tree: DeviceTreeRef) -> Result<(), &'static str> {
+        self.init_symbols(device_tree)
+            .ok_or("failed to initialize __symbols__ node")?;
+        self.init_interrupt(device_tree)?;
+        self.init_uart0(device_tree)?;
+
+        Ok(())
     }
 
-    unsafe fn init_memory_map(device_tree: super::DeviceTreeRef) {}
+    unsafe fn init_virtual_memory(&self, device_tree: DeviceTreeRef) {}
 
-    unsafe fn init(device_tree: super::DeviceTreeRef) {}
+    unsafe fn init(&self, device_tree: DeviceTreeRef) {}
+}
+
+impl Raspi {
+    pub const fn new() -> Self {
+        Raspi {
+            symbols: None,
+            interrupt: None,
+            interrupt_compatible: "",
+        }
+    }
+
+    /// Find "__symbols__" node and initialize `ALIASES_NODE` by the node.
+    fn init_symbols(&mut self, device_tree: DeviceTreeRef) -> Option<()> {
+        // Find "aliases" node.
+        let symbols = device_tree.root().get_node("__symbols__")?;
+
+        self.symbols = Some(symbols);
+
+        Some(())
+    }
+
+    fn init_interrupt(&mut self, device_tree: DeviceTreeRef) -> Result<(), &'static str> {
+        let intc = self
+            .get_device_from_symbols(device_tree, "gicv2")
+            .or(self.get_device_from_symbols(device_tree, "intc"))
+            .or(Err("failed to get the interrupt node"))?;
+
+        let leaf = intc.get_leaf_node().unwrap();
+
+        let compatible_prop = leaf
+            .get_property("compatible")
+            .ok_or("interrupt node has no compatible property")?;
+
+        self.interrupt_compatible = match compatible_prop.value() {
+            PropertyValue::String(s) => s,
+            _ => return Err("compatible property has not string value"),
+        };
+
+        self.interrupt = Some(leaf);
+
+        Ok(())
+    }
+
+    /// If `name = "/soc/serial"`,
+    /// then `Some([Some(root node), Some(soc node), Some(serial node), None, ...])`
+    /// will be returned.
+    ///
+    /// If there is no such node, `None` will be returned.
+    fn get_device_from_symbols(
+        &self,
+        device_tree: DeviceTreeRef,
+        name: &str,
+    ) -> Result<StaticArrayedNode, &'static str> {
+        let Some(symbols) = self.symbols.as_ref() else {
+            return Err("the symbols node has not been initialized");
+        };
+
+        let alias = symbols
+            .get_property(name)
+            .ok_or("could not find such property")?;
+
+        let abs_path = match alias.value() {
+            PropertyValue::String(p) => *p,
+            _ => return Err("__symbols__ is not a string"),
+        };
+
+        device_tree
+            .root()
+            .get_arrayed_node(abs_path)
+            .or(Err("invalid path"))
+    }
+
+    fn init_uart0(
+        &self,
+        device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
+    ) -> Result<(), &'static str> {
+        let arrayed_node = self
+            .get_device_from_symbols(device_tree, "uart0")
+            .or(Err("could not find uart0"))?;
+
+        // Get the base address.
+        let base_addr = arrayed_node
+            .get_address()
+            .or(Err("failed to calculate uart0's base address"))?;
+
+        let uart0_node = arrayed_node.get_leaf_node().unwrap();
+
+        // Get the compatible property.
+        let compatible_prop = uart0_node
+            .get_property("compatible")
+            .ok_or("uart0 has no compatible property")?;
+
+        let compatibles = match compatible_prop.value() {
+            PropertyValue::Strings(v) => v,
+            _ => return Err("uart0's compatible property is not a string vector"),
+        };
+
+        // UART0 must be PL011.
+        compatibles
+            .iter()
+            .find(|c| **c == "arm,pl011")
+            .ok_or("UART0 is not PL011")?;
+
+        let interrupts_prop = uart0_node
+            .get_property("interrupts")
+            .ok_or("uart0 has no interrupt property")?;
+
+        let interrupts = match interrupts_prop.value() {
+            PropertyValue::Integers(ints) => ints,
+            _ => return Err("uart0's compatible property is not a integer vector"),
+        };
+
+        let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
+            .ok_or("failed to get UART0's IRQ#")?;
+
+        uart::init(base_addr as usize, irq);
+
+        unsafe { unsafe_puts("uart0 has been successfully initialized.\n") };
+
+        Ok(())
+    }
 }

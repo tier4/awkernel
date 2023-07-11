@@ -21,7 +21,7 @@ type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
 pub mod raspi;
 
 #[cfg(feature = "raspi")]
-use raspi::Raspi as SoCInit;
+use raspi::Raspi as SoCInitializer;
 
 pub fn init() {
     #[cfg(feature = "raspi")]
@@ -31,16 +31,23 @@ pub fn init() {
 pub unsafe fn init_device(
     device_tree: &'static DeviceTree<'static, local_heap::LocalHeap<'static>>,
 ) {
-    #[cfg(feature = "raspi")]
-    raspi::init_device();
+    // #[cfg(feature = "raspi")]
+    // raspi::init_device();
 
-    SoCInit::init_device(device_tree);
+    let mut soc = SoCInitializer::new();
+    let _ = soc.init_device(device_tree);
 }
 
 pub trait SoC {
-    unsafe fn init_device(device_tree: DeviceTreeRef);
+    /// Initialize the device first.
+    /// This method will be invoked before `init_memory_map()` and `init()`.
+    unsafe fn init_device(&mut self, device_tree: DeviceTreeRef) -> Result<(), &'static str>;
 
-    unsafe fn init_memory_map(device_tree: DeviceTreeRef);
+    /// Initialize the virtual memory.
+    /// This method will be invoked after `init_device()` and before `init()`.
+    unsafe fn init_virtual_memory(&self, device_tree: DeviceTreeRef);
 
-    unsafe fn init(device_tree: DeviceTreeRef);
+    /// Initialize the AWkernel.
+    /// This method will be invoked after `init_device()` and `init_virtual_memory()`.
+    unsafe fn init(&self, device_tree: DeviceTreeRef);
 }

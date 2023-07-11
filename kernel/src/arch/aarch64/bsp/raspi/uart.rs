@@ -6,8 +6,8 @@ use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::console::Console;
 use core::{arch::asm, fmt::Write};
 
-pub fn init() -> impl Console {
-    let mut pl011 = PL011::new(UART0_BASE, UART_IRQ);
+pub fn init(uart_base_addr: usize, irq: u16) -> impl Console {
+    let mut pl011 = PL011::new(uart_base_addr, irq);
 
     pl011.disable();
 
