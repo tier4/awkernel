@@ -39,3 +39,10 @@ pub const IS_STD: bool = true;
 
 #[cfg(not(feature = "std"))]
 pub const IS_STD: bool = false;
+
+#[macro_export]
+macro_rules! err_msg {
+    ($m:expr) => {
+        concat!(file!(), ":", line!(), ":", column!(), ": ", $m)
+    };
+}

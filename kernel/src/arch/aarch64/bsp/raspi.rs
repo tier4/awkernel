@@ -8,6 +8,7 @@ use awkernel_lib::{
         prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
     },
+    err_msg,
     interrupt::register_interrupt_controller,
     memory::PAGESIZE,
 };
@@ -94,14 +95,14 @@ pub struct Raspi {
 impl super::SoC for Raspi {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
         self.init_symbols()
-            .ok_or("failed to initialize __symbols__ node")?;
+            .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt()?;
         self.init_uart0()?;
 
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) -> Result<usize, &'static str> {
+    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str> {
         let mut vm = VM::new();
 
         let num_cpus = self.num_cpus()?;
@@ -149,15 +150,15 @@ impl super::SoC for Raspi {
         vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
 
-        vm.remove_heap(0, PAGESIZE)?;
+        let _ = vm.remove_heap(0, PAGESIZE);
 
         vm.print();
 
         unsafe_puts("Initializing the page table. Wait a moment.\n");
 
-        let heap_size = vm.init().ok_or("failed vm.init()")?;
+        vm.init()?;
 
-        Ok(heap_size)
+        Ok(vm)
     }
 
     unsafe fn init(&self) {}
@@ -188,17 +189,17 @@ impl Raspi {
         let intc = self
             .get_device_from_symbols("gicv2")
             .or(self.get_device_from_symbols("intc"))
-            .or(Err("failed to get the interrupt node"))?;
+            .or(Err(err_msg!("failed to get the interrupt node")))?;
 
         let leaf = intc.get_leaf_node().unwrap();
 
         let compatible_prop = leaf
             .get_property("compatible")
-            .ok_or("interrupt node has no compatible property")?;
+            .ok_or(err_msg!("interrupt node has no compatible property"))?;
 
         self.interrupt_compatible = match compatible_prop.value() {
             PropertyValue::String(s) => s,
-            _ => return Err("compatible property has not string value"),
+            _ => return Err(err_msg!("compatible property has not string value")),
         };
 
         self.interrupt = Some(leaf);
@@ -213,68 +214,76 @@ impl Raspi {
     /// If there is no such node, `None` will be returned.
     fn get_device_from_symbols(&self, name: &str) -> Result<StaticArrayedNode, &'static str> {
         let Some(symbols) = self.symbols.as_ref() else {
-            return Err("the symbols node has not been initialized");
+            return Err(err_msg!("the symbols node has not been initialized"));
         };
 
         let alias = symbols
             .get_property(name)
-            .ok_or("could not find such property")?;
+            .ok_or(err_msg!("could not find such property"))?;
 
         let abs_path = match alias.value() {
             PropertyValue::String(p) => *p,
-            _ => return Err("__symbols__ is not a string"),
+            _ => return Err(err_msg!("__symbols__ is not a string")),
         };
 
         self.device_tree
             .root()
             .get_arrayed_node(abs_path)
-            .or(Err("invalid path"))
+            .or(Err(err_msg!("invalid path")))
     }
 
     fn init_uart0(&self) -> Result<(), &'static str> {
         let uart0_arrayed_node = self
             .get_device_from_symbols("uart0")
-            .or(Err("could not find uart0"))?;
+            .or(Err(err_msg!("could not find uart0")))?;
 
         // Get the base address.
         let uart_base = uart0_arrayed_node
             .get_address()
-            .or(Err("failed to calculate uart0's base address"))?;
+            .or(Err(err_msg!("failed to calculate uart0's base address")))?;
 
         let uart0_node = uart0_arrayed_node.get_leaf_node().unwrap();
 
         // Get the compatible property.
         let compatible_prop = uart0_node
             .get_property("compatible")
-            .ok_or("uart0 has no compatible property")?;
+            .ok_or(err_msg!("uart0 has no compatible property"))?;
 
         let compatibles = match compatible_prop.value() {
             PropertyValue::Strings(v) => v,
-            _ => return Err("uart0's compatible property is not a string vector"),
+            _ => {
+                return Err(err_msg!(
+                    "uart0's compatible property is not a string vector"
+                ))
+            }
         };
 
         // UART0 must be PL011.
         compatibles
             .iter()
             .find(|c| **c == "arm,pl011")
-            .ok_or("UART0 is not PL011")?;
+            .ok_or(err_msg!("UART0 is not PL011"))?;
 
         let interrupts_prop = uart0_node
             .get_property("interrupts")
-            .ok_or("uart0 has no interrupt property")?;
+            .ok_or(err_msg!("uart0 has no interrupt property"))?;
 
         let interrupts = match interrupts_prop.value() {
             PropertyValue::Integers(ints) => ints,
-            _ => return Err("uart0's compatible property is not a integer vector"),
+            _ => {
+                return Err(err_msg!(
+                    "uart0's compatible property is not a integer vector"
+                ))
+            }
         };
 
         let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
-            .ok_or("failed to get UART0's IRQ#")?;
+            .ok_or(err_msg!("failed to get UART0's IRQ#"))?;
 
         let gpio_arrayed_node = self.get_device_from_symbols("gpio")?;
         let gpio_base = gpio_arrayed_node
             .get_address()
-            .or(Err("failed to get GPIO's base address"))?;
+            .or(Err(err_msg!("failed to get GPIO's base address")))?;
 
         uart::init(uart_base as usize, gpio_base as usize, irq);
 
@@ -310,11 +319,11 @@ impl Raspi {
 
         let ranges_prop = soc
             .get_property("ranges")
-            .ok_or("could not find ranges property")?;
+            .ok_or(err_msg!("could not find ranges property"))?;
 
         let ranges = match ranges_prop.value() {
             PropertyValue::Ranges(r) => r,
-            _ => return Err("ranges property has invalid value"),
+            _ => return Err(err_msg!("ranges property has invalid value")),
         };
 
         Ok(&ranges)

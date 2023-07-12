@@ -23,6 +23,8 @@ pub mod raspi;
 #[cfg(feature = "raspi")]
 pub use raspi::Raspi as SoCInitializer;
 
+use super::vm::VM;
+
 pub fn init() {
     #[cfg(feature = "raspi")]
     raspi::init();
@@ -38,7 +40,7 @@ pub trait SoC {
     ///
     /// Return the size of heap memory if the virtual memory is
     /// successfully initialized.
-    unsafe fn init_virtual_memory(&self) -> Result<usize, &'static str>;
+    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str>;
 
     /// Initialize the AWkernel.
     /// This method will be invoked after `init_device()` and `init_virtual_memory()`.

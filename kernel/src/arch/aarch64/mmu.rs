@@ -221,8 +221,6 @@ pub fn init() -> Option<(PageTable, PageTable)> {
         return None;
     }
 
-    init_sp_el1(); // stack pointer
-
     Some(init_el1(addr)?)
 }
 

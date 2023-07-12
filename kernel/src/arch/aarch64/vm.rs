@@ -1,3 +1,4 @@
+use awkernel_aarch64::id_aa64mmfr0_el1;
 use awkernel_lib::{
     arch::aarch64::{
         page_allocator::PageAllocator,
@@ -7,6 +8,7 @@ use awkernel_lib::{
         },
     },
     console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
+    err_msg,
     memory::PAGESIZE,
 };
 
@@ -92,6 +94,9 @@ pub struct VM {
 
     idx_ro: usize,
     ro_ranges: [Option<MemoryRange>; NUM_RANGES],
+
+    table0: Option<PageTable>,
+    heap_size: Option<usize>,
 }
 
 pub fn kernel_page_flag_rw() -> u64 {
@@ -145,6 +150,8 @@ impl VM {
             heap: [None; NUM_RANGES],
             idx_ro: 0,
             ro_ranges: [None; NUM_RANGES],
+            table0: None,
+            heap_size: None,
         }
     }
 
@@ -154,7 +161,7 @@ impl VM {
 
     pub fn push_device_range(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
         if self.idx_dev >= self.device_ranges.len() {
-            return Err("too many device range");
+            return Err(err_msg!("too many device range"));
         }
 
         self.device_ranges[self.idx_dev] = Some(MemoryRange { start, end });
@@ -166,11 +173,11 @@ impl VM {
     /// Push a physical address region for heap memory.
     pub fn push_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
         if start >= end {
-            return Err("start >= end");
+            return Err(err_msg!("start >= end"));
         }
 
         if self.idx_heap >= self.heap.len() {
-            return Err("too many device range");
+            return Err(err_msg!("too many device range"));
         }
 
         self.heap[self.idx_heap] = Some(MemoryRange { start, end });
@@ -182,11 +189,11 @@ impl VM {
     /// Push a physical address region for Read-only memory.
     pub fn push_ro_memory(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
         if start >= end {
-            return Err("start >= end");
+            return Err(err_msg!("start >= end"));
         }
 
         if self.idx_ro >= self.ro_ranges.len() {
-            return Err("too many device range");
+            return Err(err_msg!("too many device range"));
         }
 
         self.ro_ranges[self.idx_ro] = Some(MemoryRange { start, end });
@@ -195,13 +202,17 @@ impl VM {
         Ok(())
     }
 
+    pub fn get_heap_size(&self) -> Option<usize> {
+        self.heap_size
+    }
+
     /// If
     /// - heap:   `***---------***`
     /// - remove: `*****---*******`
     /// then the heap will be `***--***----***`.
     pub fn remove_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
         if start >= end {
-            return Err("start >= end");
+            return Err(err_msg!("start >= end"));
         }
 
         let rm_range = MemoryRange { start, end };
@@ -227,7 +238,7 @@ impl VM {
                             r.end = rm_range.start;
                         }
                     }
-                    ContainResult::Overlap => return Err("overlap"),
+                    ContainResult::Overlap => return Err(err_msg!("overlap")),
                     ContainResult::NotContain => (),
                 }
             }
@@ -249,8 +260,7 @@ impl VM {
         self.remove_heap(start, end)
     }
 
-    /// Return the length of heap memory.
-    pub unsafe fn init(&self) -> Option<usize> {
+    unsafe fn init_memory_map(&mut self) -> Option<()> {
         let mut allocator = PageAllocator::new();
         for mem in self.heap.iter() {
             if let Some(m) = mem {
@@ -338,7 +348,41 @@ impl VM {
             addr += PAGESIZE as u64;
         }
 
-        Some((addr - HEAP_START) as usize)
+        let heap_size = (addr - HEAP_START) as usize;
+
+        self.table0 = Some(table0);
+        self.heap_size = Some(heap_size);
+
+        Some(())
+    }
+
+    /// Return the length of heap memory.
+    pub unsafe fn init(&mut self) -> Result<(), &'static str> {
+        // check for 4KiB granule and at least 36 bits physical address bus
+        let mmfr = id_aa64mmfr0_el1::get();
+        let b = mmfr & 0xF;
+        if b < 1
+        /* 36 bits */
+        {
+            return Err(err_msg!("36-bit address space is not supported."));
+        }
+
+        if mmfr & (0xF << 28) != 0
+        /* 4KiB */
+        {
+            return Err(err_msg!("4KiB granule not support."));
+        }
+
+        self.init_memory_map()
+            .ok_or(err_msg!("failed init_memory_map()"))?; // Initialize TTBR0.
+
+        Ok(())
+    }
+
+    /// set registers
+    pub unsafe fn enable() {
+        // set_reg_el1(addr.ttbr0 as usize, addr.ttbr1 as usize);
+        // init_sp_el1();
     }
 
     pub unsafe fn print(&self) {
