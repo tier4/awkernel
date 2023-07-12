@@ -1,4 +1,7 @@
-use awkernel_aarch64::id_aa64mmfr0_el1;
+use crate::arch::config::HEAP_START;
+use awkernel_aarch64::{
+    dsb_ish, dsb_sy, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, tcr_el1, ttbr0_el1,
+};
 use awkernel_lib::{
     arch::aarch64::{
         page_allocator::PageAllocator,
@@ -11,8 +14,7 @@ use awkernel_lib::{
     err_msg,
     memory::PAGESIZE,
 };
-
-use crate::arch::config::HEAP_START;
+use core::arch::asm;
 
 pub const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MiB
 
@@ -206,6 +208,11 @@ impl VM {
         self.heap_size
     }
 
+    pub fn get_ttbr0_addr(&self) -> Option<usize> {
+        let addr = self.table0.as_ref()?.addr();
+        Some(addr as usize)
+    }
+
     /// If
     /// - heap:   `***---------***`
     /// - remove: `*****---*******`
@@ -294,12 +301,12 @@ impl VM {
 
         // DATA and BSS.
         let flag = kernel_page_flag_rw()
-            | if (get_stack_memory() - get_data_start()) / PAGESIZE as u64 > 1 {
+            | if (get_stack_memory() - get_ro_data_start()) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
-        for addr in (get_ro_data_start()..get_data_start()).step_by(PAGESIZE) {
+        for addr in (get_ro_data_start()..get_stack_memory()).step_by(PAGESIZE) {
             table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
@@ -341,11 +348,14 @@ impl VM {
         let mut addr = HEAP_START;
         let flag = kernel_page_flag_rw();
         while let Some(frame) = allocator.allocate_frame() {
-            if table0.map_to(addr, frame, flag, &mut allocator).is_none() {
+            if table0
+                .map_to(addr as u64, frame, flag, &mut allocator)
+                .is_none()
+            {
                 break;
             }
 
-            addr += PAGESIZE as u64;
+            addr += PAGESIZE;
         }
 
         let heap_size = (addr - HEAP_START) as usize;
@@ -380,9 +390,52 @@ impl VM {
     }
 
     /// set registers
-    pub unsafe fn enable() {
-        // set_reg_el1(addr.ttbr0 as usize, addr.ttbr1 as usize);
-        // init_sp_el1();
+    pub unsafe fn enable(&self) {
+        self.set_ttbr0();
+        init_sp_el1();
+    }
+
+    unsafe fn set_ttbr0(&self) {
+        let Some(table0) = &self.table0 else { return; };
+
+        unsafe_puts("ttbr0: addr = 0x");
+        unsafe_print_hex_u32(table0.addr() as u32);
+        unsafe_puts("\n");
+
+        // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
+        mair_el1::set(get_mair());
+
+        let mmfr = id_aa64mmfr0_el1::get();
+        let b = mmfr & 0xF;
+
+        let tcr: u64 = b << 32 |
+            0b10 << 30 | // 4KiB granule, TTBR1_EL1
+         3 << 28 | // inner shadable, TTBR1_EL1
+         2 << 26 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
+         1 << 24 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
+        25 << 16 | // T1SZ = 25, 3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
+         // 0b00 << 14 | // 4KiB granule
+         3 << 12 | // inner shadable, TTBR0_EL1
+         2 << 10 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
+         1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
+        25; // T0SZ = 25,  3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
+
+        // next, specify mapping characteristics in translate control register
+        tcr_el1::set(tcr);
+
+        // tell the MMU where our translation tables are.
+        ttbr0_el1::set(table0.addr() as u64 | 1);
+
+        // finally, toggle some bits in system control register to enable page translation
+        dsb_ish();
+        isb();
+
+        let sctlr = sctlr_el1::get();
+        let sctlr = update_sctlr(sctlr) & !(1 << 4); // clear SA0
+
+        sctlr_el1::set(sctlr);
+        dsb_sy();
+        isb();
     }
 
     pub unsafe fn print(&self) {
@@ -435,4 +488,40 @@ impl VM {
         unsafe_print_hex_u64(end as u64);
         unsafe_puts("\n");
     }
+}
+
+fn get_mair() -> u64 {
+    0xFF         | // AttrIdx=0: normal, IWBWA, OWBWA, NTR
+    (0x04 <<  8) | // AttrIdx=1: device, nGnRE (must be OSH too)
+    (0x44 << 16) // AttrIdx=2: non cacheable
+}
+
+fn update_sctlr(sctlr: u64) -> u64 {
+    let sctlr = sctlr   |
+        1 << 44 | // set DSSBS, enable speculative load and store
+        1 << 12 | // set I, instruction cache
+        1 <<  2 | // set C, data cache
+        1; // set M, enable MMU
+    sctlr
+        & !(
+            1 << 25 | // clear EE
+            1 << 19 | // clear WXN
+            1 <<  3 | // clear SA
+            1 <<  1
+            // clear A
+        )
+}
+
+#[allow(unused_assignments)]
+fn init_sp_el1() {
+    let mut sp = 0;
+    unsafe {
+        asm!(
+            "
+mov {0:x}, sp
+msr spsel, #1
+mov sp, {0:x}",
+            inout(reg) sp
+        )
+    };
 }

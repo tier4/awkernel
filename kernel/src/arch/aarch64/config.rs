@@ -1,3 +1,3 @@
 pub use super::bsp::config::*;
 
-pub const HEAP_START: u64 = 0x200000000;
+pub const HEAP_START: usize = 0x200000000;

@@ -1,4 +1,7 @@
-use crate::cpu::CPU;
+use crate::{
+    console::{unsafe_print_hex_u64, unsafe_puts},
+    cpu::CPU,
+};
 use awkernel_aarch64::mpidr_el1;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
@@ -17,6 +20,12 @@ fn core_pos_by_mpidr(mpidr: usize) -> Option<usize> {
     let lvl2 = (mpidr >> 16) & 0xFF;
     let lvl3 = (mpidr >> 32) & 0xFF;
 
+    unsafe {
+        unsafe_puts("SP = 0x");
+        unsafe_print_hex_u64(awkernel_aarch64::get_sp() as u64);
+        unsafe_puts("\n");
+    }
+
     if lvl2 > 0
         || lvl3 > 0
         || cluster >= CLUSTER_COUNT.load(Ordering::Relaxed)
@@ -33,6 +42,7 @@ pub(crate) struct ArchCPU;
 impl CPU for ArchCPU {
     fn cpu_id() -> usize {
         let mpidr = mpidr_el1::get();
-        core_pos_by_mpidr(mpidr as usize).unwrap()
+        mpidr as usize & 0xFF
+        // core_pos_by_mpidr(mpidr as usize).unwrap()
     }
 }

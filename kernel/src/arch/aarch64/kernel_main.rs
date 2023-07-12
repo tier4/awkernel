@@ -7,23 +7,17 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, cpu, mmu};
+use super::{bsp::raspi, cpu};
 use crate::{
-    arch::aarch64::{
-        bsp::SoC,
-        cpu::{CLUSTER_COUNT, MAX_CPUS_PER_CLUSTER},
-        mmu::{get_stack_el1_end, get_stack_el1_start},
-    },
+    arch::aarch64::bsp::SoC,
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
-    arch::aarch64::{page_allocator::PageAllocator, page_table::FrameAllocator},
-    console::{unsafe_print_hex_u32, unsafe_puts},
+    console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
     delay::wait_forever,
     device_tree::device_tree::DeviceTree,
     heap, local_heap,
-    memory::PAGESIZE,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -79,28 +73,67 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     unsafe_print_hex_u32(device_tree_base as u32);
     unsafe_puts("\n");
 
-    if let Err(msg) = initializer.init_virtual_memory() {
-        unsafe_puts("failed to initialize the virtual memory\n");
-        unsafe_puts(msg);
-        unsafe_puts("\n");
-        wait_forever();
-    }
+    // 2. Initialize the virtual memory.
+    let vm = match initializer.init_virtual_memory() {
+        Ok(vm) => vm,
+        Err(msg) => {
+            unsafe_puts("failed to initialize the virtual memory\n");
+            unsafe_puts(msg);
+            unsafe_puts("\n");
+            wait_forever();
+        }
+    };
+
+    // 4. Enable MMU.
+    vm.enable();
+
+    unsafe_puts("The virtual memory is successfully enabled.\n");
+
+    // 5. Enable heap allocator.
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+
+    unsafe_puts("backup_start  = 0x");
+    unsafe_print_hex_u64(backup_start as u64);
+    unsafe_puts("\n");
+
+    unsafe_puts("primary_start = 0x");
+    unsafe_print_hex_u64(primary_start as u64);
+    unsafe_puts("\n");
+
+    unsafe_puts("primary_size  = 0x");
+    unsafe_print_hex_u64(primary_size as u64);
+    unsafe_puts("\n");
+
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+
+    unsafe_puts("SP = 0x");
+    unsafe_print_hex_u64(awkernel_aarch64::get_sp() as u64);
+    unsafe_puts("\n");
+
+    heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    unsafe_puts("initialied heap\n");
+
+    wait_forever();
 
     // 2. Initialize the virtual memory.
-    mmu::init_memory_map();
-    if mmu::init().is_none() {
-        unsafe_puts("Failed to init MMU.\n");
-        wait_forever();
-    }
+    // mmu::init_memory_map();
+    // if mmu::init().is_none() {
+    //     unsafe_puts("Failed to init MMU.\n");
+    //     wait_forever();
+    // }
 
     // 3. Start non-primary CPUs.
     write_volatile(&mut PRIMARY_READY, true);
 
     // 4. Enable MMU.
-    mmu::enable();
+    // mmu::enable();
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
-    awkernel_lib::arch::aarch64::set_cluster_info(MAX_CPUS_PER_CLUSTER, CLUSTER_COUNT);
 
     let backup_start = HEAP_START as usize;
     let backup_size = BACKUP_HEAP_SIZE as usize;
@@ -115,11 +148,11 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     // 6. Board specific initialization.
     super::bsp::init();
 
-    log::info!(
-        "Stack memory: start = 0x{:x}, end = 0x{:x}",
-        get_stack_el1_end(),
-        get_stack_el1_start()
-    );
+    // log::info!(
+    //     "Stack memory: start = 0x{:x}, end = 0x{:x}",
+    //     get_stack_el1_end(),
+    //     get_stack_el1_start()
+    // );
 
     log::info!(
         "Primary heap: start = 0x{:x}, size = {}",
@@ -162,7 +195,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 }
 
 unsafe fn non_primary_cpu() {
-    mmu::enable();
+    // mmu::enable();
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();

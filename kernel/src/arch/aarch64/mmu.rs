@@ -376,8 +376,8 @@ fn init_el1(addr: &mut Addr) -> Option<(PageTable, PageTable)> {
             unsafe { unsafe_puts("failed to allocate page.\n") };
             wait_forever();
         };
-        table0.map_to(vm_addr, phy_addr, flag, &mut allocator);
-        vm_addr += PAGESIZE as u64;
+        table0.map_to(vm_addr as u64, phy_addr, flag, &mut allocator);
+        vm_addr += PAGESIZE;
     }
 
     addr.ttbr0 = table0.addr();
