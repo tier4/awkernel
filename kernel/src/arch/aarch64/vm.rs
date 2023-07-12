@@ -398,10 +398,6 @@ impl VM {
     unsafe fn set_ttbr0(&self) {
         let Some(table0) = &self.table0 else { return; };
 
-        unsafe_puts("ttbr0: addr = 0x");
-        unsafe_print_hex_u32(table0.addr() as u32);
-        unsafe_puts("\n");
-
         // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
         mair_el1::set(get_mair());
 
@@ -445,7 +441,7 @@ impl VM {
 
         unsafe fn print_range(range: &Option<MemoryRange>) {
             if let Some(r) = range {
-                unsafe_puts("0x");
+                unsafe_puts("    0x");
                 unsafe_print_hex_u64(r.start as u64);
                 unsafe_puts(" - 0x");
                 unsafe_print_hex_u64(r.end as u64);
@@ -472,7 +468,7 @@ impl VM {
         let end = get_stack_memory() as usize;
 
         unsafe_puts("Kernel:\n");
-        unsafe_puts("0x");
+        unsafe_puts("    0x");
         unsafe_print_hex_u64(start as u64);
         unsafe_puts(" - 0x");
         unsafe_print_hex_u64(end as u64);
@@ -482,7 +478,7 @@ impl VM {
         let end = start + STACK_SIZE * self.num_cpus;
 
         unsafe_puts("Stack Memory:\n");
-        unsafe_puts("0x");
+        unsafe_puts("    0x");
         unsafe_print_hex_u64(start as u64);
         unsafe_puts(" - 0x");
         unsafe_print_hex_u64(end as u64);

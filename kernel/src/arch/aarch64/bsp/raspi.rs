@@ -1,4 +1,4 @@
-use self::{config::UART_IRQ, memory::UART0_BASE};
+use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 use crate::arch::aarch64::{interrupt_ctl, vm::VM};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
@@ -13,8 +13,6 @@ use awkernel_lib::{
     memory::PAGESIZE,
 };
 use core::arch::asm;
-
-use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
 pub mod config;
 pub mod memory;
@@ -44,7 +42,7 @@ mod timer {
 
 #[cfg(feature = "raspi4")]
 pub fn init() {
-    init_uart();
+    // init_uart();
 
     // Set-up the interrupt controller.
     let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
@@ -67,7 +65,7 @@ mod timer {
 
 #[cfg(feature = "raspi3")]
 pub fn init() {
-    init_uart();
+    // init_uart();
 
     // Set-up the interrupt controller.
     let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
@@ -79,17 +77,14 @@ pub fn init() {
     awkernel_lib::timer::register_timer(&timer::TIMER);
 }
 
-fn init_uart() {
-    let port = Box::new(PL011::new(UART0_BASE, UART_IRQ));
-    register_console(port);
-}
-
 pub struct Raspi {
     symbols: Option<DeviceTreeNodeRef>,
     interrupt: Option<DeviceTreeNodeRef>,
     interrupt_compatible: &'static str,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
+    uart_base: Option<usize>,
+    uart_irq: Option<u16>,
 }
 
 impl super::SoC for Raspi {
@@ -161,7 +156,18 @@ impl super::SoC for Raspi {
         Ok(vm)
     }
 
-    unsafe fn init(&self) {}
+    unsafe fn init(&self) -> Result<(), &'static str> {
+        let uart_base = self
+            .uart_base
+            .ok_or(err_msg!("UART's base address has not been initialized."))?;
+
+        let uart_irq = self.uart_irq.ok_or(err_msg!("UART's #IRQ is unknown."))?;
+
+        let port = Box::new(PL011::new(uart_base, uart_irq));
+        register_console(port);
+
+        Ok(())
+    }
 }
 
 impl Raspi {
@@ -172,6 +178,8 @@ impl Raspi {
             interrupt_compatible: "",
             device_tree,
             device_tree_base,
+            uart_base: None,
+            uart_irq: None,
         }
     }
 
@@ -232,7 +240,7 @@ impl Raspi {
             .or(Err(err_msg!("invalid path")))
     }
 
-    fn init_uart0(&self) -> Result<(), &'static str> {
+    fn init_uart0(&mut self) -> Result<(), &'static str> {
         let uart0_arrayed_node = self
             .get_device_from_symbols("uart0")
             .or(Err(err_msg!("could not find uart0")))?;
@@ -286,6 +294,9 @@ impl Raspi {
             .or(Err(err_msg!("failed to get GPIO's base address")))?;
 
         uart::init(uart_base as usize, gpio_base as usize, irq);
+
+        self.uart_base = Some(uart_base as usize);
+        self.uart_irq = Some(irq);
 
         register_unsafe_puts(uart::unsafe_puts);
 

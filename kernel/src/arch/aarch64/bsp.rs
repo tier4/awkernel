@@ -44,5 +44,5 @@ pub trait SoC {
 
     /// Initialize the AWkernel.
     /// This method will be invoked after `init_device()` and `init_virtual_memory()`.
-    unsafe fn init(&self);
+    unsafe fn init(&self) -> Result<(), &'static str>;
 }

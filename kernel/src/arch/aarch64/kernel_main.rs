@@ -14,7 +14,7 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
-    console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
+    console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
     device_tree::device_tree::DeviceTree,
     heap, local_heap,
@@ -95,28 +95,31 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
     let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
 
-    unsafe_puts("backup_start  = 0x");
-    unsafe_print_hex_u64(backup_start as u64);
-    unsafe_puts("\n");
-
-    unsafe_puts("primary_start = 0x");
-    unsafe_print_hex_u64(primary_start as u64);
-    unsafe_puts("\n");
-
-    unsafe_puts("primary_size  = 0x");
-    unsafe_print_hex_u64(primary_size as u64);
-    unsafe_puts("\n");
-
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
 
-    unsafe_puts("SP = 0x");
-    unsafe_print_hex_u64(awkernel_aarch64::get_sp() as u64);
-    unsafe_puts("\n");
-
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    unsafe_puts("initialied heap\n");
+    if let Err(msg) = initializer.init() {
+        unsafe_puts("failed init()\n");
+        unsafe_puts(msg);
+        unsafe_puts("\n");
+        wait_forever();
+    }
+
+    log::info!(
+        "Primary heap: 0x{:016x} - {:016x} ({}[MiB])",
+        primary_start,
+        primary_start + primary_size,
+        primary_size >> 20
+    );
+
+    log::info!(
+        "Backup heap : 0x{:016x} - {:016x} ({}[MiB])",
+        backup_start,
+        backup_start + backup_size,
+        backup_size >> 20
+    );
 
     wait_forever();
 

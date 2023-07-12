@@ -33,12 +33,6 @@ mod raspi {
 
 pub use raspi::*;
 
-pub const SRAM_START: u64 = 0;
-pub const SRAM_END: u64 = 0;
-pub const ROM_START: u64 = 0;
-pub const ROM_END: u64 = 0;
-pub const _DRAM_BASE: u64 = 0;
-
 mmio_rw!(offset 0x000 => pub GPFSEL0<u32>);
 mmio_rw!(offset 0x004 => pub GPFSEL1<u32>);
 mmio_rw!(offset 0x008 => pub GPFSEL2<u32>);
@@ -68,5 +62,3 @@ mmio_rw!(offset 0x08c => pub GPAFEN1<u32>);
 mmio_rw!(offset 0x094 => pub GPPUD<u32>);
 mmio_rw!(offset 0x098 => pub GPPUDCLK0<u32>);
 mmio_rw!(offset 0x09c => pub GPPUDCLK1<u32>);
-
-pub const UART0_BASE: usize = MMIO_BASE + 0x0020_1000;
