@@ -42,7 +42,43 @@ pub struct MemoryRange {
     end: usize,
 }
 
-const NUM_RANGES: usize = 8;
+#[derive(Debug, Clone, Copy)]
+enum ContainResult {
+    Contain,
+    NotContain,
+    Overlap,
+}
+
+impl MemoryRange {
+    /// ---: start-to-end
+    /// ***: unused
+    ///
+    /// If
+    /// - self:  `****----------****`
+    /// - range: `******-----*******`
+    /// then, `ContainResult::Contain` will be returned.
+    ///
+    /// If
+    /// - self:  `*********------***`
+    /// - range: `**-----***********`
+    /// then, `ContainResult::NotContain` will be returned.
+    ///
+    /// If
+    /// - self:  `****----------****`
+    /// - range: `**--------********`
+    /// then, `ContainResult::Overlap` will be returned.
+    fn contains(&self, range: MemoryRange) -> ContainResult {
+        if self.start <= range.start && range.end <= self.end {
+            ContainResult::Contain
+        } else if range.end <= self.start || self.end <= self.start {
+            ContainResult::NotContain
+        } else {
+            ContainResult::Overlap
+        }
+    }
+}
+
+const NUM_RANGES: usize = 16;
 
 pub struct VM {
     num_cpus: usize,
@@ -50,7 +86,9 @@ pub struct VM {
     idx_dev: usize,
     device_ranges: [Option<MemoryRange>; NUM_RANGES],
 
-    heap: MemoryRange, // RW and used by the page table.
+    idx_heap: usize,
+    heap: [Option<MemoryRange>; NUM_RANGES], // RW and used by the page table.
+
     ro_ranges: [Option<MemoryRange>; NUM_RANGES],
     rw_ranges: [Option<MemoryRange>; NUM_RANGES],
     exec_ranges: [Option<MemoryRange>; NUM_RANGES],
@@ -103,7 +141,8 @@ impl VM {
             num_cpus: 0,
             idx_dev: 0,
             device_ranges: [None; NUM_RANGES],
-            heap: MemoryRange { start: 0, end: 0 },
+            idx_heap: 0,
+            heap: [None; NUM_RANGES],
             ro_ranges: [None; NUM_RANGES],
             rw_ranges: [None; NUM_RANGES],
             exec_ranges: [None; NUM_RANGES],
@@ -125,10 +164,78 @@ impl VM {
         Ok(())
     }
 
+    pub fn push_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+        if start >= end {
+            return Err("start >= end");
+        }
+
+        if self.idx_heap >= self.heap.len() {
+            return Err("too many device range");
+        }
+
+        self.heap[self.idx_dev] = Some(MemoryRange { start, end });
+        self.idx_heap += 1;
+
+        Ok(())
+    }
+
+    /// If
+    /// - heap:   `***---------***`
+    /// - remove: `*****---*******`
+    /// then the heap will be `***--***----***`.
+    pub fn remove_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+        if start >= end {
+            return Err("start >= end");
+        }
+
+        let rm_range = MemoryRange { start, end };
+        let mut idx = 0;
+        let mut ranges = [None; NUM_RANGES];
+
+        for range in self.heap.iter_mut() {
+            if let Some(r) = range {
+                match r.contains(rm_range) {
+                    ContainResult::Contain => {
+                        if r.end != rm_range.end {
+                            ranges[idx] = Some(MemoryRange {
+                                start: rm_range.end,
+                                end: r.end,
+                            });
+
+                            idx += 1;
+                        }
+
+                        if r.start == rm_range.start {
+                            *range = None;
+                        } else {
+                            r.end = rm_range.start;
+                        }
+                    }
+                    ContainResult::Overlap => return Err("overlap"),
+                    ContainResult::NotContain => (),
+                }
+            }
+        }
+
+        for range in ranges {
+            if let Some(r) = range {
+                self.push_heap(r.start, r.end)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// Return the length of heap memory.
     pub unsafe fn init(&self) -> usize {
-        let mut allocator = PageAllocator::new(self.heap.start as u64, self.heap.end as u64);
+        let mut allocator = PageAllocator::new();
         let mut table0 = PageTable::new(&mut allocator);
+
+        for mem in self.heap.iter() {
+            if let Some(m) = mem {
+                let _ = allocator.push(m.start as u64, m.end as u64);
+            }
+        }
 
         // TEXT.
         let flag = kernel_page_flag_r_exec()

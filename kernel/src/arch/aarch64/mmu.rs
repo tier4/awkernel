@@ -271,7 +271,8 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
     // init the page allocator
     let start = addr.pager_mem_start;
     let end = addr.pager_mem_end;
-    let mut allocator = PageAllocator::new(start, end);
+    let mut allocator = PageAllocator::new();
+    let _ = allocator.push(start, end);
 
     //-------------------------------------------------------------------------
     // TTBR0: Kernel Space

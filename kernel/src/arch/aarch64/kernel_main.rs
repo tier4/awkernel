@@ -18,10 +18,12 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
+    arch::aarch64::{page_allocator::PageAllocator, page_table::FrameAllocator},
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
     device_tree::device_tree::DeviceTree,
     heap, local_heap,
+    memory::PAGESIZE,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
