@@ -37,7 +37,7 @@ static mut LOCAL_TLSF: Option<local_heap::TLSF> = None;
 static mut LOCAL_ALLOCATOR: Option<local_heap::LocalHeap> = None;
 static mut DEVICE_TREE: Option<DeviceTree<local_heap::LocalHeap<'static>>> = None;
 
-/// Read a device tree blog.
+/// Read a device tree blob.
 pub fn from_bytes(
     bytes: &'static [u8],
 ) -> Result<&'static DeviceTree<'static, local_heap::LocalHeap<'static>>, DeviceTreeError> {
@@ -48,6 +48,24 @@ pub fn from_bytes(
     let allocator = unsafe { get_allocator() };
 
     let tree = DeviceTree::from_bytes(bytes, allocator.clone())?;
+
+    unsafe {
+        DEVICE_TREE = Some(tree);
+        Ok(DEVICE_TREE.as_ref().unwrap())
+    }
+}
+
+/// Read a device tree blob from the address.
+pub fn from_address(
+    addr: usize,
+) -> Result<&'static DeviceTree<'static, local_heap::LocalHeap<'static>>, DeviceTreeError> {
+    if let Some(tree) = unsafe { &DEVICE_TREE } {
+        return Ok(tree);
+    }
+
+    let allocator = unsafe { get_allocator() };
+
+    let tree = DeviceTree::from_address(addr, allocator.clone())?;
 
     unsafe {
         DEVICE_TREE = Some(tree);

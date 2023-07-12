@@ -185,30 +185,10 @@ unsafe fn non_primary_cpu() {
 unsafe fn load_device_tree(
     device_tree_base: usize,
 ) -> &'static DeviceTree<'static, local_heap::LocalHeap<'static>> {
-    const MAGIC: u32 = 0xd00d_feed;
-
-    let magic_number = read_volatile(device_tree_base as *const u32);
-    let total_size = read_volatile((device_tree_base + 4) as *const u32);
-
-    let magic_number = u32::from_be(magic_number);
-
-    if magic_number != MAGIC {
-        unsafe_puts("kernel panic: failed to load the device tree.\n");
+    if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
+        tree
+    } else {
+        unsafe_puts("kernel panic: failed to load the device tree\n");
         wait_forever();
     }
-
-    let total_size = u32::from_be(total_size);
-
-    let dtb = core::slice::from_raw_parts(device_tree_base as *const u8, total_size as usize);
-
-    unsafe {
-        unsafe_puts("hello world\n");
-    }
-
-    let Ok(tree) = awkernel_lib::device_tree::from_bytes(dtb) else {
-        unsafe_puts("kernel panic: failed to parse the device tree\n");
-        wait_forever();
-    };
-
-    tree
 }
