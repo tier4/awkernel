@@ -3,10 +3,7 @@ use crate::arch::aarch64::{interrupt_ctl, vm::VM};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::{
-        register_console, register_unsafe_puts, unsafe_print_hex_u32, unsafe_print_hex_u64,
-        unsafe_puts,
-    },
+    console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
@@ -104,12 +101,13 @@ impl super::SoC for Raspi {
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) -> Result<(), &'static str> {
+    unsafe fn init_virtual_memory(&self) -> Result<usize, &'static str> {
         let mut vm = VM::new();
 
         let num_cpus = self.num_cpus()?;
         vm.set_num_cpus(num_cpus);
 
+        // Device memory regions.
         let ranges = self.device_ranges()?;
         for range in ranges {
             let start = range.range.1.to_u128() as usize;
@@ -117,6 +115,7 @@ impl super::SoC for Raspi {
             vm.push_device_range(start, end)?;
         }
 
+        // Add heap memory regions.
         for node in self.device_tree.root().nodes().iter() {
             if node.name().starts_with("memory@") {
                 if let Some(reg_prop) = node.get_property("reg") {
@@ -139,6 +138,7 @@ impl super::SoC for Raspi {
             }
         }
 
+        // Do not use the memory containing kernel's binary for heap memory.
         vm.remove_kernel_memory_from_heap_memory()?;
 
         let mask = PAGESIZE - 1;
@@ -146,12 +146,18 @@ impl super::SoC for Raspi {
         let end = self.device_tree_base + self.device_tree.total_size();
         let end = end + PAGESIZE - (end & mask);
 
-        vm.remove_heap(start, end)?;
-        vm.push_ro_memory(start, end)?;
+        vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
+        vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
+
+        vm.remove_heap(0, PAGESIZE)?;
 
         vm.print();
 
-        Ok(())
+        unsafe_puts("Initializing the page table. Wait a moment.\n");
+
+        let heap_size = vm.init().ok_or("failed vm.init()")?;
+
+        Ok(heap_size)
     }
 
     unsafe fn init(&self) {}

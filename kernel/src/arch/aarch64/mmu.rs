@@ -223,7 +223,7 @@ pub fn init() -> Option<(PageTable, PageTable)> {
 
     init_sp_el1(); // stack pointer
 
-    Some(init_el1(addr))
+    Some(init_el1(addr)?)
 }
 
 fn get_mair() -> u64 {
@@ -265,7 +265,7 @@ fn update_sctlr(sctlr: u64) -> u64 {
 
 /// set up EL1's page table
 /// assume 2MiB stack space per CPU
-fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
+fn init_el1(addr: &mut Addr) -> Option<(PageTable, PageTable)> {
     use flags::*;
 
     // init the page allocator
@@ -276,14 +276,14 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
 
     //-------------------------------------------------------------------------
     // TTBR0: Kernel Space
-    let mut table0 = PageTable::new(&mut allocator);
+    let mut table0 = PageTable::new(&mut allocator)?;
 
     // map .init and .text section
     let mut ram_start = get_ram_start();
     let data_start = get_data_start();
     let flag = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_R_N | FLAG_L3_ATTR_MEM | 0b11;
     while ram_start < data_start {
-        table0.map_to(ram_start, ram_start, flag, &mut allocator);
+        table0.map_to(ram_start, ram_start, flag, &mut allocator)?;
         ram_start += PAGESIZE as u64;
     }
 
@@ -359,6 +359,13 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         pager_start += PAGESIZE as u64;
     }
 
+    //-------------------------------------------------------------------------
+    // TTBR1: user space
+    let table1 = PageTable::new(&mut allocator)?;
+
+    //-------------------------------------------------------------------------
+    // TTBR0: heap memory
+
     // map heap memory
     let mut vm_addr = crate::config::HEAP_START;
     let flag = user_page_flag();
@@ -375,14 +382,10 @@ fn init_el1(addr: &mut Addr) -> (PageTable, PageTable) {
         vm_addr += PAGESIZE as u64;
     }
 
-    //-------------------------------------------------------------------------
-    // TTBR1: user space
-    let table1 = PageTable::new(&mut allocator);
-
     addr.ttbr0 = table0.addr();
     addr.ttbr1 = table1.addr();
 
-    (table0, table1)
+    Some((table0, table1))
 }
 
 unsafe fn set_reg_el1(ttbr0: usize, ttbr1: usize) {

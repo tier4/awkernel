@@ -250,47 +250,47 @@ impl VM {
     }
 
     /// Return the length of heap memory.
-    pub unsafe fn init(&self) -> usize {
+    pub unsafe fn init(&self) -> Option<usize> {
         let mut allocator = PageAllocator::new();
-        let mut table0 = PageTable::new(&mut allocator);
-
         for mem in self.heap.iter() {
             if let Some(m) = mem {
                 let _ = allocator.push(m.start as u64, m.end as u64);
             }
         }
 
+        let mut table0 = PageTable::new(&mut allocator)?;
+
         // TEXT.
         let flag = kernel_page_flag_r_exec()
-            | if (get_kernel_start() - get_ro_data_start()) / PAGESIZE as u64 > 1 {
+            | if (get_ro_data_start() - get_kernel_start()) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
         for addr in (get_kernel_start()..get_ro_data_start()).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator);
+            table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
         // Read-only data.
         let flag = kernel_page_flag_ro()
-            | if (get_ro_data_start() - get_data_start()) / PAGESIZE as u64 > 1 {
+            | if (get_data_start() - get_ro_data_start()) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
         for addr in (get_ro_data_start()..get_data_start()).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator);
+            table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
         // DATA and BSS.
         let flag = kernel_page_flag_rw()
-            | if (get_data_start() - get_stack_memory()) / PAGESIZE as u64 > 1 {
+            | if (get_stack_memory() - get_data_start()) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
         for addr in (get_ro_data_start()..get_data_start()).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator);
+            table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
         // Stack memory.
@@ -301,7 +301,7 @@ impl VM {
             addr += PAGESIZE as u64; // canary
 
             for phy_addr in (addr..end).step_by(PAGESIZE) {
-                table0.map_to(phy_addr, phy_addr, flag, &mut allocator);
+                table0.map_to(phy_addr, phy_addr, flag, &mut allocator)?;
             }
 
             addr = end;
@@ -312,7 +312,7 @@ impl VM {
         for range in self.device_ranges.iter() {
             if let Some(range) = range {
                 for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator);
+                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
                 }
             }
         }
@@ -322,7 +322,7 @@ impl VM {
         for range in self.ro_ranges.iter() {
             if let Some(range) = range {
                 for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator);
+                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
                 }
             }
         }
@@ -331,11 +331,14 @@ impl VM {
         let mut addr = HEAP_START;
         let flag = kernel_page_flag_rw();
         while let Some(frame) = allocator.allocate_frame() {
-            table0.map_to(addr, frame, flag, &mut allocator);
+            if table0.map_to(addr, frame, flag, &mut allocator).is_none() {
+                break;
+            }
+
             addr += PAGESIZE as u64;
         }
 
-        (addr - HEAP_START) as usize
+        Some((addr - HEAP_START) as usize)
     }
 
     pub unsafe fn print(&self) {

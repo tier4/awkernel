@@ -1,4 +1,4 @@
-use crate::{delay::wait_forever, memory::PAGESIZE};
+use crate::memory::PAGESIZE;
 use alloc::slice;
 use core::ptr::{read_volatile, write_volatile};
 
@@ -54,21 +54,18 @@ struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    fn new<A>(allocator: &mut A) -> Self
+    fn new<A>(allocator: &mut A) -> Option<Self>
     where
         A: FrameAllocator,
     {
-        let ptr = if let Some(page) = allocator.allocate_frame() {
-            page as *mut u64
-        } else {
-            wait_forever();
-        };
+        let ptr = allocator.allocate_frame()? as *mut u64;
 
         let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
         for e in entries.iter_mut() {
             *e = 0;
         }
-        Self { entries }
+
+        Some(Self { entries })
     }
 
     fn from_addr(addr: u64) -> Self {
@@ -95,12 +92,12 @@ impl PageTable {
     const IDX_MASK: u64 = (ENTRY_COUNT - 1) as u64;
     const ADDR_MASK: u64 = 0xFFFFFFFFF << 12; // [47:12]
 
-    pub fn new<A>(allocator: &mut A) -> Self
+    pub fn new<A>(allocator: &mut A) -> Option<Self>
     where
         A: FrameAllocator,
     {
-        let root = PageTableEntry::new(allocator);
-        Self { root }
+        let root = PageTableEntry::new(allocator)?;
+        Some(Self { root })
     }
 
     /// # Safety
@@ -123,7 +120,13 @@ impl PageTable {
         }
     }
 
-    pub fn map_to<A>(&mut self, vm_addr: u64, phy_addr: u64, flag: u64, allocator: &mut A)
+    pub fn map_to<A>(
+        &mut self,
+        vm_addr: u64,
+        phy_addr: u64,
+        flag: u64,
+        allocator: &mut A,
+    ) -> Option<()>
     where
         A: FrameAllocator,
     {
@@ -132,7 +135,7 @@ impl PageTable {
         let lv2_table;
 
         if lv1_table[lv1_idx] == 0 {
-            lv2_table = PageTableEntry::new(allocator).entries;
+            lv2_table = PageTableEntry::new(allocator)?.entries;
             lv1_table[lv1_idx] = (lv2_table.as_ptr()) as u64 | 0b11;
         } else {
             let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
@@ -143,7 +146,7 @@ impl PageTable {
         let lv3_table;
 
         if lv2_table[lv2_idx] == 0 {
-            lv3_table = PageTableEntry::new(allocator).entries;
+            lv3_table = PageTableEntry::new(allocator)?.entries;
             lv2_table[lv2_idx] = (lv3_table.as_ptr()) as u64 | 0b11;
         } else {
             let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
@@ -155,6 +158,8 @@ impl PageTable {
         let ptr = &mut lv3_table[lv3_idx];
 
         unsafe { write_volatile(ptr, e) };
+
+        Some(())
     }
 
     /// # Safety
