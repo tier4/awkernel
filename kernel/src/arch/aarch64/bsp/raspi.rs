@@ -3,12 +3,16 @@ use crate::arch::aarch64::{interrupt_ctl, vm::VM};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    console::{register_console, register_unsafe_puts, unsafe_print_hex_u32, unsafe_puts},
+    console::{
+        register_console, register_unsafe_puts, unsafe_print_hex_u32, unsafe_print_hex_u64,
+        unsafe_puts,
+    },
     device_tree::{
         prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
     },
     interrupt::register_interrupt_controller,
+    memory::PAGESIZE,
 };
 use core::arch::asm;
 
@@ -87,6 +91,7 @@ pub struct Raspi {
     interrupt: Option<DeviceTreeNodeRef>,
     interrupt_compatible: &'static str,
     device_tree: DeviceTreeRef,
+    device_tree_base: usize,
 }
 
 impl super::SoC for Raspi {
@@ -107,16 +112,44 @@ impl super::SoC for Raspi {
 
         let ranges = self.device_ranges()?;
         for range in ranges {
-            unsafe_puts("range: addr = 0x");
-            unsafe_print_hex_u32(range.range.1.to_u128() as u32);
-            unsafe_puts(", len = 0x");
-            unsafe_print_hex_u32(range.range.2.to_u128() as u32);
-            unsafe_puts("\n");
-
             let start = range.range.1.to_u128() as usize;
             let end = start + range.range.2.to_u128() as usize;
             vm.push_device_range(start, end)?;
         }
+
+        for node in self.device_tree.root().nodes().iter() {
+            if node.name().starts_with("memory@") {
+                if let Some(reg_prop) = node.get_property("reg") {
+                    match reg_prop.value() {
+                        PropertyValue::Address(addr, len) => {
+                            let start = addr.to_u128() as usize;
+                            let end = start + len.to_u128() as usize;
+                            vm.push_heap(start, end)?;
+                        }
+                        PropertyValue::Addresses(addrs) => {
+                            for (addr, len) in addrs {
+                                let start = addr.to_u128() as usize;
+                                let end = start + len.to_u128() as usize;
+                                vm.push_heap(start, end)?;
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        vm.remove_kernel_memory_from_heap_memory()?;
+
+        let mask = PAGESIZE - 1;
+        let start = self.device_tree_base & !mask;
+        let end = self.device_tree_base + self.device_tree.total_size();
+        let end = end + PAGESIZE - (end & mask);
+
+        vm.remove_heap(start, end)?;
+        vm.push_ro_memory(start, end)?;
+
+        vm.print();
 
         Ok(())
     }
@@ -125,12 +158,13 @@ impl super::SoC for Raspi {
 }
 
 impl Raspi {
-    pub const fn new(device_tree: DeviceTreeRef) -> Self {
+    pub const fn new(device_tree: DeviceTreeRef, device_tree_base: usize) -> Self {
         Raspi {
             symbols: None,
             interrupt: None,
             interrupt_compatible: "",
             device_tree,
+            device_tree_base,
         }
     }
 

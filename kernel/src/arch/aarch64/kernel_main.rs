@@ -60,7 +60,7 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 6. Board specific initialization (IRQ controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
     let device_tree = load_device_tree(device_tree_base);
-    let mut initializer = super::bsp::SoCInitializer::new(device_tree);
+    let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
 
     // 1. Initialize device (UART, etc.).
     if initializer.init_device().is_err() {

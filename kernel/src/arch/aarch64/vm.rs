@@ -6,12 +6,13 @@ use awkernel_lib::{
             FrameAllocator, PageTable,
         },
     },
+    console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
     memory::PAGESIZE,
 };
 
 use crate::arch::config::HEAP_START;
 
-pub const STACK_SIZE: u64 = 2 * 1024 * 1024; // 2MiB
+pub const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MiB
 
 extern "C" {
     static __kernel_start: u64;
@@ -70,7 +71,7 @@ impl MemoryRange {
     fn contains(&self, range: MemoryRange) -> ContainResult {
         if self.start <= range.start && range.end <= self.end {
             ContainResult::Contain
-        } else if range.end <= self.start || self.end <= self.start {
+        } else if range.end <= self.start || self.end <= range.start {
             ContainResult::NotContain
         } else {
             ContainResult::Overlap
@@ -89,9 +90,8 @@ pub struct VM {
     idx_heap: usize,
     heap: [Option<MemoryRange>; NUM_RANGES], // RW and used by the page table.
 
+    idx_ro: usize,
     ro_ranges: [Option<MemoryRange>; NUM_RANGES],
-    rw_ranges: [Option<MemoryRange>; NUM_RANGES],
-    exec_ranges: [Option<MemoryRange>; NUM_RANGES],
 }
 
 pub fn kernel_page_flag_rw() -> u64 {
@@ -143,9 +143,8 @@ impl VM {
             device_ranges: [None; NUM_RANGES],
             idx_heap: 0,
             heap: [None; NUM_RANGES],
+            idx_ro: 0,
             ro_ranges: [None; NUM_RANGES],
-            rw_ranges: [None; NUM_RANGES],
-            exec_ranges: [None; NUM_RANGES],
         }
     }
 
@@ -164,6 +163,7 @@ impl VM {
         Ok(())
     }
 
+    /// Push a physical address region for heap memory.
     pub fn push_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
         if start >= end {
             return Err("start >= end");
@@ -173,8 +173,24 @@ impl VM {
             return Err("too many device range");
         }
 
-        self.heap[self.idx_dev] = Some(MemoryRange { start, end });
+        self.heap[self.idx_heap] = Some(MemoryRange { start, end });
         self.idx_heap += 1;
+
+        Ok(())
+    }
+
+    /// Push a physical address region for Read-only memory.
+    pub fn push_ro_memory(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+        if start >= end {
+            return Err("start >= end");
+        }
+
+        if self.idx_ro >= self.ro_ranges.len() {
+            return Err("too many device range");
+        }
+
+        self.ro_ranges[self.idx_ro] = Some(MemoryRange { start, end });
+        self.idx_ro += 1;
 
         Ok(())
     }
@@ -226,6 +242,13 @@ impl VM {
         Ok(())
     }
 
+    pub fn remove_kernel_memory_from_heap_memory(&mut self) -> Result<(), &'static str> {
+        let start = get_kernel_start() as usize;
+        let end = get_stack_memory() as usize + STACK_SIZE * self.num_cpus;
+
+        self.remove_heap(start, end)
+    }
+
     /// Return the length of heap memory.
     pub unsafe fn init(&self) -> usize {
         let mut allocator = PageAllocator::new();
@@ -274,7 +297,7 @@ impl VM {
         let flag = kernel_page_flag_rw() | FLAG_L3_CONT;
         let mut addr = get_stack_memory();
         for _ in 0..self.num_cpus {
-            let end = addr + STACK_SIZE;
+            let end = addr + STACK_SIZE as u64;
             addr += PAGESIZE as u64; // canary
 
             for phy_addr in (addr..end).step_by(PAGESIZE) {
@@ -304,26 +327,6 @@ impl VM {
             }
         }
 
-        // Read-write memory.
-        let flag = kernel_page_flag_rw() | FLAG_L3_CONT;
-        for range in self.rw_ranges.iter() {
-            if let Some(range) = range {
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator);
-                }
-            }
-        }
-
-        // Executable memory.
-        let flag = kernel_page_flag_r_exec() | FLAG_L3_CONT;
-        for range in self.exec_ranges.iter() {
-            if let Some(range) = range {
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator);
-                }
-            }
-        }
-
         // Heap
         let mut addr = HEAP_START;
         let flag = kernel_page_flag_rw();
@@ -333,5 +336,56 @@ impl VM {
         }
 
         (addr - HEAP_START) as usize
+    }
+
+    pub unsafe fn print(&self) {
+        unsafe_puts("num_cpu = 0x");
+        unsafe_print_hex_u32(self.num_cpus as u32);
+        unsafe_puts("\n");
+
+        unsafe fn print_range(range: &Option<MemoryRange>) {
+            if let Some(r) = range {
+                unsafe_puts("0x");
+                unsafe_print_hex_u64(r.start as u64);
+                unsafe_puts(" - 0x");
+                unsafe_print_hex_u64(r.end as u64);
+                unsafe_puts("\n");
+            }
+        }
+
+        unsafe_puts("Device Memory:\n");
+        for range in self.device_ranges.iter() {
+            print_range(&range);
+        }
+
+        unsafe_puts("Heap Memory:\n");
+        for range in self.heap.iter() {
+            print_range(range);
+        }
+
+        unsafe_puts("Read-only Memory:\n");
+        for range in self.ro_ranges.iter() {
+            print_range(range);
+        }
+
+        let start = get_kernel_start() as usize;
+        let end = get_stack_memory() as usize;
+
+        unsafe_puts("Kernel:\n");
+        unsafe_puts("0x");
+        unsafe_print_hex_u64(start as u64);
+        unsafe_puts(" - 0x");
+        unsafe_print_hex_u64(end as u64);
+        unsafe_puts("\n");
+
+        let start = end;
+        let end = start + STACK_SIZE * self.num_cpus;
+
+        unsafe_puts("Stack Memory:\n");
+        unsafe_puts("0x");
+        unsafe_print_hex_u64(start as u64);
+        unsafe_puts(" - 0x");
+        unsafe_print_hex_u64(end as u64);
+        unsafe_puts("\n");
     }
 }
