@@ -40,15 +40,6 @@ SECTIONS
 
     __stack_memory = .;
 
-    /* 8MiB space for EL1 */
-    __stack_el1_end   = .;
-    __stack_el1_start = __stack_el1_end + #STACKSIZE# * #NUMCPU#;
-
-    __stack_data_abort_end = .;
-    __stack_data_abort_start = __stack_data_abort_end + 4096 * #NUMCPU#;
-
-    __free_mem_start = __stack_el1_start;
-
    /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) }
 }
 __bss_size = (__bss_end - __bss_start) >> 3;

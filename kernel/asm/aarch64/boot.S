@@ -35,12 +35,15 @@ boot_entry:
 #endif
 
     // set stack before _start
-    ldr     x1, =__stack_el1_start
     mrs     x2, mpidr_el1 // read cpu id
     and     x2, x2, #0xFF
+    add     x3, x2, #1
+
     mov     x4, #(STACKSIZE)
-    mul     x3, x2, x4
-    sub     x1, x1, x3
+    mul     x3, x3, x4
+
+    ldr     x1, =__stack_memory
+    add     x1, x1, x3
     mov     x10, x1 // save stack pointer
 
     cbnz    x2, 2f

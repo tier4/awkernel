@@ -68,7 +68,7 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 	$(CC) --target=aarch64-elf -c $< -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
 
 aarch64-link-bsp.lds: aarch64-link.lds
-	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#STACKSIZE#/$(STACKSIZE)/" | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
+	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
 
 QEMU_AARCH64_ARGS= -m 1024 -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio -display none
