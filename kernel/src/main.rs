@@ -11,6 +11,7 @@
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task, uptime,
@@ -51,16 +52,43 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::PrioritizedFIFO(0),
         );
 
-        #[cfg(feature = "aarch64")]
+        // Test for IPI.
+        #[cfg(all(feature = "aarch64", not(feature = "std")))]
         let mut send_ipi = uptime();
+
+        // Set-up timer interrupt.
+        if let Some(irq) = awkernel_lib::timer::irq_id() {
+            awkernel_lib::interrupt::enable_irq(irq);
+
+            if awkernel_lib::interrupt::register_handler(
+                irq,
+                Box::new(|| {
+                    awkernel_lib::timer::disable();
+                }),
+            )
+            .is_ok()
+            {
+                log::info!("timer is enabled");
+            }
+        }
 
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            #[cfg(not(feature = "std"))]
-            awkernel_lib::delay::wait_microsec(1);
+            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
+            awkernel_lib::delay::wait_microsec(10);
 
-            #[cfg(feature = "aarch64")]
+            // TODO: enable timer on x86 and Raspi 3.
+            #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            {
+                let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
+                awkernel_lib::interrupt::enable();
+                awkernel_lib::timer::reset();
+                awkernel_lib::delay::wait_interrupt();
+            }
+
+            // Test for IPI.
+            #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
                 let now = uptime();
                 if now >= send_ipi {
@@ -72,17 +100,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     }
                 }
             }
-
-            #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(10);
         }
     } else {
-        #[cfg(not(feature = "std"))]
-        {
-            awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
-            awkernel_lib::interrupt::disable();
-        }
-
         // Non-primary CPUs.
         unsafe { task::run() }; // Execute tasks.
     }

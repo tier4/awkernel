@@ -17,7 +17,7 @@
 //!
 //! ## `CNTP_CVAL_EL0`: Counter-timer Physical Timer CompareValue Register
 //!
-//!  The comparator register, CVAL, is a 64-bit register. Software writes a value to this register and the timer triggers when the
+//! The comparator register, CVAL, is a 64-bit register. Software writes a value to this register and the timer triggers when the
 //! count reaches, or exceeds, that value, as you can see here:
 //!
 //! ```plain
@@ -55,8 +55,8 @@ impl Armv8Timer {
 
 impl crate::timer::Timer for Armv8Timer {
     fn reset(&self) {
-        // every 1/32 = .031_250 [s].
-        let t = awkernel_aarch64::cntfrq_el0::get() >> 5;
+        // every 1/2^19 = .000_001_9 [s].
+        let t = awkernel_aarch64::cntfrq_el0::get() >> 19;
         unsafe {
             awkernel_aarch64::cntp_tval_el0::set(t);
             awkernel_aarch64::cntp_ctl_el0::set(1); // Enable interrupt.

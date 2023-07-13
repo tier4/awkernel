@@ -15,7 +15,7 @@ use core::time::Duration;
 
 pub fn init() {
     let task_id = task::spawn(
-        "awkenel_shell".into(),
+        "awkernel_shell".into(),
         console_handler(),
         SchedulerType::PrioritizedFIFO(0),
     );
