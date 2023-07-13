@@ -9,7 +9,6 @@ use awkernel_lib::{
         traits::HasNamedChildNode,
     },
     err_msg,
-    interrupt::register_interrupt_controller,
     memory::PAGESIZE,
 };
 use core::arch::asm;
@@ -44,11 +43,11 @@ pub fn init() {
     // init_uart();
 
     // Set-up the interrupt controller.
-    let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
-        memory::GIC_V2_CPU_INTERFACE_BASE,
-        memory::GIC_V2_DISTRIBUTOR_BASE,
-    );
-    register_interrupt_controller(Box::new(gic));
+    // let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
+    //     memory::GIC_V2_CPU_INTERFACE_BASE,
+    //     memory::GIC_V2_DISTRIBUTOR_BASE,
+    // );
+    // register_interrupt_controller(Box::new(gic));
 
     // Set-up timer.
     awkernel_lib::timer::register_timer(&timer::TIMER);
@@ -58,8 +57,8 @@ pub fn init() {
 mod timer {
     use awkernel_lib::arch::aarch64::rpi_system_timer::RpiSystemTimer;
 
-    use super::memory::MMIO_BASE;
-    pub static TIMER: RpiSystemTimer = RpiSystemTimer::new(1, MMIO_BASE + 0x3000);
+    // use super::memory::MMIO_BASE;
+    // pub static TIMER: RpiSystemTimer = RpiSystemTimer::new(1, MMIO_BASE + 0x3000);
 }
 
 #[cfg(feature = "raspi3")]
@@ -67,18 +66,18 @@ pub fn init() {
     // init_uart();
 
     // Set-up the interrupt controller.
-    let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
-        memory::INTERRUPT_CTRL_BASE,
-    );
-    register_interrupt_controller(Box::new(ctrl));
+    // let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
+    //     memory::INTERRUPT_CTRL_BASE,
+    // );
+    // register_interrupt_controller(Box::new(ctrl));
 
     // Set-up timer.
-    awkernel_lib::timer::register_timer(&timer::TIMER);
+    // awkernel_lib::timer::register_timer(&timer::TIMER);
 }
 
 pub struct Raspi {
     symbols: Option<DeviceTreeNodeRef>,
-    interrupt: Option<DeviceTreeNodeRef>,
+    interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
@@ -90,7 +89,7 @@ impl super::SoC for Raspi {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
         self.init_symbols()
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
-        self.init_interrupt()?;
+        self.init_interrupt_fields()?;
         self.init_uart0()?;
 
         start_non_primary();
@@ -167,6 +166,8 @@ impl super::SoC for Raspi {
         let port = Box::new(PL011::new(uart_base, uart_irq));
         register_console(port);
 
+        self.init_interrupt_controller()?;
+
         Ok(())
     }
 }
@@ -194,7 +195,7 @@ impl Raspi {
         Some(())
     }
 
-    fn init_interrupt(&mut self) -> Result<(), &'static str> {
+    fn init_interrupt_fields(&mut self) -> Result<(), &'static str> {
         let intc = self
             .get_device_from_symbols("gicv2")
             .or(self.get_device_from_symbols("intc"))
@@ -211,7 +212,7 @@ impl Raspi {
             _ => return Err(err_msg!("compatible property has not string value")),
         };
 
-        self.interrupt = Some(leaf);
+        self.interrupt = Some(intc);
 
         Ok(())
     }
@@ -248,7 +249,7 @@ impl Raspi {
 
         // Get the base address.
         let uart_base = uart0_arrayed_node
-            .get_address()
+            .get_address(0)
             .or(Err(err_msg!("failed to calculate uart0's base address")))?;
 
         let uart0_node = uart0_arrayed_node.get_leaf_node().unwrap();
@@ -291,7 +292,7 @@ impl Raspi {
 
         let gpio_arrayed_node = self.get_device_from_symbols("gpio")?;
         let gpio_base = gpio_arrayed_node
-            .get_address()
+            .get_address(0)
             .or(Err(err_msg!("failed to get GPIO's base address")))?;
 
         uart::init(uart_base as usize, gpio_base as usize, irq);
@@ -339,5 +340,13 @@ impl Raspi {
         };
 
         Ok(&ranges)
+    }
+
+    fn init_interrupt_controller(&self) -> Result<(), &'static str> {
+        let Some(intc) = &self.interrupt else {
+            return Err(err_msg!("interrupt is not initialized"));
+        };
+
+        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
     }
 }

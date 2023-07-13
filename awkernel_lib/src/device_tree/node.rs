@@ -287,7 +287,7 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
     ///     };
     /// };
     /// ```
-    pub fn get_address(&self) -> Result<u128> {
+    pub fn get_address(&self, index: usize) -> Result<u128> {
         let mut leaf = None;
         let mut base_addr = 0;
         'node: for node in self.array.iter().rev() {
@@ -303,6 +303,13 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
 
                     match reg.value() {
                         PropertyValue::Address(base, _len) => {
+                            if index != 0 {
+                                return Err(DeviceTreeError::NotFound);
+                            }
+                            base_addr = base.to_u128();
+                        }
+                        PropertyValue::Addresses(v) => {
+                            let (base, _len) = v.get(index).ok_or(DeviceTreeError::NotFound)?;
                             base_addr = base.to_u128();
                         }
                         _ => return Err(DeviceTreeError::InvalidSemantics),

@@ -8,4 +8,5 @@ pub enum DeviceTreeError {
     ParsingFailed,
     MemoryAccessFailed,
     InvalidSemantics,
+    NotFound,
 }

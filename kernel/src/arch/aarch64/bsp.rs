@@ -13,9 +13,10 @@ use awkernel_lib::{
 pub mod config;
 pub mod memory;
 
-type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
-type DeviceTreeNodeRef = &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
-type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
+pub(super) type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
+pub(super) type DeviceTreeNodeRef =
+    &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+pub(super) type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
 
 #[cfg(feature = "raspi")]
 pub mod raspi;

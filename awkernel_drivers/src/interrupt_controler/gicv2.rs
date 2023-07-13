@@ -48,8 +48,8 @@ mod registers {
 
 #[derive(Default)]
 pub struct GICv2 {
-    gicc_base: usize,
     gicd_base: usize,
+    gicc_base: usize,
     max_it: u16,
 }
 
@@ -58,10 +58,10 @@ fn div_ceil(a: usize, b: usize) -> usize {
 }
 
 impl GICv2 {
-    pub fn new(gicc_base: usize, gicd_base: usize) -> Self {
+    pub fn new(gicd_base: usize, gicc_base: usize) -> Self {
         let mut gic = GICv2 {
-            gicc_base,
             gicd_base,
+            gicc_base,
             max_it: 0,
         };
 

@@ -1,29 +1,5 @@
 use awkernel_lib::{mmio_rw, mmio_w};
 
-//-----------------------------------------------------------------------------
-// Raspberry Pi 3
-#[cfg(feature = "raspi3")]
-mod raspi {
-    pub const MMIO_BASE: usize = 0x3f00_0000;
-    pub const INTERRUPT_CTRL_BASE: usize = MMIO_BASE + 0xB200;
-    pub const _LOCAL_PERIPHERAL_BASE: usize = 0x4000_0000;
-}
-//-----------------------------------------------------------------------------
-
-//-----------------------------------------------------------------------------
-// Raspberry Pi 4
-#[cfg(feature = "raspi4")]
-mod raspi {
-    pub const LOCAL_PERIPHERAL_BASE: usize = 0xff80_0000;
-    pub const GIC_V2_DISTRIBUTOR_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_1000;
-    pub const GIC_V2_CPU_INTERFACE_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_2000;
-    pub const _GIC_V2_HYPERVISOR_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_4000;
-    pub const _GIC_V2_VIRTUAL_CPU_BASE: usize = LOCAL_PERIPHERAL_BASE + 0x0004_6000;
-}
-//-----------------------------------------------------------------------------
-
-pub use raspi::*;
-
 mmio_rw!(offset 0x000 => pub GPFSEL0<u32>);
 mmio_rw!(offset 0x004 => pub GPFSEL1<u32>);
 mmio_rw!(offset 0x008 => pub GPFSEL2<u32>);

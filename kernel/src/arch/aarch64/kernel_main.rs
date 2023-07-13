@@ -27,7 +27,7 @@ static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 static mut TTBR0_EL1: usize = 0;
 
-/// Entry point from assembly code.
+/// The entry point from `boot.S`.
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     awkernel_aarch64::init_cpacr_el1(); // Enable floating point numbers.
@@ -211,14 +211,20 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     crate::main::<()>(kernel_info);
 }
 
+/// 1. Enable the virtual memory.
+/// 2. Wait until the primary CPU is enabled.
+/// 3. Initialization for non-primary CPUs.
 unsafe fn non_primary_cpu() {
+    // 1. Enable the virtual memory.
     let ttbr0 = read_volatile(&TTBR0_EL1);
     super::vm::enable(ttbr0);
 
+    // 2. Wait until the primary CPU is enabled.
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
 
+    // 3. Initialization for non-primary CPUs.
     unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
 
     log::info!("non_primary_cpu()");
