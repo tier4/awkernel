@@ -1,4 +1,4 @@
-pub mod arm_timer;
+pub mod armv8_timer;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub mod exception_saved_regs;

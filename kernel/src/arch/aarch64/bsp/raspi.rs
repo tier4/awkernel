@@ -6,6 +6,7 @@ use crate::arch::aarch64::{
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
+    arch::aarch64::armv8_timer::Armv8Timer,
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
@@ -20,6 +21,8 @@ pub mod config;
 pub mod memory;
 mod uart;
 
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30); // 30 is the recommended value.
+
 fn start_non_primary() {
     unsafe {
         asm!("
@@ -33,27 +36,6 @@ sev",
             lateout(reg) _
         );
     }
-}
-
-#[cfg(feature = "raspi4")]
-mod timer {
-    use awkernel_lib::arch::aarch64::arm_timer::ArmTimer;
-    pub static TIMER: ArmTimer = ArmTimer::new(30);
-}
-
-#[cfg(feature = "raspi4")]
-pub fn init() {
-    // init_uart();
-
-    // Set-up the interrupt controller.
-    // let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(
-    //     memory::GIC_V2_CPU_INTERFACE_BASE,
-    //     memory::GIC_V2_DISTRIBUTOR_BASE,
-    // );
-    // register_interrupt_controller(Box::new(gic));
-
-    // Set-up timer.
-    awkernel_lib::timer::register_timer(&timer::TIMER);
 }
 
 #[cfg(feature = "raspi3")]
@@ -170,6 +152,7 @@ impl super::SoC for Raspi {
         register_console(port);
 
         self.init_interrupt_controller()?;
+        self.init_timer()?;
 
         Ok(())
     }
@@ -351,5 +334,35 @@ impl Raspi {
         };
 
         interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
+    }
+
+    fn init_timer(&self) -> Result<(), &'static str> {
+        let timer_node = self
+            .device_tree
+            .root()
+            .find_child("timer")
+            .ok_or(err_msg!("could not find timer"))?;
+
+        let prop = timer_node
+            .get_property("compatible")
+            .ok_or(err_msg!("could not find compatible property"))?;
+
+        let compatible = match prop.value() {
+            PropertyValue::String(s) => s,
+            _ => return Err(err_msg!("")),
+        };
+
+        match *compatible {
+            "arm,armv8-timer" => {
+                log::info!("armv8-timer has been initialized.");
+                awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
+            }
+            "arm,armv7-timer" => {
+                // TODO
+            }
+            _ => (),
+        }
+
+        Ok(())
     }
 }

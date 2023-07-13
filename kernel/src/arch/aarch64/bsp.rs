@@ -26,11 +26,6 @@ pub use raspi::Raspi as SoCInitializer;
 
 use super::vm::VM;
 
-pub fn init() {
-    #[cfg(feature = "raspi")]
-    raspi::init();
-}
-
 pub trait SoC {
     /// Initialize the device first.
     /// This method will be invoked before `init_memory_map()` and `init()`.
