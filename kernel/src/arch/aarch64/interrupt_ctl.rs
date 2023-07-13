@@ -43,6 +43,7 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
         .or(Err(err_msg!("could not find GICC_BASE")))? as usize;
 
     let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(gicd_base, gicc_base);
+
     register_interrupt_controller(Box::new(gic));
 
     log::info!("GICv2 has been initialized.");

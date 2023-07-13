@@ -278,35 +278,41 @@ impl VM {
         let mut table0 = PageTable::new(&mut allocator)?;
 
         // TEXT.
+        let start = get_kernel_start();
+        let end = get_ro_data_start();
         let flag = kernel_page_flag_r_exec()
-            | if (get_ro_data_start() - get_kernel_start()) / PAGESIZE as u64 > 1 {
+            | if (end - start) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
-        for addr in (get_kernel_start()..get_ro_data_start()).step_by(PAGESIZE) {
+        for addr in (start..end).step_by(PAGESIZE) {
             table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
         // Read-only data.
+        let start = get_ro_data_start();
+        let end = get_data_start();
         let flag = kernel_page_flag_ro()
-            | if (get_data_start() - get_ro_data_start()) / PAGESIZE as u64 > 1 {
+            | if (end - start) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
-        for addr in (get_ro_data_start()..get_data_start()).step_by(PAGESIZE) {
+        for addr in (start..end).step_by(PAGESIZE) {
             table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
         // DATA and BSS.
+        let start = get_data_start();
+        let end = get_stack_memory();
         let flag = kernel_page_flag_rw()
-            | if (get_stack_memory() - get_ro_data_start()) / PAGESIZE as u64 > 1 {
+            | if (end - start) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
                 0
             };
-        for addr in (get_ro_data_start()..get_stack_memory()).step_by(PAGESIZE) {
+        for addr in (start..end).step_by(PAGESIZE) {
             table0.map_to(addr, addr, flag, &mut allocator)?;
         }
 
@@ -325,9 +331,14 @@ impl VM {
         }
 
         // Device memory.
-        let flag = device_page_flag() | FLAG_L3_CONT;
+        let flag = device_page_flag();
         for range in self.device_ranges.iter() {
             if let Some(range) = range {
+                let flag = if range.end - range.start > PAGESIZE {
+                    flag | FLAG_L3_CONT
+                } else {
+                    flag
+                };
                 for addr in (range.start..range.end).step_by(PAGESIZE) {
                     table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
                 }
@@ -335,9 +346,15 @@ impl VM {
         }
 
         // Read-only memory.
-        let flag = kernel_page_flag_ro() | FLAG_L3_CONT;
+        let flag = kernel_page_flag_ro();
         for range in self.ro_ranges.iter() {
             if let Some(range) = range {
+                let flag = if range.end - range.start > PAGESIZE {
+                    flag | FLAG_L3_CONT
+                } else {
+                    flag
+                };
+
                 for addr in (range.start..range.end).step_by(PAGESIZE) {
                     table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
                 }

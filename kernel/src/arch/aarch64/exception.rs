@@ -17,7 +17,7 @@ pub extern "C" fn handle_data_abort() {
     unsafe { unsafe_puts("data abort\n") };
 
     let sp = awkernel_aarch64::get_sp();
-    unsafe { unsafe_puts("SP = 0x") };
+    unsafe { unsafe_puts("SP  = 0x") };
     print_hex(sp);
     unsafe { unsafe_puts("\n") };
 

@@ -204,7 +204,9 @@ impl InterruptController for GICv2 {
 
         registers::GICD_ISENABLER.write(mask, base);
 
-        log::info!("GICv2: IRQ #{irq} has been enabled.");
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        log::info!("GICv2: IRQ #{irq} has been enabled on CPU#{cpu_id}.");
     }
 
     fn disable_irq(&mut self, irq: u16) {

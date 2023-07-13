@@ -1,7 +1,4 @@
-use core::fmt::Debug;
-
-#[derive(Debug)]
-pub struct KernelInfo<T: Debug> {
+pub struct KernelInfo<T> {
     pub info: T,
     pub cpu_id: usize,
 }

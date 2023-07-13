@@ -1,5 +1,8 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
-use crate::arch::aarch64::{interrupt_ctl, vm::VM};
+use crate::arch::aarch64::{
+    interrupt_ctl,
+    vm::{self, VM},
+};
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
@@ -145,7 +148,7 @@ impl super::SoC for Raspi {
         vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
 
-        let _ = vm.remove_heap(0, PAGESIZE);
+        let _ = vm.remove_heap(0, vm::get_kernel_start() as usize);
 
         vm.print();
 

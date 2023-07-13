@@ -13,16 +13,16 @@ SECTIONS
     PROVIDE (_etext = .);
     PROVIDE (etext = .);
 
-    . = ALIGN(1024 * 4);
-    __ro_data_start = .;
-
-    .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
-
     .eh_frame_hdr : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
 
     . = ALIGN(8);
     PROVIDE(__eh_frame = .);
     .eh_frame : { KEEP (*(.eh_frame)) *(.eh_frame.*) }
+
+    . = ALIGN(1024 * 4);
+    __ro_data_start = .;
+
+    .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
 
     PROVIDE(_data = .);
     .data : ALIGN(1024 * 4) {

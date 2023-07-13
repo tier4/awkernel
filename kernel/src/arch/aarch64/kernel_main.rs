@@ -5,17 +5,16 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::cpu;
+use super::{bsp::DeviceTreeRef, cpu};
 use crate::{
     arch::aarch64::bsp::SoC,
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    config::{BACKUP_HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
-    device_tree::device_tree::DeviceTree,
-    heap, local_heap,
+    heap,
 };
 use core::{
     ptr::{read_volatile, write_volatile},
@@ -141,72 +140,10 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
-    wait_forever();
-
-    // 2. Initialize the virtual memory.
-    // mmu::init_memory_map();
-    // if mmu::init().is_none() {
-    //     unsafe_puts("Failed to init MMU.\n");
-    //     wait_forever();
-    // }
-
-    // 3. Start non-primary CPUs.
-    write_volatile(&mut PRIMARY_READY, true);
-
-    // 4. Enable MMU.
-    // mmu::enable();
-
-    awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
-
-    let backup_start = HEAP_START as usize;
-    let backup_size = BACKUP_HEAP_SIZE as usize;
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = HEAP_SIZE as usize;
-
-    // 5. Enable heap allocator.
-    heap::init_primary(primary_start, primary_size);
-    heap::init_backup(backup_start, backup_size);
-    heap::TALLOC.use_primary_then_backup(); // use backup allocator
-
-    // 6. Board specific initialization.
-    super::bsp::init();
-
-    // log::info!(
-    //     "Stack memory: start = 0x{:x}, end = 0x{:x}",
-    //     get_stack_el1_end(),
-    //     get_stack_el1_start()
-    // );
-
-    log::info!(
-        "Primary heap: start = 0x{:x}, size = {}",
-        primary_start,
-        primary_size
-    );
-
-    log::info!(
-        "Backup heap: start = 0x{:x}, size = {}",
-        backup_start,
-        backup_size
-    );
-
-    if awkernel_aarch64::spsel::get() & 1 == 0 {
-        log::info!("Use SP_EL0.");
-    } else {
-        log::info!("Use SP_ELx.");
-    }
-
-    log::info!("Waking non-primary CPUs up.");
-    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
-
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: 0,
     };
-
-    // TODO
-    // log::info!("{}", tree);
-
-    log::info!("device_tree_base: 0x{device_tree_base:x}");
 
     crate::main::<()>(kernel_info);
 }
@@ -227,9 +164,6 @@ unsafe fn non_primary_cpu() {
     // 3. Initialization for non-primary CPUs.
     unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
 
-    log::info!("non_primary_cpu()");
-    loop {}
-
     awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
 
     let kernel_info = KernelInfo {
@@ -242,9 +176,7 @@ unsafe fn non_primary_cpu() {
     crate::main::<()>(kernel_info);
 }
 
-unsafe fn load_device_tree(
-    device_tree_base: usize,
-) -> &'static DeviceTree<'static, local_heap::LocalHeap<'static>> {
+unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
     if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
         tree
     } else {

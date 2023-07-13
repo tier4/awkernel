@@ -30,7 +30,7 @@ mod nostd;
 /// The primary CPU's identifier is 0.
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
-fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+fn main<Info>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     unsafe { awkernel_lib::cpu::increment_num_cpu() };
@@ -60,18 +60,18 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(not(feature = "std"))]
             awkernel_lib::delay::wait_microsec(1);
 
-            #[cfg(feature = "aarch64")]
-            {
-                let now = uptime();
-                if now >= send_ipi {
-                    if now - send_ipi >= 20_000 {
-                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                            config::PREEMPT_IRQ,
-                        );
-                        send_ipi = now;
-                    }
-                }
-            }
+            // #[cfg(feature = "aarch64")]
+            // {
+            //     let now = uptime();
+            //     if now >= send_ipi {
+            //         if now - send_ipi >= 20_000 {
+            //             awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+            //                 config::PREEMPT_IRQ,
+            //             );
+            //             send_ipi = now;
+            //         }
+            //     }
+            // }
 
             #[cfg(feature = "std")]
             awkernel_lib::delay::wait_microsec(10);
