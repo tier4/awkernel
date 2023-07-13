@@ -168,7 +168,6 @@ exception_restore_context:
     msr     DAIFClr, #0x02
     eret
 
-#if defined(raspi3) || defined(raspi4)
     .balign 0x800
 exception_vector_el2:
     // from the current EL using SP0
@@ -209,7 +208,6 @@ exception_vector_el2:
     CALL_WITH_CONTEXT lower_el_aarch32_fiq_el2 el2 spsr_el1
     .balign 0x80
     CALL_WITH_CONTEXT lower_el_aarch32_serror_el2 el2 spsr_el1
-#endif // defined(raspi3) || defined(raspi4)
 
     .balign 0x800
 exception_vector_el1:

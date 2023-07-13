@@ -18,19 +18,18 @@ pub mod config;
 pub mod memory;
 mod uart;
 
-pub fn start_non_primary() {
-    if cfg!(feature = "raspi3") {
-        unsafe {
-            asm!(
-                "mov {0}, #0xe0
-                 ldr {1}, =_start
-                 str {1}, [{0}]     // core #1
-                 str {1}, [{0},  8] // core #2
-                 str {1}, [{0}, 16] // core #3",
+fn start_non_primary() {
+    unsafe {
+        asm!("
+mov {0}, #0xe0
+ldr {1}, =_start
+str {1}, [{0}]     // core #1
+str {1}, [{0},  8] // core #2
+str {1}, [{0}, 16] // core #3
+sev",
             lateout(reg) _,
             lateout(reg) _
-            );
-        }
+        );
     }
 }
 
@@ -93,6 +92,8 @@ impl super::SoC for Raspi {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt()?;
         self.init_uart0()?;
+
+        start_non_primary();
 
         Ok(())
     }

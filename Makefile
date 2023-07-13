@@ -21,7 +21,7 @@ ifeq ($(BSP),raspi3)
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 # 2MiB
-	INITADDR = 0x200000
+	INITADDR = 0x80000
 	OPT += --features raspi4
 	NUMCPU = 4
 else ifeq ($(BSP),aarch64_virt)
@@ -30,7 +30,7 @@ else ifeq ($(BSP),aarch64_virt)
 	NUMCPU = 4
 endif
 
-ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/device/raspi.S kernel/asm/aarch64/exception.S
+ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
 ASM_OBJ_AARCH64=boot_aarch64.o
 
@@ -65,7 +65,7 @@ kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
 
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
-	$(CC) --target=aarch64-elf -c $< -o $@ -D$(BSP) -DSTACKSIZE="$(STACKSIZE)"
+	$(CC) --target=aarch64-elf -c $< -o $@ -DSTACKSIZE="$(STACKSIZE)"
 
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#NUMCPU#/$(NUMCPU)/" > $@

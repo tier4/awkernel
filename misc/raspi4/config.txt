@@ -40,7 +40,5 @@ kernel=kernel8.img
 
 disable_commandline_tags=1
 
-kernel_address=0x200000
-
 # set uart clock to 48MHz
 init_uart_clock=48000000

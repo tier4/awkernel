@@ -1,13 +1,11 @@
 //! # Boot process
 //!
-//! ## Raspberry Pi
-//!
-//! 1. The entrypoint, `_start` in `kernel/asm/aarch64/device/raspi.S`, is called.
+//! 1. The entrypoint, `_start` in `kernel/asm/aarch64/boot.S`, is called.
 //! 2. [`kernel_main`] is called.
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::raspi, cpu};
+use super::cpu;
 use crate::{
     arch::aarch64::bsp::SoC,
     config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
@@ -23,10 +21,11 @@ use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
-use raspi::memory::{DEVICE_MEM_END, DEVICE_MEM_START};
 
 static mut PRIMARY_READY: bool = false;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+static mut TTBR0_EL1: usize = 0;
 
 /// Entry point from assembly code.
 #[no_mangle]
@@ -36,10 +35,9 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     awkernel_lib::delay::wait_millisec(10);
 
     if cpu::core_pos() == 0 {
-        raspi::start_non_primary(); // Wake non-primary CPUs up.
         primary_cpu(device_tree_base);
     } else {
-        while !unsafe { read_volatile(&PRIMARY_READY) } {}
+        while !read_volatile(&PRIMARY_READY) {}
         non_primary_cpu();
     }
 
@@ -51,7 +49,7 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 3. Start non-primary CPUs.
 /// 4. Enable MMU.
 /// 5. Enable heap allocator.
-/// 6. Board specific initialization (IRQ controller, etc).
+/// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
     let device_tree = load_device_tree(device_tree_base);
     let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
@@ -84,10 +82,22 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         }
     };
 
+    let Some(ttbr0) = vm.get_ttbr0_addr() else {
+        unsafe_puts("failed to get TTBR0_EL0\n");
+        wait_forever();
+    };
+
+    write_volatile(&mut TTBR0_EL1, ttbr0);
+
+    // 3. Start non-primary CPUs.
+    write_volatile(&mut PRIMARY_READY, true);
+
+    awkernel_lib::delay::wait_millisec(10);
+
     // 4. Enable MMU.
     vm.enable();
 
-    unsafe_puts("The virtual memory is successfully enabled.\n");
+    unsafe_puts("The virtual memory has been successfully enabled.\n");
 
     // 5. Enable heap allocator.
     let backup_start = HEAP_START;
@@ -100,6 +110,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
+    // 6. Board specific initialization (Interrupt controller, etc).
     if let Err(msg) = initializer.init() {
         unsafe_puts("failed init()\n");
         unsafe_puts(msg);
@@ -169,12 +180,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         backup_size
     );
 
-    log::info!(
-        "Device memory: start = 0x{:x}, end = 0x{:x}",
-        DEVICE_MEM_START,
-        DEVICE_MEM_END
-    );
-
     if awkernel_aarch64::spsel::get() & 1 == 0 {
         log::info!("Use SP_EL0.");
     } else {
@@ -198,7 +203,13 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 }
 
 unsafe fn non_primary_cpu() {
-    // mmu::enable();
+    unsafe_puts("XXXX\n");
+
+    loop {}
+
+    // TODO: enable vm.
+
+    log::info!("non_primary_cpu()");
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
