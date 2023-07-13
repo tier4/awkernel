@@ -6,14 +6,16 @@ use alloc::{boxed::Box, sync::Arc};
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-mod round_robin;
+mod fifo;
+mod prioritized_fifo;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerType {
-    RoundRobin,
+    FIFO,
+    PrioritizedFIFO(u8),
 }
 
 pub(crate) trait Scheduler {
@@ -30,7 +32,11 @@ pub(crate) trait Scheduler {
 
 /// Get the next executable task.
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
-    if let Some(task) = round_robin::SCHEDULER.get_next() {
+    if let Some(task) = fifo::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
+    if let Some(task) = prioritized_fifo::SCHEDULER.get_next() {
         return Some(task);
     }
 
@@ -40,7 +46,8 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
 /// Get a scheduler.
 pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler {
     match sched_type {
-        SchedulerType::RoundRobin => &round_robin::SCHEDULER,
+        SchedulerType::FIFO => &fifo::SCHEDULER,
+        SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
     }
 }
 
