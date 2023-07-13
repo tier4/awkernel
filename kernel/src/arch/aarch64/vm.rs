@@ -389,51 +389,6 @@ impl VM {
         Ok(())
     }
 
-    /// set registers
-    pub unsafe fn enable(&self) {
-        self.set_ttbr0();
-        init_sp_el1();
-    }
-
-    unsafe fn set_ttbr0(&self) {
-        let Some(table0) = &self.table0 else { return; };
-
-        // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
-        mair_el1::set(get_mair());
-
-        let mmfr = id_aa64mmfr0_el1::get();
-        let b = mmfr & 0xF;
-
-        let tcr: u64 = b << 32 |
-            0b10 << 30 | // 4KiB granule, TTBR1_EL1
-         3 << 28 | // inner shadable, TTBR1_EL1
-         2 << 26 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
-         1 << 24 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
-        25 << 16 | // T1SZ = 25, 3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
-         // 0b00 << 14 | // 4KiB granule
-         3 << 12 | // inner shadable, TTBR0_EL1
-         2 << 10 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
-         1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
-        25; // T0SZ = 25,  3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
-
-        // next, specify mapping characteristics in translate control register
-        tcr_el1::set(tcr);
-
-        // tell the MMU where our translation tables are.
-        ttbr0_el1::set(table0.addr() as u64 | 1);
-
-        // finally, toggle some bits in system control register to enable page translation
-        dsb_ish();
-        isb();
-
-        let sctlr = sctlr_el1::get();
-        let sctlr = update_sctlr(sctlr) & !(1 << 4); // clear SA0
-
-        sctlr_el1::set(sctlr);
-        dsb_sy();
-        isb();
-    }
-
     pub unsafe fn print(&self) {
         unsafe_puts("num_cpu = 0x");
         unsafe_print_hex_u32(self.num_cpus as u32);
@@ -520,4 +475,47 @@ mov sp, {0:x}",
             inout(reg) sp
         )
     };
+}
+
+/// set registers
+pub unsafe fn enable(ttbr0: usize) {
+    set_ttbr0(ttbr0);
+    init_sp_el1();
+}
+
+unsafe fn set_ttbr0(ttbr0: usize) {
+    // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
+    mair_el1::set(get_mair());
+
+    let mmfr = id_aa64mmfr0_el1::get();
+    let b = mmfr & 0xF;
+
+    let tcr: u64 = b << 32 |
+            0b10 << 30 | // 4KiB granule, TTBR1_EL1
+         3 << 28 | // inner shadable, TTBR1_EL1
+         2 << 26 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
+         1 << 24 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR1_EL1
+        25 << 16 | // T1SZ = 25, 3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
+         // 0b00 << 14 | // 4KiB granule
+         3 << 12 | // inner shadable, TTBR0_EL1
+         2 << 10 | // Normal memory, Outer Write-Through Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
+         1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
+        25; // T0SZ = 25,  3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
+
+    // next, specify mapping characteristics in translate control register
+    tcr_el1::set(tcr);
+
+    // tell the MMU where our translation tables are.
+    ttbr0_el1::set(ttbr0 as u64 | 1);
+
+    // finally, toggle some bits in system control register to enable page translation
+    dsb_ish();
+    isb();
+
+    let sctlr = sctlr_el1::get();
+    let sctlr = update_sctlr(sctlr) & !(1 << 4); // clear SA0
+
+    sctlr_el1::set(sctlr);
+    dsb_sy();
+    isb();
 }

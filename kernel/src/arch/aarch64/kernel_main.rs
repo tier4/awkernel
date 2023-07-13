@@ -92,12 +92,12 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     // 3. Start non-primary CPUs.
     write_volatile(&mut PRIMARY_READY, true);
 
-    awkernel_lib::delay::wait_millisec(10);
-
     // 4. Enable MMU.
-    vm.enable();
+    super::vm::enable(ttbr0);
 
     unsafe_puts("The virtual memory has been successfully enabled.\n");
+
+    awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
 
     // 5. Enable heap allocator.
     let backup_start = HEAP_START;
@@ -131,6 +131,15 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         backup_start + backup_size,
         backup_size >> 20
     );
+
+    if awkernel_aarch64::spsel::get() & 1 == 0 {
+        log::info!("Use SP_EL0.");
+    } else {
+        log::info!("Use SP_ELx.");
+    }
+
+    log::info!("Waking non-primary CPUs up.");
+    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     wait_forever();
 
@@ -203,19 +212,17 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 }
 
 unsafe fn non_primary_cpu() {
-    unsafe_puts("XXXX\n");
-
-    loop {}
-
-    // TODO: enable vm.
-
-    log::info!("non_primary_cpu()");
+    let ttbr0 = read_volatile(&TTBR0_EL1);
+    super::vm::enable(ttbr0);
 
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
 
     unsafe { awkernel_lib::arch::aarch64::init_non_primary() }; // Initialize timer.
+
+    log::info!("non_primary_cpu()");
+    loop {}
 
     awkernel_lib::interrupt::init_non_primary(); // Initialize the interrupt controller.
 
