@@ -130,6 +130,19 @@ pub fn kernel_page_flag_r_exec() -> u64 {
     FLAG_L3_NS | FLAG_L3_XN | FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_SH_R_N | FLAG_L3_ATTR_MEM | 0b11
 }
 
+pub fn kernel_page_flag_rw_no_cache() -> u64 {
+    use flags::*;
+    FLAG_L3_NS
+        | FLAG_L3_XN
+        | FLAG_L3_PXN
+        | FLAG_L3_AF
+        | FLAG_L3_ISH
+        | FLAG_L3_SH_RW_N
+        | FLAG_L3_ATTR_MEM
+        | FLAG_L3_ATTR_NC
+        | 0b11
+}
+
 pub fn device_page_flag() -> u64 {
     use flags::*;
     FLAG_L3_NS
@@ -349,6 +362,17 @@ impl VM {
         let flag = kernel_page_flag_ro();
         for range in self.ro_ranges.iter() {
             if let Some(range) = range {
+                for addr in (range.start..range.end).step_by(PAGESIZE) {
+                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
+                }
+            }
+        }
+
+        // Heap memory without L3 cache.
+        // This region will be used to manipulate page tables.
+        let flag = kernel_page_flag_rw_no_cache() | FLAG_L3_CONT;
+        for heap in self.heap {
+            if let Some(range) = heap {
                 let flag = if range.end - range.start > PAGESIZE {
                     flag | FLAG_L3_CONT
                 } else {
@@ -361,7 +385,7 @@ impl VM {
             }
         }
 
-        // Heap
+        // Heap memory with L3 cache.
         let mut addr = HEAP_START;
         let flag = kernel_page_flag_rw();
         while let Some(frame) = allocator.allocate_frame() {
