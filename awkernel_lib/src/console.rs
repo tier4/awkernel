@@ -1,6 +1,6 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::boxed::Box;
-use core::{fmt::Write, ptr::write_volatile};
+use core::{fmt::Write, ptr::write_volatile, str::from_utf8_unchecked};
 use log::Log;
 
 pub trait Console: Write + Send {
@@ -43,6 +43,55 @@ pub unsafe fn unsafe_puts(data: &str) {
     if let Some(console) = UNSAFE_PUTS {
         console(data);
     }
+}
+
+macro_rules! unsafe_print_hex {
+    ($n:expr, $result:expr) => {{
+        let mut num = $n;
+
+        let mut i = 0;
+        while num > 0 {
+            let n = num & 0xf;
+
+            $result[i] = if n < 10 {
+                b'0' + n as u8
+            } else {
+                b'a' + (n as u8 - 10)
+            };
+
+            num /= 16;
+            i += 1;
+        }
+
+        let mut msg = [b'0'];
+
+        for n in $result.iter().rev() {
+            msg[0] = *n;
+
+            let msg = from_utf8_unchecked(&msg);
+            unsafe_puts(msg);
+        }
+    }};
+}
+
+pub unsafe fn unsafe_print_hex_u32(num: u32) {
+    let mut result = [b'0'; 8];
+    unsafe_print_hex!(num, result);
+}
+
+pub unsafe fn unsafe_print_hex_u64(num: u64) {
+    let mut result = [b'0'; 16];
+    unsafe_print_hex!(num, result);
+}
+
+pub unsafe fn unsafe_print_hex_u96(num: u128) {
+    let mut result = [b'0'; 24];
+    unsafe_print_hex!(num, result);
+}
+
+pub unsafe fn unsafe_print_hex_u128(num: u128) {
+    let mut result = [b'0'; 32];
+    unsafe_print_hex!(num, result);
 }
 
 static CONSOLE: ConsoleContainer = ConsoleContainer {

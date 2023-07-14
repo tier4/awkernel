@@ -4,7 +4,7 @@
     "disable-redzone": true,
     "env": "",
     "executables": true,
-    "features": "+strict-align",
+    "features": "+strict-align,+neon,+fp-armv8",
     "linker": "rust-lld",
     "linker-flavor": "ld.lld",
     "pre-link-args": {
@@ -27,5 +27,5 @@
     "target-c-int-width": "32",
     "target-endian": "little",
     "target-pointer-width": "64",
-    "vendor": "TIER IV"
+    "vendor": "TIER IV, inc."
 }

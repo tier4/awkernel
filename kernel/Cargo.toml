@@ -9,10 +9,6 @@ edition = "2021"
 log = "0.4"
 bitflags = "2.3"
 
-[dependencies.embedded-hal]
-features = ["unproven"]
-version = "0.2"
-
 [dependencies.unwinding]
 version = "0.1"
 default-features = false
@@ -59,12 +55,10 @@ version = "0.2.0"
 optional = true
 
 [features]
-default = ["raspi4"]
+default = ["raspi"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:acpi", "awkernel_drivers/x86"]
-raspi3 = ["raspi", "no_std_unwinding"]
-raspi4 = ["raspi", "no_std_unwinding"]
 rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a", "awkernel_drivers/rv32"]
-raspi = ["aarch64"]
+raspi = ["aarch64", "no_std_unwinding"]
 aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64", "awkernel_drivers/aarch64"]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]

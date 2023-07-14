@@ -52,14 +52,16 @@ $ cargo install cargo-binutils
 - [userland](./userland/)
 
 ```mermaid
-graph LR;
+graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
+    awkernel_lib-->awkernel_drivers;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     userland-->awkernel_async_lib;
     kernel-->awkernel_lib;
     kernel-->awkernel_async_lib;
     kernel-->awkernel_aarch64;
+    kernel-->awkernel_drivers;
     kernel-->userland;
 ```
 
@@ -117,13 +119,13 @@ $ make gdb-x86_64
 Debug build.
 
 ```text
-$ make raspi
+$ make aarch64 BSP=raspi3
 ```
 
 Release build.
 
 ```text
-$ make raspi RELEASE=1
+$ make aarch64 BSP=raspi3 RELEASE=1
 ```
 
 ### Boot
@@ -156,13 +158,13 @@ $ make gdb-raspi3
 Debug build.
 
 ```text
-$ make raspi BSP=raspi4
+$ make aarch64 BSP=raspi4
 ```
 
 Release build.
 
 ```text
-$ make raspi BSP=raspi4 RELEASE=1
+$ make aarch64 BSP=raspi4 RELEASE=1
 ```
 
 ### Boot

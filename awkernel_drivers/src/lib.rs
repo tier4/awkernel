@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+pub mod hal;
 pub mod interrupt_controler;
 pub mod net;
 pub mod uart;

@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "std", feature(thread_local))]
 #![feature(core_intrinsics)]
+#![feature(allocator_api)]
 
 use core::{cell::Cell, marker::PhantomData};
 
@@ -10,13 +11,14 @@ pub mod arch;
 pub mod console;
 pub mod cpu;
 pub mod delay;
+pub mod device_tree;
 pub mod interrupt;
+pub mod local_heap;
 pub mod logger;
 pub mod mmio;
 pub mod sync;
 pub mod timer;
 pub mod unwind;
-pub mod device_tree;
 
 #[cfg(not(feature = "std"))]
 pub mod heap;
@@ -37,3 +39,10 @@ pub const IS_STD: bool = true;
 
 #[cfg(not(feature = "std"))]
 pub const IS_STD: bool = false;
+
+#[macro_export]
+macro_rules! err_msg {
+    ($m:expr) => {
+        concat!(file!(), ":", line!(), ":", column!(), ": ", $m)
+    };
+}

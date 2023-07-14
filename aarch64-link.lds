@@ -2,7 +2,7 @@ ENTRY(_start)
 SECTIONS
 {
     . = #INITADDR#; /* replaced by sed */
-    __ram_start = .;
+    __kernel_start = .;
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }
     .fini           :
@@ -13,13 +13,16 @@ SECTIONS
     PROVIDE (_etext = .);
     PROVIDE (etext = .);
 
-    .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
-
-    .eh_frame_hdr   : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
+    .eh_frame_hdr : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
 
     . = ALIGN(8);
     PROVIDE(__eh_frame = .);
     .eh_frame : { KEEP (*(.eh_frame)) *(.eh_frame.*) }
+
+    . = ALIGN(1024 * 4);
+    __ro_data_start = .;
+
+    .rodata : { *(.rodata .rodata.* .gnu.linkonce.r*) }
 
     PROVIDE(_data = .);
     .data : ALIGN(1024 * 4) {
@@ -35,14 +38,7 @@ SECTIONS
     }
     . = ALIGN(1024 * 4);
 
-    /* 8MiB space for EL1 */
-    __stack_el1_end   = .;
-    __stack_el1_start = __stack_el1_end + #STACKSIZE# * #NUMCPU#;
-
-    __stack_data_abort_end = .;
-    __stack_data_abort_start = __stack_data_abort_end + 4096 * #NUMCPU#;
-
-    __free_mem_start = __stack_el1_start;
+    __stack_memory = .;
 
    /DISCARD/ : { *(.comment) *(.gnu*) *(.note*) }
 }

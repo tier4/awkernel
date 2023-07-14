@@ -1,15 +1,44 @@
+//! Board Support Package (BSP).
+//!
+//! - `raspi` is for Raspberry Pi 3 (Qemu) and 4.
+
+use awkernel_lib::{
+    device_tree::{
+        device_tree::DeviceTree,
+        node::{ArrayedNode, DeviceTreeNode},
+    },
+    local_heap,
+};
+
 pub mod config;
 pub mod memory;
+
+pub(super) type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
+pub(super) type DeviceTreeNodeRef =
+    &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+pub(super) type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
 
 #[cfg(feature = "raspi")]
 pub mod raspi;
 
-pub fn init() {
-    #[cfg(feature = "raspi")]
-    raspi::init();
-}
+#[cfg(feature = "raspi")]
+pub use raspi::Raspi as SoCInitializer;
 
-pub unsafe fn init_device() {
-    #[cfg(feature = "raspi")]
-    raspi::init_device();
+use super::vm::VM;
+
+pub trait SoC {
+    /// Initialize the device first.
+    /// This method will be invoked before `init_memory_map()` and `init()`.
+    unsafe fn init_device(&mut self) -> Result<(), &'static str>;
+
+    /// Initialize the virtual memory.
+    /// This method will be invoked after `init_device()` and before `init()`.
+    ///
+    /// Return the size of heap memory if the virtual memory is
+    /// successfully initialized.
+    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str>;
+
+    /// Initialize the AWkernel.
+    /// This method will be invoked after `init_device()` and `init_virtual_memory()`.
+    unsafe fn init(&self) -> Result<(), &'static str>;
 }

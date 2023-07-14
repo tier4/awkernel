@@ -1,4 +1,4 @@
-pub mod arm_timer;
+pub mod armv8_timer;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub mod exception_saved_regs;
@@ -23,5 +23,3 @@ pub unsafe fn init_primary() {
 pub unsafe fn init_non_primary() {
     delay::init_non_primary();
 }
-
-pub use cpu::set_cluster_info;

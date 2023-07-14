@@ -163,6 +163,8 @@ pub fn handle_irqs() {
 ///
 /// ```
 /// {
+///     use awkernel_lib::interrupt::InterruptGuard;
+///
 ///     let _int_guard = InterruptGuard::new();
 ///     // interrupts are disabled.
 /// }

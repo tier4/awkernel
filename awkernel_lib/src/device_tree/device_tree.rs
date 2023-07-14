@@ -1,20 +1,21 @@
 use alloc::collections::VecDeque;
-use alloc::vec;
 use alloc::vec::Vec;
+use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
 
+use super::utils::safe_index;
 use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::node::DeviceTreeNode;
 use crate::device_tree::traits::HasNamedChildNode;
 
-
-pub struct DeviceTree<'a> {
+pub struct DeviceTree<'a, A: Allocator + Clone> {
     header: DeviceTreeHeader,
-    root: DeviceTreeNode<'a>,
+    root: DeviceTreeNode<'a, A>,
+    allocator: A,
 }
 
-impl<'a> DeviceTree<'a> {
+impl<'a, A: Allocator + Clone> DeviceTree<'a, A> {
     /// Checks if the magic number of the device tree is valid
     fn check_magic(magic: &[u8]) -> Result<()> {
         if magic != [0xd0, 0x0d, 0xfe, 0xed] {
@@ -25,30 +26,35 @@ impl<'a> DeviceTree<'a> {
     }
 
     /// Constructs a device tree from bytes
-    pub fn from_bytes(data: &'a [u8]) -> Result<Self> {
+    pub fn from_bytes(data: &'a [u8], allocator: A) -> Result<Self> {
         Self::check_magic(&data[0..4])?;
         let header = DeviceTreeHeader::from_bytes(data)?;
+
         let root = DeviceTreeNode::from_bytes(
             data,
             &header,
             header.off_dt_struct as usize,
-            InheritedValues::new(),
-            InheritedValues::new(),
+            InheritedValues::new(allocator.clone()),
+            InheritedValues::new(allocator.clone()),
+            allocator.clone(),
         )?;
 
-        Ok(Self { header, root })
+        Ok(Self {
+            header,
+            root,
+            allocator,
+        })
     }
 
     /// Constructs a device tree from a specific address in memory
-    pub fn from_address(addr: usize) -> Result<Self> {
+    pub fn from_address(addr: usize, allocator: A) -> Result<Self> {
         let header_bytes = unsafe { core::slice::from_raw_parts(addr as *const u8, 40) };
         Self::check_magic(&header_bytes[0..4])?;
         let header = DeviceTreeHeader::from_bytes(header_bytes)?;
         let data =
             unsafe { core::slice::from_raw_parts(addr as *const u8, header.total_size as usize) };
-        Self::from_bytes(data)
+        Self::from_bytes(data, allocator)
     }
-
 
     pub fn magic(&self) -> usize {
         self.header.magic as usize
@@ -62,54 +68,46 @@ impl<'a> DeviceTree<'a> {
         self.header.off_dt_struct as usize
     }
 
-
     pub fn off_dt_strings(&self) -> usize {
         self.header.off_dt_strings as usize
     }
-
 
     pub fn off_mem_reserved(&self) -> usize {
         self.header.off_mem_reserved as usize
     }
 
-
     pub fn version(&self) -> usize {
         self.header.version as usize
     }
-
 
     pub fn last_comp_version(&self) -> usize {
         self.header.last_comp_version as usize
     }
 
-
     pub fn boot_cpu_id(&self) -> usize {
         self.header.boot_cpu_id as usize
     }
-
 
     pub fn size_dt_strings(&self) -> usize {
         self.header.size_dt_strings as usize
     }
 
-
     pub fn size_dt_struct(&self) -> usize {
         self.header.size_dt_struct as usize
     }
 
-
-    pub fn root(&self) -> &DeviceTreeNode {
+    pub fn root(&self) -> &DeviceTreeNode<'a, A> {
         &self.root
     }
 }
 
 /// Iterates over nodes in a device tree
-pub struct DeviceTreeNodeIter<'a> {
-    queue: VecDeque<&'a DeviceTreeNode<'a>>,
+pub struct DeviceTreeNodeIter<'a, A: Allocator + Clone> {
+    queue: VecDeque<&'a DeviceTreeNode<'a, A>, A>,
 }
 
-impl<'a> Iterator for DeviceTreeNodeIter<'a> {
-    type Item = &'a DeviceTreeNode<'a>;
+impl<'a, A: Allocator + Clone> Iterator for DeviceTreeNodeIter<'a, A> {
+    type Item = &'a DeviceTreeNode<'a, A>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let res = self.queue.pop_front();
@@ -125,30 +123,31 @@ impl<'a> Iterator for DeviceTreeNodeIter<'a> {
     }
 }
 
-impl<'a> Display for DeviceTree<'a> {
+impl<'a, A: Allocator + Clone> Display for DeviceTree<'a, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "{}", self.root)
     }
 }
 
-impl<'a> IntoIterator for &'a DeviceTree<'a> {
-    type Item = &'a DeviceTreeNode<'a>;
-    type IntoIter = DeviceTreeNodeIter<'a>;
+impl<'a, A: Allocator + Clone> IntoIterator for &'a DeviceTree<'a, A> {
+    type Item = &'a DeviceTreeNode<'a, A>;
+    type IntoIter = DeviceTreeNodeIter<'a, A>;
 
     fn into_iter(self) -> Self::IntoIter {
-        DeviceTreeNodeIter {
-            queue: VecDeque::from([self.root()]),
-        }
+        let mut queue = VecDeque::new_in(self.allocator.clone());
+        queue.push_back(self.root());
+
+        DeviceTreeNodeIter { queue }
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct InheritedValues<'a>(Vec<(&'a str, u64)>);
+pub(super) struct InheritedValues<'a, A: Allocator + Clone>(Vec<(&'a str, u64), A>);
 
-impl<'a> InheritedValues<'a> {
+impl<'a, A: Allocator + Clone> InheritedValues<'a, A> {
     /// Constructs a new InheritedValues instance
-    pub const fn new() -> InheritedValues<'a> {
-        InheritedValues(vec![])
+    pub const fn new(alloc: A) -> InheritedValues<'a, A> {
+        InheritedValues(Vec::new_in(alloc))
     }
 
     /// Finds a value in the inherited values by its name
@@ -162,10 +161,10 @@ impl<'a> InheritedValues<'a> {
     }
 
     /// Updates a value in the inherited values
-    pub fn update(&mut self, name: &'a str, value: u64) {
+    pub fn update(&mut self, name: &'a str, value: u64) -> Result<()> {
         let mut dirty = false;
         for i in 0..self.0.len() {
-            if self.0[i].0 == name {
+            if safe_index(&self.0, i)?.0 == name {
                 self.0[i].1 = value;
                 dirty = true;
                 break;
@@ -174,5 +173,7 @@ impl<'a> InheritedValues<'a> {
         if !dirty {
             self.0.push((name, value));
         }
+
+        Ok(())
     }
 }

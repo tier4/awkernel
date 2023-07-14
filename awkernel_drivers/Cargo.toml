@@ -17,6 +17,10 @@ default-features = false
 version = "0.14"
 optional = true
 
+[dependencies.embedded-hal]
+features = ["unproven"]
+version = "0.2"
+
 [features]
 default = []
 x86 = ["awkernel_lib/x86", "x86_64"]
