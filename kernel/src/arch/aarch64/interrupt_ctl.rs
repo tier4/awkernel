@@ -62,7 +62,7 @@ fn init_bcm2836(node: &StaticArrayedNode) -> Result<(), &'static str> {
     register_interrupt_controller(Box::new(ctrl));
 
     log::info!("bcm2836-armctrl-ic has been initialized.");
-    log::info!("bcm2836-armctrl-ic: base = 0x{base:016x}");
+    log::info!("bcm2836-armctrl-ic: 0x{base:016x}");
 
     Ok(())
 }

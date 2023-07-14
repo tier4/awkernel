@@ -136,6 +136,7 @@ impl super::SoC for Raspi {
 
         self.init_interrupt_controller()?;
         self.init_timer()?;
+        self.init_gpio()?;
 
         Ok(())
     }
@@ -317,6 +318,19 @@ impl Raspi {
         };
 
         interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
+    }
+
+    fn init_gpio(&self) -> Result<(), &'static str> {
+        let gpio_node = self.get_device_from_symbols("gpio")?;
+        let base_addr = gpio_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find GPIO's base address")))?;
+
+        log::info!("GPIO: 0x{base_addr:016x}");
+
+        unsafe { awkernel_drivers::hal::rpi::gpio::set_gpio_base(base_addr as usize) };
+
+        Ok(())
     }
 
     fn init_timer(&self) -> Result<(), &'static str> {

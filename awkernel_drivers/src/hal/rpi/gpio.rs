@@ -1,16 +1,31 @@
 use core::convert::{From, Into};
 use core::ptr::{read_volatile, write_volatile};
-use crate::arch::aarch64::bsp::memory::MMIO_BASE;
-use embedded_hal::digital::v2::{OutputPin, InputPin};
+use embedded_hal::digital::v2::{InputPin, OutputPin};
 
-// Define the base address for the GPIO
-pub const GPBASE: usize = MMIO_BASE + 0x20_0000;
+/// The base address for the GPIO.
+static mut GPBASE: usize = 0;
+
+pub unsafe fn set_gpio_base(base: usize) {
+    write_volatile(&mut GPBASE, base);
+}
 
 // Define the addresses for the different GPIO operations
-const GPFSEL: usize = GPBASE + 0x0;
-const GPSET: usize = GPBASE + 0x1c;
-const GPCLR: usize = GPBASE + 0x28;
-const GPLEV: usize = GPBASE + 0x34;
+
+fn gpfsel() -> usize {
+    unsafe { read_volatile(&GPBASE) }
+}
+
+fn gpfset() -> usize {
+    unsafe { read_volatile(&GPBASE) + 0x1c }
+}
+
+fn gpfclr() -> usize {
+    unsafe { read_volatile(&GPBASE) + 0x28 }
+}
+
+fn gplev() -> usize {
+    unsafe { read_volatile(&GPBASE) + 0x34 }
+}
 
 /// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
 pub enum PullMode {
@@ -87,7 +102,7 @@ impl GpioPin {
 
     /// Set the function of the `GpioPin`.
     pub fn set_function(&self, func: GpioFunction) {
-        gpio_ctrl(self.pin, func.into(), GPFSEL, 3);
+        gpio_ctrl(self.pin, func.into(), gpfsel(), 3);
     }
 }
 
@@ -97,13 +112,13 @@ impl OutputPin for GpioPin {
 
     /// Set the GPIO pin high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, GPSET, 1);
+        gpio_ctrl(self.pin, 1, gpfset(), 1);
         Ok(())
     }
 
     /// Set the GPIO pin low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, GPCLR, 1);
+        gpio_ctrl(self.pin, 1, gpfclr(), 1);
         Ok(())
     }
 }
@@ -114,18 +129,18 @@ impl InputPin for GpioPin {
 
     /// Check if the GPIO pin is high.
     fn is_high(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, GPLEV, 1) == 1;
+        let state = gpio_read(self.pin, gplev(), 1) == 1;
         if state {
-            log::info!("Pin is high");  
+            log::info!("Pin is high");
         }
         Ok(state)
     }
 
     /// Check if the GPIO pin is low.
     fn is_low(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, GPLEV, 1) == 0;
+        let state = gpio_read(self.pin, gplev(), 1) == 0;
         if state {
-            log::info!("Pin is low");  
+            log::info!("Pin is low");
         }
         Ok(state)
     }
@@ -142,11 +157,10 @@ fn gpio_ctrl(pin_num: u32, value: u32, base: usize, width: usize) {
         let tmp = read_volatile(reg); // read the previous value
         write_volatile(reg, (tmp & !mask) | val);
     }
-
 }
 
 /// A function to read from a GPIO pin.
-fn  gpio_read(pin_num: u32, base: usize, width: usize) -> u32 {
+fn gpio_read(pin_num: u32, base: usize, width: usize) -> u32 {
     let frame = 32 / width;
     let reg = (base + (pin_num as usize / frame) * 4) as *mut u32;
     let shift = ((pin_num as usize % frame) * width) as u32;

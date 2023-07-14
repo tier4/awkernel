@@ -66,7 +66,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         _ => unsafe_puts("EL other\n"),
     }
 
-    unsafe_puts("device_tree_base = 0x");
+    unsafe_puts("Device Tree: 0x");
     unsafe_print_hex_u32(device_tree_base as u32);
     unsafe_puts("\n");
 
