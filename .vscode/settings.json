@@ -1,6 +1,7 @@
 {
     "rust-analyzer.showUnlinkedFileNotification": false,
     "tlaplus.tlc.modelChecker.options": "-workers auto",
+    "editor.formatOnSave": true,
     // For AArch64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",

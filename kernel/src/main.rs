@@ -65,6 +65,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
 
+        awkernel_lib::sanity::check();
+
         // Userland.
         task::spawn(
             "main".into(),
