@@ -1,6 +1,4 @@
-pub struct Memory;
-
-impl crate::memory::Memory for Memory {
+impl crate::memory::Memory for super::RV32 {
     unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
         todo!()
     }

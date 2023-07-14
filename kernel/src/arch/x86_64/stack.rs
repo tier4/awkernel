@@ -36,7 +36,7 @@ where
     let mut stack_start = STACK_START;
     for _ in 0..num_cpu {
         let page_range = {
-            let stack_start = VirtAddr::new(stack_start + PAGESIZE as u64);
+            let stack_start = VirtAddr::new((stack_start + PAGESIZE) as u64);
             let stack_end = stack_start + STACK_SIZE - PAGESIZE as u64 - 1u64;
             let stack_start_page: Page<Size4KiB> = Page::containing_address(stack_start);
             let stack_end_page: Page<_> = Page::containing_address(stack_end);

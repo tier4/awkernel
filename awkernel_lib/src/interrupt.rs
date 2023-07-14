@@ -1,5 +1,5 @@
 use crate::{
-    arch::ArchInterrupt,
+    arch::ArchImpl,
     cpu::{self, NUM_MAX_CPU},
     sync::rwlock::RwLock,
     unwind::catch_unwind,
@@ -182,8 +182,8 @@ impl Default for InterruptGuard {
 
 impl InterruptGuard {
     pub fn new() -> Self {
-        let flag = ArchInterrupt::get_flag();
-        ArchInterrupt::disable();
+        let flag = ArchImpl::get_flag();
+        ArchImpl::disable();
 
         Self { flag }
     }
@@ -191,16 +191,16 @@ impl InterruptGuard {
 
 impl Drop for InterruptGuard {
     fn drop(&mut self) {
-        ArchInterrupt::set_flag(self.flag);
+        ArchImpl::set_flag(self.flag);
     }
 }
 
 pub fn enable() {
-    ArchInterrupt::enable();
+    ArchImpl::enable();
 }
 
 pub fn disable() {
-    ArchInterrupt::disable();
+    ArchImpl::disable();
 }
 
 /// Initialization for non-primary core.

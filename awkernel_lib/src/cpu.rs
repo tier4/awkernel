@@ -1,4 +1,4 @@
-use crate::arch::ArchCPU;
+use crate::arch::ArchImpl;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 pub const NUM_MAX_CPU: usize = 512;
@@ -9,7 +9,7 @@ pub trait CPU {
 }
 
 pub fn cpu_id() -> usize {
-    ArchCPU::cpu_id()
+    ArchImpl::cpu_id()
 }
 
 /// # Safety

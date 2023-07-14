@@ -17,9 +17,7 @@ static mut HPET_COUNTER_START: u64 = 0;
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
-pub(crate) struct ArchDelay;
-
-impl Delay for ArchDelay {
+impl Delay for super::X86 {
     fn wait_interrupt() {
         unsafe { core::arch::asm!("hlt") };
     }
@@ -65,7 +63,7 @@ pub(super) fn init<T>(
 
     if !hpet_info.main_counter_is_64bits() {
         log::error!("HPET's main count is not 64 bits.");
-        super::delay::ArchDelay::wait_forever();
+        wait_forever();
     }
 
     let base = hpet_info.base_address;

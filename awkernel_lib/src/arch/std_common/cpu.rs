@@ -5,9 +5,7 @@ use crate::cpu::CPU;
 #[thread_local]
 pub static mut CPU_ID: usize = 0;
 
-pub(crate) struct ArchCPU;
-
-impl CPU for ArchCPU {
+impl CPU for super::StdCommon {
     fn cpu_id() -> usize {
         unsafe { read_volatile(&CPU_ID) }
     }
