@@ -3,11 +3,9 @@ use crate::{
     memory::PAGESIZE,
 };
 
-pub struct Memory;
-
 const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
-impl crate::memory::Memory for Memory {
+impl crate::memory::Memory for super::AArch64 {
     unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
         let vm_addr = vm_addr & !(PAGESIZE - 1);
         let phy_addr = phy_addr & !(PAGESIZE - 1);

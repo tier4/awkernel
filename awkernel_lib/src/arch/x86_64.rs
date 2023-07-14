@@ -10,6 +10,10 @@ pub(super) mod memory;
 pub mod mmu;
 pub mod page_allocator;
 
+pub struct X86;
+
+impl super::Arch for X86 {}
+
 pub fn init<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut OffsetPageTable<'static>,

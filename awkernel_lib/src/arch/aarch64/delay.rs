@@ -1,11 +1,9 @@
 use crate::delay::Delay;
 use core::ptr::{read_volatile, write_volatile};
 
-pub(crate) struct ArchDelay;
-
 static mut COUNT_START: u64 = 0;
 
-impl Delay for ArchDelay {
+impl Delay for super::AArch64 {
     fn wait_interrupt() {
         unsafe { core::arch::asm!("wfi") };
     }

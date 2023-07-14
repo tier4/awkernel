@@ -1,10 +1,7 @@
 //! `delay` provides `Delay` trait to represent architecture specific delay functions.
 //! Users can call the delay functions transparently by calling functions defined this module.
 
-use crate::arch::ArchDelay;
-
-/// Trait for architecture specific delay functions.
-impl ArchDelay where ArchDelay: Delay {}
+use crate::arch::ArchImpl;
 
 pub trait Delay {
     /// Wait interrupt.
@@ -46,7 +43,7 @@ pub trait Delay {
 
 /// Wait interrupt.
 pub fn wait_interrupt() {
-    ArchDelay::wait_interrupt();
+    ArchImpl::wait_interrupt();
 }
 
 /// Wait microseconds.
@@ -57,7 +54,7 @@ pub fn wait_interrupt() {
 /// awkernel_lib::delay::wait_microsec(10); // Wait 10 microseconds.
 /// ```
 pub fn wait_microsec(usec: u64) {
-    ArchDelay::wait_microsec(usec);
+    ArchImpl::wait_microsec(usec);
 }
 
 /// Wait milliseconds.
@@ -68,7 +65,7 @@ pub fn wait_microsec(usec: u64) {
 /// awkernel_lib::delay::wait_millisec(10); // Wait 10 milliseconds.
 /// ```
 pub fn wait_millisec(msec: u64) {
-    ArchDelay::wait_millisec(msec);
+    ArchImpl::wait_millisec(msec);
 }
 
 /// Wait seconds.
@@ -79,12 +76,12 @@ pub fn wait_millisec(msec: u64) {
 /// awkernel_lib::delay::wait_sec(1); // Wait 1 seconds.
 /// ```
 pub fn wait_sec(sec: u64) {
-    ArchDelay::wait_sec(sec);
+    ArchImpl::wait_sec(sec);
 }
 
 /// Never return.
 pub fn wait_forever() -> ! {
-    ArchDelay::wait_forever()
+    ArchImpl::wait_forever()
 }
 
 /// Return uptime in microseconds.
@@ -98,7 +95,7 @@ pub fn wait_forever() -> ! {
 /// log::info!("{} [us]", end - start);
 /// ```
 pub fn uptime() -> u64 {
-    ArchDelay::uptime()
+    ArchImpl::uptime()
 }
 
 /// Pause a CPU during busy loop to reduce CPU power consumption.
@@ -109,7 +106,7 @@ pub fn uptime() -> u64 {
 /// awkernel_lib::delay::pause();
 /// ```
 pub fn pause() {
-    ArchDelay::pause();
+    ArchImpl::pause();
 }
 
 /// Return CPU cycle counter.
@@ -129,5 +126,5 @@ pub fn pause() {
 /// }
 /// ```
 pub fn cpu_counter() -> u64 {
-    ArchDelay::cpu_counter()
+    ArchImpl::cpu_counter()
 }

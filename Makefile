@@ -1,5 +1,5 @@
 ifndef $(BSP)
-	BSP = aarch64_virt
+	BSP = raspi3
 endif
 
 ifeq ($(RELEASE), 1)
@@ -16,13 +16,13 @@ STACKSIZE = 1024 * 1024 * 2
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
 	INITADDR = 0x80000
-	OPT += --features raspi
+	AARCH64_OPT = $(OPT) --features raspi
 	NUMCPU = 4
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 # 2MiB
 	INITADDR = 0x80000
-	OPT += --features raspi
+	AARCH64_OPT = $(OPT) --features raspi
 	NUMCPU = 4
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
@@ -59,7 +59,7 @@ FORCE:
 aarch64: kernel8.img
 
 target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds FORCE
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(AARCH64_OPT)
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@

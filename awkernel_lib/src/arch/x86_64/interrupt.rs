@@ -1,8 +1,6 @@
 use crate::interrupt::Interrupt;
 
-pub struct ArchInterrupt;
-
-impl Interrupt for ArchInterrupt {
+impl Interrupt for super::X86 {
     fn get_flag() -> usize {
         if x86_64::instructions::interrupts::are_enabled() {
             1

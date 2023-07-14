@@ -5,9 +5,7 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
-pub struct Memory;
-
-impl crate::memory::Memory for Memory {
+impl crate::memory::Memory for super::X86 {
     unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
         let vm_addr = vm_addr & !(PAGESIZE - 1);
         let phy_addr = phy_addr & !(PAGESIZE - 1);

@@ -9,3 +9,7 @@ pub fn init() {
 pub fn init_per_thread(cpu_id: usize) {
     cpu::init(cpu_id);
 }
+
+pub struct StdCommon;
+
+impl super::Arch for StdCommon {}

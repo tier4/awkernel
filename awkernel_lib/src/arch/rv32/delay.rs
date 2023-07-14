@@ -1,12 +1,10 @@
 use crate::delay::Delay;
 
-pub(crate) struct ArchDelay;
-
 // we should get this info from device tree
 const ACLINT_MTIME_BASE: u32 = 0x0200_0000 + 0x0000bff8;
 const RISCV_TIMEBASE_FREQ: u64 = 10_000_000;
 
-impl Delay for ArchDelay {
+impl Delay for super::RV32 {
     fn wait_interrupt() {
         unsafe { core::arch::asm!("wfi") };
     }

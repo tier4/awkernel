@@ -6,9 +6,7 @@ static mut TIME_START: libc::timespec = libc::timespec {
     tv_nsec: 0,
 };
 
-pub struct ArchDelay;
-
-impl Delay for ArchDelay {
+impl Delay for super::StdCommon {
     fn wait_interrupt() {}
 
     fn wait_microsec(usec: u64) {

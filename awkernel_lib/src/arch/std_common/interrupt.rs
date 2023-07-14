@@ -1,8 +1,6 @@
 use crate::interrupt::Interrupt;
 
-pub struct ArchInterrupt;
-
-impl Interrupt for ArchInterrupt {
+impl Interrupt for super::StdCommon {
     fn get_flag() -> usize {
         0
     }

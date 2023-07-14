@@ -1,6 +1,6 @@
 use super::console;
 use crate::{
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START},
+    config::{BACKUP_HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_lib::{cpu, heap};
@@ -13,6 +13,8 @@ use core::{
 use ns16550a::Uart;
 
 const UART_BASE: usize = 0x1000_0000;
+
+const HEAP_SIZE: usize = 1024 * 1024 * 512;
 
 // TODO: set initial stack 4MB for each CPU on 0x8040_0000. see boot.S
 // const MAX_HARTS: usize = 8;

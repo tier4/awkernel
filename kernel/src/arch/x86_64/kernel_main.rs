@@ -12,7 +12,7 @@ use crate::{
         apic::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
-    config::{BACKUP_HEAP_SIZE, HEAP_SIZE, HEAP_START, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
@@ -42,7 +42,7 @@ extern "C" {
 pub static BOOTLOADER_CONFIG: BootloaderConfig = {
     let mut config = BootloaderConfig::new_default();
     config.mappings.physical_memory = Some(Mapping::Dynamic);
-    config.kernel_stack_size = STACK_SIZE;
+    config.kernel_stack_size = STACK_SIZE as u64;
     config
 };
 
