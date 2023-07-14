@@ -45,13 +45,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_async_lib::task::preemption,
         );
 
-        // Userland.
-        task::spawn(
-            "main".into(),
-            async move { userland::main().await },
-            SchedulerType::PrioritizedFIFO(0),
-        );
-
         // Test for IPI.
         #[cfg(all(feature = "aarch64", not(feature = "std")))]
         let mut send_ipi = uptime();
@@ -71,6 +64,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 log::info!("A local timer has been initialized.");
             }
         }
+
+        // Userland.
+        task::spawn(
+            "main".into(),
+            async move { userland::main().await },
+            SchedulerType::PrioritizedFIFO(0),
+        );
 
         loop {
             wake_task(); // Wake executable tasks periodically.

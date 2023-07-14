@@ -14,7 +14,6 @@ use awkernel_lib::{
     },
     err_msg,
     memory::PAGESIZE,
-    mmio_w,
 };
 use core::arch::asm;
 
@@ -42,28 +41,6 @@ sev",
             lateout(reg) _
         );
     }
-}
-
-#[cfg(feature = "raspi3")]
-mod timer {
-    use awkernel_lib::arch::aarch64::rpi_system_timer::RpiSystemTimer;
-
-    // use super::memory::MMIO_BASE;
-    // pub static TIMER: RpiSystemTimer = RpiSystemTimer::new(1, MMIO_BASE + 0x3000);
-}
-
-#[cfg(feature = "raspi3")]
-pub fn init() {
-    // init_uart();
-
-    // Set-up the interrupt controller.
-    // let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(
-    //     memory::INTERRUPT_CTRL_BASE,
-    // );
-    // register_interrupt_controller(Box::new(ctrl));
-
-    // Set-up timer.
-    // awkernel_lib::timer::register_timer(&timer::TIMER);
 }
 
 pub struct Raspi {
