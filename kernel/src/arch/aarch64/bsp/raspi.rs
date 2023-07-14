@@ -6,7 +6,7 @@ use crate::arch::aarch64::{
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    arch::aarch64::armv8_timer::Armv8Timer,
+    arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer},
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
@@ -14,6 +14,7 @@ use awkernel_lib::{
     },
     err_msg,
     memory::PAGESIZE,
+    mmio_w,
 };
 use core::arch::asm;
 
@@ -22,6 +23,11 @@ pub mod memory;
 mod uart;
 
 pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30); // 30 is the recommended value.
+
+/// Because the device tree does not contain the system timer,
+/// it is initialized with constant values,
+/// IRQ #1 and the base address of 0x3f003000.
+pub static TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1, 0x3f003000);
 
 fn start_non_primary() {
     unsafe {
@@ -357,10 +363,9 @@ impl Raspi {
                 log::info!("armv8-timer has been initialized.");
                 awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
             }
-            "arm,armv7-timer" => {
-                // TODO
+            _ => {
+                awkernel_lib::timer::register_timer(&TIMER_RPI);
             }
-            _ => (),
         }
 
         Ok(())

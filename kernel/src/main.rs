@@ -68,7 +68,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             )
             .is_ok()
             {
-                log::info!("timer is enabled");
+                log::info!("A local timer has been initialized.");
             }
         }
 
