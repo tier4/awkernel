@@ -1,6 +1,7 @@
 //! Board Support Package (BSP).
 //!
 //! - `raspi` is for Raspberry Pi 3 (Qemu) and 4.
+//! - `aarch64_virt` is for Qemu's AArch64 generic virtual platform.
 
 use awkernel_lib::{
     device_tree::{
@@ -17,6 +18,12 @@ pub(super) type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHe
 pub(super) type DeviceTreeNodeRef =
     &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
 pub(super) type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
+
+#[cfg(feature = "aarch64_virt")]
+pub mod aarch64_virt;
+
+#[cfg(feature = "aarch64_virt")]
+pub use aarch64_virt::AArch64Virt as SoCInitializer;
 
 #[cfg(feature = "raspi")]
 pub mod raspi;

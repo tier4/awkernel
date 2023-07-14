@@ -17,6 +17,7 @@ use awkernel_lib::{
     heap,
 };
 use core::{
+    fmt::Write,
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -180,7 +181,6 @@ unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
     if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
         tree
     } else {
-        unsafe_puts("kernel panic: failed to load the device tree\n");
         wait_forever();
     }
 }

@@ -34,26 +34,9 @@ _start:
 2:
     // get current EL
     mrs     x4, CurrentEL
-    and     x4, x4, #(0b1100) // clear reserved bits
-
-    // running at EL3?
-    cmp     x4, #(3 << 2)
-    beq     .EL3
-
-    // running at EL2?
-    cmp     x4, #(2 << 2)
-    beq     .EL2
-
-.EL3:
-    b       .loop
-
-.EL2:
-    // disable all interrupt (daif at bits 9..6)
-    msr     DAIFSet, #0x0f
-
-    msr     sp_el0, x10  // set stack pointer
-    msr     sp_el1, x10
-    msr     spsel, #0
+    and     x5, x4, #(0b1100) // clear reserved bits
+    cmp     x5, #(1 << 2)
+    beq     .EL1
 
     mrs     x4, hcr_el2
     orr     x4, x4, #(1 << 31) // AArch64
@@ -69,10 +52,25 @@ _start:
     ldr     x1, =exception_vector_el2
     msr     vbar_el2, x1
 
+    msr     sp_el0, x10  // set stack pointer
+    msr     sp_el1, x10
+
+    // running at EL3?
+    cmp     x5, #(3 << 2)
+    beq     .EL3
+
+    // running at EL2?
+    cmp     x5, #(2 << 2)
+    beq     .EL2
+
+.EL3:
+    b       .loop
+
+.EL2:
     // change execution level to EL1
     mov     x1, #0b100   // EL1t
     msr     spsr_el2, x1
-    adr     x1, .EL1      // set entry point
+    adr     x1, .EL1     // set entry point
     msr     elr_el2, x1
 
     eret
@@ -81,6 +79,7 @@ _start:
 .EL1:
     // disable all interrupt (daif at bits 9..6)
     msr     DAIFSet, #0x0f
+    msr     spsel, #0
 
     // set exception vector
     ldr     x1, =exception_vector_el1

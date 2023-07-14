@@ -91,16 +91,8 @@ $ make x86_64_uefi.img
 
 ### Boot
 
-Debug build.
-
 ```text
 $ make qemu-x86_64
-```
-
-Release build.
-
-```text
-$ make qemu-x86_64 RELEASE=1
 ```
 
 ### GDB
@@ -108,6 +100,30 @@ $ make qemu-x86_64 RELEASE=1
 ```text
 $ make qemu-x86_64
 $ make gdb-x86_64
+```
+
+---
+
+## AArch64 Qemu Virt
+
+### Compile
+
+Debug build.
+
+```text
+$ make aarch64 BSP=aarch64_virt
+```
+
+Release build.
+
+```text
+$ make aarch64 BSP=aarch64_virt RELEASE=1
+```
+
+### Boot
+
+```text
+$ make qemu-aarch64_virt
 ```
 
 ---
@@ -130,16 +146,8 @@ $ make aarch64 BSP=raspi3 RELEASE=1
 
 ### Boot
 
-Debug build.
-
 ```text
 $ make qemu-raspi3
-```
-
-Release build.
-
-```text
-$ make qemu-raspi3 RELEASE=1
 ```
 
 ### GDB
@@ -194,16 +202,8 @@ $ make riscv32 RELEASE=1
 
 ### Boot
 
-Debug build.
-
 ```text
 $ make qemu-riscv32
-```
-
-Release build.
-
-```text
-$ make qemu-riscv32 RELEASE=1
 ```
 
 ---

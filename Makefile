@@ -17,17 +17,14 @@ ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
-	NUMCPU = 4
 else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
-# 2MiB
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
-	NUMCPU = 4
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x40080000
-	NUMCPU = 4
+	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
 
 ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
@@ -68,11 +65,11 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 	$(CC) --target=aarch64-elf -c $< -o $@ -DSTACKSIZE="$(STACKSIZE)"
 
 aarch64-link-bsp.lds: aarch64-link.lds
-	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds | sed "s/#NUMCPU#/$(NUMCPU)/" > $@
+	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds > $@
 
 QEMU_AARCH64_ARGS= -m 1024 -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio -display none
-QEMU_AARCH64_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
+QEMU_AARCH64_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait -d int
 
 ## Raspi3
 
@@ -89,7 +86,7 @@ gdb-raspi3:
 
 ## Virt
 
-QEMU_AARCH64_VIRT_ARGS= -M virt -cpu cortex-a72 -smp 4 $(QEMU_AARCH64_ARGS)
+QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=2 -cpu cortex-a72 -smp 8 $(QEMU_AARCH64_ARGS)
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
