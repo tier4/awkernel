@@ -17,7 +17,6 @@ use awkernel_lib::{
     heap,
 };
 use core::{
-    fmt::Write,
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };

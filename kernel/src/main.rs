@@ -6,6 +6,7 @@
 #![feature(lang_items)]
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
+#![feature(allocator_api)]
 #![no_main]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -80,7 +81,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
             awkernel_lib::delay::wait_microsec(10);
 
-            // TODO: enable timer on x86 and Raspi 3.
+            // TODO: enable timer on x86.
             #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
                 let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();

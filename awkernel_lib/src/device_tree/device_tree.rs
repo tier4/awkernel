@@ -99,6 +99,38 @@ impl<'a, A: Allocator + Clone> DeviceTree<'a, A> {
     pub fn root(&self) -> &DeviceTreeNode<'a, A> {
         &self.root
     }
+
+    /// `num_cpus` is a function that counts the number of CPU nodes in a device tree.
+    ///
+    /// Specifically, this function searches for a child named "cpus" under the root of the device tree,
+    /// and then counts the number of its children nodes whose names start with "cpu@".
+    ///
+    /// # Returns
+    ///
+    /// * `Result<usize>`: This function returns the number of CPUs in the form of a `Result<usize>`.
+    ///   If it successfully counts the CPUs, it returns `Ok(num)`, where `num` is the number of CPUs.
+    ///   If it fails to find the "cpus" child under the root, it returns `Err(DeviceTreeError::InvalidSemantics)`.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error of type `DeviceTreeError::InvalidSemantics` if no child named "cpus"
+    /// can be found under the root of the device tree.
+    pub fn num_cpus(&self) -> Result<usize> {
+        let cpus = self
+            .root()
+            .find_child("cpus")
+            .ok_or(DeviceTreeError::InvalidSemantics)?;
+
+        let num = cpus.nodes().iter().fold(0, |acc, node| {
+            if node.name().starts_with("cpu@") {
+                acc + 1
+            } else {
+                acc
+            }
+        });
+
+        Ok(num)
+    }
 }
 
 /// Iterates over nodes in a device tree

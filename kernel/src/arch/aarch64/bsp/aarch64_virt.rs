@@ -1,14 +1,20 @@
 use awkernel_lib::{
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
+    memory::PAGESIZE,
 };
 
-use crate::arch::aarch64::{bsp::aarch64_virt::uart::unsafe_puts, interrupt_ctl};
+use crate::arch::aarch64::{bsp::aarch64_virt::uart::unsafe_puts, interrupt_ctl, vm::VM};
 
 use super::{DeviceTreeNodeRef, DeviceTreeRef};
 
 pub mod config;
 mod uart;
+
+const DEVICE_MEM_START: usize = 0x0800_0000;
+const DEVICE_MEM_END: usize = 0x4000_0000;
+const FLASH_START: usize = 0;
+const FLASH_END: usize = 0x0800_0000;
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
@@ -23,15 +29,44 @@ impl super::SoC for AArch64Virt {
         self.init_uart()?;
         awkernel_lib::device_tree::print_device_tree_node(self.device_tree.root(), 0);
 
-        unsafe_puts(self.interrupt_compatible);
-        unsafe_puts("\n");
+        // TODO: wake non-primary CPUs up.
 
-        loop {}
-        todo!()
+        Ok(())
     }
 
     unsafe fn init_virtual_memory(&self) -> Result<crate::arch::aarch64::vm::VM, &'static str> {
-        todo!()
+        let mut vm = VM::new();
+
+        vm.push_device_range(DEVICE_MEM_START, DEVICE_MEM_END)?;
+        vm.push_ro_memory(FLASH_START, FLASH_END)?;
+
+        // Add heap memory regions.
+        vm.add_heap_from_node(self.device_tree.root())?;
+
+        // Do not use the memory containing kernel's binary for heap memory.
+        vm.remove_kernel_memory_from_heap_memory()?;
+
+        let mask = PAGESIZE - 1;
+        let start = self.device_tree_base & !mask;
+        let end = self.device_tree_base + self.device_tree.total_size();
+        let end = end + PAGESIZE - (end & mask);
+
+        vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
+        vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
+
+        let num_cpus = self
+            .device_tree
+            .num_cpus()
+            .or(Err(err_msg!("failed to count up the number of CPUs")))?;
+
+        vm.set_num_cpus(num_cpus);
+
+        vm.print();
+        unsafe_puts("Initializing the page table. Wait a moment.\n");
+
+        vm.init()?;
+
+        Ok(vm)
     }
 
     unsafe fn init(&self) -> Result<(), &'static str> {
