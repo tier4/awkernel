@@ -1,10 +1,15 @@
+use awkernel_drivers::psci::{self, Affinity};
 use awkernel_lib::{
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
     memory::PAGESIZE,
 };
 
-use crate::arch::aarch64::{bsp::aarch64_virt::uart::unsafe_puts, interrupt_ctl, vm::VM};
+use crate::arch::aarch64::{
+    bsp::aarch64_virt::uart::unsafe_puts,
+    interrupt_ctl,
+    vm::{get_kernel_start, VM},
+};
 
 use super::{DeviceTreeNodeRef, DeviceTreeRef};
 
@@ -29,7 +34,11 @@ impl super::SoC for AArch64Virt {
         self.init_uart()?;
         awkernel_lib::device_tree::print_device_tree_node(self.device_tree.root(), 0);
 
-        // TODO: wake non-primary CPUs up.
+        if let Err(err) = self.wake_cpus_up() {
+            unsafe_puts(err);
+            unsafe_puts("\n");
+            return Err(err);
+        }
 
         Ok(())
     }
@@ -206,6 +215,75 @@ impl AArch64Virt {
                 return Err(err_msg!("reg property has invalid value"));
             }
         };
+
+        Ok(())
+    }
+
+    fn wake_cpus_up(&self) -> Result<(), &'static str> {
+        let psci_node = self
+            .device_tree
+            .root()
+            .find_child("psci")
+            .ok_or(err_msg!("could not find psci"))?;
+
+        let method = psci_node
+            .get_property("method")
+            .ok_or(err_msg!("could not find method"))?;
+
+        let psci_inst = match method.value() {
+            PropertyValue::String(m) => psci::new(m).or(Err(err_msg!("failed to create PSCI")))?,
+            _ => return Err(err_msg!("invalid PSCI method")),
+        };
+
+        let cpus = self
+            .device_tree
+            .root()
+            .find_child("cpus")
+            .ok_or(err_msg!("could not find cpus"))?;
+
+        let cpu_map = cpus
+            .find_child("cpu-map")
+            .ok_or(err_msg!("could not find cpu-map"))?;
+
+        for socket in cpu_map
+            .nodes()
+            .iter()
+            .filter(|n| n.name().starts_with("socket"))
+        {
+            let (_, aff2_str) = socket.name().split_at("socket".len());
+            let aff2 =
+                u64::from_str_radix(aff2_str, 10).or(Err(err_msg!("invalid socket number")))?;
+
+            for cluster in socket
+                .nodes()
+                .iter()
+                .filter(|n| n.name().starts_with("cluster"))
+            {
+                let (_, aff1_str) = cluster.name().split_at("cluster".len());
+                let aff1 = u64::from_str_radix(aff1_str, 10)
+                    .or(Err(err_msg!("invalid cluster number")))?;
+
+                for core in cluster
+                    .nodes()
+                    .iter()
+                    .filter(|n| n.name().starts_with("core"))
+                {
+                    let (_, aff0_str) = core.name().split_at("core".len());
+                    let aff0 = u64::from_str_radix(aff0_str, 10)
+                        .or(Err(err_msg!("invalid core number")))?;
+
+                    match (aff0, aff1, aff2) {
+                        (0, 0, 0) => (),
+                        _ => {
+                            let affinity = Affinity::new(aff0, aff1, aff2, 0);
+                            psci_inst
+                                .cpu_on(affinity, get_kernel_start() as usize)
+                                .or(Err(err_msg!("failed to a boot non-primary CPU")))?;
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
