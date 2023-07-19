@@ -4,7 +4,7 @@
 //!
 //! Holds the 64-bit physical count value.
 //!
-//! ## `CNTP_CTL_EL0`: Counter-timer Physical Timer Control register
+//! ## `CNTV_CTL_EL0`: Counter-timer Virtual Timer Control register
 //!
 //! - 0bABC
 //!   - A: Interrupt Status
@@ -15,7 +15,7 @@
 //!
 //! Indicates the system counter clock frequency, in Hz.
 //!
-//! ## `CNTP_CVAL_EL0`: Counter-timer Physical Timer CompareValue Register
+//! ## `CNTV_CVAL_EL0`: Counter-timer Virtual Timer CompareValue Register
 //!
 //! The comparator register, CVAL, is a 64-bit register. Software writes a value to this register and the timer triggers when the
 //! count reaches, or exceeds, that value, as you can see here:
@@ -24,7 +24,7 @@
 //! Timer Condition Met: CVAL <= System Count
 //! ```
 //!
-//! ## `CNTP_TVAL_EL0`:  Counter-timer Physical Timer TimerValue register
+//! ## `CNTV_TVAL_EL0`:  Counter-timer Virtual Timer TimerValue register
 //!
 //! The timer register, TVAL, is a 32-bit register. When software writes TVAL, the processor reads the current system count
 //! internally, adds the written value, and then populates CVAL:
@@ -58,8 +58,8 @@ impl crate::timer::Timer for Armv8Timer {
     fn reset(&self) {
         let t = awkernel_aarch64::cntfrq_el0::get() >> self.scaler;
         unsafe {
-            awkernel_aarch64::cntp_tval_el0::set(t);
-            awkernel_aarch64::cntp_ctl_el0::set(1); // Enable interrupt.
+            awkernel_aarch64::cntv_tval_el0::set(t);
+            awkernel_aarch64::cntv_ctl_el0::set(1); // Enable interrupt.
         }
     }
 
@@ -68,6 +68,6 @@ impl crate::timer::Timer for Armv8Timer {
     }
 
     fn disable(&self) {
-        unsafe { awkernel_aarch64::cntp_ctl_el0::set(0) };
+        unsafe { awkernel_aarch64::cntv_ctl_el0::set(0) };
     }
 }

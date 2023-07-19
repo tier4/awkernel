@@ -47,10 +47,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         // Test for IPI.
-        #[cfg(all(
-            feature = "aarch64",
-            not(any(feature = "std", feature = "aarch64_virt"))
-        ))]
+        #[cfg(all(feature = "aarch64", not(feature = "std")))]
         let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
@@ -69,10 +66,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
 
-        if let Some(irq) = awkernel_lib::console::irq_id() {
-            awkernel_lib::interrupt::enable_irq(irq);
-        }
-
         awkernel_lib::sanity::check();
 
         // Userland.
@@ -85,47 +78,22 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            #[cfg(not(all(
-                feature = "aarch64",
-                not(any(feature = "std", feature = "aarch64_virt"))
-            )))]
+            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
             awkernel_lib::delay::wait_microsec(10);
 
             // TODO: enable timer on x86.
-            #[cfg(all(
-                feature = "aarch64",
-                not(any(feature = "std", feature = "aarch64_virt"))
-            ))]
+            #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
                 let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                 awkernel_lib::interrupt::enable();
                 awkernel_lib::timer::reset();
-
-                awkernel_lib::delay::wait_millisec(2000);
-
-                let t = awkernel_aarch64::cntp_ctl_el0::get();
-                log::debug!("cntp_ctl_el0 = 0b{t:b}");
-
-                unsafe {
-                    use core::arch::asm;
-                    asm!("mrs x1, CNTFRQ_EL0");
-                    asm!("msr CNTP_TVAL_EL0, x1");
-                    asm!("mov x0, 1");
-                    asm!("msr CNTP_CTL_EL0, x0");
-                }
-
                 awkernel_lib::delay::wait_interrupt();
-
-                loop {}
             }
 
             // Test for IPI.
-            #[cfg(all(
-                feature = "aarch64",
-                not(any(feature = "std", feature = "aarch64_virt"))
-            ))]
+            #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
-                let now = uptime();
+                let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     if now - send_ipi >= 20_000 {
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(

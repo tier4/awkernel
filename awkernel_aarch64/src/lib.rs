@@ -379,6 +379,7 @@ sysreg!(cntp_cval_el0);
 sysreg!(cntp_tval_el0);
 sysreg!(cntv_ctl_el0);
 sysreg!(cntv_cval_el0);
+sysreg!(cntv_tval_el0);
 sysreg!(cntfrq_el0);
 sysreg_read!(cntpct_el0);
 sysreg!(tpidr_el0);
