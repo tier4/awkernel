@@ -55,7 +55,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 }
             }
         },
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::FIFO,
     )
     .await;
 
@@ -71,7 +71,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     tx2.send(()).await.unwrap();
                 }
             },
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::FIFO,
         )
         .await;
 
@@ -92,7 +92,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     }
                 }
             },
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::FIFO,
         )
         .await;
     }
@@ -110,7 +110,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     subscriber.recv().await;
                 }
             },
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::FIFO,
         )
         .await;
 
@@ -122,7 +122,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     publisher.send(()).await;
                 }
             },
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::FIFO,
         )
         .await;
     }
