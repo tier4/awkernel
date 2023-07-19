@@ -11,26 +11,22 @@ use awkernel_lib::{
         },
     },
     console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
+    device_tree::{node::DeviceTreeNode, prop::PropertyValue},
     err_msg,
     memory::PAGESIZE,
 };
-use core::arch::asm;
+use core::{alloc::Allocator, arch::asm};
 
 pub const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MiB
 
 extern "C" {
     static __kernel_start: u64;
-    static __ro_data_start: u64;
     static __data_start: u64;
     static __stack_memory: u64;
 }
 
 pub fn get_kernel_start() -> u64 {
     unsafe { &__kernel_start as *const u64 as u64 }
-}
-
-pub fn get_ro_data_start() -> u64 {
-    unsafe { &__ro_data_start as *const u64 as u64 }
 }
 
 pub fn get_data_start() -> u64 {
@@ -274,10 +270,58 @@ impl VM {
     }
 
     pub fn remove_kernel_memory_from_heap_memory(&mut self) -> Result<(), &'static str> {
+        if self.num_cpus == 0 {
+            return Err(err_msg!("num_cpus == 0"));
+        }
+
         let start = get_kernel_start() as usize;
         let end = get_stack_memory() as usize + STACK_SIZE * self.num_cpus;
 
         self.remove_heap(start, end)
+    }
+
+    /// `add_heap_from_node` is a function to add heap memory regions from a device tree node.
+    /// Specifically, this function looks for nodes whose names start with "memory@"
+    /// and adds their memory regions to the heap.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_tree_node`: This is a reference to a device tree node object.
+    ///   It contains information about a specific device node in a device tree.
+    ///
+    /// # Returns
+    ///
+    /// * `Result`: This function returns `Result<(), &'static str>`.
+    ///   If it is successful in adding memory, it returns `Ok(())`,
+    ///   and if it fails, it returns `Err` with a static string explaining the error.
+    pub fn add_heap_from_node<'a, A: Allocator + Clone>(
+        &mut self,
+        device_tree_node: &DeviceTreeNode<'a, A>,
+    ) -> Result<(), &'static str> {
+        // Add heap memory regions.
+        for node in device_tree_node.nodes().iter() {
+            if node.name().starts_with("memory@") {
+                if let Some(reg_prop) = node.get_property("reg") {
+                    match reg_prop.value() {
+                        PropertyValue::Address(addr, len) => {
+                            let start = addr.to_u128() as usize;
+                            let end = start + len.to_u128() as usize;
+                            self.push_heap(start, end)?;
+                        }
+                        PropertyValue::Addresses(addrs) => {
+                            for (addr, len) in addrs {
+                                let start = addr.to_u128() as usize;
+                                let end = start + len.to_u128() as usize;
+                                self.push_heap(start, end)?;
+                            }
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     unsafe fn init_memory_map(&mut self) -> Option<()> {
@@ -292,21 +336,8 @@ impl VM {
 
         // TEXT.
         let start = get_kernel_start();
-        let end = get_ro_data_start();
-        let flag = kernel_page_flag_r_exec()
-            | if (end - start) / PAGESIZE as u64 > 1 {
-                FLAG_L3_CONT
-            } else {
-                0
-            };
-        for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator)?;
-        }
-
-        // Read-only data.
-        let start = get_ro_data_start();
         let end = get_data_start();
-        let flag = kernel_page_flag_ro()
+        let flag = kernel_page_flag_r_exec()
             | if (end - start) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {

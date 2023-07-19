@@ -1,6 +1,7 @@
 {
     "rust-analyzer.showUnlinkedFileNotification": false,
     "tlaplus.tlc.modelChecker.options": "-workers auto",
+    "editor.formatOnSave": true,
     // For AArch64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
@@ -15,7 +16,7 @@
         "--target=aarch64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "raspi"
+        "aarch64_virt"
     ],
     // For x86_64
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [

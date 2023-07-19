@@ -1,4 +1,98 @@
-//! This module provides macros to defining MMIO.
+//! # MMIO Module
+//!
+//! This module provides macros for defining MMIO (Memory Mapped Input/Output) operations.
+//! It defines MMIO as readable, writable or both and uses either absolute addresses or offsets.
+//!
+//! ## Usage
+//!
+//! First, import the necessary items:
+//!
+//! ```rust
+//! use awkernel_lib::{mmio_rw, mmio_r, mmio_w};
+//! ```
+//!
+//! ### Read/Write MMIO
+//!
+//! You can define read/write MMIO by using the `mmio_rw!` macro.
+//! This can be used with either an absolute address or an offset address:
+//!
+//! ```rust
+//! use awkernel_lib::mmio_rw;
+//!
+//! fn example_rw() {
+//!     mmio_rw!(0x100 => MMIO_1ST<u32>);            // Absolute address.
+//!     mmio_rw!(0x200 => pub MMIO_2ND<u32>);        // Absolute address.
+//!     mmio_rw!(offset 0x300 => MMIO_3RD<u32>);     // Offset address.
+//!     mmio_rw!(offset 0x400 => pub MMIO_4TH<u32>); // Offset address.
+//!
+//!     let val = MMIO_1ST.read();       // Read from 0x100.
+//!     let val = MMIO_2ND.read();       // Read from 0x200.
+//!     let val = MMIO_3RD.read(0x4000); // Read from 0x4000 + 0x300.
+//!     let val = MMIO_4TH.read(0x5000); // Read from 0x5000 + 0x400.
+//!
+//!     MMIO_1ST.write(0);         // Write a value to 0x100.
+//!     MMIO_2ND.write(1);         // Write a value to 0x200.
+//!     MMIO_3RD.write(2, 0x4000); // Write a value to 0x4000 + 0x300.
+//!     MMIO_4TH.write(3, 0x5000); // Write a value to 0x5000 + 0x400.
+//! }
+//! ```
+//!
+//! ### Read Only MMIO
+//!
+//! You can define read only MMIO using the `mmio_r!` macro, in a similar way as `mmio_rw!`:
+//!
+//! ```rust
+//! use awkernel_lib::mmio_r;
+//!
+//! fn example_r() {
+//!     mmio_r!(0x100 => MMIO_1ST<u32>);            // Absolute address.
+//!     mmio_r!(0x200 => pub MMIO_2ND<u32>);        // Absolute address.
+//!     mmio_r!(offset 0x300 => MMIO_3RD<u32>);     // Offset address.
+//!     mmio_r!(offset 0x400 => pub MMIO_4TH<u32>); // Offset address.
+//!
+//!     let val = MMIO_1ST.read();       // Read from 0x100.
+//!     let val = MMIO_2ND.read();       // Read from 0x200.
+//!     let val = MMIO_3RD.read(0x4000); // Read from 0x4000 + 0x300.
+//!     let val = MMIO_4TH.read(0x5000); // Read from 0x5000 + 0x400.
+//! }
+//! ```
+//!
+//! ### Write Only MMIO
+//!
+//! You can define write only MMIO using the `mmio_w!` macro, similar to `mmio_rw!` and `mmio_r!`:
+//!
+//! ```rust
+//! use awkernel_lib::mmio_w;
+//!
+//! fn exmaple_w() {
+//!     mmio_w!(0x100 => MMIO_1ST<u32>);            // Absolute address.
+//!     mmio_w!(0x200 => pub MMIO_2ND<u32>);        // Absolute address.
+//!     mmio_w!(offset 0x300 => MMIO_3RD<u32>);     // Offset address.
+//!     mmio_w!(offset 0x400 => pub MMIO_4TH<u32>); // Offset address.
+//!
+//!     MMIO_1ST.write(0);         // Write a value to 0x100.
+//!     MMIO_2ND.write(1);         // Write a value to 0x200.
+//!     MMIO_3RD.write(2, 0x4000); // Write a value to 0x4000 + 0x300.
+//!     MMIO_4TH.write(3, 0x5000); // Write a value to 0x5000 + 0x400.
+//! }
+//! ```
+//!
+//! ## Bit Manipulation
+//!
+//! You can also perform bit manipulation operations on the MMIO objects:
+//!
+//! ```rust
+//! use awkernel_lib::mmio_rw;
+//!
+//! fn example_bits() {
+//!     mmio_rw!(0x100 => MMIO_1ST<u32>);
+//!
+//!     MMIO_1ST.setbits(1 << 4); // Make 4th bit 1.
+//!     MMIO_1ST.clrbits(1 << 8); // Make 8th bit 0.
+//! }
+//! ```
+//!
+//! In the above example, `setbits` sets the specified bits to 1, and `clrbits` clears the specified bits to 0.
 
 use core::{
     marker::PhantomData,

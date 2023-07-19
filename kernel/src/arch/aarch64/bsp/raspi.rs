@@ -21,7 +21,9 @@ pub mod config;
 pub mod memory;
 mod uart;
 
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30); // 30 is the recommended value.
+/// IRQ #27 is the recommended value.
+/// every 1/2^19 = .000_001_9 [s].
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 19);
 
 /// Because the device tree does not contain the system timer,
 /// it is initialized with constant values,
@@ -68,7 +70,10 @@ impl super::SoC for Raspi {
     unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str> {
         let mut vm = VM::new();
 
-        let num_cpus = self.num_cpus()?;
+        let num_cpus = self
+            .device_tree
+            .num_cpus()
+            .or(Err(err_msg!("failed to get num_cpus")))?;
         vm.set_num_cpus(num_cpus);
 
         // Device memory regions.
@@ -80,27 +85,7 @@ impl super::SoC for Raspi {
         }
 
         // Add heap memory regions.
-        for node in self.device_tree.root().nodes().iter() {
-            if node.name().starts_with("memory@") {
-                if let Some(reg_prop) = node.get_property("reg") {
-                    match reg_prop.value() {
-                        PropertyValue::Address(addr, len) => {
-                            let start = addr.to_u128() as usize;
-                            let end = start + len.to_u128() as usize;
-                            vm.push_heap(start, end)?;
-                        }
-                        PropertyValue::Addresses(addrs) => {
-                            for (addr, len) in addrs {
-                                let start = addr.to_u128() as usize;
-                                let end = start + len.to_u128() as usize;
-                                vm.push_heap(start, end)?;
-                            }
-                        }
-                        _ => (),
-                    }
-                }
-            }
-        }
+        vm.add_heap_from_node(self.device_tree.root())?;
 
         // Do not use the memory containing kernel's binary for heap memory.
         vm.remove_kernel_memory_from_heap_memory()?;
@@ -275,23 +260,6 @@ impl Raspi {
         unsafe { unsafe_puts("uart0 has been successfully initialized.\n") };
 
         Ok(())
-    }
-
-    fn num_cpus(&self) -> Result<usize, &'static str> {
-        let cpus = self
-            .get_device_from_symbols("cpus")?
-            .get_leaf_node()
-            .unwrap();
-
-        let num = cpus.nodes().iter().fold(0, |acc, node| {
-            if node.name().starts_with("cpu@") {
-                acc + 1
-            } else {
-                acc
-            }
-        });
-
-        Ok(num)
     }
 
     fn device_ranges(&self) -> Result<&[Range], &'static str> {

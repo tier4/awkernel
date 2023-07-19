@@ -219,3 +219,17 @@ pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
     PREEMPT_IRQ.store(irq, Ordering::Relaxed);
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
 }
+
+pub fn sanity_check() {
+    if INTERRUPT_CONTROLLER.read().is_none() {
+        log::warn!("interrupt::INTERRUPT_CONTROLLER is not yet initialized.")
+    } else {
+        log::info!("interrupt::INTERRUPT_CONTROLLER has been initialized.");
+    }
+
+    if PREEMPT_FN.load(Ordering::Relaxed) == empty as *mut () {
+        log::warn!("interrupt::PREEMPT_FN is not yet initialized.")
+    } else {
+        log::info!("interrupt::PREEMPT_FN has been initialized.")
+    }
+}

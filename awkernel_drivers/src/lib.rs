@@ -7,6 +7,9 @@ pub mod interrupt_controler;
 pub mod net;
 pub mod uart;
 
+#[cfg(feature = "aarch64")]
+pub mod psci;
+
 pub fn add(left: usize, right: usize) -> usize {
     left + right
 }

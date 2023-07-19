@@ -6,6 +6,7 @@
 #![feature(lang_items)]
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
+#![feature(allocator_api)]
 #![no_main]
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -14,7 +15,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
-    task, uptime,
+    task,
 };
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
@@ -47,7 +48,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         // Test for IPI.
         #[cfg(all(feature = "aarch64", not(feature = "std")))]
-        let mut send_ipi = uptime();
+        let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
         if let Some(irq) = awkernel_lib::timer::irq_id() {
@@ -65,6 +66,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
 
+        awkernel_lib::sanity::check();
+
         // Userland.
         task::spawn(
             "main".into(),
@@ -78,7 +81,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
             awkernel_lib::delay::wait_microsec(10);
 
-            // TODO: enable timer on x86 and Raspi 3.
+            // TODO: enable timer on x86.
             #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
                 let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
@@ -90,7 +93,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             // Test for IPI.
             #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
-                let now = uptime();
+                let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     if now - send_ipi >= 20_000 {
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(

@@ -6,8 +6,13 @@
 //!
 //! ```
 //! use awkernel_lib::device_tree;
-//! fn dtb_example(dtb: &[u8]) {
+//!
+//! fn dtb_example1(dtb: &'static [u8]) {
 //!     let tree = device_tree::from_bytes(dtb).unwrap();
+//! }
+//!
+//! fn dtb_example2(dtb_addr: usize) {
+//!     let tree = device_tree::from_address(dtb_addr).unwrap();
 //! }
 //! ```
 

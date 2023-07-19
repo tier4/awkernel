@@ -24,7 +24,7 @@ pub fn init() {
         if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
             .is_err()
         {
-            log::error!("Failed to initialize the shell.");
+            log::warn!("Failed to initialize UART's interrupt handler.");
         }
     }
 }

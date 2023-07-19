@@ -72,7 +72,7 @@ impl GICv2 {
         // Get the maximum number of interrupt.
         gic.probe_max_it();
 
-        log::info!("GICv2: The number of interrupts is {}.", gic.max_it);
+        log::info!("GICv2: The maximum IRQ# is {}.", gic.max_it);
 
         for i in 0..div_ceil(gic.max_it as usize, NUM_INTS_PER_REG as usize) {
             let base = gicd_base + i * 4;

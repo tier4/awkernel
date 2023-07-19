@@ -5,7 +5,7 @@
 //! 3. For the primary CPU, [`primary_cpu`] is called and some initializations are performed.
 //! 4. For non-primary CPUs, [`non_primary_cpu`] is called.
 
-use super::{bsp::DeviceTreeRef, cpu};
+use super::bsp::DeviceTreeRef;
 use crate::{
     arch::aarch64::bsp::SoC,
     config::{BACKUP_HEAP_SIZE, HEAP_START},
@@ -33,7 +33,7 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 
     awkernel_lib::delay::wait_millisec(10);
 
-    if cpu::core_pos() == 0 {
+    if awkernel_lib::cpu::cpu_id() == 0 {
         primary_cpu(device_tree_base);
     } else {
         while !read_volatile(&PRIMARY_READY) {}
@@ -168,7 +168,7 @@ unsafe fn non_primary_cpu() {
 
     let kernel_info = KernelInfo {
         info: (),
-        cpu_id: cpu::core_pos(),
+        cpu_id: awkernel_lib::cpu::cpu_id(),
     };
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
@@ -180,7 +180,6 @@ unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
     if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
         tree
     } else {
-        unsafe_puts("kernel panic: failed to load the device tree\n");
         wait_forever();
     }
 }

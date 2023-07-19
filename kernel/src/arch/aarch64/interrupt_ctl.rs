@@ -1,12 +1,11 @@
+use super::bsp::StaticArrayedNode;
 use alloc::boxed::Box;
 use awkernel_lib::{err_msg, interrupt::register_interrupt_controller};
-
-use super::bsp::StaticArrayedNode;
 
 pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => get_irq_bcm2836(interrupts),
-        "arm,gic-400" => get_irq_gicv2(interrupts),
+        "arm,gic-400" | "arm,cortex-a15-gic" => get_irq_gicv2(interrupts),
         _ => None,
     }
 }
@@ -73,7 +72,7 @@ pub fn init_interrupt_controller(
 ) -> Result<(), &'static str> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => init_bcm2836(intc_node),
-        "arm,gic-400" => init_gicv2(intc_node),
+        "arm,gic-400" | "arm,cortex-a15-gic" => init_gicv2(intc_node),
         _ => Err(err_msg!("unsupported interrupt controller")),
     }
 }

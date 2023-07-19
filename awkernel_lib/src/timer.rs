@@ -35,3 +35,11 @@ pub fn disable() {
         timer.disable()
     }
 }
+
+pub fn sanity_check() {
+    if unsafe { TIMER.is_none() } {
+        log::warn!("timer::TIMER is not yet initialized.");
+    } else {
+        log::info!("timer::TIMER has been initialized.");
+    }
+}
