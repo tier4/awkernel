@@ -172,8 +172,8 @@ impl Tasks {
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
-            if self.candidate_id == 0 {
-                self.candidate_id += 1;
+            if id == 0 {
+                id += 1;
             }
 
             // Find an unused task ID.
@@ -199,7 +199,7 @@ impl Tasks {
                 };
 
                 e.insert(Arc::new(task));
-                self.candidate_id += 1;
+                self.candidate_id = id;
 
                 return id;
             } else {

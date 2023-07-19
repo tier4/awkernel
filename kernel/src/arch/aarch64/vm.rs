@@ -21,17 +21,12 @@ pub const STACK_SIZE: usize = 2 * 1024 * 1024; // 2MiB
 
 extern "C" {
     static __kernel_start: u64;
-    static __ro_data_start: u64;
     static __data_start: u64;
     static __stack_memory: u64;
 }
 
 pub fn get_kernel_start() -> u64 {
     unsafe { &__kernel_start as *const u64 as u64 }
-}
-
-pub fn get_ro_data_start() -> u64 {
-    unsafe { &__ro_data_start as *const u64 as u64 }
 }
 
 pub fn get_data_start() -> u64 {
@@ -341,21 +336,8 @@ impl VM {
 
         // TEXT.
         let start = get_kernel_start();
-        let end = get_ro_data_start();
-        let flag = kernel_page_flag_r_exec()
-            | if (end - start) / PAGESIZE as u64 > 1 {
-                FLAG_L3_CONT
-            } else {
-                0
-            };
-        for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator)?;
-        }
-
-        // Read-only data.
-        let start = get_ro_data_start();
         let end = get_data_start();
-        let flag = kernel_page_flag_ro()
+        let flag = kernel_page_flag_r_exec()
             | if (end - start) / PAGESIZE as u64 > 1 {
                 FLAG_L3_CONT
             } else {
