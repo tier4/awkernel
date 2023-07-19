@@ -45,18 +45,18 @@
 
 pub struct Armv8Timer {
     irq: u16,
+    scaler: u16,
 }
 
 impl Armv8Timer {
-    pub const fn new(irq: u16) -> Self {
-        Armv8Timer { irq }
+    pub const fn new(irq: u16, scaler: u16) -> Self {
+        Armv8Timer { irq, scaler }
     }
 }
 
 impl crate::timer::Timer for Armv8Timer {
     fn reset(&self) {
-        // every 1/2^19 = .000_001_9 [s].
-        let t = awkernel_aarch64::cntfrq_el0::get() >> 19;
+        let t = awkernel_aarch64::cntfrq_el0::get() >> self.scaler;
         unsafe {
             awkernel_aarch64::cntp_tval_el0::set(t);
             awkernel_aarch64::cntp_ctl_el0::set(1); // Enable interrupt.

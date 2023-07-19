@@ -1,5 +1,11 @@
-use awkernel_drivers::psci::{self, Affinity};
+use alloc::boxed::Box;
+use awkernel_drivers::{
+    psci::{self, Affinity},
+    uart::pl011::PL011,
+};
 use awkernel_lib::{
+    arch::aarch64::armv8_timer::Armv8Timer,
+    console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
     memory::PAGESIZE,
@@ -11,7 +17,7 @@ use crate::arch::aarch64::{
     vm::{get_kernel_start, VM},
 };
 
-use super::{DeviceTreeNodeRef, DeviceTreeRef};
+use super::{DeviceTreeRef, StaticArrayedNode};
 
 pub mod config;
 mod uart;
@@ -21,10 +27,16 @@ const DEVICE_MEM_END: usize = 0x4000_0000;
 const FLASH_START: usize = 0;
 const FLASH_END: usize = 0x0800_0000;
 
+/// IRQ #30 is the recommended value.
+/// every 1/2^19 = .000_001_9 [s].
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30, 1);
+
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
-    interrupt: Option<DeviceTreeNodeRef>,
+    uart_base: Option<usize>,
+    uart_irq: Option<u16>,
+    interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
 }
 
@@ -49,6 +61,13 @@ impl super::SoC for AArch64Virt {
         vm.push_device_range(DEVICE_MEM_START, DEVICE_MEM_END)?;
         vm.push_ro_memory(FLASH_START, FLASH_END)?;
 
+        let num_cpus = self
+            .device_tree
+            .num_cpus()
+            .or(Err(err_msg!("failed to count up the number of CPUs")))?;
+
+        vm.set_num_cpus(num_cpus);
+
         // Add heap memory regions.
         vm.add_heap_from_node(self.device_tree.root())?;
 
@@ -63,13 +82,6 @@ impl super::SoC for AArch64Virt {
         vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
 
-        let num_cpus = self
-            .device_tree
-            .num_cpus()
-            .or(Err(err_msg!("failed to count up the number of CPUs")))?;
-
-        vm.set_num_cpus(num_cpus);
-
         vm.print();
         unsafe_puts("Initializing the page table. Wait a moment.\n");
 
@@ -79,7 +91,19 @@ impl super::SoC for AArch64Virt {
     }
 
     unsafe fn init(&self) -> Result<(), &'static str> {
-        todo!()
+        let uart_base = self
+            .uart_base
+            .ok_or(err_msg!("UART's base address has not been initialized."))?;
+
+        let uart_irq = self.uart_irq.ok_or(err_msg!("UART's #IRQ is unknown."))?;
+
+        let port = Box::new(PL011::new(uart_base, uart_irq));
+        register_console(port);
+
+        self.init_interrupt_controller()?;
+        awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
+
+        Ok(())
     }
 }
 
@@ -88,12 +112,14 @@ impl AArch64Virt {
         AArch64Virt {
             device_tree,
             device_tree_base,
+            uart_base: None,
+            uart_irq: None,
             interrupt: None,
             interrupt_compatible: "",
         }
     }
 
-    unsafe fn init_uart(&self) -> Result<(), &'static str> {
+    unsafe fn init_uart(&mut self) -> Result<(), &'static str> {
         let chosen_node = self
             .device_tree
             .root()
@@ -143,6 +169,8 @@ impl AArch64Virt {
             .get_address(0)
             .or(Err(err_msg!("failed to get the base address")))?;
 
+        self.uart_base = Some(base as usize);
+
         // Get interrupts.
         let interrupts_prop = leaf
             .get_property("interrupts")
@@ -155,6 +183,8 @@ impl AArch64Virt {
 
         let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
             .ok_or(err_msg!("failed to calculate IRQ#"))?;
+
+        self.uart_irq = Some(irq);
 
         // Get clock.
         let clock_prop = leaf
@@ -192,7 +222,15 @@ impl AArch64Virt {
             _ => return Err(err_msg!("compatible property has not string value")),
         };
 
-        self.interrupt = Some(intc);
+        let mut arrayed_node = StaticArrayedNode::new();
+        arrayed_node
+            .push(self.device_tree.root())
+            .or(Err(err_msg!("failed to push root")))?;
+        arrayed_node
+            .push(intc)
+            .or(Err(err_msg!("failed to push intc")))?;
+
+        self.interrupt = Some(arrayed_node);
 
         Ok(())
     }
@@ -202,21 +240,7 @@ impl AArch64Virt {
             return Err(err_msg!("interrupt is not initialized"));
         };
 
-        let reg_prop = intc
-            .get_property("reg")
-            .ok_or(err_msg!("no reg property"))?;
-
-        let (gicd_base, gicc_base) = match reg_prop.value() {
-            PropertyValue::Addresses(addrs) => (
-                addrs.get(0).ok_or(err_msg!("no GICD_BASE"))?,
-                addrs.get(0).ok_or(err_msg!("no GICC_BASE"))?,
-            ),
-            _ => {
-                return Err(err_msg!("reg property has invalid value"));
-            }
-        };
-
-        Ok(())
+        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
     }
 
     fn wake_cpus_up(&self) -> Result<(), &'static str> {

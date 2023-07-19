@@ -1,7 +1,6 @@
+use super::bsp::StaticArrayedNode;
 use alloc::boxed::Box;
 use awkernel_lib::{err_msg, interrupt::register_interrupt_controller};
-
-use super::bsp::StaticArrayedNode;
 
 pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     match irc_ctl {

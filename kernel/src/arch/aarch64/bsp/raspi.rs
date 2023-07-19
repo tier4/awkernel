@@ -21,7 +21,9 @@ pub mod config;
 pub mod memory;
 mod uart;
 
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30); // 30 is the recommended value.
+/// IRQ #30 is the recommended value.
+/// every 1/2^19 = .000_001_9 [s].
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(30, 19);
 
 /// Because the device tree does not contain the system timer,
 /// it is initialized with constant values,

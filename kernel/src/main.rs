@@ -15,7 +15,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
-    task, uptime,
+    task,
 };
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
@@ -47,8 +47,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         // Test for IPI.
-        #[cfg(all(feature = "aarch64", not(feature = "std")))]
-        let mut send_ipi = uptime();
+        #[cfg(all(
+            feature = "aarch64",
+            not(any(feature = "std", feature = "aarch64_virt"))
+        ))]
+        let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
         if let Some(irq) = awkernel_lib::timer::irq_id() {
@@ -66,6 +69,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
 
+        if let Some(irq) = awkernel_lib::console::irq_id() {
+            awkernel_lib::interrupt::enable_irq(irq);
+        }
+
         awkernel_lib::sanity::check();
 
         // Userland.
@@ -78,20 +85,45 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
+            #[cfg(not(all(
+                feature = "aarch64",
+                not(any(feature = "std", feature = "aarch64_virt"))
+            )))]
             awkernel_lib::delay::wait_microsec(10);
 
             // TODO: enable timer on x86.
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            #[cfg(all(
+                feature = "aarch64",
+                not(any(feature = "std", feature = "aarch64_virt"))
+            ))]
             {
                 let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                 awkernel_lib::interrupt::enable();
                 awkernel_lib::timer::reset();
+
+                awkernel_lib::delay::wait_millisec(2000);
+
+                let t = awkernel_aarch64::cntp_ctl_el0::get();
+                log::debug!("cntp_ctl_el0 = 0b{t:b}");
+
+                unsafe {
+                    use core::arch::asm;
+                    asm!("mrs x1, CNTFRQ_EL0");
+                    asm!("msr CNTP_TVAL_EL0, x1");
+                    asm!("mov x0, 1");
+                    asm!("msr CNTP_CTL_EL0, x0");
+                }
+
                 awkernel_lib::delay::wait_interrupt();
+
+                loop {}
             }
 
             // Test for IPI.
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            #[cfg(all(
+                feature = "aarch64",
+                not(any(feature = "std", feature = "aarch64_virt"))
+            ))]
             {
                 let now = uptime();
                 if now >= send_ipi {

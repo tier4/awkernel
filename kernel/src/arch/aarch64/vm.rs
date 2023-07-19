@@ -275,6 +275,10 @@ impl VM {
     }
 
     pub fn remove_kernel_memory_from_heap_memory(&mut self) -> Result<(), &'static str> {
+        if self.num_cpus == 0 {
+            return Err(err_msg!("num_cpus == 0"));
+        }
+
         let start = get_kernel_start() as usize;
         let end = get_stack_memory() as usize + STACK_SIZE * self.num_cpus;
 

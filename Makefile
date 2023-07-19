@@ -12,7 +12,6 @@ endif
 # 2MiB Stack
 STACKSIZE = 1024 * 1024 * 2
 
-
 ifeq ($(BSP),raspi3)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a53
 	INITADDR = 0x80000
