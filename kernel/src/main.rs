@@ -72,7 +72,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         task::spawn(
             "main".into(),
             async move { userland::main().await },
-            SchedulerType::PrioritizedFIFO(0),
+            SchedulerType::FIFO,
         );
 
         loop {

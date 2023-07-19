@@ -17,7 +17,7 @@ pub fn init() {
     let task_id = task::spawn(
         "awkernel_shell".into(),
         console_handler(),
-        SchedulerType::PrioritizedFIFO(0),
+        SchedulerType::FIFO,
     );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
