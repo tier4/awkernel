@@ -85,7 +85,7 @@ gdb-raspi3:
 
 ## Virt
 
-QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=2 -cpu cortex-a72 -smp 8 $(QEMU_AARCH64_ARGS)
+QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 -smp 8 $(QEMU_AARCH64_ARGS)
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)

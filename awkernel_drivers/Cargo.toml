@@ -13,6 +13,10 @@ bitflags = "2.3"
 path = "../awkernel_lib"
 default-features = false
 
+[dependencies.awkernel_aarch64]
+path = "../awkernel_aarch64"
+optional = true
+
 [dependencies.x86_64]
 version = "0.14"
 optional = true
@@ -25,4 +29,4 @@ version = "0.2"
 default = []
 x86 = ["awkernel_lib/x86", "x86_64"]
 rv32 = ["awkernel_lib/rv32"]
-aarch64 = ["awkernel_lib/aarch64"]
+aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]

@@ -76,15 +76,15 @@ impl InterruptController for BCM2835IntCtrl {
         Box::new(self.iter())
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, _irq: u16, _target: u16) {
         // todo!()
     }
 
-    fn send_ipi_broadcast(&mut self, irq: u16) {
+    fn send_ipi_broadcast(&mut self, _irq: u16) {
         // todo!()
     }
 
-    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
+    fn send_ipi_broadcast_without_self(&mut self, _irq: u16) {
         // todo!()
     }
 }

@@ -69,10 +69,8 @@ impl GICv2 {
         registers::GICD_CTLR.write(registers::GicdCtlrNonSecure::empty(), gicd_base);
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::empty(), gicc_base);
 
-        // Get the maximum number of interrupt.
+        // Get the biggest IRQ#.
         gic.probe_max_it();
-
-        log::info!("GICv2: The maximum IRQ# is {}.", gic.max_it);
 
         for i in 0..div_ceil(gic.max_it as usize, NUM_INTS_PER_REG as usize) {
             let base = gicd_base + i * 4;

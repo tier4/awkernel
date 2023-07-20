@@ -416,6 +416,7 @@ sysreg!(afsr0_el1);
 sysreg!(afsr1_el1);
 sysreg!(contextidr_el1);
 sysreg!(vbar_el1);
+sysreg!(icc_ctlr_el1);
 sysreg_read!(mpidr_el1);
 sysreg_read!(midr_el1);
 sysreg_read!(id_aa64pfr1_el1);
