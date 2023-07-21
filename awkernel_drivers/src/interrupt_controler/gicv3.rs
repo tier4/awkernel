@@ -56,6 +56,7 @@ mod registers {
     pub const GIDG_SGIR_TARGET_ALL_EXCEPT_SELF: u32 = 0b01 << 24;
     pub const _GIDG_SGIR_TARGET_SELF: u32 = 0b10 << 24;
 
+    // GICD_base
     mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>);
     mmio_rw!(offset 0x0004 => pub GICD_TYPER<u32>);
     mmio_rw!(offset 0x0080 => pub GICD_IGROUPR<u32>);
@@ -69,12 +70,14 @@ mod registers {
     mmio_w! (offset 0x0F00 => pub GICD_SGIR<u32>);
     mmio_rw!(offset 0x6000 => pub GICD_IROUTER<u32>);
 
+    // GICR_base
     mmio_rw!(offset 0x0000 => pub GICR_CTLR<GicrCtlr>);
     mmio_rw!(offset 0x0008 => pub GICR_TYPER<u32>);
     mmio_rw!(offset 0x0014 => pub GICR_WAKER<GicrWaker>);
+
+    // SGI_base
     mmio_rw!(offset 0x0080 => pub GICR_IGROUPR0<u32>);
     mmio_rw!(offset 0x0100 => pub GICR_ISENABLER0<u32>);
-    mmio_rw!(offset 0x0104 => pub GICR_ISENABLER1<u32>);
     mmio_rw!(offset 0x0400 => pub GICR_IPRIORITYR<u32>);
     mmio_rw!(offset 0x0C00 => pub GICR_ICFGR0<u32>);
     mmio_rw!(offset 0x0C04 => pub GICR_ICFGR1<u32>);
@@ -84,11 +87,16 @@ mod registers {
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
+    sgi_base: usize,
 }
+
+const SGI_OFFSET: usize = 0x10000;
 
 impl GICv3 {
     pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
-        // Disable Group 0 and 1.
+        // Enable system register access.
+        unsafe { awkernel_aarch64::icc_sre_el1::set(1) };
+
         let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
         if gicd_ctlr.contains(registers::GicdCtlr::DS) {
             log::info!("GICv3 is non secure mode.");
@@ -100,9 +108,11 @@ impl GICv3 {
     }
 
     fn new_non_secure(gicd_base: usize, gicr_base: usize) -> Self {
+        let sgi_base = gicr_base + SGI_OFFSET;
         let gic = GICv3 {
             gicd_base,
             gicr_base,
+            sgi_base,
         };
 
         // Disable group 0 and 1.
@@ -134,7 +144,7 @@ impl GICv3 {
         // GICR_IPRIORITYR0-GICR_IPRIORITYR3 store the priority of SGIs.
         // GICR_IPRIORITYR4-GICR_IPRIORITYR7 store the priority of PPIs.
         for i in 0..8 {
-            let base = gicr_base + i * 4;
+            let base = sgi_base + i * 4;
             registers::GICR_IPRIORITYR.write(0xa0a0a0a0, base);
         }
 
@@ -144,7 +154,7 @@ impl GICv3 {
             registers::GICD_IGROUPR.write(!0, base); // Group 1.
         }
 
-        registers::GICR_IGROUPR0.write(!0, gicr_base); // Group 1.
+        registers::GICR_IGROUPR0.write(!0, sgi_base); // Group 1.
 
         // Config all interrupts to level triggered.
         // For SGIs, Int_config fields are RO, meaning that GICD_ICFGR0 is RO.
@@ -164,8 +174,8 @@ impl GICv3 {
             registers::GICD_ICFGR.write(0, base);
         }
 
-        registers::GICR_ICFGR0.write(0, gicr_base);
-        registers::GICR_ICFGR1.write(0, gicr_base);
+        registers::GICR_ICFGR0.write(0, sgi_base);
+        registers::GICR_ICFGR1.write(0, sgi_base);
 
         // The maximum value of n is given by (32*(GICD_TYPER.ITLinesNumber+1) - 1).
         for n in 0..(32 * (it_lines_number + 1)) {
@@ -229,6 +239,12 @@ impl InterruptController for GICv3 {
             let base = self.gicd_base + idx as usize * 4;
 
             registers::GICD_ISENABLER.write(mask, base);
+            if irq < 32 {
+                registers::GICR_ISENABLER0.write(mask, self.sgi_base);
+            }
+
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            log::info!("GICv3: IRQ #{irq} has been enabled on CPU#{cpu_id}.");
         } else {
             log::warn!("GICv3: IRQ #{irq} is not supported.");
         }
@@ -241,6 +257,12 @@ impl InterruptController for GICv3 {
             let base = self.gicd_base + idx as usize * 4;
 
             registers::GICD_ICENABLER.write(mask, base);
+            if irq < 32 {
+                // registers::GICR_ICENABLER0.write(mask, self.sgi_base);
+            }
+
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+            log::info!("GICv3: IRQ #{irq} has been disabled on CPU#{cpu_id}.");
         } else {
             log::warn!("GICv3: IRQ #{irq} is not supported.");
         }

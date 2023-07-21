@@ -62,11 +62,11 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
 
     let gic = awkernel_drivers::interrupt_controler::gicv3::GICv3::new(gicd_base, gicr_base);
 
+    register_interrupt_controller(Box::new(gic));
+
     log::info!("GICv3 has been initialized.");
     log::info!("GICD_BASE = 0x{gicd_base:016x}");
     log::info!("GICR_BASE = 0x{gicr_base:016x}");
-
-    todo!();
 
     Ok(())
 }
