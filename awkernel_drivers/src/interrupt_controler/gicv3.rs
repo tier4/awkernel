@@ -165,7 +165,7 @@ impl GICv3 {
         // Accessing GICD_ICFGR1 from a PE with GICR_TYPER.Processor_Number > 7 is CONSTRAINED UNPREDICTABLE:
         if processor_number < 8 {
             // Corresponding interrupt is level-sensitive.
-            registers::GICD_ICFGR.write(0, gicr_base + 4);
+            registers::GICD_ICFGR.write(0, gicd_base + 4);
         }
 
         for i in 2..64 {
