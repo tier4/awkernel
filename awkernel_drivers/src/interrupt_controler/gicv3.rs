@@ -277,6 +277,25 @@ impl InterruptController for GICv3 {
     fn send_ipi_broadcast_without_self(&mut self, irq: u16) {}
 
     fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>> {
-        todo!()
+        Box::new(PendingInterruptIterator)
+    }
+}
+
+pub struct PendingInterruptIterator;
+
+const ID_SPURIOUS: u16 = 1023;
+
+impl Iterator for PendingInterruptIterator {
+    type Item = u16;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let id = awkernel_aarch64::icc_iar1_el1::get() as u16;
+
+        if id == ID_SPURIOUS {
+            None
+        } else {
+            unsafe { awkernel_aarch64::icc_eoir1_el1::set(id as u64) };
+            Some(id)
+        }
     }
 }

@@ -372,6 +372,21 @@ macro_rules! sysreg_read {
     }
 }
 
+macro_rules! sysreg_write {
+    ($x:ident) => {
+        pub mod $x {
+            use core::arch::asm;
+
+            /// # Safety
+            ///
+            /// See "Arm Architecture Reference Manual".
+            pub unsafe fn set(v: u64) {
+                asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
+            }
+        }
+    }
+}
+
 sysreg!(daif);
 
 sysreg!(cntp_ctl_el0);
@@ -421,6 +436,10 @@ sysreg!(icc_ctlr_el1);
 sysreg!(icc_igrpen0_el1);
 sysreg!(icc_igrpen1_el1);
 sysreg!(icc_pmr_el1);
+sysreg_read!(icc_iar0_el1);
+sysreg_read!(icc_iar1_el1);
+sysreg_write!(icc_eoir0_el1);
+sysreg_write!(icc_eoir1_el1);
 sysreg_read!(mpidr_el1);
 sysreg_read!(midr_el1);
 sysreg_read!(id_aa64pfr1_el1);
