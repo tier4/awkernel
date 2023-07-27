@@ -268,7 +268,28 @@ impl InterruptController for GICv3 {
         }
     }
 
-    fn init_non_primary(&mut self) {}
+    fn init_non_primary(&mut self) {
+        // Dsable LPIs.
+        registers::GICR_CTLR.write(registers::GicrCtlr::empty(), self.gicr_base);
+
+        Self::wake_children(self.gicr_base);
+        Self::set_priority_mask();
+        Self::set_eoi_mode_zero();
+        Self::enable_igrp();
+
+        // GICR_IPRIORITYR0-GICR_IPRIORITYR3 store the priority of SGIs.
+        // GICR_IPRIORITYR4-GICR_IPRIORITYR7 store the priority of PPIs.
+        for i in 0..8 {
+            let base = self.sgi_base + i * 4;
+            registers::GICR_IPRIORITYR.write(0xa0a0a0a0, base);
+        }
+
+        registers::GICR_ICFGR0.write(0, self.sgi_base);
+        registers::GICR_ICFGR1.write(0, self.sgi_base);
+
+        // Enable LPIs.
+        registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, gicr_base);
+    }
 
     fn send_ipi(&mut self, irq: u16, target: u16) {}
 
