@@ -54,7 +54,6 @@ $ cargo install cargo-binutils
 ```mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
-    awkernel_lib-->awkernel_drivers;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     userland-->awkernel_async_lib;
@@ -62,6 +61,7 @@ graph TD;
     kernel-->awkernel_async_lib;
     kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
+    awkernel_drivers-->awkernel_lib;
     kernel-->userland;
 ```
 

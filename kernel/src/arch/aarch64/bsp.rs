@@ -15,8 +15,11 @@ pub mod config;
 pub mod memory;
 
 pub(super) type DeviceTreeRef = &'static DeviceTree<'static, local_heap::LocalHeap<'static>>;
+
+#[allow(dead_code)]
 pub(super) type DeviceTreeNodeRef =
     &'static DeviceTreeNode<'static, local_heap::LocalHeap<'static>>;
+
 pub(super) type StaticArrayedNode = ArrayedNode<'static, local_heap::LocalHeap<'static>>;
 
 #[cfg(feature = "aarch64_virt")]

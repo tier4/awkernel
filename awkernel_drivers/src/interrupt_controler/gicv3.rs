@@ -10,12 +10,12 @@
 //! | 8192 and greater | LPIs                     | The upper boundary is IMPLEMENTATION DEFINED |
 
 use alloc::boxed::Box;
-use awkernel_lib::interrupt::InterruptController;
+use awkernel_lib::{arch::aarch64::get_affinity, interrupt::InterruptController};
 
 const NUM_INTS_PER_REG: u16 = 32;
 
 mod registers {
-    use awkernel_lib::{mmio_rw, mmio_w};
+    use awkernel_lib::mmio_rw;
     use bitflags::bitflags;
 
     bitflags! {
@@ -51,23 +51,14 @@ mod registers {
         }
     }
 
-    // TargetListFilter
-    pub const GIDG_SGIR_TARGET_LIST: u32 = 0b00;
-    pub const GIDG_SGIR_TARGET_ALL_EXCEPT_SELF: u32 = 0b01 << 24;
-    pub const _GIDG_SGIR_TARGET_SELF: u32 = 0b10 << 24;
-
     // GICD_base
     mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>);
     mmio_rw!(offset 0x0004 => pub GICD_TYPER<u32>);
     mmio_rw!(offset 0x0080 => pub GICD_IGROUPR<u32>);
     mmio_rw!(offset 0x0100 => pub GICD_ISENABLER<u32>);
     mmio_rw!(offset 0x0180 => pub GICD_ICENABLER<u32>);
-    mmio_rw!(offset 0x0280 => pub GICD_ICPENDR<u32>);
-    mmio_rw!(offset 0x0380 => pub GICD_ICACTIVER<u32>);
     mmio_rw!(offset 0x0400 => pub GICD_IPRIORITYR<u32>);
-    mmio_rw!(offset 0x0800 => pub GICD_ITARGETSR<u32>);
     mmio_rw!(offset 0x0c00 => pub GICD_ICFGR<u32>);
-    mmio_w! (offset 0x0F00 => pub GICD_SGIR<u32>);
     mmio_rw!(offset 0x6000 => pub GICD_IROUTER<u32>);
 
     // GICR_base
@@ -78,6 +69,8 @@ mod registers {
     // SGI_base
     mmio_rw!(offset 0x0080 => pub GICR_IGROUPR0<u32>);
     mmio_rw!(offset 0x0100 => pub GICR_ISENABLER0<u32>);
+    mmio_rw!(offset 0x0180 => pub GICR_ICENABLER0<u32>);
+    mmio_rw!(offset 0x0280 => pub GICR_ICPENDR0<u32>);
     mmio_rw!(offset 0x0400 => pub GICR_IPRIORITYR<u32>);
     mmio_rw!(offset 0x0C00 => pub GICR_ICFGR0<u32>);
     mmio_rw!(offset 0x0C04 => pub GICR_ICFGR1<u32>);
@@ -128,9 +121,8 @@ impl GICv3 {
         registers::GICD_CTLR.setbits(registers::GicdCtlr::ARE_S, gicd_base);
 
         Self::wake_children(gicr_base);
-        Self::set_priority_mask();
-        Self::set_eoi_mode_zero();
-        Self::enable_igrp();
+        Self::init_priority_mask();
+        Self::init_eoi_mode_zero();
 
         // ITLinesNumber, bits [4:0]
         let it_lines_number = registers::GICD_TYPER.read(gicd_base) & 0x1f;
@@ -195,6 +187,14 @@ impl GICv3 {
         // Enable LPIs.
         registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, gicr_base);
 
+        // Disable all SGIs and PPIs.
+        registers::GICR_ICENABLER0.write(!0, sgi_base);
+
+        // Clear pending.
+        registers::GICR_ICPENDR0.write(!0, sgi_base);
+
+        Self::enable_igrp();
+
         gic
     }
 
@@ -212,7 +212,7 @@ impl GICv3 {
 
     /// The Priority Mask sets the minimum priority an interrupt must have in order to be forwarded to the PE.
     /// EOImode (0): ICC_EOIR0 and ICC_EOIR1 provide both priority drop and interrupt deactivation functionality
-    fn set_eoi_mode_zero() {
+    fn init_eoi_mode_zero() {
         let eoi_mode = 1 << 1;
         let icc_ctlr = awkernel_aarch64::icc_ctlr_el1::get();
         unsafe { awkernel_aarch64::icc_ctlr_el1::set(icc_ctlr & !eoi_mode) };
@@ -226,7 +226,7 @@ impl GICv3 {
         }
     }
 
-    fn set_priority_mask() {
+    fn init_priority_mask() {
         unsafe { awkernel_aarch64::icc_pmr_el1::set(0xf0) };
     }
 }
@@ -258,7 +258,7 @@ impl InterruptController for GICv3 {
 
             registers::GICD_ICENABLER.write(mask, base);
             if irq < 32 {
-                // registers::GICR_ICENABLER0.write(mask, self.sgi_base);
+                registers::GICR_ICENABLER0.write(mask, self.sgi_base);
             }
 
             let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -269,13 +269,15 @@ impl InterruptController for GICv3 {
     }
 
     fn init_non_primary(&mut self) {
+        // Enable system register access.
+        unsafe { awkernel_aarch64::icc_sre_el1::set(1) };
+
         // Dsable LPIs.
         registers::GICR_CTLR.write(registers::GicrCtlr::empty(), self.gicr_base);
 
         Self::wake_children(self.gicr_base);
-        Self::set_priority_mask();
-        Self::set_eoi_mode_zero();
-        Self::enable_igrp();
+        Self::init_priority_mask();
+        Self::init_eoi_mode_zero();
 
         // GICR_IPRIORITYR0-GICR_IPRIORITYR3 store the priority of SGIs.
         // GICR_IPRIORITYR4-GICR_IPRIORITYR7 store the priority of PPIs.
@@ -284,18 +286,67 @@ impl InterruptController for GICv3 {
             registers::GICR_IPRIORITYR.write(0xa0a0a0a0, base);
         }
 
+        registers::GICR_IGROUPR0.write(!0, self.sgi_base); // Group 1.
+
         registers::GICR_ICFGR0.write(0, self.sgi_base);
         registers::GICR_ICFGR1.write(0, self.sgi_base);
 
         // Enable LPIs.
-        registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, gicr_base);
+        registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, self.gicr_base);
+
+        // Disable all SGIs and PPIs.
+        registers::GICR_ICENABLER0.write(!0, self.sgi_base);
+
+        // Clear pending.
+        registers::GICR_ICPENDR0.write(!0, self.sgi_base);
+
+        Self::enable_igrp();
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {}
+    fn send_ipi(&mut self, irq: u16, target: u16) {
+        const ICC_CTLR_RSS: u64 = 1 << 18;
+        const GICD_TYPER_RSS: u32 = 1 << 26;
 
-    fn send_ipi_broadcast(&mut self, irq: u16) {}
+        log::debug!("send_ipi: 0");
 
-    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {}
+        let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else { return; };
+
+        log::debug!("send_ipi: 1");
+
+        let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
+            && registers::GICD_TYPER.read(self.gicd_base) & GICD_TYPER_RSS != 0
+        {
+            // Targeted SGIs with affinity level 0 values of 0 - 255 are supported.
+            ((aff0 as u64 & 0xf0) << 40, (1 << (aff0 & 0x0f)) as u64)
+        } else {
+            // Targeted SGIs with affinity level 0 values of 0 - 15 are supported.
+            (0, 1 << (aff0 & 0x0f))
+        };
+
+        let reg = (aff3 as u64) << 48
+            | rs
+            | (aff2 as u64) << 32
+            | (irq as u64 & 0x0f) << 24
+            | (aff1 as u64) << 16
+            | target_list;
+
+        log::debug!("send_ipi: reg = 0b{reg:b}");
+
+        unsafe { awkernel_aarch64::icc_sgi1r_el1::set(reg) }
+    }
+
+    fn send_ipi_broadcast(&mut self, irq: u16) {
+        self.send_ipi_broadcast_without_self(irq);
+        let id = awkernel_lib::cpu::cpu_id();
+        self.send_ipi(irq, id as u16);
+    }
+
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
+        const ICC_SGI1R_EL1_IRM: u64 = 1 << 40;
+        unsafe {
+            awkernel_aarch64::icc_sgi1r_el1::set(ICC_SGI1R_EL1_IRM | ((irq as u64) & 0x0f) << 24)
+        }
+    }
 
     fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>> {
         Box::new(PendingInterruptIterator)

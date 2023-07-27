@@ -8,7 +8,7 @@ pub mod page_allocator;
 pub mod page_table;
 pub mod rpi_system_timer;
 
-pub use cpu::set_max_affinity;
+pub use cpu::{get_affinity, set_max_affinity};
 
 /// # Safety
 ///

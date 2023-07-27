@@ -4,7 +4,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    arch::aarch64::armv8_timer::Armv8Timer,
+    arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
@@ -269,6 +269,9 @@ impl AArch64Virt {
             .find_child("cpu-map")
             .ok_or(err_msg!("could not find cpu-map"))?;
 
+        let mut aff2_max = 0;
+        let mut aff1_max = 0;
+        let mut aff0_max = 0;
         for socket in cpu_map
             .nodes()
             .iter()
@@ -277,6 +280,8 @@ impl AArch64Virt {
             let (_, aff2_str) = socket.name().split_at("socket".len());
             let aff2 =
                 u64::from_str_radix(aff2_str, 10).or(Err(err_msg!("invalid socket number")))?;
+
+            aff2_max = aff2_max.max(aff2);
 
             for cluster in socket
                 .nodes()
@@ -287,6 +292,8 @@ impl AArch64Virt {
                 let aff1 = u64::from_str_radix(aff1_str, 10)
                     .or(Err(err_msg!("invalid cluster number")))?;
 
+                aff1_max = aff1_max.max(aff1);
+
                 for core in cluster
                     .nodes()
                     .iter()
@@ -295,6 +302,8 @@ impl AArch64Virt {
                     let (_, aff0_str) = core.name().split_at("core".len());
                     let aff0 = u64::from_str_radix(aff0_str, 10)
                         .or(Err(err_msg!("invalid core number")))?;
+
+                    aff0_max = aff0_max.max(aff0);
 
                     match (aff0, aff1, aff2) {
                         (0, 0, 0) => (),
@@ -308,6 +317,8 @@ impl AArch64Virt {
                 }
             }
         }
+
+        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 0) };
 
         Ok(())
     }

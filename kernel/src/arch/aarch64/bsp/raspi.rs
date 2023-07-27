@@ -6,7 +6,7 @@ use crate::arch::aarch64::{
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
-    arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer},
+    arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer, set_max_affinity},
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
@@ -61,6 +61,8 @@ impl super::SoC for Raspi {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt_fields()?;
         self.init_uart0()?;
+
+        set_max_affinity(4, 0, 0, 0);
 
         start_non_primary();
 

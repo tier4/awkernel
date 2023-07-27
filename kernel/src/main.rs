@@ -78,8 +78,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
-            awkernel_lib::delay::wait_microsec(10);
+            // #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
+            // awkernel_lib::delay::wait_microsec(10);
 
             // TODO: enable timer on x86.
             #[cfg(all(feature = "aarch64", not(feature = "std")))]
@@ -96,15 +96,20 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     if now - send_ipi >= 20_000 {
-                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                            config::PREEMPT_IRQ,
-                        );
+                        log::debug!("now = {now}, send_ipi = {send_ipi}");
+                        // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                        //     config::PREEMPT_IRQ,
+                        // );
+                        awkernel_lib::interrupt::send_ipi(0, 1);
+                        awkernel_lib::interrupt::send_ipi(0, 2);
                         send_ipi = now;
                     }
                 }
             }
         }
     } else {
+        awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+
         // Non-primary CPUs.
         unsafe { task::run() }; // Execute tasks.
     }
