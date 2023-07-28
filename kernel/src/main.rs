@@ -79,16 +79,16 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             wake_task(); // Wake executable tasks periodically.
 
             // #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
-            // awkernel_lib::delay::wait_microsec(10);
+            awkernel_lib::delay::wait_microsec(10);
 
             // TODO: enable timer on x86.
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
-            {
-                let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
-                awkernel_lib::interrupt::enable();
-                awkernel_lib::timer::reset();
-                awkernel_lib::delay::wait_interrupt();
-            }
+            // #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            // {
+            //     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
+            //     awkernel_lib::interrupt::enable();
+            //     awkernel_lib::timer::reset();
+            //     awkernel_lib::delay::wait_interrupt();
+            // }
 
             // Test for IPI.
             #[cfg(all(feature = "aarch64", not(feature = "std")))]
@@ -96,7 +96,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     if now - send_ipi >= 20_000 {
-                        log::debug!("now = {now}, send_ipi = {send_ipi}");
                         // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
                         //     config::PREEMPT_IRQ,
                         // );

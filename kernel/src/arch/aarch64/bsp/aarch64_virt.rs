@@ -269,9 +269,9 @@ impl AArch64Virt {
             .find_child("cpu-map")
             .ok_or(err_msg!("could not find cpu-map"))?;
 
-        let mut aff2_max = 0;
-        let mut aff1_max = 0;
-        let mut aff0_max = 0;
+        let mut aff2_max = 1;
+        let mut aff1_max = 1;
+        let mut aff0_max = 1;
         for socket in cpu_map
             .nodes()
             .iter()
@@ -304,6 +304,7 @@ impl AArch64Virt {
                         .or(Err(err_msg!("invalid core number")))?;
 
                     aff0_max = aff0_max.max(aff0);
+                    log::debug!("aff0 = {aff0}");
 
                     match (aff0, aff1, aff2) {
                         (0, 0, 0) => (),
@@ -318,7 +319,7 @@ impl AArch64Virt {
             }
         }
 
-        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 0) };
+        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 1) };
 
         Ok(())
     }

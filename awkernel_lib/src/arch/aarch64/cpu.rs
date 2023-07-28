@@ -1,4 +1,7 @@
-use crate::cpu::{CPU, NUM_MAX_CPU};
+use crate::{
+    console::{unsafe_print_hex_u32, unsafe_puts},
+    cpu::{CPU, NUM_MAX_CPU},
+};
 use awkernel_aarch64::mpidr_el1;
 
 #[no_mangle]
@@ -45,9 +48,7 @@ pub unsafe fn set_max_affinity(aff0_max: u64, aff1_max: u64, aff2_max: u64, aff3
         for aff2 in 0..aff2_max {
             for aff1 in 0..aff1_max {
                 for aff0 in 0..aff0_max {
-                    unsafe {
-                        CPU_LIST[id] = Some((aff0 as u8, aff1 as u8, aff2 as u8, aff3 as u8))
-                    };
+                    CPU_LIST[id] = Some((aff0 as u8, aff1 as u8, aff2 as u8, aff3 as u8));
                     id += 1;
                 }
             }

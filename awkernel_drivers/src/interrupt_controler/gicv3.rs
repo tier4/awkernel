@@ -20,7 +20,7 @@ mod registers {
 
     bitflags! {
         #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-        pub struct GicdCtlr: u32 {
+        pub struct GicdCtlrSecure: u32 {
             const RWP = 1 << 31;
             const nASSGIreq = 1 << 8;
             const E1NWF = 1 << 7;
@@ -29,6 +29,30 @@ mod registers {
             const ARE_S = 1 << 4;
             const EnableGrp1S = 1 << 2;
             const EnableGrp1NS = 1 << 1;
+            const EnableGrp0 = 1 << 0;
+        }
+
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        pub struct GicdCtlrNonSecure: u32 {
+            const RWP = 1 << 31;
+            const ARE_NS = 1 << 4;
+            const EnableGrp1 = 1 << 1;
+            const EnableGrp0 = 1 << 0;
+        }
+
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        pub struct GicdCtlr: u32 {
+            /// RWP is 1 during the following fields are updating.
+            /// - GICD_CTLR[2:0], the Group Enables, for transitions from 1 to 0 only.
+            /// - GICD_CTLR[7:4], the ARE bits, E1NWF bit and DS bit.
+            /// - GICD_ICENABLER<n>.
+            const RWP = 1 << 31;
+
+            const nASSGIreq = 1 << 8;
+            const E1NWF = 1 << 7;
+            const DS = 1 << 6;
+            const ARE = 1 << 4;
+            const EnableGrp1 = 1 << 1;
             const EnableGrp0 = 1 << 0;
         }
 
@@ -51,8 +75,12 @@ mod registers {
         }
     }
 
+    pub const GICR_TYPER_DPGS: u64 = 1 << 5;
+
     // GICD_base
-    mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>);
+    mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>); // Single security mode.
+    mmio_rw!(offset 0x0000 => pub GICD_CTLR_SECURE<GicdCtlrSecure>); // Secure mode.
+    mmio_rw!(offset 0x0000 => pub GICD_CTLR_NON_SECURE<GicdCtlrNonSecure>); // Non-secure mode.
     mmio_rw!(offset 0x0004 => pub GICD_TYPER<u32>);
     mmio_rw!(offset 0x0080 => pub GICD_IGROUPR<u32>);
     mmio_rw!(offset 0x0100 => pub GICD_ISENABLER<u32>);
@@ -63,7 +91,7 @@ mod registers {
 
     // GICR_base
     mmio_rw!(offset 0x0000 => pub GICR_CTLR<GicrCtlr>);
-    mmio_rw!(offset 0x0008 => pub GICR_TYPER<u32>);
+    mmio_rw!(offset 0x0008 => pub GICR_TYPER<u64>);
     mmio_rw!(offset 0x0014 => pub GICR_WAKER<GicrWaker>);
 
     // SGI_base
@@ -110,15 +138,18 @@ impl GICv3 {
 
         // Disable group 0 and 1.
         registers::GICD_CTLR.clrbits(
-            registers::GicdCtlr::EnableGrp0 | registers::GicdCtlr::EnableGrp1NS,
+            registers::GicdCtlr::EnableGrp0 | registers::GicdCtlr::EnableGrp1,
             gicd_base,
         );
 
         // Dsable LPIs.
         registers::GICR_CTLR.write(registers::GicrCtlr::empty(), gicr_base);
 
-        // Enable affinity routing.
-        registers::GICD_CTLR.setbits(registers::GicdCtlr::ARE_S, gicd_base);
+        // Enable affinity routing and 1 of N interrupt.
+        registers::GICD_CTLR.setbits(
+            registers::GicdCtlr::ARE | registers::GicdCtlr::E1NWF,
+            gicd_base,
+        );
 
         Self::wake_children(gicr_base);
         Self::init_priority_mask();
@@ -160,6 +191,8 @@ impl GICv3 {
             registers::GICD_ICFGR.write(0, gicd_base + 4);
         }
 
+        registers::GICR_TYPER.setbits(registers::GICR_TYPER_DPGS, gicr_base);
+
         for i in 2..64 {
             let base = gicd_base + i * 4;
             // Corresponding interrupt is level-sensitive.
@@ -179,10 +212,7 @@ impl GICv3 {
         }
 
         // Enable the distributor.
-        registers::GICD_CTLR.setbits(
-            registers::GicdCtlr::EnableGrp0 | registers::GicdCtlr::EnableGrp1NS,
-            gicd_base,
-        );
+        registers::GICD_CTLR.setbits(registers::GicdCtlr::EnableGrp1, gicd_base);
 
         // Enable LPIs.
         registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, gicr_base);
@@ -218,12 +248,9 @@ impl GICv3 {
         unsafe { awkernel_aarch64::icc_ctlr_el1::set(icc_ctlr & !eoi_mode) };
     }
 
-    /// Enable signaling of each interrupt group.
+    /// Enable signaling of the interrupt group 1.
     fn enable_igrp() {
-        unsafe {
-            awkernel_aarch64::icc_igrpen0_el1::set(1);
-            awkernel_aarch64::icc_igrpen1_el1::set(1);
-        }
+        unsafe { awkernel_aarch64::icc_igrpen1_el1::set(1) };
     }
 
     fn init_priority_mask() {
@@ -307,11 +334,7 @@ impl InterruptController for GICv3 {
         const ICC_CTLR_RSS: u64 = 1 << 18;
         const GICD_TYPER_RSS: u32 = 1 << 26;
 
-        log::debug!("send_ipi: 0");
-
         let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else { return; };
-
-        log::debug!("send_ipi: 1");
 
         let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
             && registers::GICD_TYPER.read(self.gicd_base) & GICD_TYPER_RSS != 0
@@ -329,8 +352,6 @@ impl InterruptController for GICv3 {
             | (irq as u64 & 0x0f) << 24
             | (aff1 as u64) << 16
             | target_list;
-
-        log::debug!("send_ipi: reg = 0b{reg:b}");
 
         unsafe { awkernel_aarch64::icc_sgi1r_el1::set(reg) }
     }
