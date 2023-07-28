@@ -96,11 +96,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     if now - send_ipi >= 20_000 {
-                        // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                        //     config::PREEMPT_IRQ,
-                        // );
-                        awkernel_lib::interrupt::send_ipi(0, 1);
-                        awkernel_lib::interrupt::send_ipi(0, 2);
+                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                            config::PREEMPT_IRQ,
+                        );
+                        // awkernel_lib::interrupt::send_ipi(0, 1);
+                        // awkernel_lib::interrupt::send_ipi(0, 2);
                         send_ipi = now;
                     }
                 }

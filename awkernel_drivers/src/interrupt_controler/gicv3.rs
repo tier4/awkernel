@@ -9,6 +9,8 @@
 //! | 1024 - 8191      | Reserved LPIs            |                                              |
 //! | 8192 and greater | LPIs                     | The upper boundary is IMPLEMENTATION DEFINED |
 
+use core::hint::spin_loop;
+
 use alloc::boxed::Box;
 use awkernel_lib::{arch::aarch64::get_affinity, interrupt::InterruptController};
 
@@ -75,8 +77,6 @@ mod registers {
         }
     }
 
-    pub const GICR_TYPER_DPGS: u64 = 1 << 5;
-
     // GICD_base
     mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>); // Single security mode.
     mmio_rw!(offset 0x0000 => pub GICD_CTLR_SECURE<GicdCtlrSecure>); // Secure mode.
@@ -85,9 +85,11 @@ mod registers {
     mmio_rw!(offset 0x0080 => pub GICD_IGROUPR<u32>);
     mmio_rw!(offset 0x0100 => pub GICD_ISENABLER<u32>);
     mmio_rw!(offset 0x0180 => pub GICD_ICENABLER<u32>);
+    mmio_rw!(offset 0x0280 => pub GICD_ICPENDR<u32>);
     mmio_rw!(offset 0x0400 => pub GICD_IPRIORITYR<u32>);
     mmio_rw!(offset 0x0c00 => pub GICD_ICFGR<u32>);
-    mmio_rw!(offset 0x6000 => pub GICD_IROUTER<u32>);
+    mmio_rw!(offset 0x0D00 => pub GICD_IGRPMODR<u32>);
+    mmio_rw!(offset 0x6000 => pub GICD_IROUTER<u64>);
 
     // GICR_base
     mmio_rw!(offset 0x0000 => pub GICR_CTLR<GicrCtlr>);
@@ -113,11 +115,26 @@ pub struct GICv3 {
 
 const SGI_OFFSET: usize = 0x10000;
 
+fn wait_gicd_rwp(gicd_base: usize) {
+    while registers::GICD_CTLR
+        .read(gicd_base)
+        .contains(registers::GicdCtlr::RWP)
+    {
+        spin_loop();
+    }
+}
+
+fn wait_gicr_rwp(gicr_base: usize) {
+    while registers::GICR_CTLR
+        .read(gicr_base)
+        .contains(registers::GicrCtlr::RWP)
+    {
+        spin_loop();
+    }
+}
+
 impl GICv3 {
     pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
-        // Enable system register access.
-        unsafe { awkernel_aarch64::icc_sre_el1::set(1) };
-
         let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
         if gicd_ctlr.contains(registers::GicdCtlr::DS) {
             log::info!("GICv3 is non secure mode.");
@@ -136,48 +153,31 @@ impl GICv3 {
             sgi_base,
         };
 
-        // Disable group 0 and 1.
-        registers::GICD_CTLR.clrbits(
-            registers::GicdCtlr::EnableGrp0 | registers::GicdCtlr::EnableGrp1,
-            gicd_base,
-        );
-
-        // Dsable LPIs.
-        registers::GICR_CTLR.write(registers::GicrCtlr::empty(), gicr_base);
-
-        // Enable affinity routing and 1 of N interrupt.
-        registers::GICD_CTLR.setbits(
-            registers::GicdCtlr::ARE | registers::GicdCtlr::E1NWF,
-            gicd_base,
-        );
-
-        Self::wake_children(gicr_base);
-        Self::init_priority_mask();
-        Self::init_eoi_mode_zero();
+        let typer = registers::GICD_TYPER.read(gicd_base);
 
         // ITLinesNumber, bits [4:0]
-        let it_lines_number = registers::GICD_TYPER.read(gicd_base) & 0x1f;
+        let it_lines_number = typer & 0x1f;
+        let gic_max_int = it_lines_number * 32;
+
+        // Disable GICD.
+        registers::GICD_CTLR.write(registers::GicdCtlr::empty(), gicd_base);
+        wait_gicd_rwp(gicd_base);
+
+        // Clear SPIs, set group 1.
+        for i in (1..gic_max_int).step_by(32) {
+            let base = gicd_base + i as usize / 8;
+            registers::GICD_ICENABLER.write(!0, base);
+            registers::GICD_ICPENDR.write(!0, base);
+            registers::GICD_IGROUPR.write(!0, base);
+            registers::GICD_IGRPMODR.write(0, base);
+        }
+        wait_gicd_rwp(gicd_base);
 
         // The number of implemented GICD_IPRIORITYRs is (8 * (GICD_TYPER.ITLinesNumber+1)).
         for i in 0..(8 * (it_lines_number + 1)) {
             let base = gicd_base + (i * 4) as usize;
             registers::GICD_IPRIORITYR.write(0xa0a0a0a0, base);
         }
-
-        // GICR_IPRIORITYR0-GICR_IPRIORITYR3 store the priority of SGIs.
-        // GICR_IPRIORITYR4-GICR_IPRIORITYR7 store the priority of PPIs.
-        for i in 0..8 {
-            let base = sgi_base + i * 4;
-            registers::GICR_IPRIORITYR.write(0xa0a0a0a0, base);
-        }
-
-        // The number of implemented GICD_IGROUPR registers is (GICD_TYPER.ITLinesNumber + 1)
-        for i in 0..(it_lines_number + 1) {
-            let base = gicd_base + (i * 4) as usize;
-            registers::GICD_IGROUPR.write(!0, base); // Group 1.
-        }
-
-        registers::GICR_IGROUPR0.write(!0, sgi_base); // Group 1.
 
         // Config all interrupts to level triggered.
         // For SGIs, Int_config fields are RO, meaning that GICD_ICFGR0 is RO.
@@ -191,41 +191,49 @@ impl GICv3 {
             registers::GICD_ICFGR.write(0, gicd_base + 4);
         }
 
-        registers::GICR_TYPER.setbits(registers::GICR_TYPER_DPGS, gicr_base);
-
-        for i in 2..64 {
-            let base = gicd_base + i * 4;
-            // Corresponding interrupt is level-sensitive.
-            registers::GICD_ICFGR.write(0, base);
-        }
-
-        registers::GICR_ICFGR0.write(0, sgi_base);
-        registers::GICR_ICFGR1.write(0, sgi_base);
-
         // The maximum value of n is given by (32*(GICD_TYPER.ITLinesNumber+1) - 1).
         for n in 0..(32 * (it_lines_number + 1)) {
-            let base = gicd_base + (n * 4) as usize;
+            let base = gicd_base + (n * 8) as usize;
             // Interrupts routed to the PE specified by a.b.c.d. In this routing, a, b, c,
             // and d are the values of fields Aff3, Aff2, Aff1, and Aff0 respectively.
             // All SPIs will be delivered to the CPU #0.
-            registers::GICD_IROUTER.write(1 << 31, base); // Interrupt_Routing_Mode, bit [31]
+            registers::GICD_IROUTER.write(0, base); // Interrupt_Routing_Mode, bit [31]
         }
 
-        // Enable the distributor.
-        registers::GICD_CTLR.setbits(registers::GicdCtlr::EnableGrp1, gicd_base);
+        // Enable group 1 and affinity routing.
+        registers::GICD_CTLR.write(
+            registers::GicdCtlr::EnableGrp1 | registers::GicdCtlr::ARE | registers::GicdCtlr::E1NWF,
+            gicd_base,
+        );
+        wait_gicd_rwp(gicd_base);
 
-        // Enable LPIs.
-        registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, gicr_base);
-
-        // Disable all SGIs and PPIs.
-        registers::GICR_ICENABLER0.write(!0, sgi_base);
-
-        // Clear pending.
-        registers::GICR_ICPENDR0.write(!0, sgi_base);
-
-        Self::enable_igrp();
+        Self::init_per_cpu(gicr_base, sgi_base);
 
         gic
+    }
+
+    fn init_per_cpu(gicr_base: usize, sgi_base: usize) {
+        Self::wake_children(gicr_base);
+
+        registers::GICR_IGROUPR0.write(!0, sgi_base);
+        wait_gicr_rwp(gicr_base);
+
+        registers::GICR_ICENABLER0.write(!0, sgi_base);
+        registers::GICR_ICPENDR0.write(!0, sgi_base);
+        wait_gicr_rwp(gicr_base);
+
+        // Enable system register access.
+        let sre = awkernel_aarch64::icc_sre_el1::get();
+        if sre & 1 == 0 {
+            unsafe { awkernel_aarch64::icc_sre_el1::set(sre & 1) };
+        }
+
+        registers::GICR_ISENABLER0.write(!0, sgi_base);
+        wait_gicr_rwp(gicr_base);
+
+        Self::init_eoi_mode_zero();
+        Self::init_priority_mask();
+        Self::enable_igrp();
     }
 
     /// On reset, a Redistributor treats the PE to which it is connected as sleeping.
@@ -265,9 +273,12 @@ impl InterruptController for GICv3 {
             let mask = 1 << (irq & (NUM_INTS_PER_REG - 1)) as u32;
             let base = self.gicd_base + idx as usize * 4;
 
-            registers::GICD_ISENABLER.write(mask, base);
             if irq < 32 {
                 registers::GICR_ISENABLER0.write(mask, self.sgi_base);
+                wait_gicr_rwp(self.gicr_base);
+            } else {
+                registers::GICD_ISENABLER.write(mask, base);
+                wait_gicd_rwp(self.gicd_base);
             }
 
             let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -283,9 +294,12 @@ impl InterruptController for GICv3 {
             let mask = 1 << (irq & (NUM_INTS_PER_REG - 1)) as u32;
             let base = self.gicd_base + idx as usize * 4;
 
-            registers::GICD_ICENABLER.write(mask, base);
             if irq < 32 {
                 registers::GICR_ICENABLER0.write(mask, self.sgi_base);
+                wait_gicr_rwp(self.gicr_base);
+            } else {
+                registers::GICD_ICENABLER.write(mask, base);
+                wait_gicd_rwp(self.gicd_base);
             }
 
             let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -296,38 +310,7 @@ impl InterruptController for GICv3 {
     }
 
     fn init_non_primary(&mut self) {
-        // Enable system register access.
-        unsafe { awkernel_aarch64::icc_sre_el1::set(1) };
-
-        // Dsable LPIs.
-        registers::GICR_CTLR.write(registers::GicrCtlr::empty(), self.gicr_base);
-
-        Self::wake_children(self.gicr_base);
-        Self::init_priority_mask();
-        Self::init_eoi_mode_zero();
-
-        // GICR_IPRIORITYR0-GICR_IPRIORITYR3 store the priority of SGIs.
-        // GICR_IPRIORITYR4-GICR_IPRIORITYR7 store the priority of PPIs.
-        for i in 0..8 {
-            let base = self.sgi_base + i * 4;
-            registers::GICR_IPRIORITYR.write(0xa0a0a0a0, base);
-        }
-
-        registers::GICR_IGROUPR0.write(!0, self.sgi_base); // Group 1.
-
-        registers::GICR_ICFGR0.write(0, self.sgi_base);
-        registers::GICR_ICFGR1.write(0, self.sgi_base);
-
-        // Enable LPIs.
-        registers::GICR_CTLR.write(registers::GicrCtlr::EnableLPIs, self.gicr_base);
-
-        // Disable all SGIs and PPIs.
-        registers::GICR_ICENABLER0.write(!0, self.sgi_base);
-
-        // Clear pending.
-        registers::GICR_ICPENDR0.write(!0, self.sgi_base);
-
-        Self::enable_igrp();
+        Self::init_per_cpu(self.gicr_base, self.sgi_base);
     }
 
     fn send_ipi(&mut self, irq: u16, target: u16) {
