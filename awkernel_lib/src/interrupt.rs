@@ -152,8 +152,6 @@ pub fn handle_irqs() {
         }
     }
 
-    log::debug!("handle_irqs()");
-
     if need_preemption {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };

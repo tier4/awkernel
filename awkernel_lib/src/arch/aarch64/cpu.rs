@@ -1,7 +1,4 @@
-use crate::{
-    console::{unsafe_print_hex_u32, unsafe_puts},
-    cpu::{CPU, NUM_MAX_CPU},
-};
+use crate::cpu::{CPU, NUM_MAX_CPU};
 use awkernel_aarch64::mpidr_el1;
 
 #[no_mangle]
@@ -58,4 +55,20 @@ pub unsafe fn set_max_affinity(aff0_max: u64, aff1_max: u64, aff2_max: u64, aff3
 
 pub fn get_affinity(cpu_id: usize) -> Option<(u8, u8, u8, u8)> {
     unsafe { CPU_LIST[cpu_id] }
+}
+
+pub const AFF3_MASK: u64 = 0xff << 32;
+pub const AFF2_MASK: u64 = 0xff << 16;
+pub const AFF1_MASK: u64 = 0xff << 8;
+pub const AFF0_MASK: u64 = 0xff;
+
+/// Get the current CPU affinity.
+pub fn current_affinity() -> (u8, u8, u8, u8) {
+    let mpidr_el1 = awkernel_aarch64::mpidr_el1::get();
+    (
+        ((mpidr_el1 & AFF3_MASK) >> 32) as u8,
+        ((mpidr_el1 & AFF2_MASK) >> 16) as u8,
+        ((mpidr_el1 & AFF1_MASK) >> 8) as u8,
+        (mpidr_el1 & AFF0_MASK) as u8,
+    )
 }

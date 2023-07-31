@@ -8,11 +8,18 @@
 //! | 1020 - 1023      | Special interrupt number | Used to signal special cases                 |
 //! | 1024 - 8191      | Reserved LPIs            |                                              |
 //! | 8192 and greater | LPIs                     | The upper boundary is IMPLEMENTATION DEFINED |
+//!
+//! # Reference
+//!
+//! https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c
 
+use alloc::{boxed::Box, collections::BTreeMap};
+use awkernel_lib::{
+    arch::aarch64::{current_affinity, get_affinity},
+    cpu::NUM_MAX_CPU,
+    interrupt::InterruptController,
+};
 use core::hint::spin_loop;
-
-use alloc::boxed::Box;
-use awkernel_lib::{arch::aarch64::get_affinity, interrupt::InterruptController};
 
 const NUM_INTS_PER_REG: u16 = 32;
 
@@ -110,7 +117,7 @@ mod registers {
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
-    sgi_base: usize,
+    cpu_gicr: BTreeMap<u64, usize>,
 }
 
 const SGI_OFFSET: usize = 0x10000;
@@ -133,6 +140,11 @@ fn wait_gicr_rwp(gicr_base: usize) {
     }
 }
 
+fn cpu_identity() -> u64 {
+    let (aff3, aff2, aff1, aff0) = current_affinity();
+    (aff3 as u64) << 56 | (aff2 as u64) << 48 | (aff1 as u64) << 40 | (aff0 as u64) << 32
+}
+
 impl GICv3 {
     pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
         let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
@@ -146,13 +158,6 @@ impl GICv3 {
     }
 
     fn new_non_secure(gicd_base: usize, gicr_base: usize) -> Self {
-        let sgi_base = gicr_base + SGI_OFFSET;
-        let gic = GICv3 {
-            gicd_base,
-            gicr_base,
-            sgi_base,
-        };
-
         let typer = registers::GICD_TYPER.read(gicd_base);
 
         // ITLinesNumber, bits [4:0]
@@ -207,12 +212,40 @@ impl GICv3 {
         );
         wait_gicd_rwp(gicd_base);
 
-        Self::init_per_cpu(gicr_base, sgi_base);
+        let mut gic = GICv3 {
+            gicd_base,
+            gicr_base,
+            cpu_gicr: BTreeMap::new(),
+        };
+
+        gic.init_per_cpu();
 
         gic
     }
 
-    fn init_per_cpu(gicr_base: usize, sgi_base: usize) {
+    fn find_redist(&mut self) -> Option<usize> {
+        let cpu_id = cpu_identity() >> 32;
+
+        for i in 0..NUM_MAX_CPU {
+            let base = self.gicr_base + i * 0x20000;
+            let typer = registers::GICR_TYPER.read(base);
+            if cpu_id == typer >> 32 {
+                self.cpu_gicr.insert(cpu_id, base);
+                return Some(base);
+            }
+        }
+
+        None
+    }
+
+    fn init_per_cpu(&mut self) {
+        let Some(gicr_base) = self.find_redist() else {
+            log::error!("could not find GICR_BASE");
+            return;
+        };
+
+        let sgi_base = gicr_base + SGI_OFFSET;
+
         Self::wake_children(gicr_base);
 
         registers::GICR_IGROUPR0.write(!0, sgi_base);
@@ -274,8 +307,12 @@ impl InterruptController for GICv3 {
             let base = self.gicd_base + idx as usize * 4;
 
             if irq < 32 {
-                registers::GICR_ISENABLER0.write(mask, self.sgi_base);
-                wait_gicr_rwp(self.gicr_base);
+                let id = cpu_identity();
+                if let Some(gicr_base) = self.cpu_gicr.get(&id) {
+                    let sgi_base = gicr_base + SGI_OFFSET;
+                    registers::GICR_ISENABLER0.write(mask, sgi_base);
+                    wait_gicr_rwp(*gicr_base);
+                }
             } else {
                 registers::GICD_ISENABLER.write(mask, base);
                 wait_gicd_rwp(self.gicd_base);
@@ -295,8 +332,12 @@ impl InterruptController for GICv3 {
             let base = self.gicd_base + idx as usize * 4;
 
             if irq < 32 {
-                registers::GICR_ICENABLER0.write(mask, self.sgi_base);
-                wait_gicr_rwp(self.gicr_base);
+                let id = cpu_identity();
+                if let Some(gicr_base) = self.cpu_gicr.get(&id) {
+                    let sgi_base = gicr_base + SGI_OFFSET;
+                    registers::GICR_ICENABLER0.write(mask, sgi_base);
+                    wait_gicr_rwp(*gicr_base);
+                }
             } else {
                 registers::GICD_ICENABLER.write(mask, base);
                 wait_gicd_rwp(self.gicd_base);
@@ -310,7 +351,7 @@ impl InterruptController for GICv3 {
     }
 
     fn init_non_primary(&mut self) {
-        Self::init_per_cpu(self.gicr_base, self.sgi_base);
+        self.init_per_cpu();
     }
 
     fn send_ipi(&mut self, irq: u16, target: u16) {
