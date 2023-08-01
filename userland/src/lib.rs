@@ -78,6 +78,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         spawn(
             format!("{i}-client").into(),
             async move {
+                let mut n = 0;
                 loop {
                     let start = uptime();
                     tx1.send(()).await.unwrap();
@@ -89,6 +90,11 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                     for _ in 0..10000 {
                         unsafe { core::arch::asm!("nop") };
+                    }
+
+                    n += 1;
+                    if n & 0xfff == 0 {
+                        log::debug!("Client {i} is alive.");
                     }
                 }
             },

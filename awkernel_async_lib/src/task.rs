@@ -67,10 +67,14 @@ impl ArcWake for Task {
 
     fn wake(self: Arc<Self>) {
         {
+            use State::*;
+
             let mut node = MCSNode::new();
             let mut info = self.info.lock(&mut node);
-            if matches!(info.state, State::Running | State::Preempted) {
+            if matches!(info.state, Running | ReadyToRun | Preempted) {
                 info.need_sched = true;
+                return;
+            } else if matches!(info.state, Terminated | Panicked) {
                 return;
             }
         }
@@ -112,14 +116,6 @@ impl TaskInfo {
         self.scheduler_type
     }
 
-    pub fn is_preempted(&self) -> bool {
-        #[cfg(not(feature = "no_preempt"))]
-        return self.thread.is_some();
-
-        #[allow(unreachable_code)]
-        false
-    }
-
     pub fn update_last_executed(&mut self) {
         self.last_executed_time = awkernel_lib::delay::uptime();
     }
@@ -141,6 +137,7 @@ impl TaskInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
+    ReadyToRun,
     Running,
     Waiting,
     Preempted,
@@ -302,45 +299,45 @@ pub fn run_main() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let mut node = MCSNode::new();
-            let Some(mut guard) = task.future.try_lock(&mut node) else {
-                // This task is running on another CPU,
-                // and re-schedule the task to avoid starvation just in case.
-                task.wake();
-                continue;
-            };
-
-            // Can remove this?
-            if guard.is_terminated() {
-                continue;
-            }
-
-            {
+            let result = {
                 let mut node = MCSNode::new();
-                let mut info = task.info.lock(&mut node);
+                let Some(mut guard) = task.future.try_lock(&mut node) else {
+                    // This task is running on another CPU,
+                    // and re-schedule the task to avoid starvation just in case.
+                    task.wake();
+                    continue;
+                };
 
-                if matches!(info.state, State::Terminated | State::Panicked) {
+                // Can remove this?
+                if guard.is_terminated() {
                     continue;
                 }
 
-                info.update_last_executed();
-                info.state = State::Running;
-                info.need_sched = false;
-            }
+                {
+                    let mut node = MCSNode::new();
+                    let mut info = task.info.lock(&mut node);
 
-            // Use the primary memory allocator.
-            #[cfg(not(feature = "std"))]
-            unsafe {
-                awkernel_lib::heap::TALLOC.use_primary()
-            };
+                    if matches!(info.state, State::Terminated | State::Panicked) {
+                        continue;
+                    }
 
-            {
-                let cpu_id = awkernel_lib::cpu::cpu_id();
-                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-            }
+                    info.update_last_executed();
+                    info.state = State::Running;
+                    info.need_sched = false;
+                }
 
-            // Invoke a task.
-            let result = {
+                // Use the primary memory allocator.
+                #[cfg(not(feature = "std"))]
+                unsafe {
+                    awkernel_lib::heap::TALLOC.use_primary()
+                };
+
+                {
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+                }
+
+                // Invoke a task.
                 catch_unwind(|| {
                     #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
                     {
@@ -453,7 +450,13 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     result
 }
 
-pub fn get_tasks_running() -> Vec<u32> {
+#[derive(Debug)]
+pub struct RunningTask {
+    pub cpu_id: usize,
+    pub task_id: u32,
+}
+
+pub fn get_tasks_running() -> Vec<RunningTask> {
     let mut tasks = Vec::new();
     let num_cpus = awkernel_lib::cpu::num_cpu();
 
@@ -462,7 +465,8 @@ pub fn get_tasks_running() -> Vec<u32> {
             break;
         }
 
-        tasks.push(task.load(Ordering::Relaxed));
+        let task_id = task.load(Ordering::Relaxed);
+        tasks.push(RunningTask { cpu_id, task_id });
     }
 
     tasks
