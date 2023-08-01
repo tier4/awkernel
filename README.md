@@ -98,7 +98,7 @@ $ make qemu-x86_64
 ### GDB
 
 ```text
-$ make qemu-x86_64
+$ make debug-x86_64
 $ make gdb-x86_64
 ```
 
@@ -124,6 +124,13 @@ $ make aarch64 BSP=aarch64_virt RELEASE=1
 
 ```text
 $ make qemu-aarch64_virt
+```
+
+### GDB
+
+```text
+$ make debug-aarch64_virt
+$ make gdb-aarch64_virt
 ```
 
 ---
@@ -153,7 +160,7 @@ $ make qemu-raspi3
 ### GDB
 
 ```text
-$ make qemu-raspi3
+$ make debug-raspi3
 $ make gdb-raspi3
 ```
 

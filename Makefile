@@ -66,13 +66,13 @@ $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds > $@
 
-QEMU_AARCH64_ARGS= -m 1024 -kernel kernel8.img
+QEMU_AARCH64_ARGS= -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio -display none
 QEMU_AARCH64_ARGS+=-monitor telnet::$(QEMUPORT),server,nowait # -d int
 
 ## Raspi3
 
-QEMU_RASPI3_ARGS= -M raspi3b -dtb bcm2710-rpi-3-b-plus.dtb $(QEMU_AARCH64_ARGS)
+QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -dtb bcm2710-rpi-3-b-plus.dtb $(QEMU_AARCH64_ARGS)
 
 qemu-raspi3:
 	qemu-system-aarch64 $(QEMU_RASPI3_ARGS)
@@ -85,10 +85,25 @@ gdb-raspi3:
 
 ## Virt
 
-QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 -smp 8 $(QEMU_AARCH64_ARGS)
+QEMU_AARCH64_VIRT_ARGS= -m 8192 -M virt,gic-version=3 -cpu cortex-a72 $(QEMU_AARCH64_ARGS)
+QEMU_AARCH64_VIRT_ARGS+= -m 4G -smp cpus=16
+QEMU_AARCH64_VIRT_ARGS+= -object memory-backend-ram,size=1G,id=m0
+QEMU_AARCH64_VIRT_ARGS+= -object memory-backend-ram,size=1G,id=m1
+QEMU_AARCH64_VIRT_ARGS+= -object memory-backend-ram,size=1G,id=m2
+QEMU_AARCH64_VIRT_ARGS+= -object memory-backend-ram,size=1G,id=m3
+QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
+QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
+QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
+QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
+
+debug-aarch64-virt:
+	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS) -s -S
+
+gdb-aarch64-virt:
+	gdb-multiarch -x aarch64-debug.gdb
 
 # x86_64
 

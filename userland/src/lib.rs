@@ -8,7 +8,7 @@ use awkernel_async_lib::{
 };
 use core::{
     ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -23,6 +23,9 @@ fn add_rtt(rtt: u64) {
     let index = COUNT.fetch_add(1, Ordering::Relaxed);
     unsafe { write_volatile(&mut RTT[index & (RTT_SIZE - 1)], rtt) };
 }
+
+use array_macro::array;
+static CLIENT_COUNT: [AtomicU64; 8] = array![_ => AtomicU64::new(0); 8];
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_shell::init();
@@ -53,6 +56,10 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let ave = total as f64 / count as f64;
                     log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
                 }
+
+                for (i, n) in CLIENT_COUNT.iter().enumerate() {
+                    log::debug!("client #{i}: {}", n.load(Ordering::Relaxed));
+                }
             }
         },
         SchedulerType::FIFO,
@@ -78,7 +85,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         spawn(
             format!("{i}-client").into(),
             async move {
-                let mut n = 0;
                 loop {
                     let start = uptime();
                     tx1.send(()).await.unwrap();
@@ -92,10 +98,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                         unsafe { core::arch::asm!("nop") };
                     }
 
-                    n += 1;
-                    if n & 0xfff == 0 {
-                        log::debug!("Client {i} is alive.");
-                    }
+                    CLIENT_COUNT[i].fetch_add(1, Ordering::Relaxed);
                 }
             },
             SchedulerType::FIFO,
