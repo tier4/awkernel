@@ -74,21 +74,37 @@ macro_rules! unsafe_print_hex {
     }};
 }
 
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
 pub unsafe fn unsafe_print_hex_u32(num: u32) {
     let mut result = [b'0'; 8];
     unsafe_print_hex!(num, result);
 }
 
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
 pub unsafe fn unsafe_print_hex_u64(num: u64) {
     let mut result = [b'0'; 16];
     unsafe_print_hex!(num, result);
 }
 
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
 pub unsafe fn unsafe_print_hex_u96(num: u128) {
     let mut result = [b'0'; 24];
     unsafe_print_hex!(num, result);
 }
 
+/// # Safety
+///
+/// This function do not acquire lock to print `data`,
+/// and should be called for critical errors or booting.
 pub unsafe fn unsafe_print_hex_u128(num: u128) {
     let mut result = [b'0'; 32];
     unsafe_print_hex!(num, result);

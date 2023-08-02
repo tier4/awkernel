@@ -123,6 +123,10 @@ impl PL011 {
     /// This function initializes the UART0 for serial console.
     /// Set baud rate and characteristics (8N1),
     /// where 8N1 stands for "eight data bits, no parity, one stop bit".
+    ///
+    /// # Safety
+    ///
+    /// This function should be called once.
     pub unsafe fn init_device(&self, uart_clock: usize, baudrate: usize) {
         let bauddiv: u32 = ((1000 * uart_clock) / (16 * baudrate)) as u32;
         let ibrd: u32 = bauddiv / 1000;

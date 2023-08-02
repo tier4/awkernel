@@ -12,12 +12,11 @@ check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtin
 check_std = "check --package awkernel --quiet --message-format=json"
 
 clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi3 = "clippy --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi4 = "clippy --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_raspi = "clippy --package awkernel --no-default-features --features raspi --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_std = "clippy --package awkernel --no-default-features --features std"
 
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
 [target.riscv32imac-unknown-none-elf]
-rustflags = [ "-C", "link-arg=-Trv32-link.lds" ]
+rustflags = ["-C", "link-arg=-Trv32-link.lds"]

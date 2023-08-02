@@ -5,6 +5,11 @@ use embedded_hal::digital::v2::{InputPin, OutputPin};
 /// The base address for the GPIO.
 static mut GPBASE: usize = 0;
 
+/// Set the base address of GPIO.
+///
+/// # Safety
+///
+/// The base address must be Raspberry Pi's GPIO's base.
 pub unsafe fn set_gpio_base(base: usize) {
     write_volatile(&mut GPBASE, base);
 }
