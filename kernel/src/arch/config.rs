@@ -7,5 +7,5 @@ pub use super::x86_64::config::*;
 #[cfg(all(feature = "rv32", not(feature = "linux")))]
 pub use super::rv32::config::*;
 
-#[cfg(all(feature = "std"))]
+#[cfg(feature = "std")]
 pub use super::std_common::config::*;
