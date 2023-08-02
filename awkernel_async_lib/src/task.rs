@@ -347,8 +347,17 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    awkernel_lib::interrupt::enable();
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    unsafe { preemption(); }
+                    let cpu_id = awkernel_lib::cpu::cpu_id();
+                    let id: u32 = RUNNING[cpu_id].load(Ordering::Relaxed);
+                    log::info!("preemption task {} to {}", task.id, id);
+
+                    awkernel_lib::interrupt::disable();
 
                     #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
                     {
@@ -426,7 +435,7 @@ pub fn run_main() {
 ///
 /// This function must be called from worker threads.
 /// So, do not call this function in application code.
-pub unsafe fn run() {
+pub unsafe fn run() {    
     #[cfg(not(feature = "std"))]
     preempt::init();
 
