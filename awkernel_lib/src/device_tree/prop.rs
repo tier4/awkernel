@@ -4,7 +4,6 @@ use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
 
-use crate::device_tree::device_tree::InheritedValues;
 use crate::device_tree::error::DeviceTreeError::{NotEnoughLength, ParsingFailed};
 use crate::device_tree::error::Result;
 use crate::device_tree::header::DeviceTreeHeader;
@@ -12,6 +11,7 @@ use crate::device_tree::utils::{
     align_block, align_size, locate_block, read_aligned_be_number, read_aligned_be_u32,
     read_aligned_sized_strings, read_name, BLOCK_SIZE,
 };
+use crate::device_tree::InheritedValues;
 
 use super::utils::{safe_index, Addr};
 

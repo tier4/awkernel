@@ -3,12 +3,12 @@ use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter, Write};
 
-use crate::device_tree::device_tree::InheritedValues;
 use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::prop::{NodeProperty, PropertyValue};
 use crate::device_tree::traits::HasNamedChildNode;
 use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, read_aligned_name};
+use crate::device_tree::InheritedValues;
 
 use super::utils::Addr;
 

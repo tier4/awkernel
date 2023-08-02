@@ -5,8 +5,8 @@
 
 use awkernel_lib::{
     device_tree::{
-        device_tree::DeviceTree,
         node::{ArrayedNode, DeviceTreeNode},
+        DeviceTree,
     },
     local_heap,
 };
