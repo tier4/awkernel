@@ -75,10 +75,10 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
         let mut result = ArrayedNode::new();
         let mut node = self;
 
-        let mut path_it = abs_path.split("/");
+        let mut path_it = abs_path.split('/');
         let first = path_it.next().ok_or(DeviceTreeError::InvalidSemantics)?;
 
-        if first != "" {
+        if !first.is_empty() {
             return Err(DeviceTreeError::InvalidSemantics);
         }
 
@@ -231,12 +231,15 @@ pub struct ArrayedNode<'a, A: Allocator + Clone> {
     index: usize,
 }
 
+impl<'a, A: Allocator + Clone> Default for ArrayedNode<'a, A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
     pub fn new() -> Self {
-        ArrayedNode {
-            array: [None; ARRAYED_NODE_SIZE],
-            index: 0,
-        }
+        ArrayedNode::default()
     }
 
     /// Push a node.

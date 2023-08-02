@@ -402,17 +402,15 @@ impl VM {
         // Heap memory without L3 cache.
         // This region will be used to manipulate page tables.
         let flag = kernel_page_flag_rw_no_cache() | FLAG_L3_CONT;
-        for heap in self.heap {
-            if let Some(range) = heap {
-                let flag = if range.end - range.start > PAGESIZE {
-                    flag | FLAG_L3_CONT
-                } else {
-                    flag
-                };
+        for range in self.heap.into_iter().flatten() {
+            let flag = if range.end - range.start > PAGESIZE {
+                flag | FLAG_L3_CONT
+            } else {
+                flag
+            };
 
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
-                }
+            for addr in (range.start..range.end).step_by(PAGESIZE) {
+                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
             }
         }
 
@@ -430,7 +428,7 @@ impl VM {
             addr += PAGESIZE;
         }
 
-        let heap_size = (addr - HEAP_START) as usize;
+        let heap_size = addr - HEAP_START;
 
         self.table0 = Some(table0);
         self.heap_size = Some(heap_size);
@@ -478,7 +476,7 @@ impl VM {
 
         unsafe_puts("Device Memory:\n");
         for range in self.device_ranges.iter() {
-            print_range(&range);
+            print_range(range);
         }
 
         unsafe_puts("Heap Memory:\n");
