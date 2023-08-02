@@ -40,7 +40,7 @@ pub(super) fn read_aligned_block(data: &[u8], index: usize) -> Result<[u8; BLOCK
 
 /// Reads an aligned big-endian u32
 pub(super) fn read_aligned_be_u32(data: &[u8], index: usize) -> Result<u32> {
-    read_aligned_block(data, index).map(u32::from_be_bytes)
+    read_aligned_block(data, index).map(|block| u32::from_be_bytes(block))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -58,7 +58,7 @@ impl Addr {
             Addr::Zero => 0,
             Addr::U32(n) => *n as u128,
             Addr::U64(n) => *n as u128,
-            Addr::U96(n) => *n,
+            Addr::U96(n) => *n as u128,
             Addr::U128(n) => *n,
         }
     }
@@ -81,7 +81,7 @@ pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
     match block_size {
         0 => Ok(Addr::Zero),
         1 => {
-            let num = read_aligned_be_u32(data, index)?;
+            let num = read_aligned_be_u32(data, index).map(|res| res)?;
             Ok(Addr::U32(num as u64))
         }
         2 => {
@@ -159,10 +159,10 @@ pub(super) fn read_name(data: &[u8], offset: usize) -> Option<&str> {
         None
     } else {
         let mut end = first;
-        while *data.get(end)? != b'\0' {
-            end += 1;
+        while *data.get(end)? != '\0' as u8 {
+            end = end + 1;
         }
-        match core::str::from_utf8(data.get(first..end)?) {
+        match core::str::from_utf8(&data.get(first..end)?) {
             Ok(s) => Some(s),
             _ => None,
         }
@@ -190,7 +190,7 @@ pub(super) fn read_aligned_sized_strings<A: Allocator>(
         let mut res = Vec::<&str, A>::new_in(allocator);
         while current < first + size {
             if *data.get(current)? == b'\0' {
-                let value = core::str::from_utf8(data.get(last..current)?).ok()?;
+                let value = core::str::from_utf8(&data.get(last..current)?).ok()?;
                 res.push(value);
                 last = current + 1;
             }

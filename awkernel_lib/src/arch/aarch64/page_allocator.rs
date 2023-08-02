@@ -4,7 +4,6 @@ use super::page_table::FrameAllocator;
 
 const NUM_RANGES: usize = 16;
 
-#[derive(Default)]
 pub struct PageAllocator {
     range: [Option<(u64, u64)>; NUM_RANGES],
     idx: usize,
@@ -33,7 +32,11 @@ impl FrameAllocator for PageAllocator {
 
 impl PageAllocator {
     pub fn new() -> Self {
-        PageAllocator::default()
+        PageAllocator {
+            range: [None; NUM_RANGES],
+            idx: 0,
+            current: 0,
+        }
     }
 
     pub fn push(&mut self, start: u64, end: u64) -> Result<(), &'static str> {
