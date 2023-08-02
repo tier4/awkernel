@@ -28,8 +28,8 @@ const FLASH_START: usize = 0;
 const FLASH_END: usize = 0x0800_0000;
 
 /// IRQ #27 is the recommended value.
-/// every 1/2^12 = 0.000_244 [s].
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 12);
+/// every 1/2^14 = 0..000_061 [s].
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 14);
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,

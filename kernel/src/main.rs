@@ -57,7 +57,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             if awkernel_lib::interrupt::register_handler(
                 irq,
                 Box::new(|| {
-                    awkernel_lib::timer::disable();
+                    awkernel_lib::timer::reset();
                 }),
             )
             .is_ok()
@@ -78,16 +78,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             wake_task(); // Wake executable tasks periodically.
 
-            #[cfg(not(all(feature = "raspi", not(feature = "std"))))]
+            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
             awkernel_lib::delay::wait_microsec(10);
 
             // TODO: enable timer on x86.
-            #[cfg(all(feature = "raspi", not(feature = "std")))]
+            #[cfg(all(feature = "aarch64", not(feature = "std")))]
             {
                 let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                 awkernel_lib::interrupt::enable();
                 awkernel_lib::timer::reset();
                 awkernel_lib::delay::wait_interrupt();
+                awkernel_lib::timer::disable();
             }
 
             // Test for IPI.
@@ -95,12 +96,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
-                    #[cfg(not(feature = "raspi"))]
-                    let dur = 1000_000;
-
-                    #[cfg(feature = "raspi")]
-                    let dur = 20_000;
-
+                    let dur = 20_000; // 20[ms]
                     if now - send_ipi >= dur {
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(
                             config::PREEMPT_IRQ,
