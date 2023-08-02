@@ -156,13 +156,7 @@ unsafe fn do_preemption() {
         if let Some(next_thread) = {
             let mut node = MCSNode::new();
             let mut task_info = next.info.lock(&mut node);
-            let ctx = task_info.take_preempt_context();
-
-            if ctx.is_some() {
-                assert_eq!(task_info.state, super::State::Preempted);
-            }
-
-            ctx
+            task_info.take_preempt_context()
         } {
             // If the next task is a preempted task, yield to it.
             yield_preempted_and_wake_task(current_task, next_thread);

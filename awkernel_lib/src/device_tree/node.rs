@@ -3,21 +3,24 @@ use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter, Write};
 
-use crate::device_tree::device_tree::InheritedValues;
 use crate::device_tree::error::{DeviceTreeError, Result};
 use crate::device_tree::header::DeviceTreeHeader;
 use crate::device_tree::prop::{NodeProperty, PropertyValue};
 use crate::device_tree::traits::HasNamedChildNode;
 use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, read_aligned_name};
+use crate::device_tree::InheritedValues;
 
 use super::utils::Addr;
+
+type VecNodeProp<'a, A> = Vec<NodeProperty<'a, A>, A>;
+type VecDevTreeNode<'a, A> = Vec<DeviceTreeNode<'a, A>, A>;
 
 /// Represents a node in the device tree
 pub struct DeviceTreeNode<'a, A: Allocator + Clone> {
     pub(super) block_count: usize,
     name: &'a str,
-    props: Vec<NodeProperty<'a, A>, A>,
-    nodes: Vec<DeviceTreeNode<'a, A>, A>,
+    props: VecNodeProp<'a, A>,
+    nodes: VecDevTreeNode<'a, A>,
 }
 
 impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
@@ -75,10 +78,10 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
         let mut result = ArrayedNode::new();
         let mut node = self;
 
-        let mut path_it = abs_path.split("/");
+        let mut path_it = abs_path.split('/');
         let first = path_it.next().ok_or(DeviceTreeError::InvalidSemantics)?;
 
-        if first != "" {
+        if !first.is_empty() {
             return Err(DeviceTreeError::InvalidSemantics);
         }
 
@@ -110,11 +113,7 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
     inherited: InheritedValues<'a, A>,
     mut owned: InheritedValues<'a, A>,
     allocator: A,
-) -> Result<(
-    Vec<NodeProperty<'a, A>, A>,
-    Vec<DeviceTreeNode<'a, A>, A>,
-    usize,
-)> {
+) -> Result<(VecNodeProp<'a, A>, VecDevTreeNode<'a, A>, usize)> {
     let mut props = Vec::<NodeProperty<'a, A>, A>::new_in(allocator.clone());
     let mut nodes = Vec::<DeviceTreeNode<'a, A>, A>::new_in(allocator.clone());
 
@@ -175,31 +174,23 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
 
 impl<'a, A: Allocator + Clone> Display for DeviceTreeNode<'a, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        if let Err(err) = writeln!(f, "{} {{", self.name) {
-            return Err(err);
-        }
+        writeln!(f, "{} {{", self.name)?;
+
         for i in &self.props {
-            if let Err(err) = writeln!(f, "\t{}", i) {
-                return Err(err);
-            }
+            writeln!(f, "\t{}", i)?;
         }
+
         for i in &self.nodes {
             let mut buffer = String::new();
-            if let Err(err) = write!(buffer, "\t{}", i) {
-                return Err(err);
-            }
+            write!(buffer, "\t{}", i)?;
             let mut first_line = true;
             for j in buffer.split('\n') {
                 if !first_line {
-                    if let Err(err) = write!(f, "\t") {
-                        return Err(err);
-                    }
+                    write!(f, "\t")?;
                 } else {
                     first_line = false;
                 }
-                if let Err(err) = writeln!(f, "{}", j) {
-                    return Err(err);
-                }
+                writeln!(f, "{}", j)?;
             }
         }
         write!(f, "}};")
@@ -229,6 +220,12 @@ const ARRAYED_NODE_SIZE: usize = 8;
 pub struct ArrayedNode<'a, A: Allocator + Clone> {
     array: [Option<&'a DeviceTreeNode<'a, A>>; ARRAYED_NODE_SIZE],
     index: usize,
+}
+
+impl<'a, A: Allocator + Clone> Default for ArrayedNode<'a, A> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {

@@ -24,7 +24,7 @@ pub trait Interrupt {
 pub trait InterruptController: Sync + Send {
     fn enable_irq(&mut self, irq: u16);
     fn disable_irq(&mut self, irq: u16);
-    fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>>;
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>>;
 
     /// Send an inter-process interrupt to `target` CPU.
     fn send_ipi(&mut self, irq: u16, target: u16);

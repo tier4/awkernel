@@ -156,6 +156,16 @@ fn task_ffi() {
         awkernel_async_lib::task::get_num_preemption(),
     );
     console::print(&msg);
+
+    console::print("Running Tasks:\n");
+    for task in awkernel_async_lib::task::get_tasks_running().iter() {
+        let msg = if task.task_id != 0 {
+            format!("  cpu: {:>3}, task: {:>5}\n", task.cpu_id, task.task_id)
+        } else {
+            format!("  cpu: {:>3}, task:\n", task.cpu_id)
+        };
+        console::print(&msg);
+    }
 }
 
 fn print_tasks() {

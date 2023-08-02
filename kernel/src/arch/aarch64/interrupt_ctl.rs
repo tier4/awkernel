@@ -5,13 +5,13 @@ use awkernel_lib::{err_msg, interrupt::register_interrupt_controller};
 pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => get_irq_bcm2836(interrupts),
-        "arm,gic-400" | "arm,cortex-a15-gic" => get_irq_gicv2(interrupts),
+        "arm,gic-400" | "arm,gic-v3" => get_irq_gicv2(interrupts),
         _ => None,
     }
 }
 
 fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
-    let int0 = interrupts.get(0)?;
+    let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
 
     match int0 {
@@ -23,7 +23,7 @@ fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
 }
 
 fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
-    let int0 = interrupts.get(0)?;
+    let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
 
     match int0 {
@@ -52,6 +52,25 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
     Ok(())
 }
 
+fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
+    let gicd_base = node
+        .get_address(0)
+        .or(Err(err_msg!("could not find GICD_BASE")))? as usize;
+    let gicr_base = node
+        .get_address(1)
+        .or(Err(err_msg!("could not find GICR_BASE")))? as usize;
+
+    let gic = awkernel_drivers::interrupt_controler::gicv3::GICv3::new(gicd_base, gicr_base);
+
+    register_interrupt_controller(Box::new(gic));
+
+    log::info!("GICv3 has been initialized.");
+    log::info!("GICD_BASE = 0x{gicd_base:016x}");
+    log::info!("GICR_BASE = 0x{gicr_base:016x}");
+
+    Ok(())
+}
+
 fn init_bcm2836(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let base = node
         .get_address(0)
@@ -72,7 +91,8 @@ pub fn init_interrupt_controller(
 ) -> Result<(), &'static str> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => init_bcm2836(intc_node),
-        "arm,gic-400" | "arm,cortex-a15-gic" => init_gicv2(intc_node),
+        "arm,gic-400" => init_gicv2(intc_node),
+        "arm,gic-v3" => init_gicv3(intc_node),
         _ => Err(err_msg!("unsupported interrupt controller")),
     }
 }

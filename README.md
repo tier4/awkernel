@@ -50,11 +50,12 @@ $ cargo install cargo-binutils
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
+- applications
+  - [awkernel_shell](./applications/awkernel_shell/)
 
 ```mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
-    awkernel_lib-->awkernel_drivers;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     userland-->awkernel_async_lib;
@@ -62,8 +63,11 @@ graph TD;
     kernel-->awkernel_async_lib;
     kernel-->awkernel_aarch64;
     kernel-->awkernel_drivers;
+    awkernel_drivers-->awkernel_lib;
     kernel-->userland;
 ```
+
+Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
 
 ---
 
@@ -98,7 +102,7 @@ $ make qemu-x86_64
 ### GDB
 
 ```text
-$ make qemu-x86_64
+$ make debug-x86_64
 $ make gdb-x86_64
 ```
 
@@ -124,6 +128,13 @@ $ make aarch64 BSP=aarch64_virt RELEASE=1
 
 ```text
 $ make qemu-aarch64_virt
+```
+
+### GDB
+
+```text
+$ make debug-aarch64_virt
+$ make gdb-aarch64_virt
 ```
 
 ---
@@ -153,7 +164,7 @@ $ make qemu-raspi3
 ### GDB
 
 ```text
-$ make qemu-raspi3
+$ make debug-raspi3
 $ make gdb-raspi3
 ```
 

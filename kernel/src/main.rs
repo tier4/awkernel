@@ -54,13 +54,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         if let Some(irq) = awkernel_lib::timer::irq_id() {
             awkernel_lib::interrupt::enable_irq(irq);
 
-            if awkernel_lib::interrupt::register_handler(
-                irq,
-                Box::new(|| {
-                    awkernel_lib::timer::disable();
-                }),
-            )
-            .is_ok()
+            if awkernel_lib::interrupt::register_handler(irq, Box::new(awkernel_lib::timer::reset))
+                .is_ok()
             {
                 log::info!("A local timer has been initialized.");
             }
@@ -88,6 +83,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 awkernel_lib::interrupt::enable();
                 awkernel_lib::timer::reset();
                 awkernel_lib::delay::wait_interrupt();
+                awkernel_lib::timer::disable();
             }
 
             // Test for IPI.
@@ -95,7 +91,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
-                    if now - send_ipi >= 20_000 {
+                    let dur = 20_000; // 20[ms]
+                    if now - send_ipi >= dur {
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(
                             config::PREEMPT_IRQ,
                         );
@@ -105,6 +102,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
     } else {
+        awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+
         // Non-primary CPUs.
         unsafe { task::run() }; // Execute tasks.
     }

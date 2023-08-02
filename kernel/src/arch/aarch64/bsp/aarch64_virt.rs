@@ -4,7 +4,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    arch::aarch64::armv8_timer::Armv8Timer,
+    arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
@@ -27,9 +27,9 @@ const DEVICE_MEM_END: usize = 0x4000_0000;
 const FLASH_START: usize = 0;
 const FLASH_END: usize = 0x0800_0000;
 
-/// IRQ #30 is the recommended value.
-/// every 1/2^19 = .000_001_9 [s].
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 1);
+/// IRQ #27 is the recommended value.
+/// every 1/2^14 = 0..000_061 [s].
+pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 14);
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
@@ -193,7 +193,7 @@ impl AArch64Virt {
 
         let clock = match clock_prop.value() {
             PropertyValue::Integers(clocks) => {
-                clocks.get(0).ok_or(err_msg!("clocks has invalid value"))?
+                clocks.first().ok_or(err_msg!("clocks has invalid value"))?
             }
             _ => return Err(err_msg!("clocks property has invalid value")),
         };
@@ -269,14 +269,20 @@ impl AArch64Virt {
             .find_child("cpu-map")
             .ok_or(err_msg!("could not find cpu-map"))?;
 
+        let mut aff2_max = 1;
+        let mut aff1_max = 1;
+        let mut aff0_max = 1;
         for socket in cpu_map
             .nodes()
             .iter()
             .filter(|n| n.name().starts_with("socket"))
         {
             let (_, aff2_str) = socket.name().split_at("socket".len());
-            let aff2 =
-                u64::from_str_radix(aff2_str, 10).or(Err(err_msg!("invalid socket number")))?;
+            let aff2 = aff2_str
+                .parse::<u64>()
+                .or(Err(err_msg!("invalid socket number")))?;
+
+            aff2_max = aff2_max.max(aff2);
 
             for cluster in socket
                 .nodes()
@@ -284,8 +290,11 @@ impl AArch64Virt {
                 .filter(|n| n.name().starts_with("cluster"))
             {
                 let (_, aff1_str) = cluster.name().split_at("cluster".len());
-                let aff1 = u64::from_str_radix(aff1_str, 10)
+                let aff1 = aff1_str
+                    .parse::<u64>()
                     .or(Err(err_msg!("invalid cluster number")))?;
+
+                aff1_max = aff1_max.max(aff1);
 
                 for core in cluster
                     .nodes()
@@ -293,8 +302,12 @@ impl AArch64Virt {
                     .filter(|n| n.name().starts_with("core"))
                 {
                     let (_, aff0_str) = core.name().split_at("core".len());
-                    let aff0 = u64::from_str_radix(aff0_str, 10)
+                    let aff0 = aff0_str
+                        .parse::<u64>()
                         .or(Err(err_msg!("invalid core number")))?;
+
+                    aff0_max = aff0_max.max(aff0);
+                    log::debug!("aff0 = {aff0}");
 
                     match (aff0, aff1, aff2) {
                         (0, 0, 0) => (),
@@ -308,6 +321,8 @@ impl AArch64Virt {
                 }
             }
         }
+
+        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 1) };
 
         Ok(())
     }
