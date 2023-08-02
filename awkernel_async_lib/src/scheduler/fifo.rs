@@ -1,7 +1,7 @@
 //! A basic round robin scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{self, State};
+use crate::task::State;
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 

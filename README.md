@@ -50,6 +50,8 @@ $ cargo install cargo-binutils
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
+- applications
+  - [awkernel_shell](./applications/awkernel_shell/)
 
 ```mermaid
 graph TD;
@@ -64,6 +66,8 @@ graph TD;
     awkernel_drivers-->awkernel_lib;
     kernel-->userland;
 ```
+
+Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
 
 ---
 

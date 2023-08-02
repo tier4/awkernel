@@ -8,7 +8,7 @@ use awkernel_async_lib::{
 };
 use core::{
     ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
@@ -23,9 +23,6 @@ fn add_rtt(rtt: u64) {
     let index = COUNT.fetch_add(1, Ordering::Relaxed);
     unsafe { write_volatile(&mut RTT[index & (RTT_SIZE - 1)], rtt) };
 }
-
-use array_macro::array;
-static CLIENT_COUNT: [AtomicU64; 8] = array![_ => AtomicU64::new(0); 8];
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_shell::init();
@@ -55,10 +52,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 if count > 0 {
                     let ave = total as f64 / count as f64;
                     log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
-                }
-
-                for (i, n) in CLIENT_COUNT.iter().enumerate() {
-                    log::debug!("client #{i}: {}", n.load(Ordering::Relaxed));
                 }
             }
         },
@@ -97,8 +90,6 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     for _ in 0..10000 {
                         unsafe { core::arch::asm!("nop") };
                     }
-
-                    CLIENT_COUNT[i].fetch_add(1, Ordering::Relaxed);
                 }
             },
             SchedulerType::FIFO,
