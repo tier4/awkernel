@@ -32,6 +32,11 @@ impl CPU for super::AArch64 {
     }
 }
 
+/// Set the maximum affinity for each affinity level.
+///
+/// # Safety
+///
+/// The number of affinity must be calculated during boot.
 pub unsafe fn set_max_affinity(aff0_max: u64, aff1_max: u64, aff2_max: u64, aff3_max: u64) {
     AFF0_MAX = aff0_max;
     AFF1_MAX = aff1_max;

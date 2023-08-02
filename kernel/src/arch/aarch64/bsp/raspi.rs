@@ -279,7 +279,7 @@ impl Raspi {
             _ => return Err(err_msg!("ranges property has invalid value")),
         };
 
-        Ok(&ranges)
+        Ok(ranges)
     }
 
     fn init_interrupt_controller(&self) -> Result<(), &'static str> {

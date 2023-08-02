@@ -11,7 +11,7 @@ pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
 }
 
 fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
-    let int0 = interrupts.get(0)?;
+    let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
 
     match int0 {
@@ -23,7 +23,7 @@ fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
 }
 
 fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
-    let int0 = interrupts.get(0)?;
+    let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
 
     match int0 {

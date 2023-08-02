@@ -54,3 +54,9 @@ impl PageAllocator {
         Ok(())
     }
 }
+
+impl Default for PageAllocator {
+    fn default() -> Self {
+        Self::new()
+    }
+}

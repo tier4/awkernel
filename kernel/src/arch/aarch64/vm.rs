@@ -260,10 +260,8 @@ impl VM {
             }
         }
 
-        for range in ranges {
-            if let Some(r) = range {
-                self.push_heap(r.start, r.end)?;
-            }
+        for range in ranges.iter().flatten() {
+            self.push_heap(range.start, range.end)?;
         }
 
         Ok(())
@@ -294,9 +292,9 @@ impl VM {
     /// * `Result`: This function returns `Result<(), &'static str>`.
     ///   If it is successful in adding memory, it returns `Ok(())`,
     ///   and if it fails, it returns `Err` with a static string explaining the error.
-    pub fn add_heap_from_node<'a, A: Allocator + Clone>(
+    pub fn add_heap_from_node<A: Allocator + Clone>(
         &mut self,
-        device_tree_node: &DeviceTreeNode<'a, A>,
+        device_tree_node: &DeviceTreeNode<'_, A>,
     ) -> Result<(), &'static str> {
         // Add heap memory regions.
         for node in device_tree_node.nodes().iter() {
@@ -326,10 +324,8 @@ impl VM {
 
     unsafe fn init_memory_map(&mut self) -> Option<()> {
         let mut allocator = PageAllocator::new();
-        for mem in self.heap.iter() {
-            if let Some(m) = mem {
-                let _ = allocator.push(m.start as u64, m.end as u64);
-            }
+        for mem in self.heap.iter().flatten() {
+            allocator.push(mem.start as u64, mem.end as u64).ok()?;
         }
 
         let mut table0 = PageTable::new(&mut allocator)?;
@@ -376,43 +372,37 @@ impl VM {
 
         // Device memory.
         let flag = device_page_flag();
-        for range in self.device_ranges.iter() {
-            if let Some(range) = range {
-                let flag = if range.end - range.start > PAGESIZE {
-                    flag | FLAG_L3_CONT
-                } else {
-                    flag
-                };
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
-                }
+        for range in self.device_ranges.iter().flatten() {
+            let flag = if range.end - range.start > PAGESIZE {
+                flag | FLAG_L3_CONT
+            } else {
+                flag
+            };
+            for addr in (range.start..range.end).step_by(PAGESIZE) {
+                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
             }
         }
 
         // Read-only memory.
         let flag = kernel_page_flag_ro();
-        for range in self.ro_ranges.iter() {
-            if let Some(range) = range {
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
-                }
+        for range in self.ro_ranges.iter().flatten() {
+            for addr in (range.start..range.end).step_by(PAGESIZE) {
+                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
             }
         }
 
         // Heap memory without L3 cache.
         // This region will be used to manipulate page tables.
         let flag = kernel_page_flag_rw_no_cache() | FLAG_L3_CONT;
-        for heap in self.heap {
-            if let Some(range) = heap {
-                let flag = if range.end - range.start > PAGESIZE {
-                    flag | FLAG_L3_CONT
-                } else {
-                    flag
-                };
+        for range in self.heap.into_iter().flatten() {
+            let flag = if range.end - range.start > PAGESIZE {
+                flag | FLAG_L3_CONT
+            } else {
+                flag
+            };
 
-                for addr in (range.start..range.end).step_by(PAGESIZE) {
-                    table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
-                }
+            for addr in (range.start..range.end).step_by(PAGESIZE) {
+                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
             }
         }
 
@@ -430,7 +420,7 @@ impl VM {
             addr += PAGESIZE;
         }
 
-        let heap_size = (addr - HEAP_START) as usize;
+        let heap_size = addr - HEAP_START;
 
         self.table0 = Some(table0);
         self.heap_size = Some(heap_size);
@@ -478,7 +468,7 @@ impl VM {
 
         unsafe_puts("Device Memory:\n");
         for range in self.device_ranges.iter() {
-            print_range(&range);
+            print_range(range);
         }
 
         unsafe_puts("Heap Memory:\n");
