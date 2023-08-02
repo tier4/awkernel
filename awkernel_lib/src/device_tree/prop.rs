@@ -166,12 +166,10 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 if let Some(strs) =
                     read_aligned_sized_strings(raw_value, 0, raw_value.len(), allocator)
                 {
-                    if strs.len() > 1 {
-                        Ok(PropertyValue::Strings(strs))
-                    } else if strs.len() == 1 {
-                        Ok(PropertyValue::String(strs[0]))
-                    } else {
-                        Ok(PropertyValue::String(""))
+                    match strs.len() {
+                        x if x > 1 => Ok(PropertyValue::Strings(strs)),
+                        x if x == 1 => Ok(PropertyValue::String(strs[0])),
+                        _ => Ok(PropertyValue::String("")),
                     }
                 } else {
                     Err(ParsingFailed)
@@ -255,7 +253,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                     Err(ParsingFailed)
                 }
             }
-            x if x.starts_with("#") && x.ends_with("cells") => {
+            x if x.starts_with('#') && x.ends_with("cells") => {
                 if let Ok(int) = read_aligned_be_u32(raw_value, 0) {
                     Ok(PropertyValue::Integer(int as u64))
                 } else {
@@ -263,27 +261,25 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                 }
             }
             _ => {
-                let a = raw_value.len() as usize % BLOCK_SIZE == 0;
+                let a = raw_value.len() % BLOCK_SIZE == 0;
                 let b = *safe_index(raw_value, 0)? != b'\0'
-                    && *safe_index(raw_value, (raw_value.len() - 1) as usize)? == b'\0'
+                    && *safe_index(raw_value, raw_value.len() - 1)? == b'\0'
                     && raw_value.is_ascii();
 
-                if !a || a && b {
+                if !a || b {
                     if let Some(strs) =
                         read_aligned_sized_strings(raw_value, 0, raw_value.len(), allocator)
                     {
-                        if strs.len() > 1 {
-                            Ok(PropertyValue::Strings(strs))
-                        } else if strs.len() == 1 {
-                            Ok(PropertyValue::String(strs[0]))
-                        } else {
-                            Ok(PropertyValue::String(""))
+                        match strs.len() {
+                            x if x > 1 => Ok(PropertyValue::Strings(strs)),
+                            x if x == 1 => Ok(PropertyValue::String(strs[0])),
+                            _ => Ok(PropertyValue::String("")),
                         }
                     } else {
                         Err(ParsingFailed)
                     }
                 } else {
-                    let size = raw_value.len() as usize / BLOCK_SIZE;
+                    let size = raw_value.len() / BLOCK_SIZE;
                     if size > 1 {
                         let mut res = Vec::<u64, A>::new_in(allocator);
                         for i in 0..size {
