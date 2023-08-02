@@ -14,9 +14,6 @@
 .endm
 
 .macro CALL_WITH_CONTEXT handler el spsr_reg
-    // disable interrupt
-    msr     DAIFSet, #0x02
-
     // Make room on the stack for the exception context.
     sub     sp, sp, #800
 
@@ -164,8 +161,6 @@ exception_restore_context:
 
     add     sp, sp, #800 // Restore SP.
 
-    // enable interrupt
-    msr     DAIFClr, #0x02
     eret
 
     .balign 0x800

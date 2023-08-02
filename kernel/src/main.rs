@@ -96,7 +96,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
                     #[cfg(not(feature = "raspi"))]
-                    let dur = 500_000;
+                    let dur = 1000_000;
 
                     #[cfg(feature = "raspi")]
                     let dur = 20_000;
