@@ -193,7 +193,7 @@ impl AArch64Virt {
 
         let clock = match clock_prop.value() {
             PropertyValue::Integers(clocks) => {
-                clocks.get(0).ok_or(err_msg!("clocks has invalid value"))?
+                clocks.first().ok_or(err_msg!("clocks has invalid value"))?
             }
             _ => return Err(err_msg!("clocks property has invalid value")),
         };
@@ -278,8 +278,9 @@ impl AArch64Virt {
             .filter(|n| n.name().starts_with("socket"))
         {
             let (_, aff2_str) = socket.name().split_at("socket".len());
-            let aff2 =
-                u64::from_str_radix(aff2_str, 10).or(Err(err_msg!("invalid socket number")))?;
+            let aff2 = aff2_str
+                .parse::<u64>()
+                .or(Err(err_msg!("invalid socket number")))?;
 
             aff2_max = aff2_max.max(aff2);
 
@@ -289,7 +290,8 @@ impl AArch64Virt {
                 .filter(|n| n.name().starts_with("cluster"))
             {
                 let (_, aff1_str) = cluster.name().split_at("cluster".len());
-                let aff1 = u64::from_str_radix(aff1_str, 10)
+                let aff1 = aff1_str
+                    .parse::<u64>()
                     .or(Err(err_msg!("invalid cluster number")))?;
 
                 aff1_max = aff1_max.max(aff1);
@@ -300,7 +302,8 @@ impl AArch64Virt {
                     .filter(|n| n.name().starts_with("core"))
                 {
                     let (_, aff0_str) = core.name().split_at("core".len());
-                    let aff0 = u64::from_str_radix(aff0_str, 10)
+                    let aff0 = aff0_str
+                        .parse::<u64>()
                         .or(Err(err_msg!("invalid core number")))?;
 
                     aff0_max = aff0_max.max(aff0);
