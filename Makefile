@@ -116,7 +116,7 @@ x86_64_boot.img: kernel-x86_64.elf
 	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@
 
 x86_64_uefi.img: kernel-x86_64.elf
-	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@ --boot-type uefi
+	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@
@@ -160,7 +160,7 @@ test: FORCE
 # Clean
 
 clean: FORCE
-	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o
+	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
 	cargo clean
 	$(MAKE) -C $(X86ASM) clean
 
