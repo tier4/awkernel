@@ -49,6 +49,13 @@ impl phy::Device for NetDriver {
 
     //  The real  packet transmission occurrs when the token is consumed.
     fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
+        let node = &mut MCSNode::new();
+        let inner = self.inner.lock(node);
+
+        if !inner.can_send() {
+            return None;
+        }
+
         Some(NTxToken {
             device: self.inner.clone(),
         })
@@ -81,8 +88,9 @@ impl phy::TxToken for NTxToken {
         // construct packet in buffer
         let result = f(&mut buffer[0..len]);
         // send the buffer
-
-        // Arc::_mut(&mut self.device).send(&mut buffer);
+        let node = &mut MCSNode::new();
+        let mut inner = self.device.lock(node);
+        inner.send(&mut buffer);
         result
     }
 }

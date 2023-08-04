@@ -57,10 +57,10 @@ impl PCIeDevice for E1000E {
 
     fn init(&mut self) {
         assert_eq!(self.info.header_type, 0x0);
-        //  set up command register in config space
-        // Bit 0 :  I/O Access
-        // Bit 1 : Memory Access
-        // Bit 2 : LAN R/W field Mastering
+        // set up command register in config space
+        // bit 0 : I/O Access
+        // bit 1 : Memory Access
+        // bit 2 : LAN R/W field Mastering
         let command_reg = self.info.addr + 0x4;
         unsafe {
             write_volatile(command_reg as *mut u16, 0b111);
@@ -80,7 +80,6 @@ impl PCIeDevice for E1000E {
         T: Iterator<Item = PhysFrame> + Send,
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
-        log::debug!("BAR0: {:#x}", bar0);
         let register_start = (bar0 as usize) & 0xFFFFFFF0;
         let info = info.clone();
 
@@ -106,6 +105,7 @@ impl PCIeDevice for E1000E {
         for tx_desc in tx_ring.iter_mut() {
             let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator);
             tx_desc.buf = buf_pa.as_u64();
+            tx_desc.status |= 1;
             tx_bufs.push(buf_va);
         }
 
@@ -142,25 +142,19 @@ impl NetDevice for E1000E {
     }
 
     fn recv(&mut self) -> Option<Vec<u8>> {
-        let tdh = unsafe { self.read_reg(TDH) };
-        let tdt = unsafe { self.read_reg(TDT) };
-
-        if tdh == tdt {
+        if !self.can_send() {
             return None;
         }
 
-        let tx_status = self.tx_ring[tdt as usize].status;
-        if tx_status & 1 == 0 {
-            return None;
-        }
-
-        let curr_rdh = unsafe { self.read_reg(RDH) };
-        let curr_rdt = unsafe { self.read_reg(RDT) };
+        let head = unsafe { self.read_reg(RDH) };
+        let tail = unsafe { self.read_reg(RDT) };
 
         // receive ring is empty
-        if curr_rdh == curr_rdt {
+        if head == tail {
             return None;
         }
+
+        let curr_rdt = (tail + 1) % self.rx_ring.len() as u32;
 
         let rx_status = self.rx_ring[curr_rdt as usize].status;
 
@@ -173,37 +167,33 @@ impl NetDevice for E1000E {
         let buf_addr = self.rx_bufs[curr_rdt as usize].as_mut_ptr();
         let data = unsafe { slice::from_raw_parts_mut(buf_addr, buf_len) }.to_vec();
 
-        // Memory barrier before resetting descriptor
+        //===========================================
         fence(SeqCst);
-
         // Reset the descriptor.
         self.rx_ring[curr_rdt as usize].status = 0;
-
-        fence(SeqCst); // barrier
-
+        fence(SeqCst);
+        //===========================================
         // Increment tail pointer
-        let next_rdt = (curr_rdt + 1) % self.rx_ring.len() as u32;
         unsafe {
-            self.write_reg(RDT, next_rdt);
+            self.write_reg(RDT, curr_rdt);
         }
 
         Some(data)
     }
 
     fn send(&mut self, data: &mut [u8]) -> Option<()> {
-        let curr_tdh = unsafe { self.read_reg(TDH) };
-        let curr_tdt = unsafe { self.read_reg(TDT) };
+        let head = unsafe { self.read_reg(TDH) };
+        let tail = unsafe { self.read_reg(TDT) };
 
-        // Rx queue is empty
-        if curr_tdh == curr_tdt {
-            return None;
-        }
-
-        let next_tdt = (curr_tdt + 1) % self.tx_ring.len() as u32;
+        let next_tail = (tail + 1) % self.tx_ring.len() as u32;
 
         let data_len = data.len();
         // data should not be longer than buffer
         if data_len >= self.page_size {
+            return None;
+        }
+
+        if next_tail == head {
             return None;
         }
 
@@ -213,22 +203,22 @@ impl NetDevice for E1000E {
         }
 
         // Copy the data into the buffer
-        let buf_ptr: *mut u8 = self.tx_bufs[curr_tdt as usize].as_mut_ptr();
+        let buf_ptr: *mut u8 = self.tx_bufs[tail as usize].as_mut_ptr();
         let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, data_len) };
         buf.copy_from_slice(data);
 
         fence(SeqCst); // barrier
 
         // Mark this descriptor ready.
-        self.tx_ring[curr_tdt as usize].status = 0;
-        self.tx_ring[curr_tdt as usize].length = data_len as u16;
-        self.tx_ring[curr_tdt as usize].cmd = (1 << 3) | (1 << 1) | (1 << 0);
+        self.tx_ring[tail as usize].status = 0;
+        self.tx_ring[tail as usize].length = data_len as u16;
+        self.tx_ring[tail as usize].cmd = (1 << 3) | (1 << 1) | (1 << 0);
 
         fence(SeqCst); // barrier
 
         // Increment tail pointer
         unsafe {
-            self.write_reg(TDT, next_tdt);
+            self.write_reg(TDT, next_tail);
         }
 
         Some(())
@@ -238,7 +228,7 @@ impl NetDevice for E1000E {
 //===========================================================================
 impl E1000E {
     unsafe fn init_hw(&mut self) {
-        log::info!("Initializing e1000e hardware");
+        log::info!("Initializing e1000e");
         // ============================================
         // 4.6.2: Global Reset and General Configuration
         self.disable_intr();
@@ -280,9 +270,7 @@ impl E1000E {
         }
 
         let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL));
-        log::debug!("RAH: {:#x?}", rah_nvm);
-        log::debug!("RAL: {:#x?}", ral_nvm);
-        log::debug!("MAC: {:x?}", self.get_mac());
+        log::debug!("e1000e MAC address: {:x?}", self.get_mac());
         // Receive Registers Intialization
         let (rah, ral) = self.read_mac();
         assert_eq!((rah, ral), (rah_nvm, ral_nvm));
@@ -295,7 +283,9 @@ impl E1000E {
         fence(SeqCst);
         // ============================================
         self.enable_intr();
+        log::info!("Initialized e1000e");
     }
+
     fn map_register_space<T>(
         register_start: usize,
         page_table: &mut OffsetPageTable<'static>,
@@ -364,7 +354,7 @@ impl E1000E {
             .write_volatile(val)
     }
 
-    // volatile read the certain  register
+    // volatile read the certain register
     unsafe fn read_reg(&self, reg: usize) -> u32 {
         (self.register_start as *const u32)
             .add(reg / 4)
@@ -420,7 +410,11 @@ impl E1000E {
     }
 
     unsafe fn tx_ring_empty(&self) -> bool {
-        self.read_reg(TDH) == self.read_reg(TDT)
+        let head = self.read_reg(TDH);
+        let tail = self.read_reg(TDT);
+        let next = (tail + 1) % self.tx_ring.len() as u32;
+
+        head == next
     }
 
     unsafe fn _rx_ring_empty(&self) -> bool {

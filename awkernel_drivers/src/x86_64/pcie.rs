@@ -101,7 +101,8 @@ impl DeviceInfo {
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) where
+    ) -> Option<()>
+    where
         T: Iterator<Item = PhysFrame> + Send,
     {
         match (self.id, self.vendor) {
@@ -112,8 +113,9 @@ impl DeviceInfo {
                 NETMASTER
                     .lock(&mut MCSNode::new())
                     .add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
+                Some(())
             }
-            _ => (),
+            _ => None,
         }
     }
 }
@@ -128,6 +130,7 @@ pub trait PCIeDevice {
         page_size: u64,
     ) -> Self
     where
-        T: Iterator<Item = PhysFrame> + Send;
+        T: Iterator<Item = PhysFrame> + Send,
+        Self: Sized;
     fn init(&mut self);
 }
