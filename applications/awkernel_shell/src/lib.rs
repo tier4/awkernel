@@ -178,7 +178,7 @@ fn task_ffi() {
 
 #[embedded]
 fn udptest_ffi() {
-    console::print("testing udp\n");
+    console::print("Testing UDP\n");
     udp::udp_test();
 }
 

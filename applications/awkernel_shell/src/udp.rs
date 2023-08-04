@@ -1,4 +1,5 @@
 use awkernel_async_lib::uptime;
+use awkernel_lib::{console, delay};
 use awkernel_lib::net::NETMASTER;
 use awkernel_lib::sync::mutex::MCSNode;
 use smoltcp::iface::SocketSet;
@@ -47,12 +48,16 @@ pub(crate) fn udp_test() {
 
     loop {
         let timestamp = Instant::from_micros(uptime() as i64);
+       
         iface.poll(timestamp, device, &mut sockets);
         let socket = sockets.get_mut::<udp::Socket>(udp_handle);
+        
         if socket.can_send() {
             socket
                 .send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port))
                 .unwrap();
         }
+        console::print(".");
+        delay::wait_sec(1);
     }
 }
