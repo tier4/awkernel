@@ -352,10 +352,20 @@ pub fn run_main() {
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
+                    let mut cpu_id = awkernel_lib::cpu::cpu_id();
+
+                    if cpu_id == 1 {
+                        log::info!("cpu: {}, from {}", cpu_id, task.id);
+                    }
+
                     unsafe { preemption(); }
-                    let cpu_id = awkernel_lib::cpu::cpu_id();
+
+                    cpu_id = awkernel_lib::cpu::cpu_id();
                     let id: u32 = RUNNING[cpu_id].load(Ordering::Relaxed);
-                    log::info!("preemption task {} to {}", task.id, id);
+
+                    if cpu_id == 1 {
+                        log::info!("cpu: {}, to {}", cpu_id, id);
+                    }
 
                     awkernel_lib::interrupt::disable();
 
