@@ -2,7 +2,7 @@
 
 ## Target
 
-awkernel_lib/src/context/x86.rs (to be filled)
+[awkernel_lib/src/context/x86_64.rs](../../../../../awkernel_lib/src/context/x86_64.rs).
 
 ## Subjects to be Verified
 
@@ -30,7 +30,7 @@ assert registers = ctx_start;
 
 ## Context
 
-`Context`, which is a structure, defined in awkernel_lib/src/context/x86.rs (to be filled) can be represented by a sequence in TLA+ as follows.
+`Context`, which is a structure, defined in [awkernel_lib/src/context/x86_64.rs](../../../../../awkernel_lib/src/context/x86_64.rs) can be represented by a sequence in TLA+ as follows.
 
 ```
 [x \in 0..(SIZE_CONTEXT - 1) |-> 0]
