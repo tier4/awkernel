@@ -29,7 +29,7 @@ variables
     ];
 
 define
-    CALLEE_SAVED == {"rbx", "rbp", "r12", "r13", "r14", "r15"}
+    CALLEE_SAVED == {"rbx", "rsp", "rbp", "r12", "r13", "r14", "r15"}
     init_context == [x \in 0..(SIZE_CONTEXT - 1) |-> 0]
     callee_saved_registers == [x \in CALLEE_SAVED |-> registers[x]]
 end define;
@@ -38,61 +38,37 @@ macro inc(reg) begin
     registers[reg] := registers[reg] + 1;
 end macro;
 
-procedure push(reg)
-variables
-    addr
-begin
-    push0:
-        addr := registers["rsp"];
-        assert 0 <= addr /\ addr < SIZE_CONTEXT;
-    push1:
-        Context[addr] := registers[reg];
-    push2:
-        registers["rsp"] := addr + 8;
-    
-    return;
-end procedure;
+macro mov0(offset, dst, src) begin
+    Context[registers[dst] + offset] := registers[src];
+end macro;
 
-procedure pop(reg)
-variables
-    addr
-begin
-    pop0:
-        addr := registers["rsp"] - 8;
-        assert 0 <= addr /\ addr < SIZE_CONTEXT;
-    pop1:
-        registers[reg] := Context[addr];
-    pop2:
-        registers["rsp"] := addr;
-    
-    return;
-end procedure;
+macro mov1(dst, offset, src) begin
+    registers[dst] := Context[registers[src] + offset];
+end macro;
 
 procedure save_context()
-begin
-    S000: registers["rsp"] := registers["rdi"];
-    
+begin    
     \* Store general purpose registers
-    S100: call push("rbx");
-    S101: call push("rbp");
-    S102: call push("r12");
-    S103: call push("r13");
-    S104: call push("r14");
-    S105: call push("r15");    
+    S000: mov0(0,  "rdi", "rbx");
+    S001: mov0(8,  "rdi", "rsp");
+    S002: mov0(16, "rdi", "rbp");
+    S003: mov0(24, "rdi", "r12");
+    S004: mov0(32, "rdi", "r13");
+    S005: mov0(40, "rdi", "r14");
+    S006: mov0(48, "rdi", "r15");
     return;
 end procedure;
 
 procedure restore_context()
-begin
-    R000: registers["rsp"] := registers["rsi"] + 8 * 6;
-        
+begin        
     \* Restore general purpose registers
-    R100: call pop("r15");
-    R101: call pop("r14");
-    R102: call pop("r13");
-    R103: call pop("r12");
-    R107: call pop("rbp");
-    R108: call pop("rbx");
+    R000: mov1("rbx", 0,  "rsi");
+    R001: mov1("rsp", 8,  "rsi");
+    R002: mov1("rbp", 16, "rsi");
+    R003: mov1("r12", 24, "rsi");
+    R004: mov1("r13", 32, "rsi");
+    R005: mov1("r14", 40, "rsi");
+    R006: mov1("r15", 48, "rsi");
     return;
 end procedure;
 
@@ -114,19 +90,17 @@ begin
     H013: inc("r13");
     H014: inc("r14");
     H015: inc("r15");
-
     return;
 end procedure;
 
 procedure test()
 variables
     start_ctx = callee_saved_registers,
-    sp
+    rdi,
 begin
     start_test:
         Context := init_context;
-        sp := registers["rsp"];
-        registers["rdi"] := sp;
+        rdi := registers["rdi"];
     
     call_save_registers:
         call save_context();
@@ -135,7 +109,7 @@ begin
         call update();
     
     init_rsi:
-        registers["rsi"] := sp;
+        registers["rsi"] := rdi;
     
     call_restore_registers:
         call restore_context();
@@ -150,21 +124,18 @@ begin
     check1:
         call test();
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "7941a75f" /\ chksum(tla) = "7c41ecab")
-\* Procedure variable addr of procedure push at line 43 col 5 changed to addr_
-\* Parameter reg of procedure push at line 41 col 16 changed to reg_
+\* BEGIN TRANSLATION (chksum(pcal) = "f603a53f" /\ chksum(tla) = "e197210")
 CONSTANT defaultInitValue
 VARIABLES Context, registers, pc, stack
 
 (* define statement *)
-CALLEE_SAVED == {"rbx", "rbp", "r12", "r13", "r14", "r15"}
+CALLEE_SAVED == {"rbx", "rsp", "rbp", "r12", "r13", "r14", "r15"}
 init_context == [x \in 0..(SIZE_CONTEXT - 1) |-> 0]
 callee_saved_registers == [x \in CALLEE_SAVED |-> registers[x]]
 
-VARIABLES reg_, addr_, reg, addr, start_ctx, sp
+VARIABLES start_ctx, rdi
 
-vars == << Context, registers, pc, stack, reg_, addr_, reg, addr, start_ctx, 
-           sp >>
+vars == << Context, registers, pc, stack, start_ctx, rdi >>
 
 Init == (* Global variables *)
         /\ Context = defaultInitValue
@@ -187,291 +158,168 @@ Init == (* Global variables *)
                            r14 |-> 14,
                            r15 |-> 15
                        ]
-        (* Procedure push *)
-        /\ reg_ = defaultInitValue
-        /\ addr_ = defaultInitValue
-        (* Procedure pop *)
-        /\ reg = defaultInitValue
-        /\ addr = defaultInitValue
         (* Procedure test *)
         /\ start_ctx = callee_saved_registers
-        /\ sp = defaultInitValue
+        /\ rdi = defaultInitValue
         /\ stack = << >>
         /\ pc = "check1"
 
-push0 == /\ pc = "push0"
-         /\ addr_' = registers["rsp"]
-         /\ Assert(0 <= addr_' /\ addr_' < SIZE_CONTEXT, 
-                   "Failure of assertion at line 47, column 9.")
-         /\ pc' = "push1"
-         /\ UNCHANGED << Context, registers, stack, reg_, reg, addr, start_ctx, 
-                         sp >>
-
-push1 == /\ pc = "push1"
-         /\ Context' = [Context EXCEPT ![addr_] = registers[reg_]]
-         /\ pc' = "push2"
-         /\ UNCHANGED << registers, stack, reg_, addr_, reg, addr, start_ctx, 
-                         sp >>
-
-push2 == /\ pc = "push2"
-         /\ registers' = [registers EXCEPT !["rsp"] = addr_ + 8]
-         /\ pc' = Head(stack).pc
-         /\ addr_' = Head(stack).addr_
-         /\ reg_' = Head(stack).reg_
-         /\ stack' = Tail(stack)
-         /\ UNCHANGED << Context, reg, addr, start_ctx, sp >>
-
-push == push0 \/ push1 \/ push2
-
-pop0 == /\ pc = "pop0"
-        /\ addr' = registers["rsp"] - 8
-        /\ Assert(0 <= addr' /\ addr' < SIZE_CONTEXT, 
-                  "Failure of assertion at line 62, column 9.")
-        /\ pc' = "pop1"
-        /\ UNCHANGED << Context, registers, stack, reg_, addr_, reg, start_ctx, 
-                        sp >>
-
-pop1 == /\ pc = "pop1"
-        /\ registers' = [registers EXCEPT ![reg] = Context[addr]]
-        /\ pc' = "pop2"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
-
-pop2 == /\ pc = "pop2"
-        /\ registers' = [registers EXCEPT !["rsp"] = addr]
-        /\ pc' = Head(stack).pc
-        /\ addr' = Head(stack).addr
-        /\ reg' = Head(stack).reg
-        /\ stack' = Tail(stack)
-        /\ UNCHANGED << Context, reg_, addr_, start_ctx, sp >>
-
-pop == pop0 \/ pop1 \/ pop2
-
 S000 == /\ pc = "S000"
-        /\ registers' = [registers EXCEPT !["rsp"] = registers["rdi"]]
-        /\ pc' = "S100"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 0] = registers["rbx"]]
+        /\ pc' = "S001"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S100 == /\ pc = "S100"
-        /\ /\ reg_' = "rbx"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  "S101",
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o stack
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S001 == /\ pc = "S001"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 8] = registers["rsp"]]
+        /\ pc' = "S002"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S101 == /\ pc = "S101"
-        /\ /\ reg_' = "rbp"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  "S102",
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o stack
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S002 == /\ pc = "S002"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 16] = registers["rbp"]]
+        /\ pc' = "S003"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S102 == /\ pc = "S102"
-        /\ /\ reg_' = "r12"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  "S103",
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o stack
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S003 == /\ pc = "S003"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 24] = registers["r12"]]
+        /\ pc' = "S004"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S103 == /\ pc = "S103"
-        /\ /\ reg_' = "r13"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  "S104",
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o stack
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S004 == /\ pc = "S004"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 32] = registers["r13"]]
+        /\ pc' = "S005"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S104 == /\ pc = "S104"
-        /\ /\ reg_' = "r14"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  "S105",
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o stack
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S005 == /\ pc = "S005"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 40] = registers["r14"]]
+        /\ pc' = "S006"
+        /\ UNCHANGED << registers, stack, start_ctx, rdi >>
 
-S105 == /\ pc = "S105"
-        /\ /\ reg_' = "r15"
-           /\ stack' = << [ procedure |->  "push",
-                            pc        |->  Head(stack).pc,
-                            addr_     |->  addr_,
-                            reg_      |->  reg_ ] >>
-                        \o Tail(stack)
-        /\ addr_' = defaultInitValue
-        /\ pc' = "push0"
-        /\ UNCHANGED << Context, registers, reg, addr, start_ctx, sp >>
+S006 == /\ pc = "S006"
+        /\ Context' = [Context EXCEPT ![registers["rdi"] + 48] = registers["r15"]]
+        /\ pc' = Head(stack).pc
+        /\ stack' = Tail(stack)
+        /\ UNCHANGED << registers, start_ctx, rdi >>
 
-save_context == S000 \/ S100 \/ S101 \/ S102 \/ S103 \/ S104 \/ S105
+save_context == S000 \/ S001 \/ S002 \/ S003 \/ S004 \/ S005 \/ S006
 
 R000 == /\ pc = "R000"
-        /\ registers' = [registers EXCEPT !["rsp"] = registers["rsi"] + 8 * 6]
-        /\ pc' = "R100"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ registers' = [registers EXCEPT !["rbx"] = Context[registers["rsi"] + 0]]
+        /\ pc' = "R001"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R100 == /\ pc = "R100"
-        /\ /\ reg' = "r15"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  "R101",
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o stack
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R001 == /\ pc = "R001"
+        /\ registers' = [registers EXCEPT !["rsp"] = Context[registers["rsi"] + 8]]
+        /\ pc' = "R002"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R101 == /\ pc = "R101"
-        /\ /\ reg' = "r14"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  "R102",
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o stack
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R002 == /\ pc = "R002"
+        /\ registers' = [registers EXCEPT !["rbp"] = Context[registers["rsi"] + 16]]
+        /\ pc' = "R003"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R102 == /\ pc = "R102"
-        /\ /\ reg' = "r13"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  "R103",
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o stack
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R003 == /\ pc = "R003"
+        /\ registers' = [registers EXCEPT !["r12"] = Context[registers["rsi"] + 24]]
+        /\ pc' = "R004"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R103 == /\ pc = "R103"
-        /\ /\ reg' = "r12"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  "R107",
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o stack
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R004 == /\ pc = "R004"
+        /\ registers' = [registers EXCEPT !["r13"] = Context[registers["rsi"] + 32]]
+        /\ pc' = "R005"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R107 == /\ pc = "R107"
-        /\ /\ reg' = "rbp"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  "R108",
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o stack
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R005 == /\ pc = "R005"
+        /\ registers' = [registers EXCEPT !["r14"] = Context[registers["rsi"] + 40]]
+        /\ pc' = "R006"
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
-R108 == /\ pc = "R108"
-        /\ /\ reg' = "rbx"
-           /\ stack' = << [ procedure |->  "pop",
-                            pc        |->  Head(stack).pc,
-                            addr      |->  addr,
-                            reg       |->  reg ] >>
-                        \o Tail(stack)
-        /\ addr' = defaultInitValue
-        /\ pc' = "pop0"
-        /\ UNCHANGED << Context, registers, reg_, addr_, start_ctx, sp >>
+R006 == /\ pc = "R006"
+        /\ registers' = [registers EXCEPT !["r15"] = Context[registers["rsi"] + 48]]
+        /\ pc' = Head(stack).pc
+        /\ stack' = Tail(stack)
+        /\ UNCHANGED << Context, start_ctx, rdi >>
 
-restore_context == R000 \/ R100 \/ R101 \/ R102 \/ R103 \/ R107 \/ R108
+restore_context == R000 \/ R001 \/ R002 \/ R003 \/ R004 \/ R005 \/ R006
 
 H000 == /\ pc = "H000"
         /\ registers' = [registers EXCEPT !["rax"] = registers["rax"] + 1]
         /\ pc' = "H001"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H001 == /\ pc = "H001"
         /\ registers' = [registers EXCEPT !["rbx"] = registers["rbx"] + 1]
         /\ pc' = "H002"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H002 == /\ pc = "H002"
         /\ registers' = [registers EXCEPT !["rcx"] = registers["rcx"] + 1]
         /\ pc' = "H003"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H003 == /\ pc = "H003"
         /\ registers' = [registers EXCEPT !["rdx"] = registers["rdx"] + 1]
         /\ pc' = "H004"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H004 == /\ pc = "H004"
         /\ registers' = [registers EXCEPT !["rdi"] = registers["rdi"] + 1]
         /\ pc' = "H005"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H005 == /\ pc = "H005"
         /\ registers' = [registers EXCEPT !["rsi"] = registers["rsi"] + 1]
         /\ pc' = "H006"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H006 == /\ pc = "H006"
         /\ registers' = [registers EXCEPT !["rsp"] = registers["rsp"] + 1]
         /\ pc' = "H007"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H007 == /\ pc = "H007"
         /\ registers' = [registers EXCEPT !["rbp"] = registers["rbp"] + 1]
         /\ pc' = "H008"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H008 == /\ pc = "H008"
         /\ registers' = [registers EXCEPT !["r8"] = registers["r8"] + 1]
         /\ pc' = "H009"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H009 == /\ pc = "H009"
         /\ registers' = [registers EXCEPT !["r9"] = registers["r9"] + 1]
         /\ pc' = "H010"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H010 == /\ pc = "H010"
         /\ registers' = [registers EXCEPT !["r10"] = registers["r10"] + 1]
         /\ pc' = "H011"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H011 == /\ pc = "H011"
         /\ registers' = [registers EXCEPT !["r11"] = registers["r11"] + 1]
         /\ pc' = "H012"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H012 == /\ pc = "H012"
         /\ registers' = [registers EXCEPT !["r12"] = registers["r12"] + 1]
         /\ pc' = "H013"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H013 == /\ pc = "H013"
         /\ registers' = [registers EXCEPT !["r13"] = registers["r13"] + 1]
         /\ pc' = "H014"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H014 == /\ pc = "H014"
         /\ registers' = [registers EXCEPT !["r14"] = registers["r14"] + 1]
         /\ pc' = "H015"
-        /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 H015 == /\ pc = "H015"
         /\ registers' = [registers EXCEPT !["r15"] = registers["r15"] + 1]
         /\ pc' = Head(stack).pc
         /\ stack' = Tail(stack)
-        /\ UNCHANGED << Context, reg_, addr_, reg, addr, start_ctx, sp >>
+        /\ UNCHANGED << Context, start_ctx, rdi >>
 
 update == H000 \/ H001 \/ H002 \/ H003 \/ H004 \/ H005 \/ H006 \/ H007
              \/ H008 \/ H009 \/ H010 \/ H011 \/ H012 \/ H013 \/ H014
@@ -479,49 +327,44 @@ update == H000 \/ H001 \/ H002 \/ H003 \/ H004 \/ H005 \/ H006 \/ H007
 
 start_test == /\ pc = "start_test"
               /\ Context' = init_context
-              /\ sp' = registers["rsp"]
-              /\ registers' = [registers EXCEPT !["rdi"] = sp']
+              /\ rdi' = registers["rdi"]
               /\ pc' = "call_save_registers"
-              /\ UNCHANGED << stack, reg_, addr_, reg, addr, start_ctx >>
+              /\ UNCHANGED << registers, stack, start_ctx >>
 
 call_save_registers == /\ pc = "call_save_registers"
                        /\ stack' = << [ procedure |->  "save_context",
                                         pc        |->  "call_update" ] >>
                                     \o stack
                        /\ pc' = "S000"
-                       /\ UNCHANGED << Context, registers, reg_, addr_, reg, 
-                                       addr, start_ctx, sp >>
+                       /\ UNCHANGED << Context, registers, start_ctx, rdi >>
 
 call_update == /\ pc = "call_update"
                /\ stack' = << [ procedure |->  "update",
                                 pc        |->  "init_rsi" ] >>
                             \o stack
                /\ pc' = "H000"
-               /\ UNCHANGED << Context, registers, reg_, addr_, reg, addr, 
-                               start_ctx, sp >>
+               /\ UNCHANGED << Context, registers, start_ctx, rdi >>
 
 init_rsi == /\ pc = "init_rsi"
-            /\ registers' = [registers EXCEPT !["rsi"] = sp]
+            /\ registers' = [registers EXCEPT !["rsi"] = rdi]
             /\ pc' = "call_restore_registers"
-            /\ UNCHANGED << Context, stack, reg_, addr_, reg, addr, start_ctx, 
-                            sp >>
+            /\ UNCHANGED << Context, stack, start_ctx, rdi >>
 
 call_restore_registers == /\ pc = "call_restore_registers"
                           /\ stack' = << [ procedure |->  "restore_context",
                                            pc        |->  "end_test" ] >>
                                        \o stack
                           /\ pc' = "R000"
-                          /\ UNCHANGED << Context, registers, reg_, addr_, reg, 
-                                          addr, start_ctx, sp >>
+                          /\ UNCHANGED << Context, registers, start_ctx, rdi >>
 
 end_test == /\ pc = "end_test"
             /\ Assert((callee_saved_registers = start_ctx), 
-                      "Failure of assertion at line 144, column 9.")
+                      "Failure of assertion at line 118, column 9.")
             /\ pc' = Head(stack).pc
             /\ start_ctx' = Head(stack).start_ctx
-            /\ sp' = Head(stack).sp
+            /\ rdi' = Head(stack).rdi
             /\ stack' = Tail(stack)
-            /\ UNCHANGED << Context, registers, reg_, addr_, reg, addr >>
+            /\ UNCHANGED << Context, registers >>
 
 test == start_test \/ call_save_registers \/ call_update \/ init_rsi
            \/ call_restore_registers \/ end_test
@@ -530,18 +373,17 @@ check1 == /\ pc = "check1"
           /\ stack' = << [ procedure |->  "test",
                            pc        |->  "Done",
                            start_ctx |->  start_ctx,
-                           sp        |->  sp ] >>
+                           rdi       |->  rdi ] >>
                        \o stack
           /\ start_ctx' = callee_saved_registers
-          /\ sp' = defaultInitValue
+          /\ rdi' = defaultInitValue
           /\ pc' = "start_test"
-          /\ UNCHANGED << Context, registers, reg_, addr_, reg, addr >>
+          /\ UNCHANGED << Context, registers >>
 
 (* Allow infinite stuttering to prevent deadlock on termination. *)
 Terminating == pc = "Done" /\ UNCHANGED vars
 
-Next == push \/ pop \/ save_context \/ restore_context \/ update \/ test
-           \/ check1
+Next == save_context \/ restore_context \/ update \/ test \/ check1
            \/ Terminating
 
 Spec == Init /\ [][Next]_vars
@@ -549,5 +391,4 @@ Spec == Init /\ [][Next]_vars
 Termination == <>(pc = "Done")
 
 \* END TRANSLATION 
-
 ====
