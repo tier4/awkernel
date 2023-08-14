@@ -81,7 +81,7 @@ debug-raspi3:
 	qemu-system-aarch64 $(QEMU_RASPI3_ARGS) -s -S
 
 gdb-raspi3:
-	gdb-multiarch -x aarch64-debug.gdb
+	gdb-multiarch -x scripts/aarch64-debug.gdb
 
 ## Virt
 
@@ -103,7 +103,7 @@ debug-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS) -s -S
 
 gdb-aarch64-virt:
-	gdb-multiarch -x aarch64-debug.gdb
+	gdb-multiarch -x scripts/aarch64-debug.gdb
 
 # x86_64
 
@@ -134,6 +134,9 @@ QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 tcp-dump:
 	tcpdump -XXnr packets.pcap
 
+server: 
+	python3 scripts/udp.py
+
 qemu-x86_64-net:
 	cat /dev/null > packets.pcap
 	qemu-system-x86_64  $(QEMU_X86_NET_ARGS) -bios `cat ${HOME}/.ovfmpath`
@@ -145,7 +148,7 @@ debug-x86_64:
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
 
 gdb-x86_64:
-	gdb-multiarch -x x86-debug.gdb
+	gdb-multiarch -x scripts/x86-debug.gdb
 
 # riscv32
 
@@ -173,7 +176,7 @@ test: FORCE
 # Clean
 
 clean: FORCE
-	rm -f *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
+	rm -rf *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
 	cargo clean
 	$(MAKE) -C $(X86ASM) clean
 
