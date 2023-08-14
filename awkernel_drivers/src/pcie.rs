@@ -16,6 +16,7 @@ use crate::net::e1000e::E1000E;
 
 const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
+/// Initialize the PCIe
 pub fn init<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut OffsetPageTable<'static>,
@@ -47,7 +48,7 @@ pub fn init<T>(
     }
 }
 
-/// scan and initialize the PICe devices
+/// Scan and initialize the PICe devices
 fn scan_devices<T>(
     segment: &McfgEntry,
     page_table: &mut OffsetPageTable<'static>,
@@ -70,6 +71,7 @@ fn scan_devices<T>(
     }
 }
 
+/// Information necessary for initializing the device
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceInfo {
     pub(crate) addr: u64,
