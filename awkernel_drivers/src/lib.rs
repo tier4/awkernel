@@ -8,7 +8,7 @@ pub mod net;
 pub mod uart;
 
 #[cfg(all(feature = "x86", not(feature = "std")))]
-pub mod x86_64;
+pub mod pcie;
 
 #[cfg(feature = "aarch64")]
 pub mod psci;

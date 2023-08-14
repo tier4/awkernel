@@ -1,7 +1,7 @@
-use super::pcie::{DeviceInfo, PCIeDevice};
-use crate::x86_64::{OffsetPageTable, PageAllocator, PhysFrame};
+use crate::pcie::{DeviceInfo, PCIeDevice};
 use alloc::vec::Vec;
 use awkernel_lib::arch::x86_64::mmu::map_to;
+use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
 use awkernel_lib::net::NetDevice;
 use core::hint::spin_loop;
 use core::mem::size_of;
@@ -9,7 +9,7 @@ use core::ptr::{read_volatile, write_bytes, write_volatile};
 use core::slice;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering::SeqCst;
-use x86_64::structures::paging::{FrameAllocator, PageTableFlags};
+use x86_64::structures::paging::{FrameAllocator, OffsetPageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
 
 #[repr(C)]

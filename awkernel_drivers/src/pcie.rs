@@ -12,7 +12,7 @@ use acpi::{mcfg::McfgEntry, PciConfigRegions};
 use awkernel_lib::arch::x86_64::mmu::map_to;
 use core::ptr::read_volatile;
 
-use super::e1000e::E1000E;
+use crate::net::e1000e::E1000E;
 
 const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
@@ -110,9 +110,9 @@ impl DeviceInfo {
             (0x10d3, 0x8086) => {
                 let mut e1000e = E1000E::new(&self, page_table, page_allocator, page_size);
                 e1000e.init();
-                NETMASTER
-                    .lock(&mut MCSNode::new())
-                    .add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
+                let node = &mut MCSNode::new();
+                let mut net_master = NETMASTER.lock(node);
+                net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
                 Some(())
             }
             _ => None,
