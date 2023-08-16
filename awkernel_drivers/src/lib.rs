@@ -7,20 +7,12 @@ pub mod interrupt_controler;
 pub mod net;
 pub mod uart;
 
+#[cfg(all(feature = "x86", not(feature = "std")))]
+pub mod pcie;
+
 #[cfg(feature = "aarch64")]
 pub mod psci;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
 }

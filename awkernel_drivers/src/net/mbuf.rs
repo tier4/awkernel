@@ -1,1 +1,1 @@
-pub(crate) struct Mbuf {}
+pub struct MBuf {}

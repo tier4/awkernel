@@ -23,6 +23,7 @@ optional = true
 git = "https://github.com/sun-jacobi/acpi.git"
 optional = true
 
+
 [dependencies.bootloader_api]
 version = "0.11"
 optional = true
@@ -39,6 +40,23 @@ optional = true
 version = "0.1"
 default-features = false
 features = ["panic"]
+
+
+[dependencies.smoltcp]
+version = "0.10.0"
+default-features = false
+features = [
+    "alloc", 
+    "log", 
+    "socket-udp", 
+    "socket-tcp", 
+    "proto-ipv4", 
+    "proto-ipv6",
+    "socket-icmp",
+    "medium-ethernet", 
+]
+
+
 
 [features]
 default = ["aarch64"]
