@@ -132,7 +132,7 @@ debug-x86_64:
 	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
 
 gdb-x86_64:
-	gdb-multiarch -x x86-debug.gdb
+	gdb -x x86-debug.gdb
 
 # riscv32
 

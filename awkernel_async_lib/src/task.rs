@@ -339,7 +339,7 @@ pub fn run_main() {
 
                 // Invoke a task.
                 catch_unwind(|| {
-                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    #[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), not(feature = "std")))]
                     {
                         awkernel_lib::interrupt::enable();
                     }
@@ -347,7 +347,7 @@ pub fn run_main() {
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    #[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), not(feature = "std")))]
                     {
                         awkernel_lib::interrupt::disable();
                     }
