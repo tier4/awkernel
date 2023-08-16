@@ -126,8 +126,8 @@ impl WorkerThreadContext {
         let mut cpu_ctx = ArchContext::default();
 
         unsafe {
-            cpu_ctx.set_entry_point(entry, arg);
             cpu_ctx.set_stack_pointer(stack_pointer as usize);
+            cpu_ctx.set_entry_point(entry, arg);
         }
 
         Ok(WorkerThreadContext {
