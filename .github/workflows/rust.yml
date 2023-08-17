@@ -39,5 +39,9 @@ jobs:
     - name: Build std
       run: make std
 
+    - name: Clippy aarch64_virt
+      run: cargo clippy_aarch64_virt -- --deny warnings
+    - name: Clippy raspi
+      run: cargo clippy_raspi -- --deny warnings
     - name: Clippy std
-      run: clippy_std -- --deny warnings
+      run: cargo clippy_std -- --deny warnings
