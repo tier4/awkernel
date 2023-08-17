@@ -303,7 +303,7 @@ impl E1000E {
 
     /// Allocate the buffer space for e1000e's rx_ring
     fn allocate_buffer<T>(
-        page_table: &mut OffsetPageTable<'static>,
+        page_table: &OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
     ) -> (VirtAddr, PhysAddr)
     where
@@ -320,7 +320,7 @@ impl E1000E {
 
     /// Create Receive and Transmit Buffer
     fn create_ring<T>(
-        page_table: &mut OffsetPageTable<'static>,
+        page_table: &OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
     ) -> (VirtAddr, PhysAddr)
