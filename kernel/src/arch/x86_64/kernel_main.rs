@@ -9,7 +9,7 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
-use awkernel_drivers::interrupt_controler::apic::{
+use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
 };
@@ -151,7 +151,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // 10. Initialize APIC.
     if let TypeApic::Xapic(apic) =
-        awkernel_drivers::interrupt_controler::apic::new(&mut page_table, &mut page_allocator)
+        awkernel_drivers::interrupt_controller::apic::new(&mut page_table, &mut page_allocator)
     {
         // 11. Initialize the primary heap memory allocator.
         init_primary_heap(&mut page_table, &mut page_allocator);
