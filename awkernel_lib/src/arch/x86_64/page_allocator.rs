@@ -65,7 +65,7 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 
     let phys = level_4_table_frame.start_address();
     let virt = physical_memory_offset + phys.as_u64();
-    let ptr = virt.as_mut_ptr() as *mut PageTable;
+    let ptr = virt.as_mut_ptr();
 
     &mut *ptr
 }

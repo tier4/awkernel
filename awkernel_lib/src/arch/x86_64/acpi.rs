@@ -20,7 +20,7 @@ impl AcpiHandler for AcpiMapper {
         size: usize,
     ) -> acpi::PhysicalMapping<Self, T> {
         let addr = self.phy_offset + physical_address;
-        let virtual_start = NonNull::new(addr.as_mut_ptr() as *mut T).unwrap();
+        let virtual_start = NonNull::new(addr.as_mut_ptr()).unwrap();
 
         acpi::PhysicalMapping::new(physical_address, virtual_start, size, size, self.clone())
     }
