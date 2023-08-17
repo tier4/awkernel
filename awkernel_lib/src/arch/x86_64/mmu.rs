@@ -4,6 +4,13 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
+/// Map `phy_addr` to `virt_addr` with `flags`.
+///
+/// # Safety
+///
+/// `phy_addr` and `virt_addr` should not be used elsewhere.
+/// You must know what you do by `map_to()` completely,
+/// otherwise critical errors must be caused.
 pub unsafe fn map_to<T>(
     phy_addr: usize,
     virt_addr: usize,

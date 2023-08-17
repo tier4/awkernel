@@ -102,8 +102,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // Map a page to wake non-primary CPUs up.
     map_for_boot(NON_PRIMARY_START, &mut page_table, &mut page_allocator);
 
-    let backup_start = HEAP_START as usize;
-    let backup_size = BACKUP_HEAP_SIZE as usize;
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
 
     // 4. Initialize the backup heap memory allocator.
     // Map backup heap memory region.
@@ -186,12 +186,12 @@ fn init_primary_heap<T>(
 ) where
     T: Iterator<Item = PhysFrame> + Send,
 {
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
     let primary_size = 1 << 48; // up to 256TiB
 
     let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
 
-    let heap_size = num_pages * PAGESIZE as usize;
+    let heap_size = num_pages * PAGESIZE;
     unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
 
     log::info!(
@@ -258,8 +258,8 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
 
     // Save original data.
-    let _original = Box::<[u8; PAGESIZE as usize]>::new(unsafe {
-        read_volatile::<[u8; PAGESIZE as usize]>(boot16_phy_addr.as_ptr())
+    let _original = Box::<[u8; PAGESIZE]>::new(unsafe {
+        read_volatile::<[u8; PAGESIZE]>(boot16_phy_addr.as_ptr())
     });
 
     unsafe {

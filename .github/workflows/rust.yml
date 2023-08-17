@@ -22,7 +22,7 @@ jobs:
     - name: Use Rust nightly
       run: rustup default nightly
     - name: Add Rust components
-      run: rustup component add rust-src llvm-tools-preview
+      run: rustup component add rust-src llvm-tools-preview clippy
     - name: Add Rust targets
       run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
     - name: Install cargo-binutils
@@ -43,5 +43,7 @@ jobs:
       run: cargo clippy_aarch64_virt -- --deny warnings
     - name: Clippy raspi
       run: cargo clippy_raspi -- --deny warnings
+    - name: Clippy x86_64
+      run: cargo clippy_x86 -- --deny warnings
     - name: Clippy std
       run: cargo clippy_std -- --deny warnings

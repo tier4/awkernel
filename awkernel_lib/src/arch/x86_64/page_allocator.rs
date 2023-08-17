@@ -9,6 +9,9 @@ use x86_64::{
 
 static mut PHYSICAL_MEORY_OFFSET: usize = 0;
 
+/// # Safety
+///
+/// Must be initialized at once when booting.
 pub unsafe fn init(boot_info: &BootInfo) {
     let addr = boot_info.physical_memory_offset.as_ref().unwrap();
     write_volatile(&mut PHYSICAL_MEORY_OFFSET, (*addr) as usize);
@@ -47,6 +50,9 @@ where
     }
 }
 
+/// # Safety
+///
+/// `PHYSICAL_MEORY_OFFSET` must be initialized before calling.
 pub unsafe fn get_page_table() -> Option<OffsetPageTable<'static>> {
     let physical_memory_offset = VirtAddr::new(physical_memory_offset() as u64);
 

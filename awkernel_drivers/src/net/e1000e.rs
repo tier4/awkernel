@@ -81,7 +81,7 @@ impl PCIeDevice for E1000E {
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
         let register_start = (bar0 as usize) & 0xFFFFFFF0;
-        let info = info.clone();
+        let info = *info;
 
         // allocate virtual memory for register space
         Self::map_register_space(register_start, page_table, page_allocator, page_size);
@@ -241,10 +241,7 @@ impl E1000E {
         //  Install the transmit ring
         self.write_reg(TDBAL, self.tx_ring_pa as u32);
         self.write_reg(TDBAH, (self.tx_ring_pa >> 32) as u32);
-        self.write_reg(
-            TDLEN,
-            (self.tx_ring.len() * size_of::<TxDescriptor>()) as u32,
-        );
+        self.write_reg(TDLEN, core::mem::size_of_val(self.tx_ring) as u32);
         self.write_reg(TDH, 0);
         self.write_reg(TDT, 0);
 
@@ -258,10 +255,7 @@ impl E1000E {
         self.write_reg(RDBAL, self.rx_ring_pa as u32);
         assert_eq!(self.read_reg(RDBAL), self.rx_ring_pa as u32);
         self.write_reg(RDBAH, (self.rx_ring_pa >> 32) as u32);
-        self.write_reg(
-            RDLEN,
-            (self.rx_ring.len() * size_of::<RxDescriptor>()) as u32,
-        );
+        self.write_reg(RDLEN, core::mem::size_of_val(self.rx_ring) as u32);
         self.write_reg(RDH, 0);
         self.write_reg(RDT, (self.rx_ring.len() - 1) as u32);
 
@@ -403,8 +397,7 @@ impl E1000E {
             spin_loop();
         }
         fence(SeqCst);
-        let val = self.read_reg(EERD) >> 16;
-        val
+        self.read_reg(EERD) >> 16
     }
 
     /// Issue a global reset to e1000e

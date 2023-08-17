@@ -87,14 +87,14 @@ impl DeviceInfo {
         let header_type = unsafe { read_volatile((addr + 0xF) as *const u8) };
 
         if id == !0 || vendor == !0 {
-            return None;
+            None
         } else {
-            return Some(DeviceInfo {
+            Some(DeviceInfo {
                 addr,
                 id,
                 vendor,
                 header_type,
-            });
+            })
         }
     }
 
@@ -110,7 +110,7 @@ impl DeviceInfo {
         match (self.id, self.vendor) {
             //  Intel 82574 GbE Controller
             (0x10d3, 0x8086) => {
-                let mut e1000e = E1000E::new(&self, page_table, page_allocator, page_size);
+                let mut e1000e = E1000E::new(self, page_table, page_allocator, page_size);
                 e1000e.init();
                 let node = &mut MCSNode::new();
                 let mut net_master = NETMASTER.lock(node);

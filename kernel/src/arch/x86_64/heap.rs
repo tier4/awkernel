@@ -22,7 +22,7 @@ where
     let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
     let mut num_pages = 0;
 
-    for addr in (start..(start + size)).step_by(PAGESIZE as usize) {
+    for addr in (start..(start + size)).step_by(PAGESIZE) {
         // Allocate a physical page.
         let Some(frame) = page_allocator.allocate_frame() else { return num_pages };
 
