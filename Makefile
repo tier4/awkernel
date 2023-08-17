@@ -67,7 +67,7 @@ aarch64-link-bsp.lds: aarch64-link.lds
 	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds > $@
 
 QEMU_AARCH64_ARGS= -kernel kernel8.img
-QEMU_AARCH64_ARGS+= -serial stdio -display none
+QEMU_AARCH64_ARGS+= -serial stdio 
 QEMU_AARCH64_ARGS+= -monitor telnet::$(QEMUPORT),server,nowait # -d int
 
 ## Raspi3
