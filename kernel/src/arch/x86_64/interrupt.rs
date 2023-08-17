@@ -30,7 +30,7 @@ pub unsafe fn init() {
     IDT.vmm_communication_exception
         .set_handler_fn(vmm_communication_exception);
     IDT.x87_floating_point.set_handler_fn(x87_floating_point);
-    IDT.slice_mut(32..=32)[0].set_handler_fn(hello_world);
+    IDT[32].set_handler_fn(hello_world);
 
     IDT.load();
 }

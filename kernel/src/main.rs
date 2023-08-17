@@ -3,7 +3,6 @@
 //! Autoware Kernel is a safe and realtime operating system
 //! supporting isolated zero-copy communications written in Rust.
 
-#![feature(lang_items)]
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
 #![feature(allocator_api)]
