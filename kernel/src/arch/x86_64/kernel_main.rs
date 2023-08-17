@@ -2,20 +2,17 @@
 //!
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
-use super::{
-    apic::{Apic, TypeApic},
-    heap::map_heap,
-    interrupt,
-};
+use super::{heap::map_heap, interrupt};
 use crate::{
-    arch::x86_64::{
-        apic::registers::{DeliveryMode, DestinationShorthand, IcrFlags},
-        stack::map_stack,
-    },
+    arch::x86_64::stack::map_stack,
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use alloc::boxed::Box;
+use awkernel_drivers::interrupt_controller::apic::{
+    registers::{DeliveryMode, DestinationShorthand, IcrFlags},
+    Apic, TypeApic,
+};
 use awkernel_lib::{
     arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
     console::unsafe_puts,
@@ -153,7 +150,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     awkernel_drivers::pcie::init(&acpi, &mut page_table, &mut page_allocator, PAGESIZE as u64);
 
     // 10. Initialize APIC.
-    if let TypeApic::Xapic(apic) = super::apic::new(&mut page_table, &mut page_allocator) {
+    if let TypeApic::Xapic(apic) =
+        awkernel_drivers::interrupt_controller::apic::new(&mut page_table, &mut page_allocator)
+    {
         // 11. Initialize the primary heap memory allocator.
         init_primary_heap(&mut page_table, &mut page_allocator);
 

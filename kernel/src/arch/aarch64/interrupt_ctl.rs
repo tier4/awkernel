@@ -41,7 +41,7 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
         .get_address(1)
         .or(Err(err_msg!("could not find GICC_BASE")))? as usize;
 
-    let gic = awkernel_drivers::interrupt_controler::gicv2::GICv2::new(gicd_base, gicc_base);
+    let gic = awkernel_drivers::interrupt_controller::gicv2::GICv2::new(gicd_base, gicc_base);
 
     register_interrupt_controller(Box::new(gic));
 
@@ -60,7 +60,7 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
         .get_address(1)
         .or(Err(err_msg!("could not find GICR_BASE")))? as usize;
 
-    let gic = awkernel_drivers::interrupt_controler::gicv3::GICv3::new(gicd_base, gicr_base);
+    let gic = awkernel_drivers::interrupt_controller::gicv3::GICv3::new(gicd_base, gicr_base);
 
     register_interrupt_controller(Box::new(gic));
 
@@ -76,7 +76,7 @@ fn init_bcm2836(node: &StaticArrayedNode) -> Result<(), &'static str> {
         .get_address(0)
         .or(Err(err_msg!("could not find the base address")))? as usize;
 
-    let ctrl = awkernel_drivers::interrupt_controler::bcm2835::BCM2835IntCtrl::new(base);
+    let ctrl = awkernel_drivers::interrupt_controller::bcm2835::BCM2835IntCtrl::new(base);
     register_interrupt_controller(Box::new(ctrl));
 
     log::info!("bcm2836-armctrl-ic has been initialized.");
