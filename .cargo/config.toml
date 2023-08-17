@@ -15,6 +15,7 @@ clippy_std = "clippy --package awkernel --no-default-features --features std"
 
 check_aarch64 = "check --package awkernel --no-default-features --features aarch64 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_x86 = "check --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
 check_std = "check --package awkernel --no-default-features --features std"
 
 [target.'cfg(target_os = "linux")']

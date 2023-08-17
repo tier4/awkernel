@@ -642,7 +642,7 @@ fn destroy_publisher<T: 'static + Send>(publisher: &Publisher<T>) {
 }
 
 /// Destroy a subscriber.
-fn destroy_subscriber<T: 'static + Clone + Send>(subscriber: &mut Subscriber<T>) {
+fn destroy_subscriber<T: 'static + Clone + Send>(subscriber: &Subscriber<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_subscriber(subscriber);
