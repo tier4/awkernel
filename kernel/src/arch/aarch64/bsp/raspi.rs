@@ -125,6 +125,8 @@ impl super::SoC for Raspi {
         self.init_timer()?;
         self.init_gpio()?;
         self.init_i2c()?;
+        self.init_mbox()?;
+        self.test_framebuffer();
 
         Ok(())
     }
@@ -316,6 +318,28 @@ impl Raspi {
         unsafe { awkernel_drivers::hal::rpi::i2c::set_i2c_base(base_addr as usize) };
     
         Ok(())
+    }
+
+    fn init_mbox(&self) -> Result<(), &'static str> {
+        let mbox_node = self.get_device_from_symbols("mailbox")
+            .or(Err(err_msg!("could not find Mbox's device node")))?;
+        let base_addr = mbox_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find Mbox's base address")))?;
+    
+        log::info!("Mbox: 0x{:016x}", base_addr);
+    
+        unsafe { awkernel_drivers::framebuffer::mbox::set_mbox_base(base_addr as usize) };
+    
+        Ok(())
+    }
+
+    fn test_framebuffer(&self) {
+        let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
+        let fb_info_result = awkernel_drivers::framebuffer::lfb::lfb_init(&channel);
+        let fb_info = fb_info_result.unwrap(); 
+        awkernel_drivers::framebuffer::lfb::lfb_showpicture(&fb_info);
+
     }
 
     fn init_timer(&self) -> Result<(), &'static str> {

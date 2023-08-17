@@ -6,6 +6,7 @@ pub mod hal;
 pub mod interrupt_controler;
 pub mod net;
 pub mod uart;
+pub mod framebuffer;
 
 #[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod pcie;
