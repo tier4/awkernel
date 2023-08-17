@@ -115,7 +115,7 @@ impl NetMaster {
     }
 
     pub fn create_iface(&mut self) -> Option<(&mut NetDriver, Interface)> {
-        if self.drivers.len() == 0 {
+        if self.drivers.is_empty() {
             return None;
         }
         let device = &mut self.drivers[0];

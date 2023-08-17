@@ -37,6 +37,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                 let mut count = 0;
                 let mut worst = 0;
 
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..RTT_SIZE {
                     let rtt = unsafe { read_volatile(&RTT[i]) };
                     if rtt > 0 {

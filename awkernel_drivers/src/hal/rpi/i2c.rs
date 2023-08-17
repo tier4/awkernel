@@ -1,11 +1,21 @@
 use core::ptr::{read_volatile, write_volatile};
-use embedded_hal::blocking::i2c::{Write, Read, WriteRead};
+use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
 pub static mut I2C_BASE: usize = 0;
 
 /// Sets the base address for I2C communication
+///
+/// # Safety
+///
+/// `base` must be the base address of I2C.
 pub unsafe fn set_i2c_base(base: usize) {
     write_volatile(&mut I2C_BASE, base);
+}
+
+impl Default for I2C {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Define the addresses for the different I2C operations

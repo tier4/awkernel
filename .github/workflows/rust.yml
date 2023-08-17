@@ -16,7 +16,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    
+
     - name: Install Rust nightly
       run: rustup toolchain install nightly
     - name: Use Rust nightly
@@ -38,3 +38,6 @@ jobs:
       run: make x86_64
     - name: Build std
       run: make std
+
+    - name: Clippy std
+      run: clippy_std -- --deny warnings
