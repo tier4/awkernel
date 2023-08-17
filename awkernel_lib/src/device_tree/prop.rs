@@ -272,7 +272,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                     {
                         match strs.len() {
                             x if x > 1 => Ok(PropertyValue::Strings(strs)),
-                            x if x == 1 => Ok(PropertyValue::String(strs[0])),
+                            1 => Ok(PropertyValue::String(strs[0])),
                             _ => Ok(PropertyValue::String("")),
                         }
                     } else {
