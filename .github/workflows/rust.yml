@@ -28,7 +28,13 @@ jobs:
     - name: Install cargo-binutils
       run: cargo install cargo-binutils
 
-    - name: Build x86_64
-      run: make x86_64
     - name: Build aarch64_virt
       run: make aarch64 BSP=aarch64_virt
+    - name: Build aarch64 raspi4
+      run: make aarch64 BSP=raspi4
+    - name: Build aarch64 raspi3
+      run: make aarch64 BSP=raspi3
+    - name: Build x86_64
+      run: make x86_64
+    - name: Build std
+      run: make std
