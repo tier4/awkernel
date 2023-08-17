@@ -14,7 +14,7 @@ version = "0.14"
 optional = true
 
 [dependencies.acpi]
-git = "https://github.com/sun-jacobi/acpi.git"
+git = "https://github.com/tier4/acpi.git"
 optional = true
 
 
@@ -34,7 +34,7 @@ version = "0.2"
 
 [features]
 default = []
-x86 = ["awkernel_lib/x86","dep:acpi", "dep:x86_64"]
+x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 
@@ -43,12 +43,11 @@ aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 version = "0.10.0"
 default-features = false
 features = [
-    "alloc", 
-    "log", 
-    "socket-udp", 
-    "socket-tcp", 
-    "proto-ipv4", 
+    "alloc",
+    "log",
+    "socket-udp",
+    "socket-tcp",
+    "proto-ipv4",
     "proto-ipv6",
-    "medium-ethernet", 
+    "medium-ethernet",
 ]
-
