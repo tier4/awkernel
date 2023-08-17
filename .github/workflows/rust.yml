@@ -29,15 +29,15 @@ jobs:
       run: cargo install cargo-binutils
 
     - name: Build aarch64_virt
-      run: make aarch64 BSP=aarch64_virt
+      run: make check_aarch64 BSP=aarch64_virt
     - name: Build aarch64 raspi4
-      run: make aarch64 BSP=raspi4
+      run: make check_aarch64 BSP=raspi4
     - name: Build aarch64 raspi3
-      run: make aarch64 BSP=raspi3
+      run: make check_aarch64 BSP=raspi3
     - name: Build x86_64
-      run: make x86_64
+      run: make check_x86_64
     - name: Build std
-      run: make std
+      run: make check_std
 
     - name: Clippy aarch64_virt
       run: cargo clippy_aarch64_virt -- --deny warnings

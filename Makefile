@@ -54,6 +54,9 @@ FORCE:
 # AArch64
 aarch64: kernel8.img
 
+check_aarch64: FORCE
+	cargo +nightly check_aarch64 $(AARCH64_OPT)
+
 target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(AARCH64_OPT)
 
@@ -109,6 +112,9 @@ gdb-aarch64-virt:
 
 x86_64: x86_64_uefi.img
 
+check_x86_64: $(X86ASM)
+	cargo +nightly check_x86
+
 kernel-x86_64.elf: $(X86ASM) FORCE
 	cargo +nightly x86 $(OPT)
 
@@ -134,7 +140,7 @@ QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 tcp-dump:
 	tcpdump -XXnr packets.pcap
 
-server: 
+server:
 	python3 scripts/udp.py
 
 qemu-x86_64-net:
@@ -162,6 +168,9 @@ qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 
 std: FORCE
 	cargo +nightly std $(OPT)
+
+check_std: FORCE
+	cargo +nightly check_std
 
 run-std:
 	cargo +nightly run --package awkernel --no-default-features --features std $(OPT)
