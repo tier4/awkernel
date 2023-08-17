@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     arch::x86_64::{
-        apic::{DeliveryMode, DestinationShorthand, IcrFlags},
+        apic::registers::{DeliveryMode, DestinationShorthand, IcrFlags},
         stack::map_stack,
     },
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
@@ -20,6 +20,7 @@ use awkernel_lib::{
     arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
+    interrupt::register_interrupt_controller,
     memory::PAGESIZE,
 };
 use bootloader_api::{
@@ -159,7 +160,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         log::info!("Waking non-primary CPUs up.");
 
         // 12. Boot non-primary CPUs.
-        start_non_primary_cpus(&apic)
+        start_non_primary_cpus(&apic);
+
+        // Register interrupt controller.
+        register_interrupt_controller(Box::new(apic));
     } else {
         log::error!("Failed on XAPIC.");
         wait_forever();

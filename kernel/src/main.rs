@@ -47,7 +47,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         // Test for IPI.
-        #[cfg(all(feature = "aarch64", not(feature = "std")))]
+        #[cfg(all(any(feature = "aarch64", feature = "x86"), not(feature = "std")))]
         let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
@@ -87,21 +87,34 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
 
             // Test for IPI.
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            #[cfg(all(any(feature = "aarch64", feature = "x86"), not(feature = "std")))]
             {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
-                    let dur = 20_000; // 20[ms]
+                    let dur = 2_000_000; // 2000[ms]
                     if now - send_ipi >= dur {
-                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                            config::PREEMPT_IRQ,
-                        );
+                        // Send IPI to CPU#2.
+                        let target_cpu = 2;
+                        log::info!("Send IPI to CPU#{target_cpu}.");
+                        awkernel_lib::interrupt::send_ipi(config::PREEMPT_IRQ, target_cpu);
+
+                        // Send IPI to all CPUs
+                        // log::info!("Send IPI to all CPUs.");
+                        // awkernel_lib::interrupt::send_ipi_broadcast(config::PREEMPT_IRQ);
+
+                        // Send IPI to all CPUs except for primary CPU.
+                        // log::info!("Send IPI to all CPUs except for primary CPU.");
+                        // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                        //     config::PREEMPT_IRQ,
+                        // );
+
                         send_ipi = now;
                     }
                 }
             }
         }
     } else {
+        awkernel_lib::interrupt::enable();
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         // Non-primary CPUs.
