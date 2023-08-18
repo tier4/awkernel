@@ -1,4 +1,4 @@
-use crate::pcie::{DeviceInfo, PCIeDevice};
+use crate::pcie::{DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::vec::Vec;
 use awkernel_lib::arch::x86_64::mmu::map_to;
 use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
@@ -6,9 +6,9 @@ use awkernel_lib::net::NetDevice;
 use core::hint::spin_loop;
 use core::mem::size_of;
 use core::ptr::{read_volatile, write_bytes, write_volatile};
-use core::slice;
 use core::sync::atomic::fence;
 use core::sync::atomic::Ordering::SeqCst;
+use core::{fmt, slice};
 use x86_64::structures::paging::{FrameAllocator, OffsetPageTable, PageTableFlags, PhysFrame};
 use x86_64::{PhysAddr, VirtAddr};
 
@@ -48,14 +48,33 @@ pub struct E1000E {
     // Transmission Descriptor Ring
     tx_ring: &'static mut [TxDescriptor],
     tx_ring_pa: u64,
-    tx_bufs: Vec<VirtAddr>,
+}
+
+pub enum E1000EDriverErr {
+    MemoryMapFailure,
+}
+
+impl From<E1000EDriverErr> for PCIeDeviceErr {
+    fn from(_value: E1000EDriverErr) -> Self {
+        PCIeDeviceErr::InitFailure
+    }
+}
+
+impl fmt::Display for E1000EDriverErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::MemoryMapFailure => {
+                write!(f, "memory map fault occurs during driver initialization.")
+            }
+        }
+    }
 }
 
 //===========================================================================
 impl PCIeDevice for E1000E {
-    const ADDR_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
+    const REG_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
 
-    fn init(&mut self) {
+    fn init(&mut self) -> Result<(), PCIeDeviceErr> {
         assert_eq!(self.info.header_type, 0x0);
         // set up command register in config space
         // bit 0 : I/O Access
@@ -65,9 +84,13 @@ impl PCIeDevice for E1000E {
         unsafe {
             write_volatile(command_reg as *mut u16, 0b111);
         }
-        unsafe {
-            self.init_hw();
+
+        if let Err(e) = unsafe { self.init_hw() } {
+            log::error!("{}", e);
+            return Err(PCIeDeviceErr::InitFailure);
         }
+
+        Ok(())
     }
 
     fn new<T>(
@@ -75,7 +98,7 @@ impl PCIeDevice for E1000E {
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) -> Self
+    ) -> Result<Self, PCIeDeviceErr>
     where
         T: Iterator<Item = PhysFrame> + Send,
     {
@@ -84,13 +107,13 @@ impl PCIeDevice for E1000E {
         let info = *info;
 
         // allocate virtual memory for register space
-        Self::map_register_space(register_start, page_table, page_allocator, page_size);
+        Self::map_register_space(register_start, page_table, page_allocator, page_size)?;
 
         // allocate send and recv descriptor ring
         let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
         let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
-        let (tx_ring_va, tx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size);
-        let (rx_ring_va, rx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size);
+        let (tx_ring_va, tx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size)?;
+        let (rx_ring_va, rx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size)?;
         let tx_ring = unsafe {
             slice::from_raw_parts_mut(tx_ring_va.as_u64() as *mut TxDescriptor, tx_ring_len)
         };
@@ -98,24 +121,22 @@ impl PCIeDevice for E1000E {
             slice::from_raw_parts_mut(rx_ring_va.as_u64() as *mut RxDescriptor, rx_ring_len)
         };
 
-        let mut tx_bufs = Vec::new();
         let mut rx_bufs = Vec::new();
 
         // allocate buffer for descriptors
         for tx_desc in tx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator);
+            let (_, buf_pa) = Self::allocate_buffer(page_table, page_allocator)?;
             tx_desc.buf = buf_pa.as_u64();
             tx_desc.status |= 1;
-            tx_bufs.push(buf_va);
         }
 
         for rx_desc in rx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator);
+            let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator)?;
             rx_desc.buf = buf_pa.as_u64();
             rx_bufs.push(buf_va);
         }
 
-        Self {
+        Ok(Self {
             register_start,
             info,
             page_size: page_size as usize,
@@ -124,8 +145,7 @@ impl PCIeDevice for E1000E {
             rx_bufs,
             tx_ring,
             tx_ring_pa: tx_ring_pa.as_u64(),
-            tx_bufs,
-        }
+        })
     }
 }
 
@@ -202,14 +222,7 @@ impl NetDevice for E1000E {
             return None;
         }
 
-        // Copy the data into the buffer
-        let buf_ptr: *mut u8 = self.tx_bufs[tail as usize].as_mut_ptr();
-        let buf = unsafe { slice::from_raw_parts_mut(buf_ptr, data_len) };
-        buf.copy_from_slice(data);
-
-        fence(SeqCst); // barrier
-
-        // Mark this descriptor ready.
+        // Copy the data into the buffer()
         self.tx_ring[tail as usize].status = 0;
         self.tx_ring[tail as usize].length = data_len as u16;
         self.tx_ring[tail as usize].cmd = (1 << 3) | (1 << 1) | (1 << 0);
@@ -228,8 +241,8 @@ impl NetDevice for E1000E {
 //===========================================================================
 impl E1000E {
     /// Initialize e1000e's register
-    unsafe fn init_hw(&mut self) {
-        log::info!("Initializing e1000e");
+    unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
+        log::info!("Initializing e1000e driver...");
         // ============================================
         // 4.6.2: Global Reset and General Configuration
         self.disable_intr();
@@ -265,7 +278,6 @@ impl E1000E {
         }
 
         let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL));
-        log::debug!("e1000e MAC address: {:x?}", self.get_mac());
         // Receive Registers Intialization
         let (rah, ral) = self.read_mac();
         assert_eq!((rah, ral), (rah_nvm, ral_nvm));
@@ -278,7 +290,7 @@ impl E1000E {
         fence(SeqCst);
         // ============================================
         self.enable_intr();
-        log::info!("Initialized e1000e");
+        Ok(())
     }
 
     /// Create the memory map for e1000e's register space
@@ -287,35 +299,37 @@ impl E1000E {
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) where
+    ) -> Result<(), E1000EDriverErr>
+    where
         T: Iterator<Item = PhysFrame> + Send,
     {
         let mut start = register_start;
-        let end = start + Self::ADDR_SPACE_SIZE as usize;
+        let end = start + Self::REG_SPACE_SIZE as usize;
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
         while start < end {
-            unsafe {
-                map_to(start, start, flags, page_table, page_allocator);
+            if !unsafe { map_to(start, start, flags, page_table, page_allocator) } {
+                return Err(E1000EDriverErr::MemoryMapFailure);
             }
             start += page_size as usize;
         }
+        Ok(())
     }
 
     /// Allocate the buffer space for e1000e's rx_ring
     fn allocate_buffer<T>(
         page_table: &OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
-    ) -> (VirtAddr, PhysAddr)
+    ) -> Result<(VirtAddr, PhysAddr), E1000EDriverErr>
     where
         T: Iterator<Item = PhysFrame> + Send,
     {
         let buffer_pa = if let Some(frame) = page_allocator.allocate_frame() {
             frame.start_address()
         } else {
-            panic!("failed to allocate buffer.");
+            return Err(E1000EDriverErr::MemoryMapFailure);
         };
         let buffer_va = page_table.phys_offset() + buffer_pa.as_u64();
-        (buffer_va, buffer_pa)
+        Ok((buffer_va, buffer_pa))
     }
 
     /// Create Receive and Transmit Buffer
@@ -323,14 +337,14 @@ impl E1000E {
         page_table: &OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) -> (VirtAddr, PhysAddr)
+    ) -> Result<(VirtAddr, PhysAddr), E1000EDriverErr>
     where
         T: Iterator<Item = PhysFrame> + Send,
     {
         let frame = if let Some(frame) = page_allocator.allocate_frame() {
             frame
         } else {
-            panic!("failed to create nic ring.");
+            return Err(E1000EDriverErr::MemoryMapFailure);
         };
 
         let ring_pa = frame.start_address();
@@ -341,7 +355,7 @@ impl E1000E {
             write_bytes(ring_va.as_u64() as *mut u8, 0, page_size as usize);
         }
 
-        (ring_va, ring_pa)
+        Ok((ring_va, ring_pa))
     }
 
     /// Volatile write the certain register
@@ -402,7 +416,6 @@ impl E1000E {
 
     /// Issue a global reset to e1000e
     unsafe fn reset(&self) {
-        log::info!("Issuing a global reset to e1000e");
         //  Assert a Device Reset Signal
         let ctrl = self.read_reg(CTRL) | CTRL_RST;
         self.write_reg(CTRL, ctrl);
