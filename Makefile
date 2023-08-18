@@ -47,6 +47,15 @@ QEMUPORT=5556
 
 all: aarch64 x86_64 riscv32 std
 
+check: check_aarch64 check_x86_64 check_std check_riscv32
+
+clippy:
+	cargo clippy_x86
+	cargo clippy_raspi
+	cargo clippy_aarch64_virt
+	cargo clippy_rv32
+	cargo clippy_std
+
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
 FORCE:
@@ -160,6 +169,9 @@ gdb-x86_64:
 
 riscv32:
 	cargo +nightly rv32 $(OPT)
+
+check_riscv32: $(X86ASM)
+	cargo +nightly check_rv32
 
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait

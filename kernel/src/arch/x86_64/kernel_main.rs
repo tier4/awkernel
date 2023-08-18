@@ -67,13 +67,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     super::console::init_device(); // 2. Initialize the serial port.
 
-    unsafe { unsafe_puts("The primary CPU is waking up.\n") };
+    unsafe { unsafe_puts("\r\nThe primary CPU is waking up.\r\n") };
 
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
     } else {
-        unsafe { unsafe_puts("Physical memory is not mapped.\n") };
+        unsafe { unsafe_puts("Physical memory is not mapped.\r\n") };
         wait_forever();
     };
 
@@ -91,7 +91,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
-        unsafe { unsafe_puts("Failed to get the physical memory offset.\n") };
+        unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
         wait_forever();
     };
     let offset = *offset;

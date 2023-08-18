@@ -59,30 +59,30 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     }
 
     match awkernel_aarch64::get_current_el() {
-        0 => unsafe_puts("EL0\n"),
-        1 => unsafe_puts("EL1\n"),
-        2 => unsafe_puts("EL2\n"),
-        3 => unsafe_puts("EL3\n"),
-        _ => unsafe_puts("EL other\n"),
+        0 => unsafe_puts("EL0\r\n"),
+        1 => unsafe_puts("EL1\r\n"),
+        2 => unsafe_puts("EL2\r\n"),
+        3 => unsafe_puts("EL3\r\n"),
+        _ => unsafe_puts("EL other\r\n"),
     }
 
     unsafe_puts("Device Tree: 0x");
     unsafe_print_hex_u32(device_tree_base as u32);
-    unsafe_puts("\n");
+    unsafe_puts("\r\n");
 
     // 2. Initialize the virtual memory.
     let vm = match initializer.init_virtual_memory() {
         Ok(vm) => vm,
         Err(msg) => {
-            unsafe_puts("failed to initialize the virtual memory\n");
+            unsafe_puts("failed to initialize the virtual memory\r\n");
             unsafe_puts(msg);
-            unsafe_puts("\n");
+            unsafe_puts("\r\n");
             wait_forever();
         }
     };
 
     let Some(ttbr0) = vm.get_ttbr0_addr() else {
-        unsafe_puts("failed to get TTBR0_EL0\n");
+        unsafe_puts("failed to get TTBR0_EL0\r\n");
         wait_forever();
     };
 
@@ -94,7 +94,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     // 4. Enable MMU.
     super::vm::enable(ttbr0);
 
-    unsafe_puts("The virtual memory has been successfully enabled.\n");
+    unsafe_puts("The virtual memory has been successfully enabled.\r\n");
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
 
@@ -111,9 +111,9 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     // 6. Board specific initialization (Interrupt controller, etc).
     if let Err(msg) = initializer.init() {
-        unsafe_puts("failed init()\n");
+        unsafe_puts("failed init()\r\n");
         unsafe_puts(msg);
-        unsafe_puts("\n");
+        unsafe_puts("\r\n");
         wait_forever();
     }
 

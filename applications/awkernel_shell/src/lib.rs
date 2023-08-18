@@ -40,15 +40,15 @@ async fn console_handler() -> TaskResult {
 
     let mut line = Vec::new();
 
-    console::print("\nWelcome to Autoware Kernel!\n\n");
-    console::print("You can use BLisp language as follows.\n");
-    console::print("https://ytakano.github.io/blisp/\n\n");
-    console::print("> (factorial 20)\n");
-    console::print("2432902008176640000\n");
-    console::print("> (+ 10 20)\n");
-    console::print("30\n");
+    console::print("\r\nWelcome to Autoware Kernel!\r\n\r\n");
+    console::print("You can use BLisp language as follows.\r\n");
+    console::print("https://ytakano.github.io/blisp/\r\n\r\n");
+    console::print("> (factorial 20)\r\n");
+    console::print("2432902008176640000\r\n");
+    console::print("> (+ 10 20)\r\n");
+    console::print("30\r\n");
 
-    console::print("\nEnjoy!\n\n");
+    console::print("\r\nEnjoy!\r\n\r\n");
 
     console::print("> ");
     loop {
@@ -68,19 +68,19 @@ async fn console_handler() -> TaskResult {
             } else if c == b'\r' || c == b'\n' {
                 // newline
                 if line.is_empty() {
-                    console::print("\n> ");
+                    console::print("\r\n> ");
                     continue;
                 }
 
                 if let Ok(line_u8) = alloc::str::from_utf8(&line) {
                     if !IS_STD {
-                        console::print("\n");
+                        console::print("\r\n");
                     }
 
                     // Evaluate the line.
                     eval(line_u8, &blisp_ctx);
 
-                    console::print("\n> ");
+                    console::print("\r\n> ");
                 } else {
                     console::print("Error: Input string is not UTF-8.");
                 }
@@ -111,14 +111,14 @@ fn eval(expr: &str, ctx: &blisp::semantics::Context) {
                     }
                     Err(e) => {
                         console::print(&e);
-                        console::print("\n\ntry as follows\n> (help)\n");
+                        console::print("\r\n\r\ntry as follows\r\n> (help)\r\n");
                     }
                 }
             }
         }
         Err(err) => {
             console::print(&err.msg);
-            console::print("\n\ntry as follows\n> (help)\n");
+            console::print("\r\n\r\ntry as follows\r\n> (help)\r\n");
         }
     }
 }
@@ -143,34 +143,34 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel v202306\n");
-    console::print("BLisp grammer: https://ytakano.github.io/blisp/\n\n");
+    console::print("Autoware Kernel v202306\r\n");
+    console::print("BLisp grammer: https://ytakano.github.io/blisp/\r\n\r\n");
 
-    console::print("BLisp functions:\n");
+    console::print("BLisp functions:\r\n");
     console::print(CODE);
 }
 
 #[embedded]
 fn task_ffi() {
-    let msg = format!("Uptime: {}\n", awkernel_async_lib::uptime(),);
+    let msg = format!("Uptime: {}\r\n", awkernel_async_lib::uptime(),);
     console::print(&msg);
 
     print_tasks();
 
-    console::print("\n");
+    console::print("\r\n");
 
     let msg = format!(
-        "Total preemption: {}\n",
+        "Total preemption: {}\r\n",
         awkernel_async_lib::task::get_num_preemption(),
     );
     console::print(&msg);
 
-    console::print("Running Tasks:\n");
+    console::print("Running Tasks:\r\n");
     for task in awkernel_async_lib::task::get_tasks_running().iter() {
         let msg = if task.task_id != 0 {
-            format!("  cpu: {:>3}, task: {:>5}\n", task.cpu_id, task.task_id)
+            format!("  cpu: {:>3}, task: {:>5}\r\n", task.cpu_id, task.task_id)
         } else {
-            format!("  cpu: {:>3}, task:\n", task.cpu_id)
+            format!("  cpu: {:>3}, task:\r\n", task.cpu_id)
         };
         console::print(&msg);
     }
@@ -178,17 +178,17 @@ fn task_ffi() {
 
 #[embedded]
 fn udptest_ffi() {
-    console::print("Testing UDP\n");
+    console::print("Testing UDP\r\n");
     udp::udp_test();
 }
 
 fn print_tasks() {
     let tasks = task::get_tasks();
 
-    console::print("Tasks:\n");
+    console::print("Tasks:\r\n");
 
     let msg = format!(
-        "{:>5} {:<10} {:<8} {:>14} {:>14} name\n",
+        "{:>5} {:<10} {:<8} {:>14} {:>14} name\r\n",
         "ID", "State", "In Queue", "#Preemption", "Last Executed"
     );
     console::print(&msg);
@@ -200,7 +200,7 @@ fn print_tasks() {
         let state = format!("{:?}", info.get_state());
 
         let msg = format!(
-            "{:>5} {:<10} {:<8} {:>14} {:>14} {}\n",
+            "{:>5} {:<10} {:<8} {:>14} {:>14} {}\r\n",
             t.id,
             state,
             info.in_queue(),
