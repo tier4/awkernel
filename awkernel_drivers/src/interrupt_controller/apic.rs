@@ -13,6 +13,7 @@ use x86_64::{
 pub mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
     use bitflags::bitflags;
+    use x86_64::registers::model_specific::Msr;
 
     pub const IA32_APIC_BASE_MSR: u32 = 0x1B;
 
@@ -24,8 +25,8 @@ pub mod registers {
 
     bitflags! {
         pub struct IcrFlags: u32 {
-            const LEVEL_TRIGGER = 1 << 15;       // Trigger Mode
-            const ASSERT = 1 << 14;              // Level
+            const LEVEL_TRIGGER = 1 << 15;       // Trigger Mode: 0: Edge, 1: Level
+            const ASSERT = 1 << 14;              // Level: 0: De-assert, 1: Assert
             const SEND_PENDING = 1 << 12;        // Delivery Status
             const DESTINATION_LOGICAL = 1 << 11; // Destination Mode
         }
@@ -50,6 +51,12 @@ pub mod registers {
         Init = 0b101 << 8,
         StartUp = 0b110 << 8,
     }
+
+    pub const ENABLE_X2APIC: u64 = 1 << 10;
+
+    pub static X2APIC_LOCAL_APIC_ID: Msr = Msr::new(0x802);
+    pub static X2APIC_LOCAL_VERSION: Msr = Msr::new(0x803);
+    pub static mut X2APIC_ICR: Msr = Msr::new(0x830);
 }
 
 #[allow(dead_code)]
@@ -92,18 +99,27 @@ pub fn new<T>(
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
+    let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
+
     let cpuid = unsafe { __cpuid(1) };
     if cpuid.ecx & (1 << 21) != 0 {
         log::info!("x2APIC is available.");
+
+        // Enable x2APIC
+        // unsafe {
+        //     let value = msr.read();
+        //     msr.write(value | registers::ENABLE_X2APIC);
+        // }
     }
 
-    let msr = Msr::new(registers::IA32_APIC_BASE_MSR);
     let value = unsafe { msr.read() };
 
     let is_bsp = (value & (1 << 8)) != 0;
     let apic_base = (value & 0xFFFF_F000) as usize;
 
-    log::info!("APIC base address = 0x{:x}", apic_base);
+    if value & registers::ENABLE_X2APIC == 0 {
+        log::info!("APIC base address = 0x{:x}", apic_base);
+    }
 
     let flags = PageTableFlags::PRESENT
         | PageTableFlags::WRITABLE
@@ -133,7 +149,11 @@ where
         }
         0b11 => {
             log::info!("Local APIC is enabled in x2APIC mode.");
-            TypeApic::X2Apic(X2Apic { is_bsp })
+            let x2apic = X2Apic { is_bsp };
+
+            log::info!("Local APIC ID = {:x}", x2apic.local_apic_id());
+
+            TypeApic::X2Apic(x2apic)
         }
         _ => unreachable!(),
     }
@@ -160,12 +180,7 @@ impl Apic for Xapic {
         let low = registers::XAPIC_ICR_LOW;
         let high = registers::XAPIC_ICR_HIGH;
 
-        let low_bits = low.read(self.apic_base);
-        let low_bits = (low_bits & !0x000c_dfff)
-            | dst_shorthand as u32
-            | flags.bits()
-            | delivery_mode as u32
-            | vector as u32;
+        let low_bits = dst_shorthand as u32 | flags.bits() | delivery_mode as u32 | vector as u32;
 
         let high_bits = high.read(self.apic_base) & 0x000f_ffff;
         let high_bits = match dst_shorthand {
@@ -177,6 +192,35 @@ impl Apic for Xapic {
         low.write(low_bits, self.apic_base);
 
         while (low.read(self.apic_base) & registers::IcrFlags::SEND_PENDING.bits()) != 0 {}
+    }
+}
+
+impl Apic for X2Apic {
+    fn local_apic_id(&self) -> u32 {
+        let id = unsafe { registers::X2APIC_LOCAL_APIC_ID.read() };
+        id as u32
+    }
+
+    fn local_apic_version(&self) -> u32 {
+        let ver = unsafe { registers::X2APIC_LOCAL_VERSION.read() };
+        ver as u32
+    }
+
+    fn interrupt(
+        &self,
+        destination: u32,
+        dst_shorthand: registers::DestinationShorthand,
+        flags: registers::IcrFlags,
+        delivery_mode: registers::DeliveryMode, // Delivery mode is removed
+        vector: u8,
+    ) {
+        let bits = (destination as u64) << 32
+            | dst_shorthand as u64
+            | flags.bits() as u64
+            | delivery_mode as u64
+            | vector as u64;
+
+        unsafe { registers::X2APIC_ICR.write(bits) };
     }
 }
 
@@ -265,4 +309,32 @@ impl InterruptController for Xapic {
     fn init_non_primary(&mut self) {
         // Nothing to do.
     }
+}
+
+impl InterruptController for X2Apic {
+    fn disable_irq(&mut self, _irq: u16) {
+        todo!()
+    }
+
+    fn enable_irq(&mut self, _irq: u16) {
+        todo!()
+    }
+
+    fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>> {
+        todo!()
+    }
+
+    fn send_ipi(&mut self, _irq: u16, _target: u16) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast(&mut self, _irq: u16) {
+        todo!()
+    }
+
+    fn send_ipi_broadcast_without_self(&mut self, _irq: u16) {
+        todo!()
+    }
+
+    fn init_non_primary(&mut self) {}
 }

@@ -336,7 +336,7 @@ pub unsafe fn print_device_tree_node(
         print_white_spaces(depth);
         unsafe_puts("\"");
         unsafe_puts(node.name());
-        unsafe_puts("\"\n");
+        unsafe_puts("\"\r\n");
     }
 
     for prop in node.props() {
@@ -350,10 +350,10 @@ pub unsafe fn print_device_tree_node(
                     print_address(*x);
                     unsafe_puts(", 0x");
                     print_address(*y);
-                    unsafe_puts(">>\n");
+                    unsafe_puts(">>\r\n");
                 }
                 prop::PropertyValue::Addresses(addrs) => {
-                    unsafe_puts(": <<\n");
+                    unsafe_puts(": <<\r\n");
                     for (addr, size) in addrs {
                         print_white_spaces(depth + 2);
 
@@ -361,39 +361,39 @@ pub unsafe fn print_device_tree_node(
                         print_address(*addr);
                         unsafe_puts(", 0x");
                         print_address(*size);
-                        unsafe_puts("),\n");
+                        unsafe_puts("),\r\n");
                     }
                     print_white_spaces(depth + 1);
-                    unsafe_puts(">>\n");
+                    unsafe_puts(">>\r\n");
                 }
                 prop::PropertyValue::String(s) => {
                     unsafe_puts(": \"");
                     unsafe_puts(s);
-                    unsafe_puts("\"\n");
+                    unsafe_puts("\"\r\n");
                 }
                 prop::PropertyValue::Integer(n) => {
                     unsafe_puts(": 0x");
                     unsafe_print_hex_u64(*n);
-                    unsafe_puts("\n");
+                    unsafe_puts("\r\n");
                 }
                 prop::PropertyValue::Integers(v) => {
-                    unsafe_puts(": [\n");
+                    unsafe_puts(": [\r\n");
                     for n in v.iter() {
                         print_white_spaces(depth + 2);
                         unsafe_puts("0x");
                         unsafe_print_hex_u64(*n);
-                        unsafe_puts(",\n");
+                        unsafe_puts(",\r\n");
                     }
                     print_white_spaces(depth + 1);
-                    unsafe_puts("]\n");
+                    unsafe_puts("]\r\n");
                 }
                 prop::PropertyValue::PHandle(h) => {
                     unsafe_puts(": 0x");
                     unsafe_print_hex_u32(*h);
-                    unsafe_puts("\n");
+                    unsafe_puts("\r\n");
                 }
                 prop::PropertyValue::Ranges(ranges) => {
-                    unsafe_puts(": [\n");
+                    unsafe_puts(": [\r\n");
 
                     for r in ranges {
                         print_white_spaces(depth + 2);
@@ -408,28 +408,28 @@ pub unsafe fn print_device_tree_node(
 
                         unsafe_puts("0x");
                         print_address(r.range.2);
-                        unsafe_puts("),\n");
+                        unsafe_puts("),\r\n");
                     }
 
                     print_white_spaces(depth + 1);
-                    unsafe_puts("]\n");
+                    unsafe_puts("]\r\n");
                 }
                 prop::PropertyValue::Strings(strs) => {
-                    unsafe_puts(": [\n");
+                    unsafe_puts(": [\r\n");
                     for s in strs.iter() {
                         print_white_spaces(depth + 2);
                         unsafe_puts("\"");
                         unsafe_puts(s);
-                        unsafe_puts("\",\n");
+                        unsafe_puts("\",\r\n");
                     }
                     print_white_spaces(depth + 1);
-                    unsafe_puts("]\n");
+                    unsafe_puts("]\r\n");
                 }
                 prop::PropertyValue::Unknown => {
-                    unsafe_puts("unknown\n");
+                    unsafe_puts("unknown\r\n");
                 }
                 prop::PropertyValue::None => {
-                    unsafe_puts("none\n");
+                    unsafe_puts("none\r\n");
                 }
             }
         }
