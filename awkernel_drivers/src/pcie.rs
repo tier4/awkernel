@@ -10,11 +10,30 @@ use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
 
 use acpi::{mcfg::McfgEntry, PciConfigRegions};
 use awkernel_lib::arch::x86_64::mmu::map_to;
+use core::fmt;
 use core::ptr::read_volatile;
 
 use crate::net::e1000e::E1000E;
 
 const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
+
+pub enum PCIeDeviceErr {
+    InitFailure,
+    UnRecognizedDevice(DeviceInfo),
+}
+
+impl fmt::Display for PCIeDeviceErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::InitFailure => {
+                write!(f, "Failed to initialize the device driver.")
+            }
+            Self::UnRecognizedDevice(device_info) => {
+                write!(f, "Unregistered PCIe device with {}", device_info)
+            }
+        }
+    }
+}
 
 /// Initialize the PCIe
 pub fn init<T>(
@@ -64,7 +83,9 @@ fn scan_devices<T>(
                 let addr = segment.base_address() + offset;
                 if let Some(device) = DeviceInfo::from_addr(addr) {
                     log::info!("Load {:x?} at {:#x} ", device, addr);
-                    device.init(page_table, page_allocator, page_size);
+                    if let Err(e) = device.init(page_table, page_allocator, page_size) {
+                        log::info!("{}", e);
+                    }
                 }
             }
         }
@@ -80,7 +101,18 @@ pub struct DeviceInfo {
     pub(crate) header_type: u8,
 }
 
+impl fmt::Display for DeviceInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "id: {:#x}, vendor: {:#x}, header type: {:#x}",
+            self.id, self.vendor, self.header_type
+        )
+    }
+}
+
 impl DeviceInfo {
+    /// Get the information for PCIe device
     fn from_addr(addr: u64) -> Option<DeviceInfo> {
         let vendor = unsafe { read_volatile(addr as *const u16) };
         let id = unsafe { read_volatile((addr + 0x2) as *const u16) };
@@ -98,41 +130,46 @@ impl DeviceInfo {
         }
     }
 
+    /// Initialize the PCIe device based on the information
     fn init<T>(
         &self,
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) -> Option<()>
+    ) -> Result<(), PCIeDeviceErr>
     where
         T: Iterator<Item = PhysFrame> + Send,
     {
         match (self.id, self.vendor) {
             //  Intel 82574 GbE Controller
             (0x10d3, 0x8086) => {
-                let mut e1000e = E1000E::new(self, page_table, page_allocator, page_size);
-                e1000e.init();
+                let mut e1000e = E1000E::new(self, page_table, page_allocator, page_size)?;
+                e1000e.init()?;
                 let node = &mut MCSNode::new();
                 let mut net_master = NETMASTER.lock(node);
                 net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
-                Some(())
+                Ok(())
             }
-            _ => None,
+            _ => Err(PCIeDeviceErr::UnRecognizedDevice(*self)),
         }
     }
 }
 
-// TODO : design error handling ( should not panic )
 pub trait PCIeDevice {
-    const ADDR_SPACE_SIZE: u64;
+    /// Each PCIe device has a register space,
+    const REG_SPACE_SIZE: u64;
+
+    /// Create the virtual memory map for register space.
     fn new<T>(
         info: &DeviceInfo,
         page_table: &mut OffsetPageTable<'static>,
         page_allocator: &mut PageAllocator<T>,
         page_size: u64,
-    ) -> Self
+    ) -> Result<Self, PCIeDeviceErr>
     where
         T: Iterator<Item = PhysFrame> + Send,
         Self: Sized;
-    fn init(&mut self);
+
+    /// Initialize the device hardware.
+    fn init(&mut self) -> Result<(), PCIeDeviceErr>;
 }
