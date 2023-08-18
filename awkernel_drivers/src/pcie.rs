@@ -1,7 +1,7 @@
 use acpi::AcpiTables;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use awkernel_lib::net::NETMASTER;
+use awkernel_lib::net::NET_MANAGER;
 use awkernel_lib::sync::mutex::MCSNode;
 use awkernel_lib::{arch::x86_64::acpi::AcpiMapper, sync::mutex::Mutex};
 
@@ -146,7 +146,7 @@ impl DeviceInfo {
                 let mut e1000e = E1000E::new(self, page_table, page_allocator, page_size)?;
                 e1000e.init()?;
                 let node = &mut MCSNode::new();
-                let mut net_master = NETMASTER.lock(node);
+                let mut net_master = NET_MANAGER.lock(node);
                 net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
                 Ok(())
             }

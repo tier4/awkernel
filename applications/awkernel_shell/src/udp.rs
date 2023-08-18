@@ -1,7 +1,6 @@
 use awkernel_async_lib::uptime;
+use awkernel_lib::net::NetManager;
 use awkernel_lib::{console, delay};
-use awkernel_lib::net::NETMASTER;
-use awkernel_lib::sync::mutex::MCSNode;
 use smoltcp::iface::SocketSet;
 use smoltcp::socket::udp;
 use smoltcp::time::Instant;
@@ -12,9 +11,7 @@ pub(crate) fn udp_test() {
     let port = 26099;
 
     // Create interface
-    let node = &mut MCSNode::new();
-    let mut net_master = NETMASTER.lock(node);
-    let (device, mut iface) = net_master.create_iface().unwrap();
+    let (mut device, mut iface) = NetManager::get_iface().unwrap();
 
     // register the ip address
     iface.update_ip_addrs(|ip_addrs| {
@@ -48,10 +45,10 @@ pub(crate) fn udp_test() {
 
     loop {
         let timestamp = Instant::from_micros(uptime() as i64);
-       
-        iface.poll(timestamp, device, &mut sockets);
+
+        iface.poll(timestamp, &mut device, &mut sockets);
         let socket = sockets.get_mut::<udp::Socket>(udp_handle);
-        
+
         if socket.can_send() {
             socket
                 .send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port))
