@@ -104,7 +104,7 @@ impl super::SoC for Raspi {
 
         vm.print();
 
-        unsafe_puts("Initializing the page table. Wait a moment.\n");
+        unsafe_puts("Initializing the page table. Wait a moment.\r\n");
 
         vm.init()?;
 
@@ -260,7 +260,7 @@ impl Raspi {
 
         register_unsafe_puts(uart::unsafe_puts);
 
-        unsafe { unsafe_puts("uart0 has been successfully initialized.\n") };
+        unsafe { unsafe_puts("uart0 has been successfully initialized.\r\n") };
 
         Ok(())
     }
@@ -305,16 +305,17 @@ impl Raspi {
     }
 
     fn init_i2c(&self) -> Result<(), &'static str> {
-        let i2c_node = self.get_device_from_symbols("i2c")
+        let i2c_node = self
+            .get_device_from_symbols("i2c")
             .or(Err(err_msg!("could not find I2C's device node")))?;
         let base_addr = i2c_node
             .get_address(0)
             .or(Err(err_msg!("could not find I2C's base address")))?;
-    
+
         log::info!("I2C: 0x{base_addr:016x}");
-    
+
         unsafe { awkernel_drivers::hal::rpi::i2c::set_i2c_base(base_addr as usize) };
-    
+
         Ok(())
     }
 

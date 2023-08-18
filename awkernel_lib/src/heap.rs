@@ -249,8 +249,8 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             return ptr.as_mut();
         } else {
             drop(guard);
-            unsafe_puts("failed to allocate heap memory\n");
-            unsafe_puts("aborting...\n");
+            unsafe_puts("failed to allocate heap memory\r\n");
+            unsafe_puts("aborting...\r\n");
             abort(); // there is no free memory left
         }
     }

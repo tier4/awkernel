@@ -45,10 +45,10 @@ unsafe fn primary_hart(hartid: usize) {
     super::console::init_port(UART_BASE);
 
     // setup the VM
-    let backup_start = HEAP_START as usize;
-    let backup_size = BACKUP_HEAP_SIZE as usize;
-    let primary_start = (HEAP_START + BACKUP_HEAP_SIZE) as usize;
-    let primary_size = HEAP_SIZE as usize;
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = HEAP_SIZE;
 
     // enable heap allocator
     heap::init_primary(primary_start, primary_size);
@@ -56,7 +56,7 @@ unsafe fn primary_hart(hartid: usize) {
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     // initialize serial device and dump booting logo
-    let mut port = Uart::new(UART_BASE as usize);
+    let mut port = Uart::new(UART_BASE);
     port.init(
         ns16550a::WordLength::EIGHT,
         ns16550a::StopBits::ONE,
@@ -68,7 +68,7 @@ unsafe fn primary_hart(hartid: usize) {
         ns16550a::Divisor::BAUD115200,
     );
 
-    let _ = port.write_str("\nautoware kernel is booting\n\n");
+    let _ = port.write_str("\r\nautoware kernel is booting\r\n\r\n");
 
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);

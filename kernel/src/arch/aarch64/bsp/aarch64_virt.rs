@@ -48,7 +48,7 @@ impl super::SoC for AArch64Virt {
 
         if let Err(err) = self.wake_cpus_up() {
             unsafe_puts(err);
-            unsafe_puts("\n");
+            unsafe_puts("\r\n");
             return Err(err);
         }
 
@@ -83,7 +83,7 @@ impl super::SoC for AArch64Virt {
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
 
         vm.print();
-        unsafe_puts("Initializing the page table. Wait a moment.\n");
+        unsafe_puts("Initializing the page table. Wait a moment.\r\n");
 
         vm.init()?;
 

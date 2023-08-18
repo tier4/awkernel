@@ -13,15 +13,15 @@ context_switch:
 );
 
 impl crate::context::Context for Context {
-    unsafe fn set_stack_pointer(&mut self, sp: usize) {
+    unsafe fn set_stack_pointer(&mut self, _sp: usize) {
         todo!();
     }
 
-    unsafe fn set_entry_point(&mut self, entry: extern "C" fn(usize) -> !, arg: usize) {
+    unsafe fn set_entry_point(&mut self, _entry: extern "C" fn(usize) -> !, _arg: usize) {
         todo!();
     }
 
-    unsafe fn set_argument(&mut self, arg: usize) {
+    unsafe fn set_argument(&mut self, _arg: usize) {
         todo!();
     }
 }

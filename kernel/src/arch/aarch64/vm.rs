@@ -454,7 +454,7 @@ impl VM {
     pub unsafe fn print(&self) {
         unsafe_puts("num_cpu = 0x");
         unsafe_print_hex_u32(self.num_cpus as u32);
-        unsafe_puts("\n");
+        unsafe_puts("\r\n");
 
         unsafe fn print_range(range: &Option<MemoryRange>) {
             if let Some(r) = range {
@@ -462,21 +462,21 @@ impl VM {
                 unsafe_print_hex_u64(r.start as u64);
                 unsafe_puts(" - 0x");
                 unsafe_print_hex_u64(r.end as u64);
-                unsafe_puts("\n");
+                unsafe_puts("\r\n");
             }
         }
 
-        unsafe_puts("Device Memory:\n");
+        unsafe_puts("Device Memory:\r\n");
         for range in self.device_ranges.iter() {
             print_range(range);
         }
 
-        unsafe_puts("Heap Memory:\n");
+        unsafe_puts("Heap Memory:\r\n");
         for range in self.heap.iter() {
             print_range(range);
         }
 
-        unsafe_puts("Read-only Memory:\n");
+        unsafe_puts("Read-only Memory:\r\n");
         for range in self.ro_ranges.iter() {
             print_range(range);
         }
@@ -484,22 +484,22 @@ impl VM {
         let start = get_kernel_start() as usize;
         let end = get_stack_memory() as usize;
 
-        unsafe_puts("Kernel:\n");
+        unsafe_puts("Kernel:\r\n");
         unsafe_puts("    0x");
         unsafe_print_hex_u64(start as u64);
         unsafe_puts(" - 0x");
         unsafe_print_hex_u64(end as u64);
-        unsafe_puts("\n");
+        unsafe_puts("\r\n");
 
         let start = end;
         let end = start + STACK_SIZE * self.num_cpus;
 
-        unsafe_puts("Stack Memory:\n");
+        unsafe_puts("Stack Memory:\r\n");
         unsafe_puts("    0x");
         unsafe_print_hex_u64(start as u64);
         unsafe_puts(" - 0x");
         unsafe_print_hex_u64(end as u64);
-        unsafe_puts("\n");
+        unsafe_puts("\r\n");
     }
 }
 

@@ -14,22 +14,22 @@ const _ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
 
 #[no_mangle]
 pub extern "C" fn handle_data_abort() {
-    unsafe { unsafe_puts("data abort\n") };
+    unsafe { unsafe_puts("data abort\r\n") };
 
     let sp = awkernel_aarch64::get_sp();
     unsafe { unsafe_puts("SP  = 0x") };
     print_hex(sp);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 
     let elr = awkernel_aarch64::elr_el1::get();
     unsafe { unsafe_puts("ELR = 0x") };
     print_hex(elr);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 
     let far = awkernel_aarch64::far_el1::get();
     unsafe { unsafe_puts("FAR = 0x") };
     print_hex(far);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 }
 
 fn print_hex(num: u64) {
