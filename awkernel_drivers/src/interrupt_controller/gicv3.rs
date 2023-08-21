@@ -358,7 +358,9 @@ impl InterruptController for GICv3 {
         const ICC_CTLR_RSS: u64 = 1 << 18;
         const GICD_TYPER_RSS: u32 = 1 << 26;
 
-        let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else { return; };
+        let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else {
+            return;
+        };
 
         let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
             && registers::GICD_TYPER.read(self.gicd_base) & GICD_TYPER_RSS != 0

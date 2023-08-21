@@ -142,7 +142,9 @@ impl Drop for RunningTaskGuard {
 unsafe fn do_preemption() {
     // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
-    let Some(task_id) = RunningTaskGuard::take() else { return; };
+    let Some(task_id) = RunningTaskGuard::take() else {
+        return;
+    };
 
     // If there is a task to be invoked next, execute the task.
     if let Some(next) = super::get_next_task() {

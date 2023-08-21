@@ -29,7 +29,9 @@ where
 
     for addr in (start..(start + size)).step_by(PAGESIZE) {
         // Allocate a physical page.
-        let Some(frame) = page_allocator.allocate_frame() else { return num_pages };
+        let Some(frame) = page_allocator.allocate_frame() else {
+            return num_pages;
+        };
 
         // Map a virtual page to the physical memory.
         let page = Page::containing_address(VirtAddr::new(addr as u64));

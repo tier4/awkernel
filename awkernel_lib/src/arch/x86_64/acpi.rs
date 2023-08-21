@@ -70,7 +70,9 @@ pub(super) fn init(acpi: &AcpiTables<AcpiMapper>) {
 }
 
 pub(super) fn wait_usec(usec: u64) {
-    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else { return; };
+    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else {
+        return;
+    };
 
     let mut port = Port::<u32>::new(pm_timer.base.address as u16);
 

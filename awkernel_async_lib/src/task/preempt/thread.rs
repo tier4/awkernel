@@ -150,7 +150,7 @@ impl Drop for WorkerThreadContext {
 
 fn allocate_stack(size: usize) -> Result<*mut u8, &'static str> {
     let Ok(layout) = Layout::from_size_align(size, PAGESIZE) else {
-        return Err("invalid layout")
+        return Err("invalid layout");
     };
 
     let result = catch_unwind(|| unsafe {

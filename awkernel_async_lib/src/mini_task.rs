@@ -47,7 +47,9 @@ impl Tasks {
                 let mut node = MCSNode::new();
                 let mut queue = self.queue.lock(&mut node);
                 queue.pop_front()
-            }) else { return };
+            }) else {
+                return;
+            };
 
             let w = waker_ref(&head);
             let mut cx = Context::from_waker(&w);

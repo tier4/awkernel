@@ -306,6 +306,8 @@ impl BackUpAllocator {
 
 unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
     let heap_mem = core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size);
-    let Some(heap_mem) = NonNull::new(heap_mem) else { return; };
+    let Some(heap_mem) = NonNull::new(heap_mem) else {
+        return;
+    };
     allocator.insert_free_block_ptr(heap_mem);
 }

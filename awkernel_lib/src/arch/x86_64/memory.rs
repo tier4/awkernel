@@ -10,9 +10,15 @@ impl crate::memory::Memory for super::X86 {
         let vm_addr = vm_addr & !(PAGESIZE - 1);
         let phy_addr = phy_addr & !(PAGESIZE - 1);
 
-        let Some(mut page_table) = get_page_table() else { return false; };
-        let Ok(page) = Page::<Size4KiB>::from_start_address(VirtAddr::new(vm_addr as u64)) else { return false; };
-        let Ok(phy_frame) = PhysFrame::from_start_address(PhysAddr::new(phy_addr as u64)) else { return false; };
+        let Some(mut page_table) = get_page_table() else {
+            return false;
+        };
+        let Ok(page) = Page::<Size4KiB>::from_start_address(VirtAddr::new(vm_addr as u64)) else {
+            return false;
+        };
+        let Ok(phy_frame) = PhysFrame::from_start_address(PhysAddr::new(phy_addr as u64)) else {
+            return false;
+        };
 
         let mut allocator = EmptyAllocator;
 
@@ -26,7 +32,9 @@ impl crate::memory::Memory for super::X86 {
             f |= PageTableFlags::WRITABLE;
         }
 
-        let Ok(flusher) = page_table.map_to(page, phy_frame, f, &mut allocator) else { return false; };
+        let Ok(flusher) = page_table.map_to(page, phy_frame, f, &mut allocator) else {
+            return false;
+        };
         flusher.flush();
 
         true
@@ -35,10 +43,16 @@ impl crate::memory::Memory for super::X86 {
     unsafe fn unmap(vm_addr: usize) {
         let vm_addr = vm_addr & !(PAGESIZE - 1);
 
-        let Some(mut page_table) = get_page_table() else { return; };
-        let Ok(page) = Page::<Size4KiB>::from_start_address(VirtAddr::new(vm_addr as u64)) else { return; };
+        let Some(mut page_table) = get_page_table() else {
+            return;
+        };
+        let Ok(page) = Page::<Size4KiB>::from_start_address(VirtAddr::new(vm_addr as u64)) else {
+            return;
+        };
 
-        let Ok((_, flusher)) = page_table.unmap(page) else { return; };
+        let Ok((_, flusher)) = page_table.unmap(page) else {
+            return;
+        };
         flusher.flush();
     }
 
