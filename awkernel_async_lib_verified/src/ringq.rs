@@ -138,7 +138,7 @@ mod verification {
 
         let num1: usize = kani::any();
         kani::assume(num1 <= q_size);
-    
+
         let num2: usize = kani::any();
         kani::assume(num2 <= q_size && num1 + num2 > q_size);
 
@@ -157,7 +157,7 @@ mod verification {
             expected += 1;
         }
 
-        for i in num1..num1+num2 {
+        for i in num1..num1 + num2 {
             q.push(i);
         }
 
