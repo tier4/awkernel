@@ -22,7 +22,7 @@ jobs:
     - name: Use Rust nightly
       run: rustup default nightly
     - name: Add Rust components
-      run: rustup component add rust-src llvm-tools-preview clippy
+      run: rustup component add rust-src llvm-tools-preview clippy rustfmt
     - name: Add Rust targets
       run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 
