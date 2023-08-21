@@ -137,9 +137,18 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 
-QEMU_X86_ARGS= -m 512 -drive format=raw,file=x86_64_uefi.img
+QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
+QEMU_X86_ARGS+= -m 4G -smp cpus=16
+QEMU_X86_ARGS+= -object memory-backend-ram,size=1G,id=m0
+QEMU_X86_ARGS+= -object memory-backend-ram,size=1G,id=m1
+QEMU_X86_ARGS+= -object memory-backend-ram,size=1G,id=m2
+QEMU_X86_ARGS+= -object memory-backend-ram,size=1G,id=m3
+QEMU_X86_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
+QEMU_X86_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
+QEMU_X86_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
+QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
 
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000

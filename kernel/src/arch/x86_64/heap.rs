@@ -1,9 +1,14 @@
 //! Allocate pages for heap memory.
 
-use awkernel_lib::{arch::x86_64::page_allocator::PageAllocator, memory::PAGESIZE};
+use awkernel_lib::{
+    arch::x86_64::page_allocator::PageAllocator,
+    console::{unsafe_print_hex_u64, unsafe_puts},
+    memory::PAGESIZE,
+};
 use x86_64::{
     structures::paging::{
-        FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame,
+        mapper::MapToError, FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags,
+        PhysFrame,
     },
     VirtAddr,
 };
@@ -29,10 +34,19 @@ where
         // Map a virtual page to the physical memory.
         let page = Page::containing_address(VirtAddr::new(addr as u64));
         unsafe {
-            if let Ok(m) = page_table.map_to(page, frame, flags, page_allocator) {
-                m.flush();
-            } else {
-                return num_pages;
+            match page_table.map_to(page, frame, flags, page_allocator) {
+                Ok(m) => {
+                    m.flush();
+                }
+                Err(MapToError::PageAlreadyMapped(f)) => {
+                    unsafe_puts("error: MapToError::PageAlreadyMapped(0x");
+                    unsafe_print_hex_u64(f.start_address().as_u64());
+                    unsafe_puts(")\r\n");
+                    return num_pages;
+                }
+                _ => {
+                    return num_pages;
+                }
             }
         };
 
