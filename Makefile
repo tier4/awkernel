@@ -50,11 +50,11 @@ all: aarch64 x86_64 riscv32 std
 check: check_aarch64 check_x86_64 check_std check_riscv32
 
 clippy:
-	cargo clippy_x86
-	cargo clippy_raspi
-	cargo clippy_aarch64_virt
-	cargo clippy_rv32
-	cargo clippy_std
+	cargo +nightly clippy_x86
+	cargo +nightly clippy_raspi
+	cargo +nightly clippy_aarch64_virt
+	cargo +nightly clippy_rv32
+	cargo +nightly clippy_std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
