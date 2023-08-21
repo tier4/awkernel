@@ -99,11 +99,11 @@ pub struct NTxToken {
     device: Arc<Mutex<Box<dyn NetDevice + Send>>>,
 }
 
-pub struct NetMaster {
+pub struct NetManager {
     drivers: Vec<NetDriver>,
 }
 
-impl NetMaster {
+impl NetManager {
     const fn new() -> Self {
         Self {
             drivers: Vec::new(),
@@ -114,21 +114,32 @@ impl NetMaster {
         self.drivers.push(NetDriver { inner });
     }
 
-    pub fn create_iface(&mut self) -> Option<(&mut NetDriver, Interface)> {
+    pub fn create_iface(&mut self) -> Option<(NetDriver, Interface)> {
         if self.drivers.is_empty() {
             return None;
         }
-        let device = &mut self.drivers[0];
+
+        // TODO: decide how to choose the driver
+        let mut device = NetDriver {
+            inner: self.drivers[0].inner.clone(),
+        };
+
         let node = &mut MCSNode::new();
         let addr = device.inner.lock(node).mac_address();
         let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(addr));
         let config = Config::new(hardware_addr);
         let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let iface = Interface::new(config, device, timestamp);
+        let iface = Interface::new(config, &mut device, timestamp);
         Some((device, iface))
+    }
+
+    pub fn get_iface() -> Option<(NetDriver, Interface)> {
+        let node = &mut MCSNode::new();
+        let mut net_manager = NET_MANAGER.lock(node);
+        net_manager.create_iface()
     }
 }
 
-unsafe impl Send for NetMaster {}
+unsafe impl Send for NetManager {}
 
-pub static NETMASTER: Mutex<NetMaster> = Mutex::new(NetMaster::new());
+pub static NET_MANAGER: Mutex<NetManager> = Mutex::new(NetManager::new());
