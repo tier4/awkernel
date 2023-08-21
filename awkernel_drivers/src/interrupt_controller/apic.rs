@@ -106,10 +106,10 @@ where
         log::info!("x2APIC is available.");
 
         // Enable x2APIC
-        // unsafe {
-        //     let value = msr.read();
-        //     msr.write(value | registers::ENABLE_X2APIC);
-        // }
+        unsafe {
+            let value = msr.read();
+            msr.write(value | registers::ENABLE_X2APIC);
+        }
     }
 
     let value = unsafe { msr.read() };

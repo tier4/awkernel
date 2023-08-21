@@ -15,8 +15,8 @@ use awkernel_drivers::interrupt_controller::apic::{
 };
 use awkernel_lib::{
     arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
-    console::{unsafe_print_hex_u64, unsafe_puts},
-    delay::{self, wait_forever, wait_microsec},
+    console::unsafe_puts,
+    delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
     memory::PAGESIZE,
 };
@@ -75,27 +75,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // 3. Initialize virtual memory
-
-    let mut total_usable_mem = 0;
-    for mem in boot_info.memory_regions.iter() {
-        if mem.kind == MemoryRegionKind::Usable {
-            unsafe {
-                unsafe_puts("0x");
-                unsafe_print_hex_u64(mem.start);
-                unsafe_puts(" - 0x");
-                unsafe_print_hex_u64(mem.end);
-                unsafe_puts("\r\n");
-            }
-
-            total_usable_mem += mem.end - mem.start;
-        }
-    }
-
-    unsafe {
-        unsafe_puts("total usable memory: 0x");
-        unsafe_print_hex_u64(total_usable_mem);
-        unsafe_puts("\r\n");
-    }
 
     // Create a page allocator.
     let mut frames = boot_info
@@ -333,11 +312,6 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     );
 
     wait_microsec(200); // Wait 200[us]
-
-    // loop {
-    //     unsafe { unsafe_puts("Y") };
-    //     awkernel_lib::delay::wait_sec(2);
-    // }
 
     // SIPI
     apic.interrupt(
