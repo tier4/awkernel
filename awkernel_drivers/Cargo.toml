@@ -37,7 +37,7 @@ default = []
 x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
-
+raspi = []
 
 [dependencies.smoltcp]
 version = "0.10.0"

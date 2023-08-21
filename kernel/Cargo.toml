@@ -55,7 +55,7 @@ version = "0.2.0"
 optional = true
 
 [features]
-default = ["x86"]
+default = ["raspi"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = [
     "no_std_unwinding",
@@ -79,5 +79,5 @@ aarch64 = [
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
 ]
-raspi = ["aarch64"]
+raspi = ["aarch64", "awkernel_drivers/raspi"]
 aarch64_virt = ["aarch64"]

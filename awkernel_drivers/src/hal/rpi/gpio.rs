@@ -32,7 +32,21 @@ fn gplev() -> usize {
     unsafe { read_volatile(&GPBASE) + 0x34 }
 }
 
+mod registers {
+    use awkernel_lib::mmio_rw;
+
+    mmio_rw!(offset 0xe4 => pub GPP_PUP_DOWN<u32>);
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PullUpDown {
+    None = 0b00,
+    Up = 0b01,
+    Down = 0b10,
+}
+
 /// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
+#[derive(Debug, Clone, Copy)]
 pub enum PullMode {
     PullNone,
     PullUp,
@@ -49,14 +63,6 @@ impl From<PullMode> for u32 {
         }
     }
 }
-
-// Implement the Clone and Copy trait for `PullMode`
-impl core::clone::Clone for PullMode {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl core::marker::Copy for PullMode {}
 
 /// Enum `GpioFunction` for setting the function of a GPIO pin.
 pub enum GpioFunction {
@@ -95,24 +101,56 @@ impl core::clone::Clone for GpioFunction {
 impl core::marker::Copy for GpioFunction {}
 
 /// Structure `GpioPin` to represent a GPIO pin and its operations.
+#[derive(Debug)]
 pub struct GpioPin {
     pin: u32,
+    base: usize,
 }
 
 impl GpioPin {
     /// Create a new `GpioPin`.
     pub fn new(pin: u32) -> Self {
-        Self { pin }
+        Self {
+            pin,
+            base: unsafe { read_volatile(&GPBASE) },
+        }
     }
 
-    /// Set the function of the `GpioPin`.
-    pub fn set_function(&self, func: GpioFunction) {
-        gpio_ctrl(self.pin, func.into(), gpfsel(), 3);
+    pub fn into_output(self) -> GpioPinOut {
+        gpio_ctrl(self.pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
+        GpioPinOut { pin: self.pin }
+    }
+
+    pub fn into_input(self, pull_up_down: PullUpDown) -> Result<GpioPinIn, &'static str> {
+        if (self.pin == 2 || self.pin == 3) && !matches!(pull_up_down, PullUpDown::Up) {
+            return Err("Pins GPIO2 and GPIO3 have fixed pull-up resistors.");
+        }
+
+        self.set_pull_up_down(pull_up_down);
+
+        gpio_ctrl(self.pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
+        Ok(GpioPinIn { pin: self.pin })
+    }
+
+    fn set_pull_up_down(&self, pull_up_down: PullUpDown) {
+        let offset = self.pin / 16;
+        let shift = self.pin % (16 - 1);
+        let mask = !(0x11 << shift);
+
+        let base = self.base + 4 * offset as usize;
+        let val_up_down = registers::GPP_PUP_DOWN.read(base);
+        let val_up_down = (val_up_down & mask) | ((pull_up_down as u32) << shift);
+        registers::GPP_PUP_DOWN.write(val_up_down, base);
     }
 }
 
+#[derive(Debug)]
+pub struct GpioPinOut {
+    pin: u32,
+}
+
 /// Implement `OutputPin` trait for `GpioPin` to provide methods for setting the pin high and low.
-impl OutputPin for GpioPin {
+impl OutputPin for GpioPinOut {
     type Error = core::convert::Infallible;
 
     /// Set the GPIO pin high.
@@ -128,25 +166,24 @@ impl OutputPin for GpioPin {
     }
 }
 
+#[derive(Debug)]
+pub struct GpioPinIn {
+    pin: u32,
+}
+
 /// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
-impl InputPin for GpioPin {
+impl InputPin for GpioPinIn {
     type Error = core::convert::Infallible;
 
     /// Check if the GPIO pin is high.
     fn is_high(&self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev(), 1) == 1;
-        if state {
-            log::info!("Pin is high");
-        }
         Ok(state)
     }
 
     /// Check if the GPIO pin is low.
     fn is_low(&self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev(), 1) == 0;
-        if state {
-            log::info!("Pin is low");
-        }
         Ok(state)
     }
 }
