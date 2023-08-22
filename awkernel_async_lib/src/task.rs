@@ -358,7 +358,7 @@ pub fn run_main() {
                         if exe_time.len() % 100000 == 0 {
                             log::info!(
                                 "CPU#{:?} exe_time: min = {:?} [ns], avg = {:?} [ns], max = {:?} [ns]",
-                                cpu_id = awkernel_lib::cpu::cpu_id(),
+                                awkernel_lib::cpu::cpu_id(),
                                 exe_time.iter().min().unwrap(),
                                 exe_time.iter().sum::<u128>() / exe_time.len() as u128,
                                 exe_time.iter().max().unwrap(),
