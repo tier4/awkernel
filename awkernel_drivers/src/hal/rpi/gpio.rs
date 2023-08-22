@@ -1,6 +1,8 @@
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::convert::{From, Into};
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    convert::{From, Into},
+    ptr::{read_volatile, write_volatile},
+};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
 
 static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([

@@ -1,3 +1,4 @@
+use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
 use core::ptr::{read_volatile, write_volatile};
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
@@ -10,12 +11,6 @@ pub static mut I2C_BASE: usize = 0;
 /// `base` must be the base address of I2C.
 pub unsafe fn set_i2c_base(base: usize) {
     write_volatile(&mut I2C_BASE, base);
-}
-
-impl Default for I2C {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 /// Define the addresses for the different I2C operations
@@ -47,11 +42,23 @@ pub enum I2cError {
     OtherError,
 }
 
-pub struct I2C {}
+pub struct I2C {
+    _pin0: GpioPinAlt,
+    _pin1: GpioPinAlt,
+}
 
 impl I2C {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new() -> Result<Self, &'static str> {
+        let pin0 = GpioPin::new(2)?;
+        let pin0 = pin0.into_alt(GpioFunction::ALTF0, PullMode::Up)?;
+
+        let pin1 = GpioPin::new(3)?;
+        let pin1 = pin1.into_alt(GpioFunction::ALTF0, PullMode::Up)?;
+
+        Ok(Self {
+            _pin0: pin0,
+            _pin1: pin1,
+        })
     }
 }
 
