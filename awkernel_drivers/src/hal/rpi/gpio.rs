@@ -1,6 +1,56 @@
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::convert::{From, Into};
 use core::ptr::{read_volatile, write_volatile};
 use embedded_hal::digital::v2::{InputPin, OutputPin};
+
+static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
+    true,  // GPIO0
+    true,  // GPIO1
+    true,  // GPIO2
+    true,  // GPIO3
+    true,  // GPIO4
+    true,  // GPIO5
+    true,  // GPIO6
+    true,  // GPIO7
+    true,  // GPIO8
+    true,  // GPIO9
+    true,  // GPIO10
+    true,  // GPIO11
+    true,  // GPIO12
+    true,  // GPIO13
+    false, // GPIO14 is used for UART TX
+    false, // GPIO15 is used for UART RX
+    true,  // GPIO16
+    true,  // GPIO17
+    true,  // GPIO18
+    true,  // GPIO19
+    true,  // GPIO20
+    true,  // GPIO21
+    true,  // GPIO22
+    true,  // GPIO23
+    true,  // GPIO24
+    true,  // GPIO25
+    true,  // GPIO26
+    true,  // GPIO27
+    true,  // GPIO28
+    true,  // GPIO29
+    true,  // GPIO30
+    true,  // GPIO31
+    true,  // GPIO32
+    true,  // GPIO33
+    true,  // GPIO34
+    true,  // GPIO35
+    true,  // GPIO36
+    true,  // GPIO37
+    true,  // GPIO38
+    true,  // GPIO39
+    true,  // GPIO40
+    true,  // GPIO41
+    true,  // GPIO42
+    true,  // GPIO43
+    true,  // GPIO44
+    true,  // GPIO45
+]);
 
 /// The base address for the GPIO.
 static mut GPBASE: usize = 0;
@@ -38,33 +88,16 @@ mod registers {
     mmio_rw!(offset 0xe4 => pub GPP_PUP_DOWN<u32>);
 }
 
+/// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
 #[derive(Debug, Clone, Copy)]
-pub enum PullUpDown {
+pub enum PullMode {
     None = 0b00,
     Up = 0b01,
     Down = 0b10,
 }
 
-/// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
-#[derive(Debug, Clone, Copy)]
-pub enum PullMode {
-    PullNone,
-    PullUp,
-    PullDown,
-}
-
-// Provide a method to convert `PullMode` enum to corresponding bit representation
-impl From<PullMode> for u32 {
-    fn from(val: PullMode) -> u32 {
-        match val {
-            PullMode::PullDown => 0b10,
-            PullMode::PullNone => 0b0,
-            PullMode::PullUp => 1,
-        }
-    }
-}
-
 /// Enum `GpioFunction` for setting the function of a GPIO pin.
+#[derive(Debug, Clone, Copy)]
 pub enum GpioFunction {
     INPUT,
     OUTPUT,
@@ -92,49 +125,56 @@ impl From<GpioFunction> for u32 {
     }
 }
 
-// Implement the Clone and Copy trait for `GpioFunction`
-impl core::clone::Clone for GpioFunction {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl core::marker::Copy for GpioFunction {}
-
 /// Structure `GpioPin` to represent a GPIO pin and its operations.
 #[derive(Debug)]
 pub struct GpioPin {
-    pin: u32,
+    pin: Option<u32>,
     base: usize,
 }
 
 impl GpioPin {
     /// Create a new `GpioPin`.
-    pub fn new(pin: u32) -> Self {
-        Self {
-            pin,
+    pub fn new(pin: u32) -> Result<Self, &'static str> {
+        let mut node = MCSNode::new();
+        let mut guard = GPIO_PINS.lock(&mut node);
+
+        let Some(ref_pin) = guard.get_mut(pin as usize) else {
+            return Err("invalid GPIO pin");
+        };
+
+        *ref_pin = false;
+
+        Ok(Self {
+            pin: Some(pin),
             base: unsafe { read_volatile(&GPBASE) },
-        }
+        })
     }
 
-    pub fn into_output(self) -> GpioPinOut {
-        gpio_ctrl(self.pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
-        GpioPinOut { pin: self.pin }
+    pub fn into_output(mut self) -> GpioPinOut {
+        let pin = self.pin.unwrap();
+        self.pin = None;
+
+        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
+        GpioPinOut { pin }
     }
 
-    pub fn into_input(self, pull_up_down: PullUpDown) -> Result<GpioPinIn, &'static str> {
-        if (self.pin == 2 || self.pin == 3) && !matches!(pull_up_down, PullUpDown::Up) {
+    pub fn into_input(mut self, pull_up_down: PullMode) -> Result<GpioPinIn, &'static str> {
+        let pin = self.pin.unwrap();
+
+        if (pin == 2 || pin == 3) && !matches!(pull_up_down, PullMode::Up) {
             return Err("Pins GPIO2 and GPIO3 have fixed pull-up resistors.");
         }
 
-        self.set_pull_up_down(pull_up_down);
+        self.pin = None;
+        self.set_pull_up_down(pin, pull_up_down);
 
-        gpio_ctrl(self.pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
-        Ok(GpioPinIn { pin: self.pin })
+        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
+        Ok(GpioPinIn { pin })
     }
 
-    fn set_pull_up_down(&self, pull_up_down: PullUpDown) {
-        let offset = self.pin / 16;
-        let shift = self.pin % (16 - 1);
+    fn set_pull_up_down(&self, pin: u32, pull_up_down: PullMode) {
+        let offset = pin / 16;
+        let shift = pin % (16 - 1);
         let mask = !(0x11 << shift);
 
         let base = self.base + 4 * offset as usize;
@@ -142,6 +182,20 @@ impl GpioPin {
         let val_up_down = (val_up_down & mask) | ((pull_up_down as u32) << shift);
         registers::GPP_PUP_DOWN.write(val_up_down, base);
     }
+}
+
+impl Drop for GpioPin {
+    fn drop(&mut self) {
+        if let Some(pin) = self.pin {
+            make_pin_available(pin);
+        }
+    }
+}
+
+fn make_pin_available(pin: u32) {
+    let mut node = MCSNode::new();
+    let mut guard = GPIO_PINS.lock(&mut node);
+    guard[pin as usize] = true;
 }
 
 #[derive(Debug)]
@@ -166,6 +220,12 @@ impl OutputPin for GpioPinOut {
     }
 }
 
+impl Drop for GpioPinOut {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
+    }
+}
+
 #[derive(Debug)]
 pub struct GpioPinIn {
     pin: u32,
@@ -185,6 +245,12 @@ impl InputPin for GpioPinIn {
     fn is_low(&self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev(), 1) == 0;
         Ok(state)
+    }
+}
+
+impl Drop for GpioPinIn {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
     }
 }
 
