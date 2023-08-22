@@ -306,7 +306,7 @@ impl Raspi {
 
     fn init_i2c(&self) -> Result<(), &'static str> {
         let i2c_node = self
-            .get_device_from_symbols("i2c")
+            .get_device_from_symbols("i2c1")
             .or(Err(err_msg!("could not find I2C's device node")))?;
         let base_addr = i2c_node
             .get_address(0)

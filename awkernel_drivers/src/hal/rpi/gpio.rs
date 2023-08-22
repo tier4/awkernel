@@ -182,13 +182,23 @@ impl GpioPin {
         })
     }
 
-    pub fn into_alt(mut self, alt: GpioFunction) -> Result<GpioPinAlt, &'static str> {
+    pub fn into_alt(
+        mut self,
+        alt: GpioFunction,
+        pull_up_down: PullMode,
+    ) -> Result<GpioPinAlt, &'static str> {
         if matches!(alt, GpioFunction::INPUT | GpioFunction::OUTPUT) {
             return Err("Not GpioFunction::Alt");
         }
 
         let pin = self.pin.unwrap();
+
+        if (pin == 2 || pin == 3) && !matches!(pull_up_down, PullMode::Up) {
+            return Err("Pins GPIO2 and GPIO3 have fixed pull-up resistors.");
+        }
+
         self.pin = None;
+        self.set_pull_up_down(pin, pull_up_down);
 
         gpio_ctrl(pin, alt.into(), gpfsel() + self.base, 3);
 
