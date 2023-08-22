@@ -67,19 +67,19 @@ pub unsafe fn set_gpio_base(base: usize) {
 // Define the addresses for the different GPIO operations
 
 fn gpfsel() -> usize {
-    unsafe { read_volatile(&GPBASE) }
+    0
 }
 
 fn gpfset() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x1c }
+    0x1c
 }
 
 fn gpfclr() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x28 }
+    0x28
 }
 
 fn gplev() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x34 }
+    0x34
 }
 
 mod registers {
@@ -142,6 +142,10 @@ impl GpioPin {
             return Err("invalid GPIO pin");
         };
 
+        if !*ref_pin {
+            return Err("The GPIO pin is already in used.");
+        }
+
         *ref_pin = false;
 
         Ok(Self {
@@ -154,8 +158,11 @@ impl GpioPin {
         let pin = self.pin.unwrap();
         self.pin = None;
 
-        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
-        GpioPinOut { pin }
+        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel() + self.base, 3);
+        GpioPinOut {
+            pin,
+            base: self.base,
+        }
     }
 
     pub fn into_input(mut self, pull_up_down: PullMode) -> Result<GpioPinIn, &'static str> {
@@ -168,8 +175,27 @@ impl GpioPin {
         self.pin = None;
         self.set_pull_up_down(pin, pull_up_down);
 
-        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel(), 3);
-        Ok(GpioPinIn { pin })
+        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel() + self.base, 3);
+        Ok(GpioPinIn {
+            pin,
+            base: self.base,
+        })
+    }
+
+    pub fn into_alt(mut self, alt: GpioFunction) -> Result<GpioPinAlt, &'static str> {
+        if matches!(alt, GpioFunction::INPUT | GpioFunction::OUTPUT) {
+            return Err("Not GpioFunction::Alt");
+        }
+
+        let pin = self.pin.unwrap();
+        self.pin = None;
+
+        gpio_ctrl(pin, alt.into(), gpfsel() + self.base, 3);
+
+        Ok(GpioPinAlt {
+            pin,
+            base: self.base,
+        })
     }
 
     fn set_pull_up_down(&self, pin: u32, pull_up_down: PullMode) {
@@ -201,6 +227,7 @@ fn make_pin_available(pin: u32) {
 #[derive(Debug)]
 pub struct GpioPinOut {
     pin: u32,
+    base: usize,
 }
 
 /// Implement `OutputPin` trait for `GpioPin` to provide methods for setting the pin high and low.
@@ -209,13 +236,13 @@ impl OutputPin for GpioPinOut {
 
     /// Set the GPIO pin high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, gpfset(), 1);
+        gpio_ctrl(self.pin, 1, gpfset() + self.base, 1);
         Ok(())
     }
 
     /// Set the GPIO pin low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, gpfclr(), 1);
+        gpio_ctrl(self.pin, 1, gpfclr() + self.base, 1);
         Ok(())
     }
 }
@@ -229,6 +256,7 @@ impl Drop for GpioPinOut {
 #[derive(Debug)]
 pub struct GpioPinIn {
     pin: u32,
+    base: usize,
 }
 
 /// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
@@ -237,18 +265,36 @@ impl InputPin for GpioPinIn {
 
     /// Check if the GPIO pin is high.
     fn is_high(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, gplev(), 1) == 1;
+        let state = gpio_read(self.pin, gplev() + self.base, 1) == 1;
         Ok(state)
     }
 
     /// Check if the GPIO pin is low.
     fn is_low(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, gplev(), 1) == 0;
+        let state = gpio_read(self.pin, gplev() + self.base, 1) == 0;
         Ok(state)
     }
 }
 
 impl Drop for GpioPinIn {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
+    }
+}
+
+#[derive(Debug)]
+pub struct GpioPinAlt {
+    pin: u32,
+    base: usize,
+}
+
+impl GpioPinAlt {
+    pub fn get_base(&self) -> usize {
+        self.base
+    }
+}
+
+impl Drop for GpioPinAlt {
     fn drop(&mut self) {
         make_pin_available(self.pin);
     }
