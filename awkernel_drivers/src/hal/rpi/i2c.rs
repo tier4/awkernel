@@ -15,27 +15,28 @@ pub unsafe fn set_i2c_base(base: usize) {
 
 /// Define the addresses for the different I2C operations
 
-fn i2c_c() -> usize {
-    unsafe { read_volatile(&I2C_BASE) }
+fn i2c_c(base: usize) -> usize {
+    base
 }
 
-fn i2c_s() -> usize {
-    unsafe { read_volatile(&I2C_BASE) + 0x4 }
+fn i2c_s(base: usize) -> usize {
+    base + 0x04
 }
 
-fn i2c_dlen() -> usize {
-    unsafe { read_volatile(&I2C_BASE) + 0x8 }
+fn i2c_dlen(base: usize) -> usize {
+    base + 0x8
 }
 
-fn i2c_a() -> usize {
-    unsafe { read_volatile(&I2C_BASE) + 0xc }
+fn i2c_a(base: usize) -> usize {
+    base + 0xc
 }
 
-fn i2c_fifo() -> usize {
-    unsafe { read_volatile(&I2C_BASE) + 0x10 }
+fn i2c_fifo(base: usize) -> usize {
+    base + 0x10
 }
 
 /// Enum to represent possible I2C errors
+#[derive(Debug, Clone, Copy)]
 pub enum I2cError {
     WriteError,
     ReadError,
@@ -43,6 +44,7 @@ pub enum I2cError {
 }
 
 pub struct I2C {
+    base: usize,
     _pin0: GpioPinAlt,
     _pin1: GpioPinAlt,
 }
@@ -56,6 +58,7 @@ impl I2C {
         let pin1 = pin1.into_alt(GpioFunction::ALTF0, PullMode::Up)?;
 
         Ok(Self {
+            base: unsafe { read_volatile(&I2C_BASE) },
             _pin0: pin0,
             _pin1: pin1,
         })
@@ -72,11 +75,11 @@ impl Write for I2C {
             i2c_write(
                 addr,
                 bytes,
-                i2c_a(),
-                i2c_dlen(),
-                i2c_fifo(),
-                i2c_c(),
-                i2c_s(),
+                i2c_a(self.base),
+                i2c_dlen(self.base),
+                i2c_fifo(self.base),
+                i2c_c(self.base),
+                i2c_s(self.base),
             )
         }
     }
@@ -92,11 +95,11 @@ impl Read for I2C {
             i2c_read(
                 addr,
                 buffer,
-                i2c_a(),
-                i2c_dlen(),
-                i2c_fifo(),
-                i2c_c(),
-                i2c_s(),
+                i2c_a(self.base),
+                i2c_dlen(self.base),
+                i2c_fifo(self.base),
+                i2c_c(self.base),
+                i2c_s(self.base),
             )
         }
     }
