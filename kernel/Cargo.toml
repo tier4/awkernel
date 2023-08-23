@@ -79,5 +79,5 @@ aarch64 = [
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
 ]
-raspi = ["aarch64", "awkernel_drivers/raspi"]
+raspi = ["aarch64", "awkernel_drivers/raspi", "userland/raspi"]
 aarch64_virt = ["aarch64"]

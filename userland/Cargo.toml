@@ -13,3 +13,10 @@ path = "../awkernel_async_lib"
 
 [dependencies.awkernel_shell]
 path = "../applications/awkernel_shell"
+
+[dependencies.test_rpi_hal]
+path = "../applications/test_rpi_hal"
+optional = true
+
+[features]
+raspi = ["dep:test_rpi_hal"]
