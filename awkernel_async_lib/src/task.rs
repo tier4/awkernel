@@ -9,9 +9,6 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-#[cfg(feature = "std")]
-use std::time::Instant;
-
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
@@ -25,6 +22,7 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
+    delay::uptime,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -280,10 +278,8 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub fn run_main() {
-    #[cfg(feature = "std")]
-    let mut exe_time: Vec<u128> = Vec::new();
-    #[cfg(feature = "std")]
-    let mut switch_time: Vec<u128> = Vec::new();
+    let mut exe_time: Vec<u64> = Vec::new();
+    let mut switch_time: Vec<u64> = Vec::new();
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -345,54 +341,43 @@ pub fn run_main() {
                 }
 
                 // Invoke a task.
-                #[cfg(feature = "std")]
-                {
-                    catch_unwind(|| {
-                        let start = Instant::now();
+                catch_unwind(|| {
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
+                    {
+                        awkernel_lib::interrupt::enable();
+                    }
 
-                        #[allow(clippy::let_and_return)]
-                        let result = guard.poll_unpin(&mut ctx);
+                    let start = uptime();
 
-                        let elapsed = start.elapsed();
-                        exe_time.push(elapsed.as_nanos());
-                        if exe_time.len() % 100000 == 0 {
-                            log::info!(
-                                "CPU#{:?} exe_time: min = {:?} [ns], avg = {:?} [ns], max = {:?} [ns]",
-                                awkernel_lib::cpu::cpu_id(),
-                                exe_time.iter().min().unwrap(),
-                                exe_time.iter().sum::<u128>() / exe_time.len() as u128,
-                                exe_time.iter().max().unwrap(),
-                            );
-                            exe_time.clear();
-                        }
-                        result
-                    })
-                }
-                #[cfg(not(feature = "std"))]
-                {
-                    catch_unwind(|| {
-                        #[cfg(all(
-                            any(target_arch = "aarch64", target_arch = "x86_64"),
-                            not(feature = "std")
-                        ))]
-                        {
-                            awkernel_lib::interrupt::enable();
-                        }
+                    #[allow(clippy::let_and_return)]
+                    let result = guard.poll_unpin(&mut ctx);
 
-                        #[allow(clippy::let_and_return)]
-                        let result = guard.poll_unpin(&mut ctx);
+                    let end = uptime();
+                    exe_time.push(end - start);
+                    if exe_time.len() % 100000 == 0 {
+                        log::info!(
+                            "CPU#{:?} exe_time: min = {:?} [us], avg = {:?} [us], max = {:?} [us]",
+                            awkernel_lib::cpu::cpu_id(),
+                            exe_time.iter().min().unwrap(),
+                            exe_time.iter().sum::<u64>() as f64 / exe_time.len() as f64,
+                            exe_time.iter().max().unwrap(),
+                        );
+                        exe_time.clear();
+                    }
 
-                        #[cfg(all(
-                            any(target_arch = "aarch64", target_arch = "x86_64"),
-                            not(feature = "std")
-                        ))]
-                        {
-                            awkernel_lib::interrupt::disable();
-                        }
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
+                    {
+                        awkernel_lib::interrupt::disable();
+                    }
 
-                        result
-                    })
-                }
+                    result
+                })
             };
 
             // If the primary memory allocator is available, it will be used.
@@ -411,41 +396,28 @@ pub fn run_main() {
 
             match result {
                 Ok(Poll::Pending) => {
-                    #[cfg(feature = "std")]
-                    {
-                        let start = std::time::Instant::now();
+                    let start = uptime();
 
-                        info.state = State::Waiting;
+                    info.state = State::Waiting;
 
-                        if info.need_sched {
-                            info.need_sched = false;
-                            drop(info);
-                            task.clone().wake();
-                        }
+                    if info.need_sched {
+                        info.need_sched = false;
+                        drop(info);
+                        task.clone().wake();
+                    }
 
-                        let elapsed = start.elapsed();
-                        switch_time.push(elapsed.as_nanos());
+                    let end = uptime();
+                    switch_time.push(end - start);
 
-                        if switch_time.len() % 100000 == 0 {
-                            log::info!(
+                    if switch_time.len() % 100000 == 0 {
+                        log::info!(
                                 "CPU#{:?} switch_time: min = {:?} [ns], avg = {:?} [ns], max = {:?} [ns]",
                                 awkernel_lib::cpu::cpu_id(),
                                 switch_time.iter().min().unwrap(),
-                                switch_time.iter().sum::<u128>() / switch_time.len() as u128,
+                                switch_time.iter().sum::<u64>() as f64 / switch_time.len() as f64,
                                 switch_time.iter().max().unwrap(),
                             );
-                            switch_time.clear();
-                        }
-                    }
-                    #[cfg(not(feature = "std"))]
-                    {
-                        info.state = State::Waiting;
-
-                        if info.need_sched {
-                            info.need_sched = false;
-                            drop(info);
-                            task.clone().wake();
-                        }
+                        switch_time.clear();
                     }
                 }
                 Ok(Poll::Ready(result)) => {
