@@ -1,6 +1,68 @@
-use core::convert::{From, Into};
-use core::ptr::{read_volatile, write_volatile};
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::{
+    arch::asm,
+    convert::{From, Into},
+    ptr::{read_volatile, write_volatile},
+};
+use embedded_hal::digital::{ErrorType, InputPin, OutputPin};
+
+static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
+    true,  // GPIO0
+    true,  // GPIO1
+    true,  // GPIO2
+    true,  // GPIO3
+    true,  // GPIO4
+    true,  // GPIO5
+    true,  // GPIO6
+    true,  // GPIO7
+    true,  // GPIO8
+    true,  // GPIO9
+    true,  // GPIO10
+    true,  // GPIO11
+    true,  // GPIO12
+    true,  // GPIO13
+    false, // GPIO14 is used for UART TX
+    false, // GPIO15 is used for UART RX
+    true,  // GPIO16
+    true,  // GPIO17
+    true,  // GPIO18
+    true,  // GPIO19
+    true,  // GPIO20
+    true,  // GPIO21
+    true,  // GPIO22
+    true,  // GPIO23
+    true,  // GPIO24
+    true,  // GPIO25
+    true,  // GPIO26
+    true,  // GPIO27
+    true,  // GPIO28
+    true,  // GPIO29
+    true,  // GPIO30
+    true,  // GPIO31
+    true,  // GPIO32
+    true,  // GPIO33
+    true,  // GPIO34
+    true,  // GPIO35
+    true,  // GPIO36
+    true,  // GPIO37
+    true,  // GPIO38
+    true,  // GPIO39
+    true,  // GPIO40
+    true,  // GPIO41
+    true,  // GPIO42
+    true,  // GPIO43
+    true,  // GPIO44
+    true,  // GPIO45
+]);
+
+/// Wait N CPU cycles
+fn wait_cycles(n: usize) {
+    if n > 0 {
+        for _ in 0..n {
+            unsafe { asm!("nop;") };
+        }
+    }
+}
 
 /// The base address for the GPIO.
 static mut GPBASE: usize = 0;
@@ -17,48 +79,35 @@ pub unsafe fn set_gpio_base(base: usize) {
 // Define the addresses for the different GPIO operations
 
 fn gpfsel() -> usize {
-    unsafe { read_volatile(&GPBASE) }
+    0
 }
 
 fn gpfset() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x1c }
+    0x1c
 }
 
 fn gpfclr() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x28 }
+    0x28
 }
 
 fn gplev() -> usize {
-    unsafe { read_volatile(&GPBASE) + 0x34 }
+    0x34
+}
+
+fn gp_pup_down() -> usize {
+    0xe4
 }
 
 /// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
+#[derive(Debug, Clone, Copy)]
 pub enum PullMode {
-    PullNone,
-    PullUp,
-    PullDown,
+    None = 0b00,
+    Up = 0b01,
+    Down = 0b10,
 }
-
-// Provide a method to convert `PullMode` enum to corresponding bit representation
-impl From<PullMode> for u32 {
-    fn from(val: PullMode) -> u32 {
-        match val {
-            PullMode::PullDown => 0b10,
-            PullMode::PullNone => 0b0,
-            PullMode::PullUp => 1,
-        }
-    }
-}
-
-// Implement the Clone and Copy trait for `PullMode`
-impl core::clone::Clone for PullMode {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl core::marker::Copy for PullMode {}
 
 /// Enum `GpioFunction` for setting the function of a GPIO pin.
+#[derive(Debug, Clone, Copy)]
 pub enum GpioFunction {
     INPUT,
     OUTPUT,
@@ -86,68 +135,181 @@ impl From<GpioFunction> for u32 {
     }
 }
 
-// Implement the Clone and Copy trait for `GpioFunction`
-impl core::clone::Clone for GpioFunction {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-impl core::marker::Copy for GpioFunction {}
-
 /// Structure `GpioPin` to represent a GPIO pin and its operations.
+#[derive(Debug)]
 pub struct GpioPin {
-    pin: u32,
+    pin: Option<u32>,
+    base: usize,
 }
 
 impl GpioPin {
     /// Create a new `GpioPin`.
-    pub fn new(pin: u32) -> Self {
-        Self { pin }
+    pub fn new(pin: u32) -> Result<Self, &'static str> {
+        let mut node = MCSNode::new();
+        let mut guard = GPIO_PINS.lock(&mut node);
+
+        let Some(ref_pin) = guard.get_mut(pin as usize) else {
+            return Err("invalid GPIO pin");
+        };
+
+        if !*ref_pin {
+            return Err("The GPIO pin is already in used.");
+        }
+
+        *ref_pin = false;
+
+        Ok(Self {
+            pin: Some(pin),
+            base: unsafe { read_volatile(&GPBASE) },
+        })
     }
 
-    /// Set the function of the `GpioPin`.
-    pub fn set_function(&self, func: GpioFunction) {
-        gpio_ctrl(self.pin, func.into(), gpfsel(), 3);
+    pub fn into_output(mut self) -> GpioPinOut {
+        let pin = self.pin.unwrap();
+        self.pin = None;
+
+        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel() + self.base, 3);
+        GpioPinOut {
+            pin,
+            base: self.base,
+        }
+    }
+
+    pub fn into_input(mut self, pull_up_down: PullMode) -> Result<GpioPinIn, &'static str> {
+        let pin = self.pin.unwrap();
+
+        if (pin == 2 || pin == 3) && !matches!(pull_up_down, PullMode::Up) {
+            return Err("Pins GPIO2 and GPIO3 have fixed pull-up resistors.");
+        }
+
+        self.pin = None;
+
+        gpio_ctrl(pin, pull_up_down as u32, gp_pup_down() + self.base, 2);
+        gpio_ctrl(pin, GpioFunction::INPUT.into(), gpfsel() + self.base, 3);
+        Ok(GpioPinIn {
+            pin,
+            base: self.base,
+        })
+    }
+
+    pub fn into_alt(
+        mut self,
+        alt: GpioFunction,
+        pull_up_down: PullMode,
+    ) -> Result<GpioPinAlt, &'static str> {
+        if matches!(alt, GpioFunction::INPUT | GpioFunction::OUTPUT) {
+            return Err("Not GpioFunction::Alt");
+        }
+
+        let pin = self.pin.unwrap();
+
+        if (pin == 2 || pin == 3) && !matches!(pull_up_down, PullMode::Up) {
+            return Err("Pins GPIO2 and GPIO3 have fixed pull-up resistors.");
+        }
+
+        self.pin = None;
+        gpio_ctrl(pin, pull_up_down as u32, gp_pup_down() + self.base, 2);
+
+        gpio_ctrl(pin, alt.into(), gpfsel() + self.base, 3);
+
+        Ok(GpioPinAlt {
+            pin,
+            base: self.base,
+        })
     }
 }
 
-/// Implement `OutputPin` trait for `GpioPin` to provide methods for setting the pin high and low.
-impl OutputPin for GpioPin {
-    type Error = core::convert::Infallible;
+impl Drop for GpioPin {
+    fn drop(&mut self) {
+        if let Some(pin) = self.pin {
+            make_pin_available(pin);
+        }
+    }
+}
 
+fn make_pin_available(pin: u32) {
+    let mut node = MCSNode::new();
+    let mut guard = GPIO_PINS.lock(&mut node);
+    guard[pin as usize] = true;
+}
+
+#[derive(Debug)]
+pub struct GpioPinOut {
+    pin: u32,
+    base: usize,
+}
+
+impl ErrorType for GpioPinOut {
+    type Error = core::convert::Infallible;
+}
+
+/// Implement `OutputPin` trait for `GpioPin` to provide methods for setting the pin high and low.
+impl OutputPin for GpioPinOut {
     /// Set the GPIO pin high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, gpfset(), 1);
+        gpio_ctrl(self.pin, 1, gpfset() + self.base, 1);
         Ok(())
     }
 
     /// Set the GPIO pin low.
     fn set_low(&mut self) -> Result<(), Self::Error> {
-        gpio_ctrl(self.pin, 1, gpfclr(), 1);
+        gpio_ctrl(self.pin, 1, gpfclr() + self.base, 1);
         Ok(())
     }
 }
 
-/// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
-impl InputPin for GpioPin {
-    type Error = core::convert::Infallible;
+impl Drop for GpioPinOut {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
+    }
+}
 
+#[derive(Debug)]
+pub struct GpioPinIn {
+    pin: u32,
+    base: usize,
+}
+
+impl ErrorType for GpioPinIn {
+    type Error = core::convert::Infallible;
+}
+
+/// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
+impl InputPin for GpioPinIn {
     /// Check if the GPIO pin is high.
     fn is_high(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, gplev(), 1) == 1;
-        if state {
-            log::info!("Pin is high");
-        }
+        let state = gpio_read(self.pin, gplev() + self.base, 1) == 1;
         Ok(state)
     }
 
     /// Check if the GPIO pin is low.
     fn is_low(&self) -> Result<bool, Self::Error> {
-        let state = gpio_read(self.pin, gplev(), 1) == 0;
-        if state {
-            log::info!("Pin is low");
-        }
+        let state = gpio_read(self.pin, gplev() + self.base, 1) == 0;
         Ok(state)
+    }
+}
+
+impl Drop for GpioPinIn {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
+    }
+}
+
+#[derive(Debug)]
+pub struct GpioPinAlt {
+    pin: u32,
+    base: usize,
+}
+
+impl GpioPinAlt {
+    pub fn get_base(&self) -> usize {
+        self.base
+    }
+}
+
+impl Drop for GpioPinAlt {
+    fn drop(&mut self) {
+        make_pin_available(self.pin);
     }
 }
 
@@ -162,6 +324,8 @@ fn gpio_ctrl(pin_num: u32, value: u32, base: usize, width: usize) {
         let tmp = read_volatile(reg); // read the previous value
         write_volatile(reg, (tmp & !mask) | val);
     }
+
+    wait_cycles(150);
 }
 
 /// A function to read from a GPIO pin.

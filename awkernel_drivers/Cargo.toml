@@ -29,15 +29,14 @@ optional = true
 
 
 [dependencies.embedded-hal]
-features = ["unproven"]
-version = "0.2"
+version = "1.0.0-rc.1"
 
 [features]
 default = []
 x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
-
+raspi = []
 
 [dependencies.smoltcp]
 version = "0.10.0"
