@@ -1,5 +1,6 @@
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
+    arch::asm,
     convert::{From, Into},
     ptr::{read_volatile, write_volatile},
 };
@@ -54,6 +55,15 @@ static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
     true,  // GPIO45
 ]);
 
+/// Wait N CPU cycles
+fn wait_cycles(n: usize) {
+    if n > 0 {
+        for _ in 0..n {
+            unsafe { asm!("nop;") };
+        }
+    }
+}
+
 /// The base address for the GPIO.
 static mut GPBASE: usize = 0;
 
@@ -84,10 +94,8 @@ fn gplev() -> usize {
     0x34
 }
 
-mod registers {
-    use awkernel_lib::mmio_rw;
-
-    mmio_rw!(offset 0xe4 => pub GPP_PUP_DOWN<u32>);
+fn gp_pup_down() -> usize {
+    0xe4
 }
 
 /// Enum `PullMode` for setting the pull-up/pull-down/none configuration for a GPIO pin.
@@ -175,9 +183,9 @@ impl GpioPin {
         }
 
         self.pin = None;
-        self.set_pull_up_down(pin, pull_up_down);
 
-        gpio_ctrl(pin, GpioFunction::OUTPUT.into(), gpfsel() + self.base, 3);
+        gpio_ctrl(pin, pull_up_down as u32, gp_pup_down() + self.base, 2);
+        gpio_ctrl(pin, GpioFunction::INPUT.into(), gpfsel() + self.base, 3);
         Ok(GpioPinIn {
             pin,
             base: self.base,
@@ -200,7 +208,7 @@ impl GpioPin {
         }
 
         self.pin = None;
-        self.set_pull_up_down(pin, pull_up_down);
+        gpio_ctrl(pin, pull_up_down as u32, gp_pup_down() + self.base, 2);
 
         gpio_ctrl(pin, alt.into(), gpfsel() + self.base, 3);
 
@@ -208,17 +216,6 @@ impl GpioPin {
             pin,
             base: self.base,
         })
-    }
-
-    fn set_pull_up_down(&self, pin: u32, pull_up_down: PullMode) {
-        let offset = pin / 16;
-        let shift = pin % (16 - 1);
-        let mask = !(0x11 << shift);
-
-        let base = self.base + 4 * offset as usize;
-        let val_up_down = registers::GPP_PUP_DOWN.read(base);
-        let val_up_down = (val_up_down & mask) | ((pull_up_down as u32) << shift);
-        registers::GPP_PUP_DOWN.write(val_up_down, base);
     }
 }
 
@@ -327,6 +324,8 @@ fn gpio_ctrl(pin_num: u32, value: u32, base: usize, width: usize) {
         let tmp = read_volatile(reg); // read the previous value
         write_volatile(reg, (tmp & !mask) | val);
     }
+
+    wait_cycles(150);
 }
 
 /// A function to read from a GPIO pin.
