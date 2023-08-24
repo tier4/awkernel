@@ -3,7 +3,7 @@ use core::{
     convert::{From, Into},
     ptr::{read_volatile, write_volatile},
 };
-use embedded_hal::digital::v2::{InputPin, OutputPin};
+use embedded_hal::digital::{ErrorType, InputPin, OutputPin};
 
 static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
     true,  // GPIO0
@@ -242,10 +242,12 @@ pub struct GpioPinOut {
     base: usize,
 }
 
+impl ErrorType for GpioPinOut {
+    type Error = core::convert::Infallible;
+}
+
 /// Implement `OutputPin` trait for `GpioPin` to provide methods for setting the pin high and low.
 impl OutputPin for GpioPinOut {
-    type Error = core::convert::Infallible;
-
     /// Set the GPIO pin high.
     fn set_high(&mut self) -> Result<(), Self::Error> {
         gpio_ctrl(self.pin, 1, gpfset() + self.base, 1);
@@ -271,10 +273,12 @@ pub struct GpioPinIn {
     base: usize,
 }
 
+impl ErrorType for GpioPinIn {
+    type Error = core::convert::Infallible;
+}
+
 /// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
 impl InputPin for GpioPinIn {
-    type Error = core::convert::Infallible;
-
     /// Check if the GPIO pin is high.
     fn is_high(&self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev() + self.base, 1) == 1;

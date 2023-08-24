@@ -1,6 +1,6 @@
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
 use core::ptr::{read_volatile, write_volatile};
-use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
+use embedded_hal::i2c;
 
 pub static mut I2C_BASE: usize = 0;
 
@@ -65,10 +65,18 @@ impl I2C {
     }
 }
 
-/// Trait implementation for writing to an I2C device
-impl Write for I2C {
+impl i2c::ErrorType for I2C {
     type Error = I2cError;
+}
 
+impl i2c::Error for I2cError {
+    fn kind(&self) -> i2c::ErrorKind {
+        todo!()
+    }
+}
+
+/// Trait implementation for `I2c`.
+impl i2c::I2c for I2C {
     /// Writes the given bytes to the device at the given address
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         unsafe {
@@ -83,11 +91,6 @@ impl Write for I2C {
             )
         }
     }
-}
-
-/// Trait implementation for reading from an I2C device
-impl Read for I2C {
-    type Error = I2cError;
 
     /// Reads data into the given buffer from the device at the given address
     fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -103,16 +106,19 @@ impl Read for I2C {
             )
         }
     }
-}
-
-/// Trait implementation for reading from and writing to an I2C device
-impl WriteRead for I2C {
-    type Error = I2cError;
 
     /// Writes the given bytes to the device at the given address, then reads data into the given buffer
     fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.write(addr, bytes)?;
         self.read(addr, buffer)
+    }
+
+    fn transaction(
+        &mut self,
+        _address: u8,
+        _operations: &mut [i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        todo!()
     }
 }
 
