@@ -1,6 +1,6 @@
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
 use core::ptr::{read_volatile, write_volatile};
-use embedded_hal::i2c;
+use embedded_hal::i2c::{self, Operation};
 
 pub static mut I2C_BASE: usize = 0;
 
@@ -51,32 +51,17 @@ mod registers {
     }
 }
 
-/// Define the addresses for the different I2C operations
-
-fn i2c_c(base: usize) -> usize {
-    base
-}
-
-fn i2c_s(base: usize) -> usize {
-    base + 0x04
-}
-
-fn i2c_dlen(base: usize) -> usize {
-    base + 0x8
-}
-
-fn i2c_a(base: usize) -> usize {
-    base + 0xc
-}
-
-fn i2c_fifo(base: usize) -> usize {
-    base + 0x10
-}
-
-/// Enum to represent possible I2C errors
-#[derive(Debug, Clone, Copy)]
+/// I2C errors
+#[derive(Debug, Clone)]
 pub struct I2cError {
-    err: i2c::ErrorKind,
+    pub err: i2c::ErrorKind,
+    pub rw: RWError,
+}
+
+#[derive(Debug, Clone)]
+pub enum RWError {
+    Read,
+    Write,
 }
 
 pub struct I2cBus {
@@ -101,10 +86,6 @@ impl I2cBus {
             core_speed / 100_000
         };
 
-        let cdiv = registers::CDIV.read(base);
-
-        log::debug!("CDIV = {cdiv}");
-
         registers::CDIV.write(clock_divisor, base);
 
         Ok(Self {
@@ -127,7 +108,6 @@ impl i2c::Error for I2cError {
 
 /// Trait implementation for `I2c`.
 impl i2c::I2c for I2cBus {
-    /// Writes the given bytes to the device at the given address
     fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         use registers::{Control, Status};
 
@@ -140,44 +120,89 @@ impl i2c::I2c for I2cBus {
         registers::DLEN.write(bytes.len() as u32, self.base);
 
         for byte in bytes.iter() {
+            while !registers::S.read(self.base).contains(Status::TXD) {
+                core::hint::spin_loop();
+            }
+
             registers::FIFO.write(*byte as u32, self.base);
         }
 
         registers::C.write(Control::I2CEN | Control::ST, self.base);
 
-        self.wait_i2c_done(100)
+        if let Err(err) = self.wait_i2c_done(100) {
+            Err(I2cError {
+                err,
+                rw: RWError::Write,
+            })
+        } else {
+            Ok(())
+        }
     }
 
-    /// Reads data into the given buffer from the device at the given address
     fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        todo!()
-    }
+        use registers::{Control, Status};
 
-    /// Writes the given bytes to the device at the given address, then reads data into the given buffer
-    fn write_read(&mut self, addr: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.write(addr, bytes)?;
-        self.read(addr, buffer)
+        assert!(buffer.len() < (1 << 16));
+
+        registers::S.write(Status::CLKT | Status::ERR | Status::DONE, self.base);
+        registers::C.write(Control::CLEAR, self.base); // Clear FIFO
+        registers::A.write(addr as u32, self.base); // Set address
+        registers::DLEN.write(buffer.len() as u32, self.base);
+
+        registers::C.write(
+            Control::I2CEN | Control::CLEAR | Control::ST | Control::READ,
+            self.base,
+        );
+
+        if let Err(err) = self.wait_i2c_done(2000) {
+            return Err(I2cError {
+                err,
+                rw: RWError::Read,
+            });
+        }
+
+        for buf in buffer.iter_mut() {
+            while !registers::S.read(self.base).contains(Status::RXD) {
+                core::hint::spin_loop();
+            }
+
+            *buf = (registers::FIFO.read(self.base) & 0xff) as u8;
+        }
+
+        Ok(())
     }
 
     fn transaction(
         &mut self,
-        _address: u8,
-        _operations: &mut [i2c::Operation<'_>],
+        address: u8,
+        operations: &mut [i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        todo!()
+        for op in operations.iter_mut() {
+            match op {
+                Operation::Read(buf) => {
+                    self.read(address, buf)?;
+                }
+                Operation::Write(buf) => {
+                    self.write(address, buf)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
 impl I2cBus {
     /// Wait until the current I2C operation has been finished/acknowledged.
-    fn wait_i2c_done(&self, tries: u32) -> Result<(), I2cError> {
+    fn wait_i2c_done(&self, tries: u32) -> Result<(), i2c::ErrorKind> {
         use registers::Status;
 
         for _ in 0..tries {
             if registers::S.read(self.base).contains(Status::DONE) {
                 if registers::S.read(self.base).contains(Status::ERR) {
-                    let err = i2c::ErrorKind::NoAcknowledge(i2c::NoAcknowledgeSource::Address);
-                    return Err(I2cError { err });
+                    return Err(i2c::ErrorKind::NoAcknowledge(
+                        i2c::NoAcknowledgeSource::Address,
+                    ));
                 } else {
                     return Ok(());
                 }
@@ -187,7 +212,8 @@ impl I2cBus {
         }
 
         // Timeout
-        let err = i2c::ErrorKind::NoAcknowledge(i2c::NoAcknowledgeSource::Unknown);
-        Err(I2cError { err })
+        Err(i2c::ErrorKind::NoAcknowledge(
+            i2c::NoAcknowledgeSource::Unknown,
+        ))
     }
 }

@@ -23,7 +23,7 @@ pub async fn run_rpi_hal() {
     )
     .await;
 
-    scan_i2c_devices();
+    scan_i2c_devices().await;
 }
 
 pub async fn _blink_led() {
@@ -111,12 +111,40 @@ pub async fn blink_and_switch() {
     }
 }
 
-fn scan_i2c_devices() {
+async fn scan_i2c_devices() {
     let mut i2c = I2cBus::new(150_000_000, false).unwrap();
+
+    let mut has_adt7410 = false;
 
     for addr in 4..=0x7f {
         if i2c.write(addr, &[]).is_ok() {
             log::info!("I2C #{addr} has been found.");
+
+            if addr == 72 {
+                has_adt7410 = true;
+            }
         }
+    }
+
+    if has_adt7410 {
+        awkernel_async_lib::spawn(
+            "temperature monitor".into(),
+            temperature_adt7410(i2c),
+            SchedulerType::FIFO,
+        )
+        .await;
+    }
+}
+
+async fn temperature_adt7410(mut i2c: I2cBus) {
+    loop {
+        let mut buf: [u8; 2] = [0, 0];
+
+        i2c.write_read(72, &[0], &mut buf).unwrap();
+        let temp = ((buf[0] as u16) << 8) | buf[1] as u16;
+
+        log::info!("Temperature is {} [C].", (temp as i16 >> 3) as f64 / 16.0);
+
+        awkernel_async_lib::sleep(Duration::from_secs(10)).await;
     }
 }
