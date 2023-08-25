@@ -1,6 +1,5 @@
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
-    arch::asm,
     convert::{From, Into},
     ptr::{read_volatile, write_volatile},
 };
@@ -54,15 +53,6 @@ static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
     true,  // GPIO44
     true,  // GPIO45
 ]);
-
-/// Wait N CPU cycles
-fn wait_cycles(n: usize) {
-    if n > 0 {
-        for _ in 0..n {
-            unsafe { asm!("nop;") };
-        }
-    }
-}
 
 /// The base address for the GPIO.
 static mut GPBASE: usize = 0;
@@ -325,7 +315,7 @@ fn gpio_ctrl(pin_num: u32, value: u32, base: usize, width: usize) {
         write_volatile(reg, (tmp & !mask) | val);
     }
 
-    wait_cycles(150);
+    super::wait_cycles(150);
 }
 
 /// A function to read from a GPIO pin.
