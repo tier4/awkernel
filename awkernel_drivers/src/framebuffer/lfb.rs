@@ -3,7 +3,6 @@ use core::ptr::write_volatile;
 use fontdue::Font;
 
 const MBOX_REQUEST: u32 = 0;
-const MBOX_CHANNEL_PROP: u32 = 8;
 const MBOX_TAG_LAST: u32 = 0;
 
 /// Framebuffer settings
