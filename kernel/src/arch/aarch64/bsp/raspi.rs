@@ -125,7 +125,7 @@ impl super::SoC for Raspi {
         self.init_interrupt_controller()?;
         self.init_timer()?;
         self.init_gpio()?;
-        // self.init_i2c()?;
+        self.init_i2c()?;
         self.init_mbox()?;
         self.test_framebuffer();
 
