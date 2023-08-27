@@ -1,63 +1,72 @@
 use core::ptr::{read_volatile, write_volatile};
 
-/// The base address for the Mbox.
 static mut MBOXBASE: usize = 0;
 
 pub unsafe fn set_mbox_base(base: usize) {
     write_volatile(&mut MBOXBASE, base);
 }
 
-fn mbox_read_addr() -> *mut u32 {
-    unsafe { (read_volatile(&MBOXBASE) + 0x00) as *mut u32 }
-}
+mod registers {
+    use awkernel_lib::mmio_rw;
+    use bitflags::bitflags;
 
-fn mbox_status() -> *mut u32 {
-    unsafe { (read_volatile(&MBOXBASE) + 0x18) as *mut u32 }
-}
+    mmio_rw!(offset 0x00 => pub READ<u32>); // Read register
+    mmio_rw!(offset 0x18 => pub STATUS<Status>); // Status register
+    mmio_rw!(offset 0x20 => pub WRITE<u32>); // Write register
 
-fn mbox_write_addr() -> *mut u32 {
-    unsafe { (read_volatile(&MBOXBASE) + 0x20) as *mut u32 }
+    bitflags! {
+        pub struct Status: u32 {
+            const FULL  = 0x80000000;
+            const EMPTY = 0x40000000;
+        }
+    }
 }
 
 pub struct MboxChannel {
+    base: usize,
     channel: u32,
 }
 
 impl MboxChannel {
-    /// Create a new `MboxChannel`.
     pub fn new(channel: u32) -> Self {
-        Self { channel }
+        let base = unsafe { read_volatile(&MBOXBASE) };
+        Self { base, channel }
     }
 
-    /// Send a message to the `MboxChannel`.
     pub fn send(&self, message: u32) {
-        log::info!("  send value{:}", message);
-        while unsafe { read_volatile(mbox_status()) } & 0x80000000 != 0 {}
-        unsafe { write_volatile(mbox_write_addr(), message | self.channel); }
+        while registers::STATUS
+            .read(self.base)
+            .contains(registers::Status::FULL)
+        {}
+        registers::WRITE.write(message | self.channel, self.base);
     }
 
-    /// Receive a message from the `MboxChannel`.
     pub fn receive(&self) -> u32 {
-        log::info!("mbox receive1");
-        while unsafe { read_volatile(mbox_status()) } & 0x40000000 != 0 {}
-        log::info!("mbox receive2");
-        let value = unsafe { read_volatile(mbox_read_addr()) };
-        log::info!("mbox receive3");
-        log::info!(" received value{:}", value);
+        while registers::STATUS
+            .read(self.base)
+            .contains(registers::Status::EMPTY)
+        {}
+        let value = registers::READ.read(self.base);
         value
     }
 
     pub fn mbox_call(&self, buffer: &mut [u32]) -> bool {
         let r = (buffer.as_ptr() as u32 & 0xFFFFFFF) | (self.channel & 0xF);
-        
-        while unsafe { read_volatile(mbox_status()) } & 0x80000000 != 0 {}
-        
-        unsafe { write_volatile(mbox_write_addr(), r); }
-        
+
+        while registers::STATUS
+            .read(self.base)
+            .contains(registers::Status::FULL)
+        {}
+
+        registers::WRITE.write(r, self.base);
+
         loop {
-            while unsafe { read_volatile(mbox_status()) } & 0x40000000 != 0 {}
-            
-            if r == unsafe { read_volatile(mbox_read_addr()) } {
+            while registers::STATUS
+                .read(self.base)
+                .contains(registers::Status::EMPTY)
+            {}
+
+            if r == registers::READ.read(self.base) {
                 return buffer[1] == 0x80000000;
             }
         }
