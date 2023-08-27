@@ -322,16 +322,17 @@ impl Raspi {
     }
 
     fn init_mbox(&self) -> Result<(), &'static str> {
-        let mbox_node = self.get_device_from_symbols("mailbox")
+        let mbox_node = self
+            .get_device_from_symbols("mailbox")
             .or(Err(err_msg!("could not find Mbox's device node")))?;
         let base_addr = mbox_node
             .get_address(0)
             .or(Err(err_msg!("could not find Mbox's base address")))?;
-    
+
         log::info!("Mbox: 0x{:016x}", base_addr);
-    
+
         unsafe { awkernel_drivers::framebuffer::mbox::set_mbox_base(base_addr as usize) };
-    
+
         Ok(())
     }
 
