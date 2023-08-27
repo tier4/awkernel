@@ -2,6 +2,13 @@ use core::ptr::{read_volatile, write_volatile};
 
 static mut MBOXBASE: usize = 0;
 
+/// Sets the base address of the mailbox.
+///
+/// # Safety
+///
+/// This function is unsafe because it performs a volatile write to a memory address.
+/// The caller must ensure that the passed `base` address is valid and that writing to this
+/// address will not cause undefined behavior.
 pub unsafe fn set_mbox_base(base: usize) {
     write_volatile(&mut MBOXBASE, base);
 }
@@ -46,11 +53,10 @@ impl MboxChannel {
             .read(self.base)
             .contains(registers::Status::EMPTY)
         {}
-        let value = registers::READ.read(self.base);
-        value
+        registers::READ.read(self.base)
     }
 
-    pub fn mbox_call(&self, buffer: &mut [u32]) -> bool {
+    pub fn mbox_call(&self, buffer: &[u32]) -> bool {
         let r = (buffer.as_ptr() as u32 & 0xFFFFFFF) | (self.channel & 0xF);
 
         while registers::STATUS

@@ -112,7 +112,7 @@ pub fn lfb_print_text_with_fontdue(
                 unsafe { write_volatile(fb_info.framebuffer.add(index), color) };
             }
         }
-        x += metrics.width as usize;
+        x += metrics.width;
     }
     fb_info.cursor_y = y + 30;
 }
