@@ -62,7 +62,7 @@ pub fn lfb_init(channel: &MboxChannel) -> Result<FramebufferInfo, &'static str> 
 
     mbox[34] = MBOX_TAG_LAST;
 
-    if channel.mbox_call(&mut mbox) && mbox[20] == 32 && mbox[28] != 0 {
+    if channel.mbox_call(&mbox) && mbox[20] == 32 && mbox[28] != 0 {
         let framebuffer_address = mbox[28] & 0x3FFFFFFF; // Convert GPU address to ARM address
         let width = mbox[5]; // Get actual physical width
         let height = mbox[6]; // Get actual physical height
