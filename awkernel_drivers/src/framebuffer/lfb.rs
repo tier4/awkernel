@@ -93,8 +93,6 @@ pub fn lfb_print_text_with_fontdue(
     let font_data = include_bytes!("./font/EBGaramond-VariableFont_wght.ttf") as &[u8];
     let font = Font::from_bytes(font_data, fontdue::FontSettings::default()).unwrap();
     let mut y = fb_info.cursor_y;
-    log::info!("fb_info.cursor_y{:}", fb_info.cursor_y);
-    log::info!(" y{:}", y);
     for ch in text.chars() {
         if ch == '\n' {
             x = 10;
@@ -102,7 +100,7 @@ pub fn lfb_print_text_with_fontdue(
             continue;
         }
         if ch == ' ' {
-            x += size as usize / 3;
+            x += (size / 3.0) as usize;
             continue;
         }
         let (metrics, bitmap) = font.rasterize(ch, size);
@@ -112,10 +110,10 @@ pub fn lfb_print_text_with_fontdue(
                 let pixel = bitmap[j * metrics.width + i];
                 let index = (offset_y + j) * (fb_info.pitch as usize / 4) + (x + i);
                 let color = 0xFFFFFF * pixel as u32;
-                unsafe { write_volatile(fb_info.framebuffer.offset(index as isize), color) };
+                unsafe { write_volatile(fb_info.framebuffer.add(index), color) };
             }
         }
         x += metrics.width as usize;
     }
-    fb_info.cursor_y = (y + 30) as usize;
+    fb_info.cursor_y = y + 30;
 }
