@@ -336,38 +336,36 @@ impl Raspi {
     }
 
     fn test_framebuffer(&self) {
-            let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
-            let fb_info_result = awkernel_drivers::framebuffer::lfb::lfb_init(&channel);
-            let mut fb_info = fb_info_result.unwrap();
-            awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-                &mut fb_info,
-                10,
-                "You can use BLisP language as follows.\n",
-                25.0,
-            );
-    
-            awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-                &mut fb_info,
-                10,
-                "https://ytakano.github.io/blisp/\n\n",
-                25.0,
-            );
-    
-            awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-                &mut fb_info,
-                10,
-                "> (factorial 20)\n2432902008176640000\n",
-                25.0,
-            );
-    
-            awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-                &mut fb_info,
-                10,
-                "> (+ 10 20)\n30\n\nEnjoy!\n\n> ",
-                25.0,
-            );
-        }
+        let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
+        let fb_info_result = awkernel_drivers::framebuffer::lfb::lfb_init(&channel);
+        let mut fb_info = fb_info_result.unwrap();
+        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
+            &mut fb_info,
+            10,
+            "You can use BLisP language as follows.\n",
+            25.0,
+        );
 
+        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
+            &mut fb_info,
+            10,
+            "https://ytakano.github.io/blisp/\n\n",
+            25.0,
+        );
+
+        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
+            &mut fb_info,
+            10,
+            "> (factorial 20)\n2432902008176640000\n",
+            25.0,
+        );
+
+        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
+            &mut fb_info,
+            10,
+            "> (+ 10 20)\n30\n\nEnjoy!\n\n> ",
+            25.0,
+        );
     }
 
     fn init_timer(&self) -> Result<(), &'static str> {
