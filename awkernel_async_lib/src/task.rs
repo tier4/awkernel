@@ -278,8 +278,46 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub fn run_main() {
+    const DURATION: usize = 100000;
+
     let mut exe_time: Vec<u64> = Vec::new();
     let mut switch_time: Vec<u64> = Vec::new();
+    let mut start = 0;
+
+    // Calculating overhead for one uptime() call
+    let mut sum_uptime_time = 0.0;
+    for _ in 0..DURATION {
+        let start = uptime();
+        uptime();
+        let end = uptime();
+        sum_uptime_time += (end - start) as f64 / 3.0;
+    }
+    let ave_uptime_overhead = sum_uptime_time / DURATION as f64;
+    // Calculating overhead for push() and if ary.len() call
+    let mut sum_push_if_time = 0.0;
+    let mut ary: Vec<u64> = Vec::new();
+    for _ in 0..DURATION {
+        let start = uptime();
+        ary.push(1 - 1);
+        if ary.len() == DURATION {
+            // Do nothing.
+        }
+        let end = uptime();
+        sum_push_if_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
+    }
+    let ave_push_if_overhead = sum_push_if_time / DURATION as f64;
+    // Calculating overhead for if ary.is_empty() call
+    let mut sum_if_empty_time = 0.0;
+    for _ in 0..DURATION {
+        let start = uptime();
+        if ary.is_empty() {
+            // Do nothing.
+        }
+        let end = uptime();
+        sum_if_empty_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
+    }
+    let ave_if_empty_overhead = sum_if_empty_time / DURATION as f64;
+
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -350,20 +388,27 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    let start = uptime();
+                    let exe_start = uptime();
+                    if exe_time.is_empty() {
+                        start = exe_start;
+                    }
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    let end = uptime();
-                    exe_time.push(end - start);
-                    if exe_time.len() % 100000 == 0 {
+                    let exe_end = uptime();
+                    exe_time.push(exe_end - exe_start);
+                    if exe_time.len() % DURATION == 0 {
                         log::info!(
-                            "CPU#{:?} exe_time: min = {:?} [us], avg = {:?} [us], max = {:?} [us]",
+                            "CPU#{:?} utilization = {:.3} [%]",
                             awkernel_lib::cpu::cpu_id(),
-                            exe_time.iter().min().unwrap(),
-                            exe_time.iter().sum::<u64>() as f64 / exe_time.len() as f64,
-                            exe_time.iter().max().unwrap(),
+                            (exe_time.iter().sum::<u64>() as f64
+                                / ((exe_end - start) as f64
+                                    - (ave_uptime_overhead * 4.0
+                                        + ave_push_if_overhead * 2.0
+                                        + ave_if_empty_overhead)
+                                        * DURATION as f64)
+                                * 100.0),
                         );
                         exe_time.clear();
                     }
@@ -408,8 +453,7 @@ pub fn run_main() {
 
                     let end = uptime();
                     switch_time.push(end - start);
-
-                    if switch_time.len() % 100000 == 0 {
+                    if switch_time.len() % DURATION == 0 {
                         log::info!(
                                 "CPU#{:?} switch_time: min = {:?} [ns], avg = {:?} [ns], max = {:?} [ns]",
                                 awkernel_lib::cpu::cpu_id(),
