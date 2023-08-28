@@ -297,8 +297,10 @@ pub fn run_main() {
     let mut sum_push_if_time = 0.0;
     let mut ary: Vec<u64> = Vec::new();
     for _ in 0..DURATION {
+        let a = 2;
+        let b = 1;
         let start = uptime();
-        ary.push(1 - 1);
+        ary.push(a - b);
         if ary.len() == DURATION {
             // Do nothing.
         }
