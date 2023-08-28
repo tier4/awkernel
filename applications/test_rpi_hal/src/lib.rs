@@ -1,9 +1,12 @@
 #![no_std]
 
 use awkernel_async_lib::scheduler::SchedulerType;
-use awkernel_drivers::hal::rpi::{
-    gpio::{GpioPin, PullMode},
-    i2c::I2cBus,
+use awkernel_drivers::hal::{
+    i2c::write_quick,
+    rpi::{
+        gpio::{GpioPin, PullMode},
+        i2c::I2cBus,
+    },
 };
 use core::time::Duration;
 use embedded_hal::{
@@ -117,7 +120,7 @@ async fn scan_i2c_devices() {
     let mut has_adt7410 = false;
 
     for addr in 4..=0x7f {
-        if i2c.write(addr, &[]).is_ok() {
+        if write_quick(&mut i2c, addr).is_ok() {
             log::info!("I2C #{addr} has been found.");
 
             if addr == 72 {
