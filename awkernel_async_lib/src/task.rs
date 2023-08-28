@@ -293,8 +293,10 @@ pub fn run_main() {
         sum_uptime_time += (end - start) as f64 / 3.0;
     }
     let ave_uptime_overhead = sum_uptime_time / DURATION as f64;
-    // Calculating overhead for push() and if ary.len() call
+
+    // Calculating overhead for if call
     let mut sum_push_if_time = 0.0;
+    let mut sum_if_empty_time = 0.0;
     let mut ary: Vec<u64> = Vec::new();
     for _ in 0..DURATION {
         let a = 2;
@@ -306,11 +308,7 @@ pub fn run_main() {
         }
         let end = uptime();
         sum_push_if_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
-    }
-    let ave_push_if_overhead = sum_push_if_time / DURATION as f64;
-    // Calculating overhead for if ary.is_empty() call
-    let mut sum_if_empty_time = 0.0;
-    for _ in 0..DURATION {
+
         let start = uptime();
         if ary.is_empty() {
             // Do nothing.
@@ -318,6 +316,9 @@ pub fn run_main() {
         let end = uptime();
         sum_if_empty_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
     }
+    // Calculating overhead for push() and if ary.len() call
+    let ave_push_if_overhead = sum_push_if_time / DURATION as f64;
+    // Calculating overhead for if ary.is_empty() call
     let ave_if_empty_overhead = sum_if_empty_time / DURATION as f64;
 
     loop {
