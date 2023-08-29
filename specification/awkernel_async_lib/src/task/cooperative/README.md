@@ -120,8 +120,7 @@ Note that this specification does not deal with `Panicked` and `Preempted` state
 The starvation-free can be verified as follows.
 
 $$
-\forall x \in 1..\mathrm{TASK\_NUM}:
-    (x \in \mathrm{in\_queue[x]} \land \mathrm{state}[x] \neq ``Terminated'' \leadsto \mathrm{state}[x] \neq ``Running'')
+\forall x \in 1..\mathrm{TASK\_NUM}: (x \in \mathrm{in\_queue[x]} \land \mathrm{state}[x] \neq \mathtt{Terminated} \leadsto \mathrm{state}[x] \neq \mathtt{Running})
 $$
 
 ## Must be Awaken
@@ -180,5 +179,5 @@ end procedure;
 Therefore, the 2nd subject can be verified as follows.
 
 $$
-\lozenge \forall x \in 1..\mathrm{TASK\_NUM}: (\mathrm{state}[x] = ``Terminated'')
+\lozenge \forall x \in 1..\mathrm{TASK\_NUM}: (\mathrm{state}[x] = \mathtt{Terminated})
 $$
