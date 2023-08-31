@@ -281,7 +281,6 @@ pub fn run_main() {
     const DURATION: usize = 100000;
 
     let mut exe_time: Vec<u64> = Vec::new();
-    let mut switch_time: Vec<u64> = Vec::new();
     let mut start = 0;
 
     // Calculating overhead for one uptime() call
@@ -407,8 +406,8 @@ pub fn run_main() {
                             awkernel_lib::cpu::cpu_id(),
                             (exe_time.iter().sum::<u64>() as f64
                                 / ((exe_end - start) as f64
-                                    - (ave_uptime_overhead * 4.0
-                                        + ave_push_if_overhead * 2.0
+                                    - (ave_uptime_overhead * 2.0
+                                        + ave_push_if_overhead
                                         + ave_if_empty_overhead)
                                         * DURATION as f64)
                                 * 100.0),
@@ -444,27 +443,12 @@ pub fn run_main() {
 
             match result {
                 Ok(Poll::Pending) => {
-                    let start = uptime();
-
                     info.state = State::Waiting;
 
                     if info.need_sched {
                         info.need_sched = false;
                         drop(info);
                         task.clone().wake();
-                    }
-
-                    let end = uptime();
-                    switch_time.push(end - start);
-                    if switch_time.len() % DURATION == 0 {
-                        log::info!(
-                                "CPU#{:?} switch_time: min = {:?} [ns], avg = {:?} [ns], max = {:?} [ns]",
-                                awkernel_lib::cpu::cpu_id(),
-                                switch_time.iter().min().unwrap(),
-                                switch_time.iter().sum::<u64>() as f64 / switch_time.len() as f64,
-                                switch_time.iter().max().unwrap(),
-                            );
-                        switch_time.clear();
                     }
                 }
                 Ok(Poll::Ready(result)) => {
