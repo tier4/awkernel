@@ -7,6 +7,7 @@ use core::{cell::Cell, marker::PhantomData};
 
 use alloc::rc::Rc;
 
+pub mod addr;
 pub mod arch;
 pub mod console;
 pub mod cpu;
