@@ -25,6 +25,7 @@ use awkernel_lib::{
     delay::uptime,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
+    POLL_TIMESTAMPS,
 };
 use core::{
     sync::atomic::{AtomicU32, Ordering},
@@ -92,6 +93,8 @@ pub struct TaskInfo {
     last_executed_time: u64,
     pub(crate) in_queue: bool,
     need_sched: bool,
+    poll_save_time: u64,
+    poll_restore_time: u64,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -183,6 +186,8 @@ impl Tasks {
                     last_executed_time: 0,
                     in_queue: false,
                     need_sched: false,
+                    poll_save_time: 0,
+                    poll_restore_time: 0,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -277,48 +282,47 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
-pub fn run_main() {
-    const DURATION: usize = 100000;
-
-    let mut exe_time: Vec<u64> = Vec::new();
-    let mut start = 0;
-
+fn calculate_measure_overhead(duration: usize) -> f64 {
     // Calculating overhead for one uptime() call
     let mut sum_uptime_time = 0.0;
-    for _ in 0..DURATION {
+    for _ in 0..duration {
         let start = uptime();
         uptime();
         let end = uptime();
         sum_uptime_time += (end - start) as f64 / 3.0;
     }
-    let ave_uptime_overhead = sum_uptime_time / DURATION as f64;
+    sum_uptime_time / duration as f64
+}
 
-    // Calculating overhead for if call
-    let mut sum_push_if_time = 0.0;
-    let mut sum_if_empty_time = 0.0;
-    let mut ary: Vec<u64> = Vec::new();
-    for _ in 0..DURATION {
-        let a = 2;
-        let b = 1;
-        let start = uptime();
-        ary.push(a - b);
-        if ary.len() == DURATION {
-            // Do nothing.
-        }
-        let end = uptime();
-        sum_push_if_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
+fn update_times(task: &Task, switch_time: &mut Vec<u64>, restore_start: u64, save_end: u64) {
+    let mut local_node = MCSNode::new();
+    let mut my_global = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut local_node);
 
-        let start = uptime();
-        if ary.is_empty() {
-            // Do nothing.
-        }
-        let end = uptime();
-        sum_if_empty_time += (end - start) as f64 - ave_uptime_overhead * 2.0;
+    let mut task_node = MCSNode::new();
+    let mut info = task.info.lock(&mut task_node);
+
+    if my_global.0 != 0 {
+        info.poll_save_time = save_end - my_global.0;
+        my_global.0 = 0;
     }
-    // Calculating overhead for push() and if ary.len() call
-    let ave_push_if_overhead = sum_push_if_time / DURATION as f64;
-    // Calculating overhead for if ary.is_empty() call
-    let ave_if_empty_overhead = sum_if_empty_time / DURATION as f64;
+    if my_global.1 != 0 {
+        info.poll_restore_time = my_global.1 - restore_start;
+        my_global.1 = 0;
+    }
+
+    if info.poll_save_time != 0 && info.poll_restore_time != 0 {
+        switch_time.push(info.poll_save_time + info.poll_restore_time);
+        info.poll_save_time = 0;
+        info.poll_restore_time = 0;
+    }
+}
+
+pub fn run_main() {
+    const DURATION: usize = 100000;
+    let mut exe_time: Vec<u64> = Vec::new();
+    let mut switch_time: Vec<u64> = Vec::new();
+    let mut dur_start = 0;
+    let ave_uptime_overhead = calculate_measure_overhead(DURATION);
 
     loop {
         if let Some(task) = get_next_task() {
@@ -390,29 +394,50 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    // Start task execution
                     let exe_start = uptime();
+                    // duration start time is the first time of task execution
                     if exe_time.is_empty() {
-                        start = exe_start;
+                        dur_start = exe_start;
                     }
+
+                    // Start poll() restore
+                    let restore_start = uptime();
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
+                    // End poll() save
+                    let save_end = uptime();
+                    // Update switch time
+                    update_times(&task, &mut switch_time, restore_start, save_end);
+
+                    // End task execution and end duration time if DURATION is reached
                     let exe_end = uptime();
                     exe_time.push(exe_end - exe_start);
+
                     if exe_time.len() % DURATION == 0 {
+                        let cpu_id = awkernel_lib::cpu::cpu_id();
+                        // Calculate CPU utilization during the DURATION time
+                        let total_time = (exe_end - dur_start) as f64;
+                        let total_overhead = (ave_uptime_overhead * 2.0
+                            + (restore_start - exe_start) as f64
+                            + (exe_end - save_end) as f64)
+                            * DURATION as f64;
                         log::info!(
                             "CPU#{:?} utilization = {:.3} [%]",
-                            awkernel_lib::cpu::cpu_id(),
-                            (exe_time.iter().sum::<u64>() as f64
-                                / ((exe_end - start) as f64
-                                    - (ave_uptime_overhead * 2.0
-                                        + ave_push_if_overhead
-                                        + ave_if_empty_overhead)
-                                        * DURATION as f64)
-                                * 100.0),
+                            cpu_id,
+                            exe_time.iter().sum::<u64>() as f64 / (total_time - total_overhead)
+                                * 100.0,
                         );
                         exe_time.clear();
+
+                        // Calculate average switch time during the DURATION time
+                        log::info!(
+                            "CPU#{:?} switch time = ave: {:.3} [us]",
+                            cpu_id,
+                            switch_time.iter().sum::<u64>() as f64 / switch_time.len() as f64,
+                        );
                     }
 
                     #[cfg(all(

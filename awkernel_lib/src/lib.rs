@@ -6,6 +6,7 @@
 use core::{cell::Cell, marker::PhantomData};
 
 use alloc::rc::Rc;
+use sync::mutex::Mutex;
 
 pub mod arch;
 pub mod console;
@@ -48,3 +49,39 @@ macro_rules! err_msg {
         concat!(file!(), ":", line!(), ":", column!(), ": ", $m)
     };
 }
+
+// POLL_TIMESTAMPS[i] contains the Start poll() save_time and End poll() restore_time of the poll() call in i-th CPU.
+pub static POLL_TIMESTAMPS: [Mutex<(u64, u64)>; 32] = [
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+    Mutex::new((0, 0)),
+];
