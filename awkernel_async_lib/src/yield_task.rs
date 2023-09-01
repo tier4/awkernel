@@ -17,8 +17,8 @@ impl Future for Yield {
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
         let mut node = MCSNode::new();
-        let mut my_global = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut node);
-        my_global.1 = uptime(); // End poll() restore_time
+        let mut poll_timestamps = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut node);
+        poll_timestamps.1 = uptime(); // End poll() restore_time
 
         if self.yielded {
             Poll::Ready(())
@@ -28,7 +28,7 @@ impl Future for Yield {
 
             cx.waker().wake_by_ref();
 
-            my_global.0 = uptime(); // Start poll() save_time
+            poll_timestamps.0 = uptime(); // Start poll() save_time
             Poll::Pending
         }
     }

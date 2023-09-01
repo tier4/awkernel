@@ -283,7 +283,6 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 fn measure_uptime_overhead(duration: usize) -> f64 {
-    // Calculating overhead for one uptime() call
     let mut sum_uptime_time = 0.0;
     for _ in 0..duration {
         let start = uptime();
@@ -294,22 +293,26 @@ fn measure_uptime_overhead(duration: usize) -> f64 {
     sum_uptime_time / duration as f64
 }
 
-fn update_times(task: &Task, switch_time: &mut Vec<u64>, restore_start: u64, save_end: u64) {
+fn update_poll_timestamps(task: &Task, restore_start: u64, save_end: u64) {
     let mut local_node = MCSNode::new();
-    let mut my_global = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut local_node);
+    let mut poll_timestamps = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut local_node);
 
     let mut task_node = MCSNode::new();
     let mut info = task.info.lock(&mut task_node);
 
-    if my_global.0 != 0 {
-        info.poll_save_time = save_end - my_global.0;
-        my_global.0 = 0;
+    if poll_timestamps.0 != 0 {
+        info.poll_save_time = save_end - poll_timestamps.0;
+        poll_timestamps.0 = 0;
     }
-    if my_global.1 != 0 {
-        info.poll_restore_time = my_global.1 - restore_start;
-        my_global.1 = 0;
+    if poll_timestamps.1 != 0 {
+        info.poll_restore_time = poll_timestamps.1 - restore_start;
+        poll_timestamps.1 = 0;
     }
+}
 
+fn calculate_poll_overhead(task: &Task, switch_time: &mut Vec<u64>) {
+    let mut task_node = MCSNode::new();
+    let mut info = task.info.lock(&mut task_node);
     if info.poll_save_time != 0 && info.poll_restore_time != 0 {
         switch_time.push(info.poll_save_time + info.poll_restore_time);
         info.poll_save_time = 0;
@@ -394,27 +397,23 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    // Start task execution
                     let exe_start = uptime();
-                    // duration start time is the first time of task execution
                     if exe_time.is_empty() {
                         dur_start = exe_start;
                     }
-
-                    // Start poll() restore
                     let restore_start = uptime();
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    // End poll() save
                     let save_end = uptime();
-                    // Update switch time
-                    update_times(&task, &mut switch_time, restore_start, save_end);
 
                     // End task execution and end duration time if DURATION is reached
                     let exe_end = uptime();
                     exe_time.push(exe_end - exe_start);
+
+                    update_poll_timestamps(&task, restore_start, save_end);
+                    calculate_poll_overhead(&task, &mut switch_time);
 
                     if exe_time.len() % DURATION == 0 {
                         let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -424,7 +423,7 @@ pub fn run_main() {
                             + (restore_start - exe_start) as f64
                             + (exe_end - save_end) as f64)
                             * DURATION as f64;
-                        log::info!(
+                        log::debug!(
                             "CPU#{:?} utilization = {:.3} [%]",
                             cpu_id,
                             exe_time.iter().sum::<u64>() as f64 / (total_time - total_overhead)
@@ -433,7 +432,7 @@ pub fn run_main() {
                         exe_time.clear();
 
                         // Calculate average switch time during the DURATION time
-                        log::info!(
+                        log::debug!(
                             "CPU#{:?} switch time = ave: {:.3} [us]",
                             cpu_id,
                             switch_time.iter().sum::<u64>() as f64 / switch_time.len() as f64,
