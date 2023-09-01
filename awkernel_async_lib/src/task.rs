@@ -467,6 +467,7 @@ pub fn run_main() {
 
             match result {
                 Ok(Poll::Pending) => {
+                    // The task has not been terminated yet.
                     info.state = State::Waiting;
 
                     if info.need_sched {
