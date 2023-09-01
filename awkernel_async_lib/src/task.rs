@@ -282,7 +282,7 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
-fn calculate_measure_overhead(duration: usize) -> f64 {
+fn measure_uptime_overhead(duration: usize) -> f64 {
     // Calculating overhead for one uptime() call
     let mut sum_uptime_time = 0.0;
     for _ in 0..duration {
@@ -322,7 +322,7 @@ pub fn run_main() {
     let mut exe_time: Vec<u64> = Vec::new();
     let mut switch_time: Vec<u64> = Vec::new();
     let mut dur_start = 0;
-    let ave_uptime_overhead = calculate_measure_overhead(DURATION);
+    let uptime_overhead = measure_uptime_overhead(DURATION);
 
     loop {
         if let Some(task) = get_next_task() {
@@ -420,7 +420,7 @@ pub fn run_main() {
                         let cpu_id = awkernel_lib::cpu::cpu_id();
                         // Calculate CPU utilization during the DURATION time
                         let total_time = (exe_end - dur_start) as f64;
-                        let total_overhead = (ave_uptime_overhead * 2.0
+                        let total_overhead = (uptime_overhead * 2.0
                             + (restore_start - exe_start) as f64
                             + (exe_end - save_end) as f64)
                             * DURATION as f64;
