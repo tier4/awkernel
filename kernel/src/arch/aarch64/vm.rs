@@ -3,6 +3,7 @@ use awkernel_aarch64::{
     dsb_ish, dsb_sy, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, tcr_el1, ttbr0_el1,
 };
 use awkernel_lib::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{
         page_allocator::PageAllocator,
         page_table::{
@@ -38,9 +39,9 @@ pub fn get_stack_memory() -> u64 {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct MemoryRange {
-    start: usize,
-    end: usize,
+pub struct MemoryRange<A: awkernel_lib::addr::Addr> {
+    start: A,
+    end: A,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -50,7 +51,7 @@ enum ContainResult {
     Overlap,
 }
 
-impl MemoryRange {
+impl<A: awkernel_lib::addr::Addr> MemoryRange<A> {
     /// ---: start-to-end
     /// ***: unused
     ///
@@ -68,7 +69,7 @@ impl MemoryRange {
     /// - self:  `****----------****`
     /// - range: `**--------********`
     /// then, `ContainResult::Overlap` will be returned.
-    fn contains(&self, range: MemoryRange) -> ContainResult {
+    fn contains(&self, range: Self) -> ContainResult {
         if self.start <= range.start && range.end <= self.end {
             ContainResult::Contain
         } else if range.end <= self.start || self.end <= range.start {
@@ -85,13 +86,13 @@ pub struct VM {
     num_cpus: usize,
 
     idx_dev: usize,
-    device_ranges: [Option<MemoryRange>; NUM_RANGES],
+    device_ranges: [Option<MemoryRange<PhyAddr>>; NUM_RANGES],
 
     idx_heap: usize,
-    heap: [Option<MemoryRange>; NUM_RANGES], // RW and used by the page table.
+    heap: [Option<MemoryRange<PhyAddr>>; NUM_RANGES], // RW and used by the page table.
 
     idx_ro: usize,
-    ro_ranges: [Option<MemoryRange>; NUM_RANGES],
+    ro_ranges: [Option<MemoryRange<PhyAddr>>; NUM_RANGES],
 
     table0: Option<PageTable>,
     heap_size: Option<usize>,
@@ -170,7 +171,7 @@ impl VM {
         self.num_cpus = num_cpus;
     }
 
-    pub fn push_device_range(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+    pub fn push_device_range(&mut self, start: PhyAddr, end: PhyAddr) -> Result<(), &'static str> {
         if self.idx_dev >= self.device_ranges.len() {
             return Err(err_msg!("too many device range"));
         }
@@ -182,7 +183,7 @@ impl VM {
     }
 
     /// Push a physical address region for heap memory.
-    pub fn push_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+    pub fn push_heap(&mut self, start: PhyAddr, end: PhyAddr) -> Result<(), &'static str> {
         if start >= end {
             return Err(err_msg!("start >= end"));
         }
@@ -198,7 +199,7 @@ impl VM {
     }
 
     /// Push a physical address region for Read-only memory.
-    pub fn push_ro_memory(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+    pub fn push_ro_memory(&mut self, start: PhyAddr, end: PhyAddr) -> Result<(), &'static str> {
         if start >= end {
             return Err(err_msg!("start >= end"));
         }
@@ -226,7 +227,7 @@ impl VM {
     /// - heap:   `***---------***`
     /// - remove: `*****---*******`
     /// then the heap will be `***--***----***`.
-    pub fn remove_heap(&mut self, start: usize, end: usize) -> Result<(), &'static str> {
+    pub fn remove_heap(&mut self, start: PhyAddr, end: PhyAddr) -> Result<(), &'static str> {
         if start >= end {
             return Err(err_msg!("start >= end"));
         }
@@ -272,8 +273,8 @@ impl VM {
             return Err(err_msg!("num_cpus == 0"));
         }
 
-        let start = get_kernel_start() as usize;
-        let end = get_stack_memory() as usize + STACK_SIZE * self.num_cpus;
+        let start = PhyAddr::new(get_kernel_start() as usize);
+        let end = PhyAddr::new(get_stack_memory() as usize + STACK_SIZE * self.num_cpus);
 
         self.remove_heap(start, end)
     }
@@ -304,13 +305,13 @@ impl VM {
                         PropertyValue::Address(addr, len) => {
                             let start = addr.to_u128() as usize;
                             let end = start + len.to_u128() as usize;
-                            self.push_heap(start, end)?;
+                            self.push_heap(PhyAddr::new(start), PhyAddr::new(end))?;
                         }
                         PropertyValue::Addresses(addrs) => {
                             for (addr, len) in addrs {
                                 let start = addr.to_u128() as usize;
                                 let end = start + len.to_u128() as usize;
-                                self.push_heap(start, end)?;
+                                self.push_heap(PhyAddr::new(start), PhyAddr::new(end))?;
                             }
                         }
                         _ => (),
@@ -325,7 +326,7 @@ impl VM {
     unsafe fn init_memory_map(&mut self) -> Option<()> {
         let mut allocator = PageAllocator::new();
         for mem in self.heap.iter().flatten() {
-            allocator.push(mem.start as u64, mem.end as u64).ok()?;
+            allocator.push(mem.start, mem.end).ok()?;
         }
 
         let mut table0 = PageTable::new(&mut allocator)?;
@@ -340,7 +341,12 @@ impl VM {
                 0
             };
         for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator)?;
+            table0.map_to(
+                VirtAddr::new(addr as usize),
+                PhyAddr::new(addr as usize),
+                flag,
+                &mut allocator,
+            )?;
         }
 
         // DATA and BSS.
@@ -353,7 +359,12 @@ impl VM {
                 0
             };
         for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(addr, addr, flag, &mut allocator)?;
+            table0.map_to(
+                VirtAddr::new(addr as usize),
+                PhyAddr::new(addr as usize),
+                flag,
+                &mut allocator,
+            )?;
         }
 
         // Stack memory.
@@ -364,7 +375,12 @@ impl VM {
             addr += PAGESIZE as u64; // canary
 
             for phy_addr in (addr..end).step_by(PAGESIZE) {
-                table0.map_to(phy_addr, phy_addr, flag, &mut allocator)?;
+                table0.map_to(
+                    VirtAddr::new(phy_addr as usize),
+                    PhyAddr::new(phy_addr as usize),
+                    flag,
+                    &mut allocator,
+                )?;
             }
 
             addr = end;
@@ -373,21 +389,31 @@ impl VM {
         // Device memory.
         let flag = device_page_flag();
         for range in self.device_ranges.iter().flatten() {
-            let flag = if range.end - range.start > PAGESIZE {
+            let flag = if (range.end - range.start).to_usize() > PAGESIZE {
                 flag | FLAG_L3_CONT
             } else {
                 flag
             };
-            for addr in (range.start..range.end).step_by(PAGESIZE) {
-                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
+            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
+                table0.map_to(
+                    VirtAddr::new(addr),
+                    PhyAddr::new(addr),
+                    flag,
+                    &mut allocator,
+                )?;
             }
         }
 
         // Read-only memory.
         let flag = kernel_page_flag_ro();
         for range in self.ro_ranges.iter().flatten() {
-            for addr in (range.start..range.end).step_by(PAGESIZE) {
-                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
+            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
+                table0.map_to(
+                    VirtAddr::new(addr),
+                    PhyAddr::new(addr),
+                    flag,
+                    &mut allocator,
+                )?;
             }
         }
 
@@ -395,14 +421,19 @@ impl VM {
         // This region will be used to manipulate page tables.
         let flag = kernel_page_flag_rw_no_cache() | FLAG_L3_CONT;
         for range in self.heap.into_iter().flatten() {
-            let flag = if range.end - range.start > PAGESIZE {
+            let flag = if (range.end - range.start).to_usize() > PAGESIZE {
                 flag | FLAG_L3_CONT
             } else {
                 flag
             };
 
-            for addr in (range.start..range.end).step_by(PAGESIZE) {
-                table0.map_to(addr as u64, addr as u64, flag, &mut allocator)?;
+            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
+                table0.map_to(
+                    VirtAddr::new(addr),
+                    PhyAddr::new(addr),
+                    flag,
+                    &mut allocator,
+                )?;
             }
         }
 
@@ -411,7 +442,7 @@ impl VM {
         let flag = kernel_page_flag_rw();
         while let Some(frame) = allocator.allocate_frame() {
             if table0
-                .map_to(addr as u64, frame, flag, &mut allocator)
+                .map_to(VirtAddr::new(addr), frame, flag, &mut allocator)
                 .is_none()
             {
                 break;
@@ -456,12 +487,12 @@ impl VM {
         unsafe_print_hex_u32(self.num_cpus as u32);
         unsafe_puts("\r\n");
 
-        unsafe fn print_range(range: &Option<MemoryRange>) {
+        unsafe fn print_range(range: &Option<MemoryRange<PhyAddr>>) {
             if let Some(r) = range {
                 unsafe_puts("    0x");
-                unsafe_print_hex_u64(r.start as u64);
+                unsafe_print_hex_u64(r.start.to_usize() as u64);
                 unsafe_puts(" - 0x");
-                unsafe_print_hex_u64(r.end as u64);
+                unsafe_print_hex_u64(r.end.to_usize() as u64);
                 unsafe_puts("\r\n");
             }
         }

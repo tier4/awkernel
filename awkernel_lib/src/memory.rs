@@ -1,4 +1,7 @@
-use crate::arch::ArchImpl;
+use crate::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+    arch::ArchImpl,
+};
 
 pub const PAGESIZE: usize = 4 * 1024;
 
@@ -18,7 +21,7 @@ pub struct Flags {
 
 pub trait Memory {
     /// Return the physical address of `vm_addr`.
-    fn vm_to_phy(vm_addr: usize) -> Option<usize>;
+    fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr>;
 
     /// Map `vm_addr` to `phy_addr` with `flag`.
     ///
@@ -27,7 +30,7 @@ pub trait Memory {
     /// - Virtual memory must be enabled.
     /// - `flag` must be reasonable.
     /// - `phy_addr` must be being unmapped.
-    unsafe fn map(vm_addr: usize, phy_addr: usize, flags: Flags) -> bool;
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> bool;
 
     /// Unmap `vm_addr`.
     ///
@@ -35,11 +38,11 @@ pub trait Memory {
     ///
     /// - Virtual memory must be enabled.
     /// - `vm_addr` must be being mapped.
-    unsafe fn unmap(vm_addr: usize);
+    unsafe fn unmap(vm_addr: VirtAddr);
 }
 
 /// Return the physical address of `vm_addr`.
-pub fn vm_to_phy(vm_addr: usize) -> Option<usize> {
+pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
     ArchImpl::vm_to_phy(vm_addr)
 }
 
@@ -50,7 +53,7 @@ pub fn vm_to_phy(vm_addr: usize) -> Option<usize> {
 /// - Virtual memory must be enabled.
 /// - `flag` must be reasonable.
 /// - `phy_addr` must be being unmapped.
-pub unsafe fn map(vm_addr: usize, phy_addr: usize, flags: Flags) -> bool {
+pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> bool {
     ArchImpl::map(vm_addr, phy_addr, flags)
 }
 
@@ -60,6 +63,6 @@ pub unsafe fn map(vm_addr: usize, phy_addr: usize, flags: Flags) -> bool {
 ///
 /// - Virtual memory must be enabled.
 /// - `vm_addr` must be being mapped.
-pub unsafe fn unmap(vm_addr: usize) {
+pub unsafe fn unmap(vm_addr: VirtAddr) {
     ArchImpl::unmap(vm_addr)
 }

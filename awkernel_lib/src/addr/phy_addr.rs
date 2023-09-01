@@ -1,6 +1,6 @@
 use core::ops::AddAssign;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhyAddr(usize);
 
 impl core::ops::Add for PhyAddr {
@@ -59,12 +59,18 @@ impl core::ops::DivAssign for PhyAddr {
     }
 }
 
+impl super::Addr for PhyAddr {
+    fn to_usize(&self) -> usize {
+        self.0
+    }
+
+    fn from_usize(addr: usize) -> Self {
+        PhyAddr(addr)
+    }
+}
+
 impl PhyAddr {
     pub fn new(addr: usize) -> Self {
         PhyAddr(addr)
-    }
-
-    pub fn to_usize(&self) -> usize {
-        self.0
     }
 }

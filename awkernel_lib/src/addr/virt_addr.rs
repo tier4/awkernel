@@ -1,6 +1,6 @@
 use core::ops::AddAssign;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtAddr(usize);
 
 impl core::ops::Add for VirtAddr {
@@ -59,12 +59,18 @@ impl core::ops::DivAssign for VirtAddr {
     }
 }
 
+impl super::Addr for VirtAddr {
+    fn to_usize(&self) -> usize {
+        self.0
+    }
+
+    fn from_usize(addr: usize) -> Self {
+        VirtAddr(addr)
+    }
+}
+
 impl VirtAddr {
     pub fn new(addr: usize) -> Self {
         VirtAddr(addr)
-    }
-
-    pub fn to_usize(&self) -> usize {
-        self.0
     }
 }
