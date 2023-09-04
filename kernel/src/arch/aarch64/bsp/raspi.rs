@@ -17,6 +17,8 @@ use awkernel_lib::{
 };
 use core::arch::asm;
 
+use embedded_hal::pwm::{SetDutyCycle};
+
 pub mod config;
 pub mod memory;
 mod uart;
@@ -127,7 +129,10 @@ impl super::SoC for Raspi {
         self.init_gpio()?;
         self.init_i2c()?;
         self.init_mbox()?;
-        self.test_framebuffer();
+        self.init_clock()?;
+        self.init_pwm()?;
+        // self.test_framebuffer();
+        self.test_pwm();
 
         Ok(())
     }
@@ -368,6 +373,78 @@ impl Raspi {
             "> (+ 10 20)\n30\n\nEnjoy!\n\n> ",
             25.0,
         );
+    }
+
+    pub fn init_clock(&self) -> Result<(), &'static str> {
+        let clk_node = self
+            .get_device_from_symbols("clocks")
+            .or(Err(err_msg!("could not find CLK's device node")))?;
+        let base_addr = clk_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find clk's base address")))?;
+
+        log::info!("CLK: 0x{:016x}", base_addr);
+
+        unsafe { awkernel_drivers::clock::set_clk_base(base_addr as usize) };
+
+        Ok(())
+    }
+
+    pub fn test_clock(&self) -> Result<(), &'static str> {
+        let pin18 = GpioPin::new(4)?;
+        let pin18 = pin18.into_alt(
+            awkernel_drivers::hal::rpi::gpio::GpioFunction::ALTF0,
+            PullMode::None,
+        )?;
+        let clk = awkernel_drivers::clock::Clock::new();
+        if let Err(e) = clk.enable_gp_clock(1, 500, 0, 1) {
+            log::error!("{}", e);
+        }
+        unsafe {
+            log::info!(
+                "ctl GP0CTL: 0x{:032b}",
+                awkernel_drivers::clock::registers::GP0CTL.read(awkernel_drivers::clock::CLK_BASE)
+            );
+        }
+        Ok(())
+    }
+
+    fn init_pwm(&self) -> Result<(), &'static str> {
+        let spi_node = self
+            .get_device_from_symbols("pwm")
+            .or(Err(err_msg!("could not find PWM's device node")))?;
+        let base_addr = spi_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find PWM's base address")))?;
+
+        log::info!("PWM: 0x{:016x}", base_addr);
+
+        unsafe { awkernel_drivers::hal::rpi::pwm::set_pwm_base(base_addr as usize) };
+
+        Ok(())
+    }
+
+    fn test_pwm(&self) -> Result<(), awkernel_drivers::hal::rpi::pwm::PwmError> {
+        let mut pwm = awkernel_drivers::hal::rpi::pwm::Pwm::new()?;
+        pwm.set_frequency(4800)?;
+        pwm.enable()?;
+        unsafe {
+            log::info!(
+                "ctl PWMCTL: 0x{:032b}",
+                awkernel_drivers::clock::registers::PWMCTL.read(awkernel_drivers::clock::CLK_BASE)
+            );
+        }
+        let fixed_duty_cycle_percent = 50; 
+        pwm.set_duty_cycle_percent(fixed_duty_cycle_percent)?;
+        unsafe {
+            log::info!(
+                "CTL: 0x{:032b}",
+                awkernel_drivers::hal::rpi::pwm::registers::CTL
+                    .read(awkernel_drivers::hal::rpi::pwm::PWM_BASE)
+            );
+        }
+        pwm.disable();
+        Ok(())
     }
 
     fn init_timer(&self) -> Result<(), &'static str> {

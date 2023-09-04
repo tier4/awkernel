@@ -23,6 +23,9 @@ optional = true
 version = "0.2"
 optional = true
 
+[dependencies.embedded-hal]
+version = "1.0.0-rc.1"
+
 [dependencies.userland]
 path = "../userland"
 
