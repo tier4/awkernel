@@ -1,6 +1,6 @@
 //! Task yielding.
 
-use awkernel_lib::{delay::uptime, sync::mutex::MCSNode, POLL_TIMESTAMPS};
+use awkernel_lib::{delay::uptime, POLL_TIMESTAMPS};
 use core::task::Poll;
 use futures::Future;
 
@@ -16,8 +16,7 @@ impl Future for Yield {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let mut node = MCSNode::new();
-        let mut poll_timestamps = POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()].lock(&mut node);
+        let poll_timestamps = unsafe { &mut POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()] };
         poll_timestamps.1 = uptime(); // End poll() restore_time
 
         if self.yielded {
