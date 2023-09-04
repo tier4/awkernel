@@ -391,10 +391,10 @@ impl Raspi {
     }
 
     pub fn test_clock(&self) -> Result<(), &'static str> {
-        let pin18 = GpioPin::new(4)?;
+        let pin18 = awkernel_drivers::hal::rpi::gpio::GpioPin::new(4)?;
         let pin18 = pin18.into_alt(
             awkernel_drivers::hal::rpi::gpio::GpioFunction::ALTF0,
-            PullMode::None,
+            awkernel_drivers::hal::rpi::gpio::PullMode::None,
         )?;
         let clk = awkernel_drivers::clock::Clock::new();
         if let Err(e) = clk.enable_gp_clock(1, 500, 0, 1) {
