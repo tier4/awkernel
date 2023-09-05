@@ -74,20 +74,14 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             duration += 1;
             if duration == DURATION {
-                let mut min_switch_time = 0;
-                let mut ave_switch_time = 0.0;
-                let mut max_switch_time = 0;
                 unsafe {
-                    min_switch_time = SWITCH_TIME[0].iter().map(|&f| f as u64).min().unwrap();
-                    ave_switch_time = SWITCH_TIME[1].iter().sum::<f64>() / num_cpu() as f64;
-                    max_switch_time = SWITCH_TIME[2].iter().map(|&f| f as u64).max().unwrap();
+                    log::debug!(
+                        "Switch time: min = {:?} [us], ave = {:.2} [us], max = {:?} [us]",
+                        SWITCH_TIME[0].iter().map(|&f| f as u64).min().unwrap(),
+                        SWITCH_TIME[1].iter().sum::<f64>() / num_cpu() as f64,
+                        SWITCH_TIME[2].iter().map(|&f| f as u64).max().unwrap(),
+                    );
                 }
-                log::debug!(
-                    "Switch time: min = {:?} [us], ave = {:.2} [us], max = {:?} [us]",
-                    min_switch_time,
-                    ave_switch_time,
-                    max_switch_time,
-                );
                 duration = 0;
             }
             wake_task(); // Wake executable tasks periodically.
