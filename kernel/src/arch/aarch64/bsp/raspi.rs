@@ -17,7 +17,7 @@ use awkernel_lib::{
 };
 use core::arch::asm;
 
-use embedded_hal::pwm::{SetDutyCycle};
+use embedded_hal::pwm::SetDutyCycle;
 
 pub mod config;
 pub mod memory;
@@ -426,24 +426,25 @@ impl Raspi {
 
     fn test_pwm(&self) -> Result<(), awkernel_drivers::hal::rpi::pwm::PwmError> {
         let mut pwm = awkernel_drivers::hal::rpi::pwm::Pwm::new()?;
-        pwm.set_frequency(4800)?;
-        pwm.enable()?;
-        unsafe {
-            log::info!(
-                "ctl PWMCTL: 0x{:032b}",
-                awkernel_drivers::clock::registers::PWMCTL.read(awkernel_drivers::clock::CLK_BASE)
-            );
+
+        let _ = pwm.enable();
+
+        let rng1 = 32;
+        let dat1 = [8, 16, 24];
+        let mut i = 0;
+
+        loop {
+            awkernel_lib::delay::wait_sec(1);
+
+            pwm.update_rng1_and_dat1(rng1, dat1[i]);
+            log::debug!("rng1 = {rng1}, dat1 = {}", dat1[i]);
+
+            i += 1;
+            if i >= 3 {
+                i = 0;
+            }
         }
-        let fixed_duty_cycle_percent = 50; 
-        pwm.set_duty_cycle_percent(fixed_duty_cycle_percent)?;
-        unsafe {
-            log::info!(
-                "CTL: 0x{:032b}",
-                awkernel_drivers::hal::rpi::pwm::registers::CTL
-                    .read(awkernel_drivers::hal::rpi::pwm::PWM_BASE)
-            );
-        }
-        pwm.disable();
+
         Ok(())
     }
 

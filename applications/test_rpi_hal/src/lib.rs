@@ -104,11 +104,13 @@ pub async fn blink_and_switch() {
             gpio26.set_low().unwrap(); // Off
         }
 
-        i += 1;
-        if i == 50 {
-            i = 0;
-            flag = !flag;
-        }
+        // i += 1;
+        // if i == 50 {
+        //     i = 0;
+        //     flag = !flag;
+        // }
+
+        flag = !flag;
 
         awkernel_async_lib::sleep(Duration::from_millis(20)).await;
     }

@@ -1,4 +1,7 @@
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    hint,
+    ptr::{read_volatile, write_volatile},
+};
 
 pub static mut CLK_BASE: usize = 0;
 
@@ -141,12 +144,13 @@ impl Clock {
 
         // Kill the clock if busy
         let mut ctl = registers::GPCTL::PASSWD | registers::GPCTL::KILL;
+        registers::PWMCTL.write(ctl, self.base);
+
         while registers::PWMCTL
             .read(self.base)
             .contains(registers::GPCTL::BUSY)
         {
-            registers::PWMCTL.write(ctl, self.base);
-            ctl = registers::GPCTL::PASSWD | registers::GPCTL::KILL;
+            hint::spin_loop();
         }
 
         // Set clock divisors
@@ -164,12 +168,10 @@ impl Clock {
             | match source {
                 ClockSource::Oscillator => registers::GPCTL::SRC_OSCILLATOR,
                 ClockSource::PLLDPer => registers::GPCTL::SRC_PLLD_PER,
-            };
+            }
+            | registers::GPCTL::ENAB;
         registers::PWMCTL.write(ctl, self.base);
 
-        // Enable clock
-        ctl = registers::GPCTL::PASSWD | registers::GPCTL::ENAB;
-        registers::PWMCTL.write(ctl, self.base);
         Ok(())
     }
 
