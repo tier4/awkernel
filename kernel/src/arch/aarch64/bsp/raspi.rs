@@ -131,9 +131,6 @@ impl super::SoC for Raspi {
         self.init_mbox()?;
         self.init_clock()?;
         self.init_pwm()?;
-        // self.test_framebuffer();
-        self.test_pwm();
-
         Ok(())
     }
 }
@@ -342,39 +339,6 @@ impl Raspi {
         Ok(())
     }
 
-    fn test_framebuffer(&self) {
-        let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
-        let fb_info_result = awkernel_drivers::framebuffer::lfb::lfb_init(&channel);
-        let mut fb_info = fb_info_result.unwrap();
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "You can use BLisP language as follows.\n",
-            25.0,
-        );
-
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "https://ytakano.github.io/blisp/\n\n",
-            25.0,
-        );
-
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "> (factorial 20)\n2432902008176640000\n",
-            25.0,
-        );
-
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "> (+ 10 20)\n30\n\nEnjoy!\n\n> ",
-            25.0,
-        );
-    }
-
     pub fn init_clock(&self) -> Result<(), &'static str> {
         let clk_node = self
             .get_device_from_symbols("clocks")
@@ -385,27 +349,34 @@ impl Raspi {
 
         log::info!("CLK: 0x{:016x}", base_addr);
 
+        let clocks_node = self
+            .device_tree
+            .root()
+            .find_child("clocks")
+            .ok_or(err_msg!("could not find 'clocks' node"))?;
+
+        let osc_node = clocks_node.find_child("clk-osc").ok_or(err_msg!(
+            "could not find 'clk-osc' node under 'clocks' node"
+        ))?;
+
+        let clock_freq_prop = osc_node.get_property("clock-frequency").ok_or(err_msg!(
+            "could not find 'clock-frequency' property in 'clk-osc' node"
+        ))?;
+
+        let clock_freq = match clock_freq_prop.value() {
+            PropertyValue::Integer(value) => {
+                log::info!("CLK-OSC clock-frequency: {} Hz", value);
+                *value
+            }
+            _ => {
+                log::error!("'clock-frequency' property has an invalid type");
+                return Err("'clock-frequency' property has an invalid type");
+            }
+        };
+        unsafe { awkernel_drivers::clock::get_clock_frequency(clock_freq as usize) };
+
         unsafe { awkernel_drivers::clock::set_clk_base(base_addr as usize) };
 
-        Ok(())
-    }
-
-    pub fn test_clock(&self) -> Result<(), &'static str> {
-        let pin18 = awkernel_drivers::hal::rpi::gpio::GpioPin::new(4)?;
-        let pin18 = pin18.into_alt(
-            awkernel_drivers::hal::rpi::gpio::GpioFunction::ALTF0,
-            awkernel_drivers::hal::rpi::gpio::PullMode::None,
-        )?;
-        let clk = awkernel_drivers::clock::Clock::new();
-        if let Err(e) = clk.enable_gp_clock(1, 500, 0, 1) {
-            log::error!("{}", e);
-        }
-        unsafe {
-            log::info!(
-                "ctl GP0CTL: 0x{:032b}",
-                awkernel_drivers::clock::registers::GP0CTL.read(awkernel_drivers::clock::CLK_BASE)
-            );
-        }
         Ok(())
     }
 
@@ -420,30 +391,6 @@ impl Raspi {
         log::info!("PWM: 0x{:016x}", base_addr);
 
         unsafe { awkernel_drivers::hal::rpi::pwm::set_pwm_base(base_addr as usize) };
-
-        Ok(())
-    }
-
-    fn test_pwm(&self) -> Result<(), awkernel_drivers::hal::rpi::pwm::PwmError> {
-        let mut pwm = awkernel_drivers::hal::rpi::pwm::Pwm::new()?;
-
-        let _ = pwm.enable();
-
-        let rng1 = 32;
-        let dat1 = [8, 16, 24];
-        let mut i = 0;
-
-        loop {
-            awkernel_lib::delay::wait_sec(1);
-
-            pwm.update_rng1_and_dat1(rng1, dat1[i]);
-            log::debug!("rng1 = {rng1}, dat1 = {}", dat1[i]);
-
-            i += 1;
-            if i >= 3 {
-                i = 0;
-            }
-        }
 
         Ok(())
     }

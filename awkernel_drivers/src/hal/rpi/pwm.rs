@@ -1,18 +1,20 @@
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
-use crate::{clock, hal::rpi::wait_cycles};
-use bitflags::Flags;
+use crate::clock::{self, CLOCK_FREQUENCY};
 use core::{
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
 use embedded_hal::pwm::{Error, ErrorKind, ErrorType, SetDutyCycle};
 
+/// Base address for the PWM module
 pub static mut PWM_BASE: usize = 0;
 
+/// Set the base address for the PWM module
 pub unsafe fn set_pwm_base(base: usize) {
     write_volatile(&mut PWM_BASE, base);
 }
 
+/// Registers associated with the PWM module
 pub mod registers {
     use awkernel_lib::mmio_rw;
     use bitflags::bitflags;
@@ -56,6 +58,7 @@ pub mod registers {
     }
 }
 
+/// Error types for the PWM module
 #[derive(Debug)]
 pub enum PwmError {
     InvalidDutyCycle,
@@ -80,6 +83,7 @@ impl From<&str> for PwmError {
     }
 }
 
+/// Indicator if the clock has been initialized
 static INIT_CLOCK: AtomicBool = AtomicBool::new(false);
 
 pub struct Pwm {
@@ -90,6 +94,7 @@ pub struct Pwm {
 }
 
 impl Pwm {
+    /// Creates a new instance of the PWM module
     pub fn new() -> Result<Pwm, &'static str> {
         let pin12 = GpioPin::new(12)?;
         let pin12 = pin12.into_alt(GpioFunction::ALTF0, PullMode::None)?;
@@ -109,28 +114,29 @@ impl Pwm {
 
         Ok(pwm)
     }
-
+    /// Enables the PWM module
     pub fn enable(&mut self) -> Result<(), PwmError> {
         use registers::Control;
 
-        // Disable PWM
         let old_pwm_ctl = registers::CTL.read(self.base)
             & (Control::PWEN1 | Control::MSEN1 | Control::PWEN2 | Control::MSEN2);
 
         if !INIT_CLOCK.load(Ordering::Relaxed) {
-            // Disable PWM
             registers::CTL.write(Control::empty(), self.base);
             awkernel_lib::delay::wait_microsec(10);
+            let osc_freq: usize = unsafe { read_volatile(&CLOCK_FREQUENCY) };
 
-            // Set clock source.
-            // The oscillator is 19.2 MHz Clock, and set the divisor as 19.2.
-            // Thus, divi = 19, divf = 4096 * 0.2 = 819.
-            // Finally, we get 1 MHz.
+            let desired_pwm_freq = 1_000_000;
+
+            let div_total = osc_freq as f64 / desired_pwm_freq as f64;
+            let divi = div_total as u32;
+            let divf = ((div_total - divi as f64) * 4096.0) as u32;
             let clk = clock::Clock::new();
+
             match clk.enable_pwm_clock(
                 clock::ClockSource::Oscillator,
-                19,
-                819,
+                divi,
+                divf,
                 clock::MashType::Stage1,
             ) {
                 Ok(()) => log::info!("PWM clock enabled"),
@@ -151,6 +157,7 @@ impl Pwm {
         Ok(())
     }
 
+    /// Disables the PWM module
     pub fn disable(&mut self) -> Result<(), PwmError> {
         let mut ctl = registers::CTL.read(self.base);
         ctl.remove(registers::Control::PWEN1);
@@ -158,11 +165,12 @@ impl Pwm {
         Ok(())
     }
 
+    /// Sets the frequency for the PWM module
     pub fn set_frequency(&mut self, frequency: u32) -> Result<(), PwmError> {
-        if frequency == 0 || frequency > 19_200_000 {
+        if frequency == 0 || frequency > 1_000_000 {
             return Err(PwmError::InvalidFrequency);
         }
-        let clock_frequency = 19_200_000; // Clock frequency in Hz.
+        let clock_frequency = 1_000_000;
         let range = clock_frequency / frequency;
         if range == 0 {
             return Err(PwmError::InvalidFrequency);
@@ -172,15 +180,9 @@ impl Pwm {
             log::warn!("PWM frequency {} Hz is not an exact divisor of clock frequency {} Hz. Actual frequency will be {} Hz.",
                 frequency, clock_frequency, clock_frequency / range);
         }
+
         registers::RNG1.write(range, self.base);
         Ok(())
-    }
-
-    /// For test.
-    pub fn update_rng1_and_dat1(&mut self, rng1: u32, dat1: u32) {
-        self.rng1 = rng1;
-        self.dat1 = dat1;
-        self.enable().unwrap();
     }
 
     fn set_rng1(&mut self) {
@@ -201,30 +203,25 @@ impl Pwm {
 }
 
 impl SetDutyCycle for Pwm {
+    /// Returns the maximum duty cycle
     fn get_max_duty_cycle(&self) -> u16 {
         registers::RNG1.read(self.base) as u16
     }
 
+    /// Sets the duty cycle
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
         registers::DAT1.write(duty as u32, self.base);
         Ok(())
     }
 
-    fn set_duty_cycle_fully_off(&mut self) -> Result<(), Self::Error> {
-        self.set_duty_cycle(0)
-    }
-
-    fn set_duty_cycle_fully_on(&mut self) -> Result<(), Self::Error> {
-        self.set_duty_cycle(self.get_max_duty_cycle())
-    }
-
+    /// Sets the duty cycle based on a fraction
     fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) -> Result<(), Self::Error> {
         let duty = num as u32 * self.get_max_duty_cycle() as u32 / denom as u32;
         self.set_duty_cycle(duty as u16)
     }
 
+    /// Sets the duty cycle based on a percentage
     fn set_duty_cycle_percent(&mut self, percent: u8) -> Result<(), Self::Error> {
-        log::info!("percent{:?}", percent);
         self.set_duty_cycle_fraction(percent as u16, 100)
     }
 }
