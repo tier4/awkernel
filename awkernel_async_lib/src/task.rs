@@ -12,6 +12,7 @@ mod preempt;
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
+    uptime,
 };
 use alloc::{
     borrow::Cow,
@@ -277,6 +278,11 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub fn run_main() {
+    const MAX_MEASURE_COUNT: usize = 1024 * 8;
+    let mut task_exec_times = [0; MAX_MEASURE_COUNT];
+    let mut measure_count = 0;
+    let mut measure_duration_start = 0;
+
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -347,8 +353,26 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    let task_start = uptime();
+                    if measure_count == 0 {
+                        measure_duration_start = task_start;
+                    }
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    let task_end = uptime();
+                    task_exec_times[measure_count] = task_end - task_start;
+                    if measure_count == MAX_MEASURE_COUNT - 1 {
+                        log::debug!(
+                            "CPU#{:?} utilization = {:.3} [%]",
+                            awkernel_lib::cpu::cpu_id(),
+                            task_exec_times.iter().sum::<u64>() as f64
+                                / ((uptime() - measure_duration_start) as f64)
+                                * 100.0,
+                        );
+                    }
+                    measure_count = (measure_count + 1) % MAX_MEASURE_COUNT;
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
