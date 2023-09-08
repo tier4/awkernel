@@ -5,7 +5,7 @@ use awkernel_async_lib::{
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
     sleep, spawn,
-    task::{add_context_restore_end, calc_context_switch_overhead},
+    task::perf::{add_context_restore_end, calc_context_switch_overhead},
     uptime,
 };
 use core::{
