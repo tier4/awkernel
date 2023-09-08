@@ -10,6 +10,10 @@ use embedded_hal::pwm::{Error, ErrorKind, ErrorType, SetDutyCycle};
 pub static mut PWM_BASE: usize = 0;
 
 /// Set the base address for the PWM module
+///
+/// # Safety
+///
+/// This function is unsafe because it modifies a static mutable variable
 pub unsafe fn set_pwm_base(base: usize) {
     write_volatile(&mut PWM_BASE, base);
 }
