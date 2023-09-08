@@ -113,7 +113,7 @@ impl Clock {
             hint::spin_loop();
         }
 
-        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf);
+        let div = registers::GPCTL::PASSWD.bits() | (divi << 12) | divf;
         registers::GP0DIV.write(div, self.base);
 
         ctl = registers::GPCTL::PASSWD
@@ -165,7 +165,7 @@ impl Clock {
             hint::spin_loop();
         }
 
-        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf);
+        let div = registers::GPCTL::PASSWD.bits() | (divi << 12) | divf;
         registers::PWMDIV.write(div, self.base);
 
         ctl = registers::GPCTL::PASSWD
