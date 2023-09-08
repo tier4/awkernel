@@ -2,6 +2,7 @@ use core::arch::asm;
 
 pub mod gpio;
 pub mod i2c;
+pub mod pwm;
 
 /// Wait N CPU cycles
 fn wait_cycles(n: usize) {
