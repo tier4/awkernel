@@ -131,8 +131,8 @@ impl super::SoC for Raspi {
         self.init_gpio()?;
         self.init_i2c()?;
         self.init_mbox()?;
-        self.test_framebuffer();
-
+        self.init_clock()?;
+        self.init_pwm()?;
         Ok(())
     }
 }
@@ -341,39 +341,60 @@ impl Raspi {
         Ok(())
     }
 
-    fn test_framebuffer(&self) {
-        let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
-        let Ok(fb_info_result) = awkernel_drivers::framebuffer::lfb::lfb_init(&channel) else {
-            return;
+    pub fn init_clock(&self) -> Result<(), &'static str> {
+        let clk_node = self
+            .get_device_from_symbols("clocks")
+            .or(Err(err_msg!("could not find CLK's device node")))?;
+        let base_addr = clk_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find clk's base address")))?;
+
+        log::info!("CLK: 0x{:016x}", base_addr);
+
+        let clocks_node = self
+            .device_tree
+            .root()
+            .find_child("clocks")
+            .ok_or(err_msg!("could not find 'clocks' node"))?;
+
+        let osc_node = clocks_node.find_child("clk-osc").ok_or(err_msg!(
+            "could not find 'clk-osc' node under 'clocks' node"
+        ))?;
+
+        let clock_freq_prop = osc_node.get_property("clock-frequency").ok_or(err_msg!(
+            "could not find 'clock-frequency' property in 'clk-osc' node"
+        ))?;
+
+        let clock_freq = match clock_freq_prop.value() {
+            PropertyValue::Integer(value) => {
+                log::info!("CLK-OSC clock-frequency: {} Hz", value);
+                *value
+            }
+            _ => {
+                log::error!("'clock-frequency' property has an invalid type");
+                return Err("'clock-frequency' property has an invalid type");
+            }
         };
-        let mut fb_info = fb_info_result;
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "You can use BLisP language as follows.\n",
-            25.0,
-        );
+        unsafe { awkernel_drivers::clock::get_clock_frequency(clock_freq as usize) };
 
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "https://ytakano.github.io/blisp/\n\n",
-            25.0,
-        );
+        unsafe { awkernel_drivers::clock::set_clk_base(base_addr as usize) };
 
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "> (factorial 20)\n2432902008176640000\n",
-            25.0,
-        );
+        Ok(())
+    }
 
-        awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
-            &mut fb_info,
-            10,
-            "> (+ 10 20)\n30\n\nEnjoy!\n\n> ",
-            25.0,
-        );
+    fn init_pwm(&self) -> Result<(), &'static str> {
+        let spi_node = self
+            .get_device_from_symbols("pwm")
+            .or(Err(err_msg!("could not find PWM's device node")))?;
+        let base_addr = spi_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find PWM's base address")))?;
+
+        log::info!("PWM: 0x{:016x}", base_addr);
+
+        unsafe { awkernel_drivers::hal::rpi::pwm::set_pwm_base(base_addr as usize) };
+
+        Ok(())
     }
 
     fn init_timer(&self) -> Result<(), &'static str> {

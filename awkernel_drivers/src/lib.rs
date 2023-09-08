@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+pub mod clock;
 pub mod framebuffer;
 pub mod hal;
 pub mod interrupt_controller;
