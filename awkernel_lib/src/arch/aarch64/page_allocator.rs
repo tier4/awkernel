@@ -1,23 +1,25 @@
-use crate::memory::PAGESIZE;
+use crate::{addr::Addr, memory::PAGESIZE};
 
 use super::page_table::FrameAllocator;
 
 const NUM_RANGES: usize = 16;
 
-pub struct PageAllocator {
-    range: [Option<(u64, u64)>; NUM_RANGES],
+pub struct PageAllocator<A: Addr> {
+    range: [Option<(A, A)>; NUM_RANGES],
     idx: usize,
     current: usize,
 }
 
-impl FrameAllocator for PageAllocator {
-    fn allocate_frame(&mut self) -> Option<u64> {
+impl<A: Addr> FrameAllocator<A> for PageAllocator<A> {
+    fn allocate_frame(&mut self) -> Option<A> {
         let range = self.range.get_mut(self.current)?;
+
+        let page_size = A::from_usize(PAGESIZE);
 
         if let Some(range) = range {
             let result = range.0;
 
-            range.0 += PAGESIZE as u64;
+            range.0 += page_size;
 
             if range.0 >= range.1 {
                 self.current += 1;
@@ -30,7 +32,7 @@ impl FrameAllocator for PageAllocator {
     }
 }
 
-impl PageAllocator {
+impl<A: Addr> PageAllocator<A> {
     pub fn new() -> Self {
         PageAllocator {
             range: [None; NUM_RANGES],
@@ -39,7 +41,7 @@ impl PageAllocator {
         }
     }
 
-    pub fn push(&mut self, start: u64, end: u64) -> Result<(), &'static str> {
+    pub fn push(&mut self, start: A, end: A) -> Result<(), &'static str> {
         if start >= end {
             return Err("start >= end");
         }
@@ -55,7 +57,7 @@ impl PageAllocator {
     }
 }
 
-impl Default for PageAllocator {
+impl<A: Addr> Default for PageAllocator<A> {
     fn default() -> Self {
         Self::new()
     }

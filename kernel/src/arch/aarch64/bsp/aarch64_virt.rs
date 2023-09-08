@@ -4,6 +4,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
+    addr::phy_addr::PhyAddr,
     arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
@@ -22,10 +23,10 @@ use super::{DeviceTreeRef, StaticArrayedNode};
 pub mod config;
 mod uart;
 
-const DEVICE_MEM_START: usize = 0x0800_0000;
-const DEVICE_MEM_END: usize = 0x4000_0000;
-const FLASH_START: usize = 0;
-const FLASH_END: usize = 0x0800_0000;
+const DEVICE_MEM_START: PhyAddr = PhyAddr::new(0x0800_0000);
+const DEVICE_MEM_END: PhyAddr = PhyAddr::new(0x4000_0000);
+const FLASH_START: PhyAddr = PhyAddr::new(0);
+const FLASH_END: PhyAddr = PhyAddr::new(0x0800_0000);
 
 /// IRQ #27 is the recommended value.
 /// every 1/2^14 = 0..000_061 [s].
@@ -33,7 +34,7 @@ pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 14);
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
-    device_tree_base: usize,
+    device_tree_base: PhyAddr,
     uart_base: Option<usize>,
     uart_irq: Option<u16>,
     interrupt: Option<StaticArrayedNode>,
@@ -74,10 +75,10 @@ impl super::SoC for AArch64Virt {
         // Do not use the memory containing kernel's binary for heap memory.
         vm.remove_kernel_memory_from_heap_memory()?;
 
-        let mask = PAGESIZE - 1;
+        let mask = PhyAddr::new(PAGESIZE - 1);
         let start = self.device_tree_base & !mask;
-        let end = self.device_tree_base + self.device_tree.total_size();
-        let end = end + PAGESIZE - (end & mask);
+        let end = self.device_tree_base + PhyAddr::new(self.device_tree.total_size());
+        let end = end + PhyAddr::new(PAGESIZE) - (end & mask);
 
         vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
@@ -111,7 +112,7 @@ impl AArch64Virt {
     pub fn new(device_tree: DeviceTreeRef, device_tree_base: usize) -> Self {
         AArch64Virt {
             device_tree,
-            device_tree_base,
+            device_tree_base: PhyAddr::new(device_tree_base),
             uart_base: None,
             uart_irq: None,
             interrupt: None,

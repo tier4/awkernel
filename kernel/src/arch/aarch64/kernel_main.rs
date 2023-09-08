@@ -11,17 +11,19 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
+use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
 use awkernel_lib::{
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
     heap,
 };
 use core::{
+    arch::asm,
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
 
-static mut PRIMARY_READY: bool = false;
+static mut CPU_READY: usize = 0;
 static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 static mut TTBR0_EL1: usize = 0;
@@ -36,7 +38,9 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     if awkernel_lib::cpu::cpu_id() == 0 {
         primary_cpu(device_tree_base);
     } else {
-        while !read_volatile(&PRIMARY_READY) {}
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        while read_volatile(&CPU_READY) != cpu_id {}
         non_primary_cpu();
     }
 
@@ -45,8 +49,8 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 
 /// 1. Initialize the device (UART, etc.).
 /// 2. Initialize the virtual memory.
-/// 3. Start non-primary CPUs.
-/// 4. Enable MMU.
+/// 3. Enable MMU.
+/// 4. Start non-primary CPUs.
 /// 5. Enable heap allocator.
 /// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
@@ -88,15 +92,27 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     write_volatile(&mut TTBR0_EL1, ttbr0);
 
-    // 3. Start non-primary CPUs.
-    write_volatile(&mut PRIMARY_READY, true);
+    dsb_sy();
 
-    // 4. Enable MMU.
+    // Invalidate all TLB
+    dsb_ishst();
+    tlbi_vmalle1is();
+    dsb_ish();
+    isb();
+
+    // 3. Enable MMU.
     super::vm::enable(ttbr0);
+
+    // 4. Start non-primary CPUs.
+    let cpu_ready = read_volatile(&CPU_READY);
+    write_volatile(&mut CPU_READY, cpu_ready + 1);
+    super::vm::flush_cache();
 
     unsafe_puts("The virtual memory has been successfully enabled.\r\n");
 
     awkernel_lib::arch::aarch64::init_primary(); // Initialize timer.
+
+    awkernel_lib::delay::wait_sec(3);
 
     // 5. Enable heap allocator.
     let backup_start = HEAP_START;
@@ -154,9 +170,30 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 /// 2. Wait until the primary CPU is enabled.
 /// 3. Initialization for non-primary CPUs.
 unsafe fn non_primary_cpu() {
-    // 1. Enable the virtual memory.
-    let ttbr0 = read_volatile(&TTBR0_EL1);
+    let mut ttbr0;
+
+    // flush TLB
+    asm!(
+        "
+        dsb     sy
+
+        dsb     ishst
+        tlbi    vmalle1is
+        dsb     ish
+        isb
+
+        ldr     {ttbr0}, [{ttbr0_addr}]
+        isb
+        ",
+        ttbr0 = out(reg) ttbr0,
+        ttbr0_addr = in(reg) &TTBR0_EL1,
+    );
+
+    let cpu_ready = read_volatile(&CPU_READY);
+
     super::vm::enable(ttbr0);
+    write_volatile(&mut CPU_READY, cpu_ready + 1);
+    super::vm::flush_cache();
 
     // 2. Wait until the primary CPU is enabled.
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {

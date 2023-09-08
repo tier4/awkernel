@@ -3,15 +3,13 @@ use alloc::{
     collections::{BTreeMap, VecDeque},
 };
 use awkernel_lib::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     context::{ArchContext, Context},
     memory::{self, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
-use core::{
-    alloc::{GlobalAlloc, Layout},
-    ptr::null_mut,
-};
+use core::alloc::{GlobalAlloc, Layout};
 
 /// Pooled and running threads.
 static THREADS: Mutex<Threads> = Mutex::new(Threads::new());
@@ -66,7 +64,7 @@ impl PtrWorkerThreadContext {
         let ctx = Box::from_raw(self.0);
         unsafe {
             memory::map(
-                ctx.stack_mem as usize,
+                ctx.stack_mem,
                 ctx.stack_mem_phy,
                 memory::Flags {
                     execute: false,
@@ -94,8 +92,8 @@ impl PtrWorkerThreadContext {
 
 struct WorkerThreadContext {
     cpu_ctx: ArchContext,
-    stack_mem: *mut u8,
-    stack_mem_phy: usize,
+    stack_mem: VirtAddr,
+    stack_mem_phy: PhyAddr,
     stack_size: usize,
 }
 
@@ -103,8 +101,8 @@ impl WorkerThreadContext {
     fn new() -> Self {
         WorkerThreadContext {
             cpu_ctx: ArchContext::default(),
-            stack_mem: null_mut(),
-            stack_mem_phy: 0,
+            stack_mem: VirtAddr::new(0),
+            stack_mem_phy: PhyAddr::new(0),
             stack_size: 0,
         }
     }
@@ -117,11 +115,13 @@ impl WorkerThreadContext {
         let stack_mem = allocate_stack(stack_size)?;
         let stack_pointer = unsafe { stack_mem.add(stack_size) };
 
-        let Some(stack_mem_phy) = memory::vm_to_phy(stack_mem as usize) else {
+        let Some(stack_mem_phy) = memory::vm_to_phy(VirtAddr::new(stack_mem as usize)) else {
             return Err("failed to translate VM to Phy");
         };
 
-        unsafe { memory::unmap(stack_mem as usize) };
+        let stack_mem = VirtAddr::new(stack_mem as usize);
+
+        unsafe { memory::unmap(stack_mem) };
 
         let mut cpu_ctx = ArchContext::default();
 
@@ -141,9 +141,11 @@ impl WorkerThreadContext {
 
 impl Drop for WorkerThreadContext {
     fn drop(&mut self) {
-        if !self.stack_mem.is_null() {
+        if self.stack_mem.to_usize() != 0 {
             let layout = Layout::from_size_align(self.stack_size, PAGESIZE).unwrap();
-            unsafe { awkernel_lib::heap::TALLOC.dealloc(self.stack_mem, layout) };
+            unsafe {
+                awkernel_lib::heap::TALLOC.dealloc(self.stack_mem.to_usize() as *mut u8, layout)
+            };
         }
     }
 }

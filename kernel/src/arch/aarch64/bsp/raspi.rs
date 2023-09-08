@@ -6,6 +6,7 @@ use crate::arch::aarch64::{
 use alloc::boxed::Box;
 use awkernel_drivers::uart::pl011::PL011;
 use awkernel_lib::{
+    addr::phy_addr::PhyAddr,
     arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer, set_max_affinity},
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
@@ -83,10 +84,10 @@ impl super::SoC for Raspi {
         for range in ranges {
             let start = range.range.1.to_u128() as usize;
             let end = start + range.range.2.to_u128() as usize;
-            vm.push_device_range(start, end)?;
+            vm.push_device_range(PhyAddr::new(start), PhyAddr::new(end))?;
         }
 
-        vm.push_device_range(0x3c000000, 0x3c600000)?;
+        vm.push_device_range(PhyAddr::new(0x3c000000), PhyAddr::new(0x3c600000))?;
         // Add heap memory regions.
         vm.add_heap_from_node(self.device_tree.root())?;
 
@@ -98,10 +99,13 @@ impl super::SoC for Raspi {
         let end = self.device_tree_base + self.device_tree.total_size();
         let end = end + PAGESIZE - (end & mask);
 
-        vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
-        vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
+        vm.remove_heap(PhyAddr::new(start), PhyAddr::new(end))?; // Do not use DTB's memory region for heap memory.
+        vm.push_ro_memory(PhyAddr::new(start), PhyAddr::new(end))?; // Make DTB's memory region read-only memory.
 
-        let _ = vm.remove_heap(0, vm::get_kernel_start() as usize);
+        let _ = vm.remove_heap(
+            PhyAddr::new(0),
+            PhyAddr::new(vm::get_kernel_start() as usize),
+        );
 
         vm.print();
 
