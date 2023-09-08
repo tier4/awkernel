@@ -90,7 +90,6 @@ pub async fn blink_and_switch() {
     let pin = GpioPin::new(16).unwrap(); // Use GPIO16
     let gpio16 = pin.into_input(PullMode::Up).unwrap();
 
-    let mut i = 0;
     let mut flag = true;
 
     loop {

@@ -17,8 +17,6 @@ use awkernel_lib::{
 };
 use core::arch::asm;
 
-use embedded_hal::pwm::SetDutyCycle;
-
 pub mod config;
 pub mod memory;
 mod uart;
