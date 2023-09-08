@@ -25,7 +25,7 @@ impl<T> SpinLock<T> {
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
         if self
             .lock_var
-            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
             Some(SpinLockGuard {
