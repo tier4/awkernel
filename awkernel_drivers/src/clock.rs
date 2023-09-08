@@ -3,10 +3,14 @@ use core::{
     ptr::{read_volatile, write_volatile},
 };
 
-/// Base address for the CLK module.
+/// Base address for the CLK module
 pub static mut CLK_BASE: usize = 0;
 
-/// Set the base address for the CLK module.
+/// Set the base address for the CLK module
+///
+/// # Safety
+///
+/// This function is unsafe because it modifies a static mutable variable.
 pub unsafe fn set_clk_base(base: usize) {
     write_volatile(&mut CLK_BASE, base);
 }
@@ -14,6 +18,10 @@ pub unsafe fn set_clk_base(base: usize) {
 pub static mut CLOCK_FREQUENCY: usize = 0;
 
 /// Get the clock frequency
+///
+/// # Safety
+///
+/// This function is unsafe because it modifies a static mutable variable.
 pub unsafe fn get_clock_frequency(base: usize) {
     write_volatile(&mut CLOCK_FREQUENCY, base);
 }
@@ -43,14 +51,14 @@ pub mod registers {
             const BUSY = 1 << 7; // Clock generator is running
             const KILL = 1 << 5; // Kill the clock generator
             const ENAB = 1 << 4; // Enable the clock generator
-            const SRC_GND = 0 << 0; // GND
-            const SRC_OSCILLATOR = 1 << 0; // Oscillator
-            const SRC_TESTDEBUG0 = 2 << 0; // testdebug0
-            const SRC_TESTDEBUG1 = 3 << 0; // testdebug1
-            const SRC_PLLA_PER = 4 << 0; // PLLA per
-            const SRC_PLLC_PER = 5 << 0; // PLLC per
-            const SRC_PLLD_PER = 6 << 0; // PLLD per
-            const SRC_HDMI_AUX = 7 << 0; // HDMI auxiliary
+            const SRC_GND = 0; // GND
+            const SRC_OSCILLATOR = 1; // Oscillator
+            const SRC_TESTDEBUG0 = 2; // testdebug0
+            const SRC_TESTDEBUG1 = 3; // testdebug1
+            const SRC_PLLA_PER = 4; // PLLA per
+            const SRC_PLLC_PER = 5; // PLLC per
+            const SRC_PLLD_PER = 6; // PLLD per
+            const SRC_HDMI_AUX = 7; // HDMI auxiliary
         }
     }
 }
@@ -105,7 +113,7 @@ impl Clock {
             hint::spin_loop();
         }
 
-        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf) as u32;
+        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf);
         registers::GP0DIV.write(div, self.base);
 
         ctl = registers::GPCTL::PASSWD
@@ -157,7 +165,7 @@ impl Clock {
             hint::spin_loop();
         }
 
-        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf) as u32;
+        let div = (registers::GPCTL::PASSWD.bits() | (divi << 12) | divf);
         registers::PWMDIV.write(div, self.base);
 
         ctl = registers::GPCTL::PASSWD
@@ -181,5 +189,11 @@ impl Clock {
     pub fn disable_pwm_clock(&self) {
         let ctl = registers::GPCTL::PASSWD;
         registers::PWMCTL.write(ctl, self.base);
+    }
+}
+
+impl Default for Clock {
+    fn default() -> Self {
+        Self::new()
     }
 }
