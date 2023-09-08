@@ -328,12 +328,14 @@ pub enum EL {
 }
 
 /// enable FP/SIMD on EL3
+#[inline(always)]
 pub fn init_cptr_el3() {
     let val: u64 = 1 << 8; // enable FP/SIMD
     unsafe { asm!("msr CPTR_EL3, {}", in(reg) val) }
 }
 
 /// enable FP/SIMD on EL1
+#[inline(always)]
 pub fn init_cpacr_el1() {
     let val: u64 = 0b110011 << 16;
     unsafe { asm!("msr CPACR_EL1, {}", in(reg) val) }
@@ -352,6 +354,7 @@ macro_rules! sysreg {
             /// # Safety
             ///
             /// See "Arm Architecture Reference Manual".
+            #[inline(always)]
             pub unsafe fn set(v: u64) {
                 asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }
@@ -363,6 +366,7 @@ macro_rules! sysreg_read {
     ($x:ident) => {
         pub mod $x {
             use core::arch::asm;
+            #[inline(always)]
             pub fn get() -> u64 {
                 let v: u64;
                 unsafe { asm!(concat!("mrs {}, ", stringify!($x)), lateout(reg) v) };
@@ -380,6 +384,7 @@ macro_rules! sysreg_write {
             /// # Safety
             ///
             /// See "Arm Architecture Reference Manual".
+            #[inline(always)]
             pub unsafe fn set(v: u64) {
                 asm!(concat!("msr ", stringify!($x), ", {}"), in(reg) v);
             }
@@ -476,30 +481,35 @@ sysreg!(cptr_el3);
 sysreg!(ttbr0_el3);
 sysreg!(tcr_el3);
 
+#[inline(always)]
 pub fn get_affinity_lv0() -> u64 {
     let mpidr: u64;
     unsafe { asm!("mrs {}, mpidr_el1", lateout(reg) mpidr) };
     mpidr & 0xFF
 }
 
+#[inline(always)]
 pub fn get_affinity_lv1() -> u64 {
     let mpidr: u64;
     unsafe { asm!("mrs {}, mpidr_el1", lateout(reg) mpidr) };
     (mpidr >> 8) & 0xFF
 }
 
+#[inline(always)]
 pub fn get_current_el() -> u32 {
     let el: u64;
     unsafe { asm!("mrs {}, CurrentEL", lateout(reg) el) };
     ((el >> 2) & 0x3) as u32
 }
 
+#[inline(always)]
 pub fn get_sp() -> u64 {
     let sp: u64;
     unsafe { asm!("mov {}, sp", lateout(reg) sp) };
     sp
 }
 
+#[inline(always)]
 pub fn set_sp(sp: u64) {
     unsafe { asm!("mov sp, {}", in(reg) sp) };
 }
@@ -523,68 +533,97 @@ pub fn get_armv8_6_ecv_support() -> u64 {
 }
 
 /// sev
+#[inline(always)]
 pub fn send_event() {
     unsafe { asm!("sev") };
 }
 
 /// sevl
+#[inline(always)]
 pub fn send_event_local() {
     unsafe { asm!("sevl") };
 }
 
 /// wfe
+#[inline(always)]
 pub fn wait_event() {
     unsafe { asm!("wfe") };
 }
 
 /// wfi
+#[inline(always)]
 pub fn wait_interrupt() {
     unsafe { asm!("wfi") };
 }
 
 /// dmb st
+#[inline(always)]
 pub fn dmb_st() {
     unsafe { asm!("dmb st") };
 }
 
 /// dmb ld
+#[inline(always)]
 pub fn dmb_ld() {
     unsafe { asm!("dmb ld") };
 }
 
 /// dmb sy
+#[inline(always)]
 pub fn dmb_sy() {
     unsafe { asm!("dmb sy") };
 }
 
 /// dsb st
+#[inline(always)]
 pub fn dsb_st() {
     unsafe { asm!("dsb st") };
 }
 
 /// dsb ld
+#[inline(always)]
 pub fn dsb_ld() {
     unsafe { asm!("dsb ld") };
 }
 
 /// dsb sy
+#[inline(always)]
 pub fn dsb_sy() {
     unsafe { asm!("dsb sy") };
 }
 
+/// dsb ishst
+#[inline(always)]
+pub fn dsb_ishst() {
+    unsafe { asm!("dsb ishst") };
+}
+
 /// dsb ish
+#[inline(always)]
 pub fn dsb_ish() {
     unsafe { asm!("dsb ish") };
 }
 
+/// tlbi vmalle1is
+///
+/// Invalidate all entries from the last level of stage 1 translation table walk used at EL1
+/// for the specified address and current VMID and for all ASID values, Inner Shareable
+#[inline(always)]
+pub fn tlbi_vmalle1is() {
+    unsafe { asm!("tlbi vmalle1is") };
+}
+
+#[inline(always)]
 pub fn eret() {
     unsafe { asm!("eret") };
 }
 
+#[inline(always)]
 pub fn isb() {
     unsafe { asm!("isb") };
 }
 
+#[inline(always)]
 pub fn is_secure() -> bool {
     let scr = scr_el3::get();
     scr & SCR_NS_BIT == 0

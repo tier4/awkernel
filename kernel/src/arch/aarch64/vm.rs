@@ -1,7 +1,5 @@
 use crate::arch::config::HEAP_START;
-use awkernel_aarch64::{
-    dsb_ish, dsb_sy, id_aa64mmfr0_el1, isb, mair_el1, sctlr_el1, tcr_el1, ttbr0_el1,
-};
+use awkernel_aarch64::{dmb_sy, id_aa64mmfr0_el1, isb, sctlr_el1};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{
@@ -12,6 +10,7 @@ use awkernel_lib::{
         },
     },
     console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
+    cpu::num_cpu,
     device_tree::{node::DeviceTreeNode, prop::PropertyValue},
     err_msg,
     memory::PAGESIZE,
@@ -323,7 +322,7 @@ impl VM {
         Ok(())
     }
 
-    unsafe fn init_memory_map(&mut self) -> Option<()> {
+    fn init_memory_map(&mut self) -> Option<()> {
         let mut allocator = PageAllocator::new();
         for mem in self.heap.iter().flatten() {
             allocator.push(mem.start, mem.end).ok()?;
@@ -534,12 +533,42 @@ impl VM {
     }
 }
 
+/// Clean and Invalidate by Virtual Address (civa)
+fn flush_cpu_cache(mut start: VirtAddr, end: VirtAddr) {
+    let pagesize = VirtAddr::new(PAGESIZE);
+    dmb_sy();
+    isb();
+    while start < end {
+        unsafe { asm!("dc civac, {}", in(reg) start.to_usize()) };
+        start += pagesize;
+    }
+    dmb_sy();
+}
+
+pub fn flush_cache() {
+    for i in 0..num_cpu() {
+        let stack_start = get_stack_memory() as usize + STACK_SIZE * i;
+        let stack_start = VirtAddr::new(stack_start);
+        let stack_end = stack_start + VirtAddr::new(STACK_SIZE);
+        let stack_start = stack_start + VirtAddr::new(PAGESIZE);
+
+        flush_cpu_cache(stack_start, stack_end);
+    }
+
+    let data_start = VirtAddr::new(get_data_start() as usize);
+    let data_end = VirtAddr::new(get_stack_memory() as usize);
+
+    flush_cpu_cache(data_start, data_end);
+}
+
+#[inline(always)]
 fn get_mair() -> u64 {
     0xFF         | // AttrIdx=0: normal, IWBWA, OWBWA, NTR
     (0x04 <<  8) | // AttrIdx=1: device, nGnRE (must be OSH too)
     (0x44 << 16) // AttrIdx=2: non cacheable
 }
 
+#[inline(always)]
 fn update_sctlr(sctlr: u64) -> u64 {
     let sctlr = sctlr   |
         1 << 44 | // set DSSBS, enable speculative load and store
@@ -556,29 +585,15 @@ fn update_sctlr(sctlr: u64) -> u64 {
         )
 }
 
-#[allow(unused_assignments)]
-fn init_sp_el1() {
-    let mut sp = 0;
-    unsafe {
-        asm!(
-            "
-mov {0:x}, sp
-msr spsel, #1
-mov sp, {0:x}",
-            inout(reg) sp
-        )
-    };
-}
-
 /// set registers
 pub unsafe fn enable(ttbr0: usize) {
     set_ttbr0(ttbr0);
-    init_sp_el1();
 }
 
 unsafe fn set_ttbr0(ttbr0: usize) {
     // first, set Memory Attributes array, indexed by PT_MEM, PT_DEV, PT_NC
-    mair_el1::set(get_mair());
+
+    let mair = get_mair();
 
     let mmfr = id_aa64mmfr0_el1::get();
     let b = mmfr & 0xF;
@@ -595,20 +610,37 @@ unsafe fn set_ttbr0(ttbr0: usize) {
          1 <<  8 | // Normal memory, Inner Write-Back Read-Allocate Write-Allocate Cacheable, TTBR0_EL1
         25; // T0SZ = 25,  3 levels (level 1,  2 and 3 translation tables), 2^39B (512GiB) space
 
-    // next, specify mapping characteristics in translate control register
-    tcr_el1::set(tcr);
-
-    // tell the MMU where our translation tables are.
-    ttbr0_el1::set(ttbr0 as u64 | 1);
-
-    // finally, toggle some bits in system control register to enable page translation
-    dsb_ish();
-    isb();
-
-    let sctlr = sctlr_el1::get();
+    let sctlr: u64 = sctlr_el1::get();
     let sctlr = update_sctlr(sctlr) & !(1 << 4); // clear SA0
 
-    sctlr_el1::set(sctlr);
-    dsb_sy();
-    isb();
+    let mut _sp = 0;
+
+    asm!(
+        "
+        dsb     sy
+
+        // Invalidate all TLB
+        dsb     ishst
+        tlbi	vmalle1is
+        dsb	    ish
+        isb
+
+        msr     mair_el1, {mair}
+        msr	    tcr_el1, {tcr}
+        msr     ttbr0_el1, {ttbr}
+        msr	    sctlr_el1, {sctlr}
+
+        dsb     sy
+        isb
+
+        mov {sp:x}, sp
+        msr spsel, #1
+        mov sp, {sp:x}
+        ",
+        mair = in(reg) mair,
+        tcr = in(reg) tcr,
+        ttbr = in(reg) ttbr0,
+        sctlr = in(reg) sctlr,
+        sp = inout(reg) _sp,
+    );
 }

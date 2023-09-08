@@ -343,8 +343,10 @@ impl Raspi {
 
     fn test_framebuffer(&self) {
         let channel = awkernel_drivers::framebuffer::mbox::MboxChannel::new(8);
-        let fb_info_result = awkernel_drivers::framebuffer::lfb::lfb_init(&channel);
-        let mut fb_info = fb_info_result.unwrap();
+        let Ok(fb_info_result) = awkernel_drivers::framebuffer::lfb::lfb_init(&channel) else {
+            return;
+        };
+        let mut fb_info = fb_info_result;
         awkernel_drivers::framebuffer::lfb::lfb_print_text_with_fontdue(
             &mut fb_info,
             10,
