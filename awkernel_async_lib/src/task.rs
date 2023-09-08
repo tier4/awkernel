@@ -27,7 +27,8 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -277,8 +278,97 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
+const MAX_MEASURE_COUNT: usize = 1024 * 8;
+static mut CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+static mut CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_COUNT] = [0; MAX_MEASURE_COUNT];
+static CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
+static mut CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_COUNT] = [0; MAX_MEASURE_COUNT];
+static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn add_context_save_start(cpu_id: usize, time: u64) {
+    unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
+}
+
+fn add_context_save_end(cpu_id: usize, time: u64) {
+    let start = unsafe { read_volatile(&CONTEXT_SAVE_STARTS[cpu_id]) };
+    if start != 0 && time > start {
+        let context_save_overhead = time - start;
+        let index = CSO_COUNT.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            write_volatile(
+                &mut CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_COUNT - 1)],
+                context_save_overhead,
+            )
+        };
+
+        unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], 0) };
+    }
+}
+
+fn add_context_restore_start(cpu_id: usize, time: u64) {
+    unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], time) };
+}
+
+pub fn add_context_restore_end(cpu_id: usize, time: u64) {
+    let start = unsafe { read_volatile(&CONTEXT_RESTORE_STARTS[cpu_id]) };
+    if start != 0 && time > start {
+        let context_restore_overhead = time - start;
+        let index = CRO_COUNT.fetch_add(1, Ordering::Relaxed);
+        unsafe {
+            write_volatile(
+                &mut CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_COUNT - 1)],
+                context_restore_overhead,
+            )
+        };
+
+        unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], 0) };
+    }
+}
+
+pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
+    let mut total_save = 0;
+    let mut count_save = 0;
+    let mut worst_save = 0;
+    let mut total_restore = 0;
+    let mut count_restore = 0;
+    let mut worst_restore = 0;
+
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..MAX_MEASURE_COUNT {
+        let save_overhead = unsafe { read_volatile(&CONTEXT_SAVE_OVERHEADS[i]) };
+        if save_overhead > 0 {
+            total_save += save_overhead;
+            count_save += 1;
+            if save_overhead > worst_save {
+                worst_save = save_overhead;
+            }
+        }
+
+        let restore_overhead = unsafe { read_volatile(&CONTEXT_RESTORE_OVERHEADS[i]) };
+        if restore_overhead > 0 {
+            total_restore += restore_overhead;
+            count_restore += 1;
+            if restore_overhead > worst_restore {
+                worst_restore = restore_overhead;
+            }
+        }
+    }
+
+    let mut result = (0.0, 0.0, 0.0, 0.0);
+    if count_save > 0 {
+        result.0 = total_save as f64 / count_save as f64;
+        result.1 = worst_save as f64;
+    }
+    if count_restore > 0 {
+        result.2 = total_restore as f64 / count_restore as f64;
+        result.3 = worst_restore as f64;
+    }
+
+    result
+}
+
 pub fn run_main() {
-    const MAX_MEASURE_COUNT: usize = 1024 * 8;
     let mut task_exec_times = [0; MAX_MEASURE_COUNT];
     let mut measure_count = 0;
     let mut measure_duration_start = 0;
@@ -338,10 +428,8 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
 
-                {
-                    let cpu_id = awkernel_lib::cpu::cpu_id();
-                    RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-                }
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
                 catch_unwind(|| {
@@ -356,6 +444,9 @@ pub fn run_main() {
                     let task_start = uptime();
                     if measure_count == 0 {
                         measure_duration_start = task_start;
+                    }
+                    if task.name.contains("subscriber") {
+                        add_context_restore_start(cpu_id, task_start);
                     }
 
                     #[allow(clippy::let_and_return)]
@@ -372,6 +463,7 @@ pub fn run_main() {
                                 * 100.0,
                         );
                     }
+                    add_context_save_end(cpu_id, task_end);
                     measure_count = (measure_count + 1) % MAX_MEASURE_COUNT;
 
                     #[cfg(all(
