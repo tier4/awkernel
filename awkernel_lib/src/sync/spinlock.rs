@@ -31,7 +31,7 @@ impl<T> SpinLock<T> {
             Some(SpinLockGuard {
                 spin_lock: self,
                 _interrupt_guard,
-                _phantom: PhantomData::default(),
+                _phantom: PhantomData,
             })
         } else {
             None
@@ -55,7 +55,7 @@ impl<T> SpinLock<T> {
         SpinLockGuard {
             spin_lock: self,
             _interrupt_guard,
-            _phantom: PhantomData::default(),
+            _phantom: PhantomData,
         }
     }
 }

@@ -59,6 +59,56 @@ impl core::ops::DivAssign for PhyAddr {
     }
 }
 
+impl core::ops::Not for PhyAddr {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        PhyAddr(!self.0)
+    }
+}
+
+impl core::ops::BitAnd for PhyAddr {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        PhyAddr(self.0 & rhs.0)
+    }
+}
+
+impl core::ops::BitAndAssign for PhyAddr {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 = self.0 & rhs.0;
+    }
+}
+
+impl core::ops::BitOr for PhyAddr {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        PhyAddr(self.0 | rhs.0)
+    }
+}
+
+impl core::ops::BitOrAssign for PhyAddr {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 | rhs.0;
+    }
+}
+
+impl core::ops::BitXor for PhyAddr {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        PhyAddr(self.0 ^ rhs.0)
+    }
+}
+
+impl core::ops::BitXorAssign for PhyAddr {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        self.0 = self.0 ^ rhs.0;
+    }
+}
+
 impl super::Addr for PhyAddr {
     fn to_usize(&self) -> usize {
         self.0
@@ -70,7 +120,7 @@ impl super::Addr for PhyAddr {
 }
 
 impl PhyAddr {
-    pub fn new(addr: usize) -> Self {
+    pub const fn new(addr: usize) -> Self {
         PhyAddr(addr)
     }
 }

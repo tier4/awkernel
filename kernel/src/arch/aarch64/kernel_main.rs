@@ -104,7 +104,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     super::vm::enable(ttbr0);
 
     // 4. Start non-primary CPUs.
-    let cpu_ready = read_volatile(&mut CPU_READY);
+    let cpu_ready = read_volatile(&CPU_READY);
     write_volatile(&mut CPU_READY, cpu_ready + 1);
     super::vm::flush_cache();
 
@@ -189,7 +189,7 @@ unsafe fn non_primary_cpu() {
         ttbr0_addr = in(reg) &TTBR0_EL1,
     );
 
-    let cpu_ready = read_volatile(&mut CPU_READY);
+    let cpu_ready = read_volatile(&CPU_READY);
 
     super::vm::enable(ttbr0);
     write_volatile(&mut CPU_READY, cpu_ready + 1);
