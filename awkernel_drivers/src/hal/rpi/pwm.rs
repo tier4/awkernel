@@ -99,12 +99,27 @@ pub enum Channel {
 pub struct Pwm {
     base: usize,
     channel: Channel,
+    ms_enable: bool,
     _pin: GpioPinAlt,
 }
 
 impl Pwm {
     /// Creates a new instance of the PWM module
-    pub fn new(channel: Channel) -> Result<Pwm, &'static str> {
+    ///
+    /// A value represented as a ratio of N/M can be transmitted along a serial channel with pulse width modulation, in which the
+    /// value is represented by the duty cycle of the output signal. To send value N/M within a periodic sequence of M cycles,
+    /// output should be 1 for N cycles and 0 for (M-N) cycles. The desired sequence should have 1s and 0s spread out as evenly
+    /// as possible, so that during any arbitrary period of time the duty cycle achieves the closest approximation of the value. This
+    /// can be shown in the following table where 4/8 is modulated (N=4, M=8).
+    ///
+    /// | ms_enable |      |   |   |   |   |   |   |   |   |   |   |   |   |
+    /// |-----------|------|---|---|---|---|---|---|---|---|---|---|---|---|
+    /// | true      | Bad  | 0 | 0 | 0 | 0 | 1 | 1 | 1 | 1 | 0 | 0 | 0 | 0 |
+    /// |           | Fair | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 1 | 1 |
+    /// | false     | Good | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
+    ///
+    /// Set `ms_enable` true for audio and debugging, and set it false for motors.
+    pub fn new(channel: Channel, ms_enable: bool) -> Result<Pwm, &'static str> {
         let pin = match channel {
             Channel::Ch0 => 12,
             Channel::Ch1 => 13,
@@ -118,6 +133,7 @@ impl Pwm {
         let mut pwm = Pwm {
             base,
             channel,
+            ms_enable,
             _pin: pin,
         };
 
@@ -167,11 +183,23 @@ impl Pwm {
 
         match self.channel {
             Channel::Ch0 => registers::CTL.write(
-                old_pwm_ctl | registers::Control::PWEN1 | registers::Control::MSEN1,
+                old_pwm_ctl
+                    | registers::Control::PWEN1
+                    | if self.ms_enable {
+                        registers::Control::MSEN1
+                    } else {
+                        registers::Control::empty()
+                    },
                 self.base,
             ),
             Channel::Ch1 => registers::CTL.write(
-                old_pwm_ctl | registers::Control::PWEN2 | registers::Control::MSEN2,
+                old_pwm_ctl
+                    | registers::Control::PWEN2
+                    | if self.ms_enable {
+                        registers::Control::MSEN2
+                    } else {
+                        registers::Control::empty()
+                    },
                 self.base,
             ),
         }
