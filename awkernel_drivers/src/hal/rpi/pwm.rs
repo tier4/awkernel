@@ -53,14 +53,16 @@ pub mod registers {
             const EMPT1 = 1 << 1; // FIFO Empty Flag
             const WERR1 = 1 << 2; // FIFO Write Error Flag
             const RERR1 = 1 << 3; // FIFO Read Error Flag
-            const GAPO2 = 1 << 4; // Channel 2 Gap Occurred Flag
-            const GAPO1 = 1 << 5; // Channel 1 Gap Occurred Flag
+            const GAPO1 = 1 << 4; // Channel 2 Gap Occurred Flag
+            const GAPO2 = 1 << 5; // Channel 1 Gap Occurred Flag
             const BERR = 1 << 8; // Bus Error Flag
-            const STA2 = 1 << 9; // Channel 2 State
-            const STA1 = 1 << 10; // Channel 1 State
+            const STA1 = 1 << 9; // Channel 2 State
+            const STA2 = 1 << 10; // Channel 1 State
         }
     }
 }
+
+pub const FREQUENCY: u32 = 9_000_000; // 9 [MHz]
 
 /// Error types for the PWM module
 #[derive(Debug)]
@@ -107,8 +109,8 @@ impl Pwm {
 
         let mut pwm = Pwm {
             base,
-            rng1: 32,
-            dat1: 16,
+            rng1: FREQUENCY / 100,
+            dat1: (FREQUENCY / 100) / 2,
             _pin12: pin12,
         };
 
@@ -130,7 +132,7 @@ impl Pwm {
             awkernel_lib::delay::wait_microsec(10);
             let osc_freq: usize = unsafe { read_volatile(&CLOCK_FREQUENCY) };
 
-            let desired_pwm_freq = 1_000_000;
+            let desired_pwm_freq = FREQUENCY;
 
             let div_total = osc_freq as f64 / desired_pwm_freq as f64;
             let divi = div_total as u32;
@@ -171,10 +173,10 @@ impl Pwm {
 
     /// Sets the frequency for the PWM module
     pub fn set_frequency(&mut self, frequency: u32) -> Result<(), PwmError> {
-        if frequency == 0 || frequency > 1_000_000 {
+        if frequency == 0 || frequency > FREQUENCY {
             return Err(PwmError::InvalidFrequency);
         }
-        let clock_frequency = 1_000_000;
+        let clock_frequency = FREQUENCY;
         let range = clock_frequency / frequency;
         if range == 0 {
             return Err(PwmError::InvalidFrequency);

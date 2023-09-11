@@ -6,12 +6,14 @@ use awkernel_drivers::hal::{
     rpi::{
         gpio::{GpioPin, PullMode},
         i2c::I2cBus,
+        pwm,
     },
 };
 use core::time::Duration;
 use embedded_hal::{
     digital::{InputPin, OutputPin},
     i2c::I2c,
+    pwm::SetDutyCycle,
 };
 
 pub fn add(left: usize, right: usize) -> usize {
@@ -19,6 +21,12 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 pub async fn run_rpi_hal() {
+    let mut pwm0 = pwm::Pwm::new().unwrap();
+
+    pwm0.enable().unwrap();
+    pwm0.set_frequency(90_000).unwrap();
+    pwm0.set_duty_cycle_percent(50).unwrap();
+
     awkernel_async_lib::spawn(
         "blink and switch".into(),
         blink_and_switch(),
