@@ -40,8 +40,8 @@ impl<T: Send> MCSLock<T> {
     }
 
     pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<MCSLockGuard<T>> {
-        node.next = AtomicPtr::new(null_mut());
-        node.locked = AtomicBool::new(false);
+        node.next.store(null_mut(), Ordering::Relaxed);
+        node.locked.store(false, Ordering::Relaxed);
 
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
 
@@ -70,8 +70,8 @@ impl<T: Send> MCSLock<T> {
 
     /// acquire lock
     pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<T> {
-        node.next = AtomicPtr::new(null_mut());
-        node.locked = AtomicBool::new(false);
+        node.next.store(null_mut(), Ordering::Relaxed);
+        node.locked.store(false, Ordering::Relaxed);
 
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
 
@@ -85,25 +85,24 @@ impl<T: Send> MCSLock<T> {
         };
 
         let ptr = guard.node as *mut MCSNode<T>;
-        let prev = self.last.swap(ptr, Ordering::Relaxed);
+        let prev = self.last.swap(ptr, Ordering::Acquire);
 
-        // if prev is null then nobody is trying to acquire lock,
-        // otherwise enqueue myself
-        if !prev.is_null() {
-            // set acquiring lock
-            guard.node.locked.store(true, Ordering::Relaxed);
-
-            // enqueue myself
-            let prev = unsafe { &*prev };
-            prev.next.store(ptr, Ordering::Relaxed);
-
-            // spin until other thread set locked false
-            while guard.node.locked.load(Ordering::Relaxed) {
-                core::hint::spin_loop()
-            }
+        // if prev is null then nobody is trying to acquire lock
+        if prev.is_null() {
+            return guard;
         }
 
-        fence(Ordering::Acquire);
+        // enqueue myself
+        let prev = unsafe { &*prev };
+        prev.next.store(ptr, Ordering::Relaxed);
+
+        fence(Ordering::SeqCst);
+
+        // spin until other thread sets locked true
+        while !guard.node.locked.load(Ordering::Acquire) {
+            core::hint::spin_loop();
+        }
+
         guard
     }
 }
@@ -137,16 +136,17 @@ impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
             {
                 return;
             }
-        }
 
-        // other thread is entering lock and wait the execution
-        while self.node.next.load(Ordering::Relaxed).is_null() {
-            core::hint::spin_loop()
+            // other thread is entering lock and wait the execution
+            while self.node.next.load(Ordering::Relaxed).is_null() {
+                core::hint::spin_loop()
+            }
         }
 
         // make next thread executable
         let next = unsafe { &mut *self.node.next.load(Ordering::Relaxed) };
-        next.locked.store(false, Ordering::Release);
+        next.locked.store(true, Ordering::Release);
+        fence(Ordering::SeqCst);
     }
 }
 

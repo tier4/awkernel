@@ -5,12 +5,16 @@
 //! When the `std` feature is enabled, it uses `parking_lot::Mutex` for efficient locking.
 //! When the `std` feature is disabled, it falls back to using `super::mcs::MCSLock`.
 
-#[cfg(not(feature = "std"))]
-// type Lock<T> = super::mcs::MCSLock<T>;
+#[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+type Lock<T> = super::mcs::MCSLock<T>;
+
+#[cfg(all(not(feature = "std"), feature = "spinlock"))]
 type Lock<T> = super::spinlock::SpinLock<T>;
 
-#[cfg(not(feature = "std"))]
-// type LockGuard<'a, T> = super::mcs::MCSLockGuard<'a, T>;
+#[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+type LockGuard<'a, T> = super::mcs::MCSLockGuard<'a, T>;
+
+#[cfg(all(not(feature = "std"), feature = "spinlock"))]
 type LockGuard<'a, T> = super::spinlock::SpinLockGuard<'a, T>;
 
 #[cfg(feature = "std")]
@@ -65,7 +69,12 @@ impl<T: Send> Mutex<T> {
         }
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+    pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> LockGuard<'a, T> {
+        self.mutex.lock(node)
+    }
+
+    #[cfg(all(not(feature = "std"), feature = "spinlock"))]
     pub fn lock<'a>(&'a self, _node: &'a mut MCSNode<T>) -> LockGuard<'a, T> {
         self.mutex.lock()
     }
@@ -75,7 +84,12 @@ impl<T: Send> Mutex<T> {
         self.mutex.lock()
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+    pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
+        self.mutex.try_lock(node)
+    }
+
+    #[cfg(all(not(feature = "std"), feature = "spinlock"))]
     pub fn try_lock<'a>(&'a self, _node: &'a mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
         self.mutex.try_lock()
     }
