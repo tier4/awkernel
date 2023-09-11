@@ -21,11 +21,10 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 pub async fn run_rpi_hal() {
-    let mut pwm0 = pwm::Pwm::new().unwrap();
+    let mut pwm0 = pwm::Pwm::new(pwm::Channel::Ch0).unwrap();
 
     pwm0.enable().unwrap();
-    pwm0.set_frequency(90_000).unwrap();
-    pwm0.set_duty_cycle_percent(50).unwrap();
+    pwm0.set_duty_cycle_percent(90).unwrap();
 
     awkernel_async_lib::spawn(
         "blink and switch".into(),
