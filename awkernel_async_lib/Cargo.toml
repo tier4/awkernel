@@ -26,3 +26,4 @@ path = "../awkernel_async_lib_verified"
 default = []
 std = ["awkernel_lib/std", "no_preempt"]
 no_preempt = []
+spinlock = ["awkernel_lib/spinlock"]

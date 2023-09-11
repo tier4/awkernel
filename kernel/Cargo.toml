@@ -75,7 +75,6 @@ rv32 = [
     "awkernel_drivers/rv32",
 ]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
-
 aarch64 = [
     "no_std_unwinding",
     "dep:awkernel_aarch64",
@@ -84,3 +83,4 @@ aarch64 = [
 ]
 raspi = ["aarch64", "awkernel_drivers/raspi", "userland/raspi"]
 aarch64_virt = ["aarch64"]
+spinlock = ["awkernel_lib/spinlock"]
