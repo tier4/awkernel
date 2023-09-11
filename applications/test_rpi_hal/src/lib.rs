@@ -21,17 +21,14 @@ pub fn add(left: usize, right: usize) -> usize {
 }
 
 pub async fn run_rpi_hal() {
-    let mut pwm0 = pwm::Pwm::new(pwm::Channel::Ch0, false).unwrap();
-
-    pwm0.enable().unwrap();
-    pwm0.set_duty_cycle_percent(50).unwrap();
-
     awkernel_async_lib::spawn(
         "blink and switch".into(),
         blink_and_switch(),
         SchedulerType::FIFO,
     )
     .await;
+
+    awkernel_async_lib::spawn("test PWM".into(), test_pwm(), SchedulerType::FIFO).await;
 
     scan_i2c_devices().await;
 }
@@ -157,5 +154,23 @@ async fn temperature_adt7410(mut i2c: I2cBus) {
         log::info!("Temperature is {} [C].", (temp as i16 >> 3) as f64 / 16.0);
 
         awkernel_async_lib::sleep(Duration::from_secs(10)).await;
+    }
+}
+
+async fn test_pwm() {
+    let mut pwm0 = pwm::Pwm::new(pwm::Channel::Ch0, false).unwrap();
+
+    pwm0.enable().unwrap();
+    pwm0.set_duty_cycle_percent(85).unwrap();
+
+    let mut pwm1 = pwm::Pwm::new(pwm::Channel::Ch1, false).unwrap();
+
+    pwm1.enable().unwrap();
+
+    loop {
+        for i in (0..=100).chain((1..100).rev()) {
+            pwm1.set_duty_cycle(i).unwrap();
+            awkernel_async_lib::sleep(Duration::from_millis(10)).await;
+        }
     }
 }

@@ -119,6 +119,8 @@ impl Pwm {
     /// | false     | Good | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 | 0 | 1 |
     ///
     /// Set `ms_enable` true for audio and debugging, and set it false for motors.
+    ///
+    /// PWM is automatically disabled when the created value is dropped.
     pub fn new(channel: Channel, ms_enable: bool) -> Result<Pwm, &'static str> {
         let pin = match channel {
             Channel::Ch0 => 12,
@@ -280,5 +282,11 @@ impl SetDutyCycle for Pwm {
     /// Sets the duty cycle based on a percentage
     fn set_duty_cycle_percent(&mut self, percent: u8) -> Result<(), Self::Error> {
         self.set_duty_cycle_fraction(percent as u16, 100)
+    }
+}
+
+impl Drop for Pwm {
+    fn drop(&mut self) {
+        let _ = self.disable();
     }
 }
