@@ -6,7 +6,6 @@
 use core::{cell::Cell, marker::PhantomData};
 
 use alloc::rc::Rc;
-use cpu::NUM_MAX_CPU;
 
 pub mod arch;
 pub mod console;
@@ -49,9 +48,3 @@ macro_rules! err_msg {
         concat!(file!(), ":", line!(), ":", column!(), ": ", $m)
     };
 }
-
-pub const DURATION: usize = 100000;
-// POLL_TIMESTAMPS[i] contains the Start poll() save_time and End poll() restore_time of the poll() call in i-th CPU.
-pub static mut POLL_TIMESTAMPS: [(u64, u64); NUM_MAX_CPU] = [(0, 0); NUM_MAX_CPU];
-// Where SWITCH_TIME[0][i] is the min, SWITCH_TIME[1][i] is the ave, and SWITCH_TIME[2][i] is the max for the i-th CPU.
-pub static mut SWITCH_TIME: [[f64; NUM_MAX_CPU]; 3] = [[0.0; NUM_MAX_CPU]; 3];

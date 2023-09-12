@@ -16,7 +16,6 @@ use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
-use awkernel_lib::{cpu::num_cpu, DURATION, SWITCH_TIME};
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
 
@@ -70,20 +69,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
-        let mut duration = 0;
         loop {
-            duration += 1;
-            if duration == DURATION {
-                unsafe {
-                    log::debug!(
-                        "Switch time: min = {:?} [us], ave = {:.2} [us], max = {:?} [us]",
-                        SWITCH_TIME[0].iter().map(|&f| f as u64).min().unwrap(),
-                        SWITCH_TIME[1].iter().sum::<f64>() / num_cpu() as f64,
-                        SWITCH_TIME[2].iter().map(|&f| f as u64).max().unwrap(),
-                    );
-                }
-                duration = 0;
-            }
             wake_task(); // Wake executable tasks periodically.
 
             #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]

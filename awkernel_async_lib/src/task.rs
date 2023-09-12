@@ -12,6 +12,7 @@ mod preempt;
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
+    uptime,
 };
 use alloc::{
     borrow::Cow,
@@ -22,10 +23,8 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     cpu::NUM_MAX_CPU,
-    delay::uptime,
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
-    DURATION, POLL_TIMESTAMPS, SWITCH_TIME,
 };
 use core::{
     sync::atomic::{AtomicU32, Ordering},
@@ -278,44 +277,11 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
-fn update_poll_timestamps(
-    task: &Task,
-    task_poll_timestamps: &mut [(u64, u64); 30],
-    restore_start: u64,
-    save_end: u64,
-) {
-    let poll_timestamps = unsafe { &mut POLL_TIMESTAMPS[awkernel_lib::cpu::cpu_id()] };
-    let task_id = task.id as usize;
-
-    if poll_timestamps.0 != 0 {
-        task_poll_timestamps[task_id].0 = save_end - poll_timestamps.0;
-        poll_timestamps.0 = 0;
-    }
-    if poll_timestamps.1 != 0 {
-        task_poll_timestamps[task_id].1 = poll_timestamps.1 - restore_start;
-        poll_timestamps.1 = 0;
-    }
-}
-
-fn calculate_poll_overhead(
-    task: &Task,
-    task_poll_timestamps: &mut [(u64, u64); 30],
-    switch_time: &mut Vec<u64>,
-) {
-    let task_id = task.id as usize;
-    if task_poll_timestamps[task_id].0 != 0 && task_poll_timestamps[task_id].1 != 0 {
-        switch_time.push(task_poll_timestamps[task_id].0 + task_poll_timestamps[task_id].1);
-        task_poll_timestamps[task_id].0 = 0;
-        task_poll_timestamps[task_id].1 = 0;
-    }
-}
-
 pub fn run_main() {
-    let mut exe_time: Vec<u64> = Vec::new();
-    let mut switch_time: Vec<u64> = Vec::new();
-    let mut dur_start = 0;
-    // 30 is the maximum number of tasks that can be executed at the same time.
-    let mut task_poll_timestamps = array![_ => (0, 0); 30];
+    const MAX_MEASURE_COUNT: usize = 1024 * 8;
+    let mut task_exec_times = [0; MAX_MEASURE_COUNT];
+    let mut measure_count = 0;
+    let mut measure_duration_start = 0;
 
     loop {
         if let Some(task) = get_next_task() {
@@ -387,49 +353,26 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    let exe_start = uptime();
-                    if exe_time.is_empty() {
-                        dur_start = exe_start;
+                    let task_start = uptime();
+                    if measure_count == 0 {
+                        measure_duration_start = task_start;
                     }
-                    let restore_start = uptime();
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    let save_end = uptime();
-
-                    // End task execution and end duration time if DURATION is reached
-                    let exe_end = uptime();
-                    exe_time.push(exe_end - exe_start);
-
-                    update_poll_timestamps(
-                        &task,
-                        &mut task_poll_timestamps,
-                        restore_start,
-                        save_end,
-                    );
-                    calculate_poll_overhead(&task, &mut task_poll_timestamps, &mut switch_time);
-
-                    if exe_time.len() % DURATION == 0 {
-                        let cpu_id = awkernel_lib::cpu::cpu_id();
-                        // Calculate CPU utilization during the DURATION time
+                    let task_end = uptime();
+                    task_exec_times[measure_count] = task_end - task_start;
+                    if measure_count == MAX_MEASURE_COUNT - 1 {
                         log::debug!(
                             "CPU#{:?} utilization = {:.3} [%]",
-                            cpu_id,
-                            exe_time.iter().sum::<u64>() as f64 / ((exe_end - dur_start) as f64)
+                            awkernel_lib::cpu::cpu_id(),
+                            task_exec_times.iter().sum::<u64>() as f64
+                                / ((uptime() - measure_duration_start) as f64)
                                 * 100.0,
                         );
-                        exe_time.clear();
-
-                        // Saving of measurement switch time results during the DURATION time.
-                        unsafe {
-                            SWITCH_TIME[0][cpu_id] = *switch_time.iter().min().unwrap() as f64;
-                            SWITCH_TIME[1][cpu_id] =
-                                switch_time.iter().sum::<u64>() as f64 / switch_time.len() as f64;
-                            SWITCH_TIME[2][cpu_id] = *switch_time.iter().max().unwrap() as f64;
-                        }
-                        switch_time.clear();
                     }
+                    measure_count = (measure_count + 1) % MAX_MEASURE_COUNT;
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
