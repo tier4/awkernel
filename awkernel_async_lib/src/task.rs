@@ -340,7 +340,7 @@ pub mod perf {
         );
     }
 
-    fn cal_overheads_base(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
+    fn calc_overheads_base(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
         let mut total = 0;
         let mut count = 0;
         let mut worst = 0;
@@ -364,9 +364,9 @@ pub mod perf {
     }
 
     pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
-        let (avg_save, worst_save) = cal_overheads_base(unsafe { &CONTEXT_SAVE_OVERHEADS });
+        let (avg_save, worst_save) = calc_overheads_base(unsafe { &CONTEXT_SAVE_OVERHEADS });
         let (avg_restore, worst_restore) =
-            cal_overheads_base(unsafe { &CONTEXT_RESTORE_OVERHEADS });
+            calc_overheads_base(unsafe { &CONTEXT_RESTORE_OVERHEADS });
         (avg_save, worst_save, avg_restore, worst_restore)
     }
 }
