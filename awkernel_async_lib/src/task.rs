@@ -344,13 +344,12 @@ pub mod perf {
         let mut count = 0;
         let mut worst = 0;
 
-        for i in 0..MAX_MEASURE_SIZE {
-            let overhead = unsafe { read_volatile(&overheads[i]) };
-            if overhead > 0 {
+        for overhead in overheads.iter().take(MAX_MEASURE_SIZE) {
+            if *overhead > 0 {
                 total += overhead;
                 count += 1;
-                if overhead > worst {
-                    worst = overhead;
+                if *overhead > worst {
+                    worst = *overhead;
                 }
             }
         }
