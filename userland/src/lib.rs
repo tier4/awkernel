@@ -59,14 +59,10 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
                 let (save_ave, save_worst, restore_ave, restore_worst) =
                     calc_context_switch_overhead();
-                if save_ave > 0.0 {
-                    log::debug!("Context save: ave = {save_ave:.2} [us], worst = {save_worst} [us]")
-                }
-                if restore_ave > 0.0 {
-                    log::debug!(
-                        "Context restore: ave = {restore_ave:.2} [us], worst = {restore_worst} [us]"
-                    )
-                }
+                log::debug!("Context save: ave = {save_ave:.2} [us], worst = {save_worst} [us]");
+                log::debug!(
+                    "Context restore: ave = {restore_ave:.2} [us], worst = {restore_worst} [us]"
+                );
             }
         },
         SchedulerType::FIFO,
