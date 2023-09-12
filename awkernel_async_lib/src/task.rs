@@ -9,6 +9,7 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
+use self::perf::MAX_MEASURE_SIZE;
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
@@ -41,8 +42,6 @@ pub use preempt::{preemption, thread::deallocate_thread_pool};
 
 #[cfg(not(feature = "no_preempt"))]
 use preempt::thread::PtrWorkerThreadContext;
-
-use self::perf::MAX_MEASURE_SIZE;
 
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
