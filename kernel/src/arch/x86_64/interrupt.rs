@@ -30,13 +30,18 @@ pub unsafe fn init() {
     IDT.vmm_communication_exception
         .set_handler_fn(vmm_communication_exception);
     IDT.x87_floating_point.set_handler_fn(x87_floating_point);
-    IDT[32].set_handler_fn(hello_world);
+    IDT[32].set_handler_fn(preemption);
 
     IDT.load();
 }
 
-extern "x86-interrupt" fn hello_world(_stack_frame: InterruptStackFrame) {
-    log::debug!("[PREEMPT_IRQ:32] Hello World!");
+extern "x86-interrupt" fn preemption(stack_frame: InterruptStackFrame) {
+    log::debug!(
+        "[PREEMPT_IRQ:32] Hello World!, RFLAGS = 0b{:b}",
+        stack_frame.cpu_flags
+    );
+
+    awkernel_lib::interrupt::eoi(); // End of interrupt.
 }
 
 extern "x86-interrupt" fn alignment_check(stack_frame: InterruptStackFrame, error: u64) {

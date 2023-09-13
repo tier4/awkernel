@@ -37,6 +37,10 @@ pub trait InterruptController: Sync + Send {
 
     /// Initialization for non-primary core.
     fn init_non_primary(&mut self) {}
+
+    /// End of interrupt.
+    /// This will be used by only x86_64.
+    fn eoi(&mut self) {}
 }
 
 const MAX_IRQS: u16 = 1024;
@@ -231,5 +235,16 @@ pub fn sanity_check() {
         log::warn!("interrupt::PREEMPT_FN is not yet initialized.")
     } else {
         log::info!("interrupt::PREEMPT_FN has been initialized.")
+    }
+}
+
+/// End of interrupt.
+/// This function will be used by only x86_64.
+pub fn eoi() {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.eoi();
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
     }
 }

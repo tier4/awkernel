@@ -289,8 +289,6 @@ fn write_boot_images(offset: u64) {
 }
 
 fn start_non_primary_cpus(apic: &dyn Apic) {
-    log::debug!("Start INIT");
-
     // INIT IPI
     apic.interrupt(
         0,
@@ -323,8 +321,6 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     );
 
     wait_microsec(200); // Wait 200[us]
-
-    log::debug!("Finish INIT");
 }
 
 #[inline(never)]
@@ -333,8 +329,6 @@ fn non_primary_kernel_main() -> ! {
     let cpu_id = (ebx >> 24) & 0xff;
 
     enable_fpu(); // Enable SSE.
-
-    unsafe { unsafe_puts("X") };
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };

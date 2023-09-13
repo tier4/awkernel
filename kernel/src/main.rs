@@ -113,7 +113,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
     } else {
-        awkernel_lib::interrupt::enable();
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         // Non-primary CPUs.
