@@ -118,6 +118,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             async move {
                 loop {
                     subscriber.recv().await;
+                    // Only the subscriber's cooperative context switch overhead is measured.
                     add_context_restore_end(awkernel_async_lib::cpu_id(), uptime());
                 }
             },

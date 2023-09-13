@@ -291,65 +291,58 @@ pub mod perf {
     static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-    pub fn add_start_base(starts: &mut [u64; NUM_MAX_CPU], cpu_id: usize, time: u64) {
-        unsafe { write_volatile(&mut starts[cpu_id], time) };
-    }
-
-    pub fn add_end_base(
-        starts: &mut [u64; NUM_MAX_CPU],
-        overheads: &mut [u64; MAX_MEASURE_SIZE],
-        count: &AtomicUsize,
-        cpu_id: usize,
-        time: u64,
-    ) {
-        let start = unsafe { read_volatile(&starts[cpu_id]) };
-        if start != 0 && time > start {
-            let overhead = time - start;
-            let index = count.fetch_add(1, Ordering::Relaxed);
-            unsafe { write_volatile(&mut overheads[index & (MAX_MEASURE_SIZE - 1)], overhead) };
-            unsafe { write_volatile(&mut starts[cpu_id], 0) };
-        }
-    }
-
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
-        add_start_base(unsafe { &mut CONTEXT_SAVE_STARTS }, cpu_id, time);
+        unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
     }
 
     pub fn add_context_save_end(cpu_id: usize, time: u64) {
-        add_end_base(
-            unsafe { &mut CONTEXT_SAVE_STARTS },
-            unsafe { &mut CONTEXT_SAVE_OVERHEADS },
-            &CSO_COUNT,
-            cpu_id,
-            time,
-        );
+        let start = unsafe { read_volatile(&CONTEXT_SAVE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_save_overhead = time - start;
+            let index = CSO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_save_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], 0) };
+        }
     }
 
     pub fn add_context_restore_start(cpu_id: usize, time: u64) {
-        add_start_base(unsafe { &mut CONTEXT_RESTORE_STARTS }, cpu_id, time);
+        unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], time) };
     }
 
     pub fn add_context_restore_end(cpu_id: usize, time: u64) {
-        add_end_base(
-            unsafe { &mut CONTEXT_RESTORE_STARTS },
-            unsafe { &mut CONTEXT_RESTORE_OVERHEADS },
-            &CRO_COUNT,
-            cpu_id,
-            time,
-        );
+        let start = unsafe { read_volatile(&CONTEXT_RESTORE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_restore_overhead = time - start;
+            let index = CRO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_restore_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], 0) };
+        }
     }
 
-    fn calc_overheads_base(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
+    fn calc_overheads(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
         let mut total = 0;
         let mut count = 0;
         let mut worst = 0;
 
-        for overhead in overheads.iter().take(MAX_MEASURE_SIZE) {
-            if *overhead > 0 {
+        for i in 0..MAX_MEASURE_SIZE {
+            let overhead = unsafe { read_volatile(&overheads[i]) };
+            if overhead > 0 {
                 total += overhead;
                 count += 1;
-                if *overhead > worst {
-                    worst = *overhead;
+                if overhead > worst {
+                    worst = overhead;
                 }
             }
         }
@@ -362,9 +355,8 @@ pub mod perf {
     }
 
     pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
-        let (avg_save, worst_save) = calc_overheads_base(unsafe { &CONTEXT_SAVE_OVERHEADS });
-        let (avg_restore, worst_restore) =
-            calc_overheads_base(unsafe { &CONTEXT_RESTORE_OVERHEADS });
+        let (avg_save, worst_save) = calc_overheads(unsafe { &CONTEXT_SAVE_OVERHEADS });
+        let (avg_restore, worst_restore) = calc_overheads(unsafe { &CONTEXT_RESTORE_OVERHEADS });
         (avg_save, worst_save, avg_restore, worst_restore)
     }
 }
@@ -446,6 +438,7 @@ pub fn run_main() {
                     if measure_count == 0 {
                         measure_duration_start = task_start;
                     }
+                    // Only the subscriber's cooperative context switch overhead is measured.
                     if task.name.contains("subscriber") {
                         perf::add_context_restore_start(cpu_id, task_start);
                     }
