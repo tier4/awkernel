@@ -336,6 +336,7 @@ pub mod perf {
         let mut count = 0;
         let mut worst = 0;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..MAX_MEASURE_SIZE {
             let overhead = unsafe { read_volatile(&overheads[i]) };
             if overhead > 0 {
