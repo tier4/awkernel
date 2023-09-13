@@ -9,9 +9,11 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
+use self::perf::MAX_MEASURE_SIZE;
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
+    uptime,
 };
 use alloc::{
     borrow::Cow,
@@ -276,7 +278,95 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
+pub mod perf {
+    use awkernel_lib::cpu::NUM_MAX_CPU;
+    use core::ptr::{read_volatile, write_volatile};
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
+    static mut CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static mut CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn add_context_save_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_context_save_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&CONTEXT_SAVE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_save_overhead = time - start;
+            let index = CSO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_save_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], 0) };
+        }
+    }
+
+    pub fn add_context_restore_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_context_restore_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&CONTEXT_RESTORE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_restore_overhead = time - start;
+            let index = CRO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_restore_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], 0) };
+        }
+    }
+
+    fn calc_overheads(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
+        let mut total = 0;
+        let mut count = 0;
+        let mut worst = 0;
+
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..MAX_MEASURE_SIZE {
+            let overhead = unsafe { read_volatile(&overheads[i]) };
+            if overhead > 0 {
+                total += overhead;
+                count += 1;
+                if overhead > worst {
+                    worst = overhead;
+                }
+            }
+        }
+
+        if count > 0 {
+            (total as f64 / count as f64, worst as f64)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
+        let (avg_save, worst_save) = calc_overheads(unsafe { &CONTEXT_SAVE_OVERHEADS });
+        let (avg_restore, worst_restore) = calc_overheads(unsafe { &CONTEXT_RESTORE_OVERHEADS });
+        (avg_save, worst_save, avg_restore, worst_restore)
+    }
+}
+
 pub fn run_main() {
+    let mut task_exec_times = [0; MAX_MEASURE_SIZE];
+    let mut measure_count = 0;
+    let mut measure_duration_start = 0;
+
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -332,10 +422,8 @@ pub fn run_main() {
                     awkernel_lib::heap::TALLOC.use_primary()
                 };
 
-                {
-                    let cpu_id = awkernel_lib::cpu::cpu_id();
-                    RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-                }
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+                RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
                 catch_unwind(|| {
@@ -347,8 +435,31 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    let task_start = uptime();
+                    if measure_count == 0 {
+                        measure_duration_start = task_start;
+                    }
+                    // Only the subscriber's cooperative context switch overhead is measured.
+                    if task.name.contains("subscriber") {
+                        perf::add_context_restore_start(cpu_id, task_start);
+                    }
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    let task_end = uptime();
+                    task_exec_times[measure_count] = task_end - task_start;
+                    if measure_count == MAX_MEASURE_SIZE - 1 {
+                        log::debug!(
+                            "CPU#{:?} utilization = {:.3} [%]",
+                            awkernel_lib::cpu::cpu_id(),
+                            task_exec_times.iter().sum::<u64>() as f64
+                                / ((uptime() - measure_duration_start) as f64)
+                                * 100.0,
+                        );
+                    }
+                    perf::add_context_save_end(cpu_id, task_end);
+                    measure_count = (measure_count + 1) % MAX_MEASURE_SIZE;
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
