@@ -132,6 +132,7 @@ impl super::SoC for Raspi {
         self.init_i2c()?;
         self.init_mbox()?;
         self.init_clock()?;
+        self.init_spi()?;
         self.init_pwm()?;
         Ok(())
     }
@@ -378,6 +379,21 @@ impl Raspi {
         unsafe { awkernel_drivers::clock::get_clock_frequency(clock_freq as usize) };
 
         unsafe { awkernel_drivers::clock::set_clk_base(base_addr as usize) };
+
+        Ok(())
+    }
+
+    fn init_spi(&self) -> Result<(), &'static str> {
+        let spi_node = self
+            .get_device_from_symbols("spi")
+            .or(Err(err_msg!("could not find SPI's device node")))?;
+        let base_addr = spi_node
+            .get_address(0)
+            .or(Err(err_msg!("could not find SPI's base address")))?;
+
+        log::info!("SPI: 0x{:016x}", base_addr);
+
+        unsafe { awkernel_drivers::hal::rpi::spi::set_spi_base(base_addr as usize) };
 
         Ok(())
     }
