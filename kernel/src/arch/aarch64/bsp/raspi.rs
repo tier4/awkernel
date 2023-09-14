@@ -50,6 +50,8 @@ pub struct Raspi {
     symbols: Option<DeviceTreeNodeRef>,
     interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
+    local_interrupt: Option<StaticArrayedNode>,
+    local_interrupt_compatible: &'static str,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
     uart_base: Option<usize>,
@@ -144,6 +146,8 @@ impl Raspi {
             symbols: None,
             interrupt: None,
             interrupt_compatible: "",
+            local_interrupt: None,
+            local_interrupt_compatible: "",
             device_tree,
             device_tree_base,
             uart_base: None,
@@ -175,8 +179,30 @@ impl Raspi {
 
         self.interrupt_compatible = match compatible_prop.value() {
             PropertyValue::String(s) => s,
-            _ => return Err(err_msg!("compatible property has not string value")),
+            _ => {
+                return Err(err_msg!(
+                    "compatible property of interrupt has not string value"
+                ))
+            }
         };
+
+        if let Ok(local_intc) = self.get_device_from_symbols("local_intc") {
+            let local_compat_prop = local_intc.get_leaf_node().unwrap();
+            let prop = local_compat_prop
+                .get_property("compatible")
+                .ok_or(err_msg!("local_intc node has no compatible property"))?;
+
+            self.local_interrupt_compatible = match prop.value() {
+                PropertyValue::String(s) => s,
+                _ => {
+                    return Err(err_msg!(
+                        "compatible property of local_intc has not string value"
+                    ))
+                }
+            };
+
+            self.local_interrupt = Some(local_intc);
+        }
 
         self.interrupt = Some(intc);
 
