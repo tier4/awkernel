@@ -11,17 +11,18 @@ use x86_64::{
 };
 
 pub mod registers {
-    use awkernel_lib::{mmio_r, mmio_rw};
+    use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
     use bitflags::bitflags;
     use x86_64::registers::model_specific::Msr;
 
     pub const IA32_APIC_BASE_MSR: u32 = 0x1B;
 
-    mmio_r!(offset 0x020 => pub XAPIC_LOCAL_APIC_ID<u32>);
-    mmio_r!(offset 0x030 => pub XAPIC_LOCAL_VERSION<u32>);
-    mmio_rw!(offset 0x0f0 => pub XAPIC_SPURIOUS_INTERRUPT_VECTOR<u32>);
-    mmio_rw!(offset 0x300 => pub XAPIC_ICR_LOW<u32>);
-    mmio_rw!(offset 0x310 => pub XAPIC_ICR_HIGH<u32>);
+    mmio_r!(offset 0x020 => pub(crate) XAPIC_LOCAL_APIC_ID<u32>);
+    mmio_r!(offset 0x030 => pub(crate) XAPIC_LOCAL_VERSION<u32>);
+    mmio_w!(offset 0x0b0 => pub(crate) XAPIC_EOI<u32>);
+    mmio_rw!(offset 0x0f0 => pub(crate) XAPIC_SPURIOUS_INTERRUPT_VECTOR<u32>);
+    mmio_rw!(offset 0x300 => pub(crate) XAPIC_ICR_LOW<u32>);
+    mmio_rw!(offset 0x310 => pub(crate) XAPIC_ICR_HIGH<u32>);
 
     bitflags! {
         pub struct IcrFlags: u32 {
@@ -308,6 +309,10 @@ impl InterruptController for Xapic {
     /// Initialization for non-primary core.
     fn init_non_primary(&mut self) {
         // Nothing to do.
+    }
+
+    fn eoi(&mut self) {
+        registers::XAPIC_EOI.write(0, self.apic_base);
     }
 }
 

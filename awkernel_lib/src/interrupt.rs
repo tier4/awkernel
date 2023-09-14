@@ -1,18 +1,6 @@
-use crate::{
-    arch::ArchImpl,
-    cpu::{self, NUM_MAX_CPU},
-    sync::rwlock::RwLock,
-    unwind::catch_unwind,
-};
+use crate::{arch::ArchImpl, sync::rwlock::RwLock};
 use alloc::{boxed::Box, collections::BTreeMap};
-use array_macro::array;
-use core::{
-    mem::transmute,
-    sync::atomic::{AtomicPtr, AtomicU16, AtomicUsize, Ordering},
-};
-
-#[cfg(not(feature = "std"))]
-use crate::heap;
+use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
 
 pub trait Interrupt {
     fn get_flag() -> usize;
@@ -37,6 +25,10 @@ pub trait InterruptController: Sync + Send {
 
     /// Initialization for non-primary core.
     fn init_non_primary(&mut self) {}
+
+    /// End of interrupt.
+    /// This will be used by only x86_64.
+    fn eoi(&mut self) {}
 }
 
 const MAX_IRQS: u16 = 1024;
@@ -46,8 +38,6 @@ static IRQ_HANDLERS: RwLock<BTreeMap<u16, Box<dyn Fn() + Send>>> = RwLock::new(B
 
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
-
-static NUM_INTERRUPT: [AtomicUsize; NUM_MAX_CPU] = array![_ => AtomicUsize::new(0); NUM_MAX_CPU];
 
 fn empty() {}
 
@@ -117,9 +107,11 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
     }
 }
 
+#[cfg(feature = "aarch64")]
 pub fn handle_irqs() {
-    let cpu_id = cpu::cpu_id();
-    NUM_INTERRUPT[cpu_id].fetch_add(1, Ordering::Relaxed);
+    use crate::heap;
+    use crate::unwind::catch_unwind;
+    use core::mem::transmute;
 
     let handlers = IRQ_HANDLERS.read();
     let mut need_preemption = false;
@@ -157,6 +149,15 @@ pub fn handle_irqs() {
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
         preemption();
     }
+}
+
+#[cfg(feature = "x86")]
+pub fn handle_preemption() {
+    use core::mem::transmute;
+
+    let ptr = PREEMPT_FN.load(Ordering::Relaxed);
+    let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
+    preemption();
 }
 
 /// Disable interrupts and automatically restored the configuration.
@@ -231,5 +232,16 @@ pub fn sanity_check() {
         log::warn!("interrupt::PREEMPT_FN is not yet initialized.")
     } else {
         log::info!("interrupt::PREEMPT_FN has been initialized.")
+    }
+}
+
+/// End of interrupt.
+/// This function will be used by only x86_64.
+pub fn eoi() {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.eoi();
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
     }
 }

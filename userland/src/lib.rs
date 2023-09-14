@@ -97,7 +97,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    for _ in 0..10000 {
+                    for _ in 0..1_000_000 {
                         unsafe { core::arch::asm!("nop") };
                     }
                 }
