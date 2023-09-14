@@ -35,13 +35,9 @@ pub unsafe fn init() {
     IDT.load();
 }
 
-extern "x86-interrupt" fn preemption(stack_frame: InterruptStackFrame) {
-    log::debug!(
-        "[PREEMPT_IRQ:32] Hello World!, RFLAGS = 0b{:b}",
-        stack_frame.cpu_flags
-    );
-
+extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
     awkernel_lib::interrupt::eoi(); // End of interrupt.
+    awkernel_lib::interrupt::handle_preemption();
 }
 
 extern "x86-interrupt" fn alignment_check(stack_frame: InterruptStackFrame, error: u64) {
