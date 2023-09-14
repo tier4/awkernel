@@ -1,9 +1,6 @@
 use crate::{arch::ArchImpl, sync::rwlock::RwLock};
 use alloc::{boxed::Box, collections::BTreeMap};
-use core::{
-    mem::transmute,
-    sync::atomic::{AtomicPtr, AtomicU16, Ordering},
-};
+use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
 
 pub trait Interrupt {
     fn get_flag() -> usize;
@@ -114,6 +111,7 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
 pub fn handle_irqs() {
     use crate::heap;
     use crate::unwind::catch_unwind;
+    use core::mem::transmute;
 
     let handlers = IRQ_HANDLERS.read();
     let mut need_preemption = false;
@@ -155,6 +153,8 @@ pub fn handle_irqs() {
 
 #[cfg(feature = "x86")]
 pub fn handle_preemption() {
+    use core::mem::transmute;
+
     let ptr = PREEMPT_FN.load(Ordering::Relaxed);
     let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
     preemption();
