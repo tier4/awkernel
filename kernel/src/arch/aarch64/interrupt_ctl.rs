@@ -71,16 +71,25 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     Ok(())
 }
 
-fn init_bcm2836(node: &StaticArrayedNode) -> Result<(), &'static str> {
-    let base = node
-        .get_address(0)
-        .or(Err(err_msg!("could not find the base address")))? as usize;
+fn init_bcm2836(
+    node: &StaticArrayedNode,
+    local_intc_node: &StaticArrayedNode,
+) -> Result<(), &'static str> {
+    let base = node.get_address(0).or(Err(err_msg!(
+        "could not find the base address for global interrupts"
+    )))? as usize;
 
-    let ctrl = awkernel_drivers::interrupt_controller::bcm2835::BCM2835IntCtrl::new(base);
+    let local_base = local_intc_node.get_address(0).or(Err(err_msg!(
+        "could not find the base address for local interrupts"
+    )))? as usize;
+
+    let ctrl =
+        awkernel_drivers::interrupt_controller::bcm2835::BCM2835IntCtrl::new(base, local_base);
     register_interrupt_controller(Box::new(ctrl));
 
     log::info!("bcm2836-armctrl-ic has been initialized.");
     log::info!("bcm2836-armctrl-ic: 0x{base:016x}");
+    log::info!("bcm2836-l1-intc: 0x{local_base:016x}");
 
     Ok(())
 }
@@ -88,9 +97,20 @@ fn init_bcm2836(node: &StaticArrayedNode) -> Result<(), &'static str> {
 pub fn init_interrupt_controller(
     irc_ctl: &str,
     intc_node: &StaticArrayedNode,
+    local_irc_ctl: Option<&str>,
+    local_intc_node: Option<&StaticArrayedNode>,
 ) -> Result<(), &'static str> {
     match irc_ctl {
-        "brcm,bcm2836-armctrl-ic" => init_bcm2836(intc_node),
+        "brcm,bcm2836-armctrl-ic" => {
+            if let Some("brcm,bcm2836-l1-intc") = local_irc_ctl {
+                let local_intc_node = local_intc_node
+                    .as_ref()
+                    .ok_or(err_msg!("local_intc_node is None"))?;
+                init_bcm2836(intc_node, local_intc_node)
+            } else {
+                Err("")
+            }
+        }
         "arm,gic-400" => init_gicv2(intc_node),
         "arm,gic-v3" => init_gicv3(intc_node),
         _ => Err(err_msg!("unsupported interrupt controller")),

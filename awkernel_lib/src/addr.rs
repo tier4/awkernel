@@ -11,6 +11,13 @@ pub trait Addr:
     + core::ops::MulAssign
     + core::ops::Div
     + core::ops::DivAssign
+    + core::ops::Not
+    + core::ops::BitAnd
+    + core::ops::BitAndAssign
+    + core::ops::BitOr
+    + core::ops::BitOrAssign
+    + core::ops::BitXor
+    + core::ops::BitXorAssign
     + PartialEq
     + Eq
     + PartialOrd

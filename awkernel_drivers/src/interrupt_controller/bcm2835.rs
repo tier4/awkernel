@@ -14,17 +14,20 @@ mod registers {
     mmio_w!(offset 0x1C => pub IRQ_DISABLE1<u32>);
     mmio_w!(offset 0x20 => pub IRQ_DISABLE2<u32>);
     mmio_w!(offset 0x24 => pub IRQ_DISABLE_BASIC<u32>);
+
+    mmio_w!(offset 0x80 => pub MAILBOX0_WRITE_SET<u32>);
 }
 
 pub struct BCM2835IntCtrl {
     base: usize,
+    local_base: usize,
 }
 
 impl BCM2835IntCtrl {
-    pub fn new(base: usize) -> Self {
+    pub fn new(base: usize, local_base: usize) -> Self {
         log::info!("BCM2835 IRQ: Initializing the interrupt controller.");
 
-        let gic = Self { base };
+        let gic = Self { base, local_base };
 
         registers::IRQ_DISABLE1.write(!0, base);
         registers::IRQ_DISABLE2.write(!0, base);
@@ -76,16 +79,27 @@ impl InterruptController for BCM2835IntCtrl {
         Box::new(self.iter())
     }
 
-    fn send_ipi(&mut self, _irq: u16, _target: u16) {
-        // todo!()
+    fn send_ipi(&mut self, irq: u16, target: u16) {
+        assert!(irq < 32);
+
+        registers::MAILBOX0_WRITE_SET
+            .write(1 << irq as u32, self.local_base + 16 * (target as usize));
     }
 
-    fn send_ipi_broadcast(&mut self, _irq: u16) {
-        // todo!()
+    fn send_ipi_broadcast(&mut self, irq: u16) {
+        for i in 0..awkernel_lib::cpu::num_cpu() {
+            self.send_ipi(irq, i as u16);
+        }
     }
 
-    fn send_ipi_broadcast_without_self(&mut self, _irq: u16) {
-        // todo!()
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        for i in 0..awkernel_lib::cpu::num_cpu() {
+            if i != cpu_id {
+                self.send_ipi(irq, i as u16);
+            }
+        }
     }
 }
 

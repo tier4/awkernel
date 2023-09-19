@@ -51,7 +51,7 @@ pub struct Raspi {
     interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
     local_interrupt: Option<StaticArrayedNode>,
-    local_interrupt_compatible: &'static str,
+    local_interrupt_compatible: Option<&'static str>,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
     uart_base: Option<usize>,
@@ -147,7 +147,7 @@ impl Raspi {
             interrupt: None,
             interrupt_compatible: "",
             local_interrupt: None,
-            local_interrupt_compatible: "",
+            local_interrupt_compatible: None,
             device_tree,
             device_tree_base,
             uart_base: None,
@@ -193,7 +193,7 @@ impl Raspi {
                 .ok_or(err_msg!("local_intc node has no compatible property"))?;
 
             self.local_interrupt_compatible = match prop.value() {
-                PropertyValue::String(s) => s,
+                PropertyValue::String(s) => Some(s),
                 _ => {
                     return Err(err_msg!(
                         "compatible property of local_intc has not string value"
@@ -322,7 +322,12 @@ impl Raspi {
             return Err(err_msg!("interrupt is not initialized"));
         };
 
-        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
+        interrupt_ctl::init_interrupt_controller(
+            self.interrupt_compatible,
+            intc,
+            self.local_interrupt_compatible,
+            self.local_interrupt.as_ref(),
+        )
     }
 
     fn init_gpio(&self) -> Result<(), &'static str> {
