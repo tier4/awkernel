@@ -29,7 +29,9 @@ pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 19);
 /// Because the device tree does not contain the system timer,
 /// it is initialized with constant values,
 /// IRQ #1 and the base address of 0x3f003000.
-pub static TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1, 0x3f003000);
+///
+/// 64 is the offset for IRQ 1 / IRQ 2 of bcm2835's device driver.
+pub static TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1 + 64, 0x3f003000);
 
 fn start_non_primary() {
     unsafe {
@@ -50,6 +52,8 @@ pub struct Raspi {
     symbols: Option<DeviceTreeNodeRef>,
     interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
+    local_interrupt: Option<StaticArrayedNode>,
+    local_interrupt_compatible: Option<&'static str>,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
     uart_base: Option<usize>,
@@ -144,6 +148,8 @@ impl Raspi {
             symbols: None,
             interrupt: None,
             interrupt_compatible: "",
+            local_interrupt: None,
+            local_interrupt_compatible: None,
             device_tree,
             device_tree_base,
             uart_base: None,
@@ -175,8 +181,30 @@ impl Raspi {
 
         self.interrupt_compatible = match compatible_prop.value() {
             PropertyValue::String(s) => s,
-            _ => return Err(err_msg!("compatible property has not string value")),
+            _ => {
+                return Err(err_msg!(
+                    "compatible property of interrupt has not string value"
+                ))
+            }
         };
+
+        if let Ok(local_intc) = self.get_device_from_symbols("local_intc") {
+            let local_compat_prop = local_intc.get_leaf_node().unwrap();
+            let prop = local_compat_prop
+                .get_property("compatible")
+                .ok_or(err_msg!("local_intc node has no compatible property"))?;
+
+            self.local_interrupt_compatible = match prop.value() {
+                PropertyValue::String(s) => Some(s),
+                _ => {
+                    return Err(err_msg!(
+                        "compatible property of local_intc has not string value"
+                    ))
+                }
+            };
+
+            self.local_interrupt = Some(local_intc);
+        }
 
         self.interrupt = Some(intc);
 
@@ -296,7 +324,12 @@ impl Raspi {
             return Err(err_msg!("interrupt is not initialized"));
         };
 
-        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
+        interrupt_ctl::init_interrupt_controller(
+            self.interrupt_compatible,
+            intc,
+            self.local_interrupt_compatible,
+            self.local_interrupt.as_ref(),
+        )
     }
 
     fn init_gpio(&self) -> Result<(), &'static str> {

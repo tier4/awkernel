@@ -241,7 +241,7 @@ impl AArch64Virt {
             return Err(err_msg!("interrupt is not initialized"));
         };
 
-        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc)
+        interrupt_ctl::init_interrupt_controller(self.interrupt_compatible, intc, None, None)
     }
 
     fn wake_cpus_up(&self) -> Result<(), &'static str> {
