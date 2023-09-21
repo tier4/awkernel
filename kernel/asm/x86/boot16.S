@@ -32,6 +32,20 @@
 
 .code16
 _start_cpu:
+    movb    $'A', %al
+    movw    $0x3F8, %dx
+    outb    %al, %dx
+
+wait_for_ready:
+    inb     %dx, %al
+    testb   $0x20, %al
+    jz      wait_for_ready
+
+    movb    $'A', %al
+    movw    $0x3F8, %dx
+    outb    %al, %dx
+    jmp     wait_for_ready
+
     cli                         # BIOS enabled interrupts; disable
 
     # Zero data segment registers DS, ES, and SS.

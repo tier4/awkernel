@@ -26,7 +26,7 @@ use bootloader_api::{
 use core::{arch::asm, ptr::write_volatile};
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
-    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
+    structures::paging::{OffsetPageTable, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 
@@ -51,12 +51,12 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 3. Initialize the virtual memory.
 /// 4. Initialize the backup heap memory allocator.
 /// 5. Enable logger.
-/// 6. Initialize interrupt handlers.
-/// 7. Initialize ACPI.
-/// 8. Initialize stack memory regions for non-primary CPUs.
-/// 9. Initialize `awkernel_lib`.
-/// 10. Initialize APIC.
-/// 11. Initialize the primary heap memory allocator.
+/// 6. Initialize ACPI.
+/// 7. Initialize stack memory regions for non-primary CPUs.
+/// 8. Initialize `awkernel_lib`.
+/// 9. Initialize APIC.
+/// 10. Initialize the primary heap memory allocator.
+/// 11. Write boot images to wake non-primary CPUs up.
 /// 12. Boot non-primary CPUs.
 /// 13. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -93,12 +93,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
     let offset = *offset;
 
-    // Write boot images to wake non-primary CPUs up.
-    write_boot_images(offset);
-
-    // Map a page to wake non-primary CPUs up.
-    map_for_boot(NON_PRIMARY_START, &mut page_table, &mut page_allocator);
-
     let backup_start = HEAP_START;
     let backup_size = BACKUP_HEAP_SIZE;
 
@@ -126,11 +120,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_size
     );
 
-    // 6. Initialize interrupt handlers.
-
     log::info!("Physical memory offset: 0x{:x}", offset);
 
-    // 7. Initialize ACPI.
+    // 6. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -139,23 +131,27 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 8. Initialize stack memory regions for non-primary CPUs.
+    // 7. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
-    // 9. Initialize `awkernel_lib` and `awkernel_driver`
+    // 8. Initialize `awkernel_lib` and `awkernel_driver`
     awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator);
     awkernel_drivers::pcie::init(&acpi, &mut page_table, &mut page_allocator, PAGESIZE as u64);
 
-    // 10. Initialize APIC.
+    // 9. Initialize APIC.
     let type_apic =
         awkernel_drivers::interrupt_controller::apic::new(&mut page_table, &mut page_allocator);
 
-    // 11. Initialize the primary heap memory allocator.
+    // 10. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocator);
 
+    // 11. Write boot images to wake non-primary CPUs up.
+    write_boot_images(offset);
+
+    // 12. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     match type_apic {
@@ -224,33 +220,12 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 4096; // 4KiB. Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_START: u64 = 0x70_000; // 8KiB. Entry point of 16-bit mode (protected mode).
 const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
 
 // 6KiB
 const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
-
-pub(super) fn map_for_boot<T>(
-    addr: u64,
-    page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
-    let flags = PageTableFlags::PRESENT;
-    unsafe {
-        page_table
-            .map_to(
-                Page::<Size4KiB>::containing_address(VirtAddr::new(addr)),
-                PhysFrame::containing_address(PhysAddr::new(addr)),
-                flags,
-                page_allocator,
-            )
-            .unwrap()
-            .flush()
-    };
-}
 
 fn write_boot_images(offset: u64) {
     // Calculate address.
@@ -269,58 +244,69 @@ fn write_boot_images(offset: u64) {
 
     unsafe {
         // Write boot16.img.
-        unsafe_puts("write boot16.img\r\n");
+        log::info!("write boot16.img to 0x{boot16_phy_addr:08x}");
         write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
 
         // Write entry32.img.
-        unsafe_puts("write entry32.img\r\n");
+        log::info!("write entry32.img to 0x{entry32_phy_addr:08x}");
         write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
 
         // Write non_primary_kernel_main.
-        unsafe_puts("write main_addr\r\n");
+        log::info!("write the kernel entry of 0x{main_addr:08x}");
         write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
 
         // Write CR3.
-        unsafe_puts("write CR3\r\n");
+        log::info!("write CR3 to 0x{cr3_phy_addr:08x}");
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
 
-        asm!("wbinvd");
+        asm!(
+            "mfence
+             wbinvd"
+        );
     }
 }
 
 fn start_non_primary_cpus(apic: &dyn Apic) {
     // INIT IPI
     apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
+        1,
+        DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::Init,
         0,
     );
 
     wait_microsec(10_000); // Wait 10[ms]
+    unsafe { unsafe_puts("W") };
 
     // SIPI
     apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
+        1,
+        DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
+    unsafe { unsafe_puts("X") };
 
     // SIPI
     apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
+        1,
+        DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
     );
+    unsafe { unsafe_puts("Y") };
 
     wait_microsec(200); // Wait 200[us]
+
+    unsafe {
+        unsafe_puts("Z");
+    }
+    loop {}
 }
 
 #[inline(never)]
