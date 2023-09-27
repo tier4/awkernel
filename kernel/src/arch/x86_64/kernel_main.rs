@@ -220,10 +220,9 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 0x70_000; // 8KiB. Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_START: u64 = 0xE000; // 8KiB. Entry point of 16-bit mode (protected mode).
 const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
 
-// 6KiB
 const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 

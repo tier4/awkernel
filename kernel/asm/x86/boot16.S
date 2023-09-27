@@ -24,7 +24,8 @@
 // Control Register flags
 #define CR0_PE 0x00000001 // Protection Enable
 
-#define ENTRY32 (1024 * 5)
+// Defind by kernel::arch::x86_64::kernel_main::ENTRY32
+#define ENTRY32 (0xE000 + 1024)
 
 .section .text
 
@@ -35,16 +36,6 @@ _start_cpu:
     movb    $'A', %al
     movw    $0x3F8, %dx
     outb    %al, %dx
-
-wait_for_ready:
-    inb     %dx, %al
-    testb   $0x20, %al
-    jz      wait_for_ready
-
-    movb    $'A', %al
-    movw    $0x3F8, %dx
-    outb    %al, %dx
-    jmp     wait_for_ready
 
     cli                         # BIOS enabled interrupts; disable
 
@@ -96,6 +87,12 @@ start32:
     movw    $0, %ax                 # Zero segments not ready for use
     movw    %ax, %fs                # -> FS
     movw    %ax, %gs                # -> GS
+
+    movb    $'B', %al
+    movw    $0x3F8, %dx
+    outb    %al, %dx
+
+    jmp     spin
 
     # Jump to ENTRY32
     movl    $ENTRY32, %eax

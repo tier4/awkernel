@@ -13,14 +13,16 @@ all: $(ASM_IMG_X86_32) $(ASM_IMG_X86_16)
 $(ASM_OBJ_X86_16): $(ASM_FILE_X86_16)
 	$(CC) -m32 -fno-pie -nostdlib -c $< -o $@
 
+# See kernel::arch::x86_64::kernel_main::NON_PRIMARY_START
 $(ASM_ELF_X86_16): $(ASM_OBJ_X86_16)
-	$(LD) -m elf_i386 -N -e _start_cpu -Ttext 0x1000 $< -o $@
+	$(LD) -m elf_i386 -N -e _start_cpu -Ttext 0xE000 $< -o $@
 
 $(ASM_OBJ_X86_32): $(ASM_FILE_X86_32)
 	$(CC) -fno-pie -nostdlib -c $< -o $@
 
+# See kernel::arch::x86_64::kernel_main::ENTRY32
 $(ASM_ELF_X86_32): $(ASM_OBJ_X86_32)
-	$(LD) -N -e _entry32 -Ttext 0x1400 $< -o $@
+	$(LD) -N -e _entry32 -Ttext 0xE400 $< -o $@
 
 %.img: %.elf
 	rust-objcopy -O binary $< $@
