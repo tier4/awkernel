@@ -26,7 +26,7 @@ use bootloader_api::{
 use core::{arch::asm, ptr::write_volatile};
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
-    structures::paging::{OffsetPageTable, PhysFrame, Size4KiB},
+    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 
@@ -66,6 +66,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     unsafe { unsafe_puts("\r\nThe primary CPU is waking up.\r\n") };
 
+    // 3. Initialize virtual memory
+
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
@@ -74,17 +76,43 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 3. Initialize virtual memory
+    // Share the page table.
+    for l4 in page_table.level_4_table().iter_mut() {
+        let flags = l4.flags();
+        l4.set_flags(flags | PageTableFlags::GLOBAL);
+    }
+
+    let cr4 = x86_64::registers::control::Cr4::read();
+    unsafe {
+        x86_64::registers::control::Cr4::write(
+            cr4 | x86_64::registers::control::Cr4Flags::PAGE_GLOBAL,
+        )
+    };
 
     // Create a page allocator.
     let mut frames = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
         .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
 
     let mut page_allocator = PageAllocator::new(&mut frames);
+
+    unsafe {
+        match page_table.map_to(
+            Page::containing_address(VirtAddr::new(0)),
+            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL,
+            &mut page_allocator,
+        ) {
+            Ok(f) => f.flush(),
+            Err(_) => {
+                unsafe_puts("Failed to map 0.\r\n");
+                wait_forever();
+            }
+        }
+    }
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
@@ -220,7 +248,7 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 0xE000; // 8KiB. Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_START: u64 = 0; // 8KiB. Entry point of 16-bit mode (protected mode).
 const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
 
 const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
@@ -314,6 +342,8 @@ fn non_primary_kernel_main() -> ! {
     let cpu_id = (ebx >> 24) & 0xff;
 
     enable_fpu(); // Enable SSE.
+
+    unsafe { unsafe_puts("F") };
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };

@@ -16,7 +16,7 @@
 #define STA_R 0x2 // Readable (executable segments)
 
 #define MODE_GD 0xC0 // G: granuarity 4KiB, D/B: 32-bit code and data
-#define MODE_GL 0xA0 // G: granuarity 4KiB, L: 64-bit code segment
+#define MODE_L  0x20 // L: 64-bit code segment
 
 #define SEG_KCODE 1
 #define SEG_KDATA 2
@@ -25,7 +25,7 @@
 #define CR0_PE 0x00000001 // Protection Enable
 
 // Defind by kernel::arch::x86_64::kernel_main::ENTRY32
-#define ENTRY32 (0xE000 + 1024)
+#define ENTRY32 1024
 
 .section .text
 
@@ -88,12 +88,6 @@ start32:
     movw    %ax, %fs                # -> FS
     movw    %ax, %gs                # -> GS
 
-    movb    $'B', %al
-    movw    $0x3F8, %dx
-    outb    %al, %dx
-
-    jmp     spin
-
     # Jump to ENTRY32
     movl    $ENTRY32, %eax
     jmp     *%eax
@@ -112,10 +106,11 @@ spin:
 # Bootstrap GDT
 .p2align 2                                  # force 4 byte alignment
 gdt:
-    SEG_NULLASM                             # null seg
-    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GD)   # 32-bit code seg
-    SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)         # 32-bit data seg
-    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GL)   # 64-bit code seg
+    SEG_NULLASM                                    # null seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GD) # 32-bit code seg
+    SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)       # 32-bit data seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0x0, MODE_L)         # 64-bit code seg
+    SEG_ASM(STA_W, 0x0, 0x0, MODE_L)               # 64-bit data seg
 
 gdtdesc:
     .word   (gdtdesc - gdt - 1)             # sizeof(gdt) - 1
