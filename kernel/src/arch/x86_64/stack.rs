@@ -32,7 +32,7 @@ where
         return Err(InitErr::InvalidACPI);
     };
 
-    log::info!("Found {num_cpu} cores.");
+    log::info!("Found {} cores.", num_cpu + 1);
 
     let flags = PageTableFlags::PRESENT
         | PageTableFlags::WRITABLE
@@ -40,7 +40,7 @@ where
         | PageTableFlags::GLOBAL;
     for i in 0..num_cpu {
         let stack_start = STACK_START + STACK_SIZE * i + PAGESIZE;
-        let stack_end = STACK_START + STACK_SIZE * (i + 1);
+        let stack_end = STACK_START + STACK_SIZE * (i + 1) - PAGESIZE;
 
         let page_range = {
             let stack_start_page: Page<Size4KiB> =

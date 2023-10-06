@@ -77,17 +77,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // Share the page table.
-    for l4 in page_table.level_4_table().iter_mut() {
-        let flags = l4.flags();
-        l4.set_flags(flags | PageTableFlags::GLOBAL);
-    }
+    // for l4 in page_table.level_4_table().iter_mut() {
+    //     let flags = l4.flags();
+    //     l4.set_flags(flags | PageTableFlags::GLOBAL);
+    // }
 
-    let cr4 = x86_64::registers::control::Cr4::read();
-    unsafe {
-        x86_64::registers::control::Cr4::write(
-            cr4 | x86_64::registers::control::Cr4Flags::PAGE_GLOBAL,
-        )
-    };
+    // let cr4 = x86_64::registers::control::Cr4::read();
+    // unsafe {
+    //     x86_64::registers::control::Cr4::write(
+    //         cr4 | x86_64::registers::control::Cr4Flags::PAGE_GLOBAL,
+    //     )
+    // };
 
     // Create a page allocator.
     let mut frames = boot_info
@@ -103,7 +103,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         match page_table.map_to(
             Page::containing_address(VirtAddr::new(0)),
             PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::GLOBAL,
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
             &mut page_allocator,
         ) {
             Ok(f) => f.flush(),
@@ -253,6 +253,7 @@ const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mo
 
 const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
+const GDTR_POS: u64 = CR3_POS + 14;
 
 fn write_boot_images(offset: u64) {
     // Calculate address.
@@ -264,10 +265,26 @@ fn write_boot_images(offset: u64) {
 
     let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset);
     let cr3_phy_addr = VirtAddr::new(CR3_POS + offset);
+    let gdtr_addr = VirtAddr::new(GDTR_POS + offset);
 
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
+
+    let mut gdtr: [u8; 10] = [0; 10];
+
+    unsafe {
+        asm!(
+            "sgdt [{}]",
+            in(reg) &gdtr,
+            options(nostack)
+        );
+    }
+
+    let mut cs = 0;
+    unsafe { asm!("mov {0:e}, cs", out(reg) cs, options(nomem, nostack, preserves_flags)) };
+
+    log::debug!("CS = 0x{cs:02x}");
 
     unsafe {
         // Write boot16.img.
@@ -279,12 +296,18 @@ fn write_boot_images(offset: u64) {
         write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
 
         // Write non_primary_kernel_main.
-        log::info!("write the kernel entry of 0x{main_addr:08x}");
+        log::info!(
+            "write the kernel entry of 0x{:08x} to 0x{main_addr:08x}",
+            non_primary_kernel_main as usize
+        );
         write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
 
         // Write CR3.
-        log::info!("write CR3 to 0x{cr3_phy_addr:08x}");
-        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
+        log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");
+        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
+
+        log::info!("write GDTR to 0x{cr3_phy_addr:08x}");
+        write_volatile(gdtr_addr.as_mut_ptr(), gdtr);
 
         asm!(
             "mfence
@@ -294,17 +317,28 @@ fn write_boot_images(offset: u64) {
 }
 
 fn start_non_primary_cpus(apic: &dyn Apic) {
-    // INIT IPI
+    // INIT IPI, ASSERT
     apic.interrupt(
         1,
         DestinationShorthand::NoShorthand,
-        IcrFlags::ASSERT,
+        IcrFlags::ASSERT | IcrFlags::LEVEL_TRIGGER,
         DeliveryMode::Init,
         0,
     );
 
     wait_microsec(10_000); // Wait 10[ms]
-    unsafe { unsafe_puts("W") };
+    unsafe { unsafe_puts("V") };
+
+    // INIT IPI, DEASSERT
+    apic.interrupt(
+        1,
+        DestinationShorthand::NoShorthand,
+        IcrFlags::LEVEL_TRIGGER,
+        DeliveryMode::Init,
+        0,
+    );
+
+    wait_microsec(10_000); // Wait 10[ms]
 
     // SIPI
     apic.interrupt(
@@ -315,8 +349,16 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
         (NON_PRIMARY_START >> 12) as u8,
     );
 
+    unsafe { unsafe_puts("W") };
     wait_microsec(200); // Wait 200[us]
     unsafe { unsafe_puts("X") };
+
+    loop {
+        awkernel_lib::delay::wait_sec(1);
+        unsafe {
+            unsafe_puts("Z");
+        }
+    }
 
     // SIPI
     apic.interrupt(
@@ -330,10 +372,12 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
 
     wait_microsec(200); // Wait 200[us]
 
-    unsafe {
-        unsafe_puts("Z");
+    loop {
+        awkernel_lib::delay::wait_sec(1);
+        unsafe {
+            unsafe_puts("Z");
+        }
     }
-    loop {}
 }
 
 #[inline(never)]
@@ -343,7 +387,13 @@ fn non_primary_kernel_main() -> ! {
 
     enable_fpu(); // Enable SSE.
 
-    unsafe { unsafe_puts("F") };
+    // unsafe { unsafe_puts("F") };
+
+    let mut port = unsafe { awkernel_drivers::uart::uart_16550::SerialPort::new(0x3F8) };
+
+    port.send(b'F');
+
+    loop {}
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };

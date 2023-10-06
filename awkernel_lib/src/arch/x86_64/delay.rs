@@ -1,6 +1,6 @@
 use super::{acpi::AcpiMapper, page_allocator::PageAllocator};
 use crate::{
-    delay::{wait_forever, Delay},
+    delay::{uptime, wait_forever, Delay},
     mmio_r, mmio_rw,
 };
 use acpi::AcpiTables;
@@ -23,7 +23,15 @@ impl Delay for super::X86 {
     }
 
     fn wait_microsec(usec: u64) {
-        super::acpi::wait_usec(usec);
+        let start = uptime();
+        loop {
+            let diff = uptime() - start;
+            if diff >= usec {
+                break;
+            }
+
+            core::hint::spin_loop();
+        }
     }
 
     fn uptime() -> u64 {

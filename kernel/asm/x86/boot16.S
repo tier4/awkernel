@@ -1,7 +1,91 @@
-//
-// assembler macros to create x86 segments
-//
+/*-
+ * Copyright (c) 2000 The NetBSD Foundation, Inc.
+ * All rights reserved.
+ *
+ * This code is derived from software contributed to The NetBSD Foundation
+ * by RedBack Networks Inc.
+ *
+ * Author: Bill Sommerfeld
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+ * TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR CONTRIBUTORS
+ * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 
+/*
+ * Copyright (c) 1999 Stefan Grefen
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. All advertising materials mentioning features or use of this software
+ *    must display the following acknowledgement:
+ *      This product includes software developed by the NetBSD
+ *      Foundation, Inc. and its contributors.
+ * 4. Neither the name of The NetBSD Foundation nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR AND CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
+ */
+
+/*
+ * Copyright (c) 2006-2018 Frans Kaashoek, Robert Morris, Russ Cox,
+ *                         Massachusetts Institute of Technology
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
+// assembler macros to create x86 segments
 #define SEG_NULLASM                                             \
         .word 0, 0;                                             \
         .byte 0, 0, 0, 0
@@ -16,16 +100,62 @@
 #define STA_R 0x2 // Readable (executable segments)
 
 #define MODE_GD 0xC0 // G: granuarity 4KiB, D/B: 32-bit code and data
-#define MODE_L  0x20 // L: 64-bit code segment
+#define MODE_GL 0xA0 // G: granuarity 4KiB, L: 64-bit code segment
 
-#define SEG_KCODE 1
-#define SEG_KDATA 2
+#define SEG_KCODE 3
+#define SEG_KDATA 4
 
 // Control Register flags
-#define CR0_PE 0x00000001 // Protection Enable
+#define CR0_PE 1 // Protection Enable
 
-// Defind by kernel::arch::x86_64::kernel_main::ENTRY32
+// Definded by kernel::arch::x86_64::kernel_main::ENTRY32
 #define ENTRY32 1024
+
+#define    PSL_MBO 0x00000000  /* must be one bits */
+
+// CR4 register
+#define    CR4_VME         0x00000001  /* virtual 8086 mode extension enable */
+#define    CR4_PVI         0x00000002  /* protected mode virtual interrupt enable */
+#define    CR4_TSD         0x00000004  /* restrict RDTSC instruction to cpl 0 only */
+#define    CR4_DE          0x00000008  /* debugging extension */
+#define    CR4_PSE         0x00000010  /* large (4MB) page size enable */
+#define    CR4_PAE         0x00000020  /* physical address extension enable */
+#define    CR4_MCE         0x00000040  /* machine check enable */
+#define    CR4_PGE         0x00000080  /* page global enable */
+#define    CR4_PCE         0x00000100  /* enable RDPMC instruction for all cpls */
+#define    CR4_OSFXSR      0x00000200  /* enable fxsave/fxrestor and SSE */
+#define    CR4_OSXMMEXCPT    0x00000400    /* enable unmasked SSE exceptions */
+#define    CR4_UMIP        0x00000800  /* user mode instruction prevention */
+#define    CR4_VMXE        0x00002000  /* enable virtual machine operation */
+#define    CR4_SMXE        0x00004000  /* enable safe mode operation */
+#define    CR4_FSGSBASE    0x00010000  /* enable {RD,WR}{FS,GS}BASE ops */
+#define    CR4_PCIDE       0x00020000  /* enable process-context IDs */
+#define    CR4_OSXSAVE     0x00040000  /* enable XSAVE and extended states */
+#define    CR4_KL          0x00080000  /* enable AES Key Locker */
+#define    CR4_SMEP        0x00100000  /* supervisor mode exec protection */
+#define    CR4_SMAP        0x00200000  /* supervisor mode access prevention */
+#define    CR4_PKE         0x00400000  /* user-mode protection keys */
+#define    CR4_CET         0x00800000  /* control-flow enforcement tech */
+#define    CR4_PKS         0x01000000  /* supervisor-mode protection keys */
+#define    CR4_UINTR       0x02000000  /* user interrupts enable bit */
+
+#define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
+
+#define CPUID_NXE   0x00100000  /* No-Execute Extension */
+
+// EFER
+#define MSR_EFER    0xc0000080  /* Extended feature enable */
+#define EFER_SCE    0x00000001  /* SYSCALL extension */
+#define EFER_LME    0x00000100  /* Long Mode Active */
+#define EFER_LMA    0x00000400  /* Long Mode Enabled */
+#define EFER_NXE    0x00000800  /* No-Execute Enabled */
+#define EFER_SVME   0x00001000  /* SVM Enabled */
+
+#define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
+#define CPU0_CR3  (1024 * 2 +  8)
+#define CPU0_GDTR (CPU0_CR3 + 14)
+
+#define STACK_TEMP 4096
 
 .section .text
 
@@ -33,11 +163,11 @@
 
 .code16
 _start_cpu:
+    cli                         # BIOS enabled interrupts; disable
+
     movb    $'A', %al
     movw    $0x3F8, %dx
     outb    %al, %dx
-
-    cli                         # BIOS enabled interrupts; disable
 
     # Zero data segment registers DS, ES, and SS.
     xorw    %ax, %ax             # Set %ax to zero
@@ -45,73 +175,90 @@ _start_cpu:
     movw    %ax, %es             # -> Extra Segment
     movw    %ax, %ss             # -> Stack Segment
 
-    # Physical address line A20 is tied to zero so that the first PCs
-    # with 2 MB would run software that assumed 1 MB.  Undo that.
-seta20.1:
-    inb     $0x64, %al               # Wait for not busy
-    testb   $0x2, %al
-    jnz     seta20.1
+    addr32 lgdtl (gdtdesc32)
 
-    movb    $0xd1, %al               # 0xd1 -> port 0x64
-    outb    %al, $0x64
-
-seta20.2:
-    inb     $0x64, %al               # Wait for not busy
-    testb   $0x2, %al
-    jnz     seta20.2
-
-    movb    $0xdf, %al               # 0xdf -> port 0x60
-    outb    %al, $0x60
-
-    # Switch from real to protected mode.  Use a bootstrap GDT that makes
-    # virtual addresses map directly to physical addresses so that the
-    # effective memory map doesn't change during the transition.
-    lgdt    gdtdesc
-    movl    %cr0, %eax
-    orl     $CR0_PE, %eax
-    movl    %eax, %cr0
-
-//PAGEBREAK!
-    # Complete the transition to 32-bit protected mode by using a long jmp
-    # to reload %cs and %eip.  The segment descriptors are set up with no
-    # translation, so that the mapping is still the identity mapping.
-    ljmp    $(SEG_KCODE<<3), $start32
+    movl    %cr0, %eax             # get cr0
+    orl     $CR0_PE, %eax         # enable protected mode
+    movl    %eax, %cr0             # doit
+    ljmpl   $0x8, $start32
 
 .code32  # Tell assembler to generate 32-bit code now.
 start32:
-    # Set up the protected-mode data segment registers
-    movw    $(SEG_KDATA<<3), %ax    # Our data segment selector
-    movw    %ax, %ds                # -> DS: Data Segment
-    movw    %ax, %es                # -> ES: Extra Segment
-    movw    %ax, %ss                # -> SS: Stack Segment
-    movw    $0, %ax                 # Zero segments not ready for use
-    movw    %ax, %fs                # -> FS
-    movw    %ax, %gs                # -> GS
+    movl    $0x10, %eax    # data segment
+    movw    %ax, %ds
+    movw    %ax, %ss
+    movw    %ax, %es
+    movw    %ax, %fs
+    movw    %ax, %gs
 
-    # Jump to ENTRY32
-    movl    $ENTRY32, %eax
-    jmp     *%eax
+    movb    $'B', %al
+    movw    $0x3F8, %dx
+    outb    %al, %dx
 
-    # If bootmain returns (it shouldn't), trigger a Bochs
-    # breakpoint if running under Bochs, then loop.
-    movw    $0x8a00, %ax            # 0x8a00 -> port 0x8a00
-    movw    %ax, %dx
-    outw    %ax, %dx
-    movw    $0x8ae0, %ax            # 0x8ae0 -> port 0x8a00
-    outw    %ax, %dx
+    movl    $STACK_TEMP, %esp
+
+    /* First, reset the PSL. */
+    pushl   $PSL_MBO
+    popfl
+
+    movl    %cr4, %eax
+    orl     $(CR4_DEFAULT), %eax
+    movl    %eax, %cr4
+
+    movl    $MSR_EFER,%ecx
+    rdmsr
+    movl    %edx, %edi      # %edx is needed by wrmsr below
+
+    # Check if we need to enable NXE
+    movl    $0x80000001, %eax
+    cpuid
+    andl    $CPUID_NXE, %edx
+    xorl    %eax,%eax
+    testl   %edx, %edx
+    jz    1f
+    orl     $EFER_NXE, %eax
+1:
+    orl     $(EFER_LME | EFER_SCE), %eax
+
+    movl    %edi, %edx      # Restore saved %edx
+    movl    $MSR_EFER,%ecx
+    wrmsr
+
+    movl    $CPU0_CR3, %ecx
+    movl    (%ecx), %ecx
+    movl    %ecx, %cr3      # load ptd addr into mmu
+
+    movl    $gdtdesc64, %eax
+    lgdt    (%eax)
+
+loop:
+    jmp     loop
+
+
+.code64  # Tell assembler to generate 64-bit code now.
+entry64:
+
 spin:
     hlt
     jmp     spin
 
 # Bootstrap GDT
-.p2align 2                                  # force 4 byte alignment
-gdt:
-    SEG_NULLASM                                    # null seg
-    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GD) # 32-bit code seg
-    SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)       # 32-bit data seg
-    SEG_ASM(STA_X|STA_R, 0x0, 0x0, MODE_L)         # 64-bit code seg
-    SEG_ASM(STA_W, 0x0, 0x0, MODE_L)               # 64-bit data seg
+# force 4 byte alignment
+.p2align 2
+gdt32:
+    SEG_NULLASM                                     # null seg
+    SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GD)  # 32-bit code seg
+    SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)        # 32-bit data seg
 
-gdtdesc:
-    .word   (gdtdesc - gdt - 1)             # sizeof(gdt) - 1
-    .long   gdt                             # address gdt
+gdtdesc32:
+    .word   (gdtdesc32 - gdt32 - 1)                 # sizeof(gdt32) - 1
+    .long   gdt32                                   # address gdt32
+
+.p2align 2
+gdt64:
+	SEG_NULLASM
+	SEG_ASM(STA_X|STA_R, 0x0, 0xffffffff, MODE_GL)  # 64-bit code seg
+	SEG_ASM(STA_W, 0x0, 0xffffffff, MODE_GD)        # 64-bit data seg
+gdtdesc64:
+    .word   (gdtdesc64 - gdt64 - 1)                 # sizeof(gdt64) - 1
+    .long   gdt64                                   # address gdt64
