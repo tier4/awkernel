@@ -248,52 +248,26 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 0; // 8KiB. Entry point of 16-bit mode (protected mode).
-const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
-
-const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
+const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
-const GDTR_POS: u64 = CR3_POS + 14;
 
 fn write_boot_images(offset: u64) {
     // Calculate address.
-    let boot16 = include_bytes!("../../../asm/x86/boot16.img");
-    let boot16_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
-
-    let entry32 = include_bytes!("../../../asm/x86/entry32.img");
-    let entry32_phy_addr = VirtAddr::new(ENTRY32 + offset);
+    let mpboot = include_bytes!("../../../asm/x86/mpboot.img");
+    let mpboot_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
 
     let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset);
     let cr3_phy_addr = VirtAddr::new(CR3_POS + offset);
-    let gdtr_addr = VirtAddr::new(GDTR_POS + offset);
 
     // Store CR3.
     let mut cr3: u64;
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
 
-    let mut gdtr: [u8; 10] = [0; 10];
-
     unsafe {
-        asm!(
-            "sgdt [{}]",
-            in(reg) &gdtr,
-            options(nostack)
-        );
-    }
-
-    let mut cs = 0;
-    unsafe { asm!("mov {0:e}, cs", out(reg) cs, options(nomem, nostack, preserves_flags)) };
-
-    log::debug!("CS = 0x{cs:02x}");
-
-    unsafe {
-        // Write boot16.img.
-        log::info!("write boot16.img to 0x{boot16_phy_addr:08x}");
-        write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
-
-        // Write entry32.img.
-        log::info!("write entry32.img to 0x{entry32_phy_addr:08x}");
-        write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
+        // Write mpboot.img.
+        log::info!("write mpboot.img to 0x{mpboot_phy_addr:08x}");
+        write_volatile(mpboot_phy_addr.as_mut_ptr(), *mpboot);
 
         // Write non_primary_kernel_main.
         log::info!(
@@ -305,9 +279,6 @@ fn write_boot_images(offset: u64) {
         // Write CR3.
         log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
-
-        log::info!("write GDTR to 0x{cr3_phy_addr:08x}");
-        write_volatile(gdtr_addr.as_mut_ptr(), gdtr);
 
         asm!(
             "mfence

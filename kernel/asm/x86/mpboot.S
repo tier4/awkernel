@@ -166,7 +166,6 @@
 
 #define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
 #define CPU0_CR3  (1024 * 2 +  8)
-#define CPU0_GDTR (CPU0_CR3 + 14)
 
 #define CR0_DEFAULT	(CR0_PE|CR0_PG|CR0_NE|CR0_WP)
 #define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
@@ -255,6 +254,9 @@ start32:
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
+    movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
+    movq    (%rbx), %rax
+    jmp     *%rax
 
 spin:
     hlt
