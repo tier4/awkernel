@@ -129,30 +129,30 @@
 #define	CR0_CD  0x40000000  /* Cache Disable */
 
 // CR4 register
-#define    CR4_VME         0x00000001  /* virtual 8086 mode extension enable */
-#define    CR4_PVI         0x00000002  /* protected mode virtual interrupt enable */
-#define    CR4_TSD         0x00000004  /* restrict RDTSC instruction to cpl 0 only */
-#define    CR4_DE          0x00000008  /* debugging extension */
-#define    CR4_PSE         0x00000010  /* large (4MB) page size enable */
-#define    CR4_PAE         0x00000020  /* physical address extension enable */
-#define    CR4_MCE         0x00000040  /* machine check enable */
-#define    CR4_PGE         0x00000080  /* page global enable */
-#define    CR4_PCE         0x00000100  /* enable RDPMC instruction for all cpls */
-#define    CR4_OSFXSR      0x00000200  /* enable fxsave/fxrestor and SSE */
-#define    CR4_OSXMMEXCPT    0x00000400    /* enable unmasked SSE exceptions */
-#define    CR4_UMIP        0x00000800  /* user mode instruction prevention */
-#define    CR4_VMXE        0x00002000  /* enable virtual machine operation */
-#define    CR4_SMXE        0x00004000  /* enable safe mode operation */
-#define    CR4_FSGSBASE    0x00010000  /* enable {RD,WR}{FS,GS}BASE ops */
-#define    CR4_PCIDE       0x00020000  /* enable process-context IDs */
-#define    CR4_OSXSAVE     0x00040000  /* enable XSAVE and extended states */
-#define    CR4_KL          0x00080000  /* enable AES Key Locker */
-#define    CR4_SMEP        0x00100000  /* supervisor mode exec protection */
-#define    CR4_SMAP        0x00200000  /* supervisor mode access prevention */
-#define    CR4_PKE         0x00400000  /* user-mode protection keys */
-#define    CR4_CET         0x00800000  /* control-flow enforcement tech */
-#define    CR4_PKS         0x01000000  /* supervisor-mode protection keys */
-#define    CR4_UINTR       0x02000000  /* user interrupts enable bit */
+#define CR4_VME         0x00000001  /* virtual 8086 mode extension enable */
+#define CR4_PVI         0x00000002  /* protected mode virtual interrupt enable */
+#define CR4_TSD         0x00000004  /* restrict RDTSC instruction to cpl 0 only */
+#define CR4_DE          0x00000008  /* debugging extension */
+#define CR4_PSE         0x00000010  /* large (4MB) page size enable */
+#define CR4_PAE         0x00000020  /* physical address extension enable */
+#define CR4_MCE         0x00000040  /* machine check enable */
+#define CR4_PGE         0x00000080  /* page global enable */
+#define CR4_PCE         0x00000100  /* enable RDPMC instruction for all cpls */
+#define CR4_OSFXSR      0x00000200  /* enable fxsave/fxrestor and SSE */
+#define CR4_OSXMMEXCPT    0x00000400    /* enable unmasked SSE exceptions */
+#define CR4_UMIP        0x00000800  /* user mode instruction prevention */
+#define CR4_VMXE        0x00002000  /* enable virtual machine operation */
+#define CR4_SMXE        0x00004000  /* enable safe mode operation */
+#define CR4_FSGSBASE    0x00010000  /* enable {RD,WR}{FS,GS}BASE ops */
+#define CR4_PCIDE       0x00020000  /* enable process-context IDs */
+#define CR4_OSXSAVE     0x00040000  /* enable XSAVE and extended states */
+#define CR4_KL          0x00080000  /* enable AES Key Locker */
+#define CR4_SMEP        0x00100000  /* supervisor mode exec protection */
+#define CR4_SMAP        0x00200000  /* supervisor mode access prevention */
+#define CR4_PKE         0x00400000  /* user-mode protection keys */
+#define CR4_CET         0x00800000  /* control-flow enforcement tech */
+#define CR4_PKS         0x01000000  /* supervisor-mode protection keys */
+#define CR4_UINTR       0x02000000  /* user interrupts enable bit */
 
 #define CPUID_NXE   0x00100000  /* No-Execute Extension */
 
@@ -171,6 +171,8 @@
 #define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
 
 #define STACK_TEMP 4096
+#define STACK_SIZE (2 * 1024 * 1024) // 2MiB
+#define STACK_START (256 * 1024 * 1024) // 256MiB
 
 .section .text
 
@@ -254,6 +256,20 @@ start32:
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
+    // Get local APIC ID.
+    movl    $1, %eax
+    cpuid
+    shrl    $24, %ebx // 31:24 is local APIC ID
+    andl    $0xFF, %ebx
+
+    // Set stack pointer.
+    movl    %ebx, %eax
+    movl    $STACK_SIZE, %ecx
+    mull    %ecx
+    addl    $STACK_START, %eax
+    movl    %eax, %esp
+    movl    %eax, %ebp
+
     movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
     movq    (%rbx), %rax
     jmp     *%rax

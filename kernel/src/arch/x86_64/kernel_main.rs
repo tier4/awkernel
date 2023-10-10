@@ -76,18 +76,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // Share the page table.
-    // for l4 in page_table.level_4_table().iter_mut() {
-    //     let flags = l4.flags();
-    //     l4.set_flags(flags | PageTableFlags::GLOBAL);
-    // }
-
-    // let cr4 = x86_64::registers::control::Cr4::read();
-    // unsafe {
-    //     x86_64::registers::control::Cr4::write(
-    //         cr4 | x86_64::registers::control::Cr4Flags::PAGE_GLOBAL,
-    //     )
-    // };
+    if boot_info
+        .memory_regions
+        .iter()
+        .find(|m| m.start == 0)
+        .is_none()
+    {
+        unsafe { unsafe_puts("The page #0 is in use.\r\n") };
+        wait_forever();
+    }
 
     // Create a page allocator.
     let mut frames = boot_info
@@ -281,8 +278,8 @@ fn write_boot_images(offset: u64) {
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
 
         asm!(
-            "mfence
-             wbinvd"
+            "wbinvd
+             mfence"
         );
     }
 }
@@ -358,14 +355,6 @@ fn non_primary_kernel_main() -> ! {
 
     enable_fpu(); // Enable SSE.
 
-    // unsafe { unsafe_puts("F") };
-
-    let mut port = unsafe { awkernel_drivers::uart::uart_16550::SerialPort::new(0x3F8) };
-
-    port.send(b'F');
-
-    loop {}
-
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
@@ -376,6 +365,10 @@ fn non_primary_kernel_main() -> ! {
         info: None,
         cpu_id: cpu_id as usize,
     };
+
+    log::info!("Hello, world!");
+
+    loop {}
 
     crate::main(kernel_info); // jump to userland
 
