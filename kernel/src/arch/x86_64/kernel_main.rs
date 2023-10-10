@@ -30,7 +30,7 @@ use bootloader_api::{
 use core::{
     arch::asm,
     ptr::{read_volatile, write_volatile},
-    sync::atomic::{fence, AtomicBool, Ordering},
+    sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering},
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
@@ -53,6 +53,7 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 static BSP_READY: AtomicBool = AtomicBool::new(false);
+static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 
 /// The entry point of x86_64.
 ///
@@ -212,12 +213,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
+    BSP_READY.store(true, Ordering::Release);
+
+    while BOOTED_APS.load(Ordering::Relaxed) != 0 {
+        core::hint::spin_loop();
+    }
+
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
     };
-
-    BSP_READY.store(true, Ordering::Release);
 
     // 13. Call `crate::main()`.
     crate::main(kernel_info);
@@ -314,6 +319,19 @@ fn wake_non_primary_cpus(
         return Err("Failed platform_info().");
     };
 
+    let num_aps = processor_info
+        .application_processors
+        .iter()
+        .fold(0, |acc, p| {
+            if matches!(p.state, ProcessorState::WaitingForSipi) {
+                acc + 1
+            } else {
+                acc
+            }
+        });
+
+    BOOTED_APS.store(num_aps, Ordering::Release);
+
     for ap in processor_info.application_processors.iter() {
         if matches!(ap.state, ProcessorState::WaitingForSipi) {
             send_ipi(apic, ap.local_apic_id, offset);
@@ -395,6 +413,8 @@ fn non_primary_kernel_main() -> ! {
 
     // Initialize interrupt handlers.
     unsafe { interrupt::init() };
+
+    BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,

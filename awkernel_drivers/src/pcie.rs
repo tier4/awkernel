@@ -82,9 +82,7 @@ fn scan_devices<T>(
                 let offset = (bus as u64) << 20 | dev << 15 | func << 12;
                 let addr = segment.base_address() + offset;
                 if let Some(device) = DeviceInfo::from_addr(addr) {
-                    if let Err(e) = device.init(page_table, page_allocator, page_size) {
-                        log::debug!("PCIe: {}", e);
-                    }
+                    let _ = device.init(page_table, page_allocator, page_size);
                 }
             }
         }
