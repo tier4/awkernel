@@ -105,13 +105,28 @@
 #define SEG_KCODE 3
 #define SEG_KDATA 4
 
-// Control Register flags
-#define CR0_PE 1 // Protection Enable
-
-// Definded by kernel::arch::x86_64::kernel_main::ENTRY32
-#define ENTRY32 1024
-
 #define    PSL_MBO 0x00000000  /* must be one bits */
+
+// CR3 register
+
+/*
+ * Bits in 386 special registers:
+ */
+#define	CR0_PE  0x00000001  /* Protected mode Enable */
+#define	CR0_MP  0x00000002  /* "Math" Present (NPX or NPX emulator) */
+#define	CR0_EM  0x00000004  /* EMulate non-NPX coproc. (trap ESC only) */
+#define	CR0_TS  0x00000008  /* Task Switched (if MP, trap ESC and WAIT) */
+#define	CR0_ET  0x00000010  /* Extension Type (387 (if set) vs 287) */
+#define	CR0_PG  0x80000000  /* PaGing enable */
+
+/*
+ * Bits in 486 special registers:
+ */
+#define CR0_NE  0x00000020  /* Numeric Error enable (EX16 vs IRQ13) */
+#define CR0_WP  0x00010000  /* Write Protect (honor PG_RW in all modes) */
+#define CR0_AM  0x00040000  /* Alignment Mask (set to enable AC flag) */
+#define	CR0_NW  0x20000000  /* Not Write-through */
+#define	CR0_CD  0x40000000  /* Cache Disable */
 
 // CR4 register
 #define    CR4_VME         0x00000001  /* virtual 8086 mode extension enable */
@@ -139,8 +154,6 @@
 #define    CR4_PKS         0x01000000  /* supervisor-mode protection keys */
 #define    CR4_UINTR       0x02000000  /* user interrupts enable bit */
 
-#define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
-
 #define CPUID_NXE   0x00100000  /* No-Execute Extension */
 
 // EFER
@@ -154,6 +167,9 @@
 #define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
 #define CPU0_CR3  (1024 * 2 +  8)
 #define CPU0_GDTR (CPU0_CR3 + 14)
+
+#define CR0_DEFAULT	(CR0_PE|CR0_PG|CR0_NE|CR0_WP)
+#define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
 
 #define STACK_TEMP 4096
 
@@ -205,7 +221,7 @@ start32:
     orl     $(CR4_DEFAULT), %eax
     movl    %eax, %cr4
 
-    movl    $MSR_EFER,%ecx
+    movl    $MSR_EFER, %ecx
     rdmsr
     movl    %edx, %edi      # %edx is needed by wrmsr below
 
@@ -213,7 +229,7 @@ start32:
     movl    $0x80000001, %eax
     cpuid
     andl    $CPUID_NXE, %edx
-    xorl    %eax,%eax
+    xorl    %eax, %eax
     testl   %edx, %edx
     jz    1f
     orl     $EFER_NXE, %eax
@@ -231,9 +247,11 @@ start32:
     movl    $gdtdesc64, %eax
     lgdt    (%eax)
 
-loop:
-    jmp     loop
+    movl    %cr0, %ecx      # get control word
+    orl     $CR0_DEFAULT, %ecx
+    movl    %ecx, %cr0
 
+    ljmpl   $0x8, $entry64
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
