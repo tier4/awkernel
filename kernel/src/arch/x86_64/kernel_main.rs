@@ -86,12 +86,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    if boot_info
-        .memory_regions
-        .iter()
-        .find(|m| m.start == 0)
-        .is_none()
-    {
+    if boot_info.memory_regions.iter().any(|m| m.start == 0) {
         unsafe { unsafe_puts("The page #0 is in use.\r\n") };
         wait_forever();
     }
@@ -388,7 +383,9 @@ fn non_primary_kernel_main() -> ! {
     let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
     let cpu_id = (ebx >> 24) & 0xff;
 
-    while !BSP_READY.load(Ordering::Relaxed) {}
+    while !BSP_READY.load(Ordering::Relaxed) {
+        core::hint::spin_loop();
+    }
     fence(Ordering::Acquire);
 
     enable_fpu(); // Enable SSE.

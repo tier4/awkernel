@@ -100,7 +100,7 @@ pub fn new<T>(
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
-    let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
+    let msr = Msr::new(registers::IA32_APIC_BASE_MSR);
 
     let cpuid = unsafe { __cpuid(1) };
     if cpuid.ecx & (1 << 21) != 0 {
