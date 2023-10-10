@@ -86,7 +86,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    if boot_info.memory_regions.iter().any(|m| m.start == 0) {
+    if !boot_info.memory_regions.iter().any(|m| m.start == 0) {
         unsafe { unsafe_puts("The page #0 is in use.\r\n") };
         wait_forever();
     }
