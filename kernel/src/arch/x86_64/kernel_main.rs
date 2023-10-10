@@ -8,13 +8,17 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
+use acpi::{platform::ProcessorState, AcpiTables};
 use alloc::boxed::Box;
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
 };
 use awkernel_lib::{
-    arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
+    arch::x86_64::{
+        acpi::AcpiMapper,
+        page_allocator::{self, get_page_table, PageAllocator},
+    },
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
@@ -23,7 +27,11 @@ use awkernel_lib::{
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
 };
-use core::{arch::asm, ptr::write_volatile};
+use core::{
+    arch::asm,
+    ptr::{read_volatile, write_volatile},
+    sync::atomic::{fence, AtomicBool, Ordering},
+};
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
     structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
@@ -43,6 +51,8 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 
 // Set `kernel_main` as the entry point.
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
+
+static BSP_READY: AtomicBool = AtomicBool::new(false);
 
 /// The entry point of x86_64.
 ///
@@ -179,20 +189,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 12. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
-    match type_apic {
+    let apic_result = match type_apic {
         TypeApic::Xapic(xapic) => {
-            // 12. Boot non-primary CPUs.
-            start_non_primary_cpus(&xapic);
+            let result = wake_non_primary_cpus(&xapic, &acpi, offset);
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(xapic));
+
+            result
         }
         TypeApic::X2Apic(x2apic) => {
-            // 12. Boot non-primary CPUs.
-            start_non_primary_cpus(&x2apic);
+            let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
 
             // Register interrupt controller.
-            // register_interrupt_controller(Box::new(x2apic));
+            register_interrupt_controller(Box::new(x2apic));
+
+            result
         }
         _ => {
             log::error!("Failed to initialize APIC.");
@@ -200,10 +212,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         }
     };
 
+    if let Err(e) = apic_result {
+        log::error!("Failed to initialize APIC. {}", e);
+        wait_forever();
+    }
+
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
     };
+
+    BSP_READY.store(true, Ordering::Release);
 
     // 13. Call `crate::main()`.
     crate::main(kernel_info);
@@ -248,6 +267,7 @@ fn enable_fpu() {
 const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
 const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
+const FLAG_POS: u64 = CR3_POS + 8;
 
 fn write_boot_images(offset: u64) {
     // Calculate address.
@@ -284,10 +304,37 @@ fn write_boot_images(offset: u64) {
     }
 }
 
-fn start_non_primary_cpus(apic: &dyn Apic) {
+fn wake_non_primary_cpus(
+    apic: &dyn Apic,
+    acpi: &AcpiTables<AcpiMapper>,
+    offset: u64,
+) -> Result<(), &'static str> {
+    let processor_info = if let Ok(platform_info) = acpi.platform_info() {
+        if let Some(processor_info) = platform_info.processor_info {
+            processor_info
+        } else {
+            return Err("Failed processor_info().");
+        }
+    } else {
+        return Err("Failed platform_info().");
+    };
+
+    for ap in processor_info.application_processors.iter() {
+        if matches!(ap.state, ProcessorState::WaitingForSipi) {
+            send_ipi(apic, ap.local_apic_id, offset);
+        }
+    }
+
+    Ok(())
+}
+
+fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
+    let flag_addr = VirtAddr::new(FLAG_POS + offset);
+    unsafe { write_volatile::<u64>(flag_addr.as_mut_ptr(), 0) };
+
     // INIT IPI, ASSERT
     apic.interrupt(
-        1,
+        apic_id,
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT | IcrFlags::LEVEL_TRIGGER,
         DeliveryMode::Init,
@@ -295,11 +342,10 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
     );
 
     wait_microsec(10_000); // Wait 10[ms]
-    unsafe { unsafe_puts("V") };
 
     // INIT IPI, DEASSERT
     apic.interrupt(
-        1,
+        apic_id,
         DestinationShorthand::NoShorthand,
         IcrFlags::LEVEL_TRIGGER,
         DeliveryMode::Init,
@@ -310,48 +356,40 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
 
     // SIPI
     apic.interrupt(
-        1,
+        apic_id,
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
     );
 
-    unsafe { unsafe_puts("W") };
     wait_microsec(200); // Wait 200[us]
-    unsafe { unsafe_puts("X") };
 
-    loop {
-        awkernel_lib::delay::wait_sec(1);
-        unsafe {
-            unsafe_puts("Z");
+    unsafe {
+        if read_volatile::<u64>(flag_addr.as_ptr()) != 0 {
+            return;
         }
     }
 
     // SIPI
     apic.interrupt(
-        1,
+        apic_id,
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
     );
-    unsafe { unsafe_puts("Y") };
 
     wait_microsec(200); // Wait 200[us]
-
-    loop {
-        awkernel_lib::delay::wait_sec(1);
-        unsafe {
-            unsafe_puts("Z");
-        }
-    }
 }
 
 #[inline(never)]
 fn non_primary_kernel_main() -> ! {
     let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
     let cpu_id = (ebx >> 24) & 0xff;
+
+    while !BSP_READY.load(Ordering::Relaxed) {}
+    fence(Ordering::Acquire);
 
     enable_fpu(); // Enable SSE.
 
@@ -365,10 +403,6 @@ fn non_primary_kernel_main() -> ! {
         info: None,
         cpu_id: cpu_id as usize,
     };
-
-    log::info!("Hello, world!");
-
-    loop {}
 
     crate::main(kernel_info); // jump to userland
 

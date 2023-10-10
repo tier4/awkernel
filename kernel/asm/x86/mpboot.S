@@ -105,7 +105,7 @@
 #define SEG_KCODE 3
 #define SEG_KDATA 4
 
-#define    PSL_MBO 0x00000000  /* must be one bits */
+#define PSL_MBO 0x00000000  /* must be one bits */
 
 // CR3 register
 
@@ -166,6 +166,7 @@
 
 #define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
 #define CPU0_CR3  (1024 * 2 +  8)
+#define FLAG (1024 * 2 +  16)
 
 #define CR0_DEFAULT	(CR0_PE|CR0_PG|CR0_NE|CR0_WP)
 #define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
@@ -181,10 +182,6 @@
 .code16
 _start_cpu:
     cli                         # BIOS enabled interrupts; disable
-
-    movb    $'A', %al
-    movw    $0x3F8, %dx
-    outb    %al, %dx
 
     # Zero data segment registers DS, ES, and SS.
     xorw    %ax, %ax             # Set %ax to zero
@@ -207,10 +204,6 @@ start32:
     movw    %ax, %es
     movw    %ax, %fs
     movw    %ax, %gs
-
-    movb    $'B', %al
-    movw    $0x3F8, %dx
-    outb    %al, %dx
 
     movl    $STACK_TEMP, %esp
 
@@ -270,9 +263,12 @@ entry64:
     movl    %eax, %esp
     movl    %eax, %ebp
 
+    movq    $FLAG, %rax
+    movq    $1, (%rax)
+
     movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
     movq    (%rbx), %rax
-    jmp     *%rax
+    callq   *%rax
 
 spin:
     hlt
