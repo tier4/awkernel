@@ -24,7 +24,10 @@ pub(super) fn map_heap<T>(
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
-    let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_EXECUTE
+        | PageTableFlags::GLOBAL;
     let mut num_pages = 0;
 
     for addr in (start..(start + size)).step_by(PAGESIZE) {

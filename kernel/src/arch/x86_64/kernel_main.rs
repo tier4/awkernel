@@ -8,13 +8,17 @@ use crate::{
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
+use acpi::{platform::ProcessorState, AcpiTables};
 use alloc::boxed::Box;
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
 };
 use awkernel_lib::{
-    arch::x86_64::page_allocator::{self, get_page_table, PageAllocator},
+    arch::x86_64::{
+        acpi::AcpiMapper,
+        page_allocator::{self, get_page_table, PageAllocator},
+    },
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
@@ -23,7 +27,11 @@ use awkernel_lib::{
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
 };
-use core::{arch::asm, ptr::write_volatile};
+use core::{
+    arch::asm,
+    ptr::{read_volatile, write_volatile},
+    sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering},
+};
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
     structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
@@ -44,6 +52,9 @@ pub static BOOTLOADER_CONFIG: BootloaderConfig = {
 // Set `kernel_main` as the entry point.
 entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
+static BSP_READY: AtomicBool = AtomicBool::new(false);
+static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
+
 /// The entry point of x86_64.
 ///
 /// 1. Enable FPU.
@@ -51,12 +62,12 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 /// 3. Initialize the virtual memory.
 /// 4. Initialize the backup heap memory allocator.
 /// 5. Enable logger.
-/// 6. Initialize interrupt handlers.
-/// 7. Initialize ACPI.
-/// 8. Initialize stack memory regions for non-primary CPUs.
-/// 9. Initialize `awkernel_lib`.
-/// 10. Initialize APIC.
-/// 11. Initialize the primary heap memory allocator.
+/// 6. Initialize ACPI.
+/// 7. Initialize stack memory regions for non-primary CPUs.
+/// 8. Initialize `awkernel_lib`.
+/// 9. Initialize APIC.
+/// 10. Initialize the primary heap memory allocator.
+/// 11. Write boot images to wake non-primary CPUs up.
 /// 12. Boot non-primary CPUs.
 /// 13. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -66,6 +77,8 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     unsafe { unsafe_puts("\r\nThe primary CPU is waking up.\r\n") };
 
+    // 3. Initialize virtual memory
+
     unsafe { page_allocator::init(boot_info) };
     let mut page_table = if let Some(page_table) = unsafe { get_page_table() } {
         page_table
@@ -74,17 +87,35 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 3. Initialize virtual memory
+    if !boot_info.memory_regions.iter().any(|m| m.start == 0) {
+        unsafe { unsafe_puts("The page #0 is in use.\r\n") };
+        wait_forever();
+    }
 
     // Create a page allocator.
     let mut frames = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
         .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
 
     let mut page_allocator = PageAllocator::new(&mut frames);
+
+    unsafe {
+        match page_table.map_to(
+            Page::containing_address(VirtAddr::new(0)),
+            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            &mut page_allocator,
+        ) {
+            Ok(f) => f.flush(),
+            Err(_) => {
+                unsafe_puts("Failed to map 0.\r\n");
+                wait_forever();
+            }
+        }
+    }
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
@@ -92,12 +123,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
     let offset = *offset;
-
-    // Write boot images to wake non-primary CPUs up.
-    write_boot_images(offset);
-
-    // Map a page to wake non-primary CPUs up.
-    map_for_boot(NON_PRIMARY_START, &mut page_table, &mut page_allocator);
 
     let backup_start = HEAP_START;
     let backup_size = BACKUP_HEAP_SIZE;
@@ -126,11 +151,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_size
     );
 
-    // 6. Initialize interrupt handlers.
-
     log::info!("Physical memory offset: 0x{:x}", offset);
 
-    // 7. Initialize ACPI.
+    // 6. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -139,45 +162,62 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 8. Initialize stack memory regions for non-primary CPUs.
+    // 7. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
-    // 9. Initialize `awkernel_lib` and `awkernel_driver`
+    // 8. Initialize `awkernel_lib` and `awkernel_driver`
     awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator);
     awkernel_drivers::pcie::init(&acpi, &mut page_table, &mut page_allocator, PAGESIZE as u64);
 
-    // 10. Initialize APIC.
+    // 9. Initialize APIC.
     let type_apic =
         awkernel_drivers::interrupt_controller::apic::new(&mut page_table, &mut page_allocator);
 
-    // 11. Initialize the primary heap memory allocator.
+    // 10. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocator);
 
+    // 11. Write boot images to wake non-primary CPUs up.
+    write_boot_images(offset);
+
+    // 12. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
-    match type_apic {
+    let apic_result = match type_apic {
         TypeApic::Xapic(xapic) => {
-            // 12. Boot non-primary CPUs.
-            start_non_primary_cpus(&xapic);
+            let result = wake_non_primary_cpus(&xapic, &acpi, offset);
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(xapic));
+
+            result
         }
         TypeApic::X2Apic(x2apic) => {
-            // 12. Boot non-primary CPUs.
-            start_non_primary_cpus(&x2apic);
+            let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
 
             // Register interrupt controller.
-            // register_interrupt_controller(Box::new(x2apic));
+            register_interrupt_controller(Box::new(x2apic));
+
+            result
         }
         _ => {
             log::error!("Failed to initialize APIC.");
             wait_forever();
         }
     };
+
+    if let Err(e) = apic_result {
+        log::error!("Failed to initialize APIC. {}", e);
+        wait_forever();
+    }
+
+    BSP_READY.store(true, Ordering::Release);
+
+    while BOOTED_APS.load(Ordering::Relaxed) != 0 {
+        core::hint::spin_loop();
+    }
 
     let kernel_info = KernelInfo {
         info: Some(boot_info),
@@ -224,41 +264,15 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 4096; // 4KiB. Entry point of 16-bit mode (protected mode).
-const ENTRY32: u64 = NON_PRIMARY_START + 1024; // 5KiB. Entry point of 32-bit mode (long mode).
-
-// 6KiB
-const NON_PRIMARY_KERNEL_MAIN: u64 = ENTRY32 + 1024;
+const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
-
-pub(super) fn map_for_boot<T>(
-    addr: u64,
-    page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
-    let flags = PageTableFlags::PRESENT;
-    unsafe {
-        page_table
-            .map_to(
-                Page::<Size4KiB>::containing_address(VirtAddr::new(addr)),
-                PhysFrame::containing_address(PhysAddr::new(addr)),
-                flags,
-                page_allocator,
-            )
-            .unwrap()
-            .flush()
-    };
-}
+const FLAG_POS: u64 = CR3_POS + 8;
 
 fn write_boot_images(offset: u64) {
     // Calculate address.
-    let boot16 = include_bytes!("../../../asm/x86/boot16.img");
-    let boot16_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
-
-    let entry32 = include_bytes!("../../../asm/x86/entry32.img");
-    let entry32_phy_addr = VirtAddr::new(ENTRY32 + offset);
+    let mpboot = include_bytes!("../../../asm/x86/mpboot.img");
+    let mpboot_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
 
     let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset);
     let cr3_phy_addr = VirtAddr::new(CR3_POS + offset);
@@ -268,32 +282,85 @@ fn write_boot_images(offset: u64) {
     unsafe { asm!("mov {}, cr3", out(reg) cr3, options(nomem, nostack, preserves_flags)) };
 
     unsafe {
-        // Write boot16.img.
-        unsafe_puts("write boot16.img\r\n");
-        write_volatile(boot16_phy_addr.as_mut_ptr(), *boot16);
-
-        // Write entry32.img.
-        unsafe_puts("write entry32.img\r\n");
-        write_volatile(entry32_phy_addr.as_mut_ptr(), *entry32);
+        // Write mpboot.img.
+        log::info!("write mpboot.img to 0x{mpboot_phy_addr:08x}");
+        write_volatile(mpboot_phy_addr.as_mut_ptr(), *mpboot);
 
         // Write non_primary_kernel_main.
-        unsafe_puts("write main_addr\r\n");
+        log::info!(
+            "write the kernel entry of 0x{:08x} to 0x{main_addr:08x}",
+            non_primary_kernel_main as usize
+        );
         write_volatile(main_addr.as_mut_ptr(), non_primary_kernel_main as usize);
 
         // Write CR3.
-        unsafe_puts("write CR3\r\n");
-        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3 as u32);
+        log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");
+        write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
 
-        asm!("wbinvd");
+        asm!(
+            "wbinvd
+             mfence"
+        );
     }
 }
 
-fn start_non_primary_cpus(apic: &dyn Apic) {
-    // INIT IPI
+fn wake_non_primary_cpus(
+    apic: &dyn Apic,
+    acpi: &AcpiTables<AcpiMapper>,
+    offset: u64,
+) -> Result<(), &'static str> {
+    let processor_info = if let Ok(platform_info) = acpi.platform_info() {
+        if let Some(processor_info) = platform_info.processor_info {
+            processor_info
+        } else {
+            return Err("Failed processor_info().");
+        }
+    } else {
+        return Err("Failed platform_info().");
+    };
+
+    let num_aps = processor_info
+        .application_processors
+        .iter()
+        .fold(0, |acc, p| {
+            if matches!(p.state, ProcessorState::WaitingForSipi) {
+                acc + 1
+            } else {
+                acc
+            }
+        });
+
+    BOOTED_APS.store(num_aps, Ordering::Release);
+
+    for ap in processor_info.application_processors.iter() {
+        if matches!(ap.state, ProcessorState::WaitingForSipi) {
+            send_ipi(apic, ap.local_apic_id, offset);
+        }
+    }
+
+    Ok(())
+}
+
+fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
+    let flag_addr = VirtAddr::new(FLAG_POS + offset);
+    unsafe { write_volatile::<u64>(flag_addr.as_mut_ptr(), 0) };
+
+    // INIT IPI, ASSERT
     apic.interrupt(
+        apic_id,
+        DestinationShorthand::NoShorthand,
+        IcrFlags::ASSERT | IcrFlags::LEVEL_TRIGGER,
+        DeliveryMode::Init,
         0,
-        DestinationShorthand::AllExcludingSelf,
-        IcrFlags::ASSERT,
+    );
+
+    wait_microsec(10_000); // Wait 10[ms]
+
+    // INIT IPI, DEASSERT
+    apic.interrupt(
+        apic_id,
+        DestinationShorthand::NoShorthand,
+        IcrFlags::LEVEL_TRIGGER,
         DeliveryMode::Init,
         0,
     );
@@ -302,8 +369,8 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
 
     // SIPI
     apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
+        apic_id,
+        DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
@@ -311,10 +378,16 @@ fn start_non_primary_cpus(apic: &dyn Apic) {
 
     wait_microsec(200); // Wait 200[us]
 
+    unsafe {
+        if read_volatile::<u64>(flag_addr.as_ptr()) != 0 {
+            return;
+        }
+    }
+
     // SIPI
     apic.interrupt(
-        0,
-        DestinationShorthand::AllExcludingSelf,
+        apic_id,
+        DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
         (NON_PRIMARY_START >> 12) as u8,
@@ -328,6 +401,11 @@ fn non_primary_kernel_main() -> ! {
     let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
     let cpu_id = (ebx >> 24) & 0xff;
 
+    while !BSP_READY.load(Ordering::Relaxed) {
+        core::hint::spin_loop();
+    }
+    fence(Ordering::Acquire);
+
     enable_fpu(); // Enable SSE.
 
     // use the primary and backup allocator
@@ -335,6 +413,8 @@ fn non_primary_kernel_main() -> ! {
 
     // Initialize interrupt handlers.
     unsafe { interrupt::init() };
+
+    BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,

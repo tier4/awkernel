@@ -1,10 +1,7 @@
 use acpi::{platform::PmTimer, AcpiHandler, AcpiTables};
 use bootloader_api::BootInfo;
-use core::{
-    arch::x86_64::_mm_pause,
-    ptr::{read_volatile, write_volatile, NonNull},
-};
-use x86_64::{instructions::port::Port, VirtAddr};
+use core::ptr::{write_volatile, NonNull};
+use x86_64::VirtAddr;
 
 static mut PM_TIMER: Option<PmTimer> = None;
 
@@ -67,36 +64,4 @@ pub(super) fn init(acpi: &AcpiTables<AcpiMapper>) {
     };
 
     unsafe { write_volatile(&mut PM_TIMER, Some(pm_timer)) };
-}
-
-pub(super) fn wait_usec(usec: u64) {
-    let Some(pm_timer) = (unsafe { read_volatile(&PM_TIMER) }) else {
-        return;
-    };
-
-    let mut port = Port::<u32>::new(pm_timer.base.address as u16);
-
-    let max: u64 = if pm_timer.supports_32bit {
-        1 << 32 // 32-bit counter
-    } else {
-        1 << 24 // 24-bit counter
-    };
-
-    // Counts per usec.
-    let clk = (ACPI_TMR_HZ as u64 * usec) / 1_000_000;
-    let mut prev = unsafe { port.read() } as u64;
-    let mut acc = 0;
-
-    while acc < clk {
-        let cur = unsafe { port.read() } as u64;
-        acc += if cur < prev {
-            // overflow
-            max + cur - prev
-        } else {
-            cur - prev
-        };
-
-        prev = cur;
-        unsafe { _mm_pause() };
-    }
 }
