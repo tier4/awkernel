@@ -7,13 +7,13 @@
     //     "cargo",
     //     "+nightly",
     //     "check_no_std",
-    //     "--target=aarch64-kernel.json",
+    //     "--target=targets/aarch64-kernel.json",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
     //     "+nightly",
     //     "check_no_std",
-    //     "--target=aarch64-kernel.json",
+    //     "--target=targets/aarch64-kernel.json",
     // ],
     // "rust-analyzer.cargo.features": [
     //     "raspi"
@@ -23,13 +23,13 @@
         "cargo",
         "+nightly",
         "check_no_std",
-        "--target=x86_64-kernel.json",
+        "--target=targets/x86_64-kernel.json",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
         "+nightly",
         "check_no_std",
-        "--target=x86_64-kernel.json",
+        "--target=targets/x86_64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
         "x86"
