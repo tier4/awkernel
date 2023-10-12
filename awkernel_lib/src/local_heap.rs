@@ -10,14 +10,14 @@
 //! use core::mem::MaybeUninit;
 //!
 //! let mut memory_pool = [MaybeUninit::new(0); 1024];
-//! let mut tlsf: TLSF = TLSF::new(&mut memory_pool);
-//! let alloc = LocalHeap::new(&mut tlsf);
+//! let tlsf: RefCell<TLSF> = RefCell::new(TLSF::new(&mut memory_pool));
+//! let alloc = LocalHeap::new(&tlsf);
 //!
 //! // create a `Box`
 //! let value = Box::new_in(100, alloc.clone());
 //! ```
 
-use core::{alloc::Allocator, mem::MaybeUninit, ptr::NonNull};
+use core::{alloc::Allocator, cell::RefCell, mem::MaybeUninit, ptr::NonNull};
 use rlsf::int::BinInteger;
 
 const FLLEN_DEFAULT: usize = 14; // The maximum block size is (32 << 14) - 1 = 512KiB - 1
@@ -58,27 +58,26 @@ where
 /// A local heap allocator.
 #[derive(Clone)]
 pub struct LocalHeap<
+    'a,
     'pool,
     FLBitmap = FLBitmapDefault,
     SLBitmap = SLBitmapDefault,
     const FLLEN: usize = FLLEN_DEFAULT,
     const SLLEN: usize = SLLEN_DEFAULT,
 > {
-    tlsf: *mut TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>,
+    tlsf: &'a RefCell<TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>>,
 }
 
-impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
-    LocalHeap<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+impl<'a, 'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
+    LocalHeap<'a, 'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
 {
-    pub fn new(tlsf: &mut TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>) -> Self {
-        Self {
-            tlsf: tlsf as *mut _,
-        }
+    pub fn new(tlsf: &'a RefCell<TLSF<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>>) -> Self {
+        Self { tlsf }
     }
 }
 
-unsafe impl<'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
-    for LocalHeap<'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+unsafe impl<'a, 'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
+    for LocalHeap<'a, 'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
 where
     FLBitmap: BinInteger,
     SLBitmap: BinInteger,
@@ -87,7 +86,7 @@ where
         &self,
         layout: core::alloc::Layout,
     ) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-        let tlsf = unsafe { &mut (*self.tlsf).allocator };
+        let tlsf = &mut self.tlsf.borrow_mut().allocator;
 
         if let Some(ptr) = tlsf.allocate(layout) {
             Ok(NonNull::slice_from_raw_parts(ptr, layout.size()))
@@ -98,7 +97,7 @@ where
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: core::alloc::Layout) {
         let ptr = ptr.as_ptr();
-        let tlsf = unsafe { &mut (*self.tlsf).allocator };
+        let tlsf = &mut self.tlsf.borrow_mut().allocator;
         tlsf.deallocate(NonNull::new_unchecked(ptr), layout.align());
     }
 }
@@ -112,8 +111,8 @@ mod test {
     #[test]
     fn test_local_heap() {
         let mut memory_pool = [MaybeUninit::new(0); 1024];
-        let mut tlsf: TLSF = TLSF::new(&mut memory_pool);
-        let alloc = LocalHeap::new(&mut tlsf);
+        let tlsf: RefCell<TLSF> = RefCell::new(TLSF::new(&mut memory_pool));
+        let alloc = LocalHeap::new(&tlsf);
 
         let _a = Box::new_in(100, alloc.clone());
         let mut b = Vec::new_in(alloc);
