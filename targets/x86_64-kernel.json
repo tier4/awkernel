@@ -17,7 +17,7 @@
       "-o",
       "kernel-x86_64.elf",
       "-T",
-      "x86_64-link.lds",
+      "kernel/ld/x86_64-link.lds",
       "--static",
       "--gc-sections"
     ]

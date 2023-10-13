@@ -44,6 +44,12 @@ endif
 
 QEMUPORT=5556
 
+LINKERDIR=kernel/ld
+AARCH64_LD=$(LINKERDIR)/aarch64-link.lds
+AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
+X86_64_LD=$(LINKERDIR)/x86_64-link.lds
+RV32_LD=$(LINKERDIR)/rv32-link.lds
+
 
 all: aarch64 x86_64 riscv32 std
 
@@ -66,7 +72,7 @@ aarch64: kernel8.img
 check_aarch64: FORCE
 	cargo +nightly check_aarch64 $(AARCH64_OPT)
 
-target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) aarch64-link-bsp.lds FORCE
+target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(AARCH64_OPT)
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
@@ -75,8 +81,8 @@ kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 $(ASM_OBJ_AARCH64): $(ASM_FILE_AARCH64) $(ASM_FILE_DEP_AARCH64)
 	$(CC) --target=aarch64-elf -c $< -o $@ -DSTACKSIZE="$(STACKSIZE)"
 
-aarch64-link-bsp.lds: aarch64-link.lds
-	sed "s/#INITADDR#/$(INITADDR)/" aarch64-link.lds > $@
+$(AARCH64_BSP_LD): $(AARCH64_LD)
+	sed "s/#INITADDR#/$(INITADDR)/" $(AARCH64_LD) > $@
 
 QEMU_AARCH64_ARGS= -kernel kernel8.img
 QEMU_AARCH64_ARGS+= -serial stdio
@@ -206,7 +212,7 @@ test: FORCE
 # Clean
 
 clean: FORCE
-	rm -rf *.o *.elf aarch64-link-bsp.lds *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
+	rm -rf *.o *.elf $(AARCH64_BSP_LD) *.img kernel/asm/x86/*.o x86_64_uefi_pxe_boot
 	cargo clean
 	$(MAKE) -C $(X86ASM) clean
 
