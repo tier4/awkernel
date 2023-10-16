@@ -50,6 +50,7 @@ use awkernel_lib::console::Console;
 use core::{arch::asm, fmt::Write};
 
 /// This struct defines the PL011, with base address and irq as properties.
+#[derive(Debug)]
 pub struct PL011 {
     base_addr: usize,
     irq: u16,
@@ -195,7 +196,7 @@ impl Console for PL011 {
         // wait until we can send
         unsafe { asm!("nop;") };
         while registers::UART0_FR.read(self.base_addr) & 0x20 != 0 {
-            unsafe { asm!("nop;") };
+            core::hint::spin_loop();
         }
 
         // write the character to the buffer
