@@ -24,4 +24,4 @@ check_std = "check --package awkernel --no-default-features --features std"
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
 [target.riscv32imac-unknown-none-elf]
-rustflags = ["-C", "link-arg=-Trv32-link.lds"]
+rustflags = ["-C", "link-arg=-Tkernel/ld/rv32-link.lds"]

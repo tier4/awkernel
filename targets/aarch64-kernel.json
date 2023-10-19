@@ -12,7 +12,7 @@
             "-z",
             "norelro",
             "-T",
-            "aarch64-link-bsp.lds",
+            "./kernel/ld/aarch64-link-bsp.lds",
             "--static",
             "--gc-sections",
             "-m",
