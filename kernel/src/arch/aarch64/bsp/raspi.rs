@@ -3,8 +3,11 @@ use crate::arch::aarch64::{
     interrupt_ctl,
     vm::{self, VM},
 };
-use alloc::boxed::Box;
-use awkernel_drivers::uart::pl011::PL011;
+use alloc::{boxed::Box, format};
+use awkernel_drivers::{
+    hal::{self, rpi::uart::PinUart},
+    uart::pl011::PL011,
+};
 use awkernel_lib::{
     addr::phy_addr::PhyAddr,
     arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer, set_max_affinity},
@@ -66,7 +69,6 @@ impl super::SoC for Raspi {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt_fields()?;
         self.init_uart0()?;
-        self.init_uarts();
 
         set_max_affinity(4, 0, 0, 0);
 
@@ -139,6 +141,8 @@ impl super::SoC for Raspi {
         self.init_clock()?;
         self.init_spi()?;
         self.init_pwm()?;
+        self.init_uarts();
+
         Ok(())
     }
 }
@@ -237,7 +241,90 @@ impl Raspi {
             .or(Err(err_msg!("invalid path")))
     }
 
-    fn init_uarts(&mut self) {}
+    fn init_uarts(&self) {
+        unsafe { hal::rpi::uart::set_uart_clock(super::config::UART_CLOCK) };
+
+        // Raspberry Pi 4 has 5 UARTs.
+        for i in 2..=5 {
+            let Ok(uart_arrayed_node) = self
+                .get_device_from_symbols(&format!("uart{}", i)) else { continue };
+
+            // Get the base address.
+            let Ok(base_addr) = uart_arrayed_node.get_address(0) else { continue };
+
+            let uart_node = uart_arrayed_node.get_leaf_node().unwrap();
+
+            // Get IRQ#.
+            let Some(interrupts_prop) = uart_node.get_property("interrupts") else { continue };
+
+            let interrupts = match interrupts_prop.value() {
+                PropertyValue::Integers(ints) => ints,
+                _ => continue,
+            };
+
+            let Some(irq) = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts) else { continue };
+
+            // Get the compatible property.
+            let Some(compatible_prop) = uart_node.get_property("compatible") else { continue };
+
+            let compatibles = match compatible_prop.value() {
+                PropertyValue::Strings(v) => v,
+                _ => continue,
+            };
+
+            // UART must be PL011.
+            if !compatibles.iter().any(|c| *c == "arm,pl011") {
+                continue;
+            }
+
+            let Ok(pins_arrayed_node) = self
+                .get_device_from_symbols(&format!("uart{}_pins", i)) else { continue };
+
+            let Some(pins_node) = pins_arrayed_node.get_leaf_node() else { continue };
+
+            // Get the brcm,pins property.
+            let Some(pins) = pins_node.get_property("brcm,pins") else { continue };
+
+            let (tx_gpio, rx_gpio) = match pins.value() {
+                PropertyValue::Integers(v) => {
+                    if v.len() != 2 {
+                        continue;
+                    }
+                    (v[0], v[1])
+                }
+                _ => continue,
+            };
+
+            // Get the brcm,function property.
+            let Some(function) = pins_node.get_property("brcm,function") else { continue };
+            let alt = match function.value() {
+                PropertyValue::Integer(v) => hal::rpi::gpio::GpioFunction::from(*v as u32),
+                _ => continue,
+            };
+
+            // Get the brcm,pull property.
+            let Some(pull_mode) = pins_node.get_property("brcm,pull") else { continue };
+            let (tx_pull, rx_pull) = match pull_mode.value() {
+                PropertyValue::Integers(v) => {
+                    if v.len() != 2 {
+                        continue;
+                    }
+                    let tx_pull = hal::rpi::gpio::PullMode::from(v[0] as u32);
+                    let rx_pull = hal::rpi::gpio::PullMode::from(v[1] as u32);
+                    (tx_pull, rx_pull)
+                }
+                _ => continue,
+            };
+
+            let tx = hal::rpi::uart::Pin::new(tx_gpio as u32, alt, tx_pull);
+            let rx = hal::rpi::uart::Pin::new(rx_gpio as u32, alt, rx_pull);
+
+            let uarts = hal::rpi::uart::Uarts::from(i);
+            let pin_uart = PinUart::new(tx, rx, irq, base_addr as usize);
+
+            unsafe { hal::rpi::uart::set_uart_info(uarts, pin_uart) };
+        }
+    }
 
     fn init_uart0(&mut self) -> Result<(), &'static str> {
         let uart0_arrayed_node = self

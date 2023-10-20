@@ -96,6 +96,17 @@ pub enum PullMode {
     Down = 0b10,
 }
 
+impl From<u32> for PullMode {
+    fn from(value: u32) -> Self {
+        match value {
+            0b00 => PullMode::None,
+            0b01 => PullMode::Up,
+            0b10 => PullMode::Down,
+            _ => panic!("Invalid PullMode"),
+        }
+    }
+}
+
 /// Enum `GpioFunction` for setting the function of a GPIO pin.
 #[derive(Debug, Clone, Copy)]
 pub enum GpioFunction {
@@ -121,6 +132,22 @@ impl From<GpioFunction> for u32 {
             GpioFunction::ALTF3 => 0b111,
             GpioFunction::ALTF4 => 0b011,
             GpioFunction::ALTF5 => 0b010,
+        }
+    }
+}
+
+impl From<u32> for GpioFunction {
+    fn from(val: u32) -> GpioFunction {
+        match val {
+            0 => GpioFunction::INPUT,
+            1 => GpioFunction::OUTPUT,
+            0b100 => GpioFunction::ALTF0,
+            0b101 => GpioFunction::ALTF1,
+            0b110 => GpioFunction::ALTF2,
+            0b111 => GpioFunction::ALTF3,
+            0b011 => GpioFunction::ALTF4,
+            0b010 => GpioFunction::ALTF5,
+            _ => panic!("Invalid GpioFunction"),
         }
     }
 }

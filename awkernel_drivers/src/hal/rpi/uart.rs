@@ -15,7 +15,7 @@ pub struct Uart {
     _rx: GpioPinAlt,
     pl011: PL011,
     uarts: Uarts,
-    pin: Pin,
+    pin: PinUart,
 }
 
 #[derive(Debug)]
@@ -26,26 +26,57 @@ pub enum Uarts {
     Uart5,
 }
 
+impl From<u32> for Uarts {
+    fn from(value: u32) -> Self {
+        match value {
+            2 => Uarts::Uart2,
+            3 => Uarts::Uart3,
+            4 => Uarts::Uart4,
+            5 => Uarts::Uart5,
+            _ => panic!("Invalid Uart"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Pin {
-    tx_pin: u32,
-    tx_alt: super::gpio::GpioFunction,
-    tx_bias: PullMode,
+    pin: u32,
+    alt: GpioFunction,
+    bias: PullMode,
+}
 
-    rx_pin: u32,
-    rx_alt: super::gpio::GpioFunction,
-    rx_bias: PullMode,
+impl Pin {
+    pub fn new(pin: u32, alt: GpioFunction, bias: PullMode) -> Self {
+        Self { pin, alt, bias }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PinUart {
+    tx: Pin,
+    rx: Pin,
 
     irq: u16,
     base_addr: usize,
 }
 
+impl PinUart {
+    pub fn new(tx: Pin, rx: Pin, irq: u16, base_addr: usize) -> Self {
+        Self {
+            tx,
+            rx,
+            irq,
+            base_addr,
+        }
+    }
+}
+
 #[derive(Debug)]
 struct UartsInfo {
-    uart2: Option<Pin>,
-    uart3: Option<Pin>,
-    uart4: Option<Pin>,
-    uart5: Option<Pin>,
+    uart2: Option<PinUart>,
+    uart3: Option<PinUart>,
+    uart4: Option<PinUart>,
+    uart5: Option<PinUart>,
 }
 
 static UARTS_INFO: Mutex<UartsInfo> = Mutex::new(UartsInfo::new());
@@ -62,30 +93,17 @@ impl UartsInfo {
     }
 }
 
-pub unsafe fn set_uart_info(
-    uarts: Uarts,
-    tx_pin: u32,
-    tx_alt: GpioFunction,
-    tx_bias: PullMode,
-    rx_pin: u32,
-    rx_alt: GpioFunction,
-    rx_bias: PullMode,
-    irq: u16,
-    base_addr: usize,
-) {
+/// Set the UARTs pins.
+///
+/// # Safety
+///
+/// These information must be correct.
+/// It means that the information must be the same as the one in the device tree.
+pub unsafe fn set_uart_info(uarts: Uarts, pin: PinUart) {
     let mut node = MCSNode::new();
     let mut guard = UARTS_INFO.lock(&mut node);
 
-    let pin = Some(Pin {
-        tx_pin,
-        tx_alt,
-        tx_bias,
-        rx_pin,
-        rx_alt,
-        rx_bias,
-        irq,
-        base_addr,
-    });
+    let pin = Some(pin);
 
     match uarts {
         Uarts::Uart2 => {
@@ -103,6 +121,12 @@ pub unsafe fn set_uart_info(
     }
 }
 
+/// Set UART's clock.
+///
+/// # Safety
+///
+/// This function must be called before any UART is initialized.
+/// The clock must be the same as the one in the device tree.
 pub unsafe fn set_uart_clock(clock: usize) {
     UART_CLOCK.store(clock, Ordering::Relaxed);
 }
@@ -132,13 +156,13 @@ impl Uart {
             Uarts::Uart5 => guard.uart5.take().ok_or(UartError::InUse)?,
         };
 
-        let tx = GpioPin::new(pin.tx_pin)
+        let tx = GpioPin::new(pin.tx.pin)
             .or(Err(UartError::InUse))?
-            .into_alt(pin.tx_alt, pin.tx_bias)
+            .into_alt(pin.tx.alt, pin.tx.bias)
             .unwrap();
-        let rx = GpioPin::new(pin.rx_pin)
+        let rx = GpioPin::new(pin.rx.pin)
             .or(Err(UartError::InUse))?
-            .into_alt(pin.rx_alt, pin.rx_bias)
+            .into_alt(pin.rx.alt, pin.rx.bias)
             .unwrap();
 
         let mut pl011 = PL011::new(pin.base_addr, pin.irq);
