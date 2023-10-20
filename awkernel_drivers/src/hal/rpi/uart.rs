@@ -181,6 +181,14 @@ impl Uart {
 
         Ok(uart)
     }
+
+    pub fn get_gpio_pins(&self) -> (u32, u32) {
+        (self.pin.tx.pin, self.pin.rx.pin)
+    }
+
+    pub fn get_irq(&self) -> u16 {
+        self.pin.irq
+    }
 }
 
 impl Drop for Uart {

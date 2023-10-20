@@ -10,6 +10,7 @@ log = "0.4"
 bitflags = "2.3"
 fontdue = "0.7.3"
 embedded-io = "0.6"
+embedded-hal = "1.0.0-rc.1"
 
 [dependencies.x86_64]
 version = "0.14"
@@ -28,10 +29,6 @@ default-features = false
 [dependencies.awkernel_aarch64]
 path = "../awkernel_aarch64"
 optional = true
-
-
-[dependencies.embedded-hal]
-version = "1.0.0-rc.1"
 
 [dependencies.smoltcp]
 version = "0.10.0"
