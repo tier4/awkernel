@@ -246,26 +246,35 @@ impl Raspi {
 
         // Raspberry Pi 4 has 5 UARTs.
         for i in 2..=5 {
-            let Ok(uart_arrayed_node) = self
-                .get_device_from_symbols(&format!("uart{}", i)) else { continue };
+            let Ok(uart_arrayed_node) = self.get_device_from_symbols(&format!("uart{}", i)) else {
+                continue;
+            };
 
             // Get the base address.
-            let Ok(base_addr) = uart_arrayed_node.get_address(0) else { continue };
+            let Ok(base_addr) = uart_arrayed_node.get_address(0) else {
+                continue;
+            };
 
             let uart_node = uart_arrayed_node.get_leaf_node().unwrap();
 
             // Get IRQ#.
-            let Some(interrupts_prop) = uart_node.get_property("interrupts") else { continue };
+            let Some(interrupts_prop) = uart_node.get_property("interrupts") else {
+                continue;
+            };
 
             let interrupts = match interrupts_prop.value() {
                 PropertyValue::Integers(ints) => ints,
                 _ => continue,
             };
 
-            let Some(irq) = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts) else { continue };
+            let Some(irq) = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts) else {
+                continue;
+            };
 
             // Get the compatible property.
-            let Some(compatible_prop) = uart_node.get_property("compatible") else { continue };
+            let Some(compatible_prop) = uart_node.get_property("compatible") else {
+                continue;
+            };
 
             let compatibles = match compatible_prop.value() {
                 PropertyValue::Strings(v) => v,
@@ -277,13 +286,19 @@ impl Raspi {
                 continue;
             }
 
-            let Ok(pins_arrayed_node) = self
-                .get_device_from_symbols(&format!("uart{}_pins", i)) else { continue };
+            let Ok(pins_arrayed_node) = self.get_device_from_symbols(&format!("uart{}_pins", i))
+            else {
+                continue;
+            };
 
-            let Some(pins_node) = pins_arrayed_node.get_leaf_node() else { continue };
+            let Some(pins_node) = pins_arrayed_node.get_leaf_node() else {
+                continue;
+            };
 
             // Get the brcm,pins property.
-            let Some(pins) = pins_node.get_property("brcm,pins") else { continue };
+            let Some(pins) = pins_node.get_property("brcm,pins") else {
+                continue;
+            };
 
             let (tx_gpio, rx_gpio) = match pins.value() {
                 PropertyValue::Integers(v) => {
@@ -296,14 +311,18 @@ impl Raspi {
             };
 
             // Get the brcm,function property.
-            let Some(function) = pins_node.get_property("brcm,function") else { continue };
+            let Some(function) = pins_node.get_property("brcm,function") else {
+                continue;
+            };
             let alt = match function.value() {
                 PropertyValue::Integer(v) => hal::rpi::gpio::GpioFunction::from(*v as u32),
                 _ => continue,
             };
 
             // Get the brcm,pull property.
-            let Some(pull_mode) = pins_node.get_property("brcm,pull") else { continue };
+            let Some(pull_mode) = pins_node.get_property("brcm,pull") else {
+                continue;
+            };
             let (tx_pull, rx_pull) = match pull_mode.value() {
                 PropertyValue::Integers(v) => {
                     if v.len() != 2 {
