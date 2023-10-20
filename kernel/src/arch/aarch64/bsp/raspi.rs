@@ -66,6 +66,7 @@ impl super::SoC for Raspi {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt_fields()?;
         self.init_uart0()?;
+        self.init_uarts();
 
         set_max_affinity(4, 0, 0, 0);
 
@@ -235,6 +236,8 @@ impl Raspi {
             .get_arrayed_node(abs_path)
             .or(Err(err_msg!("invalid path")))
     }
+
+    fn init_uarts(&mut self) {}
 
     fn init_uart0(&mut self) -> Result<(), &'static str> {
         let uart0_arrayed_node = self

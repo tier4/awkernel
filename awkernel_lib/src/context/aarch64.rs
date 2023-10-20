@@ -123,9 +123,10 @@ extern "C" {
 
 global_asm!(
     "
+.global entry_point
 entry_point:
-   mov     x0, x19
-   blr     x20
+    mov     x0, x19
+    blr     x20
 1:
     wfi
     b       1b

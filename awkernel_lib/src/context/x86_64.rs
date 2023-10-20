@@ -71,6 +71,7 @@ extern "C" {
 
 global_asm!(
     "
+.global entry_point
 entry_point:
     mov  rdi, r12
     call r13

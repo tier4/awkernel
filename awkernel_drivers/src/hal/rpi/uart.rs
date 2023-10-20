@@ -121,7 +121,7 @@ impl embedded_io::Error for UartError {
 }
 
 impl Uart {
-    fn new(uarts: Uarts, baudrate: usize) -> Result<Self, UartError> {
+    pub fn new(uarts: Uarts, baudrate: usize) -> Result<Self, UartError> {
         let mut node = MCSNode::new();
         let mut guard = UARTS_INFO.lock(&mut node);
 
