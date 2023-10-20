@@ -138,7 +138,7 @@ impl Uart {
             .unwrap();
         let rx = GpioPin::new(pin.rx_pin)
             .or(Err(UartError::InUse))?
-            .into_alt(pin.tx_alt, pin.rx_bias)
+            .into_alt(pin.rx_alt, pin.rx_bias)
             .unwrap();
 
         let mut pl011 = PL011::new(pin.base_addr, pin.irq);
