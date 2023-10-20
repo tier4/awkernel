@@ -4,6 +4,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod pwm;
 pub mod spi;
+pub mod uart;
 
 /// Wait N CPU cycles
 fn wait_cycles(n: usize) {
