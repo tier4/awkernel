@@ -112,8 +112,8 @@ impl DeviceInfo {
     /// Get the information for PCIe device
     fn from_addr(addr: u64) -> Option<DeviceInfo> {
         let vendor = unsafe { read_volatile(addr as *const u16) };
-        let id = unsafe { read_volatile((addr + 0x2) as *const u16) };
-        let header_type = unsafe { read_volatile((addr + 0xF) as *const u8) };
+        let id = unsafe { read_volatile((addr + 0x02) as *const u16) };
+        let header_type = unsafe { read_volatile((addr + 0x0e) as *const u8) };
 
         if id == !0 || vendor == !0 {
             None
