@@ -9,7 +9,6 @@ pub mod interrupt_controller;
 pub mod net;
 pub mod uart;
 
-#[cfg(all(feature = "x86", not(feature = "std")))]
 pub mod pcie;
 
 #[cfg(feature = "aarch64")]

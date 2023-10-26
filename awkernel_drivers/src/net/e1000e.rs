@@ -1,16 +1,19 @@
 use crate::pcie::{DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::vec::Vec;
-use awkernel_lib::arch::x86_64::mmu::map_to;
-use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
-use awkernel_lib::net::NetDevice;
-use core::hint::spin_loop;
-use core::mem::size_of;
-use core::ptr::{read_volatile, write_bytes, write_volatile};
-use core::sync::atomic::fence;
-use core::sync::atomic::Ordering::SeqCst;
-use core::{fmt, slice};
-use x86_64::structures::paging::{FrameAllocator, OffsetPageTable, PageTableFlags, PhysFrame};
-use x86_64::{PhysAddr, VirtAddr};
+use awkernel_lib::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
+    memory::Flags,
+    net::NetDevice,
+    paging::{Frame, FrameAllocator, PageTable},
+};
+use core::{
+    fmt,
+    hint::spin_loop,
+    mem::size_of,
+    ptr::{read_volatile, write_bytes, write_volatile},
+    slice,
+    sync::atomic::{fence, Ordering::SeqCst},
+};
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -72,6 +75,68 @@ impl fmt::Display for E1000EDriverErr {
     }
 }
 
+impl E1000E {
+    pub fn new<F, FA>(
+        info: &DeviceInfo,
+        phys_offset: usize,
+        page_table: &mut impl PageTable<F, FA, ()>,
+        page_allocator: &mut FA,
+        page_size: u64,
+    ) -> Result<Self, PCIeDeviceErr>
+    where
+        F: Frame,
+        FA: FrameAllocator<F, ()>,
+    {
+        let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
+        let register_start = (bar0 as usize) & 0xFFFFFFF0;
+        let info = *info;
+
+        // allocate virtual memory for register space
+        Self::map_register_space(register_start, page_table, page_allocator, page_size)?;
+
+        // allocate send and recv descriptor ring
+        let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
+        let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
+        let (tx_ring_va, tx_ring_pa) = Self::create_ring(phys_offset, page_allocator, page_size)?;
+        let (rx_ring_va, rx_ring_pa) = Self::create_ring(phys_offset, page_allocator, page_size)?;
+        let tx_ring = unsafe {
+            slice::from_raw_parts_mut(tx_ring_va.as_usize() as *mut TxDescriptor, tx_ring_len)
+        };
+        let rx_ring = unsafe {
+            slice::from_raw_parts_mut(rx_ring_va.as_usize() as *mut RxDescriptor, rx_ring_len)
+        };
+
+        let mut rx_bufs = Vec::new();
+        let mut tx_bufs = Vec::new();
+
+        // allocate buffer for descriptors
+        for tx_desc in tx_ring.iter_mut() {
+            let (buf_va, buf_pa) = Self::allocate_buffer(phys_offset, page_allocator)?;
+            tx_desc.buf = buf_pa.as_usize() as u64;
+            tx_desc.status |= 1;
+            tx_bufs.push(buf_va);
+        }
+
+        for rx_desc in rx_ring.iter_mut() {
+            let (buf_va, buf_pa) = Self::allocate_buffer(phys_offset, page_allocator)?;
+            rx_desc.buf = buf_pa.as_usize() as u64;
+            rx_bufs.push(buf_va);
+        }
+
+        Ok(Self {
+            register_start,
+            info,
+            page_size: page_size as usize,
+            rx_ring,
+            rx_ring_pa: rx_ring_pa.as_usize() as u64,
+            rx_bufs,
+            tx_ring,
+            tx_ring_pa: tx_ring_pa.as_usize() as u64,
+            tx_bufs,
+        })
+    }
+}
+
 //===========================================================================
 impl PCIeDevice for E1000E {
     const REG_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
@@ -93,64 +158,6 @@ impl PCIeDevice for E1000E {
         }
 
         Ok(())
-    }
-
-    fn new<T>(
-        info: &DeviceInfo,
-        page_table: &mut OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
-        page_size: u64,
-    ) -> Result<Self, PCIeDeviceErr>
-    where
-        T: Iterator<Item = PhysFrame> + Send,
-    {
-        let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
-        let register_start = (bar0 as usize) & 0xFFFFFFF0;
-        let info = *info;
-
-        // allocate virtual memory for register space
-        Self::map_register_space(register_start, page_table, page_allocator, page_size)?;
-
-        // allocate send and recv descriptor ring
-        let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
-        let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
-        let (tx_ring_va, tx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size)?;
-        let (rx_ring_va, rx_ring_pa) = Self::create_ring(page_table, page_allocator, page_size)?;
-        let tx_ring = unsafe {
-            slice::from_raw_parts_mut(tx_ring_va.as_u64() as *mut TxDescriptor, tx_ring_len)
-        };
-        let rx_ring = unsafe {
-            slice::from_raw_parts_mut(rx_ring_va.as_u64() as *mut RxDescriptor, rx_ring_len)
-        };
-
-        let mut rx_bufs = Vec::new();
-        let mut tx_bufs = Vec::new();
-
-        // allocate buffer for descriptors
-        for tx_desc in tx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator)?;
-            tx_desc.buf = buf_pa.as_u64();
-            tx_desc.status |= 1;
-            tx_bufs.push(buf_va);
-        }
-
-        for rx_desc in rx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(page_table, page_allocator)?;
-            rx_desc.buf = buf_pa.as_u64();
-            rx_bufs.push(buf_va);
-        }
-
-        Ok(Self {
-            register_start,
-            info,
-            page_size: page_size as usize,
-            rx_ring,
-            rx_ring_pa: rx_ring_pa.as_u64(),
-            rx_bufs,
-            tx_ring,
-            tx_ring_pa: tx_ring_pa.as_u64(),
-            tx_bufs,
-        })
     }
 }
 
@@ -306,20 +313,34 @@ impl E1000E {
     }
 
     /// Create the memory map for e1000e's register space
-    fn map_register_space<T>(
+    fn map_register_space<F, FA>(
         register_start: usize,
-        page_table: &mut OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
+        page_table: &mut impl PageTable<F, FA, ()>,
+        page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<(), E1000EDriverErr>
     where
-        T: Iterator<Item = PhysFrame> + Send,
+        F: Frame,
+        FA: FrameAllocator<F, ()>,
     {
         let mut start = register_start;
         let end = start + Self::REG_SPACE_SIZE as usize;
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+
+        let flags = Flags {
+            execute: false,
+            write: true,
+            cache: false,
+        };
+
         while start < end {
-            if !unsafe { map_to(start, start, flags, page_table, page_allocator) } {
+            let phy_addr = PhyAddr::new(start);
+            let virt_addr = VirtAddr::new(start);
+
+            if !unsafe {
+                page_table
+                    .map_to(phy_addr, virt_addr, flags, page_allocator)
+                    .is_err()
+            } {
                 return Err(E1000EDriverErr::MemoryMapFailure);
             }
             start += page_size as usize;
@@ -328,46 +349,50 @@ impl E1000E {
     }
 
     /// Allocate the buffer space for e1000e's rx_ring
-    fn allocate_buffer<T>(
-        page_table: &OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
-    ) -> Result<(VirtAddr, PhysAddr), E1000EDriverErr>
+    fn allocate_buffer<F, FA>(
+        phys_offset: usize,
+        page_allocator: &mut FA,
+    ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
-        T: Iterator<Item = PhysFrame> + Send,
+        F: Frame,
+        FA: FrameAllocator<F, ()>,
     {
-        let buffer_pa = if let Some(frame) = page_allocator.allocate_frame() {
+        let buffer_pa = if let Ok(frame) = page_allocator.allocate_frame() {
             frame.start_address()
         } else {
             return Err(E1000EDriverErr::MemoryMapFailure);
         };
-        let buffer_va = page_table.phys_offset() + buffer_pa.as_u64();
+
+        let buffer_va = VirtAddr::new(phys_offset + buffer_pa.as_usize());
+
         Ok((buffer_va, buffer_pa))
     }
 
     /// Create Receive and Transmit Buffer
-    fn create_ring<T>(
-        page_table: &OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
+    fn create_ring<F, FA>(
+        phys_offset: usize,
+        page_allocator: &mut FA,
         page_size: u64,
-    ) -> Result<(VirtAddr, PhysAddr), E1000EDriverErr>
+    ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
-        T: Iterator<Item = PhysFrame> + Send,
+        F: Frame,
+        FA: FrameAllocator<F, ()>,
     {
-        let frame = if let Some(frame) = page_allocator.allocate_frame() {
+        let frame = if let Ok(frame) = page_allocator.allocate_frame() {
             frame
         } else {
             return Err(E1000EDriverErr::MemoryMapFailure);
         };
 
         let ring_pa = frame.start_address();
-        let ring_va = page_table.phys_offset() + ring_pa.as_u64();
+        let ring_va = phys_offset + ring_pa.as_usize();
 
         // clear the ring
         unsafe {
-            write_bytes(ring_va.as_u64() as *mut u8, 0, page_size as usize);
+            write_bytes(ring_va as *mut u8, 0, page_size as usize);
         }
 
-        Ok((ring_va, ring_pa))
+        Ok((VirtAddr::new(ring_va), ring_pa))
     }
 
     /// Volatile write the certain register

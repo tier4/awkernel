@@ -61,7 +61,7 @@ impl PageTableEntry {
     where
         FA: FrameAllocator<PhyAddr>,
     {
-        let ptr = allocator.allocate_frame()?.to_usize() as *mut u64;
+        let ptr = allocator.allocate_frame()?.as_usize() as *mut u64;
 
         let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
         for e in entries.iter_mut() {
@@ -72,7 +72,7 @@ impl PageTableEntry {
     }
 
     fn from_addr(addr: PhyAddr) -> Self {
-        let ptr = addr.to_usize() as *mut u64;
+        let ptr = addr.as_usize() as *mut u64;
         let entries = unsafe { slice::from_raw_parts_mut(ptr, ENTRY_COUNT) };
         Self { entries }
     }
@@ -117,9 +117,9 @@ impl PageTable {
 
     fn get_idx(addr: VirtAddr, level: PageTableLevel) -> usize {
         match level {
-            PageTableLevel::Lv1 => ((addr.to_usize() as u64 >> 30) & Self::IDX_MASK) as usize,
-            PageTableLevel::Lv2 => ((addr.to_usize() as u64 >> 21) & Self::IDX_MASK) as usize,
-            PageTableLevel::Lv3 => ((addr.to_usize() as u64 >> 12) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv1 => ((addr.as_usize() as u64 >> 30) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv2 => ((addr.as_usize() as u64 >> 21) & Self::IDX_MASK) as usize,
+            PageTableLevel::Lv3 => ((addr.as_usize() as u64 >> 12) & Self::IDX_MASK) as usize,
         }
     }
 
@@ -157,7 +157,7 @@ impl PageTable {
         }
 
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let e = phy_addr.to_usize() as u64 & !0xfff | flag;
+        let e = phy_addr.as_usize() as u64 & !0xfff | flag;
         let ptr = &mut lv3_table[lv3_idx];
 
         unsafe { write_volatile(ptr, e) };
@@ -187,7 +187,7 @@ impl PageTable {
         };
 
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let e = phy_addr.to_usize() as u64 & !0xfff | flag;
+        let e = phy_addr.as_usize() as u64 & !0xfff | flag;
         let ptr = &mut lv3_table[lv3_idx];
 
         unsafe { write_volatile(ptr, e) };
@@ -244,7 +244,7 @@ impl PageTable {
         let ptr = &lv3_table[lv3_idx];
         let val = unsafe { read_volatile(ptr) };
         let high = (val >> 12) & 0xfffffff; // PA[39:12]
-        let low = vm_addr.to_usize() as u64 & 0xfff; // PA[11:0]
+        let low = vm_addr.as_usize() as u64 & 0xfff; // PA[11:0]
 
         Some(PhyAddr::new((high << 16 | low) as usize))
     }

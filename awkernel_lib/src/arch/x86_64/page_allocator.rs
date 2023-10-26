@@ -3,7 +3,7 @@ use bootloader_api::BootInfo;
 use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
     registers::control::Cr3,
-    structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
+    structures::paging::{FrameAllocator, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB},
     VirtAddr,
 };
 
@@ -47,6 +47,32 @@ where
         let mut node = MCSNode::new();
         let mut guard = self.frames.lock(&mut node);
         guard.next()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Frame {
+    frame: PhysFrame<Size4KiB>,
+}
+
+impl crate::paging::Frame for Frame {
+    fn start_address(&self) -> crate::addr::phy_addr::PhyAddr {
+        crate::addr::phy_addr::PhyAddr::new(self.frame.start_address().as_u64() as usize)
+    }
+
+    fn size(&self) -> usize {
+        self.frame.size() as usize
+    }
+}
+
+impl<'a, T> crate::paging::FrameAllocator<Frame, ()> for PageAllocator<'a, T>
+where
+    T: Iterator<Item = PhysFrame> + Send,
+{
+    fn allocate_frame(&mut self) -> Result<Frame, ()> {
+        let mut node = MCSNode::new();
+        let mut guard = self.frames.lock(&mut node);
+        guard.next().map(|frame| Frame { frame }).ok_or(())
     }
 }
 

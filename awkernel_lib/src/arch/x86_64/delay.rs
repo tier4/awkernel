@@ -1,11 +1,14 @@
 use super::{acpi::AcpiMapper, page_allocator::PageAllocator};
 use crate::{
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     delay::{uptime, wait_forever, Delay},
+    memory::Flags,
     mmio_r, mmio_rw,
+    paging::PageTable,
 };
 use acpi::AcpiTables;
 use core::ptr::{read_volatile, write_volatile};
-use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
+use x86_64::structures::paging::PhysFrame;
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
 mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
@@ -62,7 +65,7 @@ impl Delay for super::X86 {
 
 pub(super) fn init<T>(
     acpi: &AcpiTables<AcpiMapper>,
-    page_table: &mut OffsetPageTable<'static>,
+    page_table: &mut super::page_table::PageTable,
     page_allocator: &mut PageAllocator<T>,
 ) where
     T: Iterator<Item = PhysFrame> + Send,
@@ -75,14 +78,22 @@ pub(super) fn init<T>(
     }
 
     let base = hpet_info.base_address;
+    let phy_base = PhyAddr::new(base);
+    let virt_base = VirtAddr::new(base);
 
     log::info!("HPET base addres: 0x{:x}", base);
 
-    let flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
-        | PageTableFlags::NO_EXECUTE
-        | PageTableFlags::NO_CACHE;
-    if !unsafe { super::mmu::map_to(base, base, flags, page_table, page_allocator) } {
+    let flags = Flags {
+        write: true,
+        execute: false,
+        cache: false,
+    };
+
+    if !unsafe {
+        page_table
+            .map_to(phy_base, virt_base, flags, page_allocator)
+            .is_err()
+    } {
         log::error!("Failed to map HPET's memory region.");
         wait_forever();
     }

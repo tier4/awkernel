@@ -1,14 +1,14 @@
 use alloc::boxed::Box;
 use awkernel_lib::{
-    arch::x86_64::{mmu, page_allocator::PageAllocator},
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+    arch::x86_64::page_allocator::PageAllocator,
     delay::wait_forever,
     interrupt::InterruptController,
+    memory::Flags,
+    paging::PageTable,
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug};
-use x86_64::{
-    registers::model_specific::Msr,
-    structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame},
-};
+use x86_64::{registers::model_specific::Msr, structures::paging::PhysFrame};
 
 pub mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -94,7 +94,7 @@ pub trait Apic {
 }
 
 pub fn new<T>(
-    page_table: &mut OffsetPageTable<'static>,
+    page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
     page_allocator: &mut PageAllocator<T>,
 ) -> TypeApic
 where
@@ -118,15 +118,24 @@ where
     let is_bsp = (value & (1 << 8)) != 0;
     let apic_base = (value & 0xFFFF_F000) as usize;
 
+    let phy_base = PhyAddr::new(apic_base);
+    let virt_base = VirtAddr::new(apic_base);
+
     if value & registers::ENABLE_X2APIC == 0 {
         log::info!("APIC base address = 0x{:x}", apic_base);
     }
 
-    let flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
-        | PageTableFlags::NO_EXECUTE
-        | PageTableFlags::NO_CACHE;
-    if !unsafe { mmu::map_to(apic_base, apic_base, flags, page_table, page_allocator) } {
+    let flags = Flags {
+        write: true,
+        execute: false,
+        cache: false,
+    };
+
+    if !unsafe {
+        page_table
+            .map_to(phy_base, virt_base, flags, page_allocator)
+            .is_err()
+    } {
         log::error!("Failed to map APIC's memory region.");
         wait_forever();
     }

@@ -69,6 +69,7 @@ impl PtrWorkerThreadContext {
                 memory::Flags {
                     execute: false,
                     write: true,
+                    cache: true,
                 },
             )
         };
@@ -141,10 +142,10 @@ impl WorkerThreadContext {
 
 impl Drop for WorkerThreadContext {
     fn drop(&mut self) {
-        if self.stack_mem.to_usize() != 0 {
+        if self.stack_mem.as_usize() != 0 {
             let layout = Layout::from_size_align(self.stack_size, PAGESIZE).unwrap();
             unsafe {
-                awkernel_lib::heap::TALLOC.dealloc(self.stack_mem.to_usize() as *mut u8, layout)
+                awkernel_lib::heap::TALLOC.dealloc(self.stack_mem.as_usize() as *mut u8, layout)
             };
         }
     }

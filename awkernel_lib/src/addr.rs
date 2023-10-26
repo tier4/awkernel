@@ -25,6 +25,8 @@ pub trait Addr:
     + Clone
     + Copy
 {
-    fn to_usize(&self) -> usize;
+    fn as_usize(&self) -> usize;
     fn from_usize(addr: usize) -> Self;
+    fn as_ptr<T>(&self) -> *const T;
+    fn as_mut_ptr<T>(&self) -> *mut T;
 }

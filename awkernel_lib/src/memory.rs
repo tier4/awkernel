@@ -17,6 +17,7 @@ pub const USER_START: usize = 1024 * 1024 * 1024 * 2; // 2 GiB
 pub struct Flags {
     pub execute: bool,
     pub write: bool,
+    pub cache: bool,
 }
 
 pub trait Memory {
