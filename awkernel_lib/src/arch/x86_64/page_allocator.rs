@@ -3,7 +3,7 @@ use bootloader_api::BootInfo;
 use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
     registers::control::Cr3,
-    structures::paging::{FrameAllocator, OffsetPageTable, Page, PageTable, PhysFrame, Size4KiB},
+    structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     VirtAddr,
 };
 

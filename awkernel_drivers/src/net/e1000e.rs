@@ -336,7 +336,7 @@ impl E1000E {
             let phy_addr = PhyAddr::new(start);
             let virt_addr = VirtAddr::new(start);
 
-            if !unsafe {
+            if unsafe {
                 page_table
                     .map_to(phy_addr, virt_addr, flags, page_allocator)
                     .is_err()

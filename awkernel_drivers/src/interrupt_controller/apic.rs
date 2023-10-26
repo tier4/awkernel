@@ -131,7 +131,7 @@ where
         cache: false,
     };
 
-    if !unsafe {
+    if unsafe {
         page_table
             .map_to(phy_base, virt_base, flags, page_allocator)
             .is_err()
