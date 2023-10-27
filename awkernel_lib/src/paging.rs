@@ -5,6 +5,7 @@ use crate::{
 
 pub trait Frame {
     fn start_address(&self) -> PhyAddr;
+    fn set_address(&mut self, addr: PhyAddr);
     fn size(&self) -> usize;
 }
 

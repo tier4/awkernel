@@ -3,37 +3,37 @@
     "tlaplus.tlc.modelChecker.options": "-workers auto",
     "editor.formatOnSave": true,
     // For AArch64
-    // "rust-analyzer.cargo.buildScripts.overrideCommand": [
-    //     "cargo",
-    //     "+nightly",
-    //     "check_no_std",
-    //     "--target=targets/aarch64-kernel.json",
-    // ],
-    // "rust-analyzer.check.overrideCommand": [
-    //     "cargo",
-    //     "+nightly",
-    //     "check_no_std",
-    //     "--target=targets/aarch64-kernel.json",
-    // ],
-    // "rust-analyzer.cargo.features": [
-    //     "raspi"
-    // ],
-    // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
         "+nightly",
         "check_no_std",
-        "--target=targets/x86_64-kernel.json",
+        "--target=targets/aarch64-kernel.json",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
         "+nightly",
         "check_no_std",
-        "--target=targets/x86_64-kernel.json",
+        "--target=targets/aarch64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
-        "x86"
+        "aarch64_virt"
     ],
+    // For x86_64
+    // "rust-analyzer.cargo.buildScripts.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=targets/x86_64-kernel.json",
+    // ],
+    // "rust-analyzer.check.overrideCommand": [
+    //     "cargo",
+    //     "+nightly",
+    //     "check_no_std",
+    //     "--target=targets/x86_64-kernel.json",
+    // ],
+    // "rust-analyzer.cargo.features": [
+    //     "x86"
+    // ],
     // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",

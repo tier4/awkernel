@@ -3,10 +3,10 @@ use awkernel_aarch64::{dmb_sy, id_aa64mmfr0_el1, isb, sctlr_el1};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{
-        page_allocator::PageAllocator,
+        page_allocator::{Page, PageAllocator},
         page_table::{
+            self,
             flags::{self, FLAG_L3_CONT},
-            FrameAllocator, PageTable,
         },
     },
     console::{unsafe_print_hex_u32, unsafe_print_hex_u64, unsafe_puts},
@@ -14,6 +14,7 @@ use awkernel_lib::{
     device_tree::{node::DeviceTreeNode, prop::PropertyValue},
     err_msg,
     memory::PAGESIZE,
+    paging::{Frame, FrameAllocator},
 };
 use core::{alloc::Allocator, arch::asm};
 
@@ -93,7 +94,7 @@ pub struct VM {
     idx_ro: usize,
     ro_ranges: [Option<MemoryRange<PhyAddr>>; NUM_RANGES],
 
-    table0: Option<PageTable>,
+    table0: Option<page_table::PageTable>,
     heap_size: Option<usize>,
 }
 
@@ -322,13 +323,15 @@ impl VM {
         Ok(())
     }
 
-    fn init_memory_map(&mut self) -> Option<()> {
+    fn init_memory_map(&mut self) -> Result<(), ()> {
         let mut allocator = PageAllocator::new();
         for mem in self.heap.iter().flatten() {
-            allocator.push(mem.start, mem.end).ok()?;
+            allocator
+                .push(Page::new(mem.start), Page::new(mem.end))
+                .or(Err(()))?;
         }
 
-        let mut table0 = PageTable::new(&mut allocator)?;
+        let mut table0 = page_table::PageTable::new(&mut allocator)?;
 
         // TEXT.
         let start = get_kernel_start();
@@ -340,7 +343,7 @@ impl VM {
                 0
             };
         for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(
+            table0.map_to_aarch64(
                 VirtAddr::new(addr as usize),
                 PhyAddr::new(addr as usize),
                 flag,
@@ -358,7 +361,7 @@ impl VM {
                 0
             };
         for addr in (start..end).step_by(PAGESIZE) {
-            table0.map_to(
+            table0.map_to_aarch64(
                 VirtAddr::new(addr as usize),
                 PhyAddr::new(addr as usize),
                 flag,
@@ -374,7 +377,7 @@ impl VM {
             addr += PAGESIZE as u64; // canary
 
             for phy_addr in (addr..end).step_by(PAGESIZE) {
-                table0.map_to(
+                table0.map_to_aarch64(
                     VirtAddr::new(phy_addr as usize),
                     PhyAddr::new(phy_addr as usize),
                     flag,
@@ -388,13 +391,13 @@ impl VM {
         // Device memory.
         let flag = device_page_flag();
         for range in self.device_ranges.iter().flatten() {
-            let flag = if (range.end - range.start).to_usize() > PAGESIZE {
+            let flag = if (range.end - range.start).as_usize() > PAGESIZE {
                 flag | FLAG_L3_CONT
             } else {
                 flag
             };
-            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
-                table0.map_to(
+            for addr in (range.start.as_usize()..range.end.as_usize()).step_by(PAGESIZE) {
+                table0.map_to_aarch64(
                     VirtAddr::new(addr),
                     PhyAddr::new(addr),
                     flag,
@@ -406,8 +409,8 @@ impl VM {
         // Read-only memory.
         let flag = kernel_page_flag_ro();
         for range in self.ro_ranges.iter().flatten() {
-            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
-                table0.map_to(
+            for addr in (range.start.as_usize()..range.end.as_usize()).step_by(PAGESIZE) {
+                table0.map_to_aarch64(
                     VirtAddr::new(addr),
                     PhyAddr::new(addr),
                     flag,
@@ -420,14 +423,14 @@ impl VM {
         // This region will be used to manipulate page tables.
         let flag = kernel_page_flag_rw_no_cache() | FLAG_L3_CONT;
         for range in self.heap.into_iter().flatten() {
-            let flag = if (range.end - range.start).to_usize() > PAGESIZE {
+            let flag = if (range.end - range.start).as_usize() > PAGESIZE {
                 flag | FLAG_L3_CONT
             } else {
                 flag
             };
 
-            for addr in (range.start.to_usize()..range.end.to_usize()).step_by(PAGESIZE) {
-                table0.map_to(
+            for addr in (range.start.as_usize()..range.end.as_usize()).step_by(PAGESIZE) {
+                table0.map_to_aarch64(
                     VirtAddr::new(addr),
                     PhyAddr::new(addr),
                     flag,
@@ -439,10 +442,15 @@ impl VM {
         // Heap memory with L3 cache.
         let mut addr = HEAP_START;
         let flag = kernel_page_flag_rw();
-        while let Some(frame) = allocator.allocate_frame() {
+        while let Ok(frame) = allocator.allocate_frame() {
             if table0
-                .map_to(VirtAddr::new(addr), frame, flag, &mut allocator)
-                .is_none()
+                .map_to_aarch64(
+                    VirtAddr::new(addr),
+                    frame.start_address(),
+                    flag,
+                    &mut allocator,
+                )
+                .is_err()
             {
                 break;
             }
@@ -455,7 +463,7 @@ impl VM {
         self.table0 = Some(table0);
         self.heap_size = Some(heap_size);
 
-        Some(())
+        Ok(())
     }
 
     /// Return the length of heap memory.
@@ -476,9 +484,7 @@ impl VM {
         }
 
         self.init_memory_map()
-            .ok_or(err_msg!("failed init_memory_map()"))?; // Initialize TTBR0.
-
-        Ok(())
+            .map_err(|_| err_msg!("failed init_memory_map()"))
     }
 
     pub unsafe fn print(&self) {
@@ -489,9 +495,9 @@ impl VM {
         unsafe fn print_range(range: &Option<MemoryRange<PhyAddr>>) {
             if let Some(r) = range {
                 unsafe_puts("    0x");
-                unsafe_print_hex_u64(r.start.to_usize() as u64);
+                unsafe_print_hex_u64(r.start.as_usize() as u64);
                 unsafe_puts(" - 0x");
-                unsafe_print_hex_u64(r.end.to_usize() as u64);
+                unsafe_print_hex_u64(r.end.as_usize() as u64);
                 unsafe_puts("\r\n");
             }
         }
@@ -539,7 +545,7 @@ fn flush_cpu_cache(mut start: VirtAddr, end: VirtAddr) {
     dmb_sy();
     isb();
     while start < end {
-        unsafe { asm!("dc civac, {}", in(reg) start.to_usize()) };
+        unsafe { asm!("dc civac, {}", in(reg) start.as_usize()) };
         start += pagesize;
     }
     dmb_sy();

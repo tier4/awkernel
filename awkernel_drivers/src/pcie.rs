@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
+use awkernel_lib::sync::mutex::Mutex;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     memory::Flags,
@@ -6,12 +7,12 @@ use awkernel_lib::{
     paging::{Frame, FrameAllocator, PageTable},
     sync::mutex::MCSNode,
 };
-use awkernel_lib::{arch::x86_64::acpi::AcpiMapper, sync::mutex::Mutex};
 use core::{fmt, ptr::read_volatile};
 
-// use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
-// use x86_64::structures::paging::{OffsetPageTable, Page, PageTableFlags, PhysFrame};
+#[cfg(feature = "x86")]
+use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 
+#[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
 use crate::net::e1000e::E1000E;
@@ -37,6 +38,7 @@ impl fmt::Display for PCIeDeviceErr {
 }
 
 /// Initialize the PCIe for ACPI
+#[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT>(
     phys_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
