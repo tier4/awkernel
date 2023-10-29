@@ -18,7 +18,6 @@ pub mod local_heap;
 pub mod logger;
 pub mod mmio;
 pub mod net;
-pub mod paging;
 pub mod sanity;
 pub mod sync;
 pub mod timer;
@@ -32,6 +31,9 @@ pub mod context;
 
 #[cfg(not(feature = "std"))]
 pub mod memory;
+
+#[cfg(not(feature = "std"))]
+pub mod paging;
 
 extern crate alloc;
 

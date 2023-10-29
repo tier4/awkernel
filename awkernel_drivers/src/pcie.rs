@@ -93,6 +93,30 @@ pub fn init_with_acpi<F, FA, PT>(
     }
 }
 
+pub fn init_with_addr<F, FA, PT>(
+    phys_offset: usize,
+    base_address: usize,
+    page_table: &mut PT,
+    page_allocator: &mut FA,
+    page_size: u64,
+    starting_bus: u8,
+) where
+    F: Frame,
+    FA: FrameAllocator<F, ()>,
+    PT: PageTable<F, FA, ()>,
+{
+    for bus in (starting_bus as u32)..256 {
+        scan_devices(
+            phys_offset,
+            bus as u8,
+            base_address,
+            page_table,
+            page_allocator,
+            page_size,
+        );
+    }
+}
+
 /// Scan and initialize the PICe devices
 fn scan_devices<F, FA, PT>(
     phys_offset: usize,

@@ -11,6 +11,9 @@ rlsf = "0.2"
 bitflags = "2.3"
 array-macro = "2.1"
 
+[dev-dependencies]
+loom = "0.7"
+
 [dependencies.libc]
 version = "0.2"
 optional = true
