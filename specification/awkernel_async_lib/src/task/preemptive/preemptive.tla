@@ -13,8 +13,6 @@ variables
     lock_info = [x \in 1..TASK_NUM |-> FALSE];
     lock_future = [x \in 1..TASK_NUM |-> FALSE];
     lock_scheduler = FALSE;
-    lock_PREEMPTED_TASKS = [x \in WORKERS |-> FALSE];
-    lock_NEXT_TASK = [x \in WORKERS |-> FALSE];
     lock_result_context = FALSE;
 
     \* awkernel_async_lib::task::info::in_queue
@@ -162,13 +160,8 @@ procedure preempt_get_next_task(pid)
 variables
     head;
 begin
-    start_preempt_get_next_task:
-        await ~lock_NEXT_TASK[pid];
-        lock_NEXT_TASK[pid] := TRUE;
-
     check_preempt_get_next_task:
         if NEXT_TASK[pid] = <<>> then
-            lock_NEXT_TASK[pid] := FALSE;
             result_next[pid] := -1;
             return;
         end if;
@@ -178,7 +171,6 @@ begin
         NEXT_TASK[pid] := Tail(NEXT_TASK[pid]);
 
     end_preempt_get_next_task:
-        lock_NEXT_TASK[pid] := FALSE;
         result_next[pid] := head;
         return;
 end procedure;
@@ -272,15 +264,8 @@ end procedure;
 
 \* awkernel_async_lib::task::preempt::re_schedule()
 procedure re_schedule(pid) begin
-    lock_preempted_re_schedule:
-        await ~lock_PREEMPTED_TASKS[pid];
-        lock_PREEMPTED_TASKS[pid] := TRUE;
-
     wake_re_schedule:
         call wake_PREEMPTED_TASKS(pid);
-
-    unlock_preempted_re_schedule:
-        lock_PREEMPTED_TASKS[pid] := FALSE;
 
     pool_re_schedule:
         call make_all_threads_pooled(pid);
@@ -398,13 +383,8 @@ begin
         state[task] := "Preempted";
         lock_info[task] := FALSE;
 
-    lock_preempted_yield_preempted_and_wake_task:
-        await ~lock_PREEMPTED_TASKS[pid];
-        lock_PREEMPTED_TASKS[pid] := TRUE;
-
     push_task_yield_preempted_and_wake_task:
         PREEMPTED_TASKS[pid] := <<task>> \o PREEMPTED_TASKS[pid];
-        lock_PREEMPTED_TASKS[pid] := FALSE;
 
     \* context_switch
     context_switch_yield_preempted_and_wake_task:
@@ -634,13 +614,8 @@ begin
     set_thread_do_preemption:
         next_thread := result_thread[pid];
 
-    wait_NEXT_TASK_do_preemption:
-        await ~lock_NEXT_TASK[pid];
-        lock_NEXT_TASK[pid] := TRUE;
-
     push_NEXT_TASK_do_preemption:
         NEXT_TASK[pid] := Append(NEXT_TASK[pid], next_task);
-        lock_NEXT_TASK[pid] := FALSE;
 
     end_do_preemption:
         call yield_preempted_and_wake_task(pid, current_task, next_thread);
@@ -675,38 +650,38 @@ fair process W \in WORKERS begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "6178ebae" /\ chksum(tla) = "e7ed6079")
-\* Label preempt_get_next_task of procedure get_next_task at line 222 col 9 changed to preempt_get_next_task_
-\* Label scheduler_get_next of procedure get_next_task at line 225 col 9 changed to scheduler_get_next_
-\* Procedure variable head of procedure preempt_get_next_task at line 163 col 5 changed to head_
-\* Procedure variable task of procedure wake_PREEMPTED_TASKS at line 236 col 5 changed to task_
-\* Procedure variable current_ctx of procedure yield_and_pool at line 330 col 5 changed to current_ctx_
-\* Procedure variable task of procedure run_main at line 427 col 5 changed to task_r
-\* Procedure variable next_ctx of procedure run_main at line 428 col 5 changed to next_ctx_
-\* Procedure variable next_thread of procedure do_preemption at line 583 col 5 changed to next_thread_
-\* Parameter task of procedure wake_task at line 120 col 21 changed to task_w
-\* Parameter task of procedure wake at line 138 col 16 changed to task_wa
-\* Parameter pid of procedure preempt_get_next_task at line 161 col 33 changed to pid_
-\* Parameter pid of procedure scheduler_get_next at line 187 col 30 changed to pid_s
-\* Parameter pid of procedure get_next_task at line 220 col 25 changed to pid_g
-\* Parameter pid of procedure wake_PREEMPTED_TASKS at line 234 col 32 changed to pid_w
-\* Parameter pid of procedure make_all_threads_pooled at line 254 col 35 changed to pid_m
-\* Parameter pid of procedure re_schedule at line 274 col 23 changed to pid_r
-\* Parameter pid of procedure thread_entry at line 293 col 24 changed to pid_t
-\* Parameter pid of procedure set_exec_state at line 306 col 26 changed to pid_se
-\* Parameter next_ctx of procedure set_exec_state at line 306 col 31 changed to next_ctx_s
-\* Parameter pid of procedure yield_and_pool at line 328 col 26 changed to pid_y
-\* Parameter pid of procedure yield_preempted_and_wake_task at line 367 col 41 changed to pid_yi
-\* Parameter task of procedure yield_preempted_and_wake_task at line 367 col 46 changed to task_y
-\* Parameter pid of procedure run_main at line 425 col 20 changed to pid_ru
-\* Parameter pid of procedure future at line 555 col 18 changed to pid_f
-\* Parameter task of procedure future at line 555 col 23 changed to task_f
+\* BEGIN TRANSLATION (chksum(pcal) = "ea07c6e5" /\ chksum(tla) = "783a6c5e")
+\* Label preempt_get_next_task of procedure get_next_task at line 214 col 9 changed to preempt_get_next_task_
+\* Label scheduler_get_next of procedure get_next_task at line 217 col 9 changed to scheduler_get_next_
+\* Procedure variable head of procedure preempt_get_next_task at line 161 col 5 changed to head_
+\* Procedure variable task of procedure wake_PREEMPTED_TASKS at line 228 col 5 changed to task_
+\* Procedure variable current_ctx of procedure yield_and_pool at line 315 col 5 changed to current_ctx_
+\* Procedure variable task of procedure run_main at line 407 col 5 changed to task_r
+\* Procedure variable next_ctx of procedure run_main at line 408 col 5 changed to next_ctx_
+\* Procedure variable next_thread of procedure do_preemption at line 563 col 5 changed to next_thread_
+\* Parameter task of procedure wake_task at line 118 col 21 changed to task_w
+\* Parameter task of procedure wake at line 136 col 16 changed to task_wa
+\* Parameter pid of procedure preempt_get_next_task at line 159 col 33 changed to pid_
+\* Parameter pid of procedure scheduler_get_next at line 179 col 30 changed to pid_s
+\* Parameter pid of procedure get_next_task at line 212 col 25 changed to pid_g
+\* Parameter pid of procedure wake_PREEMPTED_TASKS at line 226 col 32 changed to pid_w
+\* Parameter pid of procedure make_all_threads_pooled at line 246 col 35 changed to pid_m
+\* Parameter pid of procedure re_schedule at line 266 col 23 changed to pid_r
+\* Parameter pid of procedure thread_entry at line 278 col 24 changed to pid_t
+\* Parameter pid of procedure set_exec_state at line 291 col 26 changed to pid_se
+\* Parameter next_ctx of procedure set_exec_state at line 291 col 31 changed to next_ctx_s
+\* Parameter pid of procedure yield_and_pool at line 313 col 26 changed to pid_y
+\* Parameter pid of procedure yield_preempted_and_wake_task at line 352 col 41 changed to pid_yi
+\* Parameter task of procedure yield_preempted_and_wake_task at line 352 col 46 changed to task_y
+\* Parameter pid of procedure run_main at line 405 col 20 changed to pid_ru
+\* Parameter pid of procedure future at line 535 col 18 changed to pid_f
+\* Parameter task of procedure future at line 535 col 23 changed to task_f
 CONSTANT defaultInitValue
-VARIABLES queue, lock_info, lock_future, lock_scheduler, lock_PREEMPTED_TASKS, 
-          lock_NEXT_TASK, lock_result_context, in_queue, need_sched, state, 
-          result_next, result_future, result_context, result_thread, RUNNING, 
-          THREADS_pooled, THREADS_running, THREAD_POOL, PREEMPTED_TASKS, 
-          NEXT_TASK, thread_index, thread_is_new, stored_ctx, stored_task, 
+VARIABLES queue, lock_info, lock_future, lock_scheduler, lock_result_context, 
+          in_queue, need_sched, state, result_next, result_future, 
+          result_context, result_thread, RUNNING, THREADS_pooled, 
+          THREADS_running, THREAD_POOL, PREEMPTED_TASKS, NEXT_TASK, 
+          thread_index, thread_is_new, stored_ctx, stored_task, 
           thread_to_task, task_to_thread, exec_state, preemption_num, 
           wake_other, pc, stack
 
@@ -719,8 +694,7 @@ VARIABLES task_w, task_wa, pid_, head_, pid_s, head, pid_g, pid_w, task_,
           pid_ru, task_r, next_ctx_, pid_f, task_f, pid, current_task, 
           next_task, next_thread_, task
 
-vars == << queue, lock_info, lock_future, lock_scheduler, 
-           lock_PREEMPTED_TASKS, lock_NEXT_TASK, lock_result_context, 
+vars == << queue, lock_info, lock_future, lock_scheduler, lock_result_context, 
            in_queue, need_sched, state, result_next, result_future, 
            result_context, result_thread, RUNNING, THREADS_pooled, 
            THREADS_running, THREAD_POOL, PREEMPTED_TASKS, NEXT_TASK, 
@@ -739,8 +713,6 @@ Init == (* Global variables *)
         /\ lock_info = [x \in 1..TASK_NUM |-> FALSE]
         /\ lock_future = [x \in 1..TASK_NUM |-> FALSE]
         /\ lock_scheduler = FALSE
-        /\ lock_PREEMPTED_TASKS = [x \in WORKERS |-> FALSE]
-        /\ lock_NEXT_TASK = [x \in WORKERS |-> FALSE]
         /\ lock_result_context = FALSE
         /\ in_queue = [x \in 1..TASK_NUM |-> FALSE]
         /\ need_sched = [x \in 1..TASK_NUM |-> FALSE]
@@ -821,7 +793,6 @@ start_wake_task(self) == /\ pc[self] = "start_wake_task"
                          /\ lock_scheduler' = TRUE
                          /\ pc' = [pc EXCEPT ![self] = "lock_wake_task"]
                          /\ UNCHANGED << queue, lock_info, lock_future, 
-                                         lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                          lock_result_context, in_queue, 
                                          need_sched, state, result_next, 
                                          result_future, result_context, 
@@ -848,7 +819,6 @@ lock_wake_task(self) == /\ pc[self] = "lock_wake_task"
                         /\ lock_info' = [lock_info EXCEPT ![task_w[self]] = TRUE]
                         /\ pc' = [pc EXCEPT ![self] = "end_wake_task"]
                         /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                        lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                         lock_result_context, in_queue, 
                                         need_sched, state, result_next, 
                                         result_future, result_context, 
@@ -877,8 +847,7 @@ end_wake_task(self) == /\ pc[self] = "end_wake_task"
                        /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                        /\ task_w' = [task_w EXCEPT ![self] = Head(stack[self]).task_w]
                        /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                       /\ UNCHANGED << lock_future, lock_PREEMPTED_TASKS, 
-                                       lock_NEXT_TASK, lock_result_context, 
+                       /\ UNCHANGED << lock_future, lock_result_context, 
                                        need_sched, state, result_next, 
                                        result_future, result_context, 
                                        result_thread, RUNNING, THREADS_pooled, 
@@ -909,7 +878,6 @@ start_wake(self) == /\ pc[self] = "start_wake"
                                      THEN /\ pc' = [pc EXCEPT ![self] = "wake_but_terminated"]
                                      ELSE /\ pc' = [pc EXCEPT ![self] = "end_wake"]
                     /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                    lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                     lock_result_context, in_queue, need_sched, 
                                     state, result_next, result_future, 
                                     result_context, result_thread, RUNNING, 
@@ -934,7 +902,6 @@ need_sched_wake(self) == /\ pc[self] = "need_sched_wake"
                          /\ task_wa' = [task_wa EXCEPT ![self] = Head(stack[self]).task_wa]
                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                          /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                         lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                          lock_result_context, in_queue, state, 
                                          result_next, result_future, 
                                          result_context, result_thread, 
@@ -962,8 +929,6 @@ wake_but_terminated(self) == /\ pc[self] = "wake_but_terminated"
                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                              /\ UNCHANGED << queue, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -994,7 +959,6 @@ end_wake(self) == /\ pc[self] = "end_wake"
                      /\ task_w' = [task_w EXCEPT ![self] = task_wa[self]]
                   /\ pc' = [pc EXCEPT ![self] = "start_wake_task"]
                   /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                  lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                   lock_result_context, in_queue, need_sched, 
                                   state, result_next, result_future, 
                                   result_context, result_thread, RUNNING, 
@@ -1014,62 +978,20 @@ end_wake(self) == /\ pc[self] = "end_wake"
 wake(self) == start_wake(self) \/ need_sched_wake(self)
                  \/ wake_but_terminated(self) \/ end_wake(self)
 
-start_preempt_get_next_task(self) == /\ pc[self] = "start_preempt_get_next_task"
-                                     /\ ~lock_NEXT_TASK[pid_[self]]
-                                     /\ lock_NEXT_TASK' = [lock_NEXT_TASK EXCEPT ![pid_[self]] = TRUE]
-                                     /\ pc' = [pc EXCEPT ![self] = "check_preempt_get_next_task"]
-                                     /\ UNCHANGED << queue, lock_info, 
-                                                     lock_future, 
-                                                     lock_scheduler, 
-                                                     lock_PREEMPTED_TASKS, 
-                                                     lock_result_context, 
-                                                     in_queue, need_sched, 
-                                                     state, result_next, 
-                                                     result_future, 
-                                                     result_context, 
-                                                     result_thread, RUNNING, 
-                                                     THREADS_pooled, 
-                                                     THREADS_running, 
-                                                     THREAD_POOL, 
-                                                     PREEMPTED_TASKS, 
-                                                     NEXT_TASK, thread_index, 
-                                                     thread_is_new, stored_ctx, 
-                                                     stored_task, 
-                                                     thread_to_task, 
-                                                     task_to_thread, 
-                                                     exec_state, 
-                                                     preemption_num, 
-                                                     wake_other, stack, task_w, 
-                                                     task_wa, pid_, head_, 
-                                                     pid_s, head, pid_g, pid_w, 
-                                                     task_, pid_m, thread, 
-                                                     pid_r, pid_t, ctx, pid_se, 
-                                                     next_ctx_s, pid_y, 
-                                                     next_ctx, current_ctx_, 
-                                                     pid_yi, task_y, 
-                                                     next_thread, current_ctx, 
-                                                     pid_ru, task_r, next_ctx_, 
-                                                     pid_f, task_f, pid, 
-                                                     current_task, next_task, 
-                                                     next_thread_, task >>
-
 check_preempt_get_next_task(self) == /\ pc[self] = "check_preempt_get_next_task"
                                      /\ IF NEXT_TASK[pid_[self]] = <<>>
-                                           THEN /\ lock_NEXT_TASK' = [lock_NEXT_TASK EXCEPT ![pid_[self]] = FALSE]
-                                                /\ result_next' = [result_next EXCEPT ![pid_[self]] = -1]
+                                           THEN /\ result_next' = [result_next EXCEPT ![pid_[self]] = -1]
                                                 /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                                                 /\ head_' = [head_ EXCEPT ![self] = Head(stack[self]).head_]
                                                 /\ pid_' = [pid_ EXCEPT ![self] = Head(stack[self]).pid_]
                                                 /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                                            ELSE /\ pc' = [pc EXCEPT ![self] = "pop_preempt_get_next_task"]
-                                                /\ UNCHANGED << lock_NEXT_TASK, 
-                                                                result_next, 
+                                                /\ UNCHANGED << result_next, 
                                                                 stack, pid_, 
                                                                 head_ >>
                                      /\ UNCHANGED << queue, lock_info, 
                                                      lock_future, 
                                                      lock_scheduler, 
-                                                     lock_PREEMPTED_TASKS, 
                                                      lock_result_context, 
                                                      in_queue, need_sched, 
                                                      state, result_future, 
@@ -1106,8 +1028,6 @@ pop_preempt_get_next_task(self) == /\ pc[self] = "pop_preempt_get_next_task"
                                    /\ pc' = [pc EXCEPT ![self] = "end_preempt_get_next_task"]
                                    /\ UNCHANGED << queue, lock_info, 
                                                    lock_future, lock_scheduler, 
-                                                   lock_PREEMPTED_TASKS, 
-                                                   lock_NEXT_TASK, 
                                                    lock_result_context, 
                                                    in_queue, need_sched, state, 
                                                    result_next, result_future, 
@@ -1136,7 +1056,6 @@ pop_preempt_get_next_task(self) == /\ pc[self] = "pop_preempt_get_next_task"
                                                    task >>
 
 end_preempt_get_next_task(self) == /\ pc[self] = "end_preempt_get_next_task"
-                                   /\ lock_NEXT_TASK' = [lock_NEXT_TASK EXCEPT ![pid_[self]] = FALSE]
                                    /\ result_next' = [result_next EXCEPT ![pid_[self]] = head_[self]]
                                    /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                                    /\ head_' = [head_ EXCEPT ![self] = Head(stack[self]).head_]
@@ -1144,7 +1063,6 @@ end_preempt_get_next_task(self) == /\ pc[self] = "end_preempt_get_next_task"
                                    /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                                    /\ UNCHANGED << queue, lock_info, 
                                                    lock_future, lock_scheduler, 
-                                                   lock_PREEMPTED_TASKS, 
                                                    lock_result_context, 
                                                    in_queue, need_sched, state, 
                                                    result_future, 
@@ -1172,8 +1090,7 @@ end_preempt_get_next_task(self) == /\ pc[self] = "end_preempt_get_next_task"
                                                    next_task, next_thread_, 
                                                    task >>
 
-preempt_get_next_task(self) == start_preempt_get_next_task(self)
-                                  \/ check_preempt_get_next_task(self)
+preempt_get_next_task(self) == check_preempt_get_next_task(self)
                                   \/ pop_preempt_get_next_task(self)
                                   \/ end_preempt_get_next_task(self)
 
@@ -1182,8 +1099,6 @@ lock_scheduler_get_next(self) == /\ pc[self] = "lock_scheduler_get_next"
                                  /\ lock_scheduler' = TRUE
                                  /\ pc' = [pc EXCEPT ![self] = "check_scheduler_get_next"]
                                  /\ UNCHANGED << queue, lock_info, lock_future, 
-                                                 lock_PREEMPTED_TASKS, 
-                                                 lock_NEXT_TASK, 
                                                  lock_result_context, in_queue, 
                                                  need_sched, state, 
                                                  result_next, result_future, 
@@ -1223,8 +1138,6 @@ check_scheduler_get_next(self) == /\ pc[self] = "check_scheduler_get_next"
                                                              head >>
                                   /\ UNCHANGED << queue, lock_info, 
                                                   lock_future, 
-                                                  lock_PREEMPTED_TASKS, 
-                                                  lock_NEXT_TASK, 
                                                   lock_result_context, 
                                                   in_queue, need_sched, state, 
                                                   result_future, 
@@ -1255,8 +1168,6 @@ pop_scheduler_get_next(self) == /\ pc[self] = "pop_scheduler_get_next"
                                 /\ pc' = [pc EXCEPT ![self] = "wait_scheduler_get_next"]
                                 /\ UNCHANGED << lock_info, lock_future, 
                                                 lock_scheduler, 
-                                                lock_PREEMPTED_TASKS, 
-                                                lock_NEXT_TASK, 
                                                 lock_result_context, in_queue, 
                                                 need_sched, state, result_next, 
                                                 result_future, result_context, 
@@ -1286,8 +1197,6 @@ wait_scheduler_get_next(self) == /\ pc[self] = "wait_scheduler_get_next"
                                  /\ pc' = [pc EXCEPT ![self] = "end_scheduler_get_next"]
                                  /\ UNCHANGED << queue, lock_future, 
                                                  lock_scheduler, 
-                                                 lock_PREEMPTED_TASKS, 
-                                                 lock_NEXT_TASK, 
                                                  lock_result_context, in_queue, 
                                                  need_sched, state, 
                                                  result_next, result_future, 
@@ -1323,8 +1232,6 @@ end_scheduler_get_next(self) == /\ pc[self] = "end_scheduler_get_next"
                                 /\ pid_s' = [pid_s EXCEPT ![self] = Head(stack[self]).pid_s]
                                 /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                                 /\ UNCHANGED << queue, lock_future, 
-                                                lock_PREEMPTED_TASKS, 
-                                                lock_NEXT_TASK, 
                                                 lock_result_context, 
                                                 need_sched, result_future, 
                                                 result_context, result_thread, 
@@ -1360,11 +1267,9 @@ preempt_get_next_task_(self) == /\ pc[self] = "preempt_get_next_task_"
                                                                             pid_      |->  pid_[self] ] >>
                                                                         \o stack[self]]
                                 /\ head_' = [head_ EXCEPT ![self] = defaultInitValue]
-                                /\ pc' = [pc EXCEPT ![self] = "start_preempt_get_next_task"]
+                                /\ pc' = [pc EXCEPT ![self] = "check_preempt_get_next_task"]
                                 /\ UNCHANGED << queue, lock_info, lock_future, 
                                                 lock_scheduler, 
-                                                lock_PREEMPTED_TASKS, 
-                                                lock_NEXT_TASK, 
                                                 lock_result_context, in_queue, 
                                                 need_sched, state, result_next, 
                                                 result_future, result_context, 
@@ -1401,8 +1306,6 @@ scheduler_get_next_(self) == /\ pc[self] = "scheduler_get_next_"
                                         /\ UNCHANGED << stack, pid_s, head >>
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -1429,9 +1332,7 @@ end_get_next_task(self) == /\ pc[self] = "end_get_next_task"
                            /\ pid_g' = [pid_g EXCEPT ![self] = Head(stack[self]).pid_g]
                            /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -1468,8 +1369,6 @@ check_wake_PREEMPTED_TASKS(self) == /\ pc[self] = "check_wake_PREEMPTED_TASKS"
                                     /\ UNCHANGED << queue, lock_info, 
                                                     lock_future, 
                                                     lock_scheduler, 
-                                                    lock_PREEMPTED_TASKS, 
-                                                    lock_NEXT_TASK, 
                                                     lock_result_context, 
                                                     in_queue, need_sched, 
                                                     state, result_next, 
@@ -1510,8 +1409,6 @@ pop_wake_PREEMPTED_TASKS(self) == /\ pc[self] = "pop_wake_PREEMPTED_TASKS"
                                   /\ pc' = [pc EXCEPT ![self] = "start_wake_task"]
                                   /\ UNCHANGED << queue, lock_info, 
                                                   lock_future, lock_scheduler, 
-                                                  lock_PREEMPTED_TASKS, 
-                                                  lock_NEXT_TASK, 
                                                   lock_result_context, 
                                                   in_queue, need_sched, state, 
                                                   result_next, result_future, 
@@ -1541,8 +1438,6 @@ end_wake_PREEMPTED_TASKS(self) == /\ pc[self] = "end_wake_PREEMPTED_TASKS"
                                   /\ pc' = [pc EXCEPT ![self] = "check_wake_PREEMPTED_TASKS"]
                                   /\ UNCHANGED << queue, lock_info, 
                                                   lock_future, lock_scheduler, 
-                                                  lock_PREEMPTED_TASKS, 
-                                                  lock_NEXT_TASK, 
                                                   lock_result_context, 
                                                   in_queue, need_sched, state, 
                                                   result_next, result_future, 
@@ -1584,8 +1479,6 @@ check_make_all_threads_pooled(self) == /\ pc[self] = "check_make_all_threads_poo
                                        /\ UNCHANGED << queue, lock_info, 
                                                        lock_future, 
                                                        lock_scheduler, 
-                                                       lock_PREEMPTED_TASKS, 
-                                                       lock_NEXT_TASK, 
                                                        lock_result_context, 
                                                        in_queue, need_sched, 
                                                        state, result_next, 
@@ -1626,8 +1519,6 @@ pop_make_all_threads_pooled(self) == /\ pc[self] = "pop_make_all_threads_pooled"
                                      /\ UNCHANGED << queue, lock_info, 
                                                      lock_future, 
                                                      lock_scheduler, 
-                                                     lock_PREEMPTED_TASKS, 
-                                                     lock_NEXT_TASK, 
                                                      lock_result_context, 
                                                      in_queue, need_sched, 
                                                      state, result_next, 
@@ -1664,8 +1555,6 @@ end_make_all_threads_pooled(self) == /\ pc[self] = "end_make_all_threads_pooled"
                                      /\ UNCHANGED << queue, lock_info, 
                                                      lock_future, 
                                                      lock_scheduler, 
-                                                     lock_PREEMPTED_TASKS, 
-                                                     lock_NEXT_TASK, 
                                                      lock_result_context, 
                                                      in_queue, need_sched, 
                                                      state, result_next, 
@@ -1700,55 +1589,17 @@ make_all_threads_pooled(self) == check_make_all_threads_pooled(self)
                                     \/ pop_make_all_threads_pooled(self)
                                     \/ end_make_all_threads_pooled(self)
 
-lock_preempted_re_schedule(self) == /\ pc[self] = "lock_preempted_re_schedule"
-                                    /\ ~lock_PREEMPTED_TASKS[pid_r[self]]
-                                    /\ lock_PREEMPTED_TASKS' = [lock_PREEMPTED_TASKS EXCEPT ![pid_r[self]] = TRUE]
-                                    /\ pc' = [pc EXCEPT ![self] = "wake_re_schedule"]
-                                    /\ UNCHANGED << queue, lock_info, 
-                                                    lock_future, 
-                                                    lock_scheduler, 
-                                                    lock_NEXT_TASK, 
-                                                    lock_result_context, 
-                                                    in_queue, need_sched, 
-                                                    state, result_next, 
-                                                    result_future, 
-                                                    result_context, 
-                                                    result_thread, RUNNING, 
-                                                    THREADS_pooled, 
-                                                    THREADS_running, 
-                                                    THREAD_POOL, 
-                                                    PREEMPTED_TASKS, NEXT_TASK, 
-                                                    thread_index, 
-                                                    thread_is_new, stored_ctx, 
-                                                    stored_task, 
-                                                    thread_to_task, 
-                                                    task_to_thread, exec_state, 
-                                                    preemption_num, wake_other, 
-                                                    stack, task_w, task_wa, 
-                                                    pid_, head_, pid_s, head, 
-                                                    pid_g, pid_w, task_, pid_m, 
-                                                    thread, pid_r, pid_t, ctx, 
-                                                    pid_se, next_ctx_s, pid_y, 
-                                                    next_ctx, current_ctx_, 
-                                                    pid_yi, task_y, 
-                                                    next_thread, current_ctx, 
-                                                    pid_ru, task_r, next_ctx_, 
-                                                    pid_f, task_f, pid, 
-                                                    current_task, next_task, 
-                                                    next_thread_, task >>
-
 wake_re_schedule(self) == /\ pc[self] = "wake_re_schedule"
                           /\ /\ pid_w' = [pid_w EXCEPT ![self] = pid_r[self]]
                              /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake_PREEMPTED_TASKS",
-                                                                      pc        |->  "unlock_preempted_re_schedule",
+                                                                      pc        |->  "pool_re_schedule",
                                                                       task_     |->  task_[self],
                                                                       pid_w     |->  pid_w[self] ] >>
                                                                   \o stack[self]]
                           /\ task_' = [task_ EXCEPT ![self] = defaultInitValue]
                           /\ pc' = [pc EXCEPT ![self] = "check_wake_PREEMPTED_TASKS"]
                           /\ UNCHANGED << queue, lock_info, lock_future, 
-                                          lock_scheduler, lock_PREEMPTED_TASKS, 
-                                          lock_NEXT_TASK, lock_result_context, 
+                                          lock_scheduler, lock_result_context, 
                                           in_queue, need_sched, state, 
                                           result_next, result_future, 
                                           result_context, result_thread, 
@@ -1769,46 +1620,6 @@ wake_re_schedule(self) == /\ pc[self] = "wake_re_schedule"
                                           pid, current_task, next_task, 
                                           next_thread_, task >>
 
-unlock_preempted_re_schedule(self) == /\ pc[self] = "unlock_preempted_re_schedule"
-                                      /\ lock_PREEMPTED_TASKS' = [lock_PREEMPTED_TASKS EXCEPT ![pid_r[self]] = FALSE]
-                                      /\ pc' = [pc EXCEPT ![self] = "pool_re_schedule"]
-                                      /\ UNCHANGED << queue, lock_info, 
-                                                      lock_future, 
-                                                      lock_scheduler, 
-                                                      lock_NEXT_TASK, 
-                                                      lock_result_context, 
-                                                      in_queue, need_sched, 
-                                                      state, result_next, 
-                                                      result_future, 
-                                                      result_context, 
-                                                      result_thread, RUNNING, 
-                                                      THREADS_pooled, 
-                                                      THREADS_running, 
-                                                      THREAD_POOL, 
-                                                      PREEMPTED_TASKS, 
-                                                      NEXT_TASK, thread_index, 
-                                                      thread_is_new, 
-                                                      stored_ctx, stored_task, 
-                                                      thread_to_task, 
-                                                      task_to_thread, 
-                                                      exec_state, 
-                                                      preemption_num, 
-                                                      wake_other, stack, 
-                                                      task_w, task_wa, pid_, 
-                                                      head_, pid_s, head, 
-                                                      pid_g, pid_w, task_, 
-                                                      pid_m, thread, pid_r, 
-                                                      pid_t, ctx, pid_se, 
-                                                      next_ctx_s, pid_y, 
-                                                      next_ctx, current_ctx_, 
-                                                      pid_yi, task_y, 
-                                                      next_thread, current_ctx, 
-                                                      pid_ru, task_r, 
-                                                      next_ctx_, pid_f, task_f, 
-                                                      pid, current_task, 
-                                                      next_task, next_thread_, 
-                                                      task >>
-
 pool_re_schedule(self) == /\ pc[self] = "pool_re_schedule"
                           /\ /\ pid_m' = [pid_m EXCEPT ![self] = pid_r[self]]
                              /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "make_all_threads_pooled",
@@ -1819,8 +1630,7 @@ pool_re_schedule(self) == /\ pc[self] = "pool_re_schedule"
                           /\ thread' = [thread EXCEPT ![self] = defaultInitValue]
                           /\ pc' = [pc EXCEPT ![self] = "check_make_all_threads_pooled"]
                           /\ UNCHANGED << queue, lock_info, lock_future, 
-                                          lock_scheduler, lock_PREEMPTED_TASKS, 
-                                          lock_NEXT_TASK, lock_result_context, 
+                                          lock_scheduler, lock_result_context, 
                                           in_queue, need_sched, state, 
                                           result_next, result_future, 
                                           result_context, result_thread, 
@@ -1846,8 +1656,7 @@ end_re_schedule(self) == /\ pc[self] = "end_re_schedule"
                          /\ pid_r' = [pid_r EXCEPT ![self] = Head(stack[self]).pid_r]
                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                          /\ UNCHANGED << queue, lock_info, lock_future, 
-                                         lock_scheduler, lock_PREEMPTED_TASKS, 
-                                         lock_NEXT_TASK, lock_result_context, 
+                                         lock_scheduler, lock_result_context, 
                                          in_queue, need_sched, state, 
                                          result_next, result_future, 
                                          result_context, result_thread, 
@@ -1868,10 +1677,8 @@ end_re_schedule(self) == /\ pc[self] = "end_re_schedule"
                                          current_task, next_task, next_thread_, 
                                          task >>
 
-re_schedule(self) == lock_preempted_re_schedule(self)
-                        \/ wake_re_schedule(self)
-                        \/ unlock_preempted_re_schedule(self)
-                        \/ pool_re_schedule(self) \/ end_re_schedule(self)
+re_schedule(self) == wake_re_schedule(self) \/ pool_re_schedule(self)
+                        \/ end_re_schedule(self)
 
 start_thread_entry(self) == /\ pc[self] = "start_thread_entry"
                             /\ THREADS_running' = [THREADS_running EXCEPT ![pid_t[self]] = ctx[self]]
@@ -1880,11 +1687,9 @@ start_thread_entry(self) == /\ pc[self] = "start_thread_entry"
                                                                         pc        |->  "run_main_thread_entry",
                                                                         pid_r     |->  pid_r[self] ] >>
                                                                     \o stack[self]]
-                            /\ pc' = [pc EXCEPT ![self] = "lock_preempted_re_schedule"]
+                            /\ pc' = [pc EXCEPT ![self] = "wake_re_schedule"]
                             /\ UNCHANGED << queue, lock_info, lock_future, 
                                             lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, state, result_next, 
                                             result_future, result_context, 
@@ -1918,8 +1723,6 @@ run_main_thread_entry(self) == /\ pc[self] = "run_main_thread_entry"
                                /\ pc' = [pc EXCEPT ![self] = "start_run_main"]
                                /\ UNCHANGED << queue, lock_info, lock_future, 
                                                lock_scheduler, 
-                                               lock_PREEMPTED_TASKS, 
-                                               lock_NEXT_TASK, 
                                                lock_result_context, in_queue, 
                                                need_sched, state, result_next, 
                                                result_future, result_context, 
@@ -1947,8 +1750,7 @@ end_thread_entry(self) == /\ pc[self] = "end_thread_entry"
                           /\ ctx' = [ctx EXCEPT ![self] = Head(stack[self]).ctx]
                           /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                           /\ UNCHANGED << queue, lock_info, lock_future, 
-                                          lock_scheduler, lock_PREEMPTED_TASKS, 
-                                          lock_NEXT_TASK, lock_result_context, 
+                                          lock_scheduler, lock_result_context, 
                                           in_queue, need_sched, state, 
                                           result_next, result_future, 
                                           result_context, result_thread, 
@@ -2001,8 +1803,6 @@ start_set_exec_state(self) == /\ pc[self] = "start_set_exec_state"
                                          /\ UNCHANGED RUNNING
                               /\ UNCHANGED << queue, lock_info, lock_future, 
                                               lock_scheduler, 
-                                              lock_PREEMPTED_TASKS, 
-                                              lock_NEXT_TASK, 
                                               lock_result_context, in_queue, 
                                               need_sched, state, result_next, 
                                               result_future, result_context, 
@@ -2029,8 +1829,6 @@ end_set_exec_state(self) == /\ pc[self] = "end_set_exec_state"
                             /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                             /\ UNCHANGED << queue, lock_info, lock_future, 
                                             lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, state, result_next, 
                                             result_future, result_context, 
@@ -2068,8 +1866,6 @@ start_yield_and_pool(self) == /\ pc[self] = "start_yield_and_pool"
                                                                     current_ctx_ >>
                               /\ UNCHANGED << queue, lock_info, lock_future, 
                                               lock_scheduler, 
-                                              lock_PREEMPTED_TASKS, 
-                                              lock_NEXT_TASK, 
                                               lock_result_context, in_queue, 
                                               need_sched, state, result_next, 
                                               result_future, result_context, 
@@ -2099,9 +1895,7 @@ lock_result_yield_and_pool(self) == /\ pc[self] = "lock_result_yield_and_pool"
                                     /\ pc' = [pc EXCEPT ![self] = "unlock_result_yield_and_pool"]
                                     /\ UNCHANGED << queue, lock_info, 
                                                     lock_future, 
-                                                    lock_scheduler, 
-                                                    lock_PREEMPTED_TASKS, 
-                                                    lock_NEXT_TASK, in_queue, 
+                                                    lock_scheduler, in_queue, 
                                                     need_sched, state, 
                                                     result_next, result_future, 
                                                     result_thread, RUNNING, 
@@ -2134,9 +1928,7 @@ unlock_result_yield_and_pool(self) == /\ pc[self] = "unlock_result_yield_and_poo
                                       /\ pc' = [pc EXCEPT ![self] = "context_switch_yield_and_pool"]
                                       /\ UNCHANGED << queue, lock_info, 
                                                       lock_future, 
-                                                      lock_scheduler, 
-                                                      lock_PREEMPTED_TASKS, 
-                                                      lock_NEXT_TASK, in_queue, 
+                                                      lock_scheduler, in_queue, 
                                                       need_sched, state, 
                                                       result_next, 
                                                       result_future, 
@@ -2182,8 +1974,6 @@ context_switch_yield_and_pool(self) == /\ pc[self] = "context_switch_yield_and_p
                                        /\ UNCHANGED << queue, lock_info, 
                                                        lock_future, 
                                                        lock_scheduler, 
-                                                       lock_PREEMPTED_TASKS, 
-                                                       lock_NEXT_TASK, 
                                                        lock_result_context, 
                                                        in_queue, need_sched, 
                                                        state, result_next, 
@@ -2221,12 +2011,10 @@ re_schedule_yield_and_pool(self) == /\ pc[self] = "re_schedule_yield_and_pool"
                                                                                 pc        |->  "end_yield_and_pool",
                                                                                 pid_r     |->  pid_r[self] ] >>
                                                                             \o stack[self]]
-                                    /\ pc' = [pc EXCEPT ![self] = "lock_preempted_re_schedule"]
+                                    /\ pc' = [pc EXCEPT ![self] = "wake_re_schedule"]
                                     /\ UNCHANGED << queue, lock_info, 
                                                     lock_future, 
                                                     lock_scheduler, 
-                                                    lock_PREEMPTED_TASKS, 
-                                                    lock_NEXT_TASK, 
                                                     lock_result_context, 
                                                     in_queue, need_sched, 
                                                     state, result_next, 
@@ -2263,8 +2051,6 @@ end_yield_and_pool(self) == /\ pc[self] = "end_yield_and_pool"
                             /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                             /\ UNCHANGED << queue, lock_info, lock_future, 
                                             lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, state, result_next, 
                                             result_future, result_context, 
@@ -2310,8 +2096,6 @@ start_yield_preempted_and_wake_task(self) == /\ pc[self] = "start_yield_preempte
                                              /\ UNCHANGED << queue, lock_info, 
                                                              lock_future, 
                                                              lock_scheduler, 
-                                                             lock_PREEMPTED_TASKS, 
-                                                             lock_NEXT_TASK, 
                                                              lock_result_context, 
                                                              in_queue, 
                                                              need_sched, state, 
@@ -2364,8 +2148,6 @@ lock_result_yield_preempted_and_wake_task(self) == /\ pc[self] = "lock_result_yi
                                                                    lock_info, 
                                                                    lock_future, 
                                                                    lock_scheduler, 
-                                                                   lock_PREEMPTED_TASKS, 
-                                                                   lock_NEXT_TASK, 
                                                                    in_queue, 
                                                                    need_sched, 
                                                                    state, 
@@ -2425,8 +2207,6 @@ unlock_result_yield_preempted_and_wake_task(self) == /\ pc[self] = "unlock_resul
                                                                      lock_info, 
                                                                      lock_future, 
                                                                      lock_scheduler, 
-                                                                     lock_PREEMPTED_TASKS, 
-                                                                     lock_NEXT_TASK, 
                                                                      in_queue, 
                                                                      need_sched, 
                                                                      state, 
@@ -2490,8 +2270,6 @@ lock_task_yield_preempted_and_wake_task(self) == /\ pc[self] = "lock_task_yield_
                                                  /\ UNCHANGED << queue, 
                                                                  lock_future, 
                                                                  lock_scheduler, 
-                                                                 lock_PREEMPTED_TASKS, 
-                                                                 lock_NEXT_TASK, 
                                                                  lock_result_context, 
                                                                  in_queue, 
                                                                  need_sched, 
@@ -2549,8 +2327,6 @@ set_preempted_yield_preempted_and_wake_task(self) == /\ pc[self] = "set_preempte
                                                                      lock_info, 
                                                                      lock_future, 
                                                                      lock_scheduler, 
-                                                                     lock_PREEMPTED_TASKS, 
-                                                                     lock_NEXT_TASK, 
                                                                      lock_result_context, 
                                                                      in_queue, 
                                                                      need_sched, 
@@ -2610,12 +2386,10 @@ set_preempted_yield_preempted_and_wake_task(self) == /\ pc[self] = "set_preempte
 set_state_yield_preempted_and_wake_task(self) == /\ pc[self] = "set_state_yield_preempted_and_wake_task"
                                                  /\ state' = [state EXCEPT ![task_y[self]] = "Preempted"]
                                                  /\ lock_info' = [lock_info EXCEPT ![task_y[self]] = FALSE]
-                                                 /\ pc' = [pc EXCEPT ![self] = "lock_preempted_yield_preempted_and_wake_task"]
+                                                 /\ pc' = [pc EXCEPT ![self] = "push_task_yield_preempted_and_wake_task"]
                                                  /\ UNCHANGED << queue, 
                                                                  lock_future, 
                                                                  lock_scheduler, 
-                                                                 lock_PREEMPTED_TASKS, 
-                                                                 lock_NEXT_TASK, 
                                                                  lock_result_context, 
                                                                  in_queue, 
                                                                  need_sched, 
@@ -2664,82 +2438,13 @@ set_state_yield_preempted_and_wake_task(self) == /\ pc[self] = "set_state_yield_
                                                                  next_thread_, 
                                                                  task >>
 
-lock_preempted_yield_preempted_and_wake_task(self) == /\ pc[self] = "lock_preempted_yield_preempted_and_wake_task"
-                                                      /\ ~lock_PREEMPTED_TASKS[pid_yi[self]]
-                                                      /\ lock_PREEMPTED_TASKS' = [lock_PREEMPTED_TASKS EXCEPT ![pid_yi[self]] = TRUE]
-                                                      /\ pc' = [pc EXCEPT ![self] = "push_task_yield_preempted_and_wake_task"]
-                                                      /\ UNCHANGED << queue, 
-                                                                      lock_info, 
-                                                                      lock_future, 
-                                                                      lock_scheduler, 
-                                                                      lock_NEXT_TASK, 
-                                                                      lock_result_context, 
-                                                                      in_queue, 
-                                                                      need_sched, 
-                                                                      state, 
-                                                                      result_next, 
-                                                                      result_future, 
-                                                                      result_context, 
-                                                                      result_thread, 
-                                                                      RUNNING, 
-                                                                      THREADS_pooled, 
-                                                                      THREADS_running, 
-                                                                      THREAD_POOL, 
-                                                                      PREEMPTED_TASKS, 
-                                                                      NEXT_TASK, 
-                                                                      thread_index, 
-                                                                      thread_is_new, 
-                                                                      stored_ctx, 
-                                                                      stored_task, 
-                                                                      thread_to_task, 
-                                                                      task_to_thread, 
-                                                                      exec_state, 
-                                                                      preemption_num, 
-                                                                      wake_other, 
-                                                                      stack, 
-                                                                      task_w, 
-                                                                      task_wa, 
-                                                                      pid_, 
-                                                                      head_, 
-                                                                      pid_s, 
-                                                                      head, 
-                                                                      pid_g, 
-                                                                      pid_w, 
-                                                                      task_, 
-                                                                      pid_m, 
-                                                                      thread, 
-                                                                      pid_r, 
-                                                                      pid_t, 
-                                                                      ctx, 
-                                                                      pid_se, 
-                                                                      next_ctx_s, 
-                                                                      pid_y, 
-                                                                      next_ctx, 
-                                                                      current_ctx_, 
-                                                                      pid_yi, 
-                                                                      task_y, 
-                                                                      next_thread, 
-                                                                      current_ctx, 
-                                                                      pid_ru, 
-                                                                      task_r, 
-                                                                      next_ctx_, 
-                                                                      pid_f, 
-                                                                      task_f, 
-                                                                      pid, 
-                                                                      current_task, 
-                                                                      next_task, 
-                                                                      next_thread_, 
-                                                                      task >>
-
 push_task_yield_preempted_and_wake_task(self) == /\ pc[self] = "push_task_yield_preempted_and_wake_task"
                                                  /\ PREEMPTED_TASKS' = [PREEMPTED_TASKS EXCEPT ![pid_yi[self]] = <<task_y[self]>> \o PREEMPTED_TASKS[pid_yi[self]]]
-                                                 /\ lock_PREEMPTED_TASKS' = [lock_PREEMPTED_TASKS EXCEPT ![pid_yi[self]] = FALSE]
                                                  /\ pc' = [pc EXCEPT ![self] = "context_switch_yield_preempted_and_wake_task"]
                                                  /\ UNCHANGED << queue, 
                                                                  lock_info, 
                                                                  lock_future, 
                                                                  lock_scheduler, 
-                                                                 lock_NEXT_TASK, 
                                                                  lock_result_context, 
                                                                  in_queue, 
                                                                  need_sched, 
@@ -2804,8 +2509,6 @@ context_switch_yield_preempted_and_wake_task(self) == /\ pc[self] = "context_swi
                                                                       lock_info, 
                                                                       lock_future, 
                                                                       lock_scheduler, 
-                                                                      lock_PREEMPTED_TASKS, 
-                                                                      lock_NEXT_TASK, 
                                                                       lock_result_context, 
                                                                       in_queue, 
                                                                       need_sched, 
@@ -2865,13 +2568,11 @@ re_schedule_yield_preempted_and_wake_task(self) == /\ pc[self] = "re_schedule_yi
                                                                                                pc        |->  "end_yield_preempted_and_wake_task",
                                                                                                pid_r     |->  pid_r[self] ] >>
                                                                                            \o stack[self]]
-                                                   /\ pc' = [pc EXCEPT ![self] = "lock_preempted_re_schedule"]
+                                                   /\ pc' = [pc EXCEPT ![self] = "wake_re_schedule"]
                                                    /\ UNCHANGED << queue, 
                                                                    lock_info, 
                                                                    lock_future, 
                                                                    lock_scheduler, 
-                                                                   lock_PREEMPTED_TASKS, 
-                                                                   lock_NEXT_TASK, 
                                                                    lock_result_context, 
                                                                    in_queue, 
                                                                    need_sched, 
@@ -2933,8 +2634,6 @@ end_yield_preempted_and_wake_task(self) == /\ pc[self] = "end_yield_preempted_an
                                            /\ UNCHANGED << queue, lock_info, 
                                                            lock_future, 
                                                            lock_scheduler, 
-                                                           lock_PREEMPTED_TASKS, 
-                                                           lock_NEXT_TASK, 
                                                            lock_result_context, 
                                                            in_queue, 
                                                            need_sched, state, 
@@ -2978,7 +2677,6 @@ yield_preempted_and_wake_task(self) == start_yield_preempted_and_wake_task(self)
                                           \/ lock_task_yield_preempted_and_wake_task(self)
                                           \/ set_preempted_yield_preempted_and_wake_task(self)
                                           \/ set_state_yield_preempted_and_wake_task(self)
-                                          \/ lock_preempted_yield_preempted_and_wake_task(self)
                                           \/ push_task_yield_preempted_and_wake_task(self)
                                           \/ context_switch_yield_preempted_and_wake_task(self)
                                           \/ re_schedule_yield_preempted_and_wake_task(self)
@@ -3006,8 +2704,7 @@ start_run_main(self) == /\ pc[self] = "start_run_main"
                                                          /\ UNCHANGED task_r
                                               /\ UNCHANGED next_ctx_
                         /\ UNCHANGED << queue, lock_info, lock_future, 
-                                        lock_scheduler, lock_PREEMPTED_TASKS, 
-                                        lock_NEXT_TASK, lock_result_context, 
+                                        lock_scheduler, lock_result_context, 
                                         in_queue, need_sched, state, 
                                         result_next, result_future, 
                                         result_context, result_thread, RUNNING, 
@@ -3034,9 +2731,7 @@ get_next_run_main(self) == /\ pc[self] = "get_next_run_main"
                                                                    \o stack[self]]
                            /\ pc' = [pc EXCEPT ![self] = "preempt_get_next_task_"]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -3063,9 +2758,7 @@ get_task_run_main(self) == /\ pc[self] = "get_task_run_main"
                                  THEN /\ pc' = [pc EXCEPT ![self] = "return_run_main"]
                                  ELSE /\ pc' = [pc EXCEPT ![self] = "lock_task_run_main"]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -3093,8 +2786,7 @@ return_run_main(self) == /\ pc[self] = "return_run_main"
                          /\ pid_ru' = [pid_ru EXCEPT ![self] = Head(stack[self]).pid_ru]
                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                          /\ UNCHANGED << queue, lock_info, lock_future, 
-                                         lock_scheduler, lock_PREEMPTED_TASKS, 
-                                         lock_NEXT_TASK, lock_result_context, 
+                                         lock_scheduler, lock_result_context, 
                                          in_queue, need_sched, state, 
                                          result_next, result_future, 
                                          result_context, result_thread, 
@@ -3123,8 +2815,6 @@ lock_task_run_main(self) == /\ pc[self] = "lock_task_run_main"
                                        /\ state' = state
                             /\ UNCHANGED << queue, lock_info, lock_future, 
                                             lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, result_next, 
                                             result_future, result_context, 
@@ -3158,8 +2848,7 @@ yield_run_main(self) == /\ pc[self] = "yield_run_main"
                         /\ current_ctx_' = [current_ctx_ EXCEPT ![self] = defaultInitValue]
                         /\ pc' = [pc EXCEPT ![self] = "start_yield_and_pool"]
                         /\ UNCHANGED << queue, lock_info, lock_future, 
-                                        lock_scheduler, lock_PREEMPTED_TASKS, 
-                                        lock_NEXT_TASK, lock_result_context, 
+                                        lock_scheduler, lock_result_context, 
                                         in_queue, need_sched, state, 
                                         result_next, result_future, 
                                         result_context, result_thread, RUNNING, 
@@ -3181,9 +2870,7 @@ yield_run_main(self) == /\ pc[self] = "yield_run_main"
 continue_run_main(self) == /\ pc[self] = "continue_run_main"
                            /\ pc' = [pc EXCEPT ![self] = "start_run_main"]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -3218,8 +2905,6 @@ lock_future_run_main(self) == /\ pc[self] = "lock_future_run_main"
                                          /\ pc' = [pc EXCEPT ![self] = "check_run_main"]
                                          /\ UNCHANGED << stack, task_wa >>
                               /\ UNCHANGED << queue, lock_info, lock_scheduler, 
-                                              lock_PREEMPTED_TASKS, 
-                                              lock_NEXT_TASK, 
                                               lock_result_context, in_queue, 
                                               need_sched, state, result_next, 
                                               result_future, result_context, 
@@ -3246,7 +2931,6 @@ check_run_main(self) == /\ pc[self] = "check_run_main"
                         /\ lock_info' = [lock_info EXCEPT ![task_r[self]] = TRUE]
                         /\ pc' = [pc EXCEPT ![self] = "terminated_run_main"]
                         /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                        lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                                         lock_result_context, in_queue, 
                                         need_sched, state, result_next, 
                                         result_future, result_context, 
@@ -3275,8 +2959,6 @@ terminated_run_main(self) == /\ pc[self] = "terminated_run_main"
                                    ELSE /\ pc' = [pc EXCEPT ![self] = "pre_future_run_main"]
                                         /\ UNCHANGED << lock_info, lock_future >>
                              /\ UNCHANGED << queue, lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -3305,8 +2987,6 @@ pre_future_run_main(self) == /\ pc[self] = "pre_future_run_main"
                              /\ pc' = [pc EXCEPT ![self] = "set_task_run_main"]
                              /\ UNCHANGED << queue, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              result_next, result_future, 
                                              result_context, result_thread, 
@@ -3333,26 +3013,25 @@ set_task_run_main(self) == /\ pc[self] = "set_task_run_main"
                            /\ lock_future' = [lock_future EXCEPT ![task_r[self]] = FALSE]
                            /\ pc' = [pc EXCEPT ![self] = "preempt_run_main"]
                            /\ UNCHANGED << queue, lock_info, lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
-                                           in_queue, need_sched, state, 
-                                           result_next, result_future, 
-                                           result_context, result_thread, 
-                                           THREADS_pooled, THREADS_running, 
-                                           THREAD_POOL, PREEMPTED_TASKS, 
-                                           NEXT_TASK, thread_index, 
-                                           thread_is_new, stored_ctx, 
-                                           stored_task, thread_to_task, 
-                                           task_to_thread, exec_state, 
-                                           preemption_num, wake_other, stack, 
-                                           task_w, task_wa, pid_, head_, pid_s, 
-                                           head, pid_g, pid_w, task_, pid_m, 
-                                           thread, pid_r, pid_t, ctx, pid_se, 
-                                           next_ctx_s, pid_y, next_ctx, 
-                                           current_ctx_, pid_yi, task_y, 
-                                           next_thread, current_ctx, pid_ru, 
-                                           task_r, next_ctx_, pid_f, task_f, 
-                                           pid, current_task, next_task, 
+                                           lock_result_context, in_queue, 
+                                           need_sched, state, result_next, 
+                                           result_future, result_context, 
+                                           result_thread, THREADS_pooled, 
+                                           THREADS_running, THREAD_POOL, 
+                                           PREEMPTED_TASKS, NEXT_TASK, 
+                                           thread_index, thread_is_new, 
+                                           stored_ctx, stored_task, 
+                                           thread_to_task, task_to_thread, 
+                                           exec_state, preemption_num, 
+                                           wake_other, stack, task_w, task_wa, 
+                                           pid_, head_, pid_s, head, pid_g, 
+                                           pid_w, task_, pid_m, thread, pid_r, 
+                                           pid_t, ctx, pid_se, next_ctx_s, 
+                                           pid_y, next_ctx, current_ctx_, 
+                                           pid_yi, task_y, next_thread, 
+                                           current_ctx, pid_ru, task_r, 
+                                           next_ctx_, pid_f, task_f, pid, 
+                                           current_task, next_task, 
                                            next_thread_, task >>
 
 preempt_run_main(self) == /\ pc[self] = "preempt_run_main"
@@ -3375,8 +3054,7 @@ preempt_run_main(self) == /\ pc[self] = "preempt_run_main"
                                                      pid, current_task, 
                                                      next_task, next_thread_ >>
                           /\ UNCHANGED << queue, lock_info, lock_future, 
-                                          lock_scheduler, lock_PREEMPTED_TASKS, 
-                                          lock_NEXT_TASK, lock_result_context, 
+                                          lock_scheduler, lock_result_context, 
                                           in_queue, need_sched, state, 
                                           result_next, result_future, 
                                           result_context, result_thread, 
@@ -3400,8 +3078,6 @@ continue_run_main3(self) == /\ pc[self] = "continue_run_main3"
                             /\ pc' = [pc EXCEPT ![self] = "start_run_main"]
                             /\ UNCHANGED << queue, lock_info, lock_future, 
                                             lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, state, result_next, 
                                             result_future, result_context, 
@@ -3438,8 +3114,6 @@ preempt_after_run_main(self) == /\ pc[self] = "preempt_after_run_main"
                                 /\ pc' = [pc EXCEPT ![self] = "start_do_preemption"]
                                 /\ UNCHANGED << queue, lock_info, lock_future, 
                                                 lock_scheduler, 
-                                                lock_PREEMPTED_TASKS, 
-                                                lock_NEXT_TASK, 
                                                 lock_result_context, in_queue, 
                                                 need_sched, state, result_next, 
                                                 result_future, result_context, 
@@ -3466,8 +3140,6 @@ lock_future2_run_main(self) == /\ pc[self] = "lock_future2_run_main"
                                /\ pc' = [pc EXCEPT ![self] = "start_future_run_main"]
                                /\ UNCHANGED << queue, lock_info, 
                                                lock_scheduler, 
-                                               lock_PREEMPTED_TASKS, 
-                                               lock_NEXT_TASK, 
                                                lock_result_context, in_queue, 
                                                need_sched, state, result_next, 
                                                result_future, result_context, 
@@ -3502,8 +3174,6 @@ start_future_run_main(self) == /\ pc[self] = "start_future_run_main"
                                /\ pc' = [pc EXCEPT ![self] = "start_future"]
                                /\ UNCHANGED << queue, lock_info, lock_future, 
                                                lock_scheduler, 
-                                               lock_PREEMPTED_TASKS, 
-                                               lock_NEXT_TASK, 
                                                lock_result_context, in_queue, 
                                                need_sched, state, result_next, 
                                                result_future, result_context, 
@@ -3529,8 +3199,6 @@ end_future_run_main(self) == /\ pc[self] = "end_future_run_main"
                              /\ lock_future' = [lock_future EXCEPT ![task_r[self]] = FALSE]
                              /\ pc' = [pc EXCEPT ![self] = "unset_task_run_main"]
                              /\ UNCHANGED << queue, lock_info, lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -3557,8 +3225,6 @@ unset_task_run_main(self) == /\ pc[self] = "unset_task_run_main"
                              /\ pc' = [pc EXCEPT ![self] = "post_future_run_main"]
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -3591,13 +3257,11 @@ post_future_run_main(self) == /\ pc[self] = "post_future_run_main"
                                     ELSE /\ IF result_future[pid_ru[self]] = "Ready"
                                                THEN /\ state' = [state EXCEPT ![task_r[self]] = "Terminated"]
                                                ELSE /\ Assert((FALSE), 
-                                                              "Failure of assertion at line 538, column 13.")
+                                                              "Failure of assertion at line 518, column 13.")
                                                     /\ state' = state
                                          /\ pc' = [pc EXCEPT ![self] = "continue_run_main2"]
                               /\ UNCHANGED << queue, lock_future, 
                                               lock_scheduler, 
-                                              lock_PREEMPTED_TASKS, 
-                                              lock_NEXT_TASK, 
                                               lock_result_context, in_queue, 
                                               need_sched, result_next, 
                                               result_future, result_context, 
@@ -3631,8 +3295,6 @@ sched_future_run_main(self) == /\ pc[self] = "sched_future_run_main"
                                /\ pc' = [pc EXCEPT ![self] = "start_wake"]
                                /\ UNCHANGED << queue, lock_future, 
                                                lock_scheduler, 
-                                               lock_PREEMPTED_TASKS, 
-                                               lock_NEXT_TASK, 
                                                lock_result_context, in_queue, 
                                                state, result_next, 
                                                result_future, result_context, 
@@ -3659,8 +3321,6 @@ continue_run_main2(self) == /\ pc[self] = "continue_run_main2"
                             /\ lock_info' = [lock_info EXCEPT ![task_r[self]] = FALSE]
                             /\ pc' = [pc EXCEPT ![self] = "start_run_main"]
                             /\ UNCHANGED << queue, lock_future, lock_scheduler, 
-                                            lock_PREEMPTED_TASKS, 
-                                            lock_NEXT_TASK, 
                                             lock_result_context, in_queue, 
                                             need_sched, state, result_next, 
                                             result_future, result_context, 
@@ -3732,8 +3392,7 @@ start_future(self) == /\ pc[self] = "start_future"
                                             /\ UNCHANGED << stack, task_wa >>
                                  /\ UNCHANGED wake_other
                       /\ UNCHANGED << queue, lock_info, lock_future, 
-                                      lock_scheduler, lock_PREEMPTED_TASKS, 
-                                      lock_NEXT_TASK, lock_result_context, 
+                                      lock_scheduler, lock_result_context, 
                                       in_queue, need_sched, state, result_next, 
                                       result_context, result_thread, RUNNING, 
                                       THREADS_pooled, THREADS_running, 
@@ -3757,8 +3416,7 @@ end_future(self) == /\ pc[self] = "end_future"
                     /\ task_f' = [task_f EXCEPT ![self] = Head(stack[self]).task_f]
                     /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                     /\ UNCHANGED << queue, lock_info, lock_future, 
-                                    lock_scheduler, lock_PREEMPTED_TASKS, 
-                                    lock_NEXT_TASK, lock_result_context, 
+                                    lock_scheduler, lock_result_context, 
                                     in_queue, need_sched, state, result_next, 
                                     result_future, result_context, 
                                     result_thread, RUNNING, THREADS_pooled, 
@@ -3791,8 +3449,6 @@ start_do_preemption(self) == /\ pc[self] = "start_do_preemption"
                                                                    next_thread_ >>
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -3823,8 +3479,6 @@ get_current_task_do_preemption(self) == /\ pc[self] = "get_current_task_do_preem
                                         /\ UNCHANGED << queue, lock_info, 
                                                         lock_future, 
                                                         lock_scheduler, 
-                                                        lock_PREEMPTED_TASKS, 
-                                                        lock_NEXT_TASK, 
                                                         lock_result_context, 
                                                         in_queue, need_sched, 
                                                         state, result_next, 
@@ -3868,8 +3522,6 @@ exit_do_preemption1(self) == /\ pc[self] = "exit_do_preemption1"
                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -3900,8 +3552,6 @@ get_next_task_do_preemption(self) == /\ pc[self] = "get_next_task_do_preemption"
                                      /\ UNCHANGED << queue, lock_info, 
                                                      lock_future, 
                                                      lock_scheduler, 
-                                                     lock_PREEMPTED_TASKS, 
-                                                     lock_NEXT_TASK, 
                                                      lock_result_context, 
                                                      in_queue, need_sched, 
                                                      state, result_next, 
@@ -3942,8 +3592,6 @@ set_task_do_preemption(self) == /\ pc[self] = "set_task_do_preemption"
                                            /\ UNCHANGED exec_state
                                 /\ UNCHANGED << queue, lock_info, lock_future, 
                                                 lock_scheduler, 
-                                                lock_PREEMPTED_TASKS, 
-                                                lock_NEXT_TASK, 
                                                 lock_result_context, in_queue, 
                                                 need_sched, state, result_next, 
                                                 result_future, result_context, 
@@ -3976,8 +3624,6 @@ exit_do_preemption2(self) == /\ pc[self] = "exit_do_preemption2"
                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -4005,8 +3651,6 @@ lock_task_do_preemption(self) == /\ pc[self] = "lock_task_do_preemption"
                                  /\ pc' = [pc EXCEPT ![self] = "yield_do_preemption"]
                                  /\ UNCHANGED << queue, lock_future, 
                                                  lock_scheduler, 
-                                                 lock_PREEMPTED_TASKS, 
-                                                 lock_NEXT_TASK, 
                                                  lock_result_context, in_queue, 
                                                  need_sched, state, 
                                                  result_next, result_future, 
@@ -4050,8 +3694,6 @@ yield_do_preemption(self) == /\ pc[self] = "yield_do_preemption"
                                                         current_ctx >>
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -4082,8 +3724,6 @@ exit_do_preemption3(self) == /\ pc[self] = "exit_do_preemption3"
                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                              /\ UNCHANGED << queue, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -4114,8 +3754,6 @@ unlock_task_do_preemption(self) == /\ pc[self] = "unlock_task_do_preemption"
                                    /\ pc' = [pc EXCEPT ![self] = "get_thread_do_preemption"]
                                    /\ UNCHANGED << queue, lock_future, 
                                                    lock_scheduler, 
-                                                   lock_PREEMPTED_TASKS, 
-                                                   lock_NEXT_TASK, 
                                                    lock_result_context, 
                                                    in_queue, need_sched, state, 
                                                    result_next, result_future, 
@@ -4153,8 +3791,6 @@ get_thread_do_preemption(self) == /\ pc[self] = "get_thread_do_preemption"
                                   /\ pc' = [pc EXCEPT ![self] = "set_thread_do_preemption"]
                                   /\ UNCHANGED << queue, lock_info, 
                                                   lock_future, lock_scheduler, 
-                                                  lock_PREEMPTED_TASKS, 
-                                                  lock_NEXT_TASK, 
                                                   lock_result_context, 
                                                   in_queue, need_sched, state, 
                                                   result_next, result_future, 
@@ -4180,11 +3816,9 @@ get_thread_do_preemption(self) == /\ pc[self] = "get_thread_do_preemption"
 
 set_thread_do_preemption(self) == /\ pc[self] = "set_thread_do_preemption"
                                   /\ next_thread_' = [next_thread_ EXCEPT ![self] = result_thread[pid[self]]]
-                                  /\ pc' = [pc EXCEPT ![self] = "wait_NEXT_TASK_do_preemption"]
+                                  /\ pc' = [pc EXCEPT ![self] = "push_NEXT_TASK_do_preemption"]
                                   /\ UNCHANGED << queue, lock_info, 
                                                   lock_future, lock_scheduler, 
-                                                  lock_PREEMPTED_TASKS, 
-                                                  lock_NEXT_TASK, 
                                                   lock_result_context, 
                                                   in_queue, need_sched, state, 
                                                   result_next, result_future, 
@@ -4210,55 +3844,12 @@ set_thread_do_preemption(self) == /\ pc[self] = "set_thread_do_preemption"
                                                   current_task, next_task, 
                                                   task >>
 
-wait_NEXT_TASK_do_preemption(self) == /\ pc[self] = "wait_NEXT_TASK_do_preemption"
-                                      /\ ~lock_NEXT_TASK[pid[self]]
-                                      /\ lock_NEXT_TASK' = [lock_NEXT_TASK EXCEPT ![pid[self]] = TRUE]
-                                      /\ pc' = [pc EXCEPT ![self] = "push_NEXT_TASK_do_preemption"]
-                                      /\ UNCHANGED << queue, lock_info, 
-                                                      lock_future, 
-                                                      lock_scheduler, 
-                                                      lock_PREEMPTED_TASKS, 
-                                                      lock_result_context, 
-                                                      in_queue, need_sched, 
-                                                      state, result_next, 
-                                                      result_future, 
-                                                      result_context, 
-                                                      result_thread, RUNNING, 
-                                                      THREADS_pooled, 
-                                                      THREADS_running, 
-                                                      THREAD_POOL, 
-                                                      PREEMPTED_TASKS, 
-                                                      NEXT_TASK, thread_index, 
-                                                      thread_is_new, 
-                                                      stored_ctx, stored_task, 
-                                                      thread_to_task, 
-                                                      task_to_thread, 
-                                                      exec_state, 
-                                                      preemption_num, 
-                                                      wake_other, stack, 
-                                                      task_w, task_wa, pid_, 
-                                                      head_, pid_s, head, 
-                                                      pid_g, pid_w, task_, 
-                                                      pid_m, thread, pid_r, 
-                                                      pid_t, ctx, pid_se, 
-                                                      next_ctx_s, pid_y, 
-                                                      next_ctx, current_ctx_, 
-                                                      pid_yi, task_y, 
-                                                      next_thread, current_ctx, 
-                                                      pid_ru, task_r, 
-                                                      next_ctx_, pid_f, task_f, 
-                                                      pid, current_task, 
-                                                      next_task, next_thread_, 
-                                                      task >>
-
 push_NEXT_TASK_do_preemption(self) == /\ pc[self] = "push_NEXT_TASK_do_preemption"
                                       /\ NEXT_TASK' = [NEXT_TASK EXCEPT ![pid[self]] = Append(NEXT_TASK[pid[self]], next_task[self])]
-                                      /\ lock_NEXT_TASK' = [lock_NEXT_TASK EXCEPT ![pid[self]] = FALSE]
                                       /\ pc' = [pc EXCEPT ![self] = "end_do_preemption"]
                                       /\ UNCHANGED << queue, lock_info, 
                                                       lock_future, 
                                                       lock_scheduler, 
-                                                      lock_PREEMPTED_TASKS, 
                                                       lock_result_context, 
                                                       in_queue, need_sched, 
                                                       state, result_next, 
@@ -4306,9 +3897,7 @@ end_do_preemption(self) == /\ pc[self] = "end_do_preemption"
                            /\ current_ctx' = [current_ctx EXCEPT ![self] = defaultInitValue]
                            /\ pc' = [pc EXCEPT ![self] = "start_yield_preempted_and_wake_task"]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -4337,8 +3926,6 @@ exit_do_preemption4(self) == /\ pc[self] = "exit_do_preemption4"
                              /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -4371,7 +3958,6 @@ do_preemption(self) == start_do_preemption(self)
                           \/ unlock_task_do_preemption(self)
                           \/ get_thread_do_preemption(self)
                           \/ set_thread_do_preemption(self)
-                          \/ wait_NEXT_TASK_do_preemption(self)
                           \/ push_NEXT_TASK_do_preemption(self)
                           \/ end_do_preemption(self)
                           \/ exit_do_preemption4(self)
@@ -4391,8 +3977,6 @@ start_wake_task_all(self) == /\ pc[self] = "start_wake_task_all"
                                         /\ task' = task
                              /\ UNCHANGED << queue, lock_info, lock_future, 
                                              lock_scheduler, 
-                                             lock_PREEMPTED_TASKS, 
-                                             lock_NEXT_TASK, 
                                              lock_result_context, in_queue, 
                                              need_sched, state, result_next, 
                                              result_future, result_context, 
@@ -4422,9 +4006,7 @@ rec_wake_task_all(self) == /\ pc[self] = "rec_wake_task_all"
                               /\ task' = [task EXCEPT ![self] = task[self] + 1]
                            /\ pc' = [pc EXCEPT ![self] = "start_wake_task_all"]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -4450,9 +4032,7 @@ end_wake_task_all(self) == /\ pc[self] = "end_wake_task_all"
                            /\ task' = [task EXCEPT ![self] = Head(stack[self]).task]
                            /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
                            /\ UNCHANGED << queue, lock_info, lock_future, 
-                                           lock_scheduler, 
-                                           lock_PREEMPTED_TASKS, 
-                                           lock_NEXT_TASK, lock_result_context, 
+                                           lock_scheduler, lock_result_context, 
                                            in_queue, need_sched, state, 
                                            result_next, result_future, 
                                            result_context, result_thread, 
@@ -4487,8 +4067,7 @@ start_worker(self) == /\ pc[self] = "start_worker"
                             ELSE /\ pc' = [pc EXCEPT ![self] = "preempt_init"]
                                  /\ UNCHANGED << stack, task >>
                       /\ UNCHANGED << queue, lock_info, lock_future, 
-                                      lock_scheduler, lock_PREEMPTED_TASKS, 
-                                      lock_NEXT_TASK, lock_result_context, 
+                                      lock_scheduler, lock_result_context, 
                                       in_queue, need_sched, state, result_next, 
                                       result_future, result_context, 
                                       result_thread, RUNNING, THREADS_pooled, 
@@ -4510,8 +4089,7 @@ preempt_init(self) == /\ pc[self] = "preempt_init"
                       /\ THREADS_running' = [THREADS_running EXCEPT ![self] = thread_index']
                       /\ pc' = [pc EXCEPT ![self] = "run"]
                       /\ UNCHANGED << queue, lock_info, lock_future, 
-                                      lock_scheduler, lock_PREEMPTED_TASKS, 
-                                      lock_NEXT_TASK, lock_result_context, 
+                                      lock_scheduler, lock_result_context, 
                                       in_queue, need_sched, state, result_next, 
                                       result_future, result_context, 
                                       result_thread, RUNNING, THREADS_pooled, 
@@ -4541,7 +4119,6 @@ run(self) == /\ pc[self] = "run"
              /\ next_ctx_' = [next_ctx_ EXCEPT ![self] = defaultInitValue]
              /\ pc' = [pc EXCEPT ![self] = "start_run_main"]
              /\ UNCHANGED << queue, lock_info, lock_future, lock_scheduler, 
-                             lock_PREEMPTED_TASKS, lock_NEXT_TASK, 
                              lock_result_context, in_queue, need_sched, state, 
                              result_next, result_future, result_context, 
                              result_thread, RUNNING, THREADS_pooled, 
