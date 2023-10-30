@@ -212,6 +212,7 @@ test: FORCE
 
 loom: FORCE
 	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +nightly test_awkernel_lib --test model_check_mcslock --release -- --nocapture
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +nightly test_awkernel_lib --test model_check_rwlock --release -- --nocapture
 
 # Clean
 
