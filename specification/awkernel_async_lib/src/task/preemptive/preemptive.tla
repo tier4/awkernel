@@ -135,8 +135,7 @@ procedure wake_task(task) begin
 end procedure;
 
 \* awkernel_async_lib::task::ArcWake::wake()
-procedure wake(task)
-begin
+procedure wake(task) begin
     start_wake:
         await ~lock_info[task];
         lock_info[task] := TRUE;
@@ -550,16 +549,24 @@ end procedure;
 \*         return;
 \* end procedure;
 
+\* 1. Task 'FUTURE_TASK - 1' wakes 'FUTURE_TASK' and returns Pending
+\* 2. Task 'FUTURE_TASK' wakes 'FUTURE_TASK - 1' and returns Ready
+\* 3. Task 'FUTURE_TASK - 1' returns Ready
 procedure future(pid, task)
 begin
     start_future:
-        if wake_other = FALSE then
-            wake_other := TRUE;
-            result_future[pid] := "Pending";
-            call wake(task);
-
-            wake_FUTURE_TASK_future:
+        if task = FUTURE_TASK - 1 then
+            if wake_other then
+                result_future[pid] := "Ready";
+                call wake(task);
+            else
+                wake_other := TRUE;
+                result_future[pid] := "Pending";
                 call wake(FUTURE_TASK);
+            end if;
+        elsif task = FUTURE_TASK then
+            result_future[pid] := "Ready";
+            call wake(FUTURE_TASK - 1);
         else
             result_future[pid] := "Ready";
         end if;
@@ -668,32 +675,32 @@ fair process W \in WORKERS begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "5019b05c" /\ chksum(tla) = "2bfcb5b6")
-\* Label preempt_get_next_task of procedure get_next_task at line 223 col 9 changed to preempt_get_next_task_
-\* Label scheduler_get_next of procedure get_next_task at line 226 col 9 changed to scheduler_get_next_
-\* Procedure variable head of procedure preempt_get_next_task at line 164 col 5 changed to head_
-\* Procedure variable task of procedure wake_PREEMPTED_TASKS at line 237 col 5 changed to task_
-\* Procedure variable current_ctx of procedure yield_and_pool at line 331 col 5 changed to current_ctx_
-\* Procedure variable task of procedure run_main at line 428 col 5 changed to task_r
-\* Procedure variable next_ctx of procedure run_main at line 429 col 5 changed to next_ctx_
-\* Procedure variable next_thread of procedure do_preemption at line 576 col 5 changed to next_thread_
+\* BEGIN TRANSLATION (chksum(pcal) = "6178ebae" /\ chksum(tla) = "e7ed6079")
+\* Label preempt_get_next_task of procedure get_next_task at line 222 col 9 changed to preempt_get_next_task_
+\* Label scheduler_get_next of procedure get_next_task at line 225 col 9 changed to scheduler_get_next_
+\* Procedure variable head of procedure preempt_get_next_task at line 163 col 5 changed to head_
+\* Procedure variable task of procedure wake_PREEMPTED_TASKS at line 236 col 5 changed to task_
+\* Procedure variable current_ctx of procedure yield_and_pool at line 330 col 5 changed to current_ctx_
+\* Procedure variable task of procedure run_main at line 427 col 5 changed to task_r
+\* Procedure variable next_ctx of procedure run_main at line 428 col 5 changed to next_ctx_
+\* Procedure variable next_thread of procedure do_preemption at line 583 col 5 changed to next_thread_
 \* Parameter task of procedure wake_task at line 120 col 21 changed to task_w
 \* Parameter task of procedure wake at line 138 col 16 changed to task_wa
-\* Parameter pid of procedure preempt_get_next_task at line 162 col 33 changed to pid_
-\* Parameter pid of procedure scheduler_get_next at line 188 col 30 changed to pid_s
-\* Parameter pid of procedure get_next_task at line 221 col 25 changed to pid_g
-\* Parameter pid of procedure wake_PREEMPTED_TASKS at line 235 col 32 changed to pid_w
-\* Parameter pid of procedure make_all_threads_pooled at line 255 col 35 changed to pid_m
-\* Parameter pid of procedure re_schedule at line 275 col 23 changed to pid_r
-\* Parameter pid of procedure thread_entry at line 294 col 24 changed to pid_t
-\* Parameter pid of procedure set_exec_state at line 307 col 26 changed to pid_se
-\* Parameter next_ctx of procedure set_exec_state at line 307 col 31 changed to next_ctx_s
-\* Parameter pid of procedure yield_and_pool at line 329 col 26 changed to pid_y
-\* Parameter pid of procedure yield_preempted_and_wake_task at line 368 col 41 changed to pid_yi
-\* Parameter task of procedure yield_preempted_and_wake_task at line 368 col 46 changed to task_y
-\* Parameter pid of procedure run_main at line 426 col 20 changed to pid_ru
-\* Parameter pid of procedure future at line 553 col 18 changed to pid_f
-\* Parameter task of procedure future at line 553 col 23 changed to task_f
+\* Parameter pid of procedure preempt_get_next_task at line 161 col 33 changed to pid_
+\* Parameter pid of procedure scheduler_get_next at line 187 col 30 changed to pid_s
+\* Parameter pid of procedure get_next_task at line 220 col 25 changed to pid_g
+\* Parameter pid of procedure wake_PREEMPTED_TASKS at line 234 col 32 changed to pid_w
+\* Parameter pid of procedure make_all_threads_pooled at line 254 col 35 changed to pid_m
+\* Parameter pid of procedure re_schedule at line 274 col 23 changed to pid_r
+\* Parameter pid of procedure thread_entry at line 293 col 24 changed to pid_t
+\* Parameter pid of procedure set_exec_state at line 306 col 26 changed to pid_se
+\* Parameter next_ctx of procedure set_exec_state at line 306 col 31 changed to next_ctx_s
+\* Parameter pid of procedure yield_and_pool at line 328 col 26 changed to pid_y
+\* Parameter pid of procedure yield_preempted_and_wake_task at line 367 col 41 changed to pid_yi
+\* Parameter task of procedure yield_preempted_and_wake_task at line 367 col 46 changed to task_y
+\* Parameter pid of procedure run_main at line 425 col 20 changed to pid_ru
+\* Parameter pid of procedure future at line 555 col 18 changed to pid_f
+\* Parameter task of procedure future at line 555 col 23 changed to task_f
 CONSTANT defaultInitValue
 VARIABLES queue, lock_info, lock_future, lock_scheduler, lock_PREEMPTED_TASKS, 
           lock_NEXT_TASK, lock_result_context, in_queue, need_sched, state, 
@@ -3584,7 +3591,7 @@ post_future_run_main(self) == /\ pc[self] = "post_future_run_main"
                                     ELSE /\ IF result_future[pid_ru[self]] = "Ready"
                                                THEN /\ state' = [state EXCEPT ![task_r[self]] = "Terminated"]
                                                ELSE /\ Assert((FALSE), 
-                                                              "Failure of assertion at line 539, column 13.")
+                                                              "Failure of assertion at line 538, column 13.")
                                                     /\ state' = state
                                          /\ pc' = [pc EXCEPT ![self] = "continue_run_main2"]
                               /\ UNCHANGED << queue, lock_future, 
@@ -3694,18 +3701,36 @@ run_main(self) == start_run_main(self) \/ get_next_run_main(self)
                      \/ continue_run_main2(self)
 
 start_future(self) == /\ pc[self] = "start_future"
-                      /\ IF wake_other = FALSE
-                            THEN /\ wake_other' = TRUE
-                                 /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Pending"]
-                                 /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake",
-                                                                             pc        |->  "wake_FUTURE_TASK_future",
-                                                                             task_wa   |->  task_wa[self] ] >>
-                                                                         \o stack[self]]
-                                    /\ task_wa' = [task_wa EXCEPT ![self] = task_f[self]]
-                                 /\ pc' = [pc EXCEPT ![self] = "start_wake"]
-                            ELSE /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Ready"]
-                                 /\ pc' = [pc EXCEPT ![self] = "end_future"]
-                                 /\ UNCHANGED << wake_other, stack, task_wa >>
+                      /\ IF task_f[self] = FUTURE_TASK - 1
+                            THEN /\ IF wake_other
+                                       THEN /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Ready"]
+                                            /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake",
+                                                                                        pc        |->  "end_future",
+                                                                                        task_wa   |->  task_wa[self] ] >>
+                                                                                    \o stack[self]]
+                                               /\ task_wa' = [task_wa EXCEPT ![self] = task_f[self]]
+                                            /\ pc' = [pc EXCEPT ![self] = "start_wake"]
+                                            /\ UNCHANGED wake_other
+                                       ELSE /\ wake_other' = TRUE
+                                            /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Pending"]
+                                            /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake",
+                                                                                        pc        |->  "end_future",
+                                                                                        task_wa   |->  task_wa[self] ] >>
+                                                                                    \o stack[self]]
+                                               /\ task_wa' = [task_wa EXCEPT ![self] = FUTURE_TASK]
+                                            /\ pc' = [pc EXCEPT ![self] = "start_wake"]
+                            ELSE /\ IF task_f[self] = FUTURE_TASK
+                                       THEN /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Ready"]
+                                            /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake",
+                                                                                        pc        |->  "end_future",
+                                                                                        task_wa   |->  task_wa[self] ] >>
+                                                                                    \o stack[self]]
+                                               /\ task_wa' = [task_wa EXCEPT ![self] = FUTURE_TASK - 1]
+                                            /\ pc' = [pc EXCEPT ![self] = "start_wake"]
+                                       ELSE /\ result_future' = [result_future EXCEPT ![pid_f[self]] = "Ready"]
+                                            /\ pc' = [pc EXCEPT ![self] = "end_future"]
+                                            /\ UNCHANGED << stack, task_wa >>
+                                 /\ UNCHANGED wake_other
                       /\ UNCHANGED << queue, lock_info, lock_future, 
                                       lock_scheduler, lock_PREEMPTED_TASKS, 
                                       lock_NEXT_TASK, lock_result_context, 
@@ -3725,40 +3750,6 @@ start_future(self) == /\ pc[self] = "start_future"
                                       next_ctx_, pid_f, task_f, pid, 
                                       current_task, next_task, next_thread_, 
                                       task >>
-
-wake_FUTURE_TASK_future(self) == /\ pc[self] = "wake_FUTURE_TASK_future"
-                                 /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "wake",
-                                                                             pc        |->  "end_future",
-                                                                             task_wa   |->  task_wa[self] ] >>
-                                                                         \o stack[self]]
-                                    /\ task_wa' = [task_wa EXCEPT ![self] = FUTURE_TASK]
-                                 /\ pc' = [pc EXCEPT ![self] = "start_wake"]
-                                 /\ UNCHANGED << queue, lock_info, lock_future, 
-                                                 lock_scheduler, 
-                                                 lock_PREEMPTED_TASKS, 
-                                                 lock_NEXT_TASK, 
-                                                 lock_result_context, in_queue, 
-                                                 need_sched, state, 
-                                                 result_next, result_future, 
-                                                 result_context, result_thread, 
-                                                 RUNNING, THREADS_pooled, 
-                                                 THREADS_running, THREAD_POOL, 
-                                                 PREEMPTED_TASKS, NEXT_TASK, 
-                                                 thread_index, thread_is_new, 
-                                                 stored_ctx, stored_task, 
-                                                 thread_to_task, 
-                                                 task_to_thread, exec_state, 
-                                                 preemption_num, wake_other, 
-                                                 task_w, pid_, head_, pid_s, 
-                                                 head, pid_g, pid_w, task_, 
-                                                 pid_m, thread, pid_r, pid_t, 
-                                                 ctx, pid_se, next_ctx_s, 
-                                                 pid_y, next_ctx, current_ctx_, 
-                                                 pid_yi, task_y, next_thread, 
-                                                 current_ctx, pid_ru, task_r, 
-                                                 next_ctx_, pid_f, task_f, pid, 
-                                                 current_task, next_task, 
-                                                 next_thread_, task >>
 
 end_future(self) == /\ pc[self] = "end_future"
                     /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
@@ -3784,8 +3775,7 @@ end_future(self) == /\ pc[self] = "end_future"
                                     pid, current_task, next_task, next_thread_, 
                                     task >>
 
-future(self) == start_future(self) \/ wake_FUTURE_TASK_future(self)
-                   \/ end_future(self)
+future(self) == start_future(self) \/ end_future(self)
 
 start_do_preemption(self) == /\ pc[self] = "start_do_preemption"
                              /\ IF exec_state[pid[self]] = "Init"
