@@ -11,9 +11,6 @@ rlsf = "0.2"
 bitflags = "2.3"
 array-macro = "2.1"
 
-[dev-dependencies]
-loom = "0.7"
-
 [dependencies.libc]
 version = "0.2"
 optional = true
@@ -67,3 +64,6 @@ aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
 std = ["dep:libc", "dep:parking_lot"]
 spinlock = []
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"

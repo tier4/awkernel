@@ -210,6 +210,9 @@ test: FORCE
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
 
+loom: FORCE
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +nightly test_awkernel_lib --test model_check_mcslock --release -- --nocapture
+
 # Clean
 
 clean: FORCE
