@@ -109,6 +109,34 @@ impl core::ops::BitXorAssign for PhyAddr {
     }
 }
 
+impl core::ops::Shl<usize> for PhyAddr {
+    type Output = Self;
+
+    fn shl(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 << rhs)
+    }
+}
+
+impl core::ops::ShlAssign<usize> for PhyAddr {
+    fn shl_assign(&mut self, rhs: usize) {
+        self.0 = self.0 << rhs;
+    }
+}
+
+impl core::ops::Shr<usize> for PhyAddr {
+    type Output = Self;
+
+    fn shr(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 >> rhs)
+    }
+}
+
+impl core::ops::ShrAssign<usize> for PhyAddr {
+    fn shr_assign(&mut self, rhs: usize) {
+        self.0 = self.0 >> rhs;
+    }
+}
+
 impl super::Addr for PhyAddr {
     fn as_usize(&self) -> usize {
         self.0

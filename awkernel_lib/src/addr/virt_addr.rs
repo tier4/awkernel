@@ -109,6 +109,34 @@ impl core::ops::BitXorAssign for VirtAddr {
     }
 }
 
+impl core::ops::Shl<usize> for VirtAddr {
+    type Output = Self;
+
+    fn shl(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 << rhs)
+    }
+}
+
+impl core::ops::ShlAssign<usize> for VirtAddr {
+    fn shl_assign(&mut self, rhs: usize) {
+        self.0 = self.0 << rhs;
+    }
+}
+
+impl core::ops::Shr<usize> for VirtAddr {
+    type Output = Self;
+
+    fn shr(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 >> rhs)
+    }
+}
+
+impl core::ops::ShrAssign<usize> for VirtAddr {
+    fn shr_assign(&mut self, rhs: usize) {
+        self.0 = self.0 >> rhs;
+    }
+}
+
 impl super::Addr for VirtAddr {
     fn as_usize(&self) -> usize {
         self.0
