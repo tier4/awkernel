@@ -38,7 +38,9 @@ pub struct PageAllocator<F: crate::paging::Frame + Copy> {
 
 impl crate::paging::FrameAllocator<Page, &'static str> for PageAllocator<Page> {
     fn allocate_frame(&mut self) -> Result<Page, &'static str> {
-        let Some(range) = self.range.get_mut(self.current) else { return Err("no more page range") };
+        let Some(range) = self.range.get_mut(self.current) else {
+            return Err("no more page range");
+        };
 
         let page_size = PhyAddr::new(PAGESIZE);
 
