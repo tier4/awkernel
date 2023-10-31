@@ -72,14 +72,17 @@ impl crate::paging::Frame for Frame {
     }
 }
 
-impl<'a, T> crate::paging::FrameAllocator<Frame, ()> for PageAllocator<'a, T>
+impl<'a, T> crate::paging::FrameAllocator<Frame, &'static str> for PageAllocator<'a, T>
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
-    fn allocate_frame(&mut self) -> Result<Frame, ()> {
+    fn allocate_frame(&mut self) -> Result<Frame, &'static str> {
         let mut node = MCSNode::new();
         let mut guard = self.frames.lock(&mut node);
-        guard.next().map(|frame| Frame { frame }).ok_or(())
+        guard
+            .next()
+            .map(|frame| Frame { frame })
+            .ok_or("no more frames")
     }
 }
 

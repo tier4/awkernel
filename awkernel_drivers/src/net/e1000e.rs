@@ -75,16 +75,16 @@ impl fmt::Display for E1000EDriverErr {
 }
 
 impl E1000E {
-    pub fn new<F, FA>(
+    pub fn new<F, FA, E>(
         info: &DeviceInfo,
         phys_offset: usize,
-        page_table: &mut impl PageTable<F, FA, ()>,
+        page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<Self, PCIeDeviceErr>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, E>,
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
         let register_start = (bar0 as usize) & 0xFFFFFFF0;
@@ -312,15 +312,15 @@ impl E1000E {
     }
 
     /// Create the memory map for e1000e's register space
-    fn map_register_space<F, FA>(
+    fn map_register_space<F, FA, E>(
         register_start: usize,
-        page_table: &mut impl PageTable<F, FA, ()>,
+        page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<(), E1000EDriverErr>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, E>,
     {
         let mut start = register_start;
         let end = start + Self::REG_SPACE_SIZE as usize;
@@ -339,7 +339,7 @@ impl E1000E {
 
             if unsafe {
                 page_table
-                    .map_to(phy_addr, virt_addr, flags, page_allocator)
+                    .map_to(virt_addr, phy_addr, flags, page_allocator)
                     .is_err()
             } {
                 return Err(E1000EDriverErr::MemoryMapFailure);
@@ -350,13 +350,13 @@ impl E1000E {
     }
 
     /// Allocate the buffer space for e1000e's rx_ring
-    fn allocate_buffer<F, FA>(
+    fn allocate_buffer<F, FA, E>(
         phys_offset: usize,
         page_allocator: &mut FA,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, E>,
     {
         let buffer_pa = if let Ok(frame) = page_allocator.allocate_frame() {
             frame.start_address()
@@ -370,14 +370,14 @@ impl E1000E {
     }
 
     /// Create Receive and Transmit Buffer
-    fn create_ring<F, FA>(
+    fn create_ring<F, FA, E>(
         phys_offset: usize,
         page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, E>,
     {
         let frame = if let Ok(frame) = page_allocator.allocate_frame() {
             frame

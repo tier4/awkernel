@@ -22,10 +22,15 @@ where
     F: Frame,
     FA: FrameAllocator<F, E>,
 {
+    /// Map `virt_addr` to `phy_addr` with `flag`.
+    ///
+    /// # Safety
+    ///
+    /// - virt_addr and phy_addr must be aligned to page size.
     unsafe fn map_to(
         &mut self,
-        phy_addr: PhyAddr,
         virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
         flags: Flags,
         page_allocator: &mut FA,
     ) -> Result<(), E>;
@@ -43,11 +48,11 @@ pub const USER_START: usize = 1024 * 1024 * 1024 * 2; // 2 GiB
 /// Note that every page is readable.
 #[derive(Debug, Clone, Copy)]
 pub struct Flags {
-    pub execute: bool,
-    pub write: bool,
-    pub cache: bool,
-    pub write_through: bool,
-    pub device: bool,
+    pub execute: bool,       // executable
+    pub write: bool,         // writable
+    pub cache: bool,         // enable cache
+    pub write_through: bool, // write back if disabled
+    pub device: bool,        // this page is MMIO, ignored on x86
 }
 
 pub trait Mapper {

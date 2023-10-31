@@ -60,10 +60,10 @@ struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    fn new<F, FA>(allocator: &mut FA) -> Result<Self, ()>
+    fn new<F, FA>(allocator: &mut FA) -> Result<Self, &'static str>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, &'static str>,
     {
         let ptr = allocator.allocate_frame()?.start_address().as_usize() as *mut u64;
 
@@ -99,10 +99,10 @@ impl PageTable {
     const IDX_MASK: u64 = (ENTRY_COUNT - 1) as u64;
     const ADDR_MASK: u64 = 0xFFFFFFFFF << 12; // [47:12]
 
-    pub fn new<F, FA>(allocator: &mut FA) -> Result<Self, ()>
+    pub fn new<F, FA>(allocator: &mut FA) -> Result<Self, &'static str>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, &'static str>,
     {
         let root = PageTableEntry::new(allocator)?;
         Ok(Self { root })
@@ -134,10 +134,10 @@ impl PageTable {
         phy_addr: PhyAddr,
         flag: u64,
         allocator: &mut FA,
-    ) -> Result<(), ()>
+    ) -> Result<(), &'static str>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
+        FA: FrameAllocator<F, &'static str>,
     {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
@@ -256,14 +256,14 @@ impl PageTable {
     }
 }
 
-impl crate::paging::PageTable<Page, PageAllocator<Page>, ()> for PageTable {
+impl crate::paging::PageTable<Page, PageAllocator<Page>, &'static str> for PageTable {
     unsafe fn map_to(
         &mut self,
-        phy_addr: PhyAddr,
         virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
         flags: crate::paging::Flags,
         page_allocator: &mut PageAllocator<Page>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), &'static str> {
         let lv1_table = &mut self.root.entries;
         let lv1_idx = Self::get_idx(virt_addr, PageTableLevel::Lv1);
         let lv2_table;

@@ -1,9 +1,8 @@
 use alloc::{boxed::Box, sync::Arc};
 use awkernel_lib::sync::mutex::Mutex;
 use awkernel_lib::{
-    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     net::NET_MANAGER,
-    paging::{Flags, Frame, FrameAllocator, PageTable},
+    paging::{Frame, FrameAllocator, PageTable},
     sync::mutex::MCSNode,
 };
 use core::{fmt, ptr::read_volatile};
@@ -15,8 +14,6 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use acpi::{AcpiTables, PciConfigRegions};
 
 use crate::net::e1000e::E1000E;
-
-const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
 pub enum PCIeDeviceErr {
     InitFailure,
@@ -38,7 +35,7 @@ impl fmt::Display for PCIeDeviceErr {
 
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
-pub fn init_with_acpi<F, FA, PT>(
+pub fn init_with_acpi<F, FA, PT, E>(
     phys_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
@@ -46,9 +43,16 @@ pub fn init_with_acpi<F, FA, PT>(
     page_size: u64,
 ) where
     F: Frame,
-    FA: FrameAllocator<F, ()>,
-    PT: PageTable<F, FA, ()>,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
 {
+    use awkernel_lib::{
+        addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+        paging::Flags,
+    };
+
+    const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
+
     let pcie_info = PciConfigRegions::new(acpi).unwrap();
     for segment in pcie_info.list_all() {
         log::info!("{:?}", segment);
@@ -70,7 +74,7 @@ pub fn init_with_acpi<F, FA, PT>(
 
             if unsafe {
                 page_table
-                    .map_to(phy_addr, virt_addr, flags, page_allocator)
+                    .map_to(virt_addr, phy_addr, flags, page_allocator)
                     .is_err()
             } {
                 log::error!("Failed to map the PCIe config space.");
@@ -94,7 +98,7 @@ pub fn init_with_acpi<F, FA, PT>(
     }
 }
 
-pub fn init_with_addr<F, FA, PT>(
+pub fn init_with_addr<F, FA, PT, E>(
     phys_offset: usize,
     base_address: usize,
     page_table: &mut PT,
@@ -103,8 +107,8 @@ pub fn init_with_addr<F, FA, PT>(
     starting_bus: u8,
 ) where
     F: Frame,
-    FA: FrameAllocator<F, ()>,
-    PT: PageTable<F, FA, ()>,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
 {
     for bus in (starting_bus as u32)..256 {
         scan_devices(
@@ -119,7 +123,7 @@ pub fn init_with_addr<F, FA, PT>(
 }
 
 /// Scan and initialize the PICe devices
-fn scan_devices<F, FA, PT>(
+fn scan_devices<F, FA, PT, E>(
     phys_offset: usize,
     bus: u8,
     base_address: usize,
@@ -128,8 +132,8 @@ fn scan_devices<F, FA, PT>(
     page_size: u64,
 ) where
     F: Frame,
-    FA: FrameAllocator<F, ()>,
-    PT: PageTable<F, FA, ()>,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
 {
     for dev in 0..(1 << 5) {
         for func in 0..(1 << 3) {
@@ -181,7 +185,7 @@ impl DeviceInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    fn init<F, FA, PT>(
+    fn init<F, FA, PT, E>(
         &self,
         phys_offset: usize,
         page_table: &mut PT,
@@ -190,8 +194,8 @@ impl DeviceInfo {
     ) -> Result<(), PCIeDeviceErr>
     where
         F: Frame,
-        FA: FrameAllocator<F, ()>,
-        PT: PageTable<F, FA, ()>,
+        FA: FrameAllocator<F, E>,
+        PT: PageTable<F, FA, E>,
     {
         match (self.id, self.vendor) {
             //  Intel 82574 GbE Controller

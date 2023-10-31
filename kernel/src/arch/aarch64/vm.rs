@@ -322,12 +322,12 @@ impl VM {
         Ok(())
     }
 
-    fn init_memory_map(&mut self) -> Result<(), ()> {
+    fn init_memory_map(&mut self) -> Result<(), &'static str> {
         let mut allocator = PageAllocator::new();
         for mem in self.heap.iter().flatten() {
             allocator
                 .push(Page::new(mem.start), Page::new(mem.end))
-                .or(Err(()))?;
+                .or(Err("too many page range"))?;
         }
 
         let mut table0 = page_table::PageTable::new(&mut allocator)?;

@@ -16,29 +16,30 @@ impl<'a> PageTable<'a> {
 }
 
 impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
-    crate::paging::PageTable<super::page_allocator::Frame, PageAllocator<'a, T>, ()>
+    crate::paging::PageTable<super::page_allocator::Frame, PageAllocator<'a, T>, &'static str>
     for PageTable<'b>
 {
     unsafe fn map_to(
         &mut self,
-        phy_addr: crate::addr::phy_addr::PhyAddr,
         virt_addr: crate::addr::virt_addr::VirtAddr,
+        phy_addr: crate::addr::phy_addr::PhyAddr,
         flags: crate::paging::Flags,
         page_allocator: &mut super::page_allocator::PageAllocator<'a, T>,
-    ) -> Result<(), ()> {
+    ) -> Result<(), &'static str> {
         let flags = flags_to_x86_flags(flags);
 
         let page = Page::containing_address(VirtAddr::new(virt_addr.as_usize() as u64));
         let frame =
             PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
 
-        if let Ok(_) = self
+        if self
             .offset_page_table
             .map_to(page, frame, flags, page_allocator)
+            .is_ok()
         {
             Ok(())
         } else {
-            Err(())
+            Err("Failed to map page")
         }
     }
 }

@@ -134,7 +134,7 @@ where
 
     if unsafe {
         page_table
-            .map_to(phy_base, virt_base, flags, page_allocator)
+            .map_to(virt_base, phy_base, flags, page_allocator)
             .is_err()
     } {
         log::error!("Failed to map APIC's memory region.");
