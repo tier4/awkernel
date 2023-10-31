@@ -2,9 +2,8 @@ use alloc::{boxed::Box, sync::Arc};
 use awkernel_lib::sync::mutex::Mutex;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-    memory::Flags,
     net::NET_MANAGER,
-    paging::{Frame, FrameAllocator, PageTable},
+    paging::{Flags, Frame, FrameAllocator, PageTable},
     sync::mutex::MCSNode,
 };
 use core::{fmt, ptr::read_volatile};

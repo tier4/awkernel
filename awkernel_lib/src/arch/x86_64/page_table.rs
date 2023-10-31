@@ -23,7 +23,7 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
         &mut self,
         phy_addr: crate::addr::phy_addr::PhyAddr,
         virt_addr: crate::addr::virt_addr::VirtAddr,
-        flags: crate::memory::Flags,
+        flags: crate::paging::Flags,
         page_allocator: &mut super::page_allocator::PageAllocator<'a, T>,
     ) -> Result<(), ()> {
         let flags = flags_to_x86_flags(flags);
@@ -43,7 +43,7 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
     }
 }
 
-fn flags_to_x86_flags(flags: crate::memory::Flags) -> PageTableFlags {
+fn flags_to_x86_flags(flags: crate::paging::Flags) -> PageTableFlags {
     let mut x86_flags = PageTableFlags::PRESENT;
 
     if flags.write {

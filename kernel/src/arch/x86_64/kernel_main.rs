@@ -23,7 +23,7 @@ use awkernel_lib::{
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,

@@ -1,4 +1,7 @@
-use crate::{addr::phy_addr::PhyAddr, memory::PAGESIZE, paging::Frame};
+use crate::{
+    addr::phy_addr::PhyAddr,
+    paging::{Frame, PAGESIZE},
+};
 
 const NUM_RANGES: usize = 16;
 

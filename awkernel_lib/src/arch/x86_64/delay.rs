@@ -2,9 +2,8 @@ use super::{acpi::AcpiMapper, page_allocator::PageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     delay::{uptime, wait_forever, Delay},
-    memory::Flags,
     mmio_r, mmio_rw,
-    paging::PageTable,
+    paging::{Flags, PageTable},
 };
 use acpi::AcpiTables;
 use core::ptr::{read_volatile, write_volatile};

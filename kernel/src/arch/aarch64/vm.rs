@@ -13,8 +13,7 @@ use awkernel_lib::{
     cpu::num_cpu,
     device_tree::{node::DeviceTreeNode, prop::PropertyValue},
     err_msg,
-    memory::PAGESIZE,
-    paging::{Frame, FrameAllocator},
+    paging::{Frame, FrameAllocator, PAGESIZE},
 };
 use core::{alloc::Allocator, arch::asm};
 

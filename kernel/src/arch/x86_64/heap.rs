@@ -3,7 +3,7 @@
 use awkernel_lib::{
     arch::x86_64::page_allocator::PageAllocator,
     console::{unsafe_print_hex_u64, unsafe_puts},
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use x86_64::{
     structures::paging::{

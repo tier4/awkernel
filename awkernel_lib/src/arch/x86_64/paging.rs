@@ -1,18 +1,18 @@
 use super::page_allocator::get_page_table;
 use crate::{
     addr::{phy_addr, virt_addr, Addr},
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use x86_64::{
     structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 
-impl crate::memory::Memory for super::X86 {
+impl crate::paging::Mapper for super::X86 {
     unsafe fn map(
         vm_addr: virt_addr::VirtAddr,
         phy_addr: phy_addr::PhyAddr,
-        flags: crate::memory::Flags,
+        flags: crate::paging::Flags,
     ) -> bool {
         let vm_addr = vm_addr.as_usize() & !(PAGESIZE - 1);
         let phy_addr = phy_addr.as_usize() & !(PAGESIZE - 1);

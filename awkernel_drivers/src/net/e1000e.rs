@@ -2,9 +2,8 @@ use crate::pcie::{DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::vec::Vec;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    memory::Flags,
     net::NetDevice,
-    paging::{Frame, FrameAllocator, PageTable},
+    paging::{Flags, Frame, FrameAllocator, PageTable},
 };
 use core::{
     fmt,

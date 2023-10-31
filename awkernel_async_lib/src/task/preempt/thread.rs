@@ -5,7 +5,7 @@ use alloc::{
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     context::{ArchContext, Context},
-    memory::{self, PAGESIZE},
+    paging::{self, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -63,10 +63,10 @@ impl PtrWorkerThreadContext {
     unsafe fn delete(self) {
         let ctx = Box::from_raw(self.0);
         unsafe {
-            memory::map(
+            paging::map(
                 ctx.stack_mem,
                 ctx.stack_mem_phy,
-                memory::Flags {
+                paging::Flags {
                     execute: false,
                     write: true,
                     cache: true,
@@ -116,13 +116,13 @@ impl WorkerThreadContext {
         let stack_mem = allocate_stack(stack_size)?;
         let stack_pointer = unsafe { stack_mem.add(stack_size) };
 
-        let Some(stack_mem_phy) = memory::vm_to_phy(VirtAddr::new(stack_mem as usize)) else {
+        let Some(stack_mem_phy) = paging::vm_to_phy(VirtAddr::new(stack_mem as usize)) else {
             return Err("failed to translate VM to Phy");
         };
 
         let stack_mem = VirtAddr::new(stack_mem as usize);
 
-        unsafe { memory::unmap(stack_mem) };
+        unsafe { paging::unmap(stack_mem) };
 
         let mut cpu_ctx = ArchContext::default();
 

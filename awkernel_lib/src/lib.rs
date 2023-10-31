@@ -32,7 +32,6 @@ pub mod context;
 #[cfg(not(feature = "std"))]
 pub mod memory;
 
-#[cfg(not(feature = "std"))]
 pub mod paging;
 
 extern crate alloc;

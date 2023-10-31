@@ -1,10 +1,13 @@
-use crate::sync::mutex::{MCSNode, Mutex};
+use crate::{
+    addr::Addr,
+    sync::mutex::{MCSNode, Mutex},
+};
 use bootloader_api::BootInfo;
 use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
-    VirtAddr,
+    PhysAddr, VirtAddr,
 };
 
 static mut PHYSICAL_MEORY_OFFSET: usize = 0;
@@ -62,6 +65,10 @@ impl crate::paging::Frame for Frame {
 
     fn size(&self) -> usize {
         self.frame.size() as usize
+    }
+
+    fn set_address(&mut self, addr: crate::addr::phy_addr::PhyAddr) {
+        self.frame = PhysFrame::containing_address(PhysAddr::new(addr.as_usize() as u64));
     }
 }
 

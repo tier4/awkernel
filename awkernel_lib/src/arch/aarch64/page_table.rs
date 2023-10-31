@@ -1,7 +1,6 @@
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    memory::PAGESIZE,
-    paging::{Frame, FrameAllocator},
+    paging::{Frame, FrameAllocator, PAGESIZE},
 };
 use alloc::slice;
 use core::ptr::{read_volatile, write_volatile};
@@ -262,7 +261,7 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, ()> for PageTable {
         &mut self,
         phy_addr: PhyAddr,
         virt_addr: VirtAddr,
-        flags: crate::memory::Flags,
+        flags: crate::paging::Flags,
         page_allocator: &mut PageAllocator<Page>,
     ) -> Result<(), ()> {
         let lv1_table = &mut self.root.entries;

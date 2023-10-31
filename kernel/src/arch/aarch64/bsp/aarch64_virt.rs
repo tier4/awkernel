@@ -9,7 +9,7 @@ use awkernel_lib::{
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 
 use crate::arch::aarch64::{

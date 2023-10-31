@@ -24,7 +24,7 @@ pub(crate) use self::std_common::StdCommon as ArchImpl;
 
 #[cfg(not(feature = "std"))]
 trait Arch:
-    super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::memory::Memory
+    super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::paging::Mapper
 {
 }
 

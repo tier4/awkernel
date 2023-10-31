@@ -1,6 +1,6 @@
 #[cfg(loom)]
 #[test]
-fn test_rwlock() {
+fn model_check_rwlock() {
     use awkernel_lib::sync::rwlock;
     use loom::sync::Arc;
 

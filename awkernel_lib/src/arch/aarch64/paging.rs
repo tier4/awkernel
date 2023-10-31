@@ -1,13 +1,13 @@
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::page_table::{flags::*, PageTable},
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 
 const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
-impl crate::memory::Memory for super::AArch64 {
-    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: crate::memory::Flags) -> bool {
+impl crate::paging::Mapper for super::AArch64 {
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: crate::paging::Flags) -> bool {
         let vm_addr = vm_addr.as_usize() & !(PAGESIZE - 1);
         let phy_addr = phy_addr.as_usize() & !(PAGESIZE - 1);
 

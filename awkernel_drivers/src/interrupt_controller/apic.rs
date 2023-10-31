@@ -4,8 +4,7 @@ use awkernel_lib::{
     arch::x86_64::page_allocator::PageAllocator,
     delay::wait_forever,
     interrupt::InterruptController,
-    memory::Flags,
-    paging::PageTable,
+    paging::{Flags, PageTable},
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug};
 use x86_64::{registers::model_specific::Msr, structures::paging::PhysFrame};

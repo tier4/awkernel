@@ -6,9 +6,9 @@ pub mod acpi;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod interrupt;
-pub(super) mod memory;
 pub mod page_allocator;
 pub mod page_table;
+pub(super) mod paging;
 
 pub struct X86;
 

@@ -13,7 +13,3 @@ pub mod pcie;
 
 #[cfg(feature = "aarch64")]
 pub mod psci;
-
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
-}
