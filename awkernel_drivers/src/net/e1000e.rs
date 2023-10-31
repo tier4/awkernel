@@ -329,6 +329,8 @@ impl E1000E {
             execute: false,
             write: true,
             cache: false,
+            write_through: false,
+            device: true,
         };
 
         while start < end {

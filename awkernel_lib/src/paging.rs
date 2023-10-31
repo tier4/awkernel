@@ -46,6 +46,8 @@ pub struct Flags {
     pub execute: bool,
     pub write: bool,
     pub cache: bool,
+    pub write_through: bool,
+    pub device: bool,
 }
 
 pub trait Mapper {

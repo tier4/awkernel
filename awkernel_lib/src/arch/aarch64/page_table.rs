@@ -6,8 +6,8 @@ use alloc::slice;
 use core::ptr::{read_volatile, write_volatile};
 
 use self::flags::{
-    FLAG_L3_AF, FLAG_L3_ATTR_MEM, FLAG_L3_ISH, FLAG_L3_PXN, FLAG_L3_SH_RW_N, FLAG_L3_SH_R_N,
-    FLAG_L3_XN,
+    FLAG_L3_AF, FLAG_L3_ATTR_DEV, FLAG_L3_ATTR_MEM, FLAG_L3_ISH, FLAG_L3_NS, FLAG_L3_OSH,
+    FLAG_L3_PXN, FLAG_L3_SH_RW_N, FLAG_L3_SH_R_N, FLAG_L3_XN,
 };
 
 use super::page_allocator::{Page, PageAllocator};
@@ -289,7 +289,7 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, ()> for PageTable {
 
         let lv3_idx = Self::get_idx(virt_addr, PageTableLevel::Lv3);
 
-        let mut f = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_ATTR_MEM | 0b11;
+        let mut f = FLAG_L3_AF | 0b11;
 
         if !flags.execute {
             f |= FLAG_L3_XN | FLAG_L3_PXN;
@@ -299,6 +299,14 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, ()> for PageTable {
             f |= FLAG_L3_SH_RW_N;
         } else {
             f |= FLAG_L3_SH_R_N;
+        }
+
+        if flags.device {
+            f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH;
+        } else if flags.cache {
+            f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH;
+        } else {
+            f |= FLAG_L3_NS | FLAG_L3_ISH;
         }
 
         let e = phy_addr.as_usize() as u64 & !0xfff | f;

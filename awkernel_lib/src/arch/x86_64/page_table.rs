@@ -58,5 +58,9 @@ fn flags_to_x86_flags(flags: crate::paging::Flags) -> PageTableFlags {
         x86_flags |= PageTableFlags::NO_CACHE;
     }
 
+    if flags.write_through {
+        x86_flags |= PageTableFlags::WRITE_THROUGH;
+    }
+
     x86_flags
 }

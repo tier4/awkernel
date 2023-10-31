@@ -57,6 +57,8 @@ pub fn init_with_acpi<F, FA, PT>(
             write: true,
             execute: false,
             cache: false,
+            write_through: false,
+            device: true,
         };
 
         let mut config_start = segment.base_address() as usize;

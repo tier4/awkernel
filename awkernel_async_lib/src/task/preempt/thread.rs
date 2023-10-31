@@ -70,6 +70,8 @@ impl PtrWorkerThreadContext {
                     execute: false,
                     write: true,
                     cache: true,
+                    write_through: false,
+                    device: false,
                 },
             )
         };

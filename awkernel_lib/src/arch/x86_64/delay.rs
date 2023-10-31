@@ -86,6 +86,8 @@ pub(super) fn init<T>(
         write: true,
         execute: false,
         cache: false,
+        write_through: false,
+        device: true,
     };
 
     if unsafe {
