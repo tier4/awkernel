@@ -5,7 +5,7 @@ use awkernel_lib::{
     paging::{Frame, FrameAllocator, PageTable},
     sync::mutex::MCSNode,
 };
-use core::{fmt, ptr::read_volatile};
+use core::fmt;
 
 #[cfg(feature = "x86")]
 use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
@@ -31,6 +31,15 @@ impl fmt::Display for PCIeDeviceErr {
             }
         }
     }
+}
+
+mod registers {
+    use awkernel_lib::mmio_r;
+
+    mmio_r!(offset 0x00 => pub DEVICE_VENDOR_ID<u32>);
+    mmio_r!(offset 0x04 => pub STATUS_COMMAND<u32>);
+    mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
+    mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
 }
 
 /// Initialize the PCIe for ACPI
@@ -137,8 +146,8 @@ fn scan_devices<F, FA, PT, E>(
 {
     for dev in 0..(1 << 5) {
         for func in 0..(1 << 3) {
-            let offset = (bus as u64) << 20 | dev << 15 | func << 12;
-            let addr = base_address as u64 + offset;
+            let offset = (bus as usize) << 20 | dev << 15 | func << 12;
+            let addr = base_address + offset;
             if let Some(device) = DeviceInfo::from_addr(addr) {
                 let _ = device.init(phys_offset, page_table, page_allocator, page_size);
             }
@@ -149,7 +158,7 @@ fn scan_devices<F, FA, PT, E>(
 /// Information necessary for initializing the device
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceInfo {
-    pub(crate) addr: u64,
+    pub(crate) addr: usize,
     id: u16,
     vendor: u16,
     pub(crate) header_type: u8,
@@ -167,10 +176,11 @@ impl fmt::Display for DeviceInfo {
 
 impl DeviceInfo {
     /// Get the information for PCIe device
-    fn from_addr(addr: u64) -> Option<DeviceInfo> {
-        let vendor = unsafe { read_volatile(addr as *const u16) };
-        let id = unsafe { read_volatile((addr + 0x02) as *const u16) };
-        let header_type = unsafe { read_volatile((addr + 0x0e) as *const u8) };
+    fn from_addr(addr: usize) -> Option<DeviceInfo> {
+        let ids = registers::DEVICE_VENDOR_ID.read(addr as usize);
+        let vendor = (ids & 0xffff) as u16;
+        let id = (ids >> 16) as u16;
+        let header_type = (registers::BIST_HEAD_LAT_CACH.read(addr) >> 16 & 0xff) as u8;
 
         if id == !0 || vendor == !0 {
             None
