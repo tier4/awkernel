@@ -1,8 +1,17 @@
+use core::{marker::PhantomData, ptr::null_mut};
+
+#[cfg(not(loom))]
 use core::{
     cell::UnsafeCell,
-    marker::PhantomData,
+    hint,
     ops::{Deref, DerefMut},
-    ptr::null_mut,
+    sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
+};
+
+#[cfg(loom)]
+use loom::{
+    cell::UnsafeCell,
+    hint,
     sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
 };
 
@@ -32,7 +41,16 @@ impl<T> MCSNode<T> {
 }
 
 impl<T: Send> MCSLock<T> {
+    #[cfg(not(loom))]
     pub const fn new(v: T) -> MCSLock<T> {
+        MCSLock {
+            last: AtomicPtr::new(null_mut()),
+            data: UnsafeCell::new(v),
+        }
+    }
+
+    #[cfg(loom)]
+    pub fn new(v: T) -> MCSLock<T> {
         MCSLock {
             last: AtomicPtr::new(null_mut()),
             data: UnsafeCell::new(v),
@@ -85,7 +103,7 @@ impl<T: Send> MCSLock<T> {
         };
 
         let ptr = guard.node as *mut MCSNode<T>;
-        let prev = self.last.swap(ptr, Ordering::Acquire);
+        let prev = self.last.swap(ptr, Ordering::AcqRel);
 
         // if prev is null then nobody is trying to acquire lock
         if prev.is_null() {
@@ -94,14 +112,16 @@ impl<T: Send> MCSLock<T> {
 
         // enqueue myself
         let prev = unsafe { &*prev };
-        prev.next.store(ptr, Ordering::Relaxed);
-
-        fence(Ordering::SeqCst);
+        prev.next.store(ptr, Ordering::Release);
 
         // spin until other thread sets locked true
-        while !guard.node.locked.load(Ordering::Acquire) {
-            core::hint::spin_loop();
+        while !guard.node.locked.load(Ordering::Relaxed) {
+            hint::spin_loop();
+
+            #[cfg(loom)]
+            loom::thread::yield_now();
         }
+        fence(Ordering::Acquire);
 
         guard
     }
@@ -116,6 +136,16 @@ pub struct MCSLockGuard<'a, T: Send> {
     need_unlock: bool,
     _interrupt_guard: crate::interrupt::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
+}
+
+impl<'a, T: Send> MCSLockGuard<'a, T> {
+    #[cfg(loom)]
+    pub fn with_mut<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(*mut T) -> R,
+    {
+        self.mcs_lock.data.with_mut(f)
+    }
 }
 
 impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
@@ -139,17 +169,20 @@ impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
 
             // other thread is entering lock and wait the execution
             while self.node.next.load(Ordering::Relaxed).is_null() {
-                core::hint::spin_loop()
+                hint::spin_loop();
+
+                #[cfg(loom)]
+                loom::thread::yield_now();
             }
         }
 
         // make next thread executable
-        let next = unsafe { &mut *self.node.next.load(Ordering::Relaxed) };
+        let next = unsafe { &mut *self.node.next.load(Ordering::Acquire) };
         next.locked.store(true, Ordering::Release);
-        fence(Ordering::SeqCst);
     }
 }
 
+#[cfg(not(loom))]
 impl<'a, T: Send> Deref for MCSLockGuard<'a, T> {
     type Target = T;
 
@@ -158,6 +191,7 @@ impl<'a, T: Send> Deref for MCSLockGuard<'a, T> {
     }
 }
 
+#[cfg(not(loom))]
 impl<'a, T: Send> DerefMut for MCSLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mcs_lock.data.get() }

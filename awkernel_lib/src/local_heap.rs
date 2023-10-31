@@ -7,7 +7,7 @@
 //! #![feature(allocator_api)]
 //!
 //! use awkernel_lib::local_heap::{TLSF, LocalHeap};
-//! use core::mem::MaybeUninit;
+//! use core::{cell::RefCell, mem::MaybeUninit};
 //!
 //! let mut memory_pool = [MaybeUninit::new(0); 1024];
 //! let tlsf: RefCell<TLSF> = RefCell::new(TLSF::new(&mut memory_pool));

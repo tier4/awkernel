@@ -18,11 +18,12 @@ use awkernel_lib::{
     arch::x86_64::{
         acpi::AcpiMapper,
         page_allocator::{self, get_page_table, PageAllocator},
+        page_table,
     },
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use bootloader_api::{
     config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
@@ -169,12 +170,21 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // 8. Initialize `awkernel_lib` and `awkernel_driver`
-    awkernel_lib::arch::x86_64::init(&acpi, &mut page_table, &mut page_allocator);
-    awkernel_drivers::pcie::init(&acpi, &mut page_table, &mut page_allocator, PAGESIZE as u64);
+    let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
+    awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocator);
+    awkernel_drivers::pcie::init_with_acpi(
+        offset as usize,
+        &acpi,
+        &mut awkernel_page_table,
+        &mut page_allocator,
+        PAGESIZE as u64,
+    );
 
     // 9. Initialize APIC.
-    let type_apic =
-        awkernel_drivers::interrupt_controller::apic::new(&mut page_table, &mut page_allocator);
+    let type_apic = awkernel_drivers::interrupt_controller::apic::new(
+        &mut awkernel_page_table,
+        &mut page_allocator,
+    );
 
     // 10. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocator);

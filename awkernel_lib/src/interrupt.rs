@@ -1,6 +1,12 @@
-use crate::{arch::ArchImpl, sync::rwlock::RwLock};
+use crate::arch::ArchImpl;
 use alloc::{boxed::Box, collections::BTreeMap};
 use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
+
+#[cfg(loom)]
+use crate::sync::rwlock_dummy::RwLock;
+
+#[cfg(not(loom))]
+use crate::sync::rwlock::RwLock;
 
 pub trait Interrupt {
     fn get_flag() -> usize;

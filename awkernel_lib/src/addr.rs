@@ -18,6 +18,10 @@ pub trait Addr:
     + core::ops::BitOrAssign
     + core::ops::BitXor
     + core::ops::BitXorAssign
+    + core::ops::Shl<usize>
+    + core::ops::ShlAssign<usize>
+    + core::ops::Shr<usize>
+    + core::ops::ShrAssign<usize>
     + PartialEq
     + Eq
     + PartialOrd
@@ -25,6 +29,8 @@ pub trait Addr:
     + Clone
     + Copy
 {
-    fn to_usize(&self) -> usize;
+    fn as_usize(&self) -> usize;
     fn from_usize(addr: usize) -> Self;
+    fn as_ptr<T>(&self) -> *const T;
+    fn as_mut_ptr<T>(&self) -> *mut T;
 }

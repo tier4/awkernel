@@ -17,7 +17,7 @@ use awkernel_lib::{
         traits::HasNamedChildNode,
     },
     err_msg,
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use core::arch::asm;
 

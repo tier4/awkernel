@@ -32,6 +32,8 @@ pub mod context;
 #[cfg(not(feature = "std"))]
 pub mod memory;
 
+pub mod paging;
+
 extern crate alloc;
 
 pub type PhantomUnsync = PhantomData<Cell<()>>;

@@ -1,15 +1,15 @@
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::page_table::{flags::*, PageTable},
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 
 const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
-impl crate::memory::Memory for super::AArch64 {
-    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: crate::memory::Flags) -> bool {
-        let vm_addr = vm_addr.to_usize() & !(PAGESIZE - 1);
-        let phy_addr = phy_addr.to_usize() & !(PAGESIZE - 1);
+impl crate::paging::Mapper for super::AArch64 {
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: crate::paging::Flags) -> bool {
+        let vm_addr = vm_addr.as_usize() & !(PAGESIZE - 1);
+        let phy_addr = phy_addr.as_usize() & !(PAGESIZE - 1);
 
         let mut page_table = get_page_table(VirtAddr::new(vm_addr));
 
@@ -29,24 +29,24 @@ impl crate::memory::Memory for super::AArch64 {
     }
 
     unsafe fn unmap(vm_addr: VirtAddr) {
-        let vm_addr = VirtAddr::new(vm_addr.to_usize() & !(PAGESIZE - 1));
+        let vm_addr = VirtAddr::new(vm_addr.as_usize() & !(PAGESIZE - 1));
         let mut page_table = get_page_table(vm_addr);
         page_table.unmap(vm_addr);
     }
 
     fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
-        let higher = vm_addr.to_usize() & !(PAGESIZE - 1);
-        let lower = vm_addr.to_usize() & (PAGESIZE - 1);
+        let higher = vm_addr.as_usize() & !(PAGESIZE - 1);
+        let lower = vm_addr.as_usize() & (PAGESIZE - 1);
         let page_table = get_page_table(VirtAddr::new(higher));
 
         page_table
             .translate(VirtAddr::new(higher))
-            .map(|phy| PhyAddr::new(phy.to_usize() | lower))
+            .map(|phy| PhyAddr::new(phy.as_usize() | lower))
     }
 }
 
 fn get_page_table(vm_addr: VirtAddr) -> PageTable {
-    let ttbr = if vm_addr.to_usize() >= TTBR1_ADDR {
+    let ttbr = if vm_addr.as_usize() >= TTBR1_ADDR {
         awkernel_aarch64::ttbr1_el1::get() & !1
     } else {
         awkernel_aarch64::ttbr0_el1::get() & !1

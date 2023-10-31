@@ -1,21 +1,19 @@
-use acpi::AcpiTables;
-use alloc::boxed::Box;
-use alloc::sync::Arc;
-use awkernel_lib::net::NET_MANAGER;
-use awkernel_lib::sync::mutex::MCSNode;
-use awkernel_lib::{arch::x86_64::acpi::AcpiMapper, sync::mutex::Mutex};
+use alloc::{boxed::Box, sync::Arc};
+use awkernel_lib::sync::mutex::Mutex;
+use awkernel_lib::{
+    net::NET_MANAGER,
+    paging::{Frame, FrameAllocator, PageTable},
+    sync::mutex::MCSNode,
+};
+use core::{fmt, ptr::read_volatile};
 
-use awkernel_lib::arch::x86_64::page_allocator::PageAllocator;
-use x86_64::structures::paging::{OffsetPageTable, PageTableFlags, PhysFrame};
+#[cfg(feature = "x86")]
+use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 
-use acpi::{mcfg::McfgEntry, PciConfigRegions};
-use awkernel_lib::arch::x86_64::mmu::map_to;
-use core::fmt;
-use core::ptr::read_volatile;
+#[cfg(feature = "x86")]
+use acpi::{AcpiTables, PciConfigRegions};
 
 use crate::net::e1000e::E1000E;
-
-const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
 pub enum PCIeDeviceErr {
     InitFailure,
@@ -35,55 +33,114 @@ impl fmt::Display for PCIeDeviceErr {
     }
 }
 
-/// Initialize the PCIe
-pub fn init<T>(
+/// Initialize the PCIe for ACPI
+#[cfg(feature = "x86")]
+pub fn init_with_acpi<F, FA, PT, E>(
+    phys_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
-    page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
+    page_table: &mut PT,
+    page_allocator: &mut FA,
     page_size: u64,
 ) where
-    T: Iterator<Item = PhysFrame> + Send,
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
 {
+    use awkernel_lib::{
+        addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+        paging::Flags,
+    };
+
+    const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
+
     let pcie_info = PciConfigRegions::new(acpi).unwrap();
     for segment in pcie_info.list_all() {
         log::info!("{:?}", segment);
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_EXECUTE;
+
+        let flags = Flags {
+            write: true,
+            execute: false,
+            cache: false,
+            write_through: false,
+            device: true,
+        };
+
         let mut config_start = segment.base_address() as usize;
         let config_end = config_start + CONFIG_SPACE_SIZE;
+
         while config_start < config_end {
-            unsafe {
-                map_to(
-                    config_start,
-                    config_start,
-                    flags,
-                    page_table,
-                    page_allocator,
-                );
+            let phy_addr = PhyAddr::new(config_start);
+            let virt_addr = VirtAddr::new(config_start);
+
+            if unsafe {
+                page_table
+                    .map_to(virt_addr, phy_addr, flags, page_allocator)
+                    .is_err()
+            } {
+                log::error!("Failed to map the PCIe config space.");
+                return;
             }
+
             config_start += page_size as usize;
         }
 
-        scan_devices(&segment, page_table, page_allocator, page_size);
+        let base_address = segment.base_address();
+        for bus in segment.buses() {
+            scan_devices(
+                phys_offset,
+                bus,
+                base_address as usize,
+                page_table,
+                page_allocator,
+                page_size,
+            );
+        }
+    }
+}
+
+pub fn init_with_addr<F, FA, PT, E>(
+    phys_offset: usize,
+    base_address: usize,
+    page_table: &mut PT,
+    page_allocator: &mut FA,
+    page_size: u64,
+    starting_bus: u8,
+) where
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
+{
+    for bus in (starting_bus as u32)..256 {
+        scan_devices(
+            phys_offset,
+            bus as u8,
+            base_address,
+            page_table,
+            page_allocator,
+            page_size,
+        );
     }
 }
 
 /// Scan and initialize the PICe devices
-fn scan_devices<T>(
-    segment: &McfgEntry,
-    page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
+fn scan_devices<F, FA, PT, E>(
+    phys_offset: usize,
+    bus: u8,
+    base_address: usize,
+    page_table: &mut PT,
+    page_allocator: &mut FA,
     page_size: u64,
 ) where
-    T: Iterator<Item = PhysFrame> + Send,
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
 {
-    for bus in segment.buses() {
-        for dev in 0..(1 << 5) {
-            for func in 0..(1 << 3) {
-                let offset = (bus as u64) << 20 | dev << 15 | func << 12;
-                let addr = segment.base_address() + offset;
-                if let Some(device) = DeviceInfo::from_addr(addr) {
-                    let _ = device.init(page_table, page_allocator, page_size);
-                }
+    for dev in 0..(1 << 5) {
+        for func in 0..(1 << 3) {
+            let offset = (bus as u64) << 20 | dev << 15 | func << 12;
+            let addr = base_address as u64 + offset;
+            if let Some(device) = DeviceInfo::from_addr(addr) {
+                let _ = device.init(phys_offset, page_table, page_allocator, page_size);
             }
         }
     }
@@ -128,19 +185,23 @@ impl DeviceInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    fn init<T>(
+    fn init<F, FA, PT, E>(
         &self,
-        page_table: &mut OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
+        phys_offset: usize,
+        page_table: &mut PT,
+        page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<(), PCIeDeviceErr>
     where
-        T: Iterator<Item = PhysFrame> + Send,
+        F: Frame,
+        FA: FrameAllocator<F, E>,
+        PT: PageTable<F, FA, E>,
     {
         match (self.id, self.vendor) {
             //  Intel 82574 GbE Controller
             (0x10d3, 0x8086) => {
-                let mut e1000e = E1000E::new(self, page_table, page_allocator, page_size)?;
+                let mut e1000e =
+                    E1000E::new(self, phys_offset, page_table, page_allocator, page_size)?;
                 e1000e.init()?;
                 let node = &mut MCSNode::new();
                 let mut net_master = NET_MANAGER.lock(node);
@@ -155,17 +216,6 @@ impl DeviceInfo {
 pub trait PCIeDevice {
     /// Each PCIe device has a register space,
     const REG_SPACE_SIZE: u64;
-
-    /// Create the virtual memory map for register space.
-    fn new<T>(
-        info: &DeviceInfo,
-        page_table: &mut OffsetPageTable<'static>,
-        page_allocator: &mut PageAllocator<T>,
-        page_size: u64,
-    ) -> Result<Self, PCIeDeviceErr>
-    where
-        T: Iterator<Item = PhysFrame> + Send,
-        Self: Sized;
 
     /// Initialize the device hardware.
     fn init(&mut self) -> Result<(), PCIeDeviceErr>;

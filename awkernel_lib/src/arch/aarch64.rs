@@ -3,9 +3,9 @@ pub(super) mod cpu;
 pub(super) mod delay;
 pub mod exception_saved_regs;
 pub(super) mod interrupt;
-pub(super) mod memory;
 pub mod page_allocator;
 pub mod page_table;
+pub(super) mod paging;
 pub mod rpi_system_timer;
 
 pub use cpu::*;

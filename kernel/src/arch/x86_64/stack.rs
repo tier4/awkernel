@@ -3,7 +3,7 @@ use acpi::AcpiTables;
 use awkernel_lib::{
     arch::x86_64::{acpi::AcpiMapper, page_allocator::PageAllocator},
     heap::InitErr,
-    memory::PAGESIZE,
+    paging::PAGESIZE,
 };
 use x86_64::{
     structures::paging::{
