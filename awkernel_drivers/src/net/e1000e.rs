@@ -76,7 +76,7 @@ impl fmt::Display for E1000EDriverErr {
 
 impl E1000E {
     pub fn new<F, FA, E>(
-        info: &DeviceInfo,
+        info: DeviceInfo,
         phys_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
@@ -88,7 +88,6 @@ impl E1000E {
     {
         let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
         let register_start = (bar0 as usize) & 0xFFFFFFF0;
-        let info = *info;
 
         // allocate virtual memory for register space
         Self::map_register_space(register_start, page_table, page_allocator, page_size)?;
