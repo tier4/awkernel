@@ -91,7 +91,7 @@ QEMU_AARCH64_ARGS+= -monitor telnet::$(QEMUPORT),server,nowait # -d int
 
 ## Raspi3
 
-QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -dtb bcm2710-rpi-3-b-plus.dtb $(QEMU_AARCH64_ARGS)
+QEMU_RASPI3_ARGS= -m 1024 -M raspi3b -dtb misc/raspi3/bcm2710-rpi-3-b-plus.dtb $(QEMU_AARCH64_ARGS)
 
 qemu-raspi3:
 	qemu-system-aarch64 $(QEMU_RASPI3_ARGS)
