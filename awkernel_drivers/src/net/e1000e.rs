@@ -1,4 +1,4 @@
-use crate::pcie::{DeviceInfo, PCIeDevice, PCIeDeviceErr};
+use crate::pcie::{self, DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::{boxed::Box, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -9,7 +9,7 @@ use core::{
     fmt,
     hint::spin_loop,
     mem::size_of,
-    ptr::{write_bytes, write_volatile},
+    ptr::write_bytes,
     slice,
     sync::atomic::{fence, Ordering::SeqCst},
 };
@@ -147,15 +147,12 @@ impl PCIeDevice for E1000E {
     const REG_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
 
     fn init(&mut self) -> Result<(), PCIeDeviceErr> {
-        assert_eq!(self.info.header_type, 0x0);
-        // set up command register in config space
-        // bit 0 : I/O Access
-        // bit 1 : Memory Access
-        // bit 2 : LAN R/W field Mastering
-        let command_reg = self.info.addr + 0x4;
-        unsafe {
-            write_volatile(command_reg as *mut u16, 0b111);
-        }
+        use pcie::registers::StatusCommand;
+
+        let csr = self.info.read_status_command();
+        self.info.write_status_command(
+            csr | StatusCommand::BUS_MASTER | StatusCommand::MEMORY_SPACE | StatusCommand::IO_SPACE,
+        );
 
         if let Err(e) = unsafe { self.init_hw() } {
             log::error!("{}", e);

@@ -79,7 +79,7 @@ impl fmt::Display for PCIeDeviceErr {
     }
 }
 
-mod registers {
+pub(crate) mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
     use bitflags::bitflags;
 
@@ -111,7 +111,7 @@ mod registers {
             const VGA_PALETTE_SNOOP = 1 << 5;
             const MEMORY_WRITE_AND_INVALIDATE_ENABLE = 1 << 4;
             const SPECIAL_CYCLES = 1 << 3;
-            const BUS_MASTER = 1 << 2;
+            const BUS_MASTER = 1 << 2; // Enable DMA
             const MEMORY_SPACE = 1 << 1;
             const IO_SPACE = 1 << 0;
         }
@@ -285,6 +285,14 @@ impl DeviceInfo {
                 base_addresses: array![_ => BaseAddress::None; 6],
             })
         }
+    }
+
+    pub fn read_status_command(&self) -> registers::StatusCommand {
+        registers::STATUS_COMMAND.read(self.addr)
+    }
+
+    pub fn write_status_command(&self, csr: registers::StatusCommand) {
+        registers::STATUS_COMMAND.write(csr, self.addr);
     }
 
     pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
