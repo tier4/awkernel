@@ -4,7 +4,7 @@
 
 use super::{heap::map_heap, interrupt};
 use crate::{
-    arch::x86_64::stack::map_stack,
+    arch::{config::DMA_START, x86_64::stack::map_stack},
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
@@ -173,11 +173,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
     awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocator);
     awkernel_drivers::pcie::init_with_acpi(
-        offset as usize,
+        DMA_START,
         &acpi,
         &mut awkernel_page_table,
         &mut page_allocator,
-        PAGESIZE as u64,
     );
 
     // 9. Initialize APIC.
