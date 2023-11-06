@@ -1,9 +1,9 @@
 use crate::pcie::{DeviceInfo, PCIeDevice, PCIeDeviceErr};
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     net::NetDevice,
-    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
+    paging::{Flags, Frame, FrameAllocator, PageTable, PAGESIZE},
 };
 use core::{
     fmt,
@@ -52,6 +52,22 @@ pub struct E1000E {
     tx_bufs: Vec<VirtAddr>,
 }
 
+pub fn create<F, FA, E>(
+    info: DeviceInfo,
+    dma_offset: usize,
+    page_table: &mut impl PageTable<F, FA, E>,
+    page_allocator: &mut FA,
+    page_size: u64,
+) -> Result<Box<dyn NetDevice + Send>, PCIeDeviceErr>
+where
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+{
+    let mut e1000e = E1000E::new(info, dma_offset, page_table, page_allocator, page_size)?;
+    e1000e.init()?;
+    Ok(Box::new(e1000e))
+}
+
 pub enum E1000EDriverErr {
     MemoryMapFailure,
 }
@@ -73,9 +89,9 @@ impl fmt::Display for E1000EDriverErr {
 }
 
 impl E1000E {
-    pub fn new<F, FA, E>(
+    fn new<F, FA, E>(
         info: DeviceInfo,
-        phys_offset: usize,
+        dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
         page_size: u64,
@@ -87,8 +103,10 @@ impl E1000E {
         // allocate send and recv descriptor ring
         let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
         let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
-        let (tx_ring_va, tx_ring_pa) = Self::create_ring(phys_offset, page_allocator, page_size)?;
-        let (rx_ring_va, rx_ring_pa) = Self::create_ring(phys_offset, page_allocator, page_size)?;
+        let (tx_ring_va, tx_ring_pa) =
+            Self::create_ring(dma_offset, page_table, page_allocator, page_size)?;
+        let (rx_ring_va, rx_ring_pa) =
+            Self::create_ring(dma_offset, page_table, page_allocator, page_size)?;
         let tx_ring = unsafe {
             slice::from_raw_parts_mut(tx_ring_va.as_usize() as *mut TxDescriptor, tx_ring_len)
         };
@@ -101,14 +119,14 @@ impl E1000E {
 
         // allocate buffer for descriptors
         for tx_desc in tx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(phys_offset, page_allocator)?;
+            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_allocator)?;
             tx_desc.buf = buf_pa.as_usize() as u64;
             tx_desc.status |= 1;
             tx_bufs.push(buf_va);
         }
 
         for rx_desc in rx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(phys_offset, page_allocator)?;
+            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_allocator)?;
             rx_desc.buf = buf_pa.as_usize() as u64;
             rx_bufs.push(buf_va);
         }
@@ -302,7 +320,7 @@ impl E1000E {
 
     /// Allocate the buffer space for e1000e's rx_ring
     fn allocate_buffer<F, FA, E>(
-        phys_offset: usize,
+        dma_offset: usize,
         page_allocator: &mut FA,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
@@ -315,14 +333,15 @@ impl E1000E {
             return Err(E1000EDriverErr::MemoryMapFailure);
         };
 
-        let buffer_va = VirtAddr::new(phys_offset + buffer_pa.as_usize());
+        let buffer_va = VirtAddr::new(dma_offset + buffer_pa.as_usize());
 
         Ok((buffer_va, buffer_pa))
     }
 
     /// Create Receive and Transmit Buffer
     fn create_ring<F, FA, E>(
-        phys_offset: usize,
+        dma_offset: usize,
+        page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
         page_size: u64,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
@@ -336,8 +355,28 @@ impl E1000E {
             return Err(E1000EDriverErr::MemoryMapFailure);
         };
 
+        unsafe {
+            let virt_addr = VirtAddr::new(frame.start_address().as_usize() + dma_offset);
+
+            if let Err(_) = page_table.map_to(
+                virt_addr,
+                frame.start_address(),
+                Flags {
+                    write: true,
+                    execute: false,
+                    cache: false,
+                    write_through: false,
+                    device: false,
+                },
+                page_allocator,
+            ) {
+                log::error!("e1000e: Error mapping frame.");
+                return Err(E1000EDriverErr::MemoryMapFailure);
+            }
+        };
+
         let ring_pa = frame.start_address();
-        let ring_va = phys_offset + ring_pa.as_usize();
+        let ring_va = dma_offset + ring_pa.as_usize();
 
         // clear the ring
         unsafe {

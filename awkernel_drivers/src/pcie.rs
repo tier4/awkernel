@@ -134,7 +134,7 @@ mod registers {
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT, E>(
-    phys_offset: usize,
+    dma_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocator: &mut FA,
@@ -186,7 +186,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
         let base_address = segment.base_address();
         for bus in segment.buses() {
             scan_devices(
-                phys_offset,
+                dma_offset,
                 bus,
                 base_address as usize,
                 page_table,
@@ -198,7 +198,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
 }
 
 pub fn init_with_addr<F, FA, PT, E>(
-    phys_offset: usize,
+    dma_offset: usize,
     base_address: usize,
     page_table: &mut PT,
     page_allocator: &mut FA,
@@ -212,7 +212,7 @@ pub fn init_with_addr<F, FA, PT, E>(
 {
     for bus in (starting_bus as u32)..256 {
         scan_devices(
-            phys_offset,
+            dma_offset,
             bus as u8,
             base_address,
             page_table,
@@ -224,7 +224,7 @@ pub fn init_with_addr<F, FA, PT, E>(
 
 /// Scan and initialize the PICe devices
 fn scan_devices<F, FA, PT, E>(
-    phys_offset: usize,
+    dma_offset: usize,
     bus: u8,
     base_address: usize,
     page_table: &mut PT,
@@ -241,7 +241,7 @@ fn scan_devices<F, FA, PT, E>(
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
             if let Ok(device) = DeviceInfo::from_addr(bus, addr) {
-                let _ = device.init(phys_offset, page_table, page_allocator, page_size);
+                let _ = device.init(dma_offset, page_table, page_allocator, page_size);
             }
         }
     }
@@ -440,7 +440,7 @@ impl DeviceInfo {
     /// Initialize the PCIe device based on the information
     fn init<F, FA, PT, E>(
         mut self,
-        phys_offset: usize,
+        dma_offset: usize,
         page_table: &mut PT,
         page_allocator: &mut FA,
         page_size: u64,
@@ -461,15 +461,17 @@ impl DeviceInfo {
             (pcie_id::INTEL_82574GBE_DEVICE_ID, pcie_id::INTEL_VENDOR_ID) => {
                 self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
 
-                log::debug!("PCIe: {self:?}");
+                let e1000e = super::net::e1000e::create(
+                    self,
+                    dma_offset,
+                    page_table,
+                    page_allocator,
+                    page_size,
+                )?;
 
-                let mut e1000e =
-                    E1000E::new(self, phys_offset, page_table, page_allocator, page_size)?;
-
-                e1000e.init()?;
                 let node = &mut MCSNode::new();
                 let mut net_master = NET_MANAGER.lock(node);
-                net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
+                net_master.add_driver(Arc::new(Mutex::new(e1000e)));
 
                 Ok(())
             }
