@@ -6,6 +6,7 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
+    arch::asm,
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
 };
@@ -292,6 +293,60 @@ impl DeviceInfo {
                 header_type,
                 base_addresses: array![_ => BaseAddress::None; 6],
             })
+        }
+    }
+
+    pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
+        let Some(bar) = self.base_addresses.get(i) else { return None; };
+
+        match bar {
+            BaseAddress::IO(addr) => {
+                #[cfg(feature = "x86")]
+                unsafe {
+                    let mut val;
+                    let port = *addr + offset as u32;
+                    asm!("in eax, dx",
+                        out("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                    return Some(val);
+                };
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    return None;
+                }
+            }
+            BaseAddress::MMIO { addr, .. } => unsafe {
+                Some(read_volatile((*addr + offset) as *const u32))
+            },
+            BaseAddress::None => None,
+        }
+    }
+
+    pub fn write_bar(&mut self, i: usize, offset: usize, val: u32) {
+        let Some(bar) = self.base_addresses.get(i) else { return; };
+
+        match bar {
+            BaseAddress::IO(addr) => {
+                #[cfg(feature = "x86")]
+                unsafe {
+                    let port = *addr + offset as u32;
+                    asm!("out dx, eax",
+                        in("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                };
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    return None;
+                }
+            }
+            BaseAddress::MMIO { addr, .. } => unsafe {
+                write_volatile((*addr + offset) as *mut u32, val);
+            },
+            BaseAddress::None => (),
         }
     }
 
