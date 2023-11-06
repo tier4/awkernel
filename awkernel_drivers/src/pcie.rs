@@ -245,7 +245,7 @@ pub struct DeviceInfo {
     id: u16,
     vendor: u16,
     device_name: Option<pcie_id::PCIeID>,
-    multiple_functions: bool,
+    _multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
 }
@@ -279,7 +279,7 @@ impl DeviceInfo {
                 id,
                 vendor,
                 device_name: None,
-                multiple_functions,
+                _multiple_functions: multiple_functions,
                 header_type,
                 base_addresses: array![_ => BaseAddress::None; 6],
             })
