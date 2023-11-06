@@ -332,18 +332,21 @@ impl E1000E {
         let buffer_va = VirtAddr::new(dma_offset + buffer_pa.as_usize());
 
         unsafe {
-            if let Err(_) = page_table.map_to(
-                buffer_va,
-                buffer_pa,
-                Flags {
-                    write: true,
-                    execute: false,
-                    cache: false,
-                    write_through: false,
-                    device: false,
-                },
-                page_allocator,
-            ) {
+            if page_table
+                .map_to(
+                    buffer_va,
+                    buffer_pa,
+                    Flags {
+                        write: true,
+                        execute: false,
+                        cache: false,
+                        write_through: false,
+                        device: false,
+                    },
+                    page_allocator,
+                )
+                .is_err()
+            {
                 log::error!("e1000e: Error mapping frame.");
                 return Err(E1000EDriverErr::MemoryMapFailure);
             }
@@ -371,18 +374,21 @@ impl E1000E {
         unsafe {
             let virt_addr = VirtAddr::new(frame.start_address().as_usize() + dma_offset);
 
-            if let Err(_) = page_table.map_to(
-                virt_addr,
-                frame.start_address(),
-                Flags {
-                    write: true,
-                    execute: false,
-                    cache: false,
-                    write_through: false,
-                    device: false,
-                },
-                page_allocator,
-            ) {
+            if page_table
+                .map_to(
+                    virt_addr,
+                    frame.start_address(),
+                    Flags {
+                        write: true,
+                        execute: false,
+                        cache: false,
+                        write_through: false,
+                        device: false,
+                    },
+                    page_allocator,
+                )
+                .is_err()
+            {
                 log::error!("e1000e: Error mapping frame.");
                 return Err(E1000EDriverErr::MemoryMapFailure);
             }
@@ -392,9 +398,7 @@ impl E1000E {
         let ring_va = dma_offset + ring_pa.as_usize();
 
         // clear the ring
-        unsafe {
-            write_bytes(ring_va as *mut u8, 0, PAGESIZE as usize);
-        }
+        unsafe { write_bytes(ring_va as *mut u8, 0, PAGESIZE) };
 
         Ok((VirtAddr::new(ring_va), ring_pa))
     }

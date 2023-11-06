@@ -6,7 +6,6 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
-    arch::asm,
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
 };
@@ -33,13 +32,13 @@ pub enum BaseAddress {
 
 impl BaseAddress {
     pub fn is_64bit_memory(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::MMIO {
                 address_type: AddressType::T64B,
                 ..
-            } => true,
-            _ => false,
-        }
+            }
+        )
     }
 }
 
@@ -264,7 +263,7 @@ impl fmt::Display for DeviceInfo {
 impl DeviceInfo {
     /// Get the information for PCIe device
     fn from_addr(bus: u8, addr: usize) -> Result<DeviceInfo, PCIeDeviceErr> {
-        let ids = registers::DEVICE_VENDOR_ID.read(addr as usize);
+        let ids = registers::DEVICE_VENDOR_ID.read(addr);
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
         let header_type = (registers::BIST_HEAD_LAT_CACH.read(addr) >> 16 & 0xff) as u8;
@@ -296,56 +295,46 @@ impl DeviceInfo {
     }
 
     pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
-        let Some(bar) = self.base_addresses.get(i) else { return None; };
+        let Some(bar) = self.base_addresses.get(i) else {
+            return None;
+        };
 
         match bar {
-            BaseAddress::IO(addr) => {
-                #[cfg(feature = "x86")]
-                unsafe {
-                    let mut val;
-                    let port = *addr + offset as u32;
-                    asm!("in eax, dx",
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let mut val;
+                let port = *addr + offset as u32;
+                core::arch::asm!("in eax, dx",
                         out("eax") val,
                         in("dx") port,
                         options(nomem, nostack, preserves_flags));
-                    return Some(val);
-                };
-
-                #[cfg(not(feature = "x86"))]
-                {
-                    return None;
-                }
-            }
+                Some(val)
+            },
             BaseAddress::MMIO { addr, .. } => unsafe {
                 Some(read_volatile((*addr + offset) as *const u32))
             },
-            BaseAddress::None => None,
+            _ => None,
         }
     }
 
     pub fn write_bar(&mut self, i: usize, offset: usize, val: u32) {
-        let Some(bar) = self.base_addresses.get(i) else { return; };
+        let Some(bar) = self.base_addresses.get(i) else {
+            return;
+        };
 
         match bar {
-            BaseAddress::IO(addr) => {
-                #[cfg(feature = "x86")]
-                unsafe {
-                    let port = *addr + offset as u32;
-                    asm!("out dx, eax",
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, eax",
                         in("eax") val,
                         in("dx") port,
                         options(nomem, nostack, preserves_flags));
-                };
-
-                #[cfg(not(feature = "x86"))]
-                {
-                    return None;
-                }
-            }
+            },
             BaseAddress::MMIO { addr, .. } => unsafe {
                 write_volatile((*addr + offset) as *mut u32, val);
             },
-            BaseAddress::None => (),
+            _ => (),
         }
     }
 
@@ -517,7 +506,7 @@ fn read_bar(addr: usize) -> BaseAddress {
                     addr: (bar & BAR_MEM_ADDR_MASK) as usize,
                     size,
                     address_type: AddressType::T32B,
-                    prefetchable: (bar & BAR_PREFETCHABLE) == 1,
+                    prefetchable: (bar & BAR_PREFETCHABLE) > 1,
                 }
             }
         } else if bar_type == BAR_TYPE_64 {
@@ -536,10 +525,10 @@ fn read_bar(addr: usize) -> BaseAddress {
                 write_volatile(addr as *mut u32, bar);
                 write_volatile(high_addr as *mut u32, high_bar);
 
-                !((high_size as usize) << 32 | (low_size as usize)) + 1
+                (!((high_size as u64) << 32 | (low_size as u64)) + 1) as usize
             };
 
-            let addr = ((high_bar as usize) << 32) | (bar & BAR_MEM_ADDR_MASK) as usize;
+            let addr = (((high_bar as u64) << 32) | (bar & BAR_MEM_ADDR_MASK) as u64) as usize;
 
             if size == 0 {
                 BaseAddress::None
@@ -548,7 +537,7 @@ fn read_bar(addr: usize) -> BaseAddress {
                     addr,
                     size,
                     address_type: AddressType::T64B,
-                    prefetchable: (bar & BAR_PREFETCHABLE) == 1,
+                    prefetchable: (bar & BAR_PREFETCHABLE) > 1,
                 }
             }
         } else {
