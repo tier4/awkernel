@@ -2,7 +2,7 @@ use alloc::{boxed::Box, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
     net::NET_MANAGER,
-    paging::{Frame, FrameAllocator, PageTable},
+    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
@@ -341,7 +341,43 @@ impl DeviceInfo {
         csr.set(registers::StatusCommand::IO_SPACE, true);
         registers::STATUS_COMMAND.write(csr, self.addr);
 
-        // TODO: map MMIO regions
+        // map MMIO regions
+        for bar in self.base_addresses.iter() {
+            if let BaseAddress::MMIO {
+                addr,
+                size,
+                prefetchable,
+                ..
+            } = bar
+            {
+                if *size == 0 {
+                    continue;
+                }
+
+                let flags = awkernel_lib::paging::Flags {
+                    write: true,
+                    execute: false,
+                    cache: *prefetchable,
+                    write_through: *prefetchable,
+                    device: true,
+                };
+
+                let mut addr = *addr;
+                let end = addr + *size;
+
+                log::info!("PCIe: 0x{addr:016x} - 0x{end:016x}");
+
+                let mask = !(PAGESIZE - 1);
+                while addr < end {
+                    let phy_addr = awkernel_lib::addr::phy_addr::PhyAddr::new(addr & mask);
+                    let virt_addr = awkernel_lib::addr::virt_addr::VirtAddr::new(addr & mask);
+
+                    unsafe { page_table.map_to(virt_addr, phy_addr, flags, page_allocator)? };
+
+                    addr += PAGESIZE;
+                }
+            }
+        }
 
         Ok(())
     }
@@ -427,7 +463,7 @@ fn read_bar(addr: usize) -> BaseAddress {
                 write_volatile(addr as *mut u32, !0);
                 let size = read_volatile::<u32>(addr as *const u32);
                 write_volatile(addr as *mut u32, bar);
-                (!size + 1) as usize
+                (!size).wrapping_add(1) as usize
             };
 
             if size == 0 {
