@@ -13,7 +13,7 @@ pub trait NetDevice {
     fn recv(&mut self) -> Option<Vec<u8>>;
     fn send(&mut self, data: &mut [u8]) -> Option<()>;
     fn can_send(&self) -> bool;
-    fn mac_address(&self) -> [u8; 6];
+    fn mac_address(&mut self) -> [u8; 6];
 }
 
 pub struct NetDriver {

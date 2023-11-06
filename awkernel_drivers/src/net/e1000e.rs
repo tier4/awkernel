@@ -3,13 +3,13 @@ use alloc::vec::Vec;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     net::NetDevice,
-    paging::{Flags, Frame, FrameAllocator, PageTable},
+    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
 };
 use core::{
     fmt,
     hint::spin_loop,
     mem::size_of,
-    ptr::{read_volatile, write_bytes, write_volatile},
+    ptr::{write_bytes, write_volatile},
     slice,
     sync::atomic::{fence, Ordering::SeqCst},
 };
@@ -39,9 +39,7 @@ struct RxDescriptor {
 
 /// Intel e1000e driver
 pub struct E1000E {
-    register_start: usize,
     info: DeviceInfo,
-    page_size: usize,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -86,12 +84,6 @@ impl E1000E {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        let bar0 = unsafe { read_volatile((info.addr + 0x10) as *mut u32) };
-        let register_start = (bar0 as usize) & 0xFFFFFFF0;
-
-        // allocate virtual memory for register space
-        Self::map_register_space(register_start, page_table, page_allocator, page_size)?;
-
         // allocate send and recv descriptor ring
         let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
         let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
@@ -122,9 +114,7 @@ impl E1000E {
         }
 
         Ok(Self {
-            register_start,
             info,
-            page_size: page_size as usize,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_usize() as u64,
             rx_bufs,
@@ -160,7 +150,7 @@ impl PCIeDevice for E1000E {
 }
 
 impl NetDevice for E1000E {
-    fn mac_address(&self) -> [u8; 6] {
+    fn mac_address(&mut self) -> [u8; 6] {
         unsafe { self.get_mac() }
     }
 
@@ -219,7 +209,7 @@ impl NetDevice for E1000E {
 
         let data_len = data.len();
         // data should not be longer than buffer
-        if data_len >= self.page_size {
+        if data_len >= PAGESIZE {
             return None;
         }
 
@@ -310,44 +300,6 @@ impl E1000E {
         Ok(())
     }
 
-    /// Create the memory map for e1000e's register space
-    fn map_register_space<F, FA, E>(
-        register_start: usize,
-        page_table: &mut impl PageTable<F, FA, E>,
-        page_allocator: &mut FA,
-        page_size: u64,
-    ) -> Result<(), E1000EDriverErr>
-    where
-        F: Frame,
-        FA: FrameAllocator<F, E>,
-    {
-        let mut start = register_start;
-        let end = start + Self::REG_SPACE_SIZE as usize;
-
-        let flags = Flags {
-            execute: false,
-            write: true,
-            cache: false,
-            write_through: false,
-            device: true,
-        };
-
-        while start < end {
-            let phy_addr = PhyAddr::new(start);
-            let virt_addr = VirtAddr::new(start);
-
-            if unsafe {
-                page_table
-                    .map_to(virt_addr, phy_addr, flags, page_allocator)
-                    .is_err()
-            } {
-                return Err(E1000EDriverErr::MemoryMapFailure);
-            }
-            start += page_size as usize;
-        }
-        Ok(())
-    }
-
     /// Allocate the buffer space for e1000e's rx_ring
     fn allocate_buffer<F, FA, E>(
         phys_offset: usize,
@@ -396,32 +348,30 @@ impl E1000E {
     }
 
     /// Volatile write the certain register
-    unsafe fn write_reg(&self, reg: usize, val: u32) {
-        (self.register_start as *mut u32)
-            .add(reg / 4)
-            .write_volatile(val)
+    #[inline(always)]
+    unsafe fn write_reg(&mut self, reg: usize, val: u32) {
+        self.info.write_bar(0, reg, val);
     }
 
     /// Volatile read the e1000e's  register
+    #[inline(always)]
     unsafe fn read_reg(&self, reg: usize) -> u32 {
-        (self.register_start as *const u32)
-            .add(reg / 4)
-            .read_volatile()
+        self.info.read_bar(0, reg).unwrap()
     }
 
     /// Disable e1000e's interrupt
-    unsafe fn disable_intr(&self) {
+    unsafe fn disable_intr(&mut self) {
         self.write_reg(IMC, !0);
     }
 
     /// Enable e1000e' interrupt
-    unsafe fn enable_intr(&self) {
+    unsafe fn enable_intr(&mut self) {
         self.write_reg(IMS, IMS_ENABLE_MASK);
     }
 
     /// Read the MAC address through eeprom
     /// Divide the address into higher 32 bits and lower 32 bits.
-    unsafe fn read_mac(&self) -> (u32, u32) {
+    unsafe fn read_mac(&mut self) -> (u32, u32) {
         let ral = self.read_eeprom(0) | self.read_eeprom(1) << 16;
 
         let rah = self.read_eeprom(2) | (1 << 31);
@@ -430,7 +380,7 @@ impl E1000E {
     }
 
     /// Read the MAC address through eeprom
-    unsafe fn get_mac(&self) -> [u8; 6] {
+    unsafe fn get_mac(&mut self) -> [u8; 6] {
         let mut addr = [0u8; 6];
         for i in 0..3 {
             let word = self.read_eeprom(i as u32);
@@ -441,7 +391,7 @@ impl E1000E {
     }
 
     /// Read eeprom through port IO
-    unsafe fn read_eeprom(&self, reg: u32) -> u32 {
+    unsafe fn read_eeprom(&mut self, reg: u32) -> u32 {
         self.write_reg(EERD, 1 | (reg << 2));
         fence(SeqCst);
         while self.read_reg(EERD) & 2 == 0 {
@@ -452,7 +402,7 @@ impl E1000E {
     }
 
     /// Issue a global reset to e1000e
-    unsafe fn reset(&self) {
+    unsafe fn reset(&mut self) {
         //  Assert a Device Reset Signal
         let ctrl = self.read_reg(CTRL) | CTRL_RST;
         self.write_reg(CTRL, ctrl);
