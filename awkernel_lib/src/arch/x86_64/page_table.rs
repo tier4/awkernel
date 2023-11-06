@@ -43,20 +43,6 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
             Err(_) => Err("Failed to map page"),
         }
     }
-
-    unsafe fn unmap(
-        &mut self,
-        virt_addr: crate::addr::virt_addr::VirtAddr,
-    ) -> Result<(), &'static str> {
-        let page = Page::<Size4KiB>::containing_address(VirtAddr::new(virt_addr.as_usize() as u64));
-        match self.offset_page_table.unmap(page) {
-            Ok((_, flusher)) => {
-                flusher.flush();
-                Ok(())
-            }
-            Err(_) => Err("Failed to unmap page"),
-        }
-    }
 }
 
 fn flags_to_x86_flags(flags: crate::paging::Flags) -> PageTableFlags {

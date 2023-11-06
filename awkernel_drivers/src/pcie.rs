@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
 use array_macro::array;
 use awkernel_lib::{
     net::NET_MANAGER,
@@ -16,8 +16,6 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
-
-use crate::net::e1000e::E1000E;
 
 pub mod pcie_id;
 
@@ -138,7 +136,6 @@ pub fn init_with_acpi<F, FA, PT, E>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocator: &mut FA,
-    page_size: u64,
 ) where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -154,8 +151,6 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
     let pcie_info = PciConfigRegions::new(acpi).unwrap();
     for segment in pcie_info.list_all() {
-        log::info!("{:?}", segment);
-
         let flags = Flags {
             write: true,
             execute: false,
@@ -180,7 +175,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
                 return;
             }
 
-            config_start += page_size as usize;
+            config_start += PAGESIZE;
         }
 
         let base_address = segment.base_address();
@@ -191,7 +186,6 @@ pub fn init_with_acpi<F, FA, PT, E>(
                 base_address as usize,
                 page_table,
                 page_allocator,
-                page_size,
             );
         }
     }
@@ -202,7 +196,6 @@ pub fn init_with_addr<F, FA, PT, E>(
     base_address: usize,
     page_table: &mut PT,
     page_allocator: &mut FA,
-    page_size: u64,
     starting_bus: u8,
 ) where
     F: Frame,
@@ -217,7 +210,6 @@ pub fn init_with_addr<F, FA, PT, E>(
             base_address,
             page_table,
             page_allocator,
-            page_size,
         );
     }
 }
@@ -229,7 +221,6 @@ fn scan_devices<F, FA, PT, E>(
     base_address: usize,
     page_table: &mut PT,
     page_allocator: &mut FA,
-    page_size: u64,
 ) where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -241,7 +232,7 @@ fn scan_devices<F, FA, PT, E>(
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
             if let Ok(device) = DeviceInfo::from_addr(bus, addr) {
-                let _ = device.init(dma_offset, page_table, page_allocator, page_size);
+                let _ = device.init(dma_offset, page_table, page_allocator);
             }
         }
     }
@@ -420,8 +411,6 @@ impl DeviceInfo {
                 let mut addr = *addr;
                 let end = addr + *size;
 
-                log::info!("PCIe: 0x{addr:016x} - 0x{end:016x}");
-
                 let mask = !(PAGESIZE - 1);
                 while addr < end {
                     let phy_addr = awkernel_lib::addr::phy_addr::PhyAddr::new(addr & mask);
@@ -443,7 +432,6 @@ impl DeviceInfo {
         dma_offset: usize,
         page_table: &mut PT,
         page_allocator: &mut FA,
-        page_size: u64,
     ) -> Result<(), PCIeDeviceErr>
     where
         F: Frame,
@@ -461,13 +449,8 @@ impl DeviceInfo {
             (pcie_id::INTEL_82574GBE_DEVICE_ID, pcie_id::INTEL_VENDOR_ID) => {
                 self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
 
-                let e1000e = super::net::e1000e::create(
-                    self,
-                    dma_offset,
-                    page_table,
-                    page_allocator,
-                    page_size,
-                )?;
+                let e1000e =
+                    super::net::e1000e::create(self, dma_offset, page_table, page_allocator)?;
 
                 let node = &mut MCSNode::new();
                 let mut net_master = NET_MANAGER.lock(node);
@@ -475,15 +458,11 @@ impl DeviceInfo {
 
                 Ok(())
             }
-            (device, vendor) => {
-                log::debug!("PCIe: {self:?}");
-
-                Err(PCIeDeviceErr::UnRecognizedDevice {
-                    bus: self.bus,
-                    device,
-                    vendor,
-                })
-            }
+            (device, vendor) => Err(PCIeDeviceErr::UnRecognizedDevice {
+                bus: self.bus,
+                device,
+                vendor,
+            }),
         }
     }
 }

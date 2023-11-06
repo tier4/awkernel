@@ -177,7 +177,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         &acpi,
         &mut awkernel_page_table,
         &mut page_allocator,
-        PAGESIZE as u64,
     );
 
     // 9. Initialize APIC.

@@ -34,13 +34,6 @@ where
         flags: Flags,
         page_allocator: &mut FA,
     ) -> Result<(), E>;
-
-    /// Unmap `virt_addr`.
-    ///
-    /// # Safety
-    ///
-    /// - virt_addr must not be accessed after this function.
-    unsafe fn unmap(&mut self, virt_addr: VirtAddr) -> Result<(), &'static str>;
 }
 
 pub const PAGESIZE: usize = 4 * 1024;

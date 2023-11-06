@@ -57,14 +57,16 @@ pub fn create<F, FA, E>(
     dma_offset: usize,
     page_table: &mut impl PageTable<F, FA, E>,
     page_allocator: &mut FA,
-    page_size: u64,
 ) -> Result<Box<dyn NetDevice + Send>, PCIeDeviceErr>
 where
     F: Frame,
     FA: FrameAllocator<F, E>,
 {
-    let mut e1000e = E1000E::new(info, dma_offset, page_table, page_allocator, page_size)?;
+    let mut e1000e = E1000E::new(info, dma_offset, page_table, page_allocator)?;
     e1000e.init()?;
+
+    log::info!("Intel e1000e driver has been initialized.",);
+
     Ok(Box::new(e1000e))
 }
 
@@ -94,19 +96,16 @@ impl E1000E {
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-        page_size: u64,
     ) -> Result<Self, PCIeDeviceErr>
     where
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
         // allocate send and recv descriptor ring
-        let tx_ring_len = page_size as usize / size_of::<TxDescriptor>();
-        let rx_ring_len = page_size as usize / size_of::<RxDescriptor>();
-        let (tx_ring_va, tx_ring_pa) =
-            Self::create_ring(dma_offset, page_table, page_allocator, page_size)?;
-        let (rx_ring_va, rx_ring_pa) =
-            Self::create_ring(dma_offset, page_table, page_allocator, page_size)?;
+        let tx_ring_len = PAGESIZE / size_of::<TxDescriptor>();
+        let rx_ring_len = PAGESIZE / size_of::<RxDescriptor>();
+        let (tx_ring_va, tx_ring_pa) = Self::create_ring(dma_offset, page_table, page_allocator)?;
+        let (rx_ring_va, rx_ring_pa) = Self::create_ring(dma_offset, page_table, page_allocator)?;
         let tx_ring = unsafe {
             slice::from_raw_parts_mut(tx_ring_va.as_usize() as *mut TxDescriptor, tx_ring_len)
         };
@@ -119,14 +118,14 @@ impl E1000E {
 
         // allocate buffer for descriptors
         for tx_desc in tx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_allocator)?;
+            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_table, page_allocator)?;
             tx_desc.buf = buf_pa.as_usize() as u64;
             tx_desc.status |= 1;
             tx_bufs.push(buf_va);
         }
 
         for rx_desc in rx_ring.iter_mut() {
-            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_allocator)?;
+            let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_table, page_allocator)?;
             rx_desc.buf = buf_pa.as_usize() as u64;
             rx_bufs.push(buf_va);
         }
@@ -267,7 +266,6 @@ impl NetDevice for E1000E {
 impl E1000E {
     /// Initialize e1000e's register
     unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
-        log::info!("Initializing e1000e driver...");
         // ============================================
         // 4.6.2: Global Reset and General Configuration
         self.disable_intr();
@@ -321,6 +319,7 @@ impl E1000E {
     /// Allocate the buffer space for e1000e's rx_ring
     fn allocate_buffer<F, FA, E>(
         dma_offset: usize,
+        page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
@@ -335,6 +334,24 @@ impl E1000E {
 
         let buffer_va = VirtAddr::new(dma_offset + buffer_pa.as_usize());
 
+        unsafe {
+            if let Err(_) = page_table.map_to(
+                buffer_va,
+                buffer_pa,
+                Flags {
+                    write: true,
+                    execute: false,
+                    cache: false,
+                    write_through: false,
+                    device: false,
+                },
+                page_allocator,
+            ) {
+                log::error!("e1000e: Error mapping frame.");
+                return Err(E1000EDriverErr::MemoryMapFailure);
+            }
+        };
+
         Ok((buffer_va, buffer_pa))
     }
 
@@ -343,7 +360,6 @@ impl E1000E {
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-        page_size: u64,
     ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
     where
         F: Frame,
@@ -380,7 +396,7 @@ impl E1000E {
 
         // clear the ring
         unsafe {
-            write_bytes(ring_va as *mut u8, 0, page_size as usize);
+            write_bytes(ring_va as *mut u8, 0, PAGESIZE as usize);
         }
 
         Ok((VirtAddr::new(ring_va), ring_pa))
