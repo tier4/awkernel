@@ -16,6 +16,7 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
+mod capability;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
@@ -124,6 +125,8 @@ pub(crate) mod registers {
     mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
     mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
     mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
+    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>); // for Type 0 and 1
+    mmio_r!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
 
     pub const BAR0: usize = 0x10;
 }
@@ -440,6 +443,8 @@ impl DeviceInfo {
             log::warn!("Failed to map the memory regions of MMIO: {e:?}");
             return Err(PCIeDeviceErr::PageTableFailure);
         }
+
+        capability::read(&mut self);
 
         match (self.id, self.vendor) {
             // Intel 82574 GbE Controller
