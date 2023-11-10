@@ -17,9 +17,6 @@ isolated zero-copy communications written in Rust.
   - [ ] DAG scheduler
     - [ ] GEDF DAG Scheduler
 - [x] O(1) memory allocator
-- [ ] Cokernel
-- [ ] TEE
-  - [ ] TrustZone
 
 ## Dependencies
 
@@ -140,20 +137,21 @@ $ make gdb-aarch64_virt
 
 ---
 
-## Raspberry Pi 3 (AArch64, Qemu)
+## Raspberry Pi 3 (AArch64, Qemu) or Raspberry Pi Zero 2 W
 
 ### Compile
+
+Release build.
+`RELEASE=1` must be used for actual devices.
+
+```text
+$ make aarch64 BSP=raspi3 RELEASE=1
+```
 
 Debug build.
 
 ```text
 $ make aarch64 BSP=raspi3
-```
-
-Release build.
-
-```text
-$ make aarch64 BSP=raspi3 RELEASE=1
 ```
 
 ### Boot
@@ -175,13 +173,7 @@ $ make gdb-raspi3
 
 ### Compile
 
-Debug build.
-
-```text
-$ make aarch64 BSP=raspi4
-```
-
-Release build.
+Specify `Release=1`.
 
 ```text
 $ make aarch64 BSP=raspi4 RELEASE=1
@@ -196,7 +188,7 @@ $ make aarch64 BSP=raspi4 RELEASE=1
 
 ---
 
-## RISC-V (32bit)
+## RISC-V (32bit, Qemu)
 
 ### Compile
 
