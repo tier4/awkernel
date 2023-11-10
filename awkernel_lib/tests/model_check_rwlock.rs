@@ -1,7 +1,7 @@
 #[cfg(loom)]
 #[test]
 fn model_check_rwlock() {
-    use awkernel_lib::sync::rwlock_for_test as rwlock;
+    use awkernel_lib::sync::rwlock;
     use loom::sync::Arc;
 
     loom::model(|| {

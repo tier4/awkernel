@@ -13,8 +13,9 @@ isolated zero-copy communications written in Rust.
   - [x] Memory space isolation
   - [ ] Temporal isolation
 - [ ] Scheduling
-  - [x] Round robin scheduler
+  - [x] FIFO scheduler
   - [ ] DAG scheduler
+    - [ ] GEDF DAG Scheduler
 - [x] O(1) memory allocator
 - [ ] Cokernel
 - [ ] TEE
