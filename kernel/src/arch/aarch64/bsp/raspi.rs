@@ -69,6 +69,8 @@ impl super::SoC for Raspi {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_interrupt_fields()?;
         self.init_uart0()?;
+        self.init_mbox()?;
+        self.init_framebuffer();
 
         set_max_affinity(4, 0, 0, 0);
 
@@ -94,7 +96,12 @@ impl super::SoC for Raspi {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(end))?;
         }
 
-        vm.push_device_range(PhyAddr::new(0x3c000000), PhyAddr::new(0x3c600000))?;
+        if let Some((start, size)) =
+            awkernel_drivers::framebuffer::rpi::lfb::get_frame_buffer_region()
+        {
+            vm.push_device_range(PhyAddr::new(start), PhyAddr::new(start + size))?;
+        }
+
         // Add heap memory regions.
         vm.add_heap_from_node(self.device_tree.root())?;
 
@@ -137,7 +144,6 @@ impl super::SoC for Raspi {
         self.init_timer()?;
         self.init_gpio()?;
         self.init_i2c()?;
-        self.init_mbox()?;
         self.init_clock()?;
         self.init_spi()?;
         self.init_pwm()?;
@@ -477,9 +483,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find Mbox's base address")))?;
 
-        log::info!("Mbox: 0x{:016x}", base_addr);
-
-        unsafe { awkernel_drivers::framebuffer::mbox::set_mbox_base(base_addr as usize) };
+        unsafe { awkernel_drivers::framebuffer::rpi::mbox::set_mbox_base(base_addr as usize) };
 
         Ok(())
     }
@@ -582,5 +586,13 @@ impl Raspi {
         }
 
         Ok(())
+    }
+
+    fn init_framebuffer(&self) {
+        unsafe {
+            if awkernel_drivers::framebuffer::rpi::lfb::lfb_init(1280, 720).is_err() {
+                unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
+            }
+        }
     }
 }

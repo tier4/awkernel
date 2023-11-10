@@ -163,6 +163,16 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         cpu_id: 0,
     };
 
+    #[cfg(feature = "raspi")]
+    if let Some((width, height)) = awkernel_drivers::framebuffer::rpi::lfb::get_frame_buffer_size()
+    {
+        for x in 0..width {
+            for y in 0..height {
+                awkernel_drivers::framebuffer::rpi::lfb::set_pixel(x, y, 255, 0, 0);
+            }
+        }
+    }
+
     crate::main::<()>(kernel_info);
 }
 
