@@ -136,14 +136,6 @@ pub enum UartError {
     InUse,
 }
 
-impl embedded_io::Error for UartError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        match self {
-            UartError::InUse => embedded_io::ErrorKind::AddrInUse,
-        }
-    }
-}
-
 impl Uart {
     pub fn new(uarts: Uarts, baudrate: usize) -> Result<Self, UartError> {
         let mut node = MCSNode::new();
