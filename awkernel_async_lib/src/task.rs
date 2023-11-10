@@ -512,12 +512,10 @@ pub fn run_main() {
                     let mut tasks = TASKS.lock(&mut node);
                     tasks.remove(task.id);
                 }
-                Err(err) => {
+                Err(_) => {
                     // Caught panic.
                     info.state = State::Panicked;
                     drop(info);
-
-                    log::error!("Task has panicked!: {:?}", err);
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);

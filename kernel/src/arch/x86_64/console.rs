@@ -63,8 +63,7 @@ impl Console for Uart {
     }
 
     fn irq_id(&self) -> u16 {
-        // TODO
-        0
+        36 // COM1
     }
 
     fn get(&mut self) -> Option<u8> {

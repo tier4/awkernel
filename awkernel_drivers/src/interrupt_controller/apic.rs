@@ -324,6 +324,14 @@ impl InterruptController for Xapic {
     fn eoi(&mut self) {
         registers::XAPIC_EOI.write(0, self.apic_base);
     }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (32, 255) // IRQ255 is used for preemption
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (64, 255)
+    }
 }
 
 impl InterruptController for X2Apic {
@@ -352,4 +360,12 @@ impl InterruptController for X2Apic {
     }
 
     fn init_non_primary(&mut self) {}
+
+    fn irq_range(&self) -> (u16, u16) {
+        (32, 255) // IRQ255 is used for preemption
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (64, 255)
+    }
 }

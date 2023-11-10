@@ -398,6 +398,14 @@ impl InterruptController for GICv3 {
     fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>> {
         Box::new(PendingInterruptIterator)
     }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (1, 1024)
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (96, 1020)
+    }
 }
 
 pub struct PendingInterruptIterator;

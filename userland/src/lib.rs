@@ -30,6 +30,15 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_shell::init();
 
     spawn(
+        "panic".into(),
+        async move {
+            panic!("panic test");
+        },
+        SchedulerType::FIFO,
+    )
+    .await;
+
+    spawn(
         "timer".into(),
         async move {
             loop {

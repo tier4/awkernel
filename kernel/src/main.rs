@@ -53,8 +53,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         if let Some(irq) = awkernel_lib::timer::irq_id() {
             awkernel_lib::interrupt::enable_irq(irq);
 
-            if awkernel_lib::interrupt::register_handler(irq, Box::new(awkernel_lib::timer::reset))
-                .is_ok()
+            if awkernel_lib::interrupt::register_handler(
+                irq,
+                "local timer",
+                Box::new(awkernel_lib::timer::reset),
+            )
+            .is_ok()
             {
                 log::info!("A local timer has been initialized.");
             }

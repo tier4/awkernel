@@ -17,6 +17,8 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use acpi::{AcpiTables, PciConfigRegions};
 
 mod capability;
+mod msi;
+mod msix;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
