@@ -2,6 +2,10 @@ use core::{ptr::write_volatile, slice};
 
 use super::mbox::{Mbox, MboxChannel};
 use awkernel_lib::paging::PAGESIZE;
+use embedded_graphics_core::{
+    prelude::{DrawTarget, OriginDimensions, RgbColor},
+    Pixel,
+};
 
 const MBOX_REQUEST: u32 = 0;
 const MBOX_TAG_LAST: u32 = 0;
@@ -17,11 +21,10 @@ pub struct FramebufferInfo {
     is_rgb: bool,
     framebuffer: &'static mut [u8],
     framebuffer_size: usize,
-    cursor_y: usize,
 }
 
 impl FramebufferInfo {
-    pub fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
+    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
         let pos = (y * self.pitch + x * 4) as usize;
 
         let pixel = if self.is_rgb {
@@ -92,7 +95,6 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
         let height = mbox.0[6]; // Get actual physical height
         let pitch = mbox.0[33]; // Get number of bytes per row
         let is_rgb = mbox.0[24] == 1; // Get actual color order
-        let cursor_y = 20;
 
         let framebuffer =
             unsafe { slice::from_raw_parts_mut(framebuffer_address as *mut u8, framebuffer_size) };
@@ -105,7 +107,6 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
                 is_rgb,
                 framebuffer,
                 framebuffer_size,
-                cursor_y,
             });
         }
 
@@ -136,10 +137,36 @@ pub fn get_frame_buffer_size() -> Option<(u32, u32)> {
     }
 }
 
-pub fn set_pixel(x: u32, y: u32, r: u8, g: u8, b: u8) {
-    unsafe {
-        if let Some(info) = &mut FRMAME_BUFFER_INFO {
-            info.set_pixel(x, y, r, g, b);
+pub fn get_framebuffer_info() -> &'static mut Option<FramebufferInfo> {
+    unsafe { &mut FRMAME_BUFFER_INFO }
+}
+
+pub enum FramebufferError {}
+
+impl DrawTarget for FramebufferInfo {
+    type Color = embedded_graphics_core::pixelcolor::Rgb888;
+    type Error = FramebufferError;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics_core::Pixel<Self::Color>>,
+    {
+        for Pixel(coord, color) in pixels {
+            self.set_pixel(
+                coord.x as u32,
+                coord.y as u32,
+                color.r(),
+                color.g(),
+                color.b(),
+            );
         }
+
+        Ok(())
+    }
+}
+
+impl OriginDimensions for FramebufferInfo {
+    fn size(&self) -> embedded_graphics_core::prelude::Size {
+        embedded_graphics_core::prelude::Size::new(self.width, self.height)
     }
 }

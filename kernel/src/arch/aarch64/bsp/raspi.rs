@@ -590,7 +590,7 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if awkernel_drivers::framebuffer::rpi::lfb::lfb_init(1280, 720).is_err() {
+            if awkernel_drivers::framebuffer::rpi::lfb::lfb_init(640, 360).is_err() {
                 unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
             }
         }
