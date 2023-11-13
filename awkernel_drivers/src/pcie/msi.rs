@@ -7,22 +7,30 @@ mod registers {
 
     mmio_rw!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
 
-    // MSI
-
     // Message Control Register
-    pub const MSI_ENABLE: u32 = 1 << 16;
-    pub const MSI_BIT64_ADDRESS_CAPABLE: u32 = 1 << (7 + 16);
-    pub const MSI_PER_VECTOR_MASK_CAPABLE: u32 = 1 << (8 + 16);
+    pub const CTRL_ENABLE: u32 = 1 << 16;
+    pub const CTRL_BIT64_ADDRESS_CAPABLE: u32 = 1 << (7 + 16);
+    pub const CTRL_PER_VECTOR_MASK_CAPABLE: u32 = 1 << (8 + 16);
 
-    // MSI-X
-    mmio_r!(offset 0x04 => pub MSIX_TABLE_OFFSET<u32>);
-    mmio_r!(offset 0x04 => pub MSIX_PBA_OFFSET<u32>); // Pending Bit Array
+    mmio_rw!(offset 0x04 => pub MESSAGE_ADDRESS_32<u32>);
+    mmio_rw!(offset 0x08 => pub MESSAGE_DATA_32<u32>);
+    mmio_rw!(offset 0x0c => pub MASK_BITS_32<u32>);
+    mmio_r!(offset 0x10 => pub PENDING_BITS_32<u32>);
+
+    mmio_rw!(offset 0x04 => pub MESSAGE_ADDRESS_64_LOW<u32>);
+    mmio_rw!(offset 0x08 => pub MESSAGE_ADDRESS_64_HIGH<u32>);
+    mmio_rw!(offset 0x0c => pub MESSAGE_DATA_64<u32>);
+    mmio_rw!(offset 0x10 => pub MASK_BITS_64<u32>);
+    mmio_r!(offset 0x14 => pub PENDING_BITS_64<u32>);
 }
 
 #[derive(Debug)]
 pub struct MSI {
     cap_ptr: usize,
     multiple_message_capable: MultipleMessage,
+    per_vector_mask_capable: bool,
+    bit64_address_capable: bool,
+    irq: [Option<u32>; 32],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -78,10 +86,12 @@ pub enum MultipleMessage {
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
 impl MSI {
     pub fn new(cap_ptr: usize) -> Self {
-        let multiple_message_capable = {
-            let msg_cap = (registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr) >> 17) & 0b111;
+        let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr);
 
-            match msg_cap {
+        let multiple_message_capable = {
+            let mlt_msg = (ctrl_cap >> 17) & 0b111;
+
+            match mlt_msg {
                 0b000 => MultipleMessage::One,
                 0b001 => MultipleMessage::Two,
                 0b010 => MultipleMessage::Four,
@@ -92,22 +102,30 @@ impl MSI {
             }
         };
 
+        let per_vector_mask_capable = ctrl_cap & registers::CTRL_PER_VECTOR_MASK_CAPABLE != 0;
+        let bit64_address_capable = ctrl_cap & registers::CTRL_BIT64_ADDRESS_CAPABLE != 0;
+
         Self {
             cap_ptr,
             multiple_message_capable,
+            per_vector_mask_capable,
+            bit64_address_capable,
+            irq: [None; 32],
         }
     }
 
+    /// Enable MSI.
     pub fn enable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::MSI_ENABLE, self.cap_ptr);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.cap_ptr);
     }
 
+    /// Disable MSI.
     pub fn disable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::MSI_ENABLE, self.cap_ptr);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.cap_ptr);
     }
 
     pub fn is_enabled(&self) -> bool {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr) & registers::MSI_ENABLE != 0
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr) & registers::CTRL_ENABLE != 0
     }
 
     pub fn get_multiple_message_capable(&self) -> MultipleMessage {
@@ -129,9 +147,64 @@ impl MSI {
     }
 
     pub fn per_vector_mask_capable(&self) -> bool {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr)
-            & registers::MSI_PER_VECTOR_MASK_CAPABLE
-            != 0
+        self.per_vector_mask_capable
+    }
+
+    /// # Safety
+    ///
+    /// The address must be of an interrupt controller.
+    pub unsafe fn set_message_address(&mut self, message_address: usize, message_data: u16) {
+        if message_address > u32::MAX as usize {
+            log::warn!("PCIe: Interrupt is not enabled because the address is too large.");
+            return;
+        }
+
+        if self.bit64_address_capable {
+            registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.cap_ptr);
+            registers::MESSAGE_ADDRESS_64_HIGH.write((message_address >> 32) as u32, self.cap_ptr);
+            registers::MESSAGE_DATA_64.write((message_data & 0xffff) as u32, self.cap_ptr);
+        } else {
+            registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.cap_ptr);
+            registers::MESSAGE_DATA_32.write((message_data & 0xffff) as u32, self.cap_ptr);
+        }
+    }
+
+    #[cfg(feature = "x86")]
+    pub fn set_x86_interrupt(
+        &mut self,
+        apic_id: u32,
+        vector: u32,
+        edgetrigger: bool,
+        deassert: bool,
+    ) {
+        let data = (vector & 0xFF)
+            | if edgetrigger { 0 } else { 1 << 15 }
+            | if deassert { 0 } else { 1 << 14 };
+        let message_address = 0xfee0_0000 | ((apic_id & 0xff) << 12);
+    }
+
+    pub fn set_mask(&mut self, mask: u32) {
+        if !self.per_vector_mask_capable {
+            return;
+        }
+
+        if self.bit64_address_capable {
+            registers::MASK_BITS_64.write(mask, self.cap_ptr);
+        } else {
+            registers::MASK_BITS_32.write(mask, self.cap_ptr);
+        }
+    }
+
+    pub fn read_peiding_bits(&self) -> Option<u32> {
+        if !self.per_vector_mask_capable {
+            return None;
+        }
+
+        if self.bit64_address_capable {
+            Some(registers::PENDING_BITS_64.read(self.cap_ptr))
+        } else {
+            Some(registers::PENDING_BITS_32.read(self.cap_ptr))
+        }
     }
 }
 

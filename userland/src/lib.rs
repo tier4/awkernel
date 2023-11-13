@@ -44,34 +44,34 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             loop {
                 awkernel_async_lib::sleep(Duration::from_secs(10)).await;
 
-                let mut total = 0;
-                let mut count = 0;
-                let mut worst = 0;
+                // let mut total = 0;
+                // let mut count = 0;
+                // let mut worst = 0;
 
-                #[allow(clippy::needless_range_loop)]
-                for i in 0..RTT_SIZE {
-                    let rtt = unsafe { read_volatile(&RTT[i]) };
-                    if rtt > 0 {
-                        total += rtt;
-                        count += 1;
-                    }
+                // #[allow(clippy::needless_range_loop)]
+                // for i in 0..RTT_SIZE {
+                //     let rtt = unsafe { read_volatile(&RTT[i]) };
+                //     if rtt > 0 {
+                //         total += rtt;
+                //         count += 1;
+                //     }
 
-                    if rtt > worst {
-                        worst = rtt;
-                    }
-                }
+                //     if rtt > worst {
+                //         worst = rtt;
+                //     }
+                // }
 
-                if count > 0 {
-                    let ave = total as f64 / count as f64;
-                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
-                }
+                // if count > 0 {
+                //     let ave = total as f64 / count as f64;
+                //     log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                // }
 
-                let (save_ave, save_worst, restore_ave, restore_worst) =
-                    calc_context_switch_overhead();
-                log::debug!("Context save: ave = {save_ave:.2} [us], worst = {save_worst} [us]");
-                log::debug!(
-                    "Context restore: ave = {restore_ave:.2} [us], worst = {restore_worst} [us]"
-                );
+                // let (save_ave, save_worst, restore_ave, restore_worst) =
+                //     calc_context_switch_overhead();
+                // log::debug!("Context save: ave = {save_ave:.2} [us], worst = {save_worst} [us]");
+                // log::debug!(
+                //     "Context restore: ave = {restore_ave:.2} [us], worst = {restore_worst} [us]"
+                // );
             }
         },
         SchedulerType::FIFO,

@@ -67,10 +67,11 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 7. Initialize stack memory regions for non-primary CPUs.
 /// 8. Initialize `awkernel_lib`.
 /// 9. Initialize APIC.
-/// 10. Initialize the primary heap memory allocator.
-/// 11. Write boot images to wake non-primary CPUs up.
-/// 12. Boot non-primary CPUs.
-/// 13. Call `crate::main()`.
+/// 10. Initialize PCIe devices.
+/// 11. Initialize the primary heap memory allocator.
+/// 12. Write boot images to wake non-primary CPUs up.
+/// 13. Boot non-primary CPUs.
+/// 14. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
@@ -172,12 +173,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 8. Initialize `awkernel_lib` and `awkernel_driver`
     let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
     awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocator);
-    awkernel_drivers::pcie::init_with_acpi(
-        DMA_START,
-        &acpi,
-        &mut awkernel_page_table,
-        &mut page_allocator,
-    );
 
     // 9. Initialize APIC.
     let type_apic = awkernel_drivers::interrupt_controller::apic::new(
@@ -185,13 +180,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         &mut page_allocator,
     );
 
-    // 10. Initialize the primary heap memory allocator.
-    init_primary_heap(&mut page_table, &mut page_allocator);
-
-    // 11. Write boot images to wake non-primary CPUs up.
+    // 12. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
 
-    // 12. Boot non-primary CPUs.
+    // 13. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
@@ -222,6 +214,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
+    // 10. Initialize PCIe devices.
+    awkernel_drivers::pcie::init_with_acpi(
+        DMA_START,
+        &acpi,
+        &mut awkernel_page_table,
+        &mut page_allocator,
+    );
+
+    // 11. Initialize the primary heap memory allocator.
+    init_primary_heap(&mut page_table, &mut page_allocator);
+
     BSP_READY.store(true, Ordering::Release);
 
     while BOOTED_APS.load(Ordering::Relaxed) != 0 {
@@ -233,7 +236,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         cpu_id: 0,
     };
 
-    // 13. Call `crate::main()`.
+    // 14. Call `crate::main()`.
     crate::main(kernel_info);
 
     wait_forever()

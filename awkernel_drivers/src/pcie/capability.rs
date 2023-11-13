@@ -56,6 +56,10 @@ pub fn read(info: &mut DeviceInfo) {
 
 fn read_msix(info: &mut DeviceInfo, cap_ptr: usize) {
     let msix = super::msix::MSIX::new(cap_ptr);
+    info.msix = Some(msix);
 }
 
-fn read_msi(info: &mut DeviceInfo, cap_ptr: usize) {}
+fn read_msi(info: &mut DeviceInfo, cap_ptr: usize) {
+    let msi = super::msi::MSI::new(cap_ptr);
+    info.msi = Some(msi);
+}

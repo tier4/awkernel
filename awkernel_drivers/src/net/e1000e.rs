@@ -1,9 +1,10 @@
 use crate::pcie::{self, DeviceInfo, PCIeDevice, PCIeDeviceErr};
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    net::NetDevice,
+    net::{NetDevice, NET_MANAGER},
     paging::{Flags, Frame, FrameAllocator, PageTable, PAGESIZE},
+    sync::mutex::{MCSNode, Mutex},
 };
 use core::{
     fmt,
@@ -52,12 +53,12 @@ pub struct E1000E {
     tx_bufs: Vec<VirtAddr>,
 }
 
-pub fn create<F, FA, E>(
+pub fn init<F, FA, E>(
     info: DeviceInfo,
     dma_offset: usize,
     page_table: &mut impl PageTable<F, FA, E>,
     page_allocator: &mut FA,
-) -> Result<Box<dyn NetDevice + Send>, PCIeDeviceErr>
+) -> Result<(), PCIeDeviceErr>
 where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -65,9 +66,16 @@ where
     let mut e1000e = E1000E::new(info, dma_offset, page_table, page_allocator)?;
     e1000e.init()?;
 
-    log::info!("Intel e1000e driver has been initialized.",);
+    log::info!(
+        "Intel e1000e driver has been initialized. {:?}",
+        e1000e.info
+    );
 
-    Ok(Box::new(e1000e))
+    let node = &mut MCSNode::new();
+    let mut net_master = NET_MANAGER.lock(node);
+    net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
+
+    Ok(())
 }
 
 pub enum E1000EDriverErr {

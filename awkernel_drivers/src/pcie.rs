@@ -243,7 +243,7 @@ fn scan_devices<F, FA, PT, E>(
 }
 
 /// Information necessary for initializing the device
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DeviceInfo {
     pub(crate) addr: usize,
     bus: u8,
@@ -253,6 +253,8 @@ pub struct DeviceInfo {
     _multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
+    msi: Option<msi::MSI>,
+    msix: Option<msix::MSIX>,
 }
 
 impl fmt::Display for DeviceInfo {
@@ -287,6 +289,8 @@ impl DeviceInfo {
                 _multiple_functions: multiple_functions,
                 header_type,
                 base_addresses: array![_ => BaseAddress::None; 6],
+                msi: None,
+                msix: None,
             })
         }
     }
@@ -452,22 +456,22 @@ impl DeviceInfo {
             // Intel 82574 GbE Controller
             (pcie_id::INTEL_82574GBE_DEVICE_ID, pcie_id::INTEL_VENDOR_ID) => {
                 self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
-
-                let e1000e =
-                    super::net::e1000e::create(self, dma_offset, page_table, page_allocator)?;
-
-                let node = &mut MCSNode::new();
-                let mut net_master = NET_MANAGER.lock(node);
-                net_master.add_driver(Arc::new(Mutex::new(e1000e)));
-
-                Ok(())
+                super::net::e1000e::init(self, dma_offset, page_table, page_allocator)
             }
-            (device, vendor) => Err(PCIeDeviceErr::UnRecognizedDevice {
-                bus: self.bus,
-                device,
-                vendor,
-            }),
+            (device, vendor) => {
+                log::info!("PCIe device: {:?}", self);
+
+                Err(PCIeDeviceErr::UnRecognizedDevice {
+                    bus: self.bus,
+                    device,
+                    vendor,
+                })
+            }
         }
+    }
+
+    pub fn disable_legacy_interrupt(&mut self) {
+        registers::STATUS_COMMAND.setbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
     }
 }
 
