@@ -2,7 +2,7 @@
 //!
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
-use super::{heap::map_heap, interrupt};
+use super::{heap::map_heap, interrupt_handler};
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
@@ -67,11 +67,12 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 7. Initialize stack memory regions for non-primary CPUs.
 /// 8. Initialize `awkernel_lib`.
 /// 9. Initialize APIC.
-/// 10. Initialize PCIe devices.
-/// 11. Initialize the primary heap memory allocator.
-/// 12. Write boot images to wake non-primary CPUs up.
-/// 13. Boot non-primary CPUs.
-/// 14. Call `crate::main()`.
+/// 10. Write boot images to wake non-primary CPUs up.
+/// 11. Boot non-primary CPUs.
+/// 12. Initialize PCIe devices.
+/// 13. Initialize the primary heap memory allocator.
+/// 14. Initialize interrupt handlers.
+/// 15. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
@@ -180,10 +181,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         &mut page_allocator,
     );
 
-    // 12. Write boot images to wake non-primary CPUs up.
+    // 10. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
 
-    // 13. Boot non-primary CPUs.
+    // 11. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
@@ -214,7 +215,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
-    // 10. Initialize PCIe devices.
+    // 12. Initialize PCIe devices.
     awkernel_drivers::pcie::init_with_acpi(
         DMA_START,
         &acpi,
@@ -222,7 +223,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         &mut page_allocator,
     );
 
-    // 11. Initialize the primary heap memory allocator.
+    // 13. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocator);
 
     BSP_READY.store(true, Ordering::Release);
@@ -231,12 +232,15 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         core::hint::spin_loop();
     }
 
+    // 14. Initialize interrupt handlers.
+    unsafe { interrupt_handler::init() };
+
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
     };
 
-    // 14. Call `crate::main()`.
+    // 15. Call `crate::main()`.
     crate::main(kernel_info);
 
     wait_forever()
@@ -420,11 +424,10 @@ fn non_primary_kernel_main() -> ! {
 
     enable_fpu(); // Enable SSE.
 
+    unsafe { interrupt_handler::load() };
+
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
-
-    // Initialize interrupt handlers.
-    unsafe { interrupt::init() };
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 

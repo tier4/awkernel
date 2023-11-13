@@ -260,9 +260,14 @@ pub unsafe fn init() {
     IDT.load();
 }
 
+pub unsafe fn load() {
+    IDT.load();
+}
+
 macro_rules! irq_handler {
     ($name:ident, $id:expr) => {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+            awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
         }
     };

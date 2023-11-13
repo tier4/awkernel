@@ -25,7 +25,7 @@ pub fn init() {
         if awkernel_lib::interrupt::register_handler(
             irq,
             "serial port (awkernel_shell)",
-            Box::new(move || task::wake(task_id)),
+            Box::new(move |_irq| task::wake(task_id)),
         )
         .is_err()
         {

@@ -10,3 +10,5 @@ sock.bind(addr)
 while True:
     buf, raddr = sock.recvfrom(4096)
     print(buf.decode("utf-8"), file=sys.stderr)
+    print(raddr)
+    sock.sendto(buf, raddr)

@@ -191,9 +191,9 @@ _start_cpu:
 
     addr32 lgdtl (gdtdesc32)
 
-    movl    %cr0, %eax             # get cr0
-    orl     $CR0_PE, %eax         # enable protected mode
-    movl    %eax, %cr0             # doit
+    movl    %cr0, %eax           # get cr0
+    orl     $CR0_PE, %eax        # enable protected mode
+    movl    %eax, %cr0           # doit
     ljmpl   $0x8, $start32
 
 .code32  # Tell assembler to generate 32-bit code now.

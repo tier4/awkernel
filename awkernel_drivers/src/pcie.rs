@@ -1,10 +1,5 @@
-use alloc::sync::Arc;
 use array_macro::array;
-use awkernel_lib::{
-    net::NET_MANAGER,
-    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
@@ -17,7 +12,7 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use acpi::{AcpiTables, PciConfigRegions};
 
 mod capability;
-mod msi;
+pub mod msi;
 mod msix;
 pub mod pcie_id;
 
@@ -293,6 +288,14 @@ impl DeviceInfo {
                 msix: None,
             })
         }
+    }
+
+    pub fn get_msi_mut(&mut self) -> Option<&mut msi::MSI> {
+        self.msi.as_mut()
+    }
+
+    pub fn get_msix_mut(&mut self) -> Option<&mut msix::MSIX> {
+        self.msix.as_mut()
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {

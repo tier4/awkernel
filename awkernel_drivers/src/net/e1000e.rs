@@ -1,4 +1,4 @@
-use crate::pcie::{self, DeviceInfo, PCIeDevice, PCIeDeviceErr};
+use crate::pcie::{self, msi::MultipleMessage, DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -41,6 +41,7 @@ struct RxDescriptor {
 /// Intel e1000e driver
 pub struct E1000E {
     info: DeviceInfo,
+    irq: Option<u16>,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -67,7 +68,8 @@ where
     e1000e.init()?;
 
     log::info!(
-        "Intel e1000e driver has been initialized. {:?}",
+        "Intel e1000e driver has been initialized. IRQ = {:?}, Info = {:?}",
+        e1000e.irq,
         e1000e.info
     );
 
@@ -80,6 +82,7 @@ where
 
 pub enum E1000EDriverErr {
     MemoryMapFailure,
+    InitializeInterrupt,
 }
 
 impl From<E1000EDriverErr> for PCIeDeviceErr {
@@ -94,6 +97,7 @@ impl fmt::Display for E1000EDriverErr {
             Self::MemoryMapFailure => {
                 write!(f, "memory map fault occurs during driver initialization.")
             }
+            Self::InitializeInterrupt => write!(f, "interrupt initialization failure."),
         }
     }
 }
@@ -146,6 +150,7 @@ impl E1000E {
             tx_ring,
             tx_ring_pa: tx_ring_pa.as_usize() as u64,
             tx_bufs,
+            irq: None,
         })
     }
 }
@@ -271,6 +276,8 @@ impl NetDevice for E1000E {
 impl E1000E {
     /// Initialize e1000e's register
     unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
+        self.init_pcie_interrupt()?;
+
         // ============================================
         // 4.6.2: Global Reset and General Configuration
         self.disable_intr();
@@ -310,6 +317,10 @@ impl E1000E {
         let (rah, ral) = self.read_mac();
         assert_eq!((rah, ral), (rah_nvm, ral_nvm));
 
+        self.write_reg(RDTR, 0);
+        self.write_reg(RADV, 8);
+        self.write_reg(ITR, 1000000000 / (3 * 256));
+
         self.write_reg(
             RCTL,
             RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
@@ -318,7 +329,46 @@ impl E1000E {
         fence(SeqCst);
         // ============================================
         self.enable_intr();
+        self.read_reg(ICR);
+
+        if let Some(msi) = self.info.get_msi_mut() {
+            msi.enable();
+        }
+
         Ok(())
+    }
+
+    fn init_pcie_interrupt(&mut self) -> Result<u16, E1000EDriverErr> {
+        self.info.disable_legacy_interrupt();
+
+        if let Some(msix) = self.info.get_msix_mut() {
+            msix.disalbe();
+        }
+
+        if let Some(msi) = self.info.get_msi_mut() {
+            msi.disable();
+
+            if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
+                "e1000e",
+                Box::new(|_irq| {
+                    log::debug!("e1000e interrupt.");
+                }),
+            ) {
+                msi.set_multiple_message_enable(MultipleMessage::One)
+                    .unwrap();
+                msi.set_x86_interrupt(0, irq, true, false);
+
+                self.irq = Some(irq);
+
+                awkernel_lib::interrupt::enable_irq(irq);
+
+                Ok(irq)
+            } else {
+                Err(E1000EDriverErr::InitializeInterrupt)
+            }
+        } else {
+            Err(E1000EDriverErr::InitializeInterrupt)
+        }
     }
 
     /// Allocate the buffer space for e1000e's rx_ring
@@ -490,6 +540,8 @@ const CTRL: usize = 0x00000; // Device Control Register
 const _STATUS: usize = 0x00008; // Device Status register
 const _EEC: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
+const ICR: usize = 0x000C0; // Interrupt Cause Read Register
+const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
 // Interrupt Mask Set/Read Register
@@ -518,6 +570,8 @@ const RDBAH: usize = 0x02804; // Receive Descriptor Base Address High
 const RDLEN: usize = 0x02808; // Receive Descriptor Base Length
 const RDH: usize = 0x02810; // Receive Descriptor Head
 const RDT: usize = 0x02818; // Receive Descriptor Tail
+const RDTR: usize = 0x2820; // RX Delay Timer Register
+const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
 const MTA: usize = 0x05200; // Multicast Table Array
 const RAL: usize = 0x05400; // Receive Address Low
 const RAH: usize = 0x05404; // Receive Address High

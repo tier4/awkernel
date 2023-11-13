@@ -1,7 +1,3 @@
-use core::ptr::read_volatile;
-
-use super::DeviceInfo;
-
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
 
@@ -30,7 +26,6 @@ pub struct MSI {
     multiple_message_capable: MultipleMessage,
     per_vector_mask_capable: bool,
     bit64_address_capable: bool,
-    irq: [Option<u32>; 32],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -110,7 +105,6 @@ impl MSI {
             multiple_message_capable,
             per_vector_mask_capable,
             bit64_address_capable,
-            irq: [None; 32],
         }
     }
 
@@ -132,7 +126,10 @@ impl MSI {
         self.multiple_message_capable
     }
 
-    pub fn set_multipe_message_enable(&mut self, mme: MultipleMessage) -> Result<(), &'static str> {
+    pub fn set_multiple_message_enable(
+        &mut self,
+        mme: MultipleMessage,
+    ) -> Result<(), &'static str> {
         if mme as u32 > self.multiple_message_capable as u32 {
             return Err("The number of interrupts is too large.");
         }
@@ -173,14 +170,16 @@ impl MSI {
     pub fn set_x86_interrupt(
         &mut self,
         apic_id: u32,
-        vector: u32,
+        vector: u16,
         edgetrigger: bool,
         deassert: bool,
     ) {
-        let data = (vector & 0xFF)
+        let message_data = (vector & 0xFF)
             | if edgetrigger { 0 } else { 1 << 15 }
             | if deassert { 0 } else { 1 << 14 };
         let message_address = 0xfee0_0000 | ((apic_id & 0xff) << 12);
+
+        unsafe { self.set_message_address(message_address as usize, message_data) };
     }
 
     pub fn set_mask(&mut self, mask: u32) {

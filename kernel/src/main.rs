@@ -56,7 +56,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             if awkernel_lib::interrupt::register_handler(
                 irq,
                 "local timer",
-                Box::new(awkernel_lib::timer::reset),
+                Box::new(|_irq| {
+                    awkernel_lib::timer::reset();
+                }),
             )
             .is_ok()
             {
@@ -73,8 +75,15 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        awkernel_lib::interrupt::enable_irq(64);
+        awkernel_lib::interrupt::send_ipi(64, 0);
+
         loop {
+            awkernel_lib::interrupt::disable();
+
             wake_task(); // Wake executable tasks periodically.
+
+            awkernel_lib::interrupt::enable();
 
             #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
             awkernel_lib::delay::wait_microsec(10);
@@ -97,9 +106,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     let dur = 20_000; // 20[ms]
                     if now - send_ipi >= dur {
                         // Send IPI to all CPUs except for primary CPU.
-                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                            config::PREEMPT_IRQ,
-                        );
+                        // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                        //     config::PREEMPT_IRQ,
+                        // );
 
                         send_ipi = now;
                     }

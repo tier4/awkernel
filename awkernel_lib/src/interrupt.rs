@@ -49,7 +49,7 @@ pub trait InterruptController: Sync + Send {
 }
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
-static IRQ_HANDLERS: RwLock<BTreeMap<u16, (&'static str, Box<dyn Fn() + Send>)>> =
+static IRQ_HANDLERS: RwLock<BTreeMap<u16, (&'static str, Box<dyn Fn(u16) + Send>)>> =
     RwLock::new(BTreeMap::new());
 
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
@@ -79,7 +79,7 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
 /// This function will return an IRQ number, which is assigned to the handler.
 pub fn register_handler_for_pnp<F>(name: &'static str, func: Box<F>) -> Result<u16, &'static str>
 where
-    F: Fn() + Send + 'static,
+    F: Fn(u16) + Send + 'static,
 {
     let controller = INTERRUPT_CONTROLLER.read();
     let (min, max) = if let Some(ctrl) = controller.as_ref() {
@@ -106,7 +106,7 @@ where
 /// Register an interrupt handler.
 pub fn register_handler<F>(irq: u16, name: &'static str, func: Box<F>) -> Result<(), &'static str>
 where
-    F: Fn() + Send + 'static,
+    F: Fn(u16) + Send + 'static,
 {
     let controller = INTERRUPT_CONTROLLER.read();
     let (min, max) = if let Some(ctrl) = controller.as_ref() {
@@ -200,7 +200,7 @@ pub fn handle_irq(irq: u16) {
         };
 
         if let Err(_) = catch_unwind(|| {
-            handler();
+            handler(irq);
         }) {
             log::warn!("an interrupt handler has been panicked: irq = {irq}");
         }
@@ -236,7 +236,7 @@ pub fn handle_irqs() {
 
             if let Some((_, handler)) = handlers.get(&irq) {
                 if let Err(err) = catch_unwind(|| {
-                    handler();
+                    handler(irq);
                 }) {
                     log::warn!("an interrupt handler has been panicked\n{err:?}");
                 }
