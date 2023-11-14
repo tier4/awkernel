@@ -286,6 +286,7 @@ pub struct DeviceInfo {
     bus: u8,
     id: u16,
     vendor: u16,
+    revision_id: u8,
     device_name: Option<pcie_id::PCIeID>,
     multiple_functions: bool,
     pub(crate) header_type: u8,
@@ -314,6 +315,9 @@ impl DeviceInfo {
         let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
 
+        let cls_rev_id = registers::CLASS_CODE_REVISION_ID.read(addr);
+        let revision_id = (cls_rev_id & 0xff) as u8;
+
         if id == !0 || vendor == !0 {
             Err(PCIeDeviceErr::InitFailure)
         } else {
@@ -322,6 +326,7 @@ impl DeviceInfo {
                 bus,
                 id,
                 vendor,
+                revision_id,
                 device_name: None,
                 multiple_functions,
                 header_type,
@@ -334,6 +339,14 @@ impl DeviceInfo {
 
     pub fn get_id(&self) -> u16 {
         self.id
+    }
+
+    pub fn get_revision_id(&self) -> u8 {
+        self.revision_id
+    }
+
+    pub fn set_revision_id(&mut self, revision_id: u8) {
+        self.revision_id = revision_id;
     }
 
     pub fn get_msi_mut(&mut self) -> Option<&mut msi::MSI> {

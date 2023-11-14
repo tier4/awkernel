@@ -15,7 +15,7 @@ use core::{
     sync::atomic::{fence, Ordering::SeqCst},
 };
 
-mod hw;
+mod e1000e_hw;
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -45,7 +45,7 @@ pub struct E1000E {
     info: DeviceInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
-    hw: hw::E1000EHw,
+    hw: e1000e_hw::E1000EHw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -87,6 +87,8 @@ where
 pub enum E1000EDriverErr {
     MemoryMapFailure,
     InitializeInterrupt,
+    UnknownDeviceID,
+    UnknownRevisionD,
 }
 
 impl From<E1000EDriverErr> for PCIeDeviceErr {
@@ -102,13 +104,15 @@ impl fmt::Display for E1000EDriverErr {
                 write!(f, "memory map fault occurs during driver initialization.")
             }
             Self::InitializeInterrupt => write!(f, "interrupt initialization failure."),
+            Self::UnknownDeviceID => write!(f, "unknown device id."),
+            Self::UnknownRevisionD => write!(f, "unknown revision id."),
         }
     }
 }
 
 impl E1000E {
     fn new<F, FA, E>(
-        info: DeviceInfo,
+        mut info: DeviceInfo,
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
@@ -117,6 +121,8 @@ impl E1000E {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
+        let hw = e1000e_hw::E1000EHw::new(&mut info)?;
+
         let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 
         // allocate send and recv descriptor ring
@@ -147,8 +153,6 @@ impl E1000E {
             rx_desc.buf = buf_pa.as_usize() as u64;
             rx_bufs.push(buf_va);
         }
-
-        let hw = hw::E1000EHw::new(&info);
 
         Ok(Self {
             info,
