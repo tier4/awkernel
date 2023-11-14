@@ -36,14 +36,15 @@ pub fn read(info: &mut DeviceInfo) {
 
     let mut cap_ptr = (registers::CAPABILITY_POINTER.read(info.addr) & 0b1111_1100) as usize;
     while cap_ptr != 0 {
-        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(info.addr + cap_ptr);
+        let cap_addr = info.addr + cap_ptr;
+        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_addr);
 
         let cap_id = msg_ctl_next_id & 0xff;
         cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
-            MSI => read_msi(info, cap_ptr),
-            MSIX => read_msix(info, cap_ptr),
+            MSI => read_msi(info, cap_addr),
+            MSIX => read_msix(info, cap_addr),
             _ => log::warn!(
                 "Unknown PCIe capability: device = {}, capability = 0x{cap_id:02x}",
                 info.id
@@ -55,8 +56,7 @@ pub fn read(info: &mut DeviceInfo) {
 }
 
 fn read_msix(info: &mut DeviceInfo, cap_ptr: usize) {
-    let msix = super::msix::MSIX::new(cap_ptr);
-    info.msix = Some(msix);
+    info.msix = super::msix::MSIX::new(info, cap_ptr);
 }
 
 fn read_msi(info: &mut DeviceInfo, cap_ptr: usize) {
