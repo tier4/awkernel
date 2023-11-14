@@ -59,8 +59,6 @@ impl MSIX {
 
         let pba_bar = info.get_bar(pba_bir as usize)?;
 
-        log::debug!("MSIX: table_size = {}", table_size);
-
         Some(Self {
             cap_ptr,
             table_size,

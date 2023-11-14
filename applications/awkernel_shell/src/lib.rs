@@ -42,6 +42,7 @@ async fn console_handler() -> TaskResult {
             Box::new(TaskFfi),
             Box::new(UdptestFfi),
             Box::new(InterruptFfi),
+            Box::new(IfconfigFfi),
         ],
     )
     .unwrap();
@@ -149,6 +150,9 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export interrupt () (IO (-> () []))
     (interrupt_ffi))
 
+(export ifconfig () (IO (-> () []))
+    (ifconfig_ffi))
+
 (export udptest () (IO (-> () []))
     (udptest_ffi))
 ";
@@ -195,6 +199,15 @@ fn interrupt_ffi() {
     console::print("IRQ Name\r\n");
     for (k, v) in handlers.iter() {
         let msg = format!("{:>3} name: {}\r\n", k, v);
+        console::print(&msg);
+    }
+}
+
+#[embedded]
+fn ifconfig_ffi() {
+    let ifs = awkernel_lib::net::get_interfaces();
+    for (i, netif) in ifs.iter().enumerate() {
+        let msg = format!("{i}.{netif}\r\n\r\n");
         console::print(&msg);
     }
 }

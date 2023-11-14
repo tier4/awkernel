@@ -15,6 +15,8 @@ use core::{
     sync::atomic::{fence, Ordering::SeqCst},
 };
 
+mod hw;
+
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
 struct TxDescriptor {
@@ -43,6 +45,7 @@ pub struct E1000E {
     info: DeviceInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
+    hw: hw::E1000EHw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -76,7 +79,7 @@ where
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
-    net_master.add_driver(Arc::new(Mutex::new(Box::new(e1000e))));
+    net_master.add_interface(Arc::new(Mutex::new(Box::new(e1000e))));
 
     Ok(())
 }
@@ -145,8 +148,11 @@ impl E1000E {
             rx_bufs.push(buf_va);
         }
 
+        let hw = hw::E1000EHw::new(&info);
+
         Ok(Self {
             info,
+            hw,
             bar0,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_usize() as u64,
@@ -181,6 +187,36 @@ impl PCIeDevice for E1000E {
 }
 
 impl NetDevice for E1000E {
+    fn device_name(&self) -> &'static str {
+        use crate::pcie::pcie_id::*;
+
+        match self.info.get_id() {
+            INTEL_82574GBE_DEVICE_ID => "Intel 82574 GbE (e1000e)",
+            INTEL_I219_LM3_DEVICE_ID => "Intel I219-LM2 GbE (e1000e)",
+            _ => "e1000e",
+        }
+    }
+
+    fn link_up(&mut self) -> bool {
+        unsafe { self.read_reg(STATUS) & STATUS_LU > 0 }
+    }
+
+    fn link_speed(&mut self) -> u64 {
+        let status = unsafe { self.read_reg(STATUS) };
+        let speed = (status >> 6) & 0b11;
+
+        match speed {
+            0b00 => 10,
+            0b01 => 100,
+            0b10 | 0b11 => 1000,
+            _ => unreachable!(),
+        }
+    }
+
+    fn full_duplex(&mut self) -> bool {
+        unsafe { self.read_reg(STATUS) & STATUS_FD > 0 }
+    }
+
     fn mac_address(&mut self) -> [u8; 6] {
         unsafe { self.get_mac() }
     }
@@ -275,6 +311,8 @@ impl NetDevice for E1000E {
 //===========================================================================
 impl E1000E {
     /// Initialize e1000e's register
+    ///
+    /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
     unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
         self.init_pcie_msi()?;
 
@@ -284,6 +322,7 @@ impl E1000E {
         self.reset();
         self.disable_intr();
         fence(SeqCst);
+
         // ============================================
         //  4.6.6 Transmit Initialization
         //  Install the transmit ring
@@ -313,25 +352,26 @@ impl E1000E {
         }
 
         let (rah_nvm, ral_nvm) = (self.read_reg(RAH), self.read_reg(RAL));
-        // Receive Registers Intialization
-        let (rah, ral) = self.read_mac();
-        assert_eq!((rah, ral), (rah_nvm, ral_nvm));
 
-        self.write_reg(RDTR, 0);
-        self.write_reg(RADV, 8);
-        self.write_reg(ITR, 4000);
+        // Receive Registers Initialization
+        let (rah, ral) = self.read_mac();
+
+        assert_eq!((rah, ral), (rah_nvm, ral_nvm));
 
         self.write_reg(
             RCTL,
             RCTL_SECRC | RCTL_BSEX | RCTL_BSIZE | RCTL_BAM | RCTL_EN,
         );
 
+        // Initialize the RX Delay Timer Register and RX Interrupt Absolute Delay Timer
+        self.write_reg(RDTR, 0);
+        self.write_reg(RADV, 8);
+        self.write_reg(ITR, 4000);
+
         fence(SeqCst);
         // ============================================
         self.read_reg(ICR);
         self.enable_intr();
-
-        self.write_reg(ICS, 1 << 2);
 
         Ok(())
     }
@@ -536,13 +576,17 @@ impl E1000E {
 //===========================================================================
 // e1000e's registers
 const CTRL: usize = 0x00000; // Device Control Register
-const _STATUS: usize = 0x00008; // Device Status register
 const _EEC: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
 const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 const ICS: usize = 0x000C8; // Interrupt Cause Set Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+
+// Status Register
+const STATUS: usize = 0x00008; // Device Status register
+const STATUS_FD: u32 = 1 << 0; // Full Duplex
+const STATUS_LU: u32 = 1 << 1; // Link Up
 
 // Interrupt Mask Set/Read Register
 const IMS: usize = 0x000D0;

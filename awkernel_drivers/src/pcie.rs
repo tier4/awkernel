@@ -267,7 +267,13 @@ fn scan_devices<F, FA, PT, E>(
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
             if let Ok(device) = DeviceInfo::from_addr(bus, addr) {
+                let multiple_functions = device.multiple_functions;
+
                 let _ = device.init(dma_offset, page_table, page_allocator);
+
+                if func == 0 && !multiple_functions {
+                    break;
+                }
             }
         }
     }
@@ -281,7 +287,7 @@ pub struct DeviceInfo {
     id: u16,
     vendor: u16,
     device_name: Option<pcie_id::PCIeID>,
-    _multiple_functions: bool,
+    multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
     msi: Option<msi::MSI>,
@@ -317,13 +323,17 @@ impl DeviceInfo {
                 id,
                 vendor,
                 device_name: None,
-                _multiple_functions: multiple_functions,
+                multiple_functions,
                 header_type,
                 base_addresses: array![_ => BaseAddress::None; 6],
                 msi: None,
                 msix: None,
             })
         }
+    }
+
+    pub fn get_id(&self) -> u16 {
+        self.id
     }
 
     pub fn get_msi_mut(&mut self) -> Option<&mut msi::MSI> {
@@ -453,12 +463,15 @@ impl DeviceInfo {
 
         match (self.id, self.vendor) {
             // Intel 82574 GbE Controller
-            (pcie_id::INTEL_82574GBE_DEVICE_ID, pcie_id::INTEL_VENDOR_ID) => {
+            (
+                pcie_id::INTEL_82574GBE_DEVICE_ID | pcie_id::INTEL_I219_LM3_DEVICE_ID,
+                pcie_id::INTEL_VENDOR_ID,
+            ) => {
                 self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
                 super::net::e1000e::init(self, dma_offset, page_table, page_allocator)
             }
             (device, vendor) => {
-                log::info!("PCIe device: {:?}", self);
+                log::info!("PCIe device: {self}");
 
                 Err(PCIeDeviceErr::UnRecognizedDevice {
                     bus: self.bus,

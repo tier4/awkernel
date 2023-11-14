@@ -45,13 +45,8 @@ pub fn read(info: &mut DeviceInfo) {
         match cap_id as u8 {
             MSI => read_msi(info, cap_addr),
             MSIX => read_msix(info, cap_addr),
-            _ => log::warn!(
-                "Unknown PCIe capability: device = {}, capability = 0x{cap_id:02x}",
-                info.id
-            ),
+            _ => (),
         }
-
-        log::debug!("PCIe capability: {:#x}", cap_id);
     }
 }
 

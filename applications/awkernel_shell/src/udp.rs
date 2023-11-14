@@ -11,7 +11,7 @@ pub(crate) fn udp_test() {
     let port = 26099;
 
     // Create interface
-    let (mut device, mut iface) = NetManager::get_iface().unwrap();
+    let (mut device, mut iface) = NetManager::get_netif().unwrap();
 
     // register the ip address
     iface.update_ip_addrs(|ip_addrs| {
