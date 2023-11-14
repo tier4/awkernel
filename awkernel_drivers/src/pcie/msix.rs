@@ -14,11 +14,11 @@ mod registers {
 #[derive(Debug)]
 pub struct MSIX {
     cap_ptr: usize,
-    table_size: u16, // N - 1
-    table_offset: u32,
-    table_bir: u8, // Table BAR indicator
-    pba_offset: u32,
-    pba_bir: u8, // PBAR BAR indicator
+    table_size: u16,   // N - 1
+    table_offset: u32, // Table offset
+    table_bir: u8,     // Table BAR indicator
+    pba_offset: u32,   // Pending Bit
+    pba_bir: u8,       // PBAR BAR indicator
 }
 
 impl MSIX {

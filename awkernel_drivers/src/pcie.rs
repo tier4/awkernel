@@ -38,6 +38,42 @@ impl BaseAddress {
             }
         )
     }
+
+    pub fn read(&self, offset: usize) -> Option<u32> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let mut val;
+                let port = *addr + offset as u32;
+                core::arch::asm!("in eax, dx",
+                        out("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                Some(val)
+            },
+            BaseAddress::MMIO { addr, .. } => unsafe {
+                Some(read_volatile((*addr + offset) as *const u32))
+            },
+            _ => None,
+        }
+    }
+
+    pub fn write_bar(&mut self, offset: usize, val: u32) {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, eax",
+                        in("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+            },
+            BaseAddress::MMIO { addr, .. } => unsafe {
+                write_volatile((*addr + offset) as *mut u32, val);
+            },
+            _ => (),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -306,50 +342,6 @@ impl DeviceInfo {
         registers::STATUS_COMMAND.write(csr, self.addr);
     }
 
-    pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
-        let Some(bar) = self.base_addresses.get(i) else {
-            return None;
-        };
-
-        match bar {
-            #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-                Some(val)
-            },
-            BaseAddress::MMIO { addr, .. } => unsafe {
-                Some(read_volatile((*addr + offset) as *const u32))
-            },
-            _ => None,
-        }
-    }
-
-    pub fn write_bar(&mut self, i: usize, offset: usize, val: u32) {
-        let Some(bar) = self.base_addresses.get(i) else {
-            return;
-        };
-
-        match bar {
-            #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, eax",
-                        in("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-            },
-            BaseAddress::MMIO { addr, .. } => unsafe {
-                write_volatile((*addr + offset) as *mut u32, val);
-            },
-            _ => (),
-        }
-    }
-
     fn map_bar<F, FA, PT, E>(
         &mut self,
         page_table: &mut PT,
@@ -433,6 +425,10 @@ impl DeviceInfo {
         }
 
         Ok(())
+    }
+
+    pub fn get_bar(&self, i: usize) -> Option<BaseAddress> {
+        self.base_addresses.get(i).cloned()
     }
 
     /// Initialize the PCIe device based on the information

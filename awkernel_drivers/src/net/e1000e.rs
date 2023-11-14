@@ -1,4 +1,4 @@
-use crate::pcie::{self, msi::MultipleMessage, DeviceInfo, PCIeDevice, PCIeDeviceErr};
+use crate::pcie::{self, msi::MultipleMessage, BaseAddress, DeviceInfo, PCIeDevice, PCIeDeviceErr};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -42,6 +42,7 @@ struct RxDescriptor {
 pub struct E1000E {
     info: DeviceInfo,
     irq: Option<u16>,
+    bar0: BaseAddress,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -113,6 +114,8 @@ impl E1000E {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
+        let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
+
         // allocate send and recv descriptor ring
         let tx_ring_len = PAGESIZE / size_of::<TxDescriptor>();
         let rx_ring_len = PAGESIZE / size_of::<RxDescriptor>();
@@ -144,6 +147,7 @@ impl E1000E {
 
         Ok(Self {
             info,
+            bar0,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_usize() as u64,
             rx_bufs,
@@ -459,13 +463,13 @@ impl E1000E {
     /// Volatile write the certain register
     #[inline(always)]
     unsafe fn write_reg(&mut self, reg: usize, val: u32) {
-        self.info.write_bar(0, reg, val);
+        self.bar0.write_bar(reg, val);
     }
 
     /// Volatile read the e1000e's  register
     #[inline(always)]
     unsafe fn read_reg(&self, reg: usize) -> u32 {
-        self.info.read_bar(0, reg).unwrap()
+        self.bar0.read(reg).unwrap()
     }
 
     /// Disable e1000e's interrupt
