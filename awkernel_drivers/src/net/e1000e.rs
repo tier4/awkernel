@@ -189,10 +189,6 @@ impl NetDevice for E1000E {
     }
 
     fn recv(&mut self) -> Option<Vec<u8>> {
-        if !self.can_send() {
-            return None;
-        }
-
         let head = unsafe { self.read_reg(RDH) };
         let tail = unsafe { self.read_reg(RDT) };
 
@@ -221,14 +217,16 @@ impl NetDevice for E1000E {
         fence(SeqCst);
         //===========================================
         // Increment tail pointer
-        unsafe {
-            self.write_reg(RDT, curr_rdt);
-        }
+        unsafe { self.write_reg(RDT, curr_rdt) };
 
         Some(data)
     }
 
     fn send(&mut self, data: &mut [u8]) -> Option<()> {
+        if !self.can_send() {
+            return None;
+        }
+
         let head = unsafe { self.read_reg(TDH) };
         let tail = unsafe { self.read_reg(TDT) };
 
@@ -264,9 +262,7 @@ impl NetDevice for E1000E {
         fence(SeqCst); // barrier
 
         // Increment tail pointer
-        unsafe {
-            self.write_reg(TDT, next_tail);
-        }
+        unsafe { self.write_reg(TDT, next_tail) };
 
         Some(())
     }
@@ -276,7 +272,7 @@ impl NetDevice for E1000E {
 impl E1000E {
     /// Initialize e1000e's register
     unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
-        self.init_pcie_interrupt()?;
+        self.init_pcie_msi()?;
 
         // ============================================
         // 4.6.2: Global Reset and General Configuration
@@ -319,7 +315,7 @@ impl E1000E {
 
         self.write_reg(RDTR, 0);
         self.write_reg(RADV, 8);
-        self.write_reg(ITR, 1000000000 / (3 * 256));
+        self.write_reg(ITR, 4000);
 
         self.write_reg(
             RCTL,
@@ -328,17 +324,15 @@ impl E1000E {
 
         fence(SeqCst);
         // ============================================
-        self.enable_intr();
         self.read_reg(ICR);
+        self.enable_intr();
 
-        if let Some(msi) = self.info.get_msi_mut() {
-            msi.enable();
-        }
+        self.write_reg(ICS, 1 << 2);
 
         Ok(())
     }
 
-    fn init_pcie_interrupt(&mut self) -> Result<u16, E1000EDriverErr> {
+    fn init_pcie_msi(&mut self) -> Result<u16, E1000EDriverErr> {
         self.info.disable_legacy_interrupt();
 
         if let Some(msix) = self.info.get_msix_mut() {
@@ -356,11 +350,12 @@ impl E1000E {
             ) {
                 msi.set_multiple_message_enable(MultipleMessage::One)
                     .unwrap();
-                msi.set_x86_interrupt(0, irq, true, false);
+                msi.set_x86_interrupt(0, irq, false, false);
 
                 self.irq = Some(irq);
-
                 awkernel_lib::interrupt::enable_irq(irq);
+
+                msi.enable();
 
                 Ok(irq)
             } else {
@@ -542,6 +537,7 @@ const _EEC: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
 const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
+const ICS: usize = 0x000C8; // Interrupt Cause Set Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
 // Interrupt Mask Set/Read Register
@@ -595,5 +591,5 @@ const TIPG_IPGR2: u32 = 0xA << 20;
 const RCTL_EN: u32 = 0b1 << 1; // Receive Control Register Enable
 const RCTL_BAM: u32 = 0b1 << 15; // Broadcast Accept Mode
 const RCTL_BSIZE: u32 = 0b11 << 16; // Receive Buffer Size (4096 Bytes)
-const RCTL_BSEX: u32 = 0b1 << 25; // Buffer Size Extenson
+const RCTL_BSEX: u32 = 0b1 << 25; // Buffer Size Extension
 const RCTL_SECRC: u32 = 0b1 << 26; // Strip CRC from packet

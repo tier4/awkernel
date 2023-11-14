@@ -76,7 +76,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         awkernel_lib::interrupt::enable_irq(64);
-        awkernel_lib::interrupt::send_ipi(64, 0);
 
         loop {
             awkernel_lib::interrupt::disable();

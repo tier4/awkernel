@@ -134,9 +134,18 @@ impl MSI {
             return Err("The number of interrupts is too large.");
         }
 
+        let mme = match mme {
+            MultipleMessage::One => 0b000,
+            MultipleMessage::Two => 0b001,
+            MultipleMessage::Four => 0b010,
+            MultipleMessage::Eight => 0b011,
+            MultipleMessage::Sixteen => 0b100,
+            MultipleMessage::ThirtyTwo => 0b101,
+        };
+
         let reg = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr);
         registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.write(
-            (reg & !(0b111 << (16 + 4))) | ((mme as u32) << (16 + 4)),
+            (reg & !(0b111 << (16 + 4))) | (mme << (16 + 4)),
             self.cap_ptr,
         );
 
@@ -159,10 +168,20 @@ impl MSI {
         if self.bit64_address_capable {
             registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.cap_ptr);
             registers::MESSAGE_ADDRESS_64_HIGH.write((message_address >> 32) as u32, self.cap_ptr);
-            registers::MESSAGE_DATA_64.write((message_data & 0xffff) as u32, self.cap_ptr);
+
+            let data = registers::MESSAGE_DATA_64.read(self.cap_ptr);
+            registers::MESSAGE_DATA_64.write(
+                (data & 0xffff_0000) | (message_data & 0xffff) as u32,
+                self.cap_ptr,
+            );
         } else {
             registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.cap_ptr);
-            registers::MESSAGE_DATA_32.write((message_data & 0xffff) as u32, self.cap_ptr);
+
+            let data = registers::MESSAGE_DATA_32.read(self.cap_ptr);
+            registers::MESSAGE_DATA_32.write(
+                (data & 0xffff_0000) | (message_data & 0xffff) as u32,
+                self.cap_ptr,
+            );
         }
     }
 
