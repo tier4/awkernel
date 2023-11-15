@@ -94,6 +94,7 @@ pub enum E1000DriverErr {
     NoBar1,
     Bar1IsNotMMIO,
     ReadFailure,
+    NotSupported,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -115,6 +116,7 @@ impl fmt::Display for E1000DriverErr {
             Self::NoBar0 => write!(f, "No BAR0."),
             Self::NoBar1 => write!(f, "No BAR1."),
             Self::Bar1IsNotMMIO => write!(f, "BAR1 is not MMIO."),
+            Self::ReadFailure => write!(f, "Read failure."),
         }
     }
 }
