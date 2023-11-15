@@ -89,6 +89,7 @@ pub enum E1000DriverErr {
     InitializeInterrupt,
     UnknownDeviceID,
     UnknownRevisionD,
+    NotPciExpress,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -106,6 +107,7 @@ impl fmt::Display for E1000DriverErr {
             Self::InitializeInterrupt => write!(f, "interrupt initialization failure."),
             Self::UnknownDeviceID => write!(f, "unknown device id."),
             Self::UnknownRevisionD => write!(f, "unknown revision id."),
+            Self::NotPciExpress => write!(f, "not a pci express device."),
         }
     }
 }

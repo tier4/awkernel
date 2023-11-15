@@ -711,10 +711,26 @@ fn get_phy_init(mac_type: &MacType) -> bool {
     }
 }
 
+/// Reject non-PCI Express devices.
+///
+/// https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em_hw.c#L8381
+fn check_pci_express(mac_type: &MacType) -> Result<(), E1000DriverErr> {
+    use MacType::*;
+
+    match mac_type {
+        Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
+        | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
+        | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
+        _ => Err(E1000DriverErr::NotPciExpress),
+    }
+}
+
 impl E1000Hw {
     pub fn new(info: &mut DeviceInfo) -> Result<Self, E1000DriverErr> {
         let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
             get_mac_type(info.get_id(), info)?;
+
+        check_pci_express(&mac_type)?;
 
         let (
             swfwhw_semaphore_present,
