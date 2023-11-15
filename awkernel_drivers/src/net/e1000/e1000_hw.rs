@@ -1,4 +1,4 @@
-use crate::pcie::{pcie_id::INTEL_VENDOR_ID, DeviceInfo};
+use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, DeviceInfo};
 
 use super::E1000DriverErr;
 
@@ -390,6 +390,7 @@ pub struct E1000Hw {
     swfw_sync_present: bool,
     eeprom_semaphore_present: bool,
     phy_init_script: bool,
+    flash_memory: Option<(BaseAddress, usize)>, // (base address, offset)
 }
 
 #[derive(Debug)]
@@ -725,6 +726,23 @@ fn check_pci_express(mac_type: &MacType) -> Result<(), E1000DriverErr> {
     }
 }
 
+fn is_ich8(mac_type: &MacType) -> bool {
+    use MacType::*;
+    matches!(
+        mac_type,
+        EmIch8lan
+            | EmIch9lan
+            | EmIch10lan
+            | EmPchlan
+            | EmPch2lan
+            | EmPchLpt
+            | EmPchSpt
+            | EmPchCnp
+            | EmPchTgp
+            | EmPchAdp
+    )
+}
+
 impl E1000Hw {
     pub fn new(info: &mut DeviceInfo) -> Result<Self, E1000DriverErr> {
         let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
@@ -745,6 +763,20 @@ impl E1000Hw {
             info.set_revision_id((info.get_id() & 0x0f) as u8);
         }
 
+        // https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em.c#L1720-L1740
+        let flash_memory = if matches!(mac_type, MacType::EmPchSpt) {
+            Some((info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?, 0xe000))
+        } else if is_ich8(&mac_type) {
+            let bar1 = info.get_bar(1).ok_or(E1000DriverErr::NoBar1)?;
+            if matches!(bar1, BaseAddress::MMIO { .. }) {
+                Some((bar1, 0))
+            } else {
+                return Err(E1000DriverErr::Bar1IsNotMMIO);
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             mac_type,
             initialize_hw_bits_disable,
@@ -755,6 +787,7 @@ impl E1000Hw {
             swfw_sync_present,
             eeprom_semaphore_present,
             phy_init_script,
+            flash_memory,
         })
     }
 

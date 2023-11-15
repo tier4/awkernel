@@ -90,6 +90,9 @@ pub enum E1000DriverErr {
     UnknownDeviceID,
     UnknownRevisionD,
     NotPciExpress,
+    NoBar0,
+    NoBar1,
+    Bar1IsNotMMIO,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -102,12 +105,15 @@ impl fmt::Display for E1000DriverErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::MemoryMapFailure => {
-                write!(f, "memory map fault occurs during driver initialization.")
+                write!(f, "Memory map fault occurs during driver initialization.")
             }
-            Self::InitializeInterrupt => write!(f, "interrupt initialization failure."),
-            Self::UnknownDeviceID => write!(f, "unknown device id."),
-            Self::UnknownRevisionD => write!(f, "unknown revision id."),
-            Self::NotPciExpress => write!(f, "not a pci express device."),
+            Self::InitializeInterrupt => write!(f, "Interrupt initialization failure."),
+            Self::UnknownDeviceID => write!(f, "Unknown device id."),
+            Self::UnknownRevisionD => write!(f, "Unknown revision id."),
+            Self::NotPciExpress => write!(f, "Not a pci express device."),
+            Self::NoBar0 => write!(f, "No BAR0."),
+            Self::NoBar1 => write!(f, "No BAR1."),
+            Self::Bar1IsNotMMIO => write!(f, "BAR1 is not MMIO."),
         }
     }
 }
