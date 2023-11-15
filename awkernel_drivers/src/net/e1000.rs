@@ -15,7 +15,7 @@ use core::{
     sync::atomic::{fence, Ordering::SeqCst},
 };
 
-mod e1000e_hw;
+mod e1000_hw;
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -40,12 +40,12 @@ struct RxDescriptor {
     vtags: u16,
 }
 
-/// Intel e1000e driver
-pub struct E1000E {
+/// Intel e1000 driver
+pub struct E1000 {
     info: DeviceInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
-    hw: e1000e_hw::E1000EHw,
+    hw: e1000_hw::E1000Hw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -68,36 +68,36 @@ where
     F: Frame,
     FA: FrameAllocator<F, E>,
 {
-    let mut e1000e = E1000E::new(info, dma_offset, page_table, page_allocator)?;
-    e1000e.init()?;
+    let mut e1000 = E1000::new(info, dma_offset, page_table, page_allocator)?;
+    e1000.init()?;
 
     log::info!(
-        "Intel e1000e driver has been initialized. IRQ = {:?}, Info = {:?}",
-        e1000e.irq,
-        e1000e.info
+        "Intel e1000 driver has been initialized. IRQ = {:?}, Info = {:?}",
+        e1000.irq,
+        e1000.info
     );
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
-    net_master.add_interface(Arc::new(Mutex::new(Box::new(e1000e))));
+    net_master.add_interface(Arc::new(Mutex::new(Box::new(e1000))));
 
     Ok(())
 }
 
-pub enum E1000EDriverErr {
+pub enum E1000DriverErr {
     MemoryMapFailure,
     InitializeInterrupt,
     UnknownDeviceID,
     UnknownRevisionD,
 }
 
-impl From<E1000EDriverErr> for PCIeDeviceErr {
-    fn from(_value: E1000EDriverErr) -> Self {
+impl From<E1000DriverErr> for PCIeDeviceErr {
+    fn from(_value: E1000DriverErr) -> Self {
         PCIeDeviceErr::InitFailure
     }
 }
 
-impl fmt::Display for E1000EDriverErr {
+impl fmt::Display for E1000DriverErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::MemoryMapFailure => {
@@ -110,7 +110,7 @@ impl fmt::Display for E1000EDriverErr {
     }
 }
 
-impl E1000E {
+impl E1000 {
     fn new<F, FA, E>(
         mut info: DeviceInfo,
         dma_offset: usize,
@@ -121,7 +121,9 @@ impl E1000E {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        let hw = e1000e_hw::E1000EHw::new(&mut info)?;
+        let hw = e1000_hw::E1000Hw::new(&mut info)?;
+
+        log::debug!("e1000: {:?}", hw);
 
         let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 
@@ -170,7 +172,7 @@ impl E1000E {
 }
 
 //===========================================================================
-impl PCIeDevice for E1000E {
+impl PCIeDevice for E1000 {
     const REG_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
 
     fn init(&mut self) -> Result<(), PCIeDeviceErr> {
@@ -190,15 +192,9 @@ impl PCIeDevice for E1000E {
     }
 }
 
-impl NetDevice for E1000E {
+impl NetDevice for E1000 {
     fn device_name(&self) -> &'static str {
-        use crate::pcie::pcie_id::*;
-
-        match self.info.get_id() {
-            INTEL_82574GBE_DEVICE_ID => "Intel 82574 GbE (e1000e)",
-            INTEL_I219_LM3_DEVICE_ID => "Intel I219-LM2 GbE (e1000e)",
-            _ => "e1000e",
-        }
+        "e1000"
     }
 
     fn link_up(&mut self) -> bool {
@@ -313,11 +309,11 @@ impl NetDevice for E1000E {
 }
 
 //===========================================================================
-impl E1000E {
-    /// Initialize e1000e's register
+impl E1000 {
+    /// Initialize e1000's register
     ///
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
-    unsafe fn init_hw(&mut self) -> Result<(), E1000EDriverErr> {
+    unsafe fn init_hw(&mut self) -> Result<(), E1000DriverErr> {
         self.init_pcie_msi()?;
 
         // ============================================
@@ -380,7 +376,7 @@ impl E1000E {
         Ok(())
     }
 
-    fn init_pcie_msi(&mut self) -> Result<u16, E1000EDriverErr> {
+    fn init_pcie_msi(&mut self) -> Result<u16, E1000DriverErr> {
         self.info.disable_legacy_interrupt();
 
         if let Some(msix) = self.info.get_msix_mut() {
@@ -391,9 +387,9 @@ impl E1000E {
             msi.disable();
 
             if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-                "e1000e",
+                "e1000",
                 Box::new(|_irq| {
-                    log::debug!("e1000e interrupt.");
+                    log::debug!("e1000 interrupt.");
                 }),
             ) {
                 msi.set_multiple_message_enable(MultipleMessage::One)
@@ -407,19 +403,19 @@ impl E1000E {
 
                 Ok(irq)
             } else {
-                Err(E1000EDriverErr::InitializeInterrupt)
+                Err(E1000DriverErr::InitializeInterrupt)
             }
         } else {
-            Err(E1000EDriverErr::InitializeInterrupt)
+            Err(E1000DriverErr::InitializeInterrupt)
         }
     }
 
-    /// Allocate the buffer space for e1000e's rx_ring
+    /// Allocate the buffer space for e1000's rx_ring
     fn allocate_buffer<F, FA, E>(
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-    ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
+    ) -> Result<(VirtAddr, PhyAddr), E1000DriverErr>
     where
         F: Frame,
         FA: FrameAllocator<F, E>,
@@ -427,7 +423,7 @@ impl E1000E {
         let buffer_pa = if let Ok(frame) = page_allocator.allocate_frame() {
             frame.start_address()
         } else {
-            return Err(E1000EDriverErr::MemoryMapFailure);
+            return Err(E1000DriverErr::MemoryMapFailure);
         };
 
         let buffer_va = VirtAddr::new(dma_offset + buffer_pa.as_usize());
@@ -448,8 +444,8 @@ impl E1000E {
                 )
                 .is_err()
             {
-                log::error!("e1000e: Error mapping frame.");
-                return Err(E1000EDriverErr::MemoryMapFailure);
+                log::error!("e1000: Error mapping frame.");
+                return Err(E1000DriverErr::MemoryMapFailure);
             }
         };
 
@@ -461,7 +457,7 @@ impl E1000E {
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-    ) -> Result<(VirtAddr, PhyAddr), E1000EDriverErr>
+    ) -> Result<(VirtAddr, PhyAddr), E1000DriverErr>
     where
         F: Frame,
         FA: FrameAllocator<F, E>,
@@ -469,7 +465,7 @@ impl E1000E {
         let frame = if let Ok(frame) = page_allocator.allocate_frame() {
             frame
         } else {
-            return Err(E1000EDriverErr::MemoryMapFailure);
+            return Err(E1000DriverErr::MemoryMapFailure);
         };
 
         unsafe {
@@ -490,8 +486,8 @@ impl E1000E {
                 )
                 .is_err()
             {
-                log::error!("e1000e: Error mapping frame.");
-                return Err(E1000EDriverErr::MemoryMapFailure);
+                log::error!("e1000: Error mapping frame.");
+                return Err(E1000DriverErr::MemoryMapFailure);
             }
         };
 
@@ -510,18 +506,18 @@ impl E1000E {
         self.bar0.write_bar(reg, val);
     }
 
-    /// Volatile read the e1000e's  register
+    /// Volatile read the e1000's  register
     #[inline(always)]
     unsafe fn read_reg(&self, reg: usize) -> u32 {
         self.bar0.read(reg).unwrap()
     }
 
-    /// Disable e1000e's interrupt
+    /// Disable e1000's interrupt
     unsafe fn disable_intr(&mut self) {
         self.write_reg(IMC, !0);
     }
 
-    /// Enable e1000e' interrupt
+    /// Enable e1000' interrupt
     unsafe fn enable_intr(&mut self) {
         self.write_reg(IMS, IMS_ENABLE_MASK);
     }
@@ -558,7 +554,7 @@ impl E1000E {
         self.read_reg(EERD) >> 16
     }
 
-    /// Issue a global reset to e1000e
+    /// Issue a global reset to e1000
     unsafe fn reset(&mut self) {
         //  Assert a Device Reset Signal
         let ctrl = self.read_reg(CTRL) | CTRL_RST;
@@ -577,8 +573,12 @@ impl E1000E {
     }
 }
 
+pub fn match_device(vendor: u16, id: u16) -> bool {
+    e1000_hw::E1000_DEVICES.contains(&(vendor, id))
+}
+
 //===========================================================================
-// e1000e's registers
+// e1000's registers
 const CTRL: usize = 0x00000; // Device Control Register
 const _EEC: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register

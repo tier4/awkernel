@@ -474,25 +474,20 @@ impl DeviceInfo {
 
         capability::read(&mut self);
 
-        match (self.id, self.vendor) {
-            // Intel 82574 GbE Controller
-            (
-                pcie_id::INTEL_82574GBE_DEVICE_ID | pcie_id::INTEL_I219_LM3_DEVICE_ID,
-                pcie_id::INTEL_VENDOR_ID,
-            ) => {
-                self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
-                super::net::e1000e::init(self, dma_offset, page_table, page_allocator)
+        match self.vendor {
+            pcie_id::INTEL_VENDOR_ID => {
+                if crate::net::e1000::match_device(self.vendor, self.id) {
+                    return crate::net::e1000::init(self, dma_offset, page_table, page_allocator);
+                }
             }
-            (device, vendor) => {
-                log::info!("PCIe device: {self}");
-
-                Err(PCIeDeviceErr::UnRecognizedDevice {
-                    bus: self.bus,
-                    device,
-                    vendor,
-                })
-            }
+            _ => (),
         }
+
+        Err(PCIeDeviceErr::UnRecognizedDevice {
+            bus: self.bus,
+            device: self.id,
+            vendor: self.vendor,
+        })
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
