@@ -93,6 +93,7 @@ pub enum E1000DriverErr {
     NoBar0,
     NoBar1,
     Bar1IsNotMMIO,
+    ReadFailure,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -588,7 +589,7 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
 //===========================================================================
 // e1000's registers
 const CTRL: usize = 0x00000; // Device Control Register
-const _EEC: usize = 0x00010; // EEPROM Control Register
+const EECD: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
 const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
