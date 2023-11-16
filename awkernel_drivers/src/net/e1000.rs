@@ -117,6 +117,7 @@ impl fmt::Display for E1000DriverErr {
             Self::NoBar1 => write!(f, "No BAR1."),
             Self::Bar1IsNotMMIO => write!(f, "BAR1 is not MMIO."),
             Self::ReadFailure => write!(f, "Read failure."),
+            Self::NotSupported => write!(f, "Not supported."),
         }
     }
 }
@@ -134,7 +135,7 @@ impl E1000 {
     {
         let hw = e1000_hw::E1000Hw::new(&mut info)?;
 
-        log::debug!("e1000: {:?}", hw);
+        log::debug!("e1000: {:?}\r\n{:?}", hw, info);
 
         let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 

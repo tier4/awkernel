@@ -391,6 +391,9 @@ pub struct E1000Hw {
     eeprom_semaphore_present: bool,
     phy_init_script: bool,
     flash_memory: Option<(BaseAddress, usize)>, // (base address, offset)
+    flash_bank_size: Option<usize>,
+    flash_base_address: Option<usize>,
+    eeprom: EEPROM,
 }
 
 #[derive(Debug, Clone)]
@@ -777,7 +780,10 @@ impl E1000Hw {
             None
         };
 
-        Ok(Self {
+        let (eeprom, flash_base_address, flash_bank_size) =
+            EEPROM::new(&mac_type, &flash_memory, info)?;
+
+        let hw = Self {
             mac_type,
             initialize_hw_bits_disable,
             eee_enable,
@@ -788,7 +794,12 @@ impl E1000Hw {
             eeprom_semaphore_present,
             phy_init_script,
             flash_memory,
-        })
+            flash_base_address,
+            flash_bank_size,
+            eeprom,
+        };
+
+        Ok(hw)
     }
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
@@ -809,7 +820,7 @@ enum EEPROMType {
 #[derive(Debug)]
 struct EEPROM {
     eeprom_type: EEPROMType,
-    page_size: u16,
+    page_size: Option<u16>,
     word_size: u16,
     address_bits: u16,
     delay_usec: u16,
@@ -824,27 +835,49 @@ const E1000_EECD_TYPE: u32 = 0x00002000;
 const E1000_EECD_FLUPD: u32 = 0x00080000;
 const E1000_EECD_AUPDEN: u32 = 0x00100000;
 
+const E1000_EECD_SIZE_EX_MASK: u32 = 0x00007800;
+const E1000_EECD_SIZE_EX_SHIFT: u32 = 11;
+const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
+const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
+
+const E1000_SHADOW_RAM_WORDS: u16 = 2048;
+
 const INVM_SIZE: u16 = 64;
 
+const ICH_FLASH_GFPREG: usize = 0x0000;
+
+const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
+const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
+
 impl EEPROM {
+    /// Return `(EEPROM, flash_base_address, flash_bank_size)`.
+    ///
     /// https://github.com/openbsd/src/blob/8e9ff1e61e136829a715052f888f67d3617fc787/sys/dev/pci/if_em_hw.c#L6280
-    fn new(hw: &E1000Hw, info: &DeviceInfo) -> Result<Self, E1000DriverErr> {
+    fn new(
+        mac_type: &MacType,
+        flash_memory: &Option<(BaseAddress, usize)>,
+        info: &DeviceInfo,
+    ) -> Result<(Self, Option<usize>, Option<usize>), E1000DriverErr> {
         use MacType::*;
 
         let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
         let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
 
-        let result = match hw.mac_type {
-            Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => Self {
-                eeprom_type: EEPROMType::Microwire,
-                page_size: 0,
-                word_size: 64,
-                address_bits: 6,
-                delay_usec: 50,
-                opcode_bits: 3,
-                use_eerd: false,
-                use_eewr: false,
-            },
+        let mut result = match mac_type {
+            Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => (
+                Self {
+                    eeprom_type: EEPROMType::Microwire,
+                    page_size: None,
+                    word_size: 64,
+                    address_bits: 6,
+                    delay_usec: 50,
+                    opcode_bits: 3,
+                    use_eerd: false,
+                    use_eewr: false,
+                },
+                None,
+                None,
+            ),
             Em82540 | Em82545 | Em82545Rev3 | Em82546 | Em82546Rev3 => {
                 let (word_size, address_bits) = if eecd & E1000_EECD_SIZE != 0 {
                     (256, 8)
@@ -852,16 +885,20 @@ impl EEPROM {
                     (64, 6)
                 };
 
-                Self {
-                    eeprom_type: EEPROMType::Microwire,
-                    opcode_bits: 3,
-                    page_size: 0,
-                    delay_usec: 50,
-                    word_size,
-                    address_bits,
-                    use_eerd: false,
-                    use_eewr: false,
-                }
+                (
+                    Self {
+                        eeprom_type: EEPROMType::Microwire,
+                        opcode_bits: 3,
+                        page_size: None,
+                        delay_usec: 50,
+                        word_size,
+                        address_bits,
+                        use_eerd: false,
+                        use_eewr: false,
+                    },
+                    None,
+                    None,
+                )
             }
             Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2 => {
                 if eecd & E1000_EECD_TYPE != 0 {
@@ -871,16 +908,20 @@ impl EEPROM {
                         (8, 8)
                     };
 
-                    Self {
-                        eeprom_type: EEPROMType::SPI,
-                        opcode_bits: 8,
-                        delay_usec: 1,
-                        page_size: 0,
-                        word_size: 0, // SPI's word size will be set later.
-                        address_bits,
-                        use_eerd: false,
-                        use_eewr: false,
-                    }
+                    (
+                        Self {
+                            eeprom_type: EEPROMType::SPI,
+                            opcode_bits: 8,
+                            delay_usec: 1,
+                            page_size: Some(page_size),
+                            word_size: 0, // SPI's word size will be set later.
+                            address_bits,
+                            use_eerd: false,
+                            use_eewr: false,
+                        },
+                        None,
+                        None,
+                    )
                 } else {
                     let (word_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
                         (256, 8)
@@ -888,16 +929,20 @@ impl EEPROM {
                         (64, 6)
                     };
 
-                    Self {
-                        eeprom_type: EEPROMType::Microwire,
-                        opcode_bits: 3,
-                        delay_usec: 50,
-                        page_size: 0,
-                        word_size,
-                        address_bits,
-                        use_eerd: false,
-                        use_eewr: false,
-                    }
+                    (
+                        Self {
+                            eeprom_type: EEPROMType::Microwire,
+                            opcode_bits: 3,
+                            delay_usec: 50,
+                            page_size: None,
+                            word_size,
+                            address_bits,
+                            use_eerd: false,
+                            use_eewr: false,
+                        },
+                        None,
+                        None,
+                    )
                 }
             }
             Em82571 | Em82572 => {
@@ -907,16 +952,20 @@ impl EEPROM {
                     (8, 8)
                 };
 
-                Self {
-                    eeprom_type: EEPROMType::SPI,
-                    opcode_bits: 8,
-                    delay_usec: 1,
-                    word_size: 0,
-                    page_size, // SPI's word size will be set later.
-                    address_bits,
-                    use_eerd: false,
-                    use_eewr: false,
-                }
+                (
+                    Self {
+                        eeprom_type: EEPROMType::SPI,
+                        opcode_bits: 8,
+                        delay_usec: 1,
+                        word_size: 0, // SPI's word size will be set later.
+                        page_size: Some(page_size),
+                        address_bits,
+                        use_eerd: false,
+                        use_eewr: false,
+                    },
+                    None,
+                    None,
+                )
             }
             Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | EmI210 | EmI350 => {
                 let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
@@ -926,9 +975,9 @@ impl EEPROM {
                 };
 
                 let (eeprom_type, word_size, use_eerd, use_eewr) =
-                    if !get_flash_presence_i210(hw, info)? {
+                    if !get_flash_presence_i210(mac_type, info)? {
                         (EEPROMType::Invm, INVM_SIZE, false, false)
-                    } else if !is_onboard_nvm_eeprom(hw, info)? {
+                    } else if !is_onboard_nvm_eeprom(mac_type, info)? {
                         let eecd = eecd & !E1000_EECD_AUPDEN;
                         bar0.write_bar(super::EECD, eecd);
 
@@ -938,16 +987,20 @@ impl EEPROM {
                         (EEPROMType::SPI, 0, true, true)
                     };
 
-                Self {
-                    eeprom_type,
-                    opcode_bits: 8,
-                    delay_usec: 1,
-                    page_size,
-                    word_size,
-                    address_bits,
-                    use_eerd,
-                    use_eewr,
-                }
+                (
+                    Self {
+                        eeprom_type,
+                        opcode_bits: 8,
+                        delay_usec: 1,
+                        page_size: Some(page_size),
+                        word_size,
+                        address_bits,
+                        use_eerd,
+                        use_eewr,
+                    },
+                    None,
+                    None,
+                )
             }
             Em80003es2lan => {
                 let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
@@ -956,48 +1009,110 @@ impl EEPROM {
                     (8, 8)
                 };
 
-                Self {
-                    eeprom_type: EEPROMType::SPI,
-                    opcode_bits: 8,
-                    delay_usec: 1,
-                    page_size,
-                    word_size: 0, // SPI's word size will be set later.
-                    address_bits,
-                    use_eerd: true,
-                    use_eewr: false,
-                }
+                (
+                    Self {
+                        eeprom_type: EEPROMType::SPI,
+                        opcode_bits: 8,
+                        delay_usec: 1,
+                        page_size: Some(page_size),
+                        word_size: 0, // SPI's word size will be set later.
+                        address_bits,
+                        use_eerd: true,
+                        use_eewr: false,
+                    },
+                    None,
+                    None,
+                )
             }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt => {
-                todo!()
+                let (flash_memory, offset) =
+                    flash_memory.as_ref().ok_or(E1000DriverErr::ReadFailure)?;
+
+                let flash_size = flash_memory
+                    .read(*offset + ICH_FLASH_GFPREG)
+                    .ok_or(E1000DriverErr::ReadFailure)?;
+
+                // https://github.com/openbsd/src/blob/4ff40062e57fb8a42d28dcb700c25b8254514628/sys/dev/pci/if_em_hw.c#L6434C12-L6434C29
+                // `eeprom_shadow_ram` may not be used?
+
+                let flash_base_addr = (flash_size & ICH_GFPREG_BASE_MASK) * ICH_FLASH_SECTOR_SIZE;
+
+                let mut flash_bank_size = ((flash_size >> 16) & ICH_GFPREG_BASE_MASK) + 1;
+                flash_bank_size -= flash_size & ICH_GFPREG_BASE_MASK;
+                flash_bank_size *= ICH_FLASH_SECTOR_SIZE;
+                flash_bank_size /= 2 * core::mem::size_of::<u16>() as u32;
+
+                (
+                    Self {
+                        eeprom_type: EEPROMType::Ich8,
+                        opcode_bits: 0,
+                        delay_usec: 0,
+                        page_size: None,
+                        word_size: E1000_SHADOW_RAM_WORDS,
+                        address_bits: 0,
+                        use_eerd: false,
+                        use_eewr: false,
+                    },
+                    Some(flash_base_addr as usize),
+                    Some(flash_bank_size as usize),
+                )
             }
             EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
-                todo!()
+                let flash_size = bar0
+                    .read(0xc /* STRAP */)
+                    .ok_or(E1000DriverErr::ReadFailure)?;
+
+                let mut flash_size = (flash_size >> 1 & 0x1f) + 1;
+                flash_size *= 1024;
+
+                (
+                    Self {
+                        eeprom_type: EEPROMType::Ich8,
+                        opcode_bits: 0,
+                        delay_usec: 0,
+                        page_size: None,
+                        word_size: E1000_SHADOW_RAM_WORDS,
+                        address_bits: 0,
+                        use_eerd: false,
+                        use_eewr: false,
+                    },
+                    Some(0),
+                    Some(flash_size as usize),
+                )
             }
             EmICPxxxx => {
                 return Err(E1000DriverErr::NotSupported);
             }
         };
 
-        if matches!(result.eeprom_type, EEPROMType::SPI) {
-            if hw.mac_type.clone() as u32 <= Em82547Rev2 as u32 {
+        if matches!(result.0.eeprom_type, EEPROMType::SPI) {
+            if mac_type.clone() as u32 <= Em82547Rev2 as u32 {
                 return Err(E1000DriverErr::NotSupported);
             }
 
-            todo!();
+            let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
+            let eeprom_size = (eecd & E1000_EECD_SIZE_EX_MASK) >> E1000_EECD_SIZE_EX_SHIFT;
+
+            // EEPROM access above 16k is unsupported
+            if eeprom_size + EEPROM_WORD_SIZE_SHIFT > EEPROM_WORD_SIZE_SHIFT_MAX {
+                result.0.word_size = 1 << EEPROM_WORD_SIZE_SHIFT_MAX;
+            } else {
+                result.0.word_size = 1 << (eeprom_size + EEPROM_WORD_SIZE_SHIFT);
+            }
         }
 
         Ok(result)
     }
 }
 
-fn is_onboard_nvm_eeprom(hw: &E1000Hw, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
+fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
     use MacType::*;
 
-    if is_ich8(&hw.mac_type) {
+    if is_ich8(mac_type) {
         return Ok(false);
     }
 
-    if matches!(hw.mac_type, Em82573 | Em82574) {
+    if matches!(mac_type, Em82573 | Em82574) {
         let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
         let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
 
@@ -1013,8 +1128,8 @@ fn is_onboard_nvm_eeprom(hw: &E1000Hw, info: &DeviceInfo) -> Result<bool, E1000D
     Ok(true)
 }
 
-fn get_flash_presence_i210(hw: &E1000Hw, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
-    if matches!(hw.mac_type, MacType::EmI210) {
+fn get_flash_presence_i210(mac_type: &MacType, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
+    if matches!(mac_type, MacType::EmI210) {
         return Ok(true);
     }
 
@@ -1027,254 +1142,3 @@ fn get_flash_presence_i210(hw: &E1000Hw, info: &DeviceInfo) -> Result<bool, E100
         Ok(false)
     }
 }
-
-// int32_t
-// em_init_eeprom_params(struct em_hw *hw)
-// {
-// 	struct em_eeprom_info *eeprom = &hw->eeprom;
-// 	uint32_t eecd = E1000_READ_REG(hw, EECD);
-// 	int32_t  ret_val = E1000_SUCCESS;
-// 	uint16_t eeprom_size;
-// 	DEBUGFUNC("em_init_eeprom_params");
-
-// 	switch (hw->mac_type) {
-// 	case em_82542_rev2_0:
-// 	case em_82542_rev2_1:
-// 	case em_82543:
-// 	case em_82544:
-// 		eeprom->type = em_eeprom_microwire;
-// 		eeprom->word_size = 64;
-// 		eeprom->opcode_bits = 3;
-// 		eeprom->address_bits = 6;
-// 		eeprom->delay_usec = 50;
-// 		eeprom->use_eerd = FALSE;
-// 		eeprom->use_eewr = FALSE;
-// 		break;
-// 	case em_82540:
-// 	case em_82545:
-// 	case em_82545_rev_3:
-// 	case em_icp_xxxx:
-// 	case em_82546:
-// 	case em_82546_rev_3:
-// 		eeprom->type = em_eeprom_microwire;
-// 		eeprom->opcode_bits = 3;
-// 		eeprom->delay_usec = 50;
-// 		if (eecd & E1000_EECD_SIZE) {
-// 			eeprom->word_size = 256;
-// 			eeprom->address_bits = 8;
-// 		} else {
-// 			eeprom->word_size = 64;
-// 			eeprom->address_bits = 6;
-// 		}
-// 		eeprom->use_eerd = FALSE;
-// 		eeprom->use_eewr = FALSE;
-// 		break;
-// 	case em_82541:
-// 	case em_82541_rev_2:
-// 	case em_82547:
-// 	case em_82547_rev_2:
-// 		if (eecd & E1000_EECD_TYPE) {
-// 			eeprom->type = em_eeprom_spi;
-// 			eeprom->opcode_bits = 8;
-// 			eeprom->delay_usec = 1;
-// 			if (eecd & E1000_EECD_ADDR_BITS) {
-// 				eeprom->page_size = 32;
-// 				eeprom->address_bits = 16;
-// 			} else {
-// 				eeprom->page_size = 8;
-// 				eeprom->address_bits = 8;
-// 			}
-// 		} else {
-// 			eeprom->type = em_eeprom_microwire;
-// 			eeprom->opcode_bits = 3;
-// 			eeprom->delay_usec = 50;
-// 			if (eecd & E1000_EECD_ADDR_BITS) {
-// 				eeprom->word_size = 256;
-// 				eeprom->address_bits = 8;
-// 			} else {
-// 				eeprom->word_size = 64;
-// 				eeprom->address_bits = 6;
-// 			}
-// 		}
-// 		eeprom->use_eerd = FALSE;
-// 		eeprom->use_eewr = FALSE;
-// 		break;
-// 	case em_82571:
-// 	case em_82572:
-// 		eeprom->type = em_eeprom_spi;
-// 		eeprom->opcode_bits = 8;
-// 		eeprom->delay_usec = 1;
-// 		if (eecd & E1000_EECD_ADDR_BITS) {
-// 			eeprom->page_size = 32;
-// 			eeprom->address_bits = 16;
-// 		} else {
-// 			eeprom->page_size = 8;
-// 			eeprom->address_bits = 8;
-// 		}
-// 		eeprom->use_eerd = FALSE;
-// 		eeprom->use_eewr = FALSE;
-// 		break;
-// 	case em_82573:
-// 	case em_82574:
-// 	case em_82575:
-// 	case em_82576:
-// 	case em_82580:
-// 	case em_i210:
-// 	case em_i350:
-// 		eeprom->type = em_eeprom_spi;
-// 		eeprom->opcode_bits = 8;
-// 		eeprom->delay_usec = 1;
-// 		if (eecd & E1000_EECD_ADDR_BITS) {
-// 			eeprom->page_size = 32;
-// 			eeprom->address_bits = 16;
-// 		} else {
-// 			eeprom->page_size = 8;
-// 			eeprom->address_bits = 8;
-// 		}
-// 		eeprom->use_eerd = TRUE;
-// 		eeprom->use_eewr = TRUE;
-// 		if (em_is_onboard_nvm_eeprom(hw) == FALSE) {
-// 			eeprom->type = em_eeprom_flash;
-// 			eeprom->word_size = 2048;
-// 			/*
-// 			 * Ensure that the Autonomous FLASH update bit is
-// 			 * cleared due to Flash update issue on parts which
-// 			 * use a FLASH for NVM.
-// 			 */
-// 			eecd &= ~E1000_EECD_AUPDEN;
-// 			E1000_WRITE_REG(hw, EECD, eecd);
-// 		}
-// 		if (em_get_flash_presence_i210(hw) == FALSE) {
-// 			eeprom->type = em_eeprom_invm;
-// 			eeprom->word_size = INVM_SIZE;
-// 			eeprom->use_eerd = FALSE;
-// 			eeprom->use_eewr = FALSE;
-// 		}
-// 		break;
-// 	case em_80003es2lan:
-// 		eeprom->type = em_eeprom_spi;
-// 		eeprom->opcode_bits = 8;
-// 		eeprom->delay_usec = 1;
-// 		if (eecd & E1000_EECD_ADDR_BITS) {
-// 			eeprom->page_size = 32;
-// 			eeprom->address_bits = 16;
-// 		} else {
-// 			eeprom->page_size = 8;
-// 			eeprom->address_bits = 8;
-// 		}
-// 		eeprom->use_eerd = TRUE;
-// 		eeprom->use_eewr = FALSE;
-// 		break;
-// 	case em_ich8lan:
-// 	case em_ich9lan:
-// 	case em_ich10lan:
-// 	case em_pchlan:
-// 	case em_pch2lan:
-// 	case em_pch_lpt:
-// 		{
-// 		int32_t         i = 0;
-// 		uint32_t        flash_size =
-// 		    E1000_READ_ICH_FLASH_REG(hw, ICH_FLASH_GFPREG);
-// 			eeprom->type = em_eeprom_ich8;
-// 			eeprom->use_eerd = FALSE;
-// 			eeprom->use_eewr = FALSE;
-// 			eeprom->word_size = E1000_SHADOW_RAM_WORDS;
-// 			/*
-// 			 * Zero the shadow RAM structure. But don't load it
-// 			 * from NVM so as to save time for driver init
-// 			 */
-// 			if (hw->eeprom_shadow_ram != NULL) {
-// 				for (i = 0; i < E1000_SHADOW_RAM_WORDS; i++) {
-// 					hw->eeprom_shadow_ram[i].modified =
-// 					    FALSE;
-// 					hw->eeprom_shadow_ram[i].eeprom_word =
-// 					    0xFFFF;
-// 				}
-// 			}
-// 			hw->flash_base_addr = (flash_size &
-// 			    ICH_GFPREG_BASE_MASK) * ICH_FLASH_SECTOR_SIZE;
-
-// 			hw->flash_bank_size = ((flash_size >> 16) &
-// 			    ICH_GFPREG_BASE_MASK) + 1;
-// 			hw->flash_bank_size -= (flash_size &
-// 			    ICH_GFPREG_BASE_MASK);
-
-// 			hw->flash_bank_size *= ICH_FLASH_SECTOR_SIZE;
-
-// 			hw->flash_bank_size /= 2 * sizeof(uint16_t);
-
-// 			break;
-// 		}
-// 	case em_pch_spt:
-// 	case em_pch_cnp:
-// 	case em_pch_tgp:
-// 	case em_pch_adp:
-// 		{
-// 			int32_t         i = 0;
-// 			uint32_t        flash_size = EM_READ_REG(hw, 0xc /* STRAP */);
-
-// 			eeprom->type = em_eeprom_ich8;
-// 			eeprom->use_eerd = FALSE;
-// 			eeprom->use_eewr = FALSE;
-// 			eeprom->word_size = E1000_SHADOW_RAM_WORDS;
-// 			/*
-// 			 * Zero the shadow RAM structure. But don't load it
-// 			 * from NVM so as to save time for driver init
-// 			 */
-// 			if (hw->eeprom_shadow_ram != NULL) {
-// 				for (i = 0; i < E1000_SHADOW_RAM_WORDS; i++) {
-// 					hw->eeprom_shadow_ram[i].modified =
-// 					    FALSE;
-// 					hw->eeprom_shadow_ram[i].eeprom_word =
-// 					    0xFFFF;
-// 				}
-// 			}
-// 			hw->flash_base_addr = 0;
-// 			flash_size = ((flash_size >> 1) & 0x1f) + 1;
-// 			flash_size *= 4096;
-// 			hw->flash_bank_size = flash_size / 4;
-// 		}
-// 		break;
-// 	default:
-// 		break;
-// 	}
-
-// 	if (eeprom->type == em_eeprom_spi) {
-// 		/*
-// 		 * eeprom_size will be an enum [0..8] that maps to eeprom
-// 		 * sizes 128B to 32KB (incremented by powers of 2).
-// 		 */
-// 		if (hw->mac_type <= em_82547_rev_2) {
-// 			/* Set to default value for initial eeprom read. */
-// 			eeprom->word_size = 64;
-// 			ret_val = em_read_eeprom(hw, EEPROM_CFG, 1,
-// 			    &eeprom_size);
-// 			if (ret_val)
-// 				return ret_val;
-// 			eeprom_size = (eeprom_size & EEPROM_SIZE_MASK) >>
-// 			    EEPROM_SIZE_SHIFT;
-// 			/*
-// 			 * 256B eeprom size was not supported in earlier
-// 			 * hardware, so we bump eeprom_size up one to ensure
-// 			 * that "1" (which maps to 256B) is never the result
-// 			 * used in the shifting logic below.
-// 			 */
-// 			if (eeprom_size)
-// 				eeprom_size++;
-// 		} else {
-// 			eeprom_size = (uint16_t) (
-// 			    (eecd & E1000_EECD_SIZE_EX_MASK) >>
-// 			    E1000_EECD_SIZE_EX_SHIFT);
-// 		}
-
-// 		/* EEPROM access above 16k is unsupported */
-// 		if (eeprom_size + EEPROM_WORD_SIZE_SHIFT >
-// 		    EEPROM_WORD_SIZE_SHIFT_MAX) {
-// 			eeprom->word_size = 1 << EEPROM_WORD_SIZE_SHIFT_MAX;
-// 		} else {
-// 			eeprom->word_size = 1 <<
-// 			    (eeprom_size + EEPROM_WORD_SIZE_SHIFT);
-// 		}
-// 	}
-// 	return ret_val;
-// }
