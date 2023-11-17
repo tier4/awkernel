@@ -813,7 +813,9 @@ impl E1000Hw {
 
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
     pub fn reset_hw(&self, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
-        if matches!(self.mac_type, MacType::Em82542Rev2_0) {
+        use MacType::*;
+
+        if matches!(self.mac_type, Em82542Rev2_0) {
             return Err(E1000DriverErr::NotSupported);
         }
 
@@ -822,11 +824,42 @@ impl E1000Hw {
         // is reset.
         disable_pciex_master(info)?;
 
+        // Set the completion timeout for 82575 chips
+        if matches!(self.mac_type, Em82575 | Em82580 | Em82576 | EmI210 | EmI350) {
+            set_pciex_completion_timeout(info)?;
+        }
+
         Ok(())
     }
 }
 
 const MASTER_DISABLE_TIMEOUT: u32 = 800;
+
+/// The defaults for 82575 and 82576 should be in the range of 50us to 50ms,
+/// however the hardware default for these parts is 500us to 1ms which is less
+/// than the 10ms recommended by the pci-e spec.  To address this we need to
+/// increase the value to either 10ms to 200ms for capability version 1 config,
+/// or 16ms to 55ms for version 2.
+fn set_pciex_completion_timeout(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+
+    let mut gcr = bar0.read(super::GCR).ok_or(E1000DriverErr::ReadFailure)?;
+
+    // Only take action if timeout value is not set by system BIOS
+    //
+    // If capabilities version is type 1 we can write the
+    // timeout of 10ms to 200ms through the GCR register
+    if gcr & super::GCR_CMPL_TMOUT_MASK == 0 && gcr & super::GCR_CAP_VER2 != 0 {
+        gcr |= super::GCR_CMPL_TMOUT_10_MS;
+    }
+
+    // Disable completion timeout resend
+    gcr &= super::GCR_CMPL_TMOUT_RESEND;
+
+    bar0.write(super::GCR, gcr);
+
+    Ok(())
+}
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
 fn disable_pciex_master(info: &DeviceInfo) -> Result<(), E1000DriverErr> {

@@ -687,6 +687,10 @@ const RAL: usize = 0x05400; // Receive Address Low
 const RAH: usize = 0x05404; // Receive Address High
 
 const GCR: usize = 0x05B00; // 3GIO
+const GCR_CMPL_TMOUT_MASK: u32 = 0x0000F000;
+const GCR_CMPL_TMOUT_10_MS: u32 = 0x00001000;
+const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
+const GCR_CAP_VER2: u32 = 0x00040000;
 
 const CTRL_RST: u32 = 1 << 26;
 const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
