@@ -51,14 +51,15 @@ impl BaseAddress {
                         options(nomem, nostack, preserves_flags));
                 Some(val)
             },
-            BaseAddress::MMIO { addr, .. } => unsafe {
-                Some(read_volatile((*addr + offset) as *const u32))
-            },
+            BaseAddress::MMIO { addr, size, .. } => {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                unsafe { Some(read_volatile((*addr + offset) as *const u32)) }
+            }
             _ => None,
         }
     }
 
-    pub fn write_bar(&mut self, offset: usize, val: u32) {
+    pub fn write(&mut self, offset: usize, val: u32) {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -68,7 +69,8 @@ impl BaseAddress {
                         in("dx") port,
                         options(nomem, nostack, preserves_flags));
             },
-            BaseAddress::MMIO { addr, .. } => unsafe {
+            BaseAddress::MMIO { addr, size, .. } => unsafe {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
                 write_volatile((*addr + offset) as *mut u32, val);
             },
             _ => (),
@@ -361,8 +363,12 @@ impl DeviceInfo {
         registers::STATUS_COMMAND.read(self.addr)
     }
 
-    pub fn write_status_command(&self, csr: registers::StatusCommand) {
+    pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
         registers::STATUS_COMMAND.write(csr, self.addr);
+    }
+
+    pub fn read_config_space(&self, offset: usize) -> u32 {
+        unsafe { read_volatile((self.addr + offset) as *const u32) }
     }
 
     fn map_bar<F, FA, PT, E>(

@@ -95,6 +95,7 @@ pub enum E1000DriverErr {
     Bar1IsNotMMIO,
     ReadFailure,
     NotSupported,
+    FailedFlashDescriptor,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -118,6 +119,7 @@ impl fmt::Display for E1000DriverErr {
             Self::Bar1IsNotMMIO => write!(f, "BAR1 is not MMIO."),
             Self::ReadFailure => write!(f, "Read failure."),
             Self::NotSupported => write!(f, "Not supported."),
+            Self::FailedFlashDescriptor => write!(f, "Failed to flush descriptor."),
         }
     }
 }
@@ -134,6 +136,8 @@ impl E1000 {
         FA: FrameAllocator<F, E>,
     {
         let hw = e1000_hw::E1000Hw::new(&mut info)?;
+
+        hardware_init(&hw, &mut info)?;
 
         log::debug!("e1000: {:?}\r\n{:?}", hw, info);
 
@@ -159,6 +163,8 @@ impl E1000 {
             let (buf_va, buf_pa) = Self::allocate_buffer(dma_offset, page_table, page_allocator)?;
             tx_desc.buf = buf_pa.as_usize() as u64;
             tx_desc.status |= 1;
+            tx_desc.length = 512;
+            tx_desc.cmd = TX_CMD_IFCS;
             tx_bufs.push(buf_va);
         }
 
@@ -181,6 +187,15 @@ impl E1000 {
             irq: None,
         })
     }
+}
+
+/// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
+fn hardware_init(hw: &e1000_hw::E1000Hw, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    if matches!(hw.get_mac_type(), e1000_hw::MacType::EmPchSpt) {
+        check_desc_ring(info)?;
+    }
+
+    Ok(())
 }
 
 //===========================================================================
@@ -330,6 +345,7 @@ impl E1000 {
 
         // ============================================
         // 4.6.2: Global Reset and General Configuration
+
         self.disable_intr();
         self.reset();
         self.disable_intr();
@@ -515,7 +531,7 @@ impl E1000 {
     /// Volatile write the certain register
     #[inline(always)]
     unsafe fn write_reg(&mut self, reg: usize, val: u32) {
-        self.bar0.write_bar(reg, val);
+        self.bar0.write(reg, val);
     }
 
     /// Volatile read the e1000's  register
@@ -589,6 +605,33 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
     e1000_hw::E1000_DEVICES.contains(&(vendor, id))
 }
 
+fn check_desc_ring(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+
+    // First, disable MULR fix in FEXTNVM11
+    let fextnvm11 =
+        bar0.read(FEXTNVM11).ok_or(E1000DriverErr::ReadFailure)? | FEXTNVM11_DISABLE_MULR_FIX;
+    bar0.write(FEXTNVM11, fextnvm11);
+
+    let tdlen = bar0
+        .read(tdlen_offset(0))
+        .ok_or(E1000DriverErr::ReadFailure)?;
+    let hang_state = info.read_config_space(PCICFG_DESC_RING_STATUS);
+    if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
+        return Ok(());
+    }
+
+    Err(E1000DriverErr::FailedFlashDescriptor)
+}
+
+fn tdlen_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03808 + (n * 0x100)
+    } else {
+        0x0E008 + (n * 0x40)
+    }
+}
+
 //===========================================================================
 // e1000's registers
 const CTRL: usize = 0x00000; // Device Control Register
@@ -596,7 +639,7 @@ const EECD: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
 const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
-const ICS: usize = 0x000C8; // Interrupt Cause Set Register
+const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 
 // Status Register
@@ -657,3 +700,25 @@ const RCTL_BAM: u32 = 0b1 << 15; // Broadcast Accept Mode
 const RCTL_BSIZE: u32 = 0b11 << 16; // Receive Buffer Size (4096 Bytes)
 const RCTL_BSEX: u32 = 0b1 << 25; // Buffer Size Extension
 const RCTL_SECRC: u32 = 0b1 << 26; // Strip CRC from packet
+
+// FEXTNVM registers
+const _FEXTNVM7: usize = 0xe;
+const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
+const _FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
+const _FEXTNVM9: usize = 0x5bb4;
+const _FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
+const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
+const FEXTNVM11: usize = 0x05bbc;
+const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
+
+const _TX_CMD_EOP: u8 = 1 << 0; // End of Packet
+const TX_CMD_IFCS: u8 = 1 << 1; // Insert FCS
+const _TX_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
+const _TX_CMD_RS: u8 = 1 << 3; // Report Status
+const _TX_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
+const _TX_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
+const _TX_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
+const _TX_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+
+const PCICFG_DESC_RING_STATUS: usize = 0xe4;
+const FLUSH_DESC_REQUIRED: u32 = 0x100;

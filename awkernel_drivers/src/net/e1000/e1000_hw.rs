@@ -397,7 +397,7 @@ pub struct E1000Hw {
 }
 
 #[derive(Debug, Clone)]
-enum MacType {
+pub enum MacType {
     Em82542Rev2_0 = 0,
     Em82542Rev2_1,
     Em82543,
@@ -802,10 +802,17 @@ impl E1000Hw {
         Ok(hw)
     }
 
+    pub fn get_mac_type(&self) -> MacType {
+        self.mac_type.clone()
+    }
+
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
-    pub fn init_hw(info: &DeviceInfo) {
+    fn init_hw(info: &DeviceInfo) {
         todo!();
     }
+
+    /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
+    fn reset_hw(&self) {}
 }
 
 #[derive(Debug, Clone)]
@@ -979,7 +986,7 @@ impl EEPROM {
                         (EEPROMType::Invm, INVM_SIZE, false, false)
                     } else if !is_onboard_nvm_eeprom(mac_type, info)? {
                         let eecd = eecd & !E1000_EECD_AUPDEN;
-                        bar0.write_bar(super::EECD, eecd);
+                        bar0.write(super::EECD, eecd);
 
                         (EEPROMType::Flash, 2048, true, true)
                     } else {
