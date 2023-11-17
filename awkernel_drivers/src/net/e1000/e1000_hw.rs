@@ -812,7 +812,47 @@ impl E1000Hw {
     }
 
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
-    fn reset_hw(&self) {}
+    pub fn reset_hw(&self, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+        if matches!(self.mac_type, MacType::Em82542Rev2_0) {
+            return Err(E1000DriverErr::NotSupported);
+        }
+
+        // Prevent the PCI-E bus from sticking if there is no TLP
+        // connection on the last TLP read/write transaction when MAC
+        // is reset.
+        disable_pciex_master(info)?;
+
+        Ok(())
+    }
+}
+
+const MASTER_DISABLE_TIMEOUT: u32 = 800;
+
+/// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
+fn disable_pciex_master(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+
+    set_pcie_express_master_disable(info)?;
+
+    for _ in 0..MASTER_DISABLE_TIMEOUT {
+        if bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?
+            & super::CTRL_GIO_MASTER_DISABLE
+            != 0
+        {
+            return Ok(());
+        }
+    }
+
+    Err(E1000DriverErr::MasterDisableTimeout)
+}
+
+/// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9533
+fn set_pcie_express_master_disable(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+    let ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+    bar0.write(super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE);
+
+    Ok(())
 }
 
 #[derive(Debug, Clone)]

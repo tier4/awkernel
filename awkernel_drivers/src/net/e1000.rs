@@ -84,6 +84,7 @@ where
     Ok(())
 }
 
+#[derive(Debug)]
 pub enum E1000DriverErr {
     MemoryMapFailure,
     InitializeInterrupt,
@@ -96,6 +97,7 @@ pub enum E1000DriverErr {
     ReadFailure,
     NotSupported,
     FailedFlashDescriptor,
+    MasterDisableTimeout,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -120,6 +122,7 @@ impl fmt::Display for E1000DriverErr {
             Self::ReadFailure => write!(f, "Read failure."),
             Self::NotSupported => write!(f, "Not supported."),
             Self::FailedFlashDescriptor => write!(f, "Failed to flush descriptor."),
+            Self::MasterDisableTimeout => write!(f, "Master disable timeout."),
         }
     }
 }
@@ -140,6 +143,8 @@ impl E1000 {
         hardware_init(&hw, &mut info)?;
 
         log::debug!("e1000: {:?}\r\n{:?}", hw, info);
+
+        loop {}
 
         let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 
@@ -194,6 +199,8 @@ fn hardware_init(hw: &e1000_hw::E1000Hw, info: &DeviceInfo) -> Result<(), E1000D
     if matches!(hw.get_mac_type(), e1000_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
+
+    hw.reset_hw(info)?;
 
     Ok(())
 }
@@ -681,13 +688,14 @@ const RAH: usize = 0x05404; // Receive Address High
 
 const GCR: usize = 0x05B00; // 3GIO
 
-const CTRL_RST: u32 = 0b1 << 26;
+const CTRL_RST: u32 = 1 << 26;
+const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
 
-const TXDCTL_GRAN: u32 = 0b1 << 24;
-const TXDCTL_WTHRESH: u32 = 0b1 << 16;
+const TXDCTL_GRAN: u32 = 1 << 24;
+const TXDCTL_WTHRESH: u32 = 1 << 16;
 
-const TCTL_EN: u32 = 0b1 << 1; //  Transmitter Enable
-const TCTL_PSP: u32 = 0b1 << 3; //  Pad short packets
+const TCTL_EN: u32 = 1 << 1; //  Transmitter Enable
+const TCTL_PSP: u32 = 1 << 3; //  Pad short packets
 const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
 
 const TCTL_COLD: u32 = 0x3F << 12; // Collision Distance (FDX)
@@ -695,11 +703,11 @@ const TIPG_IPGT: u32 = 0x8;
 const TIPG_IPGR1: u32 = 0x2 << 10;
 const TIPG_IPGR2: u32 = 0xA << 20;
 
-const RCTL_EN: u32 = 0b1 << 1; // Receive Control Register Enable
-const RCTL_BAM: u32 = 0b1 << 15; // Broadcast Accept Mode
-const RCTL_BSIZE: u32 = 0b11 << 16; // Receive Buffer Size (4096 Bytes)
-const RCTL_BSEX: u32 = 0b1 << 25; // Buffer Size Extension
-const RCTL_SECRC: u32 = 0b1 << 26; // Strip CRC from packet
+const RCTL_EN: u32 = 1 << 1; // Receive Control Register Enable
+const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
+const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
+const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
+const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
 
 // FEXTNVM registers
 const _FEXTNVM7: usize = 0xe;
