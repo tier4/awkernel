@@ -394,6 +394,7 @@ pub struct E1000Hw {
     flash_bank_size: Option<usize>,
     flash_base_address: Option<usize>,
     eeprom: EEPROM,
+    tbi_compatibility_on: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -797,6 +798,7 @@ impl E1000Hw {
             flash_base_address,
             flash_bank_size,
             eeprom,
+            tbi_compatibility_on: false,
         };
 
         Ok(hw)
@@ -812,8 +814,10 @@ impl E1000Hw {
     }
 
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
-    pub fn reset_hw(&self, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    pub fn reset_hw(&mut self, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
         use MacType::*;
+
+        let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
 
         if matches!(self.mac_type, Em82542Rev2_0) {
             return Err(E1000DriverErr::NotSupported);
@@ -828,6 +832,50 @@ impl E1000Hw {
         if matches!(self.mac_type, Em82575 | Em82580 | Em82576 | EmI210 | EmI350) {
             set_pciex_completion_timeout(info)?;
         }
+
+        // Clear interrupt mask to stop board from generating interrupts
+        bar0.write(super::IMC, !0);
+
+        // Disable the Transmit and Receive units.  Then delay to allow any
+        // pending transactions to complete before we hit the MAC with the
+        // global reset.
+        bar0.write(super::RCTL, 0);
+        bar0.write(super::TCTL, super::TCTL_PSP);
+        bar0.read(super::STATUS); // flush
+
+        // The tbi_compatibility_on Flag must be cleared when Rctl is cleared.
+        self.tbi_compatibility_on = false;
+
+        // Delay to allow any outstanding PCI transactions to complete before resetting the device
+        awkernel_lib::delay::wait_millisec(10);
+
+        // Must reset the PHY before resetting the MAC
+        if matches!(self.mac_type, Em82541 | Em82547) {
+            return Err(E1000DriverErr::NotSupported);
+        }
+
+        // Must acquire the MDIO ownership before MAC reset. Ownership defaults to firmware after a reset.
+        if matches!(self.mac_type, Em82573 | Em82574) {
+            let mut extcnf_ctrl = bar0
+                .read(super::EXTCNF_CTRL)
+                .ok_or(E1000DriverErr::ReadFailure)?;
+
+            extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
+
+            for _ in 0..10 {
+                bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+
+                if extcnf_ctrl & super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP != 0 {
+                    break;
+                } else {
+                    extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
+                }
+
+                awkernel_lib::delay::wait_millisec(2);
+            }
+        }
+
+        if matches!(self.mac_type, EmIch8lan) {}
 
         Ok(())
     }

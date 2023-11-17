@@ -138,9 +138,9 @@ impl E1000 {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        let hw = e1000_hw::E1000Hw::new(&mut info)?;
+        let mut hw = e1000_hw::E1000Hw::new(&mut info)?;
 
-        hardware_init(&hw, &mut info)?;
+        hardware_init(&mut hw, &mut info)?;
 
         log::debug!("e1000: {:?}\r\n{:?}", hw, info);
 
@@ -195,7 +195,7 @@ impl E1000 {
 }
 
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
-fn hardware_init(hw: &e1000_hw::E1000Hw, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn hardware_init(hw: &mut e1000_hw::E1000Hw, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
     if matches!(hw.get_mac_type(), e1000_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
@@ -734,3 +734,20 @@ const _TX_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
 const PCICFG_DESC_RING_STATUS: usize = 0xe4;
 const FLUSH_DESC_REQUIRED: u32 = 0x100;
+
+// Extended Configuration Control and Size
+const EXTCNF_CTRL: usize = 0x00F00;
+const EXTCNF_CTRL_PCIE_WRITE_ENABLE: u32 = 0x00000001;
+const EXTCNF_CTRL_PHY_WRITE_ENABLE: u32 = 0x00000002;
+const EXTCNF_CTRL_D_UD_ENABLE: u32 = 0x00000004;
+const EXTCNF_CTRL_D_UD_LATENCY: u32 = 0x00000008;
+const EXTCNF_CTRL_D_UD_OWNER: u32 = 0x00000010;
+const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
+const EXTCNF_CTRL_MDIO_HW_OWNERSHIP: u32 = 0x00000040;
+const EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
+const EXTCNF_SIZE_EXT_PHY_LENGTH: u32 = 0x000000FF;
+const EXTCNF_SIZE_EXT_DOCK_LENGTH: u32 = 0x0000FF00;
+const EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
+const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
+const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
+const EXTCNF_CTRL_GATE_PHY_CFG: u32 = 0x00000080;
