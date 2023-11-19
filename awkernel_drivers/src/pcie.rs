@@ -14,6 +14,7 @@ use acpi::{AcpiTables, PciConfigRegions};
 mod capability;
 pub mod msi;
 mod msix;
+pub mod net;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
@@ -480,8 +481,8 @@ impl PCIeInfo {
     {
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
-                if crate::net::e1000::match_device(self.vendor, self.id) {
-                    return crate::net::e1000::attach(self, dma_offset, page_table, page_allocator);
+                if net::e1000::match_device(self.vendor, self.id) {
+                    return net::e1000::attach(self, dma_offset, page_table, page_allocator);
                 }
             }
             _ => (),
