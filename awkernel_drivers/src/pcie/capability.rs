@@ -1,4 +1,4 @@
-use super::DeviceInfo;
+use super::PCIeInfo;
 
 pub const NULL: u8 = 0x00;
 pub const PCI_POWER_MANAGEMENT_INTERFACE: u8 = 0x01;
@@ -23,7 +23,7 @@ pub const ADVANCED_FEATURES: u8 = 0x13;
 pub const ENHANCED_ALLOCATION: u8 = 0x14;
 pub const FLATTENING_PORTAL_BRIDGE: u8 = 0x15;
 
-pub fn read(info: &mut DeviceInfo) {
+pub fn read(info: &mut PCIeInfo) {
     use super::registers;
 
     if info.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE
@@ -50,11 +50,11 @@ pub fn read(info: &mut DeviceInfo) {
     }
 }
 
-fn read_msix(info: &mut DeviceInfo, cap_ptr: usize) {
+fn read_msix(info: &mut PCIeInfo, cap_ptr: usize) {
     info.msix = super::msix::MSIX::new(info, cap_ptr);
 }
 
-fn read_msi(info: &mut DeviceInfo, cap_ptr: usize) {
+fn read_msi(info: &mut PCIeInfo, cap_ptr: usize) {
     let msi = super::msi::MSI::new(cap_ptr);
     info.msi = Some(msi);
 }

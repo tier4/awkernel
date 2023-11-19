@@ -268,10 +268,10 @@ fn scan_devices<F, FA, PT, E>(
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
-            if let Ok(device) = DeviceInfo::from_addr(bus, addr) {
+            if let Ok(device) = PCIeInfo::from_addr(bus, addr) {
                 let multiple_functions = device.multiple_functions;
 
-                let _ = device.init(dma_offset, page_table, page_allocator);
+                let _ = device.attach(dma_offset, page_table, page_allocator);
 
                 if func == 0 && !multiple_functions {
                     break;
@@ -283,7 +283,7 @@ fn scan_devices<F, FA, PT, E>(
 
 /// Information necessary for initializing the device
 #[derive(Debug)]
-pub struct DeviceInfo {
+pub struct PCIeInfo {
     pub(crate) addr: usize,
     bus: u8,
     id: u16,
@@ -297,7 +297,7 @@ pub struct DeviceInfo {
     msix: Option<msix::MSIX>,
 }
 
-impl fmt::Display for DeviceInfo {
+impl fmt::Display for PCIeInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -307,9 +307,9 @@ impl fmt::Display for DeviceInfo {
     }
 }
 
-impl DeviceInfo {
+impl PCIeInfo {
     /// Get the information for PCIe device
-    fn from_addr(bus: u8, addr: usize) -> Result<DeviceInfo, PCIeDeviceErr> {
+    fn from_addr(bus: u8, addr: usize) -> Result<PCIeInfo, PCIeDeviceErr> {
         let ids = registers::DEVICE_VENDOR_ID.read(addr);
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -323,7 +323,7 @@ impl DeviceInfo {
         if id == !0 || vendor == !0 {
             Err(PCIeDeviceErr::InitFailure)
         } else {
-            Ok(DeviceInfo {
+            Ok(PCIeInfo {
                 addr,
                 bus,
                 id,
@@ -371,7 +371,11 @@ impl DeviceInfo {
         unsafe { read_volatile((self.addr + offset) as *const u32) }
     }
 
-    fn map_bar<F, FA, PT, E>(
+    pub(crate) fn read_capability(&mut self) {
+        capability::read(self);
+    }
+
+    pub(crate) fn map_bar<F, FA, PT, E>(
         &mut self,
         page_table: &mut PT,
         page_allocator: &mut FA,
@@ -380,6 +384,7 @@ impl DeviceInfo {
         F: Frame,
         FA: FrameAllocator<F, E>,
         PT: PageTable<F, FA, E>,
+        E: Debug,
     {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
@@ -461,8 +466,8 @@ impl DeviceInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    fn init<F, FA, PT, E>(
-        mut self,
+    fn attach<F, FA, PT, E>(
+        self,
         dma_offset: usize,
         page_table: &mut PT,
         page_allocator: &mut FA,
@@ -473,17 +478,10 @@ impl DeviceInfo {
         PT: PageTable<F, FA, E>,
         E: Debug,
     {
-        if let Err(e) = self.map_bar(page_table, page_allocator) {
-            log::warn!("Failed to map the memory regions of MMIO: {e:?}");
-            return Err(PCIeDeviceErr::PageTableFailure);
-        }
-
-        capability::read(&mut self);
-
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 if crate::net::e1000::match_device(self.vendor, self.id) {
-                    return crate::net::e1000::init(self, dma_offset, page_table, page_allocator);
+                    return crate::net::e1000::attach(self, dma_offset, page_table, page_allocator);
                 }
             }
             _ => (),

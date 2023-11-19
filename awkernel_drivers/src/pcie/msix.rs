@@ -1,4 +1,4 @@
-use super::{BaseAddress, DeviceInfo};
+use super::{BaseAddress, PCIeInfo};
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
@@ -43,7 +43,7 @@ pub struct MSIX {
 //          pba_offset: 8192, pba_bar: MMIO { addr: 3238789120, size: 16384, address_type: T32B, prefetchable: false } }) }
 
 impl MSIX {
-    pub fn new(info: &DeviceInfo, cap_ptr: usize) -> Option<Self> {
+    pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Option<Self> {
         let table_size = ((registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr) >> 16)
             & 0b0111_1111_1111) as u16;
 

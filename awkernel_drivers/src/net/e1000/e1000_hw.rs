@@ -1,4 +1,4 @@
-use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, DeviceInfo};
+use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::E1000DriverErr;
 
@@ -438,10 +438,7 @@ pub enum MacType {
 /// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num)`.
 ///
 /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L403
-fn get_mac_type(
-    device: u16,
-    info: &DeviceInfo,
-) -> Result<(MacType, bool, bool, u8), E1000DriverErr> {
+fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8), E1000DriverErr> {
     use MacType::*;
 
     let mut initialize_hw_bits_disable = false;
@@ -748,7 +745,7 @@ fn is_ich8(mac_type: &MacType) -> bool {
 }
 
 impl E1000Hw {
-    pub fn new(info: &mut DeviceInfo) -> Result<Self, E1000DriverErr> {
+    pub fn new(info: &mut PCIeInfo) -> Result<Self, E1000DriverErr> {
         let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
             get_mac_type(info.get_id(), info)?;
 
@@ -809,12 +806,12 @@ impl E1000Hw {
     }
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
-    fn init_hw(info: &DeviceInfo) {
+    fn init_hw(info: &PCIeInfo) {
         todo!();
     }
 
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
-    pub fn reset_hw(&mut self, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+    pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
         use MacType::*;
 
         let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
@@ -888,7 +885,7 @@ const MASTER_DISABLE_TIMEOUT: u32 = 800;
 /// than the 10ms recommended by the pci-e spec.  To address this we need to
 /// increase the value to either 10ms to 200ms for capability version 1 config,
 /// or 16ms to 55ms for version 2.
-fn set_pciex_completion_timeout(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
 
     let mut gcr = bar0.read(super::GCR).ok_or(E1000DriverErr::ReadFailure)?;
@@ -910,7 +907,7 @@ fn set_pciex_completion_timeout(info: &DeviceInfo) -> Result<(), E1000DriverErr>
 }
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
-fn disable_pciex_master(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn disable_pciex_master(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
     let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
 
     set_pcie_express_master_disable(info)?;
@@ -928,7 +925,7 @@ fn disable_pciex_master(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
 }
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9533
-fn set_pcie_express_master_disable(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
     let ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
     bar0.write(super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE);
@@ -984,7 +981,7 @@ impl EEPROM {
     fn new(
         mac_type: &MacType,
         flash_memory: &Option<(BaseAddress, usize)>,
-        info: &DeviceInfo,
+        info: &PCIeInfo,
     ) -> Result<(Self, Option<usize>, Option<usize>), E1000DriverErr> {
         use MacType::*;
 
@@ -1233,7 +1230,7 @@ impl EEPROM {
     }
 }
 
-fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
+fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1000DriverErr> {
     use MacType::*;
 
     if is_ich8(mac_type) {
@@ -1256,7 +1253,7 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &DeviceInfo) -> Result<bool, 
     Ok(true)
 }
 
-fn get_flash_presence_i210(mac_type: &MacType, info: &DeviceInfo) -> Result<bool, E1000DriverErr> {
+fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1000DriverErr> {
     if matches!(mac_type, MacType::EmI210) {
         return Ok(true);
     }

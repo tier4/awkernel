@@ -1,4 +1,4 @@
-use crate::pcie::{self, msi::MultipleMessage, BaseAddress, DeviceInfo, PCIeDevice, PCIeDeviceErr};
+use crate::pcie::{self, msi::MultipleMessage, BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
@@ -7,7 +7,7 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
 };
 use core::{
-    fmt,
+    fmt::{self, Debug},
     hint::spin_loop,
     mem::size_of,
     ptr::write_bytes,
@@ -42,7 +42,7 @@ struct RxDescriptor {
 
 /// Intel e1000 driver
 pub struct E1000 {
-    info: DeviceInfo,
+    info: PCIeInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
     hw: e1000_hw::E1000Hw,
@@ -58,8 +58,8 @@ pub struct E1000 {
     tx_bufs: Vec<VirtAddr>,
 }
 
-pub fn init<F, FA, E>(
-    info: DeviceInfo,
+pub fn attach<F, FA, E>(
+    mut info: PCIeInfo,
     dma_offset: usize,
     page_table: &mut impl PageTable<F, FA, E>,
     page_allocator: &mut FA,
@@ -67,9 +67,22 @@ pub fn init<F, FA, E>(
 where
     F: Frame,
     FA: FrameAllocator<F, E>,
+    E: Debug,
 {
+    // Initialize PCIeInfo
+
+    // Map the memory regions of MMIO.
+    if let Err(e) = info.map_bar(page_table, page_allocator) {
+        log::warn!("Failed to map the memory regions of MMIO: {e:?}");
+        return Err(PCIeDeviceErr::PageTableFailure);
+    }
+
+    // Read the capability of PCIe device.
+    info.read_capability();
+
     let mut e1000 = E1000::new(info, dma_offset, page_table, page_allocator)?;
-    e1000.init()?;
+
+    e1000.init()?; // should be removed
 
     log::info!(
         "Intel e1000 driver has been initialized. IRQ = {:?}, Info = {:?}",
@@ -129,7 +142,7 @@ impl fmt::Display for E1000DriverErr {
 
 impl E1000 {
     fn new<F, FA, E>(
-        mut info: DeviceInfo,
+        mut info: PCIeInfo,
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
@@ -195,7 +208,7 @@ impl E1000 {
 }
 
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
-fn hardware_init(hw: &mut e1000_hw::E1000Hw, info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn hardware_init(hw: &mut e1000_hw::E1000Hw, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
     if matches!(hw.get_mac_type(), e1000_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
@@ -612,7 +625,7 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
     e1000_hw::E1000_DEVICES.contains(&(vendor, id))
 }
 
-fn check_desc_ring(info: &DeviceInfo) -> Result<(), E1000DriverErr> {
+fn check_desc_ring(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
 
     // First, disable MULR fix in FEXTNVM11
