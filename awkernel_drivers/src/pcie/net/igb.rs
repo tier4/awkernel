@@ -15,7 +15,7 @@ use core::{
     sync::atomic::{fence, Ordering::SeqCst},
 };
 
-mod e1000_hw;
+mod igb_hw;
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -45,7 +45,7 @@ pub struct E1000 {
     info: PCIeInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
-    hw: e1000_hw::E1000Hw,
+    hw: igb_hw::E1000Hw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -151,7 +151,7 @@ impl E1000 {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        let mut hw = e1000_hw::E1000Hw::new(&mut info)?;
+        let mut hw = igb_hw::E1000Hw::new(&mut info)?;
 
         hardware_init(&mut hw, &mut info)?;
 
@@ -208,8 +208,8 @@ impl E1000 {
 }
 
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
-fn hardware_init(hw: &mut e1000_hw::E1000Hw, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-    if matches!(hw.get_mac_type(), e1000_hw::MacType::EmPchSpt) {
+fn hardware_init(hw: &mut igb_hw::E1000Hw, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
+    if matches!(hw.get_mac_type(), igb_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
 
@@ -622,7 +622,7 @@ impl E1000 {
 }
 
 pub fn match_device(vendor: u16, id: u16) -> bool {
-    e1000_hw::E1000_DEVICES.contains(&(vendor, id))
+    igb_hw::E1000_DEVICES.contains(&(vendor, id))
 }
 
 fn check_desc_ring(info: &PCIeInfo) -> Result<(), E1000DriverErr> {

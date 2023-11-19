@@ -1,1 +1,1 @@
-pub mod e1000;
+pub mod igb; // Intel GbE
