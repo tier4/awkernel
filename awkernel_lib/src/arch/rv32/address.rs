@@ -1,13 +1,13 @@
 use super::PageTableEntry;
 use core::fmt::{self, Debug, Formatter};
 pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
-pub const PAGE_OFFSET: usize = 0xc; // 12 bits 
+pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 
-/// Design abstraction struct: 
-/// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum 
+pub const MEMORY_END: u64 = 0x8800_0000;
+
+/// Design abstraction struct:
+/// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum
 /// to guarantee memory safty by borrow check in compilation
-
-
 pub const PA_WIDTH: usize = 34; // SV32 Physical Address Length
 pub const VA_WIDTH: usize = 32; // SV32 Virtual Address Length
 pub const PPN_WIDTH: usize = PA_WIDTH - PAGE_OFFSET; // SV32 Physical Page Number Range
@@ -57,23 +57,31 @@ impl Debug for VirtPageNum {
 
 /// From<usize> trait
 impl From<usize> for PhysAddr {
-    fn from(v: usize) -> Self { Self(v & ((1 << PA_WIDTH) - 1)) }
+    fn from(v: usize) -> Self {
+        Self(v & ((1 << PA_WIDTH) - 1))
+    }
 }
 
 impl From<usize> for VirtAddr {
-    fn from(v: usize) -> Self { Self(v & ((1 << VA_WIDTH) - 1)) }
+    fn from(v: usize) -> Self {
+        Self(v & ((1 << VA_WIDTH) - 1))
+    }
 }
 
-impl From<usize> for PhysPageNum{
-    fn from(v: usize) -> Self { Self(v & ((1 << PPN_WIDTH) - 1)) }
+impl From<usize> for PhysPageNum {
+    fn from(v: usize) -> Self {
+        Self(v & ((1 << PPN_WIDTH) - 1))
+    }
 }
 
-impl From<usize> for VirtPageNum{
-    fn from(v: usize) -> Self { Self(v & ((1 << VPN_WIDTH) - 1)) }
+impl From<usize> for VirtPageNum {
+    fn from(v: usize) -> Self {
+        Self(v & ((1 << VPN_WIDTH) - 1))
+    }
 }
 
 impl From<PhysAddr> for usize {
-    fn from(v: PhysAddr) -> Self { 
+    fn from(v: PhysAddr) -> Self {
         v.0
     }
 }

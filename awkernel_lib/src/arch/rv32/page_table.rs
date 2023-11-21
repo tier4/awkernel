@@ -1,7 +1,9 @@
+use super::address::{
+    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PA_WIDTH, PPN_WIDTH, VA_WIDTH,
+    VPN_WIDTH,
+};
 use crate::{delay::wait_forever, memory::PAGESIZE};
 use bitflags::*;
-use super::address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, 
-                    PPN_WIDTH, VPN_WIDTH, PA_WIDTH, VA_WIDTH, PAGE_SIZE};
 
 use super::frame_allocator::*;
 
@@ -14,7 +16,7 @@ use super::frame_allocator::*;
 ///  G - Global
 ///  A - Accessed
 ///  D - Dirty
-bitflags!{
+bitflags! {
     pub struct Flags: u8 {
         const V = 1 << 0;
         const R = 1 << 1;
@@ -26,7 +28,6 @@ bitflags!{
         const D = 1 << 7;
     }
 }
-
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -50,10 +51,24 @@ impl PageTableEntry {
     }
 
     pub fn is_valid(&self) -> bool {
-        (self.flags() & Flags::V) != Flags::empty()
+        (self.bits() & Flags::V) != Flags::empty()
+    }
+
+    pub fn is_readable(&self) -> bool {
+        (self.bits() & Flags::R) != Flags::empty()
+    }
+
+    pub fn is_writable(&self) -> bool {
+        (self.bits() & Flags::W) != Flags::empty()
+    }
+
+    pub fn is_executable(&self) -> bool {
+        (self.bits() & Flags::X) != Flags::empty()
     }
 }
 
 pub struct PageTable {
     root_ppn: PhysPageNum,
 }
+
+impl PageTable {}

@@ -1,10 +1,11 @@
-use crate::{
-    page_table::Flags,
-};
+use crate::page_table::{Flags, PageTable};
 
 /// We should set memory end based on specific device
 pub const MEMORY_END: u64 = 0x88000000;
-pub struct Memory;
+pub struct Memory {
+    page_table: PageTable,
+    area: Vec<MapArea>,
+}
 
 impl crate::memory::Memory for Memory {
     unsafe fn map(vm_addr: usize, phy_addr: usize, flags: crate::memory::Flags) -> bool {
