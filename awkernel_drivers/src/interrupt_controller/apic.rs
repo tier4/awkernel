@@ -56,6 +56,8 @@ pub mod registers {
 
     pub static X2APIC_LOCAL_APIC_ID: Msr = Msr::new(0x802);
     pub static X2APIC_LOCAL_VERSION: Msr = Msr::new(0x803);
+    pub static mut X2APIC_EOI: Msr = Msr::new(0x80B);
+    pub static mut X2APIC_SPURIOUS_INTERRUPT_VECTOR: Msr = Msr::new(0x80F);
     pub static mut X2APIC_ICR: Msr = Msr::new(0x830);
 }
 
@@ -90,6 +92,18 @@ pub trait Apic {
         delivery_mode: registers::DeliveryMode,
         vector: u8,
     );
+    fn validate_and_convert_irq(&self, irq: u16) -> Option<u8> {
+        let lower_bound = 32;
+        let upper_bound = u8::MAX as u16;
+        if irq < lower_bound || irq > upper_bound {
+            log::warn!(
+                "Failed to send IRQ #{irq}, because it is smaller than {lower_bound} or greater than {upper_bound}."
+            );
+            return None;
+        }
+
+        Some(irq as u8)
+    }
 }
 
 pub fn new<T>(
@@ -235,21 +249,6 @@ impl Apic for X2Apic {
     }
 }
 
-impl Xapic {
-    fn validate_and_convert_irq(&self, irq: u16) -> Option<u8> {
-        let lower_bound = 32;
-        let upper_bound = u8::MAX as u16;
-        if irq < lower_bound || irq > upper_bound {
-            log::warn!(
-                "XAPIC: Failed to send IRQ #{irq}, because it is smaller than {lower_bound} or greater than {upper_bound}."
-            );
-            return None;
-        }
-
-        Some(irq as u8)
-    }
-}
-
 impl InterruptController for Xapic {
     fn enable_irq(&mut self, irq: u16) {
         // Set 8th bit of SVR to 1.
@@ -327,29 +326,74 @@ impl InterruptController for Xapic {
 }
 
 impl InterruptController for X2Apic {
-    fn disable_irq(&mut self, _irq: u16) {
-        todo!()
+    fn disable_irq(&mut self, irq: u16) {
+        // Set 8th bit of SVR to 1.
+        let mut svr_bits = unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.read() };
+        svr_bits |= 1 << 8;
+        unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.write(svr_bits) };
+
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        log::info!("x2APIC: IRQ #{irq} has been enabled on CPU#{cpu_id}.");
     }
 
-    fn enable_irq(&mut self, _irq: u16) {
-        todo!()
+    fn enable_irq(&mut self, irq: u16) {
+        // Set 8th bit of SVR to 0.
+        let mut svr_bits = unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.read() };
+        svr_bits &= !(1 << 8);
+        unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.write(svr_bits) };
+
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        log::info!("x2APIC: IRQ #{irq} has been disabled on CPU#{cpu_id}.");
     }
 
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>> {
-        todo!()
+        unimplemented!("`pending_irqs` is not yet implemented in x2APIC.");
     }
 
-    fn send_ipi(&mut self, _irq: u16, _target: u16) {
-        todo!()
+    fn send_ipi(&mut self, irq: u16, target: u16) {
+        if let Some(vector) = self.validate_and_convert_irq(irq) {
+            // Calculate logical x2APIC ID from physical x2APIC ID
+            let logical_x2apic_id = (((target >> 4) & 0xFFFF) << 16) | (1 << (target & 0xF));
+
+            self.interrupt(
+                logical_x2apic_id as u32,
+                registers::DestinationShorthand::NoShorthand,
+                registers::IcrFlags::empty(),
+                registers::DeliveryMode::Fixed,
+                vector,
+            );
+        }
     }
 
-    fn send_ipi_broadcast(&mut self, _irq: u16) {
-        todo!()
+    fn send_ipi_broadcast(&mut self, irq: u16) {
+        if let Some(vector) = self.validate_and_convert_irq(irq) {
+            self.interrupt(
+                0xFFFF_FFFF,
+                registers::DestinationShorthand::AllIncludingSelf,
+                registers::IcrFlags::empty(),
+                registers::DeliveryMode::Fixed,
+                vector,
+            )
+        }
     }
 
-    fn send_ipi_broadcast_without_self(&mut self, _irq: u16) {
-        todo!()
+    fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
+        if let Some(vector) = self.validate_and_convert_irq(irq) {
+            self.interrupt(
+                0xFFFF_FFFF,
+                registers::DestinationShorthand::AllExcludingSelf,
+                registers::IcrFlags::empty(),
+                registers::DeliveryMode::Fixed,
+                vector,
+            )
+        }
     }
 
-    fn init_non_primary(&mut self) {}
+    fn init_non_primary(&mut self) {
+        // Nothing to do.
+    }
+
+    fn eoi(&mut self) {
+        unsafe { registers::X2APIC_EOI.write(0) };
+    }
 }
