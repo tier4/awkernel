@@ -113,17 +113,17 @@ pub fn new<T>(
 where
     T: Iterator<Item = PhysFrame> + Send,
 {
-    let msr = Msr::new(registers::IA32_APIC_BASE_MSR);
+    let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
 
     let cpuid = unsafe { __cpuid(1) };
     if cpuid.ecx & (1 << 21) != 0 {
         log::info!("x2APIC is available.");
 
         // Enable x2APIC
-        // unsafe {
-        //     let value = msr.read();
-        //     msr.write(value | registers::ENABLE_X2APIC);
-        // }
+        unsafe {
+            let value = msr.read();
+            msr.write(value | registers::ENABLE_X2APIC);
+        }
     }
 
     let value = unsafe { msr.read() };
