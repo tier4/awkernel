@@ -1,6 +1,6 @@
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
-use super::E1000DriverErr;
+use super::IgbDriverErr;
 
 const E1000_DEV_ID_82543GC_FIBER: u16 = 0x1001;
 const E1000_DEV_ID_82542: u16 = 0x1000;
@@ -398,8 +398,10 @@ const _E1000_PBA_48K: u32 = 0x0030; /* 48KB, default RX allocation */
 
 const E1000_PBS_16K: u32 = E1000_PBA_16K;
 
+const SW_FLAG_TIMEOUT: usize = 100;
+
 #[derive(Debug)]
-pub struct E1000Hw {
+pub struct IgbHw {
     mac_type: MacType,
     initialize_hw_bits_disable: bool,
     eee_enable: bool,
@@ -458,7 +460,7 @@ pub enum MacType {
 /// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num)`.
 ///
 /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L403
-fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8), E1000DriverErr> {
+fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8), IgbDriverErr> {
     use MacType::*;
 
     let mut initialize_hw_bits_disable = false;
@@ -469,7 +471,7 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
         E1000_DEV_ID_82542 => match info.get_revision_id() {
             E1000_82542_2_0_REV_ID => Em82542Rev2_0,
             E1000_82542_2_1_REV_ID => Em82542Rev2_1,
-            _ => return Err(E1000DriverErr::UnknownRevisionD),
+            _ => return Err(IgbDriverErr::UnknownRevisionD),
         },
         E1000_DEV_ID_82543GC_FIBER | E1000_DEV_ID_82543GC_COPPER => Em82543,
 
@@ -678,7 +680,7 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
             icp_intel_vendor_idx_port_num = 3;
             EmICPxxxx
         }
-        _ => return Err(E1000DriverErr::UnknownDeviceID),
+        _ => return Err(IgbDriverErr::UnknownDeviceID),
     };
 
     Ok((
@@ -727,14 +729,14 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
 /// Reject non-PCI Express devices.
 ///
 /// https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em_hw.c#L8381
-fn check_pci_express(mac_type: &MacType) -> Result<(), E1000DriverErr> {
+fn check_pci_express(mac_type: &MacType) -> Result<(), IgbDriverErr> {
     use MacType::*;
 
     match mac_type {
         Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
         | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
         | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
-        _ => Err(E1000DriverErr::NotPciExpress),
+        _ => Err(IgbDriverErr::NotPciExpress),
     }
 }
 
@@ -755,8 +757,8 @@ fn is_ich8(mac_type: &MacType) -> bool {
     )
 }
 
-impl E1000Hw {
-    pub fn new(info: &mut PCIeInfo) -> Result<Self, E1000DriverErr> {
+impl IgbHw {
+    pub fn new(info: &mut PCIeInfo) -> Result<Self, IgbDriverErr> {
         let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
             get_mac_type(info.get_id(), info)?;
 
@@ -775,13 +777,13 @@ impl E1000Hw {
 
         // https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em.c#L1720-L1740
         let flash_memory = if matches!(mac_type, MacType::EmPchSpt) {
-            Some((info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?, 0xe000))
+            Some((info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?, 0xe000))
         } else if is_ich8(&mac_type) {
-            let bar1 = info.get_bar(1).ok_or(E1000DriverErr::NoBar1)?;
+            let bar1 = info.get_bar(1).ok_or(IgbDriverErr::NoBar1)?;
             if matches!(bar1, BaseAddress::MMIO { .. }) {
                 Some((bar1, 0))
             } else {
-                return Err(E1000DriverErr::Bar1IsNotMMIO);
+                return Err(IgbDriverErr::Bar1IsNotMMIO);
             }
         } else {
             None
@@ -821,13 +823,13 @@ impl E1000Hw {
     }
 
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
-    pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
+    pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
-        let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         if matches!(self.mac_type, Em82542Rev2_0) {
-            return Err(E1000DriverErr::NotSupported);
+            return Err(IgbDriverErr::NotSupported);
         }
 
         // Prevent the PCI-E bus from sticking if there is no TLP
@@ -858,14 +860,14 @@ impl E1000Hw {
 
         // Must reset the PHY before resetting the MAC
         if matches!(self.mac_type, Em82541 | Em82547) {
-            return Err(E1000DriverErr::NotSupported);
+            return Err(IgbDriverErr::NotSupported);
         }
 
         // Must acquire the MDIO ownership before MAC reset. Ownership defaults to firmware after a reset.
         if matches!(self.mac_type, Em82573 | Em82574) {
             let mut extcnf_ctrl = bar0
                 .read(super::EXTCNF_CTRL)
-                .ok_or(E1000DriverErr::ReadFailure)?;
+                .ok_or(IgbDriverErr::ReadFailure)?;
 
             extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
 
@@ -894,7 +896,7 @@ impl E1000Hw {
         match self.mac_type {
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
-                let mut ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+                let mut ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
 
                 if !self.phy_reset_disable && self.check_phy_reset_block(info).is_ok() {
                     // PHY HW reset requires MAC CORE reset at the same
@@ -904,35 +906,102 @@ impl E1000Hw {
 
                     // Gate automatic PHY configuration by hardware on non-managed 82579
                     if matches!(self.mac_type, EmPch2lan)
-                        && bar0.read(super::FWSM).ok_or(E1000DriverErr::ReadFailure)?
-                            & super::E1000_FWSM_FW_VALID
+                        && bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
+                            & super::FWSM_FW_VALID
                             == 0
                     {
                         self.gate_hw_phy_config_ich8lan(info, true)?;
                     }
                 };
 
-                // TODO
-                // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1077-L1089
-                // em_get_software_flag(hw);
-                // E1000_WRITE_REG(hw, CTRL, (ctrl | E1000_CTRL_RST));
-                // /* HW reset releases software_flag */
-                // hw->sw_flag = 0;
-                // msec_delay(20);
+                self.get_software_flag(info)?;
+                bar0.write(super::CTRL, ctrl | super::CTRL_RST);
 
-                // /* Ungate automatic PHY configuration on non-managed 82579 */
-                // if (hw->mac_type == em_pch2lan && !hw->phy_reset_disable &&
-                //     !(E1000_READ_REG(hw, FWSM) & E1000_FWSM_FW_VALID)) {
-                //     msec_delay(10);
-                //     em_gate_hw_phy_config_ich8lan(hw, FALSE);
-                // }
-                //  break;
+                // HW reset releases software_flag
+                self.sw_flag = 0;
+                awkernel_lib::delay::wait_millisec(20);
+
+                // Ungate automatic PHY configuration on non-managed 82579
+                if matches!(self.mac_type, EmPch2lan)
+                    && !self.phy_reset_disable
+                    && bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
+                        & super::FWSM_FW_VALID
+                        == 0
+                {
+                    awkernel_lib::delay::wait_millisec(10);
+                    self.gate_hw_phy_config_ich8lan(info, false)?;
+                }
             }
             _ => {
-                let ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+                let ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
                 bar0.write(super::CTRL, ctrl | super::CTRL_RST);
             }
         }
+
+        // TODO
+        // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1095-L1106
+
+        Ok(())
+    }
+
+    /// Get software semaphore FLAG bit (SWFLAG).
+    /// SWFLAG is used to synchronize the access to all shared resource between
+    /// SW, FW and HW.
+    fn get_software_flag(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let mut timeout = SW_FLAG_TIMEOUT;
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+
+        if is_ich8(&self.mac_type) {
+            if self.sw_flag != 0 {
+                self.sw_flag -= 1;
+                return Ok(());
+            }
+
+            let mut extcnf_ctrl = 0;
+            while timeout > 0 {
+                extcnf_ctrl = bar0
+                    .read(super::EXTCNF_CTRL)
+                    .ok_or(IgbDriverErr::ReadFailure)?;
+
+                if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG == 0 {
+                    break;
+                }
+
+                awkernel_lib::delay::wait_millisec(1);
+                timeout -= 1;
+            }
+
+            if timeout == 0 {
+                log::warn!("igb: SW has already locked the resource?");
+                return Err(IgbDriverErr::Config);
+            }
+
+            timeout = SW_FLAG_TIMEOUT;
+            extcnf_ctrl |= super::EXTCNF_CTRL_SWFLAG;
+            bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+
+            while timeout > 0 {
+                extcnf_ctrl = bar0
+                    .read(super::EXTCNF_CTRL)
+                    .ok_or(IgbDriverErr::ReadFailure)?;
+
+                if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG != 0 {
+                    break;
+                }
+
+                awkernel_lib::delay::wait_millisec(1);
+                timeout -= 1;
+            }
+
+            if timeout == 0 {
+                log::warn!("igb: Failed to acquire the semaphore, FW or HW has it.");
+                extcnf_ctrl &= !super::EXTCNF_CTRL_SWFLAG;
+                bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+                return Err(IgbDriverErr::Config);
+            }
+        }
+
+        self.sw_flag += 1;
 
         Ok(())
     }
@@ -940,18 +1009,18 @@ impl E1000Hw {
     /// Checks if PHY reset is blocked due to SOL/IDER session, for example.
     /// Returning E1000_BLK_PHY_RESET isn't necessarily an error.  But it's up to
     /// the caller to figure out how to deal with it.
-    fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-        let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+    fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         if is_ich8(&self.mac_type) {
             let mut i = 0;
             let mut blocked = true;
 
             while blocked && i < 30 {
-                let fwsm = bar0.read(super::FWSM).ok_or(E1000DriverErr::ReadFailure)?;
+                let fwsm = bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?;
                 i += 1;
 
-                if (fwsm & super::E1000_FWSM_RSPCIPHY) == 0 {
+                if (fwsm & super::FWSM_RSPCIPHY) == 0 {
                     blocked = true;
                     awkernel_lib::delay::wait_millisec(10);
                 } else {
@@ -960,20 +1029,20 @@ impl E1000Hw {
             }
 
             if blocked {
-                return Err(E1000DriverErr::PhyReset);
+                return Err(IgbDriverErr::PhyReset);
             } else {
                 return Ok(());
             }
         }
 
         let manc = if self.mac_type.clone() as u32 > MacType::Em82547Rev2 as u32 {
-            bar0.read(super::MANC).ok_or(E1000DriverErr::ReadFailure)?
+            bar0.read(super::MANC).ok_or(IgbDriverErr::ReadFailure)?
         } else {
             0
         };
 
         if manc & super::MANC_BLK_PHY_RST_ON_IDE != 0 {
-            Err(E1000DriverErr::PhyReset)
+            Err(IgbDriverErr::PhyReset)
         } else {
             Ok(())
         }
@@ -984,20 +1053,16 @@ impl E1000Hw {
     ///
     /// Gate/ungate the automatic PHY configuration via hardware; perform
     /// the configuration via software instead.
-    fn gate_hw_phy_config_ich8lan(
-        &self,
-        info: &PCIeInfo,
-        gate: bool,
-    ) -> Result<(), E1000DriverErr> {
+    fn gate_hw_phy_config_ich8lan(&self, info: &PCIeInfo, gate: bool) -> Result<(), IgbDriverErr> {
         if !matches!(self.mac_type, MacType::EmPch2lan) {
             return Ok(());
         }
 
-        let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         let mut extcnf_ctrl = bar0
             .read(super::EXTCNF_CTRL)
-            .ok_or(E1000DriverErr::ReadFailure)?;
+            .ok_or(IgbDriverErr::ReadFailure)?;
 
         if gate {
             extcnf_ctrl |= super::EXTCNF_CTRL_GATE_PHY_CFG
@@ -1018,10 +1083,10 @@ const MASTER_DISABLE_TIMEOUT: u32 = 800;
 /// than the 10ms recommended by the pci-e spec.  To address this we need to
 /// increase the value to either 10ms to 200ms for capability version 1 config,
 /// or 16ms to 55ms for version 2.
-fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
-    let mut gcr = bar0.read(super::GCR).ok_or(E1000DriverErr::ReadFailure)?;
+    let mut gcr = bar0.read(super::GCR).ok_or(IgbDriverErr::ReadFailure)?;
 
     // Only take action if timeout value is not set by system BIOS
     //
@@ -1040,27 +1105,26 @@ fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
 }
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
-fn disable_pciex_master(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-    let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
     set_pcie_express_master_disable(info)?;
 
     for _ in 0..MASTER_DISABLE_TIMEOUT {
-        if bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?
-            & super::CTRL_GIO_MASTER_DISABLE
+        if bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)? & super::CTRL_GIO_MASTER_DISABLE
             != 0
         {
             return Ok(());
         }
     }
 
-    Err(E1000DriverErr::MasterDisableTimeout)
+    Err(IgbDriverErr::MasterDisableTimeout)
 }
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9533
-fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
-    let ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    let ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
     bar0.write(super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE);
 
     Ok(())
@@ -1115,11 +1179,11 @@ impl EEPROM {
         mac_type: &MacType,
         flash_memory: &Option<(BaseAddress, usize)>,
         info: &PCIeInfo,
-    ) -> Result<(Self, Option<usize>, Option<usize>), E1000DriverErr> {
+    ) -> Result<(Self, Option<usize>, Option<usize>), IgbDriverErr> {
         use MacType::*;
 
-        let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
-        let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+        let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
 
         let mut result = match mac_type {
             Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => (
@@ -1284,11 +1348,11 @@ impl EEPROM {
             }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt => {
                 let (flash_memory, offset) =
-                    flash_memory.as_ref().ok_or(E1000DriverErr::ReadFailure)?;
+                    flash_memory.as_ref().ok_or(IgbDriverErr::ReadFailure)?;
 
                 let flash_size = flash_memory
                     .read(*offset + ICH_FLASH_GFPREG)
-                    .ok_or(E1000DriverErr::ReadFailure)?;
+                    .ok_or(IgbDriverErr::ReadFailure)?;
 
                 // https://github.com/openbsd/src/blob/4ff40062e57fb8a42d28dcb700c25b8254514628/sys/dev/pci/if_em_hw.c#L6434C12-L6434C29
                 // `eeprom_shadow_ram` may not be used?
@@ -1318,7 +1382,7 @@ impl EEPROM {
             EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
                 let flash_size = bar0
                     .read(0xc /* STRAP */)
-                    .ok_or(E1000DriverErr::ReadFailure)?;
+                    .ok_or(IgbDriverErr::ReadFailure)?;
 
                 let mut flash_size = (flash_size >> 1 & 0x1f) + 1;
                 flash_size *= 1024;
@@ -1339,16 +1403,16 @@ impl EEPROM {
                 )
             }
             EmICPxxxx => {
-                return Err(E1000DriverErr::NotSupported);
+                return Err(IgbDriverErr::NotSupported);
             }
         };
 
         if matches!(result.0.eeprom_type, EEPROMType::SPI) {
             if mac_type.clone() as u32 <= Em82547Rev2 as u32 {
-                return Err(E1000DriverErr::NotSupported);
+                return Err(IgbDriverErr::NotSupported);
             }
 
-            let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
+            let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
             let eeprom_size = (eecd & E1000_EECD_SIZE_EX_MASK) >> E1000_EECD_SIZE_EX_SHIFT;
 
             // EEPROM access above 16k is unsupported
@@ -1363,7 +1427,7 @@ impl EEPROM {
     }
 }
 
-fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1000DriverErr> {
+fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
     use MacType::*;
 
     if is_ich8(mac_type) {
@@ -1371,8 +1435,8 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1
     }
 
     if matches!(mac_type, Em82573 | Em82574) {
-        let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
-        let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
+        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+        let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
 
         // Isolate bits 15 & 16
         let eecd = (eecd >> 15) & 0x03;
@@ -1386,13 +1450,13 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1
     Ok(true)
 }
 
-fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, E1000DriverErr> {
+fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
     if matches!(mac_type, MacType::EmI210) {
         return Ok(true);
     }
 
-    let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
-    let eecd = bar0.read(super::EECD).ok_or(E1000DriverErr::ReadFailure)?;
+    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
 
     if eecd & E1000_EECD_FLUPD != 0 {
         Ok(true)

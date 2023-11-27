@@ -1,3 +1,5 @@
+//! # Intel Gigabit Ethernet Controller
+
 use crate::pcie::{self, msi::MultipleMessage, BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
@@ -40,12 +42,12 @@ struct RxDescriptor {
     vtags: u16,
 }
 
-/// Intel e1000 driver
-pub struct E1000 {
+/// Intel Gigabit Ethernet Controller driver
+pub struct Igb {
     info: PCIeInfo,
     irq: Option<u16>,
     bar0: BaseAddress,
-    hw: igb_hw::E1000Hw,
+    hw: igb_hw::IgbHw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -80,25 +82,25 @@ where
     // Read the capability of PCIe device.
     info.read_capability();
 
-    let mut e1000 = E1000::new(info, dma_offset, page_table, page_allocator)?;
+    let mut igb = Igb::new(info, dma_offset, page_table, page_allocator)?;
 
-    e1000.init()?; // should be removed
+    igb.init()?; // should be removed
 
     log::info!(
-        "Intel e1000 driver has been initialized. IRQ = {:?}, Info = {:?}",
-        e1000.irq,
-        e1000.info
+        "Intel GbE driver has been initialized. IRQ = {:?}, Info = {:?}",
+        igb.irq,
+        igb.info
     );
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
-    net_master.add_interface(Arc::new(Mutex::new(Box::new(e1000))));
+    net_master.add_interface(Arc::new(Mutex::new(Box::new(igb))));
 
     Ok(())
 }
 
 #[derive(Debug)]
-pub enum E1000DriverErr {
+pub enum IgbDriverErr {
     MemoryMapFailure,
     InitializeInterrupt,
     UnknownDeviceID,
@@ -112,15 +114,16 @@ pub enum E1000DriverErr {
     FailedFlashDescriptor,
     MasterDisableTimeout,
     PhyReset,
+    Config,
 }
 
-impl From<E1000DriverErr> for PCIeDeviceErr {
-    fn from(_value: E1000DriverErr) -> Self {
+impl From<IgbDriverErr> for PCIeDeviceErr {
+    fn from(_value: IgbDriverErr) -> Self {
         PCIeDeviceErr::InitFailure
     }
 }
 
-impl fmt::Display for E1000DriverErr {
+impl fmt::Display for IgbDriverErr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::MemoryMapFailure => {
@@ -138,11 +141,12 @@ impl fmt::Display for E1000DriverErr {
             Self::FailedFlashDescriptor => write!(f, "Failed to flush descriptor."),
             Self::MasterDisableTimeout => write!(f, "Master disable timeout."),
             Self::PhyReset => write!(f, "PHY reset failure."),
+            Self::Config => write!(f, "Configuration failure."),
         }
     }
 }
 
-impl E1000 {
+impl Igb {
     fn new<F, FA, E>(
         mut info: PCIeInfo,
         dma_offset: usize,
@@ -153,7 +157,7 @@ impl E1000 {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        let mut hw = igb_hw::E1000Hw::new(&mut info)?;
+        let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
         hardware_init(&mut hw, &mut info)?;
 
@@ -210,7 +214,7 @@ impl E1000 {
 }
 
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
-fn hardware_init(hw: &mut igb_hw::E1000Hw, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
+fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     if matches!(hw.get_mac_type(), igb_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
@@ -221,7 +225,7 @@ fn hardware_init(hw: &mut igb_hw::E1000Hw, info: &PCIeInfo) -> Result<(), E1000D
 }
 
 //===========================================================================
-impl PCIeDevice for E1000 {
+impl PCIeDevice for Igb {
     const REG_SPACE_SIZE: u64 = 128 * 1024; // 128KiB
 
     fn init(&mut self) -> Result<(), PCIeDeviceErr> {
@@ -241,7 +245,7 @@ impl PCIeDevice for E1000 {
     }
 }
 
-impl NetDevice for E1000 {
+impl NetDevice for Igb {
     fn device_name(&self) -> &'static str {
         "igb"
     }
@@ -358,11 +362,11 @@ impl NetDevice for E1000 {
 }
 
 //===========================================================================
-impl E1000 {
+impl Igb {
     /// Initialize e1000's register
     ///
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
-    unsafe fn init_hw(&mut self) -> Result<(), E1000DriverErr> {
+    unsafe fn init_hw(&mut self) -> Result<(), IgbDriverErr> {
         self.init_pcie_msi()?;
 
         // ============================================
@@ -426,7 +430,7 @@ impl E1000 {
         Ok(())
     }
 
-    fn init_pcie_msi(&mut self) -> Result<u16, E1000DriverErr> {
+    fn init_pcie_msi(&mut self) -> Result<u16, IgbDriverErr> {
         self.info.disable_legacy_interrupt();
 
         if let Some(msix) = self.info.get_msix_mut() {
@@ -453,10 +457,10 @@ impl E1000 {
 
                 Ok(irq)
             } else {
-                Err(E1000DriverErr::InitializeInterrupt)
+                Err(IgbDriverErr::InitializeInterrupt)
             }
         } else {
-            Err(E1000DriverErr::InitializeInterrupt)
+            Err(IgbDriverErr::InitializeInterrupt)
         }
     }
 
@@ -465,7 +469,7 @@ impl E1000 {
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-    ) -> Result<(VirtAddr, PhyAddr), E1000DriverErr>
+    ) -> Result<(VirtAddr, PhyAddr), IgbDriverErr>
     where
         F: Frame,
         FA: FrameAllocator<F, E>,
@@ -473,7 +477,7 @@ impl E1000 {
         let buffer_pa = if let Ok(frame) = page_allocator.allocate_frame() {
             frame.start_address()
         } else {
-            return Err(E1000DriverErr::MemoryMapFailure);
+            return Err(IgbDriverErr::MemoryMapFailure);
         };
 
         let buffer_va = VirtAddr::new(dma_offset + buffer_pa.as_usize());
@@ -495,7 +499,7 @@ impl E1000 {
                 .is_err()
             {
                 log::error!("igb: Error mapping frame.");
-                return Err(E1000DriverErr::MemoryMapFailure);
+                return Err(IgbDriverErr::MemoryMapFailure);
             }
         };
 
@@ -507,7 +511,7 @@ impl E1000 {
         dma_offset: usize,
         page_table: &mut impl PageTable<F, FA, E>,
         page_allocator: &mut FA,
-    ) -> Result<(VirtAddr, PhyAddr), E1000DriverErr>
+    ) -> Result<(VirtAddr, PhyAddr), IgbDriverErr>
     where
         F: Frame,
         FA: FrameAllocator<F, E>,
@@ -515,7 +519,7 @@ impl E1000 {
         let frame = if let Ok(frame) = page_allocator.allocate_frame() {
             frame
         } else {
-            return Err(E1000DriverErr::MemoryMapFailure);
+            return Err(IgbDriverErr::MemoryMapFailure);
         };
 
         unsafe {
@@ -537,7 +541,7 @@ impl E1000 {
                 .is_err()
             {
                 log::error!("igb: Error mapping frame.");
-                return Err(E1000DriverErr::MemoryMapFailure);
+                return Err(IgbDriverErr::MemoryMapFailure);
             }
         };
 
@@ -627,23 +631,23 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
     igb_hw::E1000_DEVICES.contains(&(vendor, id))
 }
 
-fn check_desc_ring(info: &PCIeInfo) -> Result<(), E1000DriverErr> {
-    let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
     // First, disable MULR fix in FEXTNVM11
     let fextnvm11 =
-        bar0.read(FEXTNVM11).ok_or(E1000DriverErr::ReadFailure)? | FEXTNVM11_DISABLE_MULR_FIX;
+        bar0.read(FEXTNVM11).ok_or(IgbDriverErr::ReadFailure)? | FEXTNVM11_DISABLE_MULR_FIX;
     bar0.write(FEXTNVM11, fextnvm11);
 
     let tdlen = bar0
         .read(tdlen_offset(0))
-        .ok_or(E1000DriverErr::ReadFailure)?;
+        .ok_or(IgbDriverErr::ReadFailure)?;
     let hang_state = info.read_config_space(PCICFG_DESC_RING_STATUS);
     if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
         return Ok(());
     }
 
-    Err(E1000DriverErr::FailedFlashDescriptor)
+    Err(IgbDriverErr::FailedFlashDescriptor)
 }
 
 fn tdlen_offset(n: usize) -> usize {
@@ -755,66 +759,67 @@ const FLUSH_DESC_REQUIRED: u32 = 0x100;
 
 // Extended Configuration Control and Size
 const EXTCNF_CTRL: usize = 0x00F00;
-const EXTCNF_CTRL_PCIE_WRITE_ENABLE: u32 = 0x00000001;
-const EXTCNF_CTRL_PHY_WRITE_ENABLE: u32 = 0x00000002;
-const EXTCNF_CTRL_D_UD_ENABLE: u32 = 0x00000004;
-const EXTCNF_CTRL_D_UD_LATENCY: u32 = 0x00000008;
-const EXTCNF_CTRL_D_UD_OWNER: u32 = 0x00000010;
+const _EXTCNF_CTRL_PCIE_WRITE_ENABLE: u32 = 0x00000001;
+const _EXTCNF_CTRL_PHY_WRITE_ENABLE: u32 = 0x00000002;
+const _EXTCNF_CTRL_D_UD_ENABLE: u32 = 0x00000004;
+const _EXTCNF_CTRL_D_UD_LATENCY: u32 = 0x00000008;
+const _EXTCNF_CTRL_D_UD_OWNER: u32 = 0x00000010;
 const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
-const EXTCNF_CTRL_MDIO_HW_OWNERSHIP: u32 = 0x00000040;
-const EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
-const EXTCNF_SIZE_EXT_PHY_LENGTH: u32 = 0x000000FF;
-const EXTCNF_SIZE_EXT_DOCK_LENGTH: u32 = 0x0000FF00;
-const EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
-const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
+const _EXTCNF_CTRL_MDIO_HW_OWNERSHIP: u32 = 0x00000040;
+const _EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
+const _EXTCNF_SIZE_EXT_PHY_LENGTH: u32 = 0x000000FF;
+const _EXTCNF_SIZE_EXT_DOCK_LENGTH: u32 = 0x0000FF00;
+const _EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
+const _EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
 const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
 const EXTCNF_CTRL_GATE_PHY_CFG: u32 = 0x00000080;
 
-const FWSM: usize = 0x05B54; // FW Semaphore
+// FW Semaphore
+const FWSM: usize = 0x05B54;
 
-const E1000_FWSM_MODE_MASK: u32 = 0x0000000E; /* FW mode */
-const E1000_FWSM_MODE_SHIFT: u32 = 1;
-const E1000_FWSM_ULP_CFG_DONE: u32 = 0x00000400; /* Low power cfg done */
-const E1000_FWSM_FW_VALID: u32 = 0x00008000; /* FW established a valid mode */
-const E1000_FWSM_RSPCIPHY: u32 = 0x00000040; /* Reset PHY on PCI reset */
-const E1000_FWSM_DISSW: u32 = 0x10000000; /* FW disable SW Write Access */
-const E1000_FWSM_SKUSEL_MASK: u32 = 0x60000000; /* LAN SKU select */
-const E1000_FWSM_SKUEL_SHIFT: u32 = 29;
-const E1000_FWSM_SKUSEL_EMB: u32 = 0x0; /* Embedded SKU */
-const E1000_FWSM_SKUSEL_CONS: u32 = 0x1; /* Consumer SKU */
-const E1000_FWSM_SKUSEL_PERF_100: u32 = 0x2; /* Perf & Corp 10/100 SKU */
-const E1000_FWSM_SKUSEL_PERF_GBE: u32 = 0x3; /* Perf & Copr GbE SKU */
+const _FWSM_MODE_MASK: u32 = 0x0000000E; /* FW mode */
+const _FWSM_MODE_SHIFT: u32 = 1;
+const _FWSM_ULP_CFG_DONE: u32 = 0x00000400; /* Low power cfg done */
+const FWSM_FW_VALID: u32 = 0x00008000; /* FW established a valid mode */
+const FWSM_RSPCIPHY: u32 = 0x00000040; /* Reset PHY on PCI reset */
+const _FWSM_DISSW: u32 = 0x10000000; /* FW disable SW Write Access */
+const _FWSM_SKUSEL_MASK: u32 = 0x60000000; /* LAN SKU select */
+const _FWSM_SKUEL_SHIFT: u32 = 29;
+const _FWSM_SKUSEL_EMB: u32 = 0x0; /* Embedded SKU */
+const _FWSM_SKUSEL_CONS: u32 = 0x1; /* Consumer SKU */
+const _FWSM_SKUSEL_PERF_100: u32 = 0x2; /* Perf & Corp 10/100 SKU */
+const _FWSM_SKUSEL_PERF_GBE: u32 = 0x3; /* Perf & Copr GbE SKU */
 
 // Management Control
 const MANC: usize = 0x05820;
 
-const MANC_SMBUS_EN: u32 = 0x00000001; /* SMBus Enabled - RO */
-const MANC_ASF_EN: u32 = 0x00000002; /* ASF Enabled - RO */
-const MANC_R_ON_FORCE: u32 = 0x00000004; /* Reset on Force TCO - RO */
-const MANC_RMCP_EN: u32 = 0x00000100; /* Enable RCMP 026Fh Filtering */
-const MANC_0298_EN: u32 = 0x00000200; /* Enable RCMP 0298h Filtering */
-const MANC_IPV4_EN: u32 = 0x00000400; /* Enable IPv4 */
-const MANC_IPV6_EN: u32 = 0x00000800; /* Enable IPv6 */
-const MANC_SNAP_EN: u32 = 0x00001000; /* Accept LLC/SNAP */
-const MANC_ARP_EN: u32 = 0x00002000; /* Enable ARP Request Filtering */
-const MANC_NEIGHBOR_EN: u32 = 0x00004000; /* Enable Neighbor Discovery Filtering */
-const MANC_ARP_RES_EN: u32 = 0x00008000; /* Enable ARP response Filtering */
-const MANC_TCO_RESET: u32 = 0x00010000; /* TCO Reset Occurred */
-const MANC_RCV_TCO_EN: u32 = 0x00020000; /* Receive TCO Packets Enabled */
-const MANC_REPORT_STATUS: u32 = 0x00040000; /* Status Reporting Enabled */
-const MANC_RCV_ALL: u32 = 0x00080000; /* Receive All Enabled */
+const _MANC_SMBUS_EN: u32 = 0x00000001; /* SMBus Enabled - RO */
+const _MANC_ASF_EN: u32 = 0x00000002; /* ASF Enabled - RO */
+const _MANC_R_ON_FORCE: u32 = 0x00000004; /* Reset on Force TCO - RO */
+const _MANC_RMCP_EN: u32 = 0x00000100; /* Enable RCMP 026Fh Filtering */
+const _MANC_0298_EN: u32 = 0x00000200; /* Enable RCMP 0298h Filtering */
+const _MANC_IPV4_EN: u32 = 0x00000400; /* Enable IPv4 */
+const _MANC_IPV6_EN: u32 = 0x00000800; /* Enable IPv6 */
+const _MANC_SNAP_EN: u32 = 0x00001000; /* Accept LLC/SNAP */
+const _MANC_ARP_EN: u32 = 0x00002000; /* Enable ARP Request Filtering */
+const _MANC_NEIGHBOR_EN: u32 = 0x00004000; /* Enable Neighbor Discovery Filtering */
+const _MANC_ARP_RES_EN: u32 = 0x00008000; /* Enable ARP response Filtering */
+const _MANC_TCO_RESET: u32 = 0x00010000; /* TCO Reset Occurred */
+const _MANC_RCV_TCO_EN: u32 = 0x00020000; /* Receive TCO Packets Enabled */
+const _MANC_REPORT_STATUS: u32 = 0x00040000; /* Status Reporting Enabled */
+const _MANC_RCV_ALL: u32 = 0x00080000; /* Receive All Enabled */
 const MANC_BLK_PHY_RST_ON_IDE: u32 = 0x00040000; /* Block phy resets */
-const MANC_EN_MAC_ADDR_FILTER: u32 = 0x00100000; /* Enable MAC address filtering */
-const MANC_EN_MNG2HOST: u32 = 0x00200000; /* Enable MNG packets to host memory */
-const MANC_EN_IP_ADDR_FILTER: u32 = 0x00400000; /* Enable IP address filtering */
-const MANC_EN_XSUM_FILTER: u32 = 0x00800000; /* Enable checksum filtering */
-const MANC_BR_EN: u32 = 0x01000000; /* Enable broadcast filtering */
-const MANC_SMB_REQ: u32 = 0x01000000; /* SMBus Request */
-const MANC_SMB_GNT: u32 = 0x02000000; /* SMBus Grant */
-const MANC_SMB_CLK_IN: u32 = 0x04000000; /* SMBus Clock In */
-const MANC_SMB_DATA_IN: u32 = 0x08000000; /* SMBus Data In */
-const MANC_SMB_DATA_OUT: u32 = 0x10000000; /* SMBus Data Out */
-const MANC_SMB_CLK_OUT: u32 = 0x20000000; /* SMBus Clock Out */
+const _MANC_EN_MAC_ADDR_FILTER: u32 = 0x00100000; /* Enable MAC address filtering */
+const _MANC_EN_MNG2HOST: u32 = 0x00200000; /* Enable MNG packets to host memory */
+const _MANC_EN_IP_ADDR_FILTER: u32 = 0x00400000; /* Enable IP address filtering */
+const _MANC_EN_XSUM_FILTER: u32 = 0x00800000; /* Enable checksum filtering */
+const _MANC_BR_EN: u32 = 0x01000000; /* Enable broadcast filtering */
+const _MANC_SMB_REQ: u32 = 0x01000000; /* SMBus Request */
+const _MANC_SMB_GNT: u32 = 0x02000000; /* SMBus Grant */
+const _MANC_SMB_CLK_IN: u32 = 0x04000000; /* SMBus Clock In */
+const _MANC_SMB_DATA_IN: u32 = 0x08000000; /* SMBus Data In */
+const _MANC_SMB_DATA_OUT: u32 = 0x10000000; /* SMBus Data Out */
+const _MANC_SMB_CLK_OUT: u32 = 0x20000000; /* SMBus Clock Out */
 
-const MANC_SMB_DATA_OUT_SHIFT: u32 = 28; /* SMBus Data Out Shift */
-const MANC_SMB_CLK_OUT_SHIFT: u32 = 29; /* SMBus Clock Out Shift */
+const _MANC_SMB_DATA_OUT_SHIFT: u32 = 28; /* SMBus Data Out Shift */
+const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; /* SMBus Clock Out Shift */
