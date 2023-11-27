@@ -326,7 +326,7 @@ impl InterruptController for Xapic {
 }
 
 impl InterruptController for X2Apic {
-    fn disable_irq(&mut self, irq: u16) {
+    fn enable_irq(&mut self, irq: u16) {
         // Set 8th bit of SVR to 1.
         let mut svr_bits = unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.read() };
         svr_bits |= 1 << 8;
@@ -336,7 +336,7 @@ impl InterruptController for X2Apic {
         log::info!("x2APIC: IRQ #{irq} has been enabled on CPU#{cpu_id}.");
     }
 
-    fn enable_irq(&mut self, irq: u16) {
+    fn disable_irq(&mut self, irq: u16) {
         // Set 8th bit of SVR to 0.
         let mut svr_bits = unsafe { registers::X2APIC_SPURIOUS_INTERRUPT_VECTOR.read() };
         svr_bits &= !(1 << 8);
