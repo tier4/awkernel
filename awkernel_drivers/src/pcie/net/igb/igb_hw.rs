@@ -379,6 +379,25 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
     (INTEL_VENDOR_ID, E1000_DEV_ID_EP80579_LAN_6),
 ];
 
+// PBA constants
+const E1000_PBA_8K: u32 = 0x0008; /* 8KB, default Rx allocation */
+const _E1000_PBA_10K: u32 = 0x000A;
+const _E1000_PBA_12K: u32 = 0x000C; /* 12KB, default Rx allocation */
+const _E1000_PBA_14K: u32 = 0x000E; /* 14KB */
+const E1000_PBA_16K: u32 = 0x0010; /* 16KB, default TX allocation */
+const _E1000_PBA_20K: u32 = 0x0014;
+const _E1000_PBA_22K: u32 = 0x0016;
+const _E1000_PBA_24K: u32 = 0x0018;
+const _E1000_PBA_26K: u32 = 0x001A;
+const _E1000_PBA_30K: u32 = 0x001E;
+const _E1000_PBA_32K: u32 = 0x0020;
+const _E1000_PBA_34K: u32 = 0x0022;
+const _E1000_PBA_38K: u32 = 0x0026;
+const _E1000_PBA_40K: u32 = 0x0028;
+const _E1000_PBA_48K: u32 = 0x0030; /* 48KB, default RX allocation */
+
+const E1000_PBS_16K: u32 = E1000_PBA_16K;
+
 #[derive(Debug)]
 pub struct E1000Hw {
     mac_type: MacType,
@@ -389,12 +408,13 @@ pub struct E1000Hw {
     asf_firmware_present: bool,
     swfw_sync_present: bool,
     eeprom_semaphore_present: bool,
-    phy_init_script: bool,
+    phy_reset_disable: bool,
     flash_memory: Option<(BaseAddress, usize)>, // (base address, offset)
     flash_bank_size: Option<usize>,
     flash_base_address: Option<usize>,
     eeprom: EEPROM,
     tbi_compatibility_on: bool,
+    sw_flag: isize,
 }
 
 #[derive(Debug, Clone)]
@@ -704,15 +724,6 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
     )
 }
 
-fn get_phy_init(mac_type: &MacType) -> bool {
-    use MacType::*;
-
-    match mac_type {
-        Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2 => true,
-        _ => false,
-    }
-}
-
 /// Reject non-PCI Express devices.
 ///
 /// https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em_hw.c#L8381
@@ -758,8 +769,6 @@ impl E1000Hw {
             eeprom_semaphore_present,
         ) = get_hw_info(&mac_type);
 
-        let phy_init_script = get_phy_init(&mac_type);
-
         if matches!(mac_type, MacType::EmPchlan) {
             info.set_revision_id((info.get_id() & 0x0f) as u8);
         }
@@ -790,12 +799,13 @@ impl E1000Hw {
             asf_firmware_present,
             swfw_sync_present,
             eeprom_semaphore_present,
-            phy_init_script,
+            phy_reset_disable: false,
             flash_memory,
             flash_base_address,
             flash_bank_size,
             eeprom,
             tbi_compatibility_on: false,
+            sw_flag: 0,
         };
 
         Ok(hw)
@@ -872,7 +882,130 @@ impl E1000Hw {
             }
         }
 
-        if matches!(self.mac_type, EmIch8lan) {}
+        // Workaround for ICH8 bit corruption issue in FIFO memory
+        if matches!(self.mac_type, EmIch8lan) {
+            // Set Tx and Rx buffer allocation to 8k apiece.
+            bar0.write(super::PBA, E1000_PBA_8K);
+
+            // Set Packet Buffer Size to 16k.
+            bar0.write(super::PBS, E1000_PBS_16K);
+        }
+
+        match self.mac_type {
+            EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
+            | EmPchCnp | EmPchTgp | EmPchAdp => {
+                let mut ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+
+                if !self.phy_reset_disable && self.check_phy_reset_block(info).is_ok() {
+                    // PHY HW reset requires MAC CORE reset at the same
+                    // time to make sure the interface between MAC and
+                    // the external PHY is reset.
+                    ctrl |= super::CTRL_PHY_RST;
+
+                    // Gate automatic PHY configuration by hardware on non-managed 82579
+                    if matches!(self.mac_type, EmPch2lan)
+                        && bar0.read(super::FWSM).ok_or(E1000DriverErr::ReadFailure)?
+                            & super::E1000_FWSM_FW_VALID
+                            == 0
+                    {
+                        self.gate_hw_phy_config_ich8lan(info, true)?;
+                    }
+                };
+
+                // TODO
+                // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1077-L1089
+                // em_get_software_flag(hw);
+                // E1000_WRITE_REG(hw, CTRL, (ctrl | E1000_CTRL_RST));
+                // /* HW reset releases software_flag */
+                // hw->sw_flag = 0;
+                // msec_delay(20);
+
+                // /* Ungate automatic PHY configuration on non-managed 82579 */
+                // if (hw->mac_type == em_pch2lan && !hw->phy_reset_disable &&
+                //     !(E1000_READ_REG(hw, FWSM) & E1000_FWSM_FW_VALID)) {
+                //     msec_delay(10);
+                //     em_gate_hw_phy_config_ich8lan(hw, FALSE);
+                // }
+                //  break;
+            }
+            _ => {
+                let ctrl = bar0.read(super::CTRL).ok_or(E1000DriverErr::ReadFailure)?;
+                bar0.write(super::CTRL, ctrl | super::CTRL_RST);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if PHY reset is blocked due to SOL/IDER session, for example.
+    /// Returning E1000_BLK_PHY_RESET isn't necessarily an error.  But it's up to
+    /// the caller to figure out how to deal with it.
+    fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), E1000DriverErr> {
+        let bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+
+        if is_ich8(&self.mac_type) {
+            let mut i = 0;
+            let mut blocked = true;
+
+            while blocked && i < 30 {
+                let fwsm = bar0.read(super::FWSM).ok_or(E1000DriverErr::ReadFailure)?;
+                i += 1;
+
+                if (fwsm & super::E1000_FWSM_RSPCIPHY) == 0 {
+                    blocked = true;
+                    awkernel_lib::delay::wait_millisec(10);
+                } else {
+                    blocked = false;
+                }
+            }
+
+            if blocked {
+                return Err(E1000DriverErr::PhyReset);
+            } else {
+                return Ok(());
+            }
+        }
+
+        let manc = if self.mac_type.clone() as u32 > MacType::Em82547Rev2 as u32 {
+            bar0.read(super::MANC).ok_or(E1000DriverErr::ReadFailure)?
+        } else {
+            0
+        };
+
+        if manc & super::MANC_BLK_PHY_RST_ON_IDE != 0 {
+            Err(E1000DriverErr::PhyReset)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// e1000_gate_hw_phy_config_ich8lan - disable PHY config via hardware
+    /// - gate: boolean set to TRUE to gate, FALSE to ungate
+    ///
+    /// Gate/ungate the automatic PHY configuration via hardware; perform
+    /// the configuration via software instead.
+    fn gate_hw_phy_config_ich8lan(
+        &self,
+        info: &PCIeInfo,
+        gate: bool,
+    ) -> Result<(), E1000DriverErr> {
+        if !matches!(self.mac_type, MacType::EmPch2lan) {
+            return Ok(());
+        }
+
+        let mut bar0 = info.get_bar(0).ok_or(E1000DriverErr::NoBar0)?;
+
+        let mut extcnf_ctrl = bar0
+            .read(super::EXTCNF_CTRL)
+            .ok_or(E1000DriverErr::ReadFailure)?;
+
+        if gate {
+            extcnf_ctrl |= super::EXTCNF_CTRL_GATE_PHY_CFG
+        } else {
+            extcnf_ctrl &= !super::EXTCNF_CTRL_GATE_PHY_CFG;
+        }
+
+        bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
 
         Ok(())
     }

@@ -111,6 +111,7 @@ pub enum E1000DriverErr {
     NotSupported,
     FailedFlashDescriptor,
     MasterDisableTimeout,
+    PhyReset,
 }
 
 impl From<E1000DriverErr> for PCIeDeviceErr {
@@ -136,6 +137,7 @@ impl fmt::Display for E1000DriverErr {
             Self::NotSupported => write!(f, "Not supported."),
             Self::FailedFlashDescriptor => write!(f, "Failed to flush descriptor."),
             Self::MasterDisableTimeout => write!(f, "Master disable timeout."),
+            Self::PhyReset => write!(f, "PHY reset failure."),
         }
     }
 }
@@ -241,7 +243,7 @@ impl PCIeDevice for E1000 {
 
 impl NetDevice for E1000 {
     fn device_name(&self) -> &'static str {
-        "e1000"
+        "igb"
     }
 
     fn link_up(&mut self) -> bool {
@@ -435,9 +437,9 @@ impl E1000 {
             msi.disable();
 
             if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-                "e1000",
+                "igb",
                 Box::new(|_irq| {
-                    log::debug!("e1000 interrupt.");
+                    log::debug!("igb interrupt.");
                 }),
             ) {
                 msi.set_multiple_message_enable(MultipleMessage::One)
@@ -492,7 +494,7 @@ impl E1000 {
                 )
                 .is_err()
             {
-                log::error!("e1000: Error mapping frame.");
+                log::error!("igb: Error mapping frame.");
                 return Err(E1000DriverErr::MemoryMapFailure);
             }
         };
@@ -534,7 +536,7 @@ impl E1000 {
                 )
                 .is_err()
             {
-                log::error!("e1000: Error mapping frame.");
+                log::error!("igb: Error mapping frame.");
                 return Err(E1000DriverErr::MemoryMapFailure);
             }
         };
@@ -661,6 +663,8 @@ const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+const PBA: usize = 0x01000; // Packet Buffer Allocation Register
+const PBS: usize = 0x01008; // Packet Buffer Size
 
 // Status Register
 const STATUS: usize = 0x00008; // Device Status register
@@ -707,6 +711,7 @@ const GCR_CAP_VER2: u32 = 0x00040000;
 
 const CTRL_RST: u32 = 1 << 26;
 const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
+const CTRL_PHY_RST: u32 = 1 << 31;
 
 const TXDCTL_GRAN: u32 = 1 << 24;
 const TXDCTL_WTHRESH: u32 = 1 << 16;
@@ -764,3 +769,52 @@ const EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
 const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
 const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
 const EXTCNF_CTRL_GATE_PHY_CFG: u32 = 0x00000080;
+
+const FWSM: usize = 0x05B54; // FW Semaphore
+
+const E1000_FWSM_MODE_MASK: u32 = 0x0000000E; /* FW mode */
+const E1000_FWSM_MODE_SHIFT: u32 = 1;
+const E1000_FWSM_ULP_CFG_DONE: u32 = 0x00000400; /* Low power cfg done */
+const E1000_FWSM_FW_VALID: u32 = 0x00008000; /* FW established a valid mode */
+const E1000_FWSM_RSPCIPHY: u32 = 0x00000040; /* Reset PHY on PCI reset */
+const E1000_FWSM_DISSW: u32 = 0x10000000; /* FW disable SW Write Access */
+const E1000_FWSM_SKUSEL_MASK: u32 = 0x60000000; /* LAN SKU select */
+const E1000_FWSM_SKUEL_SHIFT: u32 = 29;
+const E1000_FWSM_SKUSEL_EMB: u32 = 0x0; /* Embedded SKU */
+const E1000_FWSM_SKUSEL_CONS: u32 = 0x1; /* Consumer SKU */
+const E1000_FWSM_SKUSEL_PERF_100: u32 = 0x2; /* Perf & Corp 10/100 SKU */
+const E1000_FWSM_SKUSEL_PERF_GBE: u32 = 0x3; /* Perf & Copr GbE SKU */
+
+// Management Control
+const MANC: usize = 0x05820;
+
+const MANC_SMBUS_EN: u32 = 0x00000001; /* SMBus Enabled - RO */
+const MANC_ASF_EN: u32 = 0x00000002; /* ASF Enabled - RO */
+const MANC_R_ON_FORCE: u32 = 0x00000004; /* Reset on Force TCO - RO */
+const MANC_RMCP_EN: u32 = 0x00000100; /* Enable RCMP 026Fh Filtering */
+const MANC_0298_EN: u32 = 0x00000200; /* Enable RCMP 0298h Filtering */
+const MANC_IPV4_EN: u32 = 0x00000400; /* Enable IPv4 */
+const MANC_IPV6_EN: u32 = 0x00000800; /* Enable IPv6 */
+const MANC_SNAP_EN: u32 = 0x00001000; /* Accept LLC/SNAP */
+const MANC_ARP_EN: u32 = 0x00002000; /* Enable ARP Request Filtering */
+const MANC_NEIGHBOR_EN: u32 = 0x00004000; /* Enable Neighbor Discovery Filtering */
+const MANC_ARP_RES_EN: u32 = 0x00008000; /* Enable ARP response Filtering */
+const MANC_TCO_RESET: u32 = 0x00010000; /* TCO Reset Occurred */
+const MANC_RCV_TCO_EN: u32 = 0x00020000; /* Receive TCO Packets Enabled */
+const MANC_REPORT_STATUS: u32 = 0x00040000; /* Status Reporting Enabled */
+const MANC_RCV_ALL: u32 = 0x00080000; /* Receive All Enabled */
+const MANC_BLK_PHY_RST_ON_IDE: u32 = 0x00040000; /* Block phy resets */
+const MANC_EN_MAC_ADDR_FILTER: u32 = 0x00100000; /* Enable MAC address filtering */
+const MANC_EN_MNG2HOST: u32 = 0x00200000; /* Enable MNG packets to host memory */
+const MANC_EN_IP_ADDR_FILTER: u32 = 0x00400000; /* Enable IP address filtering */
+const MANC_EN_XSUM_FILTER: u32 = 0x00800000; /* Enable checksum filtering */
+const MANC_BR_EN: u32 = 0x01000000; /* Enable broadcast filtering */
+const MANC_SMB_REQ: u32 = 0x01000000; /* SMBus Request */
+const MANC_SMB_GNT: u32 = 0x02000000; /* SMBus Grant */
+const MANC_SMB_CLK_IN: u32 = 0x04000000; /* SMBus Clock In */
+const MANC_SMB_DATA_IN: u32 = 0x08000000; /* SMBus Data In */
+const MANC_SMB_DATA_OUT: u32 = 0x10000000; /* SMBus Data Out */
+const MANC_SMB_CLK_OUT: u32 = 0x20000000; /* SMBus Clock Out */
+
+const MANC_SMB_DATA_OUT_SHIFT: u32 = 28; /* SMBus Data Out Shift */
+const MANC_SMB_CLK_OUT_SHIFT: u32 = 29; /* SMBus Clock Out Shift */
