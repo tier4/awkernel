@@ -866,7 +866,7 @@ impl IgbHw {
         // global reset.
         bar0.write(super::RCTL, 0);
         bar0.write(super::TCTL, super::TCTL_PSP);
-        bar0.read(super::STATUS); // flush
+        write_flush(info)?;
 
         // The tbi_compatibility_on Flag must be cleared when Rctl is cleared.
         self.tbi_compatibility_on = false;
@@ -1629,8 +1629,7 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, Ig
     }
 
     if matches!(mac_type, Em82573 | Em82574) {
-        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-        let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
+        let eecd = read_reg(info, super::EECD)?;
 
         // Isolate bits 15 & 16
         let eecd = (eecd >> 15) & 0x03;
@@ -1649,8 +1648,7 @@ fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, 
         return Ok(true);
     }
 
-    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
+    let eecd = read_reg(info, super::EECD)?;
 
     if eecd & E1000_EECD_FLUPD != 0 {
         Ok(true)
@@ -1675,14 +1673,9 @@ fn set_media_type(
         tbi_compatibility_en = false;
     }
 
-    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
     if matches!(mac_type, Em82575 | Em82580 | Em82576 | EmI210 | EmI350) {
         let mut media_type = MediaType::Copper;
-
-        let mut ctrl_ext = bar0
-            .read(super::CTRL_EXT)
-            .ok_or(IgbDriverErr::ReadFailure)?;
+        let mut ctrl_ext = read_reg(info, super::CTRL_EXT)?;
 
         match ctrl_ext & super::CTRL_EXT_LINK_MODE_MASK {
             super::CTRL_EXT_LINK_MODE_1000BASE_KX => {
@@ -1690,7 +1683,7 @@ fn set_media_type(
                 ctrl_ext |= super::CTRL_I2C_ENA;
             }
             super::CTRL_EXT_LINK_MODE_SGMII => {
-                let mdic = bar0.read(super::MDICNFG).ok_or(IgbDriverErr::ReadFailure)?;
+                let mdic = read_reg(info, super::MDICNFG)?;
 
                 ctrl_ext |= super::CTRL_I2C_ENA;
 
@@ -1704,7 +1697,7 @@ fn set_media_type(
             super::CTRL_EXT_LINK_MODE_PCIE_SERDES => {
                 ctrl_ext |= super::CTRL_I2C_ENA;
 
-                match set_sfp_media_type_82575(mac_type, info) {
+                match set_sfp_media_type_82575(info) {
                     Ok((media_type_ret, sgmii_active_ret)) => {
                         media_type = media_type_ret;
                         sgmii_active = sgmii_active_ret;
@@ -1734,7 +1727,7 @@ fn set_media_type(
             }
         }
 
-        bar0.write(super::CTRL_EXT, ctrl_ext);
+        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
         return Ok((tbi_compatibility_en, media_type, sgmii_active));
     }
 
@@ -1765,7 +1758,7 @@ fn set_media_type(
                 Ok((tbi_compatibility_en, MediaType::Copper, sgmii_active))
             }
             _ => {
-                let status = bar0.read(super::STATUS).ok_or(IgbDriverErr::ReadFailure)?;
+                let status = read_reg(info, super::STATUS)?;
 
                 if status & super::STATUS_TBIMODE != 0 {
                     // tbi_compatibility is not valid on fiber
@@ -1778,76 +1771,84 @@ fn set_media_type(
     }
 }
 
-/// em_set_sfp_media_type_82575 - derives SFP module media type.
-/// Return `(media_type, sgmii_active)`.
-fn set_sfp_media_type_82575(
-    mac_type: &MacType,
-    info: &PCIeInfo,
-) -> Result<(MediaType, bool), IgbDriverErr> {
-    todo!()
+bitflags::bitflags! {
+    // Flags for SFP modules compatible with ETH up to 1Gb
+    struct SfpE1000Flags: u8 {
+        const E1000_BASE_SX = 1;
+        const E1000_BASE_LX = 1 << 1;
+        const E1000_BASE_CX = 1 << 2;
+        const E1000_BASE_T = 1 << 3;
+        const E100_BASE_LX = 1 << 4;
+        const E100_BASE_FX = 1 << 5;
+        const E10_BASE_BX10 = 1 << 6;
+        const E10_BASE_PX = 1 << 7;
+    }
 }
 
-// 740 STATIC int32_t em_set_sfp_media_type_82575(struct em_hw *hw)
-// /* [previous][next][first][last][top][bottom][index][help]  */
-// 741 {
-// 742         struct sfp_e1000_flags eth_flags;
-// 743         int32_t ret_val = E1000_ERR_CONFIG;
-// 744         uint32_t ctrl_ext = 0;
-// 745         uint8_t transceiver_type = 0;
-// 746         int32_t timeout = 3;
-// 747
-// 748         /* Turn I2C interface ON and power on sfp cage */
-// 749         ctrl_ext = E1000_READ_REG(hw, CTRL_EXT);
-// 750         ctrl_ext &= ~E1000_CTRL_EXT_SDP3_DATA;
-// 751         E1000_WRITE_REG(hw, CTRL_EXT, ctrl_ext | E1000_CTRL_I2C_ENA);
-// 752
-// 753         E1000_WRITE_FLUSH(hw);
-// 754
-// 755         /* Read SFP module data */
-// 756         while (timeout) {
-// 757                 ret_val = em_read_sfp_data_byte(hw,
-// 758                         E1000_I2CCMD_SFP_DATA_ADDR(E1000_SFF_IDENTIFIER_OFFSET),
-// 759                         &transceiver_type);
-// 760                 if (ret_val == E1000_SUCCESS)
-// 761                         break;
-// 762                 msec_delay(100);
-// 763                 timeout--;
-// 764         }
-// 765         if (ret_val != E1000_SUCCESS)
-// 766                 goto out;
-// 767
-// 768         ret_val = em_read_sfp_data_byte(hw,
-// 769                         E1000_I2CCMD_SFP_DATA_ADDR(E1000_SFF_ETH_FLAGS_OFFSET),
-// 770                         (uint8_t *)&eth_flags);
-// 771         if (ret_val != E1000_SUCCESS)
-// 772                 goto out;
-// 773
-// 774         /* Check if there is some SFP module plugged and powered */
-// 775         if ((transceiver_type == E1000_SFF_IDENTIFIER_SFP) ||
-// 776             (transceiver_type == E1000_SFF_IDENTIFIER_SFF)) {
-// 777                 if (eth_flags.e1000_base_lx || eth_flags.e1000_base_sx) {
-// 778                         hw->media_type = em_media_type_internal_serdes;
-// 779                 } else if (eth_flags.e100_base_fx || eth_flags.e100_base_lx) {
-// 780                         hw->media_type = em_media_type_internal_serdes;
-// 781                         hw->sgmii_active = TRUE;
-// 782                 } else if (eth_flags.e1000_base_t) {
-// 783                         hw->media_type = em_media_type_copper;
-// 784                         hw->sgmii_active = TRUE;
-// 785                 } else {
-// 786                         DEBUGOUT("PHY module has not been recognized\n");
-// 787                         ret_val = E1000_ERR_CONFIG;
-// 788                         goto out;
-// 789                 }
-// 790         } else {
-// 791                 ret_val = E1000_ERR_CONFIG;
-// 792                 goto out;
-// 793         }
-// 794         ret_val = E1000_SUCCESS;
-// 795 out:
-// 796         /* Restore I2C interface setting */
-// 797         E1000_WRITE_REG(hw, CTRL_EXT, ctrl_ext);
-// 798         return ret_val;
-// 799 }
+/// em_set_sfp_media_type_82575 - derives SFP module media type.
+/// Return `(media_type, sgmii_active)`.
+fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDriverErr> {
+    // Turn I2C interface ON and power on sfp cage
+    let ctrl_ext_orig = read_reg(info, super::CTRL_EXT)?;
+    let ctrl_ext = ctrl_ext_orig & !super::CTRL_EXT_SDP3_DATA;
+    write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+
+    write_flush(info)?;
+
+    // Read SFP module data
+    let mut timeout = 3;
+    let mut transceiver_type = 0;
+    while timeout > 0 {
+        match read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_IDENTIFIER_OFFSET)) {
+            Ok(val) => {
+                transceiver_type = val;
+                break;
+            }
+            Err(_) => {
+                awkernel_lib::delay::wait_millisec(100);
+                timeout -= 1;
+            }
+        }
+    }
+
+    if timeout == 0 {
+        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        return Err(IgbDriverErr::Phy);
+    }
+
+    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_ETH_FLAGS_OFFSET)) else {
+        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        return Err(IgbDriverErr::Phy);
+    };
+
+    let eth_flags = SfpE1000Flags::from_bits_truncate(eth_flags);
+
+    // Check if there is some SFP module plugged and powered
+    let result = if transceiver_type == super::SFF_IDENTIFIER_SFP
+        || transceiver_type == super::SFF_IDENTIFIER_SFF
+    {
+        if eth_flags.contains(SfpE1000Flags::E1000_BASE_LX)
+            || eth_flags.contains(SfpE1000Flags::E1000_BASE_SX)
+        {
+            (MediaType::InternalSerdes, false)
+        } else if eth_flags.contains(SfpE1000Flags::E100_BASE_FX)
+            || eth_flags.contains(SfpE1000Flags::E100_BASE_LX)
+        {
+            (MediaType::InternalSerdes, true)
+        } else if eth_flags.contains(SfpE1000Flags::E1000_BASE_T) {
+            (MediaType::Copper, true)
+        } else {
+            write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+            return Err(IgbDriverErr::Config);
+        }
+    } else {
+        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        return Err(IgbDriverErr::Config);
+    };
+
+    write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+    Ok(result)
+}
 
 fn read_sfp_data_byte(info: &PCIeInfo, offset: u32) -> Result<u8, IgbDriverErr> {
     if offset > i2ccd_sfp_data_addr(255) {
@@ -1897,4 +1898,11 @@ fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgbDriver
 fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     Ok(bar0.read(offset).ok_or(IgbDriverErr::ReadFailure)?)
+}
+
+#[inline(always)]
+fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    bar0.read(super::STATUS).ok_or(IgbDriverErr::ReadFailure)?;
+    Ok(())
 }

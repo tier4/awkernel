@@ -843,17 +843,17 @@ const _SWSM_DRV_LOAD: u32 = 0x00000008; /* Driver Loaded Bit */
 // Extended Device Control
 const CTRL_EXT: usize = 0x00018;
 const _CTRL_EXT_GPI0_EN: u32 = 0x00000001; /* Maps SDP4 to GPI0 */
-const CTRL_EXT_GPI1_EN: u32 = 0x00000002; /* Maps SDP5 to GPI1 */
-const _CTRL_EXT_PHYINT_EN: u32 = CTRL_EXT_GPI1_EN;
+const _CTRL_EXT_GPI1_EN: u32 = 0x00000002; /* Maps SDP5 to GPI1 */
+const _CTRL_EXT_PHYINT_EN: u32 = _CTRL_EXT_GPI1_EN;
 const _CTRL_EXT_GPI2_EN: u32 = 0x00000004; /* Maps SDP6 to GPI2 */
 const _CTRL_EXT_LPCD: u32 = 0x00000004; /* LCD Power Cycle Done */
 const _CTRL_EXT_GPI3_EN: u32 = 0x00000008; /* Maps SDP7 to GPI3 */
 const _CTRL_EXT_SDP4_DATA: u32 = 0x00000010; /* Value of SW Defineable Pin 4 */
-const CTRL_EXT_SDP5_DATA: u32 = 0x00000020; /* Value of SW Defineable Pin 5 */
-const _CTRL_EXT_PHY_INT: u32 = CTRL_EXT_SDP5_DATA;
+const _CTRL_EXT_SDP5_DATA: u32 = 0x00000020; /* Value of SW Defineable Pin 5 */
+const _CTRL_EXT_PHY_INT: u32 = _CTRL_EXT_SDP5_DATA;
 const _CTRL_EXT_SDP6_DATA: u32 = 0x00000040; /* Value of SW Defineable Pin 6 */
 const _CTRL_EXT_SDP7_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 7 */
-const _CTRL_EXT_SDP3_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 3 */
+const CTRL_EXT_SDP3_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 3 */
 const _CTRL_EXT_SDP4_DIR: u32 = 0x00000100; /* Direction of SDP4 0=in 1=out */
 const _CTRL_EXT_SDP5_DIR: u32 = 0x00000200; /* Direction of SDP5 0=in 1=out */
 const _CTRL_EXT_SDP6_DIR: u32 = 0x00000400; /* Direction of SDP6 0=in 1=out */
@@ -892,7 +892,13 @@ const _MDICNFG_PHY_SHIFT: u32 = 21;
 const I2CCMD: usize = 0x01028;
 const I2CCMD_REG_ADDR_SHIFT: usize = 16;
 const I2CCMD_OPCODE_READ: u32 = 0x08000000;
-const I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
+const _I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
 const I2CCMD_READY: u32 = 0x20000000;
 const I2CCMD_ERROR: u32 = 0x80000000;
 const I2CCMD_PHY_TIMEOUT: u32 = 200;
+
+// SFP modules ID memory locations
+const SFF_IDENTIFIER_OFFSET: u32 = 0x00;
+const SFF_IDENTIFIER_SFF: u8 = 0x02;
+const SFF_IDENTIFIER_SFP: u8 = 0x03;
+const SFF_ETH_FLAGS_OFFSET: u32 = 0x06;
