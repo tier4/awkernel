@@ -116,6 +116,7 @@ pub enum IgbDriverErr {
     PhyReset,
     Config,
     Reset,
+    SwfwSync,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -144,6 +145,7 @@ impl fmt::Display for IgbDriverErr {
             Self::PhyReset => write!(f, "PHY reset failure."),
             Self::Config => write!(f, "Configuration failure."),
             Self::Reset => write!(f, "Reset failure."),
+            Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
         }
     }
 }
@@ -671,6 +673,7 @@ const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 const PBS: usize = 0x01008; // Packet Buffer Size
+const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 
 // Status Register
 const STATUS: usize = 0x00008; // Device Status register
@@ -829,6 +832,6 @@ const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; /* SMBus Clock Out Shift */
 // SW Semaphore Register
 const SWSM: usize = 0x05B50;
 const SWSM_SMBI: u32 = 0x00000001; /* Driver Semaphore bit */
-const _SWSM_SWESMBI: u32 = 0x00000002; /* FW Semaphore bit */
+const SWSM_SWESMBI: u32 = 0x00000002; /* FW Semaphore bit */
 const _SWSM_WMNG: u32 = 0x00000004; /* Wake MNG Clock */
 const _SWSM_DRV_LOAD: u32 = 0x00000008; /* Driver Loaded Bit */

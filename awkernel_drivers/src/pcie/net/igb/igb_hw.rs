@@ -976,8 +976,121 @@ impl IgbHw {
         todo!()
     }
 
+    /// Reads or writes the value from a PHY register, if the value is on a specific non zero page, sets the page first.
+    /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L5064
     fn access_phy_reg_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!()
+    }
+
+    /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L4869
+    fn swfw_sync_acquire(&mut self, info: &PCIeInfo, mask: u16) -> Result<(), IgbDriverErr> {
+        if self.swfwhw_semaphore_present {
+            return self.get_software_flag(info);
+        }
+
+        if !self.swfw_sync_present {
+            return self.get_hw_eeprom_semaphore(info);
+        }
+
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+
+        let mut swfw_sync = 0;
+        let swmask = mask as u32;
+        let fwmask = (mask << 16) as u32;
+        let mut timeout = 200;
+
+        while timeout > 0 {
+            if self.get_hw_eeprom_semaphore(info).is_ok() {
+                return Err(IgbDriverErr::SwfwSync);
+            }
+
+            swfw_sync = bar0
+                .read(super::SW_FW_SYNC)
+                .ok_or(IgbDriverErr::ReadFailure)?;
+
+            if swfw_sync & (fwmask | swmask) != 0 {
+                break;
+            }
+
+            self.put_hw_eeprom_semaphore(info)?;
+            awkernel_lib::delay::wait_millisec(5);
+            timeout -= 1;
+        }
+
+        if timeout == 0 {
+            log::warn!("igb: Driver can't access resource, SW_FW_SYNC timeout.");
+            return Err(IgbDriverErr::SwfwSync);
+        }
+
+        swfw_sync |= swmask;
+        bar0.write(super::SW_FW_SYNC, swfw_sync);
+
+        self.put_hw_eeprom_semaphore(info)?;
+
+        Ok(())
+    }
+
+    /// Using the combination of SMBI and SWESMBI semaphore bits when resetting adapter or Eeprom access.
+    /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L9719
+    fn get_hw_eeprom_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if self.eeprom_semaphore_present {
+            return Ok(());
+        }
+
+        if matches!(self.mac_type, MacType::Em80003es2lan) {
+            // Get the SW semaphore.
+            return self.get_software_semaphore(info);
+        }
+
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+
+        // Get the FW semaphore.
+        let mut timeout = self.eeprom.word_size + 1;
+
+        while timeout > 0 {
+            let swsm =
+                bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)? | super::SWSM_SWESMBI;
+            bar0.write(super::SWSM, swsm);
+
+            // If we managed to set the bit we got the semaphore.
+            let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+            if swsm & super::SWSM_SWESMBI != 0 {
+                break;
+            }
+
+            awkernel_lib::delay::wait_microsec(50);
+            timeout -= 1;
+        }
+
+        if timeout == 0 {
+            // Release semaphores
+            self.put_hw_eeprom_semaphore(info)?;
+            log::warn!("igb: Driver can't access the Eeprom - SWESMBI bit is set.");
+            return Err(IgbDriverErr::Reset);
+        } else {
+            Ok(())
+        }
+    }
+
+    fn put_hw_eeprom_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if !self.eeprom_semaphore_present {
+            return Ok(());
+        }
+
+        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+
+        let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+        if matches!(self.mac_type, MacType::Em80003es2lan) {
+            // Release both semaphores.
+            bar0.write(
+                super::SWSM,
+                swsm & !(super::SWSM_SMBI | super::SWSM_SWESMBI),
+            );
+        } else {
+            bar0.write(super::SWSM, swsm & !(super::SWSM_SWESMBI));
+        };
+
+        Ok(())
     }
 
     /// Obtaining software semaphore bit (SMBI) before resetting PHY.
