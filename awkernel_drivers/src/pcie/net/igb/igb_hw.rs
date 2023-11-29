@@ -938,10 +938,75 @@ impl IgbHw {
             }
         }
 
+        if self.check_phy_reset_block(info).is_ok() {
+            match &self.mac_type {
+                EmPchlan => {
+                    self.hv_phy_workarounds_ich8lan(info)?;
+                }
+                EmPch2lan => {
+                    self.lv_phy_workarounds_ich8lan(info)?;
+                }
+                _ => (),
+            }
+        }
+
         // TODO
-        // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1095-L1106
+        // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1113
 
         Ok(())
+    }
+
+    /// A series of Phy workarounds to be done after every PHY reset.
+    fn hv_phy_workarounds_ich8lan(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    /// em_lv_phy_workarounds_ich8lan - A series of Phy workarounds to be
+    /// done after every PHY reset.
+    fn lv_phy_workarounds_ich8lan(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    /// Set slow MDIO access mode
+    fn set_mdio_slow_mode_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    fn read_phy_reg(&self) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    fn access_phy_reg_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    /// Obtaining software semaphore bit (SMBI) before resetting PHY.
+    fn get_software_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if matches!(self.mac_type, MacType::Em80003es2lan) {
+            return Ok(());
+        }
+
+        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+
+        let mut timeout = self.eeprom.word_size + 1;
+        while timeout > 0 {
+            let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+
+            // If SMBI bit cleared, it is now set and we hold the semaphore
+            if swsm & super::SWSM_SMBI == 0 {
+                break;
+            }
+
+            awkernel_lib::delay::wait_millisec(1);
+            timeout -= 1;
+        }
+
+        if timeout == 0 {
+            log::warn!("igb: Driver can't access device - SMBI bit is set.");
+            Err(IgbDriverErr::Reset)
+        } else {
+            Ok(())
+        }
     }
 
     /// Get software semaphore FLAG bit (SWFLAG).

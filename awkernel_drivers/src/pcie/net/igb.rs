@@ -115,6 +115,7 @@ pub enum IgbDriverErr {
     MasterDisableTimeout,
     PhyReset,
     Config,
+    Reset,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -142,6 +143,7 @@ impl fmt::Display for IgbDriverErr {
             Self::MasterDisableTimeout => write!(f, "Master disable timeout."),
             Self::PhyReset => write!(f, "PHY reset failure."),
             Self::Config => write!(f, "Configuration failure."),
+            Self::Reset => write!(f, "Reset failure."),
         }
     }
 }
@@ -823,3 +825,10 @@ const _MANC_SMB_CLK_OUT: u32 = 0x20000000; /* SMBus Clock Out */
 
 const _MANC_SMB_DATA_OUT_SHIFT: u32 = 28; /* SMBus Data Out Shift */
 const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; /* SMBus Clock Out Shift */
+
+// SW Semaphore Register
+const SWSM: usize = 0x05B50;
+const SWSM_SMBI: u32 = 0x00000001; /* Driver Semaphore bit */
+const _SWSM_SWESMBI: u32 = 0x00000002; /* FW Semaphore bit */
+const _SWSM_WMNG: u32 = 0x00000004; /* Wake MNG Clock */
+const _SWSM_DRV_LOAD: u32 = 0x00000008; /* Driver Loaded Bit */
