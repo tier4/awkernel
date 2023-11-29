@@ -1854,12 +1854,10 @@ fn read_sfp_data_byte(info: &PCIeInfo, offset: u32) -> Result<u8, IgbDriverErr> 
         return Err(IgbDriverErr::Phy);
     }
 
-    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
     // Set up Op-code, EEPROM Address, in the I2CCMD register.
     // The MAC will take care of interfacing with the EEPROM to retrieve the desired data.
     let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT) | super::I2CCMD_OPCODE_READ;
-    bar0.write(super::I2CCMD, i2ccmd);
+    write_reg(info, super::I2CCMD, i2ccmd)?;
 
     let mut data_local = 0;
 
@@ -1867,7 +1865,7 @@ fn read_sfp_data_byte(info: &PCIeInfo, offset: u32) -> Result<u8, IgbDriverErr> 
     for _ in 0..super::I2CCMD_PHY_TIMEOUT {
         awkernel_lib::delay::wait_microsec(50);
 
-        data_local = bar0.read(super::I2CCMD).ok_or(IgbDriverErr::ReadFailure)?;
+        data_local = read_reg(info, super::I2CCMD)?;
         if data_local & super::I2CCMD_READY != 0 {
             break;
         }
@@ -1886,4 +1884,17 @@ fn read_sfp_data_byte(info: &PCIeInfo, offset: u32) -> Result<u8, IgbDriverErr> 
 
 fn i2ccd_sfp_data_addr(a: u32) -> u32 {
     0x100 + a
+}
+
+#[inline(always)]
+fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgbDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    bar0.write(offset, value);
+    Ok(())
+}
+
+#[inline(always)]
+fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    Ok(bar0.read(offset).ok_or(IgbDriverErr::ReadFailure)?)
 }
