@@ -117,6 +117,7 @@ pub enum IgbDriverErr {
     Config,
     Reset,
     SwfwSync,
+    Phy,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -146,6 +147,7 @@ impl fmt::Display for IgbDriverErr {
             Self::Config => write!(f, "Configuration failure."),
             Self::Reset => write!(f, "Reset failure."),
             Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
+            Self::Phy => write!(f, "PHY failure."),
         }
     }
 }
@@ -679,6 +681,7 @@ const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 const STATUS: usize = 0x00008; // Device Status register
 const STATUS_FD: u32 = 1 << 0; // Full Duplex
 const STATUS_LU: u32 = 1 << 1; // Link Up
+const STATUS_TBIMODE: u32 = 1 << 5; // TBI Mode
 
 // Interrupt Mask Set/Read Register
 const IMS: usize = 0x000D0;
@@ -720,6 +723,7 @@ const GCR_CAP_VER2: u32 = 0x00040000;
 
 const CTRL_RST: u32 = 1 << 26;
 const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
+const CTRL_I2C_ENA: u32 = 1 << 25;
 const CTRL_PHY_RST: u32 = 1 << 31;
 
 const TXDCTL_GRAN: u32 = 1 << 24;
@@ -835,3 +839,60 @@ const SWSM_SMBI: u32 = 0x00000001; /* Driver Semaphore bit */
 const SWSM_SWESMBI: u32 = 0x00000002; /* FW Semaphore bit */
 const _SWSM_WMNG: u32 = 0x00000004; /* Wake MNG Clock */
 const _SWSM_DRV_LOAD: u32 = 0x00000008; /* Driver Loaded Bit */
+
+// Extended Device Control
+const CTRL_EXT: usize = 0x00018;
+const _CTRL_EXT_GPI0_EN: u32 = 0x00000001; /* Maps SDP4 to GPI0 */
+const CTRL_EXT_GPI1_EN: u32 = 0x00000002; /* Maps SDP5 to GPI1 */
+const _CTRL_EXT_PHYINT_EN: u32 = CTRL_EXT_GPI1_EN;
+const _CTRL_EXT_GPI2_EN: u32 = 0x00000004; /* Maps SDP6 to GPI2 */
+const _CTRL_EXT_LPCD: u32 = 0x00000004; /* LCD Power Cycle Done */
+const _CTRL_EXT_GPI3_EN: u32 = 0x00000008; /* Maps SDP7 to GPI3 */
+const _CTRL_EXT_SDP4_DATA: u32 = 0x00000010; /* Value of SW Defineable Pin 4 */
+const CTRL_EXT_SDP5_DATA: u32 = 0x00000020; /* Value of SW Defineable Pin 5 */
+const _CTRL_EXT_PHY_INT: u32 = CTRL_EXT_SDP5_DATA;
+const _CTRL_EXT_SDP6_DATA: u32 = 0x00000040; /* Value of SW Defineable Pin 6 */
+const _CTRL_EXT_SDP7_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 7 */
+const _CTRL_EXT_SDP3_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 3 */
+const _CTRL_EXT_SDP4_DIR: u32 = 0x00000100; /* Direction of SDP4 0=in 1=out */
+const _CTRL_EXT_SDP5_DIR: u32 = 0x00000200; /* Direction of SDP5 0=in 1=out */
+const _CTRL_EXT_SDP6_DIR: u32 = 0x00000400; /* Direction of SDP6 0=in 1=out */
+const _CTRL_EXT_SDP7_DIR: u32 = 0x00000800; /* Direction of SDP7 0=in 1=out */
+const _CTRL_EXT_ASDCHK: u32 = 0x00001000; /* Initiate an ASD sequence */
+const _CTRL_EXT_EE_RST: u32 = 0x00002000; /* Reinitialize from EEPROM */
+const _CTRL_EXT_IPS: u32 = 0x00004000; /* Invert Power State */
+const _CTRL_EXT_SPD_BYPS: u32 = 0x00008000; /* Speed Select Bypass */
+const _CTRL_EXT_RO_DIS: u32 = 0x00020000; /* Relaxed Ordering disable */
+const CTRL_EXT_LINK_MODE_MASK: u32 = 0x00C00000;
+const _CTRL_EXT_LINK_MODE_GMII: u32 = 0x00000000;
+const _CTRL_EXT_LINK_MODE_TBI: u32 = 0x00C00000;
+const _CTRL_EXT_LINK_MODE_KMRN: u32 = 0x00000000;
+const CTRL_EXT_LINK_MODE_PCIE_SERDES: u32 = 0x00C00000;
+const CTRL_EXT_LINK_MODE_1000BASE_KX: u32 = 0x00400000;
+const CTRL_EXT_LINK_MODE_SGMII: u32 = 0x00800000;
+const _CTRL_EXT_WR_WMARK_MASK: u32 = 0x03000000;
+const _CTRL_EXT_WR_WMARK_256: u32 = 0x00000000;
+const _CTRL_EXT_WR_WMARK_320: u32 = 0x01000000;
+const _CTRL_EXT_WR_WMARK_384: u32 = 0x02000000;
+const _CTRL_EXT_WR_WMARK_448: u32 = 0x03000000;
+const _CTRL_EXT_EXT_VLAN: u32 = 0x04000000;
+const _CTRL_EXT_DRV_LOAD: u32 = 0x10000000; /* Driver loaded bit for FW */
+const _CTRL_EXT_IAME: u32 = 0x08000000; /* Interrupt acknowledge Auto-mask */
+const _CTRL_EXT_INT_TIMER_CLR: u32 = 0x20000000; /* Clear Interrupt timers after IMS clear */
+const _CRTL_EXT_PB_PAREN: u32 = 0x01000000; /* packet buffer parity error detection enabled */
+const _CTRL_EXT_DF_PAREN: u32 = 0x02000000; /* descriptor FIFO parity error detection enable */
+
+const MDICNFG: usize = 0x00E04;
+const MDICNFG_EXT_MDIO: u32 = 0x80000000; /* MDI ext/int destination */
+const _MDICNFG_COM_MDIO: u32 = 0x40000000; /* MDI shared w/ lan 0 */
+const _MDICNFG_PHY_MASK: u32 = 0x03E00000;
+const _MDICNFG_PHY_SHIFT: u32 = 21;
+
+// SFPI2C Command Register - RW
+const I2CCMD: usize = 0x01028;
+const I2CCMD_REG_ADDR_SHIFT: usize = 16;
+const I2CCMD_OPCODE_READ: u32 = 0x08000000;
+const I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
+const I2CCMD_READY: u32 = 0x20000000;
+const I2CCMD_ERROR: u32 = 0x80000000;
+const I2CCMD_PHY_TIMEOUT: u32 = 200;
