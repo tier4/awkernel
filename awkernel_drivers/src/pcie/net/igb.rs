@@ -118,6 +118,7 @@ pub enum IgbDriverErr {
     Reset,
     SwfwSync,
     Phy,
+    Param,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -148,6 +149,7 @@ impl fmt::Display for IgbDriverErr {
             Self::Reset => write!(f, "Reset failure."),
             Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
             Self::Phy => write!(f, "PHY failure."),
+            Self::Param => write!(f, "Parameter failure."),
         }
     }
 }
@@ -891,14 +893,30 @@ const _MDICNFG_PHY_SHIFT: u32 = 21;
 // SFPI2C Command Register - RW
 const I2CCMD: usize = 0x01028;
 const I2CCMD_REG_ADDR_SHIFT: usize = 16;
+const I2CCMD_PHY_ADDR_SHIFT: usize = 24;
 const I2CCMD_OPCODE_READ: u32 = 0x08000000;
-const _I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
+const I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
 const I2CCMD_READY: u32 = 0x20000000;
 const I2CCMD_ERROR: u32 = 0x80000000;
 const I2CCMD_PHY_TIMEOUT: u32 = 200;
+const MAX_SGMII_PHY_REG_ADDR: u32 = 255;
 
 // SFP modules ID memory locations
 const SFF_IDENTIFIER_OFFSET: u32 = 0x00;
 const SFF_IDENTIFIER_SFF: u8 = 0x02;
 const SFF_IDENTIFIER_SFP: u8 = 0x03;
 const SFF_ETH_FLAGS_OFFSET: u32 = 0x06;
+
+// MDI Control
+const MDIC: usize = 0x00020;
+const _MDIC_DATA_MASK: u32 = 0x0000FFFF;
+const _MDIC_REG_MASK: u32 = 0x001F0000;
+const MDIC_REG_SHIFT: u32 = 16;
+const _MDIC_PHY_MASK: u32 = 0x03E00000;
+const MDIC_PHY_SHIFT: u32 = 21;
+const MDIC_OP_WRITE: u32 = 0x04000000;
+const MDIC_OP_READ: u32 = 0x08000000;
+const MDIC_READY: u32 = 0x10000000;
+const _MDIC_INT_EN: u32 = 0x20000000;
+const MDIC_ERROR: u32 = 0x40000000;
+const MDIC_DEST: u32 = 0x80000000;

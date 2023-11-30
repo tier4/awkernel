@@ -400,6 +400,8 @@ const E1000_PBS_16K: u32 = E1000_PBA_16K;
 
 const SW_FLAG_TIMEOUT: usize = 100;
 
+const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
+
 #[derive(Debug)]
 pub enum MediaType {
     Copper,
@@ -428,6 +430,7 @@ pub struct IgbHw {
     media_type: MediaType,
     sgmii_active: bool,
     sw_flag: isize,
+    phy_addr: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -824,6 +827,7 @@ impl IgbHw {
             media_type,
             sgmii_active,
             sw_flag: 0,
+            phy_addr: 0,
         };
 
         Ok(hw)
@@ -996,6 +1000,254 @@ impl IgbHw {
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L5064
     fn access_phy_reg_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!()
+    }
+
+    /// Read BM PHY wakeup register.  It works as such:
+    /// 1) Set page 769, register 17, bit 2 = 1
+    /// 2) Set page to 800 for host (801 if we were manageability)
+    /// 3) Write the address using the address opcode (0x11)
+    /// 4) Read or write the data using the data opcode (0x12)
+    /// 5) Restore 769_17.2 to its original value
+    fn access_phy_wakeup_reg_bm(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    fn write_phy_reg_ex(
+        &self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        phy_data: u16,
+    ) -> Result<(), IgbDriverErr> {
+        // SGMII active is only set on some specific chips
+        if self.sgmii_active && !self.sgmii_uses_mdio_82575(info)? {
+            if reg_addr > super::MAX_SGMII_PHY_REG_ADDR {
+                return Err(IgbDriverErr::Param);
+            }
+            return self.write_phy_reg_i2c(info, reg_addr, phy_data);
+        }
+
+        if reg_addr > MAX_PHY_REG_ADDRESS {
+            return Err(IgbDriverErr::Param);
+        }
+
+        if matches!(self.mac_type, MacType::EmICPxxxx) {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        if self.mac_type.clone() as usize > MacType::Em82543 as usize {
+            // Set up Op-code, Phy Address, register address, and data
+            // intended for the PHY register in the MDI Control register.
+            // The MAC will take care of interfacing with the PHY to send
+            // the desired data.
+
+            let mdic = ((phy_data as u32)
+                | (reg_addr << super::MDIC_REG_SHIFT)
+                | (self.phy_addr << super::MDIC_PHY_SHIFT)
+                | (super::MDIC_OP_WRITE)) as u32;
+
+            write_reg(info, super::MDIC, mdic)?;
+
+            // Poll the ready bit to see if the MDI read completed
+            let mut mdic = 0;
+            for _ in 0..641 {
+                awkernel_lib::delay::wait_microsec(5);
+                mdic = read_reg(info, super::MDIC)?;
+                if mdic & super::MDIC_READY != 0 {
+                    break;
+                }
+            }
+
+            if mdic & super::MDIC_READY == 0 {
+                return Err(IgbDriverErr::Phy);
+            }
+
+            if matches!(
+                self.mac_type,
+                MacType::EmPch2lan
+                    | MacType::EmPchLpt
+                    | MacType::EmPchSpt
+                    | MacType::EmPchCnp
+                    | MacType::EmPchTgp
+                    | MacType::EmPchAdp
+            ) {
+                awkernel_lib::delay::wait_microsec(100);
+            }
+
+            Ok(())
+        } else {
+            Err(IgbDriverErr::NotSupported)
+        }
+    }
+
+    /// em_sgmii_uses_mdio_82575 - Determine if I2C pins are for external MDIO
+    ///
+    /// Called to determine if the I2C pins are being used for I2C or as an
+    /// external MDIO interface since the two options are mutually exclusive.
+    fn sgmii_uses_mdio_82575(&self, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
+        match self.mac_type {
+            MacType::Em82575 | MacType::Em82576 => {
+                let reg = read_reg(info, super::MDIC)?;
+                Ok(reg & super::MDIC_DEST != 0)
+            }
+            MacType::Em82580 | MacType::EmI350 | MacType::EmI210 => {
+                let reg = read_reg(info, super::MDICNFG)?;
+                Ok(reg & super::MDICNFG_EXT_MDIO != 0)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// em_write_phy_reg_i2c - Write PHY register using i2c.
+    /// Writes the data to PHY register at the offset using the i2c interface.
+    fn write_phy_reg_i2c(
+        &self,
+        info: &PCIeInfo,
+        offset: u32,
+        data: u16,
+    ) -> Result<(), IgbDriverErr> {
+        // Prevent overwriting SFP I2C EEPROM which is at A0 address.
+        if self.phy_addr == 0 || self.phy_addr > 7 {
+            log::warn!("igb: PHY I2C Address {} is out of range.", self.phy_addr);
+            return Err(IgbDriverErr::Config);
+        }
+
+        // Swap the data bytes for the I2C interface
+        let phy_data_swapped = ((data >> 8) & 0x00FF) | ((data << 8) & 0xFF00);
+
+        // Set up Op-code, Phy Address, and register address in the I2CCMD
+        // register.  The MAC will take care of interfacing with the
+        // PHY to retrieve the desired data.
+        let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT)
+            | (self.phy_addr << super::I2CCMD_PHY_ADDR_SHIFT)
+            | super::I2CCMD_OPCODE_WRITE
+            | phy_data_swapped as u32;
+
+        write_reg(info, super::I2CCMD, i2ccmd)?;
+
+        // Poll the ready bit to see if the I2C read completed
+        let mut i2ccmd = 0;
+        for _ in 0..super::I2CCMD_PHY_TIMEOUT {
+            awkernel_lib::delay::wait_microsec(50);
+            i2ccmd = read_reg(info, super::I2CCMD)?;
+            if i2ccmd & super::I2CCMD_READY != 0 {
+                break;
+            }
+        }
+
+        if i2ccmd & super::I2CCMD_READY == 0 {
+            log::warn!("igb: I2CCMD Write did not complete.");
+            return Err(IgbDriverErr::Phy);
+        }
+
+        if i2ccmd & super::I2CCMD_ERROR != 0 {
+            log::warn!("igb: I2CCMD Error bit set.");
+            return Err(IgbDriverErr::Phy);
+        }
+
+        Ok(())
+    }
+
+    /// em_read_phy_reg_i2c - Read PHY register using i2c
+    ///
+    /// Reads the PHY register at offset using the i2c interface and stores the
+    /// retrieved information in data.
+    fn read_phy_reg_i2c(&self, info: &PCIeInfo, offset: u32) -> Result<u16, IgbDriverErr> {
+        // Set up Op-code, Phy Address, and register address in the I2CCMD
+        // register. The MAC will take care of interfacing with the
+        // PHY to retrieve the desired data.
+        let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT)
+            | (self.phy_addr << super::I2CCMD_PHY_ADDR_SHIFT)
+            | super::I2CCMD_OPCODE_READ;
+
+        write_reg(info, super::I2CCMD, i2ccmd)?;
+
+        // Poll the ready bit to see if the I2C read completed
+        let mut i2ccmd = 0;
+        for _ in 0..super::I2CCMD_PHY_TIMEOUT {
+            awkernel_lib::delay::wait_microsec(50);
+            i2ccmd = read_reg(info, super::I2CCMD)?;
+            if i2ccmd & super::I2CCMD_READY != 0 {
+                break;
+            }
+        }
+
+        if i2ccmd & super::I2CCMD_READY == 0 {
+            log::warn!("igb: I2CCMD Read did not complete.");
+            return Err(IgbDriverErr::Phy);
+        }
+
+        if i2ccmd & super::I2CCMD_ERROR != 0 {
+            log::warn!("igb: I2CCMD Error bit set.");
+            return Err(IgbDriverErr::Phy);
+        }
+
+        // Need to byte-swap the 16-bit value.
+        let data = ((i2ccmd >> 8) & 0x00FF) | ((i2ccmd << 8) & 0xFF00);
+        Ok(data as u16)
+    }
+
+    fn read_phy_reg_ex(&self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
+        // SGMII active is only set on some specific chips
+        if self.sgmii_active && !self.sgmii_uses_mdio_82575(info)? {
+            if reg_addr > super::MAX_SGMII_PHY_REG_ADDR {
+                return Err(IgbDriverErr::Param);
+            }
+            return self.read_phy_reg_i2c(info, reg_addr);
+        }
+
+        if reg_addr > MAX_PHY_REG_ADDRESS {
+            return Err(IgbDriverErr::Param);
+        }
+
+        if matches!(self.mac_type, MacType::EmICPxxxx) {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        if self.mac_type.clone() as usize > MacType::Em82543 as usize {
+            // Set up Op-code, Phy Address, and register address in the MDI Control register.
+            // The MAC will take care of interfacing with the PHY to retrieve the desired data.
+            let mdic = ((reg_addr << super::MDIC_REG_SHIFT)
+                | (self.phy_addr << super::MDIC_PHY_SHIFT)
+                | (super::MDIC_OP_READ)) as u32;
+
+            write_reg(info, super::MDIC, mdic)?;
+
+            // Poll the ready bit to see if the MDI read completed
+            let mut mdic = 0;
+            for _ in 0..1960 {
+                awkernel_lib::delay::wait_microsec(50);
+                mdic = read_reg(info, super::MDIC)?;
+                if mdic & super::MDIC_READY != 0 {
+                    break;
+                }
+            }
+
+            if mdic & super::MDIC_READY == 0 {
+                log::warn!("igb: MDI Read did not complete.");
+                return Err(IgbDriverErr::Phy);
+            }
+
+            if mdic & super::MDIC_ERROR != 0 {
+                log::warn!("igb: MDI Error bit set.");
+                return Err(IgbDriverErr::Phy);
+            }
+
+            if matches!(
+                self.mac_type,
+                MacType::EmPch2lan
+                    | MacType::EmPchLpt
+                    | MacType::EmPchSpt
+                    | MacType::EmPchCnp
+                    | MacType::EmPchTgp
+                    | MacType::EmPchAdp
+            ) {
+                awkernel_lib::delay::wait_microsec(100);
+            }
+
+            Ok(mdic as u16)
+        } else {
+            Err(IgbDriverErr::NotSupported)
+        }
     }
 
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L4869
@@ -1252,11 +1504,7 @@ impl IgbHw {
             return Ok(());
         }
 
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
-        let mut extcnf_ctrl = bar0
-            .read(super::EXTCNF_CTRL)
-            .ok_or(IgbDriverErr::ReadFailure)?;
+        let mut extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
 
         if gate {
             extcnf_ctrl |= super::EXTCNF_CTRL_GATE_PHY_CFG
@@ -1264,7 +1512,7 @@ impl IgbHw {
             extcnf_ctrl &= !super::EXTCNF_CTRL_GATE_PHY_CFG;
         }
 
-        bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+        write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
 
         Ok(())
     }
@@ -1278,9 +1526,7 @@ const MASTER_DISABLE_TIMEOUT: u32 = 800;
 /// increase the value to either 10ms to 200ms for capability version 1 config,
 /// or 16ms to 55ms for version 2.
 fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
-    let mut gcr = bar0.read(super::GCR).ok_or(IgbDriverErr::ReadFailure)?;
+    let mut gcr = read_reg(info, super::GCR)?;
 
     // Only take action if timeout value is not set by system BIOS
     //
@@ -1293,21 +1539,19 @@ fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     // Disable completion timeout resend
     gcr &= super::GCR_CMPL_TMOUT_RESEND;
 
-    bar0.write(super::GCR, gcr);
+    write_reg(info, super::GCR, gcr)?;
 
     Ok(())
 }
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
 fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    // let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
     set_pcie_express_master_disable(info)?;
 
     for _ in 0..MASTER_DISABLE_TIMEOUT {
-        if bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)? & super::CTRL_GIO_MASTER_DISABLE
-            != 0
-        {
+        if read_reg(info, super::CTRL)? & super::CTRL_GIO_MASTER_DISABLE != 0 {
             return Ok(());
         }
     }
@@ -1317,9 +1561,8 @@ fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9533
 fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    let ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
-    bar0.write(super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE);
+    let ctrl = read_reg(info, super::CTRL)?;
+    write_reg(info, super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE)?;
 
     Ok(())
 }
@@ -1789,8 +2032,8 @@ bitflags::bitflags! {
 /// Return `(media_type, sgmii_active)`.
 fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDriverErr> {
     // Turn I2C interface ON and power on sfp cage
-    let ctrl_ext_orig = read_reg(info, super::CTRL_EXT)?;
-    let ctrl_ext = ctrl_ext_orig & !super::CTRL_EXT_SDP3_DATA;
+    let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+    let ctrl_ext = ctrl_ext & !super::CTRL_EXT_SDP3_DATA;
     write_reg(info, super::CTRL_EXT, ctrl_ext)?;
 
     write_flush(info)?;
@@ -1812,12 +2055,12 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
     }
 
     if timeout == 0 {
-        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     }
 
     let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_ETH_FLAGS_OFFSET)) else {
-        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     };
 
@@ -1838,15 +2081,15 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
         } else if eth_flags.contains(SfpE1000Flags::E1000_BASE_T) {
             (MediaType::Copper, true)
         } else {
-            write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
             return Err(IgbDriverErr::Config);
         }
     } else {
-        write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Config);
     };
 
-    write_reg(info, super::CTRL_EXT, ctrl_ext_orig)?;
+    write_reg(info, super::CTRL_EXT, ctrl_ext)?;
     Ok(result)
 }
 
