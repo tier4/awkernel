@@ -426,6 +426,14 @@ const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
 const PHY_PAGE_SHIFT: u32 = 5;
 const PHY_UPPER_SHIFT: u32 = 21;
 
+// SW_W_SYNC definitions
+const _SWFW_EEP_SM: u16 = 0x0001;
+const SWFW_PHY0_SM: u16 = 0x0002;
+const _SWFW_PHY1_SM: u16 = 0x0004;
+const _SWFW_MAC_CSR_SM: u16 = 0x0008;
+const _SWFW_PHY2_SM: u16 = 0x0020;
+const _SWFW_PHY3_SM: u16 = 0x0040;
+
 #[derive(Debug)]
 pub enum MediaType {
     Copper,
@@ -1000,6 +1008,26 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Release software semaphore FLAG bit (SWFLAG).
+    /// SWFLAG is used to synchronize the access to all shared resource between
+    /// SW, FW and HW.
+    fn release_software_flag(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if is_ich8(&self.mac_type) {
+            assert!(self.sw_flag > 0);
+
+            self.sw_flag -= 1;
+            if self.sw_flag > 0 {
+                return Ok(());
+            }
+
+            let extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
+            let extcnf_ctrl = extcnf_ctrl & !super::EXTCNF_CTRL_SWFLAG;
+            write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+        }
+
+        Ok(())
+    }
+
     /// A series of Phy workarounds to be done after every PHY reset.
     fn hv_phy_workarounds_ich8lan(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!()
@@ -1022,9 +1050,86 @@ impl IgbHw {
 
     /// Reads or writes the value from a PHY register, if the value is on a specific non zero page, sets the page first.
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L5064
-    fn access_phy_reg_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    fn access_phy_reg_hv(
+        &mut self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        read: bool,
+    ) -> Result<Option<u16>, IgbDriverErr> {
+        let swfw = SWFW_PHY0_SM;
+
+        self.swfw_sync_acquire(info, swfw)?;
+
+        let page = bm_phy_reg_page(reg_addr);
+
         todo!()
     }
+
+    //     5063 int32_t
+    // 5064 em_access_phy_reg_hv(struct em_hw *hw, uint32_t reg_addr, uint16_t *phy_data,
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 5065     boolean_t read)
+    // 5066 {
+    // 5067         uint32_t ret_val;
+    // 5068         uint16_t swfw;
+    // 5069         uint16_t page = BM_PHY_REG_PAGE(reg_addr);
+    // 5070         uint16_t reg = BM_PHY_REG_NUM(reg_addr);
+    // 5071
+    // 5072         DEBUGFUNC("em_access_phy_reg_hv");
+    // 5073
+    // 5074         swfw = E1000_SWFW_PHY0_SM;
+    // 5075
+    // 5076         if (em_swfw_sync_acquire(hw, swfw))
+    // 5077                 return -E1000_ERR_SWFW_SYNC;
+    // 5078
+    // 5079         if (page == BM_WUC_PAGE) {
+    // 5080                 ret_val = em_access_phy_wakeup_reg_bm(hw, reg_addr,
+    // 5081                     phy_data, read);
+    // 5082                 goto release;
+    // 5083         }
+    // 5084
+    // 5085         if (page >= HV_INTC_FC_PAGE_START)
+    // 5086                 hw->phy_addr = 1;
+    // 5087         else
+    // 5088                 hw->phy_addr = 2;
+    // 5089
+    // 5090         if (page == HV_INTC_FC_PAGE_START)
+    // 5091                 page = 0;
+    // 5092
+    // 5093         /*
+    // 5094          * Workaround MDIO accesses being disabled after entering IEEE Power
+    // 5095          * Down (whenever bit 11 of the PHY Control register is set)
+    // 5096          */
+    // 5097         if (!read &&
+    // 5098             (hw->phy_type == em_phy_82578) &&
+    // 5099             (hw->phy_revision >= 1) &&
+    // 5100             (hw->phy_addr == 2) &&
+    // 5101             ((MAX_PHY_REG_ADDRESS & reg) == 0) &&
+    // 5102             (*phy_data & (1 << 11))) {
+    // 5103                 uint16_t data2 = 0x7EFF;
+    // 5104
+    // 5105                 ret_val = em_access_phy_debug_regs_hv(hw, (1 << 6) | 0x3,
+    // 5106                     &data2, FALSE);
+    // 5107                 if (ret_val)
+    // 5108                         return ret_val;
+    // 5109         }
+    // 5110
+    // 5111         if (reg_addr > MAX_PHY_MULTI_PAGE_REG) {
+    // 5112                 ret_val = em_write_phy_reg_ex(hw, IGP01E1000_PHY_PAGE_SELECT,
+    // 5113                     (page << PHY_PAGE_SHIFT));
+    // 5114                 if (ret_val)
+    // 5115                         return ret_val;
+    // 5116         }
+    // 5117         if (read)
+    // 5118                 ret_val = em_read_phy_reg_ex(hw, MAX_PHY_REG_ADDRESS & reg,
+    // 5119                     phy_data);
+    // 5120         else
+    // 5121                 ret_val = em_write_phy_reg_ex(hw, MAX_PHY_REG_ADDRESS & reg,
+    // 5122                     *phy_data);
+    // 5123 release:
+    // 5124         em_swfw_sync_release(hw, swfw);
+    // 5125         return ret_val;
+    // 5126 }
 
     /// Read BM PHY wakeup register.  It works as such:
     /// 1) Set page 769, register 17, bit 2 = 1
@@ -1374,6 +1479,24 @@ impl IgbHw {
         Ok(())
     }
 
+    fn swfw_sync_release(&mut self, info: &PCIeInfo, mask: u16) -> Result<(), IgbDriverErr> {
+        if self.swfwhw_semaphore_present {
+            return self.release_software_flag(info);
+        }
+
+        if !self.swfw_sync_present {
+            return self.put_hw_eeprom_semaphore(info);
+        }
+
+        while self.get_hw_eeprom_semaphore(info).is_err() {}
+
+        let swfw_sync = read_reg(info, super::SW_FW_SYNC)?;
+        let swfw_sync = swfw_sync & !(mask as u32);
+        write_reg(info, super::SW_FW_SYNC, swfw_sync)?;
+
+        self.put_hw_eeprom_semaphore(info)
+    }
+
     /// Using the combination of SMBI and SWESMBI semaphore bits when resetting adapter or Eeprom access.
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L9719
     fn get_hw_eeprom_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
@@ -1609,8 +1732,6 @@ fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9559
 fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    // let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
     set_pcie_express_master_disable(info)?;
 
     for _ in 0..MASTER_DISABLE_TIMEOUT {
@@ -2216,4 +2337,8 @@ fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
 fn bm_phy_reg_num(offset: u32) -> u16 {
     ((offset & MAX_PHY_REG_ADDRESS)
         | ((offset >> (PHY_UPPER_SHIFT - PHY_PAGE_SHIFT)) & !MAX_PHY_REG_ADDRESS)) as u16
+}
+
+fn bm_phy_reg_page(offset: u32) -> u16 {
+    ((offset >> PHY_PAGE_SHIFT) & 0xFFFF) as u16
 }
