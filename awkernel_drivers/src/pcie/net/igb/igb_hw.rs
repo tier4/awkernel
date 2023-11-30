@@ -402,6 +402,30 @@ const SW_FLAG_TIMEOUT: usize = 100;
 
 const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
 
+// IGP01E1000 Specific Registers
+const _IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; /* PHY Specific Port Config Register */
+const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; /* PHY Specific Status Register */
+const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; /* PHY Specific Control Register */
+const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; /* PHY Link Health Register */
+const _IGP01E1000_GMII_FIFO: u32 = 0x14; /* GMII FIFO Register */
+const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; /* PHY Channel Quality Register */
+const _IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
+const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; /* PHY Page Select Core Register */
+
+// BM/HV Specific Registers
+const BM_PORT_CTRL_PAGE: u16 = 769;
+const _BM_PCIE_PAGE: u16 = 770;
+const BM_WUC_PAGE: u16 = 800;
+const BM_WUC_ADDRESS_OPCODE: u32 = 0x11;
+const BM_WUC_DATA_OPCODE: u32 = 0x12;
+const BM_WUC_ENABLE_PAGE: u16 = BM_PORT_CTRL_PAGE;
+const BM_WUC_ENABLE_REG: u32 = 17;
+const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
+const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
+
+const PHY_PAGE_SHIFT: u32 = 5;
+const PHY_UPPER_SHIFT: u32 = 21;
+
 #[derive(Debug)]
 pub enum MediaType {
     Copper,
@@ -1008,8 +1032,64 @@ impl IgbHw {
     /// 3) Write the address using the address opcode (0x11)
     /// 4) Read or write the data using the data opcode (0x12)
     /// 5) Restore 769_17.2 to its original value
-    fn access_phy_wakeup_reg_bm(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+    fn access_phy_wakeup_reg_bm(
+        &mut self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        read: bool,
+        write_data: Option<u16>,
+    ) -> Result<Option<u16>, IgbDriverErr> {
+        // All operations in this function are phy address 1
+        self.phy_addr = 1;
+
+        // Set page 769
+        self.write_phy_reg_ex(
+            info,
+            IGP01E1000_PHY_PAGE_SELECT,
+            BM_WUC_ENABLE_PAGE << PHY_PAGE_SHIFT,
+        )?;
+
+        let mut phy_reg = self.read_phy_reg_ex(info, BM_WUC_ENABLE_REG)?;
+
+        // First clear bit 4 to avoid a power state change
+        phy_reg &= !BM_WUC_HOST_WU_BIT;
+        self.write_phy_reg_ex(info, BM_WUC_ENABLE_REG, phy_reg)?;
+
+        // Write bit 2 = 1, and clear bit 4 to 769_17
+        self.write_phy_reg_ex(info, BM_WUC_ENABLE_REG, phy_reg | BM_WUC_ENABLE_BIT)?;
+
+        // Select page 800
+        self.write_phy_reg_ex(
+            info,
+            IGP01E1000_PHY_PAGE_SELECT,
+            BM_WUC_PAGE << PHY_PAGE_SHIFT,
+        )?;
+
+        // Write the page 800 offset value using opcode 0x11
+        let reg = bm_phy_reg_num(reg_addr);
+        self.write_phy_reg_ex(info, BM_WUC_ADDRESS_OPCODE, reg)?;
+
+        let result = if read {
+            // Read the page 800 value using opcode 0x12
+            Some(self.read_phy_reg_ex(info, BM_WUC_DATA_OPCODE)?)
+        } else {
+            // Write the page 800 value using opcode 0x12
+            self.write_phy_reg_ex(info, BM_WUC_DATA_OPCODE, write_data.unwrap())?;
+            None
+        };
+
+        // Restore 769_17.2 to its original value
+        // Set page 769
+        self.write_phy_reg_ex(
+            info,
+            IGP01E1000_PHY_PAGE_SELECT,
+            BM_WUC_ENABLE_PAGE << PHY_PAGE_SHIFT,
+        )?;
+
+        // Clear 769_17.2
+        self.write_phy_reg_ex(info, BM_WUC_ENABLE_REG, phy_reg)?;
+
+        Ok(result)
     }
 
     fn write_phy_reg_ex(
@@ -1260,8 +1340,6 @@ impl IgbHw {
             return self.get_hw_eeprom_semaphore(info);
         }
 
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
         let mut swfw_sync = 0;
         let swmask = mask as u32;
         let fwmask = (mask << 16) as u32;
@@ -1272,9 +1350,7 @@ impl IgbHw {
                 return Err(IgbDriverErr::SwfwSync);
             }
 
-            swfw_sync = bar0
-                .read(super::SW_FW_SYNC)
-                .ok_or(IgbDriverErr::ReadFailure)?;
+            swfw_sync = read_reg(info, super::SW_FW_SYNC)?;
 
             if swfw_sync & (fwmask | swmask) != 0 {
                 break;
@@ -1291,7 +1367,7 @@ impl IgbHw {
         }
 
         swfw_sync |= swmask;
-        bar0.write(super::SW_FW_SYNC, swfw_sync);
+        write_reg(info, super::SW_FW_SYNC, swfw_sync)?;
 
         self.put_hw_eeprom_semaphore(info)?;
 
@@ -1310,18 +1386,15 @@ impl IgbHw {
             return self.get_software_semaphore(info);
         }
 
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
         // Get the FW semaphore.
         let mut timeout = self.eeprom.word_size + 1;
 
         while timeout > 0 {
-            let swsm =
-                bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)? | super::SWSM_SWESMBI;
-            bar0.write(super::SWSM, swsm);
+            let swsm = read_reg(info, super::SWSM)? | super::SWSM_SWESMBI;
+            write_reg(info, super::SWSM, swsm)?;
 
             // If we managed to set the bit we got the semaphore.
-            let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+            let swsm = read_reg(info, super::SWSM)?;
             if swsm & super::SWSM_SWESMBI != 0 {
                 break;
             }
@@ -1345,17 +1418,16 @@ impl IgbHw {
             return Ok(());
         }
 
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
-        let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+        let swsm = read_reg(info, super::SWSM)?;
         if matches!(self.mac_type, MacType::Em80003es2lan) {
             // Release both semaphores.
-            bar0.write(
+            write_reg(
+                info,
                 super::SWSM,
                 swsm & !(super::SWSM_SMBI | super::SWSM_SWESMBI),
-            );
+            )?;
         } else {
-            bar0.write(super::SWSM, swsm & !(super::SWSM_SWESMBI));
+            write_reg(info, super::SWSM, swsm & !(super::SWSM_SWESMBI))?;
         };
 
         Ok(())
@@ -1367,11 +1439,9 @@ impl IgbHw {
             return Ok(());
         }
 
-        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
         let mut timeout = self.eeprom.word_size + 1;
         while timeout > 0 {
-            let swsm = bar0.read(super::SWSM).ok_or(IgbDriverErr::ReadFailure)?;
+            let swsm = read_reg(info, super::SWSM)?;
 
             // If SMBI bit cleared, it is now set and we hold the semaphore
             if swsm & super::SWSM_SMBI == 0 {
@@ -1395,7 +1465,6 @@ impl IgbHw {
     /// SW, FW and HW.
     fn get_software_flag(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         let mut timeout = SW_FLAG_TIMEOUT;
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         if is_ich8(&self.mac_type) {
             if self.sw_flag != 0 {
@@ -1405,9 +1474,7 @@ impl IgbHw {
 
             let mut extcnf_ctrl = 0;
             while timeout > 0 {
-                extcnf_ctrl = bar0
-                    .read(super::EXTCNF_CTRL)
-                    .ok_or(IgbDriverErr::ReadFailure)?;
+                extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
 
                 if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG == 0 {
                     break;
@@ -1424,12 +1491,10 @@ impl IgbHw {
 
             timeout = SW_FLAG_TIMEOUT;
             extcnf_ctrl |= super::EXTCNF_CTRL_SWFLAG;
-            bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+            write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
 
             while timeout > 0 {
-                extcnf_ctrl = bar0
-                    .read(super::EXTCNF_CTRL)
-                    .ok_or(IgbDriverErr::ReadFailure)?;
+                extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
 
                 if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG != 0 {
                     break;
@@ -1442,7 +1507,7 @@ impl IgbHw {
             if timeout == 0 {
                 log::warn!("igb: Failed to acquire the semaphore, FW or HW has it.");
                 extcnf_ctrl &= !super::EXTCNF_CTRL_SWFLAG;
-                bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+                write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
                 return Err(IgbDriverErr::Config);
             }
         }
@@ -1456,14 +1521,12 @@ impl IgbHw {
     /// Returning E1000_BLK_PHY_RESET isn't necessarily an error.  But it's up to
     /// the caller to figure out how to deal with it.
     fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-
         if is_ich8(&self.mac_type) {
             let mut i = 0;
             let mut blocked = true;
 
             while blocked && i < 30 {
-                let fwsm = bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?;
+                let fwsm = read_reg(info, super::FWSM)?;
                 i += 1;
 
                 if (fwsm & super::FWSM_RSPCIPHY) == 0 {
@@ -1482,7 +1545,7 @@ impl IgbHw {
         }
 
         let manc = if self.mac_type.clone() as u32 > MacType::Em82547Rev2 as u32 {
-            bar0.read(super::MANC).ok_or(IgbDriverErr::ReadFailure)?
+            read_reg(info, super::MANC)?
         } else {
             0
         };
@@ -2148,4 +2211,9 @@ fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     bar0.read(super::STATUS).ok_or(IgbDriverErr::ReadFailure)?;
     Ok(())
+}
+
+fn bm_phy_reg_num(offset: u32) -> u16 {
+    ((offset & MAX_PHY_REG_ADDRESS)
+        | ((offset >> (PHY_UPPER_SHIFT - PHY_PAGE_SHIFT)) & !MAX_PHY_REG_ADDRESS)) as u16
 }
