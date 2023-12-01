@@ -1,3 +1,5 @@
+use x86_64::structures::paging::page;
+
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::IgbDriverErr;
@@ -401,6 +403,7 @@ const E1000_PBS_16K: u32 = E1000_PBA_16K;
 const SW_FLAG_TIMEOUT: usize = 100;
 
 const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
+const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
 
 // IGP01E1000 Specific Registers
 const _IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; /* PHY Specific Port Config Register */
@@ -434,12 +437,53 @@ const _SWFW_MAC_CSR_SM: u16 = 0x0008;
 const _SWFW_PHY2_SM: u16 = 0x0020;
 const _SWFW_PHY3_SM: u16 = 0x0040;
 
+// Hanksville definitions
+const HV_INTC_FC_PAGE_START: u16 = 768;
+
+const _HV_SCC_UPPER: u32 = phy_reg(778, 16); /* Single Collision Count */
+const _HV_SCC_LOWER: u32 = phy_reg(778, 17);
+const _HV_ECOL_UPPER: u32 = phy_reg(778, 18); /* Excessive Collision Count */
+const _HV_ECOL_LOWER: u32 = phy_reg(778, 19);
+const _HV_MCC_UPPER: u32 = phy_reg(778, 20); /* Multiple Collision Count */
+const _HV_MCC_LOWER: u32 = phy_reg(778, 21);
+const _HV_LATECOL_UPPER: u32 = phy_reg(778, 23); /* Late Collision Count */
+const _HV_LATECOL_LOWER: u32 = phy_reg(778, 24);
+const _HV_COLC_UPPER: u32 = phy_reg(778, 25); /* Collision Count */
+const _HV_COLC_LOWER: u32 = phy_reg(778, 26);
+const _HV_DC_UPPER: u32 = phy_reg(778, 27); /* Defer Count */
+const _HV_DC_LOWER: u32 = phy_reg(778, 28);
+const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); /* Transmit with no CRS */
+const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
+
+const fn phy_reg(page: u32, reg: u32) -> u32 {
+    (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
+}
+
 #[derive(Debug)]
 pub enum MediaType {
     Copper,
     Fiber,
     InternalSerdes,
     OEM,
+}
+
+#[derive(Debug)]
+pub enum PhyType {
+    M88,
+    Igp,
+    Igp2,
+    Gg82563,
+    Igp3,
+    Ife,
+    Bm, // phy used in i82574L, ICH10 and some ICH9
+    Oem,
+    I82577,
+    I82578,
+    I82579,
+    I217,
+    I82580,
+    Rtl8211,
+    Undefined,
 }
 
 #[derive(Debug)]
@@ -463,6 +507,8 @@ pub struct IgbHw {
     sgmii_active: bool,
     sw_flag: isize,
     phy_addr: u32,
+    phy_revision: Option<u32>,
+    phy_type: PhyType,
 }
 
 #[derive(Debug, Clone)]
@@ -860,6 +906,8 @@ impl IgbHw {
             sgmii_active,
             sw_flag: 0,
             phy_addr: 0,
+            phy_revision: None,
+            phy_type: PhyType::Undefined,
         };
 
         Ok(hw)
@@ -1050,86 +1098,148 @@ impl IgbHw {
 
     /// Reads or writes the value from a PHY register, if the value is on a specific non zero page, sets the page first.
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L5064
-    fn access_phy_reg_hv(
+    fn access_phy_reg_hv_read(
         &mut self,
         info: &PCIeInfo,
         reg_addr: u32,
-        read: bool,
-    ) -> Result<Option<u16>, IgbDriverErr> {
+    ) -> Result<u16, IgbDriverErr> {
         let swfw = SWFW_PHY0_SM;
 
         self.swfw_sync_acquire(info, swfw)?;
 
         let page = bm_phy_reg_page(reg_addr);
+        if page == BM_WUC_PAGE {
+            let result = self.access_phy_wakeup_reg_bm(info, reg_addr, true, None)?;
+            self.swfw_sync_release(info, swfw)?;
+            return Ok(result.unwrap());
+        }
 
+        if page >= HV_INTC_FC_PAGE_START {
+            self.phy_addr = 1;
+        } else {
+            self.phy_addr = 2;
+        }
+
+        let page = if page == HV_INTC_FC_PAGE_START {
+            0
+        } else {
+            page
+        };
+
+        if reg_addr > MAX_PHY_MULTI_PAGE_REG {
+            self.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
+        }
+
+        let reg = bm_phy_reg_num(reg_addr) as u32;
+        let result = self.read_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg)?;
+
+        self.swfw_sync_release(info, swfw)?;
+
+        Ok(result)
+    }
+
+    fn access_phy_reg_hv_write(
+        &mut self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        phy_data: u16,
+    ) -> Result<(), IgbDriverErr> {
+        let swfw = SWFW_PHY0_SM;
+
+        self.swfw_sync_acquire(info, swfw)?;
+
+        let page = bm_phy_reg_page(reg_addr);
+        if page == BM_WUC_PAGE {
+            self.access_phy_wakeup_reg_bm(info, reg_addr, false, Some(phy_data))?;
+            self.swfw_sync_release(info, swfw)?;
+            return Ok(());
+        }
+
+        if page >= HV_INTC_FC_PAGE_START {
+            self.phy_addr = 1;
+        } else {
+            self.phy_addr = 2;
+        }
+
+        let reg = bm_phy_reg_num(reg_addr) as u32;
+
+        // Workaround MDIO accesses being disabled after entering IEEE Power
+        // Down (whenever bit 11 of the PHY Control register is set)
+        if matches!(self.phy_type, PhyType::I82578)
+            && matches!(self.phy_revision, Some(1))
+            && self.phy_addr == 2
+            && (MAX_PHY_REG_ADDRESS & reg) == 0
+            && phy_data & (1 << 11) != 0
+        {
+            let data2 = 0x7EFF;
+            self.access_phy_debug_regs_hv(info, (1 << 6) | 0x3, Some(data2), false)?;
+        }
+
+        let page = if page == HV_INTC_FC_PAGE_START {
+            0
+        } else {
+            page
+        };
+
+        if reg_addr > MAX_PHY_MULTI_PAGE_REG {
+            self.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
+        }
+
+        self.write_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg, phy_data)?;
+        self.swfw_sync_release(info, swfw)?;
+
+        Ok(())
+    }
+
+    /// Read HV PHY vendor specific high registers
+    pub fn access_phy_debug_regs_hv(
+        &self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        phy_data: Option<u16>,
+        read: bool,
+    ) -> Result<Option<u16>, IgbDriverErr> {
         todo!()
     }
 
-    //     5063 int32_t
-    // 5064 em_access_phy_reg_hv(struct em_hw *hw, uint32_t reg_addr, uint16_t *phy_data,
+    //     5019 int32_t
+    // 5020 em_access_phy_debug_regs_hv(struct em_hw *hw, uint32_t reg_addr,
     //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 5065     boolean_t read)
-    // 5066 {
-    // 5067         uint32_t ret_val;
-    // 5068         uint16_t swfw;
-    // 5069         uint16_t page = BM_PHY_REG_PAGE(reg_addr);
-    // 5070         uint16_t reg = BM_PHY_REG_NUM(reg_addr);
-    // 5071
-    // 5072         DEBUGFUNC("em_access_phy_reg_hv");
-    // 5073
-    // 5074         swfw = E1000_SWFW_PHY0_SM;
-    // 5075
-    // 5076         if (em_swfw_sync_acquire(hw, swfw))
-    // 5077                 return -E1000_ERR_SWFW_SYNC;
-    // 5078
-    // 5079         if (page == BM_WUC_PAGE) {
-    // 5080                 ret_val = em_access_phy_wakeup_reg_bm(hw, reg_addr,
-    // 5081                     phy_data, read);
-    // 5082                 goto release;
-    // 5083         }
-    // 5084
-    // 5085         if (page >= HV_INTC_FC_PAGE_START)
-    // 5086                 hw->phy_addr = 1;
-    // 5087         else
-    // 5088                 hw->phy_addr = 2;
-    // 5089
-    // 5090         if (page == HV_INTC_FC_PAGE_START)
-    // 5091                 page = 0;
-    // 5092
-    // 5093         /*
-    // 5094          * Workaround MDIO accesses being disabled after entering IEEE Power
-    // 5095          * Down (whenever bit 11 of the PHY Control register is set)
-    // 5096          */
-    // 5097         if (!read &&
-    // 5098             (hw->phy_type == em_phy_82578) &&
-    // 5099             (hw->phy_revision >= 1) &&
-    // 5100             (hw->phy_addr == 2) &&
-    // 5101             ((MAX_PHY_REG_ADDRESS & reg) == 0) &&
-    // 5102             (*phy_data & (1 << 11))) {
-    // 5103                 uint16_t data2 = 0x7EFF;
-    // 5104
-    // 5105                 ret_val = em_access_phy_debug_regs_hv(hw, (1 << 6) | 0x3,
-    // 5106                     &data2, FALSE);
-    // 5107                 if (ret_val)
-    // 5108                         return ret_val;
-    // 5109         }
-    // 5110
-    // 5111         if (reg_addr > MAX_PHY_MULTI_PAGE_REG) {
-    // 5112                 ret_val = em_write_phy_reg_ex(hw, IGP01E1000_PHY_PAGE_SELECT,
-    // 5113                     (page << PHY_PAGE_SHIFT));
-    // 5114                 if (ret_val)
-    // 5115                         return ret_val;
-    // 5116         }
-    // 5117         if (read)
-    // 5118                 ret_val = em_read_phy_reg_ex(hw, MAX_PHY_REG_ADDRESS & reg,
-    // 5119                     phy_data);
-    // 5120         else
-    // 5121                 ret_val = em_write_phy_reg_ex(hw, MAX_PHY_REG_ADDRESS & reg,
-    // 5122                     *phy_data);
-    // 5123 release:
-    // 5124         em_swfw_sync_release(hw, swfw);
-    // 5125         return ret_val;
-    // 5126 }
+    // 5021     uint16_t *phy_data, boolean_t read)
+    // 5022 {
+    // 5023         int32_t ret_val;
+    // 5024         uint32_t addr_reg = 0;
+    // 5025         uint32_t data_reg = 0;
+    // 5026
+    // 5027         /* This takes care of the difference with desktop vs mobile phy */
+    // 5028         addr_reg = (hw->phy_type == em_phy_82578) ?
+    // 5029                    I82578_PHY_ADDR_REG : I82577_PHY_ADDR_REG;
+    // 5030         data_reg = addr_reg + 1;
+    // 5031
+    // 5032         /* All operations in this function are phy address 2 */
+    // 5033         hw->phy_addr = 2;
+    // 5034
+    // 5035         /* masking with 0x3F to remove the page from offset */
+    // 5036         ret_val = em_write_phy_reg_ex(hw, addr_reg, (uint16_t)reg_addr & 0x3F);
+    // 5037         if (ret_val) {
+    // 5038                 printf("Could not write PHY the HV address register\n");
+    // 5039                 goto out;
+    // 5040         }
+    // 5041
+    // 5042         /* Read or write the data value next */
+    // 5043         if (read)
+    // 5044                 ret_val = em_read_phy_reg_ex(hw, data_reg, phy_data);
+    // 5045         else
+    // 5046                 ret_val = em_write_phy_reg_ex(hw, data_reg, *phy_data);
+    // 5047
+    // 5048         if (ret_val) {
+    // 5049                 printf("Could not read data value from HV data register\n");
+    // 5050                 goto out;
+    // 5051         }
+    // 5052
+    // 5053 out:
+    // 5054         return ret_val;
+    // 5055 }
 
     /// Read BM PHY wakeup register.  It works as such:
     /// 1) Set page 769, register 17, bit 2 = 1
@@ -2103,25 +2213,24 @@ fn set_media_type(
     if matches!(mac_type, Em82575 | Em82580 | Em82576 | EmI210 | EmI350) {
         let mut media_type = MediaType::Copper;
         let mut ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+        let mode = ctrl_ext & super::CTRL_EXT_LINK_MODE_MASK;
 
-        match ctrl_ext & super::CTRL_EXT_LINK_MODE_MASK {
+        match mode {
             super::CTRL_EXT_LINK_MODE_1000BASE_KX => {
                 media_type = MediaType::InternalSerdes;
                 ctrl_ext |= super::CTRL_I2C_ENA;
             }
-            super::CTRL_EXT_LINK_MODE_SGMII => {
-                let mdic = read_reg(info, super::MDICNFG)?;
+            super::CTRL_EXT_LINK_MODE_SGMII | super::CTRL_EXT_LINK_MODE_PCIE_SERDES => {
+                if mode == super::CTRL_EXT_LINK_MODE_SGMII {
+                    let mdic = read_reg(info, super::MDICNFG)?;
 
-                ctrl_ext |= super::CTRL_I2C_ENA;
+                    ctrl_ext |= super::CTRL_I2C_ENA;
 
-                if mdic & super::MDICNFG_EXT_MDIO != 0 {
-                    media_type = MediaType::Copper;
-                    sgmii_active = true;
+                    if mdic & super::MDICNFG_EXT_MDIO != 0 {
+                        sgmii_active = true;
+                    }
                 }
 
-                // FALLTHROUGH
-            }
-            super::CTRL_EXT_LINK_MODE_PCIE_SERDES => {
                 ctrl_ext |= super::CTRL_I2C_ENA;
 
                 match set_sfp_media_type_82575(info) {
@@ -2341,4 +2450,9 @@ fn bm_phy_reg_num(offset: u32) -> u16 {
 
 fn bm_phy_reg_page(offset: u32) -> u16 {
     ((offset >> PHY_PAGE_SHIFT) & 0xFFFF) as u16
+}
+
+/// Probes the expected PHY address for known PHY IDs
+fn detect_gig_phy(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    todo!()
 }
