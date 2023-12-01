@@ -455,6 +455,44 @@ const _HV_DC_LOWER: u32 = phy_reg(778, 28);
 const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); /* Transmit with no CRS */
 const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
 
+// I82577 Specific Registers
+const I82577_PHY_ADDR_REG: u32 = 16;
+const _I82577_PHY_CFG_REG: u32 = 22;
+const _I82577_PHY_CTRL_REG: u32 = 23;
+
+// I82578 Specific Registers
+const I82578_PHY_ADDR_REG: u32 = 29;
+
+// Bit definitions for valid PHY IDs.
+// I = Integrated
+// E = External
+const M88_VENDOR: u32 = 0x0141;
+const M88E1000_E_PHY_ID: u32 = 0x01410C50;
+const M88E1000_I_PHY_ID: u32 = 0x01410C30;
+const M88E1011_I_PHY_ID: u32 = 0x01410C20;
+const IGP01E1000_I_PHY_ID: u32 = 0x02A80380;
+const M88E1000_12_PHY_ID: u32 = M88E1000_E_PHY_ID;
+const M88E1000_14_PHY_ID: u32 = M88E1000_E_PHY_ID;
+const M88E1011_I_REV_4: u32 = 0x04;
+const M88E1111_I_PHY_ID: u32 = 0x01410CC0;
+const M88E1112_E_PHY_ID: u32 = 0x01410C90;
+const I347AT4_E_PHY_ID: u32 = 0x01410DC0;
+const L1LXT971A_PHY_ID: u32 = 0x001378E0;
+const GG82563_E_PHY_ID: u32 = 0x01410CA0;
+const BME1000_E_PHY_ID: u32 = 0x01410CB0;
+const BME1000_E_PHY_ID_R2: u32 = 0x01410CB1;
+const M88E1543_E_PHY_ID: u32 = 0x01410EA0;
+const I82577_E_PHY_ID: u32 = 0x01540050;
+const I82578_E_PHY_ID: u32 = 0x004DD040;
+const I82579_E_PHY_ID: u32 = 0x01540090;
+const I217_E_PHY_ID: u32 = 0x015400A0;
+const I82580_I_PHY_ID: u32 = 0x015403A0;
+const I350_I_PHY_ID: u32 = 0x015403B0;
+const I210_I_PHY_ID: u32 = 0x01410C00;
+const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
+const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
+const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
+
 const fn phy_reg(page: u32, reg: u32) -> u32 {
     (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
@@ -1056,6 +1094,156 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Probes the expected PHY address for known PHY IDs
+    fn detect_gig_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    /// Reads and matches the expected PHY address for known PHY IDs
+    fn match_gig_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    //     6006 STATIC int32_t
+    // 6007 em_match_gig_phy(struct em_hw *hw)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 6008 {
+    // 6009         int32_t   phy_init_status, ret_val;
+    // 6010         uint16_t  phy_id_high, phy_id_low;
+    // 6011         boolean_t match = FALSE;
+    // 6012         DEBUGFUNC("em_match_gig_phy");
+    // 6013
+    // 6014         ret_val = em_read_phy_reg(hw, PHY_ID1, &phy_id_high);
+    // 6015         if (ret_val)
+    // 6016                 return ret_val;
+    // 6017
+    // 6018         hw->phy_id = (uint32_t) (phy_id_high << 16);
+    // 6019         usec_delay(20);
+    // 6020         ret_val = em_read_phy_reg(hw, PHY_ID2, &phy_id_low);
+    // 6021         if (ret_val)
+    // 6022                 return ret_val;
+    // 6023
+    // 6024         hw->phy_id |= (uint32_t) (phy_id_low & PHY_REVISION_MASK);
+    // 6025         hw->phy_revision = (uint32_t) phy_id_low & ~PHY_REVISION_MASK;
+    // 6026
+    // 6027         switch (hw->mac_type) {
+    // 6028         case em_82543:
+    // 6029                 if (hw->phy_id == M88E1000_E_PHY_ID)
+    // 6030                         match = TRUE;
+    // 6031                 break;
+    // 6032         case em_82544:
+    // 6033                 if (hw->phy_id == M88E1000_I_PHY_ID)
+    // 6034                         match = TRUE;
+    // 6035                 break;
+    // 6036         case em_82540:
+    // 6037         case em_82545:
+    // 6038         case em_82545_rev_3:
+    // 6039         case em_82546:
+    // 6040         case em_82546_rev_3:
+    // 6041                 if (hw->phy_id == M88E1011_I_PHY_ID)
+    // 6042                         match = TRUE;
+    // 6043                 break;
+    // 6044         case em_82541:
+    // 6045         case em_82541_rev_2:
+    // 6046         case em_82547:
+    // 6047         case em_82547_rev_2:
+    // 6048                 if (hw->phy_id == IGP01E1000_I_PHY_ID)
+    // 6049                         match = TRUE;
+    // 6050                 break;
+    // 6051         case em_82573:
+    // 6052                 if (hw->phy_id == M88E1111_I_PHY_ID)
+    // 6053                         match = TRUE;
+    // 6054                 break;
+    // 6055         case em_82574:
+    // 6056                 if (hw->phy_id == BME1000_E_PHY_ID)
+    // 6057                         match = TRUE;
+    // 6058                 break;
+    // 6059         case em_82575:
+    // 6060         case em_82576:
+    // 6061                 if (hw->phy_id == M88E1000_E_PHY_ID)
+    // 6062                         match = TRUE;
+    // 6063                 if (hw->phy_id == IGP01E1000_I_PHY_ID)
+    // 6064                         match = TRUE;
+    // 6065                 if (hw->phy_id == IGP03E1000_E_PHY_ID)
+    // 6066                         match = TRUE;
+    // 6067                 break;
+    // 6068         case em_82580:
+    // 6069         case em_i210:
+    // 6070         case em_i350:
+    // 6071                 if (hw->phy_id == I82580_I_PHY_ID ||
+    // 6072                     hw->phy_id == I210_I_PHY_ID ||
+    // 6073                     hw->phy_id == I347AT4_E_PHY_ID ||
+    // 6074                     hw->phy_id == I350_I_PHY_ID ||
+    // 6075                     hw->phy_id == M88E1111_I_PHY_ID ||
+    // 6076                     hw->phy_id == M88E1112_E_PHY_ID ||
+    // 6077                     hw->phy_id == M88E1543_E_PHY_ID ||
+    // 6078                     hw->phy_id == M88E1512_E_PHY_ID) {
+    // 6079                         uint32_t mdic;
+    // 6080
+    // 6081                         mdic = EM_READ_REG(hw, E1000_MDICNFG);
+    // 6082                         if (mdic & E1000_MDICNFG_EXT_MDIO) {
+    // 6083                                 mdic &= E1000_MDICNFG_PHY_MASK;
+    // 6084                                 hw->phy_addr = mdic >> E1000_MDICNFG_PHY_SHIFT;
+    // 6085                                 DEBUGOUT1("MDICNFG PHY ADDR %d",
+    // 6086                                     mdic >> E1000_MDICNFG_PHY_SHIFT);
+    // 6087                         }
+    // 6088                         match = TRUE;
+    // 6089                 }
+    // 6090                 break;
+    // 6091         case em_80003es2lan:
+    // 6092                 if (hw->phy_id == GG82563_E_PHY_ID)
+    // 6093                         match = TRUE;
+    // 6094                 break;
+    // 6095         case em_ich8lan:
+    // 6096         case em_ich9lan:
+    // 6097         case em_ich10lan:
+    // 6098         case em_pchlan:
+    // 6099         case em_pch2lan:
+    // 6100                 if (hw->phy_id == IGP03E1000_E_PHY_ID)
+    // 6101                         match = TRUE;
+    // 6102                 if (hw->phy_id == IFE_E_PHY_ID)
+    // 6103                         match = TRUE;
+    // 6104                 if (hw->phy_id == IFE_PLUS_E_PHY_ID)
+    // 6105                         match = TRUE;
+    // 6106                 if (hw->phy_id == IFE_C_E_PHY_ID)
+    // 6107                         match = TRUE;
+    // 6108                 if (hw->phy_id == BME1000_E_PHY_ID)
+    // 6109                         match = TRUE;
+    // 6110                 if (hw->phy_id == I82577_E_PHY_ID)
+    // 6111                         match = TRUE;
+    // 6112                 if (hw->phy_id == I82578_E_PHY_ID)
+    // 6113                         match = TRUE;
+    // 6114                 if (hw->phy_id == I82579_E_PHY_ID)
+    // 6115                         match = TRUE;
+    // 6116                 break;
+    // 6117         case em_pch_lpt:
+    // 6118         case em_pch_spt:
+    // 6119         case em_pch_cnp:
+    // 6120         case em_pch_tgp:
+    // 6121         case em_pch_adp:
+    // 6122                 if (hw->phy_id == I217_E_PHY_ID)
+    // 6123                         match = TRUE;
+    // 6124                 break;
+    // 6125         case em_icp_xxxx:
+    // 6126                 if (hw->phy_id == M88E1141_E_PHY_ID)
+    // 6127                         match = TRUE;
+    // 6128                 if (hw->phy_id == RTL8211_E_PHY_ID)
+    // 6129                         match = TRUE;
+    // 6130                 break;
+    // 6131         default:
+    // 6132                 DEBUGOUT1("Invalid MAC type %d\n", hw->mac_type);
+    // 6133                 return -E1000_ERR_CONFIG;
+    // 6134         }
+    // 6135         phy_init_status = em_set_phy_type(hw);
+    // 6136
+    // 6137         if ((match) && (phy_init_status == E1000_SUCCESS)) {
+    // 6138                 DEBUGOUT1("PHY ID 0x%X detected\n", hw->phy_id);
+    // 6139                 return E1000_SUCCESS;
+    // 6140         }
+    // 6141         DEBUGOUT1("Invalid PHY ID 0x%X\n", hw->phy_id);
+    // 6142         return -E1000_ERR_PHY;
+    // 6143 }
+
     /// Release software semaphore FLAG bit (SWFLAG).
     /// SWFLAG is used to synchronize the access to all shared resource between
     /// SW, FW and HW.
@@ -1193,53 +1381,35 @@ impl IgbHw {
 
     /// Read HV PHY vendor specific high registers
     pub fn access_phy_debug_regs_hv(
-        &self,
+        &mut self,
         info: &PCIeInfo,
         reg_addr: u32,
         phy_data: Option<u16>,
         read: bool,
     ) -> Result<Option<u16>, IgbDriverErr> {
-        todo!()
-    }
+        // This takes care of the difference with desktop vs mobile phy
+        let addr_reg = if matches!(self.phy_type, PhyType::I82578) {
+            I82578_PHY_ADDR_REG
+        } else {
+            I82577_PHY_ADDR_REG
+        };
 
-    //     5019 int32_t
-    // 5020 em_access_phy_debug_regs_hv(struct em_hw *hw, uint32_t reg_addr,
-    //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 5021     uint16_t *phy_data, boolean_t read)
-    // 5022 {
-    // 5023         int32_t ret_val;
-    // 5024         uint32_t addr_reg = 0;
-    // 5025         uint32_t data_reg = 0;
-    // 5026
-    // 5027         /* This takes care of the difference with desktop vs mobile phy */
-    // 5028         addr_reg = (hw->phy_type == em_phy_82578) ?
-    // 5029                    I82578_PHY_ADDR_REG : I82577_PHY_ADDR_REG;
-    // 5030         data_reg = addr_reg + 1;
-    // 5031
-    // 5032         /* All operations in this function are phy address 2 */
-    // 5033         hw->phy_addr = 2;
-    // 5034
-    // 5035         /* masking with 0x3F to remove the page from offset */
-    // 5036         ret_val = em_write_phy_reg_ex(hw, addr_reg, (uint16_t)reg_addr & 0x3F);
-    // 5037         if (ret_val) {
-    // 5038                 printf("Could not write PHY the HV address register\n");
-    // 5039                 goto out;
-    // 5040         }
-    // 5041
-    // 5042         /* Read or write the data value next */
-    // 5043         if (read)
-    // 5044                 ret_val = em_read_phy_reg_ex(hw, data_reg, phy_data);
-    // 5045         else
-    // 5046                 ret_val = em_write_phy_reg_ex(hw, data_reg, *phy_data);
-    // 5047
-    // 5048         if (ret_val) {
-    // 5049                 printf("Could not read data value from HV data register\n");
-    // 5050                 goto out;
-    // 5051         }
-    // 5052
-    // 5053 out:
-    // 5054         return ret_val;
-    // 5055 }
+        let data_reg = addr_reg + 1;
+
+        // All operations in this function are phy address 2
+        self.phy_addr = 2;
+
+        // masking with 0x3F to remove the page from offset
+        self.write_phy_reg_ex(info, addr_reg, (reg_addr & 0x3F) as u16)?;
+
+        // Read or write the data value next
+        if read {
+            Ok(Some(self.read_phy_reg_ex(info, data_reg)?))
+        } else {
+            self.write_phy_reg_ex(info, data_reg, phy_data.unwrap())?;
+            Ok(None)
+        }
+    }
 
     /// Read BM PHY wakeup register.  It works as such:
     /// 1) Set page 769, register 17, bit 2 = 1
