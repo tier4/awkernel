@@ -119,6 +119,7 @@ pub enum IgbDriverErr {
     SwfwSync,
     Phy,
     Param,
+    PhyType,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -150,6 +151,7 @@ impl fmt::Display for IgbDriverErr {
             Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
             Self::Phy => write!(f, "PHY failure."),
             Self::Param => write!(f, "Parameter failure."),
+            Self::PhyType => write!(f, "PHY type failure."),
         }
     }
 }

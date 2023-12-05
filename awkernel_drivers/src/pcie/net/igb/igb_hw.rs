@@ -1279,8 +1279,63 @@ impl IgbHw {
         }
     }
 
+    /// Set the phy type member in the hw struct.
     fn set_phy_type(&mut self) -> Result<(), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        match self.phy_id {
+            M88E1000_E_PHY_ID | M88E1000_I_PHY_ID | M88E1011_I_PHY_ID | M88E1111_I_PHY_ID
+            | M88E1112_E_PHY_ID | M88E1543_E_PHY_ID | M88E1512_E_PHY_ID | I210_I_PHY_ID
+            | I347AT4_E_PHY_ID => {
+                self.phy_type = PhyType::M88;
+            }
+            IGP01E1000_I_PHY_ID => {
+                if matches!(self.mac_type, Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2) {
+                    self.phy_type = PhyType::Igp;
+                }
+            }
+            IGP03E1000_E_PHY_ID | IGP04E1000_E_PHY_ID => {
+                self.phy_type = PhyType::Igp3;
+            }
+            IFE_E_PHY_ID | IFE_PLUS_E_PHY_ID | IFE_C_E_PHY_ID => {
+                self.phy_type = PhyType::Ife;
+            }
+            M88E1141_E_PHY_ID => {
+                self.phy_type = PhyType::Oem;
+            }
+            I82577_E_PHY_ID => {
+                self.phy_type = PhyType::I82577;
+            }
+            I82578_E_PHY_ID => {
+                self.phy_type = PhyType::I82578;
+            }
+            I82579_E_PHY_ID => {
+                self.phy_type = PhyType::I82579;
+            }
+            I217_E_PHY_ID => {
+                self.phy_type = PhyType::I217;
+            }
+            I82580_I_PHY_ID | I350_I_PHY_ID => {
+                self.phy_type = PhyType::I82580;
+            }
+            RTL8211_E_PHY_ID => {
+                self.phy_type = PhyType::Rtl8211;
+            }
+            _ => {
+                if self.phy_id == BME1000_E_PHY_ID && self.phy_revision == Some(1) {
+                    self.phy_type = PhyType::Bm;
+                } else if self.phy_id == GG82563_E_PHY_ID && matches!(self.mac_type, Em80003es2lan)
+                {
+                    self.phy_type = PhyType::Gg82563;
+                } else {
+                    // Should never have loaded on this device
+                    self.phy_type = PhyType::Undefined;
+                    return Err(IgbDriverErr::PhyType);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Release software semaphore FLAG bit (SWFLAG).
