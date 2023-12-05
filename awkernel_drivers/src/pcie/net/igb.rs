@@ -458,6 +458,8 @@ impl Igb {
             ) {
                 msi.set_multiple_message_enable(MultipleMessage::One)
                     .unwrap();
+
+                #[cfg(feature = "x86")]
                 msi.set_x86_interrupt(0, irq, false, false);
 
                 self.irq = Some(irq);
@@ -864,13 +866,13 @@ const _CTRL_EXT_PHYINT_EN: u32 = _CTRL_EXT_GPI1_EN;
 const _CTRL_EXT_GPI2_EN: u32 = 0x00000004; /* Maps SDP6 to GPI2 */
 const _CTRL_EXT_LPCD: u32 = 0x00000004; /* LCD Power Cycle Done */
 const _CTRL_EXT_GPI3_EN: u32 = 0x00000008; /* Maps SDP7 to GPI3 */
-const _CTRL_EXT_SDP4_DATA: u32 = 0x00000010; /* Value of SW Defineable Pin 4 */
+const CTRL_EXT_SDP4_DATA: u32 = 0x00000010; /* Value of SW Defineable Pin 4 */
 const _CTRL_EXT_SDP5_DATA: u32 = 0x00000020; /* Value of SW Defineable Pin 5 */
 const _CTRL_EXT_PHY_INT: u32 = _CTRL_EXT_SDP5_DATA;
 const _CTRL_EXT_SDP6_DATA: u32 = 0x00000040; /* Value of SW Defineable Pin 6 */
 const _CTRL_EXT_SDP7_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 7 */
 const CTRL_EXT_SDP3_DATA: u32 = 0x00000080; /* Value of SW Defineable Pin 3 */
-const _CTRL_EXT_SDP4_DIR: u32 = 0x00000100; /* Direction of SDP4 0=in 1=out */
+const CTRL_EXT_SDP4_DIR: u32 = 0x00000100; /* Direction of SDP4 0=in 1=out */
 const _CTRL_EXT_SDP5_DIR: u32 = 0x00000200; /* Direction of SDP5 0=in 1=out */
 const _CTRL_EXT_SDP6_DIR: u32 = 0x00000400; /* Direction of SDP6 0=in 1=out */
 const _CTRL_EXT_SDP7_DIR: u32 = 0x00000800; /* Direction of SDP7 0=in 1=out */

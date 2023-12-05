@@ -1,6 +1,3 @@
-use smoltcp::phy;
-use x86_64::structures::paging::page;
-
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::IgbDriverErr;
@@ -564,6 +561,12 @@ const I82579_LPI_UPDATE_TIMER: u32 = 0x4805; /* in 40ns units + 40 ns base value
 const I82579_MSE_THRESHOLD: u16 = 0x084F; /* Mean Square Error Threshold */
 const I82579_MSE_LINK_DOWN: u16 = 0x2411; /* MSE count before dropping link */
 
+const LEDCTL: usize = 0x00E00;
+
+const IGP_ACTIVITY_LED_MASK: u32 = 0xFFFFF0FF;
+const IGP_ACTIVITY_LED_ENABLE: u32 = 0x0300;
+const IGP_LED3_MODE: u32 = 0x07000000;
+
 const fn gg82563_reg(page: u32, reg: u32) -> u32 {
     (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
@@ -624,6 +627,7 @@ pub struct IgbHw {
     phy_revision: Option<u32>,
     phy_type: PhyType,
     phy_id: u32,
+    bus_func: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -1021,7 +1025,7 @@ impl IgbHw {
                 _ => return Err(IgbDriverErr::Phy),
             };
 
-            (bus_func, swfw)
+            (bus_func as u8, swfw)
         } else {
             (0, 0)
         };
@@ -1050,6 +1054,7 @@ impl IgbHw {
             phy_revision: None,
             phy_type: PhyType::Undefined,
             phy_id: 0,
+            bus_func,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1480,6 +1485,86 @@ impl IgbHw {
 
     /// Returns the PHY to the power-on reset state
     fn phy_hw_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        self.check_phy_reset_block(info)?;
+
+        if self.mac_type.clone() as u32 >= Em82543 as u32 && !matches!(self.mac_type, EmICPxxxx) {
+            self.swfw_sync_mut(info, self.swfw, |hw| {
+                // Read the device control register and assert the
+                // E1000_CTRL_PHY_RST bit. Then, take it out of reset. For
+                // pre-em_82571 hardware, we delay for 10ms between the
+                // assert and deassert.  For em_82571 hardware and later, we
+                // instead delay for 50us between and 10ms after the
+                // deassertion.
+                let ctrl = read_reg(info, super::CTRL)?;
+                write_reg(info, super::CTRL, ctrl | super::CTRL_PHY_RST)?;
+                write_flush(info)?;
+
+                if (hw.mac_type.clone() as u32) < Em82571 as u32 {
+                    awkernel_lib::delay::wait_millisec(10);
+                } else {
+                    awkernel_lib::delay::wait_microsec(100);
+                }
+
+                write_reg(info, super::CTRL, ctrl)?;
+                write_flush(info)?;
+
+                if (hw.mac_type.clone() as u32) >= Em82571 as u32 {
+                    awkernel_lib::delay::wait_millisec(10);
+                }
+
+                // the M88E1141_E_PHY_ID might need reset here, but nothing
+                // proves it
+
+                Ok(())
+            })?;
+        } else {
+            // Read the Extended Device Control Register, assert the
+            // PHY_RESET_DIR bit to put the PHY into reset. Then, take it
+            // out of reset.
+            let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+            let ctrl_ext = ctrl_ext | super::CTRL_EXT_SDP4_DIR;
+            let ctrl_ext = ctrl_ext & !super::CTRL_EXT_SDP4_DATA;
+
+            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+            write_flush(info)?;
+
+            awkernel_lib::delay::wait_millisec(10);
+
+            let ctrl_ext = ctrl_ext | super::CTRL_EXT_SDP4_DATA;
+
+            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+            write_flush(info)?;
+        }
+
+        awkernel_lib::delay::wait_microsec(50);
+
+        if matches!(self.mac_type, Em82541 | Em82547) {
+            // Configure activity LED after PHY reset
+            let led_ctrl = read_reg(info, LEDCTL)?;
+            let led_ctrl = led_ctrl & IGP_ACTIVITY_LED_MASK;
+            let led_ctrl = led_ctrl | IGP_ACTIVITY_LED_ENABLE | IGP_LED3_MODE;
+            write_reg(info, LEDCTL, led_ctrl)?;
+        }
+
+        // Wait for FW to finish PHY configuration.
+        self.get_phy_cfg_done(info)?;
+
+        self.release_software_semaphore(info)?;
+
+        if matches!(self.mac_type, EmIch8lan) && matches!(self.phy_type, PhyType::Igp3) {
+            self.init_lcd_from_nvm(info)?;
+        }
+
+        Ok(())
+    }
+
+    fn init_lcd_from_nvm(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn get_phy_cfg_done(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!();
     }
 
@@ -2272,6 +2357,10 @@ impl IgbHw {
         };
 
         Ok(())
+    }
+
+    fn release_software_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
     }
 
     /// Obtaining software semaphore bit (SMBI) before resetting PHY.

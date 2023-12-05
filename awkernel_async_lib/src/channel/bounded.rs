@@ -1,5 +1,9 @@
 //! Bounded channel.
-//!≈
+//!
+//! ```
+//! use awkernel_async_lib::channel::bounded;
+//!
+//! let (tx, rx) = bounded::new::<u64>(Default::default());
 //!
 //! let _ = async move {
 //!     tx.send(10).await.unwrap();
