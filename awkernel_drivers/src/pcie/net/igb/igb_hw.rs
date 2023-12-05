@@ -1,3 +1,4 @@
+use smoltcp::phy;
 use x86_64::structures::paging::page;
 
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
@@ -383,18 +384,18 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
 
 // PHY 1000 MII Register/Bit Definitions
 // PHY Registers defined by IEEE
-const PHY_CTRL: usize = 0x00; // Control Register
-const PHY_STATUS: usize = 0x01; // Status Register
+const PHY_CTRL: u32 = 0x00; // Control Register
+const PHY_STATUS: u32 = 0x01; // Status Register
 const PHY_ID1: u32 = 0x02; // Phy Id Reg (word 1)
 const PHY_ID2: u32 = 0x03; // Phy Id Reg (word 2)
-const PHY_AUTONEG_ADV: usize = 0x04; // Autoneg Advertisement
-const PHY_LP_ABILITY: usize = 0x05; // Link Partner Ability (Base Page)
-const PHY_AUTONEG_EXP: usize = 0x06; // Autoneg Expansion Reg
-const PHY_NEXT_PAGE_TX: usize = 0x07; // Next Page TX
-const PHY_LP_NEXT_PAGE: usize = 0x08; // Link Partner Next Page
-const PHY_1000T_CTRL: usize = 0x09; // 1000Base-T Control Reg
-const PHY_1000T_STATUS: usize = 0x0A; // 1000Base-T Status Reg
-const PHY_EXT_STATUS: usize = 0x0F; // Extended Status Reg
+const PHY_AUTONEG_ADV: u32 = 0x04; // Autoneg Advertisement
+const PHY_LP_ABILITY: u32 = 0x05; // Link Partner Ability (Base Page)
+const PHY_AUTONEG_EXP: u32 = 0x06; // Autoneg Expansion Reg
+const PHY_NEXT_PAGE_TX: u32 = 0x07; // Next Page TX
+const PHY_LP_NEXT_PAGE: u32 = 0x08; // Link Partner Next Page
+const PHY_1000T_CTRL: u32 = 0x09; // 1000Base-T Control Reg
+const PHY_1000T_STATUS: u32 = 0x0A; // 1000Base-T Status Reg
+const PHY_EXT_STATUS: u32 = 0x0F; // Extended Status Reg
 
 // PBA constants
 const E1000_PBA_8K: u32 = 0x0008; /* 8KB, default Rx allocation */
@@ -431,12 +432,12 @@ const _IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
 const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; /* PHY Page Select Core Register */
 
 // BM/HV Specific Registers
-const BM_PORT_CTRL_PAGE: u16 = 769;
+const BM_PORT_CTRL_PAGE: u32 = 769;
 const _BM_PCIE_PAGE: u16 = 770;
 const BM_WUC_PAGE: u16 = 800;
 const BM_WUC_ADDRESS_OPCODE: u32 = 0x11;
 const BM_WUC_DATA_OPCODE: u32 = 0x12;
-const BM_WUC_ENABLE_PAGE: u16 = BM_PORT_CTRL_PAGE;
+const BM_WUC_ENABLE_PAGE: u32 = BM_PORT_CTRL_PAGE;
 const BM_WUC_ENABLE_REG: u32 = 17;
 const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
 const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
@@ -1029,6 +1030,7 @@ impl IgbHw {
         todo!();
     }
 
+    /// Reset the transmit and receive units; mask and clear all interrupts.
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
     pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
@@ -1209,11 +1211,11 @@ impl IgbHw {
         }
 
         if self.mac_type.clone() as u32 <= Em82543 as u32 {
-            return Err(IgbDriverErr::NotSupported);
+            self.phy_hw_reset(info)?;
         }
 
         // ESB-2 PHY reads require em_phy_gg82563 to be set because of a
-        // work- around that forces PHY page 0 to be set or the reads fail.
+        // workaround that forces PHY page 0 to be set or the reads fail.
         // The rest of the code in this routine uses em_read_phy_reg to read
         // the PHY ID. So for ESB-2 we need to have this set so our reads
         // won't fail.  If the attached PHY is not a em_phy_gg82563, the
@@ -1434,9 +1436,99 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Resets the PHY
+    fn phy_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    /// Returns the PHY to the power-on reset state
+    fn phy_hw_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
     /// A series of Phy workarounds to be done after every PHY reset.
-    fn hv_phy_workarounds_ich8lan(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+    fn hv_phy_workarounds_ich8lan(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if !matches!(self.mac_type, MacType::EmPchlan) {
+            return Ok(());
+        }
+
+        // Set MDIO slow mode before any other MDIO access
+        if matches!(self.phy_type, PhyType::I82577 | PhyType::I82578) {
+            self.set_mdio_slow_mode_hv(info)?;
+        }
+
+        // Hanksville M Phy init for IEEE.
+        if info.revision_id == 2
+            && matches!(self.phy_type, PhyType::I82577)
+            && self.phy_revision == Some(2)
+            || self.phy_revision == Some(3)
+        {
+            self.write_phy_reg(info, 0x10, 0x8823)?;
+            self.write_phy_reg(info, 0x11, 0x0018)?;
+            self.write_phy_reg(info, 0x10, 0x8824)?;
+            self.write_phy_reg(info, 0x11, 0x0016)?;
+            self.write_phy_reg(info, 0x10, 0x8825)?;
+            self.write_phy_reg(info, 0x11, 0x001A)?;
+            self.write_phy_reg(info, 0x10, 0x888C)?;
+            self.write_phy_reg(info, 0x11, 0x0007)?;
+            self.write_phy_reg(info, 0x10, 0x888D)?;
+            self.write_phy_reg(info, 0x11, 0x0007)?;
+            self.write_phy_reg(info, 0x10, 0x888E)?;
+            self.write_phy_reg(info, 0x11, 0x0007)?;
+            self.write_phy_reg(info, 0x10, 0x8827)?;
+            self.write_phy_reg(info, 0x11, 0x0001)?;
+            self.write_phy_reg(info, 0x10, 0x8835)?;
+            self.write_phy_reg(info, 0x11, 0x0001)?;
+            self.write_phy_reg(info, 0x10, 0x8834)?;
+            self.write_phy_reg(info, 0x11, 0x0001)?;
+            self.write_phy_reg(info, 0x10, 0x8833)?;
+            self.write_phy_reg(info, 0x11, 0x0002)?;
+        }
+
+        if (matches!(self.phy_type, PhyType::I82577)
+            && (self.phy_revision == Some(1) || self.phy_revision == Some(2)))
+            || (matches!(self.phy_type, PhyType::I82578) && self.phy_revision == Some(1))
+        {
+            // Disable generation of early preamble
+            self.write_phy_reg(info, phy_reg(769, 25), 0x4431)?;
+
+            // Preamble tuning for SSC
+            self.write_phy_reg(info, phy_reg(770, 16), 0xA204)?;
+        }
+
+        if matches!(self.phy_type, PhyType::I82578) {
+            // Return registers to default by doing a soft reset then
+            // writing 0x3140 to the control register.
+            if self.phy_revision < Some(2) {
+                self.phy_reset(info)?;
+                self.write_phy_reg(info, PHY_CTRL, 0x3140)?;
+            }
+        }
+
+        if info.revision_id == 2
+            && matches!(self.phy_type, PhyType::I82577)
+            && (self.phy_revision == Some(2) || self.phy_revision == Some(3))
+        {
+            // Workaround for OEM (GbE) not operating after reset -
+            // restart AN (twice)
+            self.write_phy_reg(info, phy_reg(0, 25), 0x0400)?;
+            self.write_phy_reg(info, phy_reg(0, 25), 0x0400)?;
+        }
+
+        let swfw = SWFW_PHY0_SM;
+
+        // select page 0
+        self.swfw_sync_mut(info, swfw, move |hw| {
+            hw.phy_addr = 1;
+            hw.write_phy_reg(info, IGP01E1000_PHY_PAGE_SELECT, 0)?;
+            Ok(())
+        })?;
+
+        // Workaround for link disconnects on a busy hub in half duplex
+        let phy_data = self.read_phy_reg(info, phy_reg(BM_PORT_CTRL_PAGE, 17))?;
+        self.write_phy_reg(info, phy_reg(BM_PORT_CTRL_PAGE, 17), phy_data & 0x00FF)?;
+
+        Ok(())
     }
 
     /// em_lv_phy_workarounds_ich8lan - A series of Phy workarounds to be
@@ -1447,6 +1539,15 @@ impl IgbHw {
 
     /// Set slow MDIO access mode
     fn set_mdio_slow_mode_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    fn write_phy_reg(
+        &mut self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        phy_data: u16,
+    ) -> Result<(), IgbDriverErr> {
         todo!()
     }
 
@@ -1957,7 +2058,7 @@ impl IgbHw {
 
         let mut swfw_sync = 0;
         let swmask = mask as u32;
-        let fwmask = (mask << 16) as u32;
+        let fwmask = (mask as u32) << 16;
         let mut timeout = 200;
 
         while timeout > 0 {
