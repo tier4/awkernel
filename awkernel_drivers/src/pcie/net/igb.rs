@@ -896,8 +896,8 @@ const _CTRL_EXT_DF_PAREN: u32 = 0x02000000; /* descriptor FIFO parity error dete
 const MDICNFG: usize = 0x00E04;
 const MDICNFG_EXT_MDIO: u32 = 0x80000000; /* MDI ext/int destination */
 const _MDICNFG_COM_MDIO: u32 = 0x40000000; /* MDI shared w/ lan 0 */
-const _MDICNFG_PHY_MASK: u32 = 0x03E00000;
-const _MDICNFG_PHY_SHIFT: u32 = 21;
+const MDICNFG_PHY_MASK: u32 = 0x03E00000;
+const MDICNFG_PHY_SHIFT: u32 = 21;
 
 // SFPI2C Command Register - RW
 const I2CCMD: usize = 0x01028;

@@ -385,8 +385,8 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
 // PHY Registers defined by IEEE
 const PHY_CTRL: usize = 0x00; // Control Register
 const PHY_STATUS: usize = 0x01; // Status Register
-const PHY_ID1: usize = 0x02; // Phy Id Reg (word 1)
-const PHY_ID2: usize = 0x03; // Phy Id Reg (word 2)
+const PHY_ID1: u32 = 0x02; // Phy Id Reg (word 1)
+const PHY_ID2: u32 = 0x03; // Phy Id Reg (word 2)
 const PHY_AUTONEG_ADV: usize = 0x04; // Autoneg Advertisement
 const PHY_LP_ABILITY: usize = 0x05; // Link Partner Ability (Base Page)
 const PHY_AUTONEG_EXP: usize = 0x06; // Autoneg Expansion Reg
@@ -508,6 +508,13 @@ const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
 const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
 const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
 
+const IGP03E1000_E_PHY_ID: u32 = 0x02A80390;
+const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
+const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
+const IFE_C_E_PHY_ID: u32 = 0x02A80310;
+
+const RTL8211_E_PHY_ID: u32 = 0x001CC912;
+
 const GG82563_PAGE_SHIFT: u32 = 5;
 const GG82563_MIN_ALT_REG: u32 = 30;
 const GG82563_PHY_PAGE_SELECT: u32 = gg82563_reg(0, 22); // Page Select
@@ -518,6 +525,33 @@ const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; /* 1 = enable downshift */
 const BM_PHY_PAGE_SELECT: u32 = 22; /* Page Select for BM */
 const BM_REG_BIAS1: u32 = 29;
 const BM_REG_BIAS2: u32 = 30;
+
+// Miscellaneous PHY bit definitions.
+const PHY_PREAMBLE: u32 = 0xFFFFFFFF;
+const PHY_SOF: u32 = 0x01;
+const PHY_OP_READ: u32 = 0x02;
+const PHY_OP_WRITE: u32 = 0x01;
+const PHY_TURNAROUND: u32 = 0x02;
+const PHY_PREAMBLE_SIZE: u32 = 32;
+const MII_CR_SPEED_1000: u32 = 0x0040;
+const MII_CR_SPEED_100: u32 = 0x2000;
+const MII_CR_SPEED_10: u32 = 0x0000;
+const E1000_PHY_ADDRESS: u32 = 0x01;
+const PHY_AUTO_NEG_TIME: u32 = 45; /* 4.5 Seconds */
+const PHY_FORCE_TIME: u32 = 20; /* 2.0 Seconds */
+const PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
+const DEVICE_SPEED_MASK: u32 = 0x00000300; /* Device Ctrl Reg Speed Mask */
+const REG4_SPEED_MASK: u32 = 0x01E0;
+const REG9_SPEED_MASK: u32 = 0x0300;
+const ADVERTISE_10_HALF: u32 = 0x0001;
+const ADVERTISE_10_FULL: u32 = 0x0002;
+const ADVERTISE_100_HALF: u32 = 0x0004;
+const ADVERTISE_100_FULL: u32 = 0x0008;
+const ADVERTISE_1000_HALF: u32 = 0x0010;
+const ADVERTISE_1000_FULL: u32 = 0x0020;
+const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; /* Everything but 1000-Half */
+const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; /* All 10/100 speeds*/
+const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; /* 10Mbps Full & Half speeds*/
 
 const fn gg82563_reg(page: u32, reg: u32) -> u32 {
     (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
@@ -577,6 +611,7 @@ pub struct IgbHw {
     phy_addr: u32,
     phy_revision: Option<u32>,
     phy_type: PhyType,
+    phy_id: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -976,6 +1011,7 @@ impl IgbHw {
             phy_addr: 0,
             phy_revision: None,
             phy_type: PhyType::Undefined,
+            phy_id: 0,
         };
 
         Ok(hw)
@@ -1131,150 +1167,121 @@ impl IgbHw {
 
     /// Reads and matches the expected PHY address for known PHY IDs
     fn match_gig_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // self.read_phy_reg()?;
+        use MacType::*;
 
-        todo!()
+        let phy_id_high = self.read_phy_reg(info, PHY_ID1)?;
+
+        awkernel_lib::delay::wait_microsec(20);
+
+        let phy_id_low = self.read_phy_reg(info, PHY_ID2)?;
+
+        self.phy_id = (phy_id_high as u32) << 16 | (phy_id_low as u32 & PHY_REVISION_MASK);
+        self.phy_revision = Some(phy_id_low as u32 & !PHY_REVISION_MASK);
+
+        let mut is_match = false;
+        match &self.mac_type {
+            Em82543 => {
+                if self.phy_id == M88E1000_E_PHY_ID {
+                    is_match = true;
+                }
+            }
+            Em82544 => {
+                if self.phy_id == M88E1000_I_PHY_ID {
+                    is_match = true
+                }
+            }
+            Em82540 | Em82545 | Em82545Rev3 | Em82546 | Em82546Rev3 => {
+                if self.phy_id == M88E1011_I_PHY_ID {
+                    is_match = true;
+                }
+            }
+            Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2 => {
+                if self.phy_id == IGP01E1000_I_PHY_ID {
+                    is_match = true;
+                }
+            }
+            Em82573 => {
+                if self.phy_id == M88E1111_I_PHY_ID {
+                    is_match = true;
+                }
+            }
+            Em82574 => {
+                if self.phy_id == BME1000_E_PHY_ID {
+                    is_match = true;
+                }
+            }
+            Em82575 | Em82576 => {
+                if self.phy_id == M88E1000_E_PHY_ID
+                    || self.phy_id == IGP01E1000_I_PHY_ID
+                    || self.phy_id == IGP03E1000_E_PHY_ID
+                {
+                    is_match = true;
+                }
+            }
+            Em82580 | EmI210 | EmI350 => {
+                if self.phy_id == I82580_I_PHY_ID
+                    || self.phy_id == I210_I_PHY_ID
+                    || self.phy_id == I347AT4_E_PHY_ID
+                    || self.phy_id == I350_I_PHY_ID
+                    || self.phy_id == M88E1111_I_PHY_ID
+                    || self.phy_id == M88E1112_E_PHY_ID
+                    || self.phy_id == M88E1543_E_PHY_ID
+                    || self.phy_id == M88E1512_E_PHY_ID
+                {
+                    let mut mdic = read_reg(info, super::MDICNFG)?;
+                    if mdic & super::MDICNFG_EXT_MDIO != 0 {
+                        mdic &= super::MDICNFG_PHY_MASK;
+                        self.phy_addr = mdic >> super::MDICNFG_PHY_SHIFT;
+                    }
+                    is_match = true;
+                }
+            }
+            Em80003es2lan => {
+                if self.phy_id == GG82563_E_PHY_ID {
+                    is_match = true;
+                }
+            }
+            EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan => {
+                if self.phy_id == IGP03E1000_E_PHY_ID
+                    || self.phy_id == IFE_E_PHY_ID
+                    || self.phy_id == IFE_PLUS_E_PHY_ID
+                    || self.phy_id == IFE_C_E_PHY_ID
+                    || self.phy_id == BME1000_E_PHY_ID
+                    || self.phy_id == I82577_E_PHY_ID
+                    || self.phy_id == I82578_E_PHY_ID
+                    || self.phy_id == I82579_E_PHY_ID
+                {
+                    is_match = true;
+                }
+            }
+            EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
+                if self.phy_id == I217_E_PHY_ID {
+                    is_match = true;
+                }
+            }
+            EmICPxxxx => {
+                if self.phy_id == M88E1141_E_PHY_ID || self.phy_id == RTL8211_E_PHY_ID {
+                    is_match = true;
+                }
+            }
+            _ => {
+                return Err(IgbDriverErr::Config);
+            }
+        }
+
+        self.set_phy_type()?;
+
+        if is_match {
+            Ok(())
+        } else {
+            log::warn!("igb: Invalid PHY ID: {:#x}", self.phy_id);
+            Err(IgbDriverErr::Phy)
+        }
     }
 
-    //     6006 STATIC int32_t
-    // 6007 em_match_gig_phy(struct em_hw *hw)
-    //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 6008 {
-    // 6009         int32_t   phy_init_status, ret_val;
-    // 6010         uint16_t  phy_id_high, phy_id_low;
-    // 6011         boolean_t match = FALSE;
-    // 6012         DEBUGFUNC("em_match_gig_phy");
-    // 6013
-    // 6014         ret_val = em_read_phy_reg(hw, PHY_ID1, &phy_id_high);
-    // 6015         if (ret_val)
-    // 6016                 return ret_val;
-    // 6017
-    // 6018         hw->phy_id = (uint32_t) (phy_id_high << 16);
-    // 6019         usec_delay(20);
-    // 6020         ret_val = em_read_phy_reg(hw, PHY_ID2, &phy_id_low);
-    // 6021         if (ret_val)
-    // 6022                 return ret_val;
-    // 6023
-    // 6024         hw->phy_id |= (uint32_t) (phy_id_low & PHY_REVISION_MASK);
-    // 6025         hw->phy_revision = (uint32_t) phy_id_low & ~PHY_REVISION_MASK;
-    // 6026
-    // 6027         switch (hw->mac_type) {
-    // 6028         case em_82543:
-    // 6029                 if (hw->phy_id == M88E1000_E_PHY_ID)
-    // 6030                         match = TRUE;
-    // 6031                 break;
-    // 6032         case em_82544:
-    // 6033                 if (hw->phy_id == M88E1000_I_PHY_ID)
-    // 6034                         match = TRUE;
-    // 6035                 break;
-    // 6036         case em_82540:
-    // 6037         case em_82545:
-    // 6038         case em_82545_rev_3:
-    // 6039         case em_82546:
-    // 6040         case em_82546_rev_3:
-    // 6041                 if (hw->phy_id == M88E1011_I_PHY_ID)
-    // 6042                         match = TRUE;
-    // 6043                 break;
-    // 6044         case em_82541:
-    // 6045         case em_82541_rev_2:
-    // 6046         case em_82547:
-    // 6047         case em_82547_rev_2:
-    // 6048                 if (hw->phy_id == IGP01E1000_I_PHY_ID)
-    // 6049                         match = TRUE;
-    // 6050                 break;
-    // 6051         case em_82573:
-    // 6052                 if (hw->phy_id == M88E1111_I_PHY_ID)
-    // 6053                         match = TRUE;
-    // 6054                 break;
-    // 6055         case em_82574:
-    // 6056                 if (hw->phy_id == BME1000_E_PHY_ID)
-    // 6057                         match = TRUE;
-    // 6058                 break;
-    // 6059         case em_82575:
-    // 6060         case em_82576:
-    // 6061                 if (hw->phy_id == M88E1000_E_PHY_ID)
-    // 6062                         match = TRUE;
-    // 6063                 if (hw->phy_id == IGP01E1000_I_PHY_ID)
-    // 6064                         match = TRUE;
-    // 6065                 if (hw->phy_id == IGP03E1000_E_PHY_ID)
-    // 6066                         match = TRUE;
-    // 6067                 break;
-    // 6068         case em_82580:
-    // 6069         case em_i210:
-    // 6070         case em_i350:
-    // 6071                 if (hw->phy_id == I82580_I_PHY_ID ||
-    // 6072                     hw->phy_id == I210_I_PHY_ID ||
-    // 6073                     hw->phy_id == I347AT4_E_PHY_ID ||
-    // 6074                     hw->phy_id == I350_I_PHY_ID ||
-    // 6075                     hw->phy_id == M88E1111_I_PHY_ID ||
-    // 6076                     hw->phy_id == M88E1112_E_PHY_ID ||
-    // 6077                     hw->phy_id == M88E1543_E_PHY_ID ||
-    // 6078                     hw->phy_id == M88E1512_E_PHY_ID) {
-    // 6079                         uint32_t mdic;
-    // 6080
-    // 6081                         mdic = EM_READ_REG(hw, E1000_MDICNFG);
-    // 6082                         if (mdic & E1000_MDICNFG_EXT_MDIO) {
-    // 6083                                 mdic &= E1000_MDICNFG_PHY_MASK;
-    // 6084                                 hw->phy_addr = mdic >> E1000_MDICNFG_PHY_SHIFT;
-    // 6085                                 DEBUGOUT1("MDICNFG PHY ADDR %d",
-    // 6086                                     mdic >> E1000_MDICNFG_PHY_SHIFT);
-    // 6087                         }
-    // 6088                         match = TRUE;
-    // 6089                 }
-    // 6090                 break;
-    // 6091         case em_80003es2lan:
-    // 6092                 if (hw->phy_id == GG82563_E_PHY_ID)
-    // 6093                         match = TRUE;
-    // 6094                 break;
-    // 6095         case em_ich8lan:
-    // 6096         case em_ich9lan:
-    // 6097         case em_ich10lan:
-    // 6098         case em_pchlan:
-    // 6099         case em_pch2lan:
-    // 6100                 if (hw->phy_id == IGP03E1000_E_PHY_ID)
-    // 6101                         match = TRUE;
-    // 6102                 if (hw->phy_id == IFE_E_PHY_ID)
-    // 6103                         match = TRUE;
-    // 6104                 if (hw->phy_id == IFE_PLUS_E_PHY_ID)
-    // 6105                         match = TRUE;
-    // 6106                 if (hw->phy_id == IFE_C_E_PHY_ID)
-    // 6107                         match = TRUE;
-    // 6108                 if (hw->phy_id == BME1000_E_PHY_ID)
-    // 6109                         match = TRUE;
-    // 6110                 if (hw->phy_id == I82577_E_PHY_ID)
-    // 6111                         match = TRUE;
-    // 6112                 if (hw->phy_id == I82578_E_PHY_ID)
-    // 6113                         match = TRUE;
-    // 6114                 if (hw->phy_id == I82579_E_PHY_ID)
-    // 6115                         match = TRUE;
-    // 6116                 break;
-    // 6117         case em_pch_lpt:
-    // 6118         case em_pch_spt:
-    // 6119         case em_pch_cnp:
-    // 6120         case em_pch_tgp:
-    // 6121         case em_pch_adp:
-    // 6122                 if (hw->phy_id == I217_E_PHY_ID)
-    // 6123                         match = TRUE;
-    // 6124                 break;
-    // 6125         case em_icp_xxxx:
-    // 6126                 if (hw->phy_id == M88E1141_E_PHY_ID)
-    // 6127                         match = TRUE;
-    // 6128                 if (hw->phy_id == RTL8211_E_PHY_ID)
-    // 6129                         match = TRUE;
-    // 6130                 break;
-    // 6131         default:
-    // 6132                 DEBUGOUT1("Invalid MAC type %d\n", hw->mac_type);
-    // 6133                 return -E1000_ERR_CONFIG;
-    // 6134         }
-    // 6135         phy_init_status = em_set_phy_type(hw);
-    // 6136
-    // 6137         if ((match) && (phy_init_status == E1000_SUCCESS)) {
-    // 6138                 DEBUGOUT1("PHY ID 0x%X detected\n", hw->phy_id);
-    // 6139                 return E1000_SUCCESS;
-    // 6140         }
-    // 6141         DEBUGOUT1("Invalid PHY ID 0x%X\n", hw->phy_id);
-    // 6142         return -E1000_ERR_PHY;
-    // 6143 }
+    fn set_phy_type(&mut self) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
 
     /// Release software semaphore FLAG bit (SWFLAG).
     /// SWFLAG is used to synchronize the access to all shared resource between
