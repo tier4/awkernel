@@ -554,6 +554,16 @@ const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; /* Everything but 1000-Half
 const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; /* All 10/100 speeds*/
 const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; /* 10Mbps Full & Half speeds*/
 
+const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
+const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
+
+// EMI Registers
+const I82579_EMI_ADDR: u32 = 0x10;
+const I82579_EMI_DATA: u32 = 0x11;
+const I82579_LPI_UPDATE_TIMER: u32 = 0x4805; /* in 40ns units + 40 ns base value */
+const I82579_MSE_THRESHOLD: u16 = 0x084F; /* Mean Square Error Threshold */
+const I82579_MSE_LINK_DOWN: u16 = 0x2411; /* MSE count before dropping link */
+
 const fn gg82563_reg(page: u32, reg: u32) -> u32 {
     (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
@@ -1560,13 +1570,35 @@ impl IgbHw {
 
     /// em_lv_phy_workarounds_ich8lan - A series of Phy workarounds to be
     /// done after every PHY reset.
-    fn lv_phy_workarounds_ich8lan(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+    fn lv_phy_workarounds_ich8lan(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if !matches!(self.mac_type, MacType::EmPch2lan) {
+            return Ok(());
+        }
+
+        // Set MDIO slow mode before any other MDIO access
+        self.set_mdio_slow_mode_hv(info)?;
+
+        let swfw = SWFW_PHY0_SM;
+        self.swfw_sync_mut(info, swfw, |hw| {
+            hw.write_phy_reg(info, I82579_EMI_ADDR, I82579_MSE_THRESHOLD)?;
+
+            // set MSE higher to enable link to stay up when noise is high
+            hw.write_phy_reg(info, I82579_EMI_DATA, 0x0034)?;
+
+            hw.write_phy_reg(info, I82579_EMI_ADDR, I82579_MSE_LINK_DOWN)?;
+
+            // drop link after 5 times MSE threshold was reached
+            hw.write_phy_reg(info, I82579_EMI_DATA, 0x0005)?;
+
+            Ok(())
+        })
     }
 
     /// Set slow MDIO access mode
-    fn set_mdio_slow_mode_hv(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+    fn set_mdio_slow_mode_hv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let data = self.read_phy_reg(info, HV_KMRN_MODE_CTRL)?;
+        self.write_phy_reg(info, HV_KMRN_MODE_CTRL, data)?;
+        Ok(())
     }
 
     /// Writes a value to a PHY register
@@ -3026,9 +3058,4 @@ fn bm_phy_reg_num(offset: u32) -> u16 {
 
 fn bm_phy_reg_page(offset: u32) -> u16 {
     ((offset >> PHY_PAGE_SHIFT) & 0xFFFF) as u16
-}
-
-/// Probes the expected PHY address for known PHY IDs
-fn detect_gig_phy(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    todo!()
 }
