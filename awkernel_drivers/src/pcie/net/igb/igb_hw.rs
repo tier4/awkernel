@@ -567,6 +567,14 @@ const IGP_ACTIVITY_LED_MASK: u32 = 0xFFFFF0FF;
 const IGP_ACTIVITY_LED_ENABLE: u32 = 0x0300;
 const IGP_LED3_MODE: u32 = 0x07000000;
 
+const NVM_CFG_DONE_PORT_0: u32 = 0x040000; /* MNG config cycle done */
+const NVM_CFG_DONE_PORT_1: u32 = 0x080000; /* ...for second port */
+const NVM_CFG_DONE_PORT_2: u32 = 0x100000; /* ...for third port */
+const NVM_CFG_DONE_PORT_3: u32 = 0x200000; /* ...for fourth port */
+
+// Number of milliseconds we wait for PHY configuration done after MAC reset
+const PHY_CFG_TIMEOUT: u32 = 100;
+
 const fn gg82563_reg(page: u32, reg: u32) -> u32 {
     (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
@@ -1564,8 +1572,48 @@ impl IgbHw {
         todo!();
     }
 
-    fn get_phy_cfg_done(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+    /// Checks if the PHY configuration is done
+    fn get_phy_cfg_done(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        let cfg_mask = if matches!(
+            self.mac_type,
+            Em80003es2lan | Em82575 | Em82576 | Em82580 | EmI350
+        ) {
+            let cfg_mask = match self.bus_func {
+                1 => NVM_CFG_DONE_PORT_1,
+                2 => NVM_CFG_DONE_PORT_2,
+                3 => NVM_CFG_DONE_PORT_3,
+                _ => NVM_CFG_DONE_PORT_0,
+            };
+            Some(cfg_mask)
+        } else if matches!(self.mac_type, Em82571 | Em82572) {
+            Some(NVM_CFG_DONE_PORT_0)
+        } else {
+            None
+        };
+
+        if let Some(cfg_mask) = cfg_mask {
+            let mut timeout = PHY_CFG_TIMEOUT;
+
+            while timeout > 0 {
+                if read_reg(info, super::EEMNGCTL)? & cfg_mask != 0 {
+                    break;
+                } else {
+                    awkernel_lib::delay::wait_millisec(1);
+                }
+
+                timeout -= 1;
+            }
+
+            if timeout == 0 {
+                log::warn!("igb: MNG configuration cycle has not completed.");
+            }
+        } else {
+            awkernel_lib::delay::wait_millisec(10);
+        }
+
+        Ok(())
     }
 
     /// A series of Phy workarounds to be done after every PHY reset.
