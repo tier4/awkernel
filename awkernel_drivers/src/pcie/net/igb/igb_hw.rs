@@ -1572,7 +1572,7 @@ impl IgbHw {
     /// is needed due to an issue where the NVM configuration is not properly
     /// autoloaded after power transitions. Therefore, after each PHY reset, we
     /// will load the configuration data out of the NVM manually.
-    fn init_lcd_from_nvm(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    fn init_lcd_from_nvm(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
         if !matches!(self.phy_type, PhyType::Igp3) {
@@ -1632,11 +1632,37 @@ impl IgbHw {
     }
 
     fn init_lcd_from_nvm_config_region(
-        &self,
+        &mut self,
         info: &PCIeInfo,
         cnf_base_addr: u32,
         cnf_size: u32,
     ) -> Result<(), IgbDriverErr> {
+        // cnf_base_addr is in DWORD
+        let word_addr = cnf_base_addr << 1;
+
+        // cnf_size is returned in size of dwords
+        for i in 0..cnf_size {
+            let mut reg_data = [0];
+            let mut reg_addr = [0];
+
+            self.read_eeprom(info, word_addr + i * 2, &mut reg_data)?;
+            self.read_eeprom(info, word_addr + i * 2 + 1, &mut reg_addr)?;
+
+            self.get_software_flag(info)?;
+            self.write_phy_reg(info, reg_addr[0] as u32, reg_data[0])?;
+            self.release_software_flag(info)?;
+        }
+
+        Ok(())
+    }
+
+    /// Reads a 16 bit word from the EEPROM.
+    fn read_eeprom(
+        &self,
+        info: &PCIeInfo,
+        offset: u32,
+        data: &mut [u16],
+    ) -> Result<u16, IgbDriverErr> {
         todo!()
     }
 
