@@ -2407,8 +2407,19 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Release semaphore bit (SMBI).
     fn release_software_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        if !matches!(self.mac_type, MacType::Em80003es2lan) {
+            return Ok(());
+        }
+
+        let swsm = read_reg(info, super::SWSM)?;
+
+        // Release the SW semaphores.
+        let swsm = swsm & !super::SWSM_SMBI;
+        write_reg(info, super::SWSM, swsm)?;
+
+        Ok(())
     }
 
     /// Obtaining software semaphore bit (SMBI) before resetting PHY.
