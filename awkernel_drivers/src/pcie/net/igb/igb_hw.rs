@@ -989,7 +989,7 @@ impl IgbHw {
 
         let (tbi_compatibility_en, media_type, sgmii_active) = set_media_type(&mac_type, info)?;
 
-        let hw = Self {
+        let mut hw = Self {
             mac_type,
             initialize_hw_bits_disable,
             eee_enable,
@@ -1013,6 +1013,9 @@ impl IgbHw {
             phy_type: PhyType::Undefined,
             phy_id: 0,
         };
+
+        // Initialize phy_addr, phy_revision, phy_type, and phy_id
+        hw.detect_gig_phy(info)?;
 
         Ok(hw)
     }
@@ -1162,7 +1165,80 @@ impl IgbHw {
 
     /// Probes the expected PHY address for known PHY IDs
     fn detect_gig_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        if self.phy_id != 0 {
+            return Ok(());
+        }
+
+        // default phy address, most phys reside here, but not all (ICH10)
+        if !matches!(self.mac_type, EmICPxxxx) {
+            self.phy_addr = 1;
+        } else {
+            self.phy_addr = 0; // There is a phy at phy_addr 0 on EP80579
+        }
+
+        // The 82571 firmware may still be configuring the PHY. In this
+        // case, we cannot access the PHY until the configuration is done.
+        // So we explicitly set the PHY values.
+
+        if matches!(self.mac_type, Em82571 | Em82572) {
+            self.phy_id = IGP01E1000_I_PHY_ID;
+            self.phy_type = PhyType::Igp2;
+            return Ok(());
+        }
+
+        // Some of the fiber cards dont have a phy, so we must exit cleanly here
+        if matches!(self.media_type, MediaType::Fiber)
+            && matches!(
+                self.mac_type,
+                Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82573 | Em82574 | Em80003es2lan
+            )
+        {
+            self.phy_type = PhyType::Undefined;
+            return Ok(());
+        }
+
+        if matches!(
+            self.media_type,
+            MediaType::InternalSerdes | MediaType::Fiber
+        ) && self.mac_type.clone() as u32 >= Em82575 as u32
+        {
+            self.phy_type = PhyType::Undefined;
+            return Ok(());
+        }
+
+        if self.mac_type.clone() as u32 <= Em82543 as u32 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        // ESB-2 PHY reads require em_phy_gg82563 to be set because of a
+        // work- around that forces PHY page 0 to be set or the reads fail.
+        // The rest of the code in this routine uses em_read_phy_reg to read
+        // the PHY ID. So for ESB-2 we need to have this set so our reads
+        // won't fail.  If the attached PHY is not a em_phy_gg82563, the
+        // routines below will figure this out as well.
+        if matches!(self.mac_type, Em80003es2lan) {
+            self.phy_type = PhyType::Gg82563;
+        }
+
+        // Power on SGMII phy if it is disabled
+        if matches!(self.mac_type, Em82580 | EmI210 | EmI350) {
+            let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+            write_reg(info, super::CTRL_EXT, ctrl_ext & !super::CTRL_EXT_SDP3_DATA)?;
+            write_flush(info)?;
+            awkernel_lib::delay::wait_millisec(300);
+        }
+
+        // Read the PHY ID Registers to identify which PHY is onboard.
+        for i in 1..8 {
+            self.phy_addr = i;
+            if self.match_gig_phy(info).is_ok() {
+                return Ok(()); // Found a valid PHY address
+            }
+        }
+
+        Err(IgbDriverErr::Phy)
     }
 
     /// Reads and matches the expected PHY address for known PHY IDs
