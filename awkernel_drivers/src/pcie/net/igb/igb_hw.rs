@@ -1568,8 +1568,76 @@ impl IgbHw {
         Ok(())
     }
 
+    /// This function initializes the PHY from the NVM on ICH8 platforms. This
+    /// is needed due to an issue where the NVM configuration is not properly
+    /// autoloaded after power transitions. Therefore, after each PHY reset, we
+    /// will load the configuration data out of the NVM manually.
     fn init_lcd_from_nvm(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        use MacType::*;
+
+        if !matches!(self.phy_type, PhyType::Igp3) {
+            return Ok(());
+        }
+
+        // Check if SW needs configure the PHY
+        let sw_cfg_mask = if info.id == E1000_DEV_ID_ICH8_IGP_M_AMT
+            || info.id == E1000_DEV_ID_ICH8_IGP_M
+            || matches!(
+                self.mac_type,
+                EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+            ) {
+            super::FEXTNVM_SW_CONFIG_ICH8M
+        } else {
+            super::FEXTNVM_SW_CONFIG
+        };
+
+        let reg_data = read_reg(info, super::FEXTNVM)?;
+        if reg_data & sw_cfg_mask == 0 {
+            return Ok(());
+        }
+
+        // Wait for basic configuration completes before proceeding
+        for _ in 0..50 {
+            let reg_data = read_reg(info, super::STATUS)?;
+            awkernel_lib::delay::wait_microsec(100);
+            if reg_data & super::STATUS_LAN_INIT_DONE != 0 {
+                break;
+            }
+        }
+
+        // Clear the Init Done bit for the next init event
+        let reg_data = read_reg(info, super::STATUS)?;
+        let reg_data = reg_data & !super::STATUS_LAN_INIT_DONE;
+        write_reg(info, super::STATUS, reg_data)?;
+
+        // Make sure HW does not configure LCD from PHY extended
+        // configuration before SW configuration
+        let reg_data = read_reg(info, super::EXTCNF_CTRL)?;
+        if reg_data & super::EXTCNF_CTRL_LCD_WRITE_ENABLE == 0 {
+            let reg_data = read_reg(info, super::EXTCNF_SIZE)?;
+            let cnf_size = reg_data & super::EXTCNF_SIZE_EXT_PCIE_LENGTH;
+            let cnf_size = cnf_size >> 16;
+            if cnf_size != 0 {
+                let reg_data = read_reg(info, super::EXTCNF_CTRL)?;
+                let cnf_base_addr = reg_data & super::EXTCNF_CTRL_EXT_CNF_POINTER;
+                // cnf_base_addr is in DWORD
+                let cnf_base_addr = cnf_base_addr >> 16;
+
+                // Configure LCD from extended configuration region.
+                self.init_lcd_from_nvm_config_region(info, cnf_base_addr, cnf_size)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn init_lcd_from_nvm_config_region(
+        &self,
+        info: &PCIeInfo,
+        cnf_base_addr: u32,
+        cnf_size: u32,
+    ) -> Result<(), IgbDriverErr> {
+        todo!()
     }
 
     /// Checks if the PHY configuration is done

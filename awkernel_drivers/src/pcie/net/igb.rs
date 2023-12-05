@@ -675,6 +675,7 @@ fn tdlen_offset(n: usize) -> usize {
 const CTRL: usize = 0x00000; // Device Control Register
 const EECD: usize = 0x00010; // EEPROM Control Register
 const EERD: usize = 0x00014; // EEPROM Read Register
+const FEXTNVM: usize = 0x00028; // Future Extended NVM register
 const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
@@ -773,6 +774,9 @@ const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
 const FEXTNVM11: usize = 0x05bbc;
 const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 
+const FEXTNVM_SW_CONFIG: u32 = 1;
+const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; /* Bit redefined for ICH8M :/ */
+
 const _TX_CMD_EOP: u8 = 1 << 0; // End of Packet
 const TX_CMD_IFCS: u8 = 1 << 1; // Insert FCS
 const _TX_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
@@ -787,6 +791,7 @@ const FLUSH_DESC_REQUIRED: u32 = 0x100;
 
 // Extended Configuration Control and Size
 const EXTCNF_CTRL: usize = 0x00F00;
+const EXTCNF_SIZE: usize = 0x00F08; // Extended Configuration Size
 const _EXTCNF_CTRL_PCIE_WRITE_ENABLE: u32 = 0x00000001;
 const _EXTCNF_CTRL_PHY_WRITE_ENABLE: u32 = 0x00000002;
 const _EXTCNF_CTRL_D_UD_ENABLE: u32 = 0x00000004;
@@ -794,11 +799,11 @@ const _EXTCNF_CTRL_D_UD_LATENCY: u32 = 0x00000008;
 const _EXTCNF_CTRL_D_UD_OWNER: u32 = 0x00000010;
 const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
 const _EXTCNF_CTRL_MDIO_HW_OWNERSHIP: u32 = 0x00000040;
-const _EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
+const EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
 const _EXTCNF_SIZE_EXT_PHY_LENGTH: u32 = 0x000000FF;
 const _EXTCNF_SIZE_EXT_DOCK_LENGTH: u32 = 0x0000FF00;
-const _EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
-const _EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
+const EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
+const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
 const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
 const EXTCNF_CTRL_GATE_PHY_CFG: u32 = 0x00000080;
 
