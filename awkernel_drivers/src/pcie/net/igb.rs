@@ -683,7 +683,16 @@ const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 const STATUS: usize = 0x00008; // Device Status register
 const STATUS_FD: u32 = 1 << 0; // Full Duplex
 const STATUS_LU: u32 = 1 << 1; // Link Up
-const STATUS_TBIMODE: u32 = 1 << 5; // TBI Mode
+
+const STATUS_FUNC_0: u32 = 0x00000000; // Function 0
+const STATUS_FUNC_1: u32 = 0x00000004; // Function 1
+const STATUS_TXOFF: u32 = 0x00000010; // transmission paused
+const STATUS_TBIMODE: u32 = 0x00000020; // TBI mode
+const STATUS_SPEED_MASK: u32 = 0x000000C0;
+const STATUS_SPEED_10: u32 = 0x00000000; // Speed 10Mb/s
+const STATUS_SPEED_100: u32 = 0x00000040; // Speed 100Mb/s
+const STATUS_SPEED_1000: u32 = 0x00000080; // Speed 1000Mb/s
+const STATUS_LAN_INIT_DONE: u32 = 0x00000200; // Lan Init Completion
 
 // Interrupt Mask Set/Read Register
 const IMS: usize = 0x000D0;

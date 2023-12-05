@@ -381,6 +381,21 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
     (INTEL_VENDOR_ID, E1000_DEV_ID_EP80579_LAN_6),
 ];
 
+// PHY 1000 MII Register/Bit Definitions
+// PHY Registers defined by IEEE
+const PHY_CTRL: usize = 0x00; // Control Register
+const PHY_STATUS: usize = 0x01; // Status Register
+const PHY_ID1: usize = 0x02; // Phy Id Reg (word 1)
+const PHY_ID2: usize = 0x03; // Phy Id Reg (word 2)
+const PHY_AUTONEG_ADV: usize = 0x04; // Autoneg Advertisement
+const PHY_LP_ABILITY: usize = 0x05; // Link Partner Ability (Base Page)
+const PHY_AUTONEG_EXP: usize = 0x06; // Autoneg Expansion Reg
+const PHY_NEXT_PAGE_TX: usize = 0x07; // Next Page TX
+const PHY_LP_NEXT_PAGE: usize = 0x08; // Link Partner Next Page
+const PHY_1000T_CTRL: usize = 0x09; // 1000Base-T Control Reg
+const PHY_1000T_STATUS: usize = 0x0A; // 1000Base-T Status Reg
+const PHY_EXT_STATUS: usize = 0x0F; // Extended Status Reg
+
 // PBA constants
 const E1000_PBA_8K: u32 = 0x0008; /* 8KB, default Rx allocation */
 const _E1000_PBA_10K: u32 = 0x000A;
@@ -432,7 +447,7 @@ const PHY_UPPER_SHIFT: u32 = 21;
 // SW_W_SYNC definitions
 const _SWFW_EEP_SM: u16 = 0x0001;
 const SWFW_PHY0_SM: u16 = 0x0002;
-const _SWFW_PHY1_SM: u16 = 0x0004;
+const SWFW_PHY1_SM: u16 = 0x0004;
 const _SWFW_MAC_CSR_SM: u16 = 0x0008;
 const _SWFW_PHY2_SM: u16 = 0x0020;
 const _SWFW_PHY3_SM: u16 = 0x0040;
@@ -492,6 +507,21 @@ const I210_I_PHY_ID: u32 = 0x01410C00;
 const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
 const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
 const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
+
+const GG82563_PAGE_SHIFT: u32 = 5;
+const GG82563_MIN_ALT_REG: u32 = 30;
+const GG82563_PHY_PAGE_SELECT: u32 = gg82563_reg(0, 22); // Page Select
+const GG82563_PHY_PAGE_SELECT_ALT: u32 = gg82563_reg(0, 29); // Alternate Page Select
+
+// BME1000 PHY Specific Control Register
+const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; /* 1 = enable downshift */
+const BM_PHY_PAGE_SELECT: u32 = 22; /* Page Select for BM */
+const BM_REG_BIAS1: u32 = 29;
+const BM_REG_BIAS2: u32 = 30;
+
+const fn gg82563_reg(page: u32, reg: u32) -> u32 {
+    (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
+}
 
 const fn phy_reg(page: u32, reg: u32) -> u32 {
     (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
@@ -1101,6 +1131,8 @@ impl IgbHw {
 
     /// Reads and matches the expected PHY address for known PHY IDs
     fn match_gig_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // self.read_phy_reg()?;
+
         todo!()
     }
 
@@ -1280,8 +1312,63 @@ impl IgbHw {
         todo!()
     }
 
-    fn read_phy_reg(&self) -> Result<(), IgbDriverErr> {
-        todo!()
+    /// Reads the value from a PHY register, if the value is on a specific non zero
+    /// page, sets the page first.
+    fn read_phy_reg(&mut self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
+        use MacType::*;
+
+        if matches!(
+            self.mac_type,
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+        ) {
+            return self.access_phy_reg_hv_read(info, reg_addr);
+        }
+
+        let swfw = if matches!(self.mac_type, Em80003es2lan | Em82575 | Em82576)
+            && read_reg(info, super::STATUS)? & super::STATUS_FUNC_1 != 0
+        {
+            SWFW_PHY1_SM
+        } else {
+            SWFW_PHY0_SM
+        };
+
+        self.swfw_sync_mut(info, swfw, move |hw| {
+            use PhyType::*;
+
+            if matches!(hw.phy_type, Igp | Igp2 | Igp3) && reg_addr > MAX_PHY_MULTI_PAGE_REG {
+                hw.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, reg_addr as u16)?;
+            } else if matches!(hw.phy_type, Gg82563) {
+                if reg_addr & MAX_PHY_REG_ADDRESS > MAX_PHY_MULTI_PAGE_REG
+                    || matches!(hw.mac_type, Em80003es2lan)
+                {
+                    // Select Configuration Page
+                    if reg_addr & MAX_PHY_REG_ADDRESS < GG82563_MIN_ALT_REG {
+                        hw.write_phy_reg_ex(
+                            info,
+                            GG82563_PHY_PAGE_SELECT,
+                            (reg_addr >> GG82563_PAGE_SHIFT) as u16,
+                        )?;
+                    } else {
+                        // Use Alternative Page Select register to access registers 30 and 31
+                        hw.write_phy_reg_ex(
+                            info,
+                            GG82563_PHY_PAGE_SELECT_ALT,
+                            (reg_addr >> GG82563_PAGE_SHIFT) as u16,
+                        )?;
+                    }
+                }
+            } else if matches!(hw.phy_type, Bm) && hw.phy_revision == Some(1) {
+                if reg_addr > MAX_PHY_MULTI_PAGE_REG {
+                    hw.write_phy_reg_ex(
+                        info,
+                        BM_PHY_PAGE_SELECT,
+                        (reg_addr >> PHY_PAGE_SHIFT) as u16,
+                    )?;
+                }
+            }
+
+            hw.read_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg_addr)
+        })
     }
 
     /// Reads or writes the value from a PHY register, if the value is on a specific non zero page, sets the page first.
@@ -1293,37 +1380,34 @@ impl IgbHw {
     ) -> Result<u16, IgbDriverErr> {
         let swfw = SWFW_PHY0_SM;
 
-        self.swfw_sync_acquire(info, swfw)?;
+        self.swfw_sync_mut(info, swfw, |hw| {
+            let page = bm_phy_reg_page(reg_addr);
+            if page == BM_WUC_PAGE {
+                let result = hw.access_phy_wakeup_reg_bm(info, reg_addr, true, None)?;
+                return Ok(result.unwrap());
+            }
 
-        let page = bm_phy_reg_page(reg_addr);
-        if page == BM_WUC_PAGE {
-            let result = self.access_phy_wakeup_reg_bm(info, reg_addr, true, None)?;
-            self.swfw_sync_release(info, swfw)?;
-            return Ok(result.unwrap());
-        }
+            if page >= HV_INTC_FC_PAGE_START {
+                hw.phy_addr = 1;
+            } else {
+                hw.phy_addr = 2;
+            }
 
-        if page >= HV_INTC_FC_PAGE_START {
-            self.phy_addr = 1;
-        } else {
-            self.phy_addr = 2;
-        }
+            let page = if page == HV_INTC_FC_PAGE_START {
+                0
+            } else {
+                page
+            };
 
-        let page = if page == HV_INTC_FC_PAGE_START {
-            0
-        } else {
-            page
-        };
+            if reg_addr > MAX_PHY_MULTI_PAGE_REG {
+                hw.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
+            }
 
-        if reg_addr > MAX_PHY_MULTI_PAGE_REG {
-            self.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
-        }
+            let reg = bm_phy_reg_num(reg_addr) as u32;
+            let result = hw.read_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg)?;
 
-        let reg = bm_phy_reg_num(reg_addr) as u32;
-        let result = self.read_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg)?;
-
-        self.swfw_sync_release(info, swfw)?;
-
-        Ok(result)
+            Ok(result)
+        })
     }
 
     fn access_phy_reg_hv_write(
@@ -1334,49 +1418,47 @@ impl IgbHw {
     ) -> Result<(), IgbDriverErr> {
         let swfw = SWFW_PHY0_SM;
 
-        self.swfw_sync_acquire(info, swfw)?;
+        self.swfw_sync_mut(info, swfw, |hw| {
+            let page = bm_phy_reg_page(reg_addr);
+            if page == BM_WUC_PAGE {
+                hw.access_phy_wakeup_reg_bm(info, reg_addr, false, Some(phy_data))?;
+                return Ok(());
+            }
 
-        let page = bm_phy_reg_page(reg_addr);
-        if page == BM_WUC_PAGE {
-            self.access_phy_wakeup_reg_bm(info, reg_addr, false, Some(phy_data))?;
-            self.swfw_sync_release(info, swfw)?;
-            return Ok(());
-        }
+            if page >= HV_INTC_FC_PAGE_START {
+                hw.phy_addr = 1;
+            } else {
+                hw.phy_addr = 2;
+            }
 
-        if page >= HV_INTC_FC_PAGE_START {
-            self.phy_addr = 1;
-        } else {
-            self.phy_addr = 2;
-        }
+            let reg = bm_phy_reg_num(reg_addr) as u32;
 
-        let reg = bm_phy_reg_num(reg_addr) as u32;
+            // Workaround MDIO accesses being disabled after entering IEEE Power
+            // Down (whenever bit 11 of the PHY Control register is set)
+            if matches!(hw.phy_type, PhyType::I82578)
+                && matches!(hw.phy_revision, Some(1))
+                && hw.phy_addr == 2
+                && (MAX_PHY_REG_ADDRESS & reg) == 0
+                && phy_data & (1 << 11) != 0
+            {
+                let data2 = 0x7EFF;
+                hw.access_phy_debug_regs_hv(info, (1 << 6) | 0x3, Some(data2), false)?;
+            }
 
-        // Workaround MDIO accesses being disabled after entering IEEE Power
-        // Down (whenever bit 11 of the PHY Control register is set)
-        if matches!(self.phy_type, PhyType::I82578)
-            && matches!(self.phy_revision, Some(1))
-            && self.phy_addr == 2
-            && (MAX_PHY_REG_ADDRESS & reg) == 0
-            && phy_data & (1 << 11) != 0
-        {
-            let data2 = 0x7EFF;
-            self.access_phy_debug_regs_hv(info, (1 << 6) | 0x3, Some(data2), false)?;
-        }
+            let page = if page == HV_INTC_FC_PAGE_START {
+                0
+            } else {
+                page
+            };
 
-        let page = if page == HV_INTC_FC_PAGE_START {
-            0
-        } else {
-            page
-        };
+            if reg_addr > MAX_PHY_MULTI_PAGE_REG {
+                hw.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
+            }
 
-        if reg_addr > MAX_PHY_MULTI_PAGE_REG {
-            self.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, page << PHY_PAGE_SHIFT)?;
-        }
+            hw.write_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg, phy_data)?;
 
-        self.write_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg, phy_data)?;
-        self.swfw_sync_release(info, swfw)?;
-
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Read HV PHY vendor specific high registers
@@ -1713,6 +1795,16 @@ impl IgbHw {
         } else {
             Err(IgbDriverErr::NotSupported)
         }
+    }
+
+    fn swfw_sync_mut<T, F>(&mut self, info: &PCIeInfo, mask: u16, f: F) -> Result<T, IgbDriverErr>
+    where
+        F: FnOnce(&mut Self) -> Result<T, IgbDriverErr>,
+    {
+        self.swfw_sync_acquire(info, mask)?;
+        let result = f(self);
+        self.swfw_sync_release(info, mask)?;
+        result
     }
 
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L4869
