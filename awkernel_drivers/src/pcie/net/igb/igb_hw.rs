@@ -437,7 +437,7 @@ const _BM_PCIE_PAGE: u16 = 770;
 const BM_WUC_PAGE: u16 = 800;
 const BM_WUC_ADDRESS_OPCODE: u32 = 0x11;
 const BM_WUC_DATA_OPCODE: u32 = 0x12;
-const BM_WUC_ENABLE_PAGE: u32 = BM_PORT_CTRL_PAGE;
+const BM_WUC_ENABLE_PAGE: u16 = BM_PORT_CTRL_PAGE as u16;
 const BM_WUC_ENABLE_REG: u32 = 17;
 const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
 const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
@@ -450,8 +450,8 @@ const _SWFW_EEP_SM: u16 = 0x0001;
 const SWFW_PHY0_SM: u16 = 0x0002;
 const SWFW_PHY1_SM: u16 = 0x0004;
 const _SWFW_MAC_CSR_SM: u16 = 0x0008;
-const _SWFW_PHY2_SM: u16 = 0x0020;
-const _SWFW_PHY3_SM: u16 = 0x0040;
+const SWFW_PHY2_SM: u16 = 0x0020;
+const SWFW_PHY3_SM: u16 = 0x0040;
 
 // Hanksville definitions
 const HV_INTC_FC_PAGE_START: u16 = 768;
@@ -598,6 +598,7 @@ pub struct IgbHw {
     swfwhw_semaphore_present: bool,
     asf_firmware_present: bool,
     swfw_sync_present: bool,
+    swfw: u16,
     eeprom_semaphore_present: bool,
     phy_reset_disable: bool,
     flash_memory: Option<(BaseAddress, usize)>, // (base address, offset)
@@ -990,6 +991,31 @@ impl IgbHw {
 
         let (tbi_compatibility_en, media_type, sgmii_active) = set_media_type(&mac_type, info)?;
 
+        let (bus_func, swfw) = if matches!(
+            mac_type,
+            MacType::Em80003es2lan
+                | MacType::Em82575
+                | MacType::Em82576
+                | MacType::Em82580
+                | MacType::EmI210
+                | MacType::EmI350
+        ) {
+            let reg = read_reg(info, super::STATUS)?;
+            let bus_func = (reg & super::STATUS_FUNC_MASK) >> super::STATUS_FUNC_SHIFT;
+
+            let swfw = match bus_func {
+                0 => SWFW_PHY0_SM,
+                1 => SWFW_PHY1_SM,
+                2 => SWFW_PHY2_SM,
+                3 => SWFW_PHY3_SM,
+                _ => return Err(IgbDriverErr::Phy),
+            };
+
+            (bus_func, swfw)
+        } else {
+            (0, 0)
+        };
+
         let mut hw = Self {
             mac_type,
             initialize_hw_bits_disable,
@@ -997,6 +1023,7 @@ impl IgbHw {
             icp_intel_vendor_idx_port_num,
             swfwhw_semaphore_present,
             asf_firmware_present,
+            swfw,
             swfw_sync_present,
             eeprom_semaphore_present,
             phy_reset_disable: false,
@@ -1542,13 +1569,61 @@ impl IgbHw {
         todo!()
     }
 
+    /// Writes a value to a PHY register
     fn write_phy_reg(
         &mut self,
         info: &PCIeInfo,
         reg_addr: u32,
         phy_data: u16,
     ) -> Result<(), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        if matches!(
+            self.mac_type,
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+        ) {
+            return self.access_phy_reg_hv_write(info, reg_addr, phy_data);
+        }
+
+        self.swfw_sync_mut(info, self.swfw, |hw| {
+            if matches!(hw.phy_type, PhyType::Igp | PhyType::Igp2 | PhyType::Igp3)
+                && (reg_addr > MAX_PHY_MULTI_PAGE_REG)
+            {
+                hw.write_phy_reg_ex(info, IGP01E1000_PHY_PAGE_SELECT, reg_addr as u16)?;
+            } else if matches!(hw.phy_type, PhyType::Gg82563)
+                && ((reg_addr & MAX_PHY_REG_ADDRESS) > MAX_PHY_MULTI_PAGE_REG
+                    || matches!(hw.mac_type, Em80003es2lan))
+            {
+                // Select Configuration Page
+                if (reg_addr & MAX_PHY_REG_ADDRESS) < GG82563_MIN_ALT_REG {
+                    hw.write_phy_reg_ex(
+                        info,
+                        GG82563_PHY_PAGE_SELECT,
+                        (reg_addr >> GG82563_PAGE_SHIFT) as u16,
+                    )?;
+                } else {
+                    // Use Alternative Page Select register to access registers 30 and 31
+                    hw.write_phy_reg_ex(
+                        info,
+                        GG82563_PHY_PAGE_SELECT_ALT,
+                        (reg_addr >> GG82563_PAGE_SHIFT) as u16,
+                    )?;
+                }
+            } else if matches!(hw.phy_type, PhyType::Bm)
+                && hw.phy_revision == Some(1)
+                && reg_addr > MAX_PHY_MULTI_PAGE_REG
+            {
+                hw.write_phy_reg_ex(
+                    info,
+                    BM_PHY_PAGE_SELECT,
+                    (reg_addr >> PHY_PAGE_SHIFT) as u16,
+                )?;
+            }
+
+            hw.write_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg_addr, phy_data)?;
+
+            Ok(())
+        })
     }
 
     /// Reads the value from a PHY register, if the value is on a specific non zero

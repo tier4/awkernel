@@ -686,6 +686,9 @@ const STATUS: usize = 0x00008; // Device Status register
 const STATUS_FD: u32 = 1 << 0; // Full Duplex
 const STATUS_LU: u32 = 1 << 1; // Link Up
 
+const STATUS_FUNC_MASK: u32 = 0x0000000C; /* PCI Function Mask */
+const STATUS_FUNC_SHIFT: u32 = 2;
+
 const STATUS_FUNC_0: u32 = 0x00000000; // Function 0
 const STATUS_FUNC_1: u32 = 0x00000004; // Function 1
 const STATUS_TXOFF: u32 = 0x00000010; // transmission paused
