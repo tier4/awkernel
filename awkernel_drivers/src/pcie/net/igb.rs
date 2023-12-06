@@ -120,6 +120,7 @@ pub enum IgbDriverErr {
     Phy,
     Param,
     PhyType,
+    EEPROM,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -152,6 +153,7 @@ impl fmt::Display for IgbDriverErr {
             Self::Phy => write!(f, "PHY failure."),
             Self::Param => write!(f, "Parameter failure."),
             Self::PhyType => write!(f, "PHY type failure."),
+            Self::EEPROM => write!(f, "EEPROM failure."),
         }
     }
 }

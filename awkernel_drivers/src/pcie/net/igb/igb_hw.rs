@@ -443,7 +443,7 @@ const PHY_PAGE_SHIFT: u32 = 5;
 const PHY_UPPER_SHIFT: u32 = 21;
 
 // SW_W_SYNC definitions
-const _SWFW_EEP_SM: u16 = 0x0001;
+const SWFW_EEP_SM: u16 = 0x0001;
 const SWFW_PHY0_SM: u16 = 0x0002;
 const SWFW_PHY1_SM: u16 = 0x0004;
 const _SWFW_MAC_CSR_SM: u16 = 0x0008;
@@ -1658,12 +1658,232 @@ impl IgbHw {
 
     /// Reads a 16 bit word from the EEPROM.
     fn read_eeprom(
-        &self,
+        &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &mut [u16],
     ) -> Result<u16, IgbDriverErr> {
-        todo!()
+        // A check for invalid values:  offset too large, too many words, and
+        // not enough words.
+        if offset >= self.eeprom.word_size as u32
+            || data.len() > (self.eeprom.word_size as u32 - offset) as usize
+            || data.is_empty()
+        {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        // EEPROM's that don't use EERD to read require us to bit-bang the
+        // SPI directly. In this case, we need to acquire the EEPROM so that
+        // FW or other port software does not interrupt.
+        if is_onboard_nvm_eeprom(&self.mac_type, info)?
+            && get_flash_presence_i210(&self.mac_type, info)?
+            && !self.eeprom.use_eerd
+        {
+            // Prepare the EEPROM for bit-bang reading
+            // self.acquire_eeprom(info)?;
+        }
+
+        todo!();
+    }
+
+    //     int32_t
+    // em_read_eeprom(struct em_hw *hw, uint16_t offset, uint16_t words,
+    //     uint16_t *data)
+    // {
+    // 	struct em_eeprom_info *eeprom = &hw->eeprom;
+    // 	uint32_t i = 0;
+    // 	DEBUGFUNC("em_read_eeprom");
+
+    // 	/* If eeprom is not yet detected, do so now */
+    // 	if (eeprom->word_size == 0)
+    // 		em_init_eeprom_params(hw);
+    // 	/*
+    // 	 * A check for invalid values:  offset too large, too many words, and
+    // 	 * not enough words.
+    // 	 */
+    // 	if ((offset >= eeprom->word_size) ||
+    // 	    (words > eeprom->word_size - offset) ||
+    // 	    (words == 0)) {
+    // 		DEBUGOUT2("\"words\" parameter out of bounds. Words = %d,"
+    // 		    " size = %d\n", offset, eeprom->word_size);
+    // 		return -E1000_ERR_EEPROM;
+    // 	}
+    // 	/*
+    // 	 * EEPROM's that don't use EERD to read require us to bit-bang the
+    // 	 * SPI directly. In this case, we need to acquire the EEPROM so that
+    // 	 * FW or other port software does not interrupt.
+    // 	 */
+    // 	if (em_is_onboard_nvm_eeprom(hw) == TRUE &&
+    // 	    em_get_flash_presence_i210(hw) == TRUE &&
+    // 	    hw->eeprom.use_eerd == FALSE) {
+    // 		/* Prepare the EEPROM for bit-bang reading */
+    // 		if (em_acquire_eeprom(hw) != E1000_SUCCESS)
+    // 			return -E1000_ERR_EEPROM;
+    // 	}
+    // 	/* Eerd register EEPROM access requires no eeprom acquire/release */
+    // 	if (eeprom->use_eerd == TRUE)
+    // 		return em_read_eeprom_eerd(hw, offset, words, data);
+
+    // 	/* ICH EEPROM access is done via the ICH flash controller */
+    // 	if (eeprom->type == em_eeprom_ich8)
+    // 		return em_read_eeprom_ich8(hw, offset, words, data);
+
+    // 	/* Some i210/i211 have a special OTP chip */
+    // 	if (eeprom->type == em_eeprom_invm)
+    // 		return em_read_invm_i210(hw, offset, words, data);
+
+    // 	/*
+    // 	 * Set up the SPI or Microwire EEPROM for bit-bang reading.  We have
+    // 	 * acquired the EEPROM at this point, so any returns should release it
+    // 	 */
+    // 	if (eeprom->type == em_eeprom_spi) {
+    // 		uint16_t word_in;
+    // 		uint8_t  read_opcode = EEPROM_READ_OPCODE_SPI;
+    // 		if (em_spi_eeprom_ready(hw)) {
+    // 			em_release_eeprom(hw);
+    // 			return -E1000_ERR_EEPROM;
+    // 		}
+    // 		em_standby_eeprom(hw);
+    // 		/*
+    // 		 * Some SPI eeproms use the 8th address bit embedded in the
+    // 		 * opcode
+    // 		 */
+    // 		if ((eeprom->address_bits == 8) && (offset >= 128))
+    // 			read_opcode |= EEPROM_A8_OPCODE_SPI;
+
+    // 		/* Send the READ command (opcode + addr)  */
+    // 		em_shift_out_ee_bits(hw, read_opcode, eeprom->opcode_bits);
+    // 		em_shift_out_ee_bits(hw, (uint16_t) (offset * 2),
+    // 		    eeprom->address_bits);
+    // 		/*
+    // 		 * Read the data.  The address of the eeprom internally
+    // 		 * increments with each byte (spi) being read, saving on the
+    // 		 * overhead of eeprom setup and tear-down.  The address
+    // 		 * counter will roll over if reading beyond the size of the
+    // 		 * eeprom, thus allowing the entire memory to be read
+    // 		 * starting from any offset.
+    // 		 */
+    // 		for (i = 0; i < words; i++) {
+    // 			word_in = em_shift_in_ee_bits(hw, 16);
+    // 			data[i] = (word_in >> 8) | (word_in << 8);
+    // 		}
+    // 	} else if (eeprom->type == em_eeprom_microwire) {
+    // 		for (i = 0; i < words; i++) {
+    // 			/* Send the READ command (opcode + addr)  */
+    // 			em_shift_out_ee_bits(hw, EEPROM_READ_OPCODE_MICROWIRE,
+    // 			    eeprom->opcode_bits);
+    // 			em_shift_out_ee_bits(hw, (uint16_t) (offset + i),
+    // 			    eeprom->address_bits);
+    // 			/*
+    // 			 * Read the data.  For microwire, each word requires
+    // 			 * the overhead of eeprom setup and tear-down.
+    // 			 */
+    // 			data[i] = em_shift_in_ee_bits(hw, 16);
+    // 			em_standby_eeprom(hw);
+    // 		}
+    // 	}
+    // 	/* End this read operation */
+    // 	em_release_eeprom(hw);
+
+    // 	return E1000_SUCCESS;
+    // }
+
+    fn acquire_eeprom<T, F>(&mut self, info: &PCIeInfo, f: F) -> Result<T, IgbDriverErr>
+    where
+        F: FnOnce(&mut Self) -> Result<T, IgbDriverErr>,
+    {
+        use MacType::*;
+
+        self.swfw_sync_mut(info, SWFW_EEP_SM, move |hw| {
+            let eecd = read_reg(info, super::EECD)?;
+
+            // !!(!A && !B) == !(A || B)
+
+            if !matches!(hw.mac_type, Em82573 | Em82574) {
+                // Request EEPROM Access
+                if hw.mac_type.clone() as u32 > Em82544 as u32 {
+                    write_reg(info, super::EECD, eecd | E1000_EECD_REQ)?;
+                    let mut eecd = read_reg(info, super::EECD)?;
+                    let mut i = 0;
+
+                    while eecd & E1000_EECD_GNT == 0 && i < E1000_EEPROM_GRANT_ATTEMPTS {
+                        i += 1;
+                        awkernel_lib::delay::wait_microsec(5);
+                        eecd = read_reg(info, super::EECD)?;
+                    }
+
+                    if eecd & E1000_EECD_GNT == 0 {
+                        write_reg(info, super::EECD, eecd & !E1000_EECD_REQ)?;
+                        log::warn!("igb: Could not acquire EEPROM grant");
+                        return Err(IgbDriverErr::EEPROM);
+                    }
+                }
+            }
+
+            // Setup EEPROM for Read/Write
+            match hw.eeprom.eeprom_type {
+                EEPROMType::Microwire => {
+                    let eecd = read_reg(info, super::EECD)?;
+                    let eecd = eecd & !(E1000_EECD_DI | E1000_EECD_SK);
+                    // Clear SK and DI
+                    write_reg(info, super::EECD, eecd)?;
+
+                    // Set CS
+                    let eecd = eecd | E1000_EECD_CS;
+                    write_reg(info, super::EECD, eecd)?;
+                }
+                EEPROMType::SPI => {
+                    // Clear SK and CS
+                    let eecd = read_reg(info, super::EECD)?;
+                    let eecd = eecd & !(E1000_EECD_CS | E1000_EECD_SK);
+                    write_reg(info, super::EECD, eecd)?;
+                    awkernel_lib::delay::wait_microsec(1);
+                }
+                _ => (),
+            }
+
+            let result = f(hw);
+
+            // release eeprom
+            let eecd = read_reg(info, super::EECD)?;
+
+            match hw.eeprom.eeprom_type {
+                EEPROMType::SPI => {
+                    let eecd = eecd | E1000_EECD_CS; // Pull CS high
+                    let eecd = eecd & !E1000_EECD_SK; // Lower SCK
+                    write_reg(info, super::EECD, eecd)?;
+                    awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
+                }
+                EEPROMType::Microwire => {
+                    // cleanup eeprom
+                    // CS on Microwire is active-high
+                    let eecd = eecd & !(E1000_EECD_CS | E1000_EECD_DI);
+                    write_reg(info, super::EECD, eecd)?;
+
+                    // Rising edge of clock
+                    let eecd = eecd | E1000_EECD_SK;
+                    write_reg(info, super::EECD, eecd)?;
+                    write_flush(info)?;
+                    awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
+
+                    // Falling edge of clock
+                    let eecd = eecd & !E1000_EECD_SK;
+                    write_reg(info, super::EECD, eecd)?;
+                    write_flush(info)?;
+                    awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
+                }
+                _ => (),
+            }
+
+            // Stop requesting EEPROM access
+            if hw.mac_type.clone() as u32 > Em82544 as u32 {
+                let eecd = read_reg(info, super::EECD)?;
+                let eecd = eecd & !E1000_EECD_REQ;
+                write_reg(info, super::EECD, eecd)?;
+            }
+
+            result
+        })
     }
 
     /// Checks if the PHY configuration is done
@@ -2732,11 +2952,25 @@ struct EEPROM {
     use_eewr: bool,
 }
 
-const E1000_EECD_SIZE: u32 = 0x00000200;
-const E1000_EECD_ADDR_BITS: u32 = 0x00000400;
+/* EEPROM/Flash Control */
+const E1000_EECD_SK: u32 = 0x00000001; /* EEPROM Clock */
+const E1000_EECD_CS: u32 = 0x00000002; /* EEPROM Chip Select */
+const E1000_EECD_DI: u32 = 0x00000004; /* EEPROM Data In */
+const E1000_EECD_DO: u32 = 0x00000008; /* EEPROM Data Out */
+const E1000_EECD_FWE_MASK: u32 = 0x00000030;
+const E1000_EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
+const E1000_EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
+const E1000_EECD_FWE_SHIFT: u32 = 4;
+const E1000_EECD_REQ: u32 = 0x00000040; /* EEPROM Access Request */
+const E1000_EECD_GNT: u32 = 0x00000080; /* EEPROM Access Grant */
+const E1000_EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
+const E1000_EECD_SIZE: u32 = 0x00000200; // EEPROM Size (0=64 word 1=256 word)
+const E1000_EECD_ADDR_BITS: u32 = 0x00000400; // EEPROM Addressing bits based on type
 const E1000_EECD_TYPE: u32 = 0x00002000;
 const E1000_EECD_FLUPD: u32 = 0x00080000;
 const E1000_EECD_AUPDEN: u32 = 0x00100000;
+
+const E1000_EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
 
 const E1000_EECD_SIZE_EX_MASK: u32 = 0x00007800;
 const E1000_EECD_SIZE_EX_SHIFT: u32 = 11;
@@ -3202,7 +3436,8 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
         return Err(IgbDriverErr::Phy);
     }
 
-    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_ETH_FLAGS_OFFSET)) else {
+    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_ETH_FLAGS_OFFSET))
+    else {
         write_reg(info, super::CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     };
