@@ -18,4 +18,4 @@ default-features = false
 features = ["aarch64", "raspi"]
 
 [dependencies.embedded-hal]
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
