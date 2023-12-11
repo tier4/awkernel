@@ -592,6 +592,13 @@ const EEPROM_STATUS_BP0_SPI: u16 = 0x04;
 const EEPROM_STATUS_BP1_SPI: u16 = 0x08;
 const EEPROM_STATUS_WPEN_SPI: u16 = 0x80;
 
+// EEPROM Commands - Microwire
+const EEPROM_READ_OPCODE_MICROWIRE: u16 = 0x6; /* EEPROM read opcode */
+const EEPROM_WRITE_OPCODE_MICROWIRE: u16 = 0x5; /* EEPROM write opcode */
+const EEPROM_ERASE_OPCODE_MICROWIRE: u16 = 0x7; /* EEPROM erase opcode */
+const EEPROM_EWEN_OPCODE_MICROWIRE: u16 = 0x13; /* EEPROM erase/write enable */
+const EEPROM_EWDS_OPCODE_MICROWIRE: u16 = 0x10; /* EEPROM erast/write disable */
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1718,117 +1725,58 @@ impl IgbHw {
             // acquired the EEPROM at this point, so any returns should release it
             match &hw.eeprom.eeprom_type {
                 EEPROMType::SPI => {
-                    todo!("SPI");
+                    hw.spi_eeprom_ready(info)?;
+                    hw.standby_eeprom(info)?;
+
+                    let read_opcode = EEPROM_READ_OPCODE_SPI;
+
+                    // Some SPI eeproms use the 8th address bit embedded in the
+                    // opcode
+                    let read_opcode = if (hw.eeprom.address_bits == 8) && (offset >= 128) {
+                        read_opcode | EEPROM_A8_OPCODE_SPI
+                    } else {
+                        read_opcode
+                    };
+
+                    // Send the READ command (opcode + addr)
+                    hw.shift_out_ee_bits(info, read_opcode, hw.eeprom.opcode_bits)?;
+                    hw.shift_out_ee_bits(info, (offset * 2) as u16, hw.eeprom.address_bits)?;
+
+                    // Read the data.  The address of the eeprom internally
+                    // increments with each byte (spi) being read, saving on the
+                    // overhead of eeprom setup and tear-down.  The address
+                    // counter will roll over if reading beyond the size of the
+                    // eeprom, thus allowing the entire memory to be read
+                    // starting from any offset.
+                    for d in data.iter_mut() {
+                        let word_in = hw.shift_in_ee_bits(info, 16)?;
+                        *d = (word_in >> 8) | (word_in << 8);
+                    }
+
+                    Ok(())
                 }
                 EEPROMType::Microwire => {
-                    todo!("Microwire");
+                    for d in data.iter_mut() {
+                        // Send the READ command (opcode + addr)
+                        hw.shift_out_ee_bits(
+                            info,
+                            EEPROM_READ_OPCODE_MICROWIRE,
+                            hw.eeprom.opcode_bits,
+                        )?;
+                        hw.shift_out_ee_bits(info, (offset + 1) as u16, hw.eeprom.address_bits)?;
+
+                        // Read the data.  For microwire, each word requires
+                        // the overhead of eeprom setup and tear-down.
+                        *d = hw.shift_in_ee_bits(info, 16)?;
+                        hw.standby_eeprom(info)?;
+                    }
+
+                    Ok(())
                 }
                 _ => Err(IgbDriverErr::EEPROM),
             }
         })
     }
-
-    //     int32_t
-    // em_read_eeprom(struct em_hw *hw, uint16_t offset, uint16_t words,
-    //     uint16_t *data)
-    // {
-    // 	struct em_eeprom_info *eeprom = &hw->eeprom;
-    // 	uint32_t i = 0;
-    // 	DEBUGFUNC("em_read_eeprom");
-
-    // 	/* If eeprom is not yet detected, do so now */
-    // 	if (eeprom->word_size == 0)
-    // 		em_init_eeprom_params(hw);
-    // 	/*
-    // 	 * A check for invalid values:  offset too large, too many words, and
-    // 	 * not enough words.
-    // 	 */
-    // 	if ((offset >= eeprom->word_size) ||
-    // 	    (words > eeprom->word_size - offset) ||
-    // 	    (words == 0)) {
-    // 		DEBUGOUT2("\"words\" parameter out of bounds. Words = %d,"
-    // 		    " size = %d\n", offset, eeprom->word_size);
-    // 		return -E1000_ERR_EEPROM;
-    // 	}
-    // 	/*
-    // 	 * EEPROM's that don't use EERD to read require us to bit-bang the
-    // 	 * SPI directly. In this case, we need to acquire the EEPROM so that
-    // 	 * FW or other port software does not interrupt.
-    // 	 */
-    // 	if (em_is_onboard_nvm_eeprom(hw) == TRUE &&
-    // 	    em_get_flash_presence_i210(hw) == TRUE &&
-    // 	    hw->eeprom.use_eerd == FALSE) {
-    // 		/* Prepare the EEPROM for bit-bang reading */
-    // 		if (em_acquire_eeprom(hw) != E1000_SUCCESS)
-    // 			return -E1000_ERR_EEPROM;
-    // 	}
-    // 	/* Eerd register EEPROM access requires no eeprom acquire/release */
-    // 	if (eeprom->use_eerd == TRUE)
-    // 		return em_read_eeprom_eerd(hw, offset, words, data);
-
-    // 	/* ICH EEPROM access is done via the ICH flash controller */
-    // 	if (eeprom->type == em_eeprom_ich8)
-    // 		return em_read_eeprom_ich8(hw, offset, words, data);
-
-    // 	/* Some i210/i211 have a special OTP chip */
-    // 	if (eeprom->type == em_eeprom_invm)
-    // 		return em_read_invm_i210(hw, offset, words, data);
-
-    // 	/*
-    // 	 * Set up the SPI or Microwire EEPROM for bit-bang reading.  We have
-    // 	 * acquired the EEPROM at this point, so any returns should release it
-    // 	 */
-    // 	if (eeprom->type == em_eeprom_spi) {
-    // 		uint16_t word_in;
-    // 		uint8_t  read_opcode = EEPROM_READ_OPCODE_SPI;
-    // 		if (em_spi_eeprom_ready(hw)) {
-    // 			em_release_eeprom(hw);
-    // 			return -E1000_ERR_EEPROM;
-    // 		}
-    // 		em_standby_eeprom(hw);
-    // 		/*
-    // 		 * Some SPI eeproms use the 8th address bit embedded in the
-    // 		 * opcode
-    // 		 */
-    // 		if ((eeprom->address_bits == 8) && (offset >= 128))
-    // 			read_opcode |= EEPROM_A8_OPCODE_SPI;
-
-    // 		/* Send the READ command (opcode + addr)  */
-    // 		em_shift_out_ee_bits(hw, read_opcode, eeprom->opcode_bits);
-    // 		em_shift_out_ee_bits(hw, (uint16_t) (offset * 2),
-    // 		    eeprom->address_bits);
-    // 		/*
-    // 		 * Read the data.  The address of the eeprom internally
-    // 		 * increments with each byte (spi) being read, saving on the
-    // 		 * overhead of eeprom setup and tear-down.  The address
-    // 		 * counter will roll over if reading beyond the size of the
-    // 		 * eeprom, thus allowing the entire memory to be read
-    // 		 * starting from any offset.
-    // 		 */
-    // 		for (i = 0; i < words; i++) {
-    // 			word_in = em_shift_in_ee_bits(hw, 16);
-    // 			data[i] = (word_in >> 8) | (word_in << 8);
-    // 		}
-    // 	} else if (eeprom->type == em_eeprom_microwire) {
-    // 		for (i = 0; i < words; i++) {
-    // 			/* Send the READ command (opcode + addr)  */
-    // 			em_shift_out_ee_bits(hw, EEPROM_READ_OPCODE_MICROWIRE,
-    // 			    eeprom->opcode_bits);
-    // 			em_shift_out_ee_bits(hw, (uint16_t) (offset + i),
-    // 			    eeprom->address_bits);
-    // 			/*
-    // 			 * Read the data.  For microwire, each word requires
-    // 			 * the overhead of eeprom setup and tear-down.
-    // 			 */
-    // 			data[i] = em_shift_in_ee_bits(hw, 16);
-    // 			em_standby_eeprom(hw);
-    // 		}
-    // 	}
-    // 	/* End this read operation */
-    // 	em_release_eeprom(hw);
-
-    // 	return E1000_SUCCESS;
-    // }
 
     fn read_eeprom_eerd(
         &mut self,
