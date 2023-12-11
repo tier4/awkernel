@@ -1943,7 +1943,7 @@ impl IgbHw {
         todo!()
     }
 
-    fn read_ich8_data32(&mut self, info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
+    fn read_ich8_data32(&mut self, offset: usize) -> Result<u32, IgbDriverErr> {
         if (self.mac_type.clone() as u32) < MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
         }
@@ -1980,10 +1980,7 @@ impl IgbHw {
             // the whole sequence a few more times, else read in (shift
             // in) the Flash Data0, the order is least significant byte
             // first msb to lsb
-            if self
-                .ich8_flash_cycle(info, ICH_FLASH_COMMAND_TIMEOUT)
-                .is_ok()
-            {
+            if self.ich8_flash_cycle(ICH_FLASH_COMMAND_TIMEOUT).is_ok() {
                 return Ok(self.read_ich_flash_reg32(ICH_FLASH_FDATA0)?);
             } else {
                 // If we've gotten here, then things are probably
@@ -2009,8 +2006,44 @@ impl IgbHw {
         }
     }
 
-    fn ich8_flash_cycle(&mut self, info: &PCIeInfo, timeout: u32) -> Result<(), IgbDriverErr> {
-        todo!()
+    /// This function starts a flash cycle and waits for its completion.
+    fn ich8_flash_cycle(&mut self, timeout: u32) -> Result<(), IgbDriverErr> {
+        // Start a cycle by writing 1 in Flash Cycle Go in Hw Flash Control
+        let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? >> 16) as u16
+        } else {
+            self.read_ich_flash_reg16(ICH_FLASH_HSFCTL)?
+        };
+
+        let hsf_ctrl = regval | 1;
+
+        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, (hsf_ctrl as u32) << 16)?;
+        } else {
+            self.write_ich_flash_reg16(ICH_FLASH_HSFCTL, hsf_ctrl)?;
+        }
+
+        // wait till FDONE bit is set to 1
+        for _ in 0..timeout {
+            let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? & 0xFFFF) as u16
+            } else {
+                self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
+            };
+
+            let hsf_status = Ich8HwsFlashStatus::from_bits_truncate(regval);
+            if hsf_status.contains(Ich8HwsFlashStatus::FLCDONE) {
+                if hsf_status.contains(Ich8HwsFlashStatus::FLCERR) {
+                    return Err(IgbDriverErr::EEPROM);
+                } else {
+                    return Ok(());
+                }
+            }
+
+            awkernel_lib::delay::wait_microsec(1);
+        }
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     // This function does initial flash setup so that a new read/write/erase cycle can be started.
