@@ -608,6 +608,16 @@ const EEPROM_RW_ADDR_SHIFT: u32 = 2; /* Shift to the address bits */
 const EEPROM_POLL_WRITE: u32 = 1; /* Flag for polling for write complete */
 const EEPROM_POLL_READ: u32 = 0; /* Flag for polling for read complete */
 
+const INVM_UNINITIALIZED_STRUCTURE: u8 = 0x0;
+const INVM_WORD_AUTOLOAD_STRUCTURE: u8 = 0x1;
+const INVM_CSR_AUTOLOAD_STRUCTURE: u8 = 0x2;
+const INVM_PHY_REGISTER_AUTOLOAD_STRUCTURE: u8 = 0x3;
+const INVM_RSA_KEY_SHA256_STRUCTURE: u8 = 0x4;
+const INVM_INVALIDATED_STRUCTURE: u8 = 0x5;
+
+const INVM_RSA_KEY_SHA256_DATA_SIZE_IN_DWORDS: u16 = 8;
+const INVM_CSR_AUTOLOAD_DATA_SIZE_IN_DWORDS: u16 = 1;
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1842,6 +1852,37 @@ impl IgbHw {
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
         todo!();
+    }
+
+    /// Reads 16-bit words from the OTP. Return error when the word is not stored in OTP.
+    fn read_invm_word_i210(&mut self, info: &PCIeInfo, address: u16) -> Result<u16, IgbDriverErr> {
+        let mut i = 0;
+        while i < INVM_SIZE {
+            let invm_dword = read_reg(info, invm_data_reg(i as usize))?;
+            let record_type = invm_dward_to_recored_type(invm_dword);
+            if record_type == INVM_UNINITIALIZED_STRUCTURE {
+                return Err(IgbDriverErr::NotSupported);
+            }
+
+            if record_type == INVM_CSR_AUTOLOAD_STRUCTURE {
+                i += INVM_CSR_AUTOLOAD_DATA_SIZE_IN_DWORDS;
+            }
+
+            if record_type == INVM_RSA_KEY_SHA256_STRUCTURE {
+                i += INVM_RSA_KEY_SHA256_DATA_SIZE_IN_DWORDS;
+            }
+
+            if record_type == INVM_WORD_AUTOLOAD_STRUCTURE {
+                let word_address = invm_dward_to_dword_address(invm_dword);
+                if word_address == address {
+                    return Ok(invm_dward_to_dword_data(invm_dword));
+                }
+            }
+
+            i += 1;
+        }
+
+        Err(IgbDriverErr::NotSupported)
     }
 
     /// Reads a 16 bit word from the EEPROM.
@@ -3784,4 +3825,24 @@ fn bm_phy_reg_num(offset: u32) -> u16 {
 
 fn bm_phy_reg_page(offset: u32) -> u16 {
     ((offset >> PHY_PAGE_SHIFT) & 0xFFFF) as u16
+}
+
+#[inline(always)]
+fn invm_data_reg(reg: usize) -> usize {
+    0x12120 + 4 * reg
+}
+
+#[inline(always)]
+fn invm_dward_to_recored_type(dword: u32) -> u8 {
+    (dword & 0x7) as u8
+}
+
+#[inline(always)]
+fn invm_dward_to_dword_address(dword: u32) -> u16 {
+    ((dword & 0x0000FE00) >> 9) as u16
+}
+
+#[inline(always)]
+fn invm_dward_to_dword_data(dword: u32) -> u16 {
+    ((dword & 0xFFFF0000) >> 16) as u16
 }
