@@ -656,6 +656,11 @@ const NVM_RESERVED_WORD: u16 = 0xFFFF;
 
 const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
 
+const ICH_CYCLE_READ: u16 = 0x0;
+const ICH_CYCLE_RESERVED: u16 = 0x1;
+const ICH_CYCLE_WRITE: u16 = 0x2;
+const ICH_CYCLE_ERASE: u16 = 0x3;
+
 const ICH_FLASH_GFPREG: usize = 0x0000;
 const ICH_FLASH_HSFSTS: usize = 0x0004;
 const ICH_FLASH_HSFCTL: usize = 0x0006;
@@ -681,6 +686,12 @@ const ICH_FLASH_SEG_SIZE_256: u32 = 256;
 const ICH_FLASH_SEG_SIZE_4K: u32 = 4096;
 const ICH_FLASH_SEG_SIZE_8K: u32 = 8192;
 const ICH_FLASH_SEG_SIZE_64K: u32 = 65536;
+
+const ICH_FLASH_REG_MAPSIZE: u32 = 0x00A0;
+const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
+const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
+const ICH_FLASH_LINEAR_ADDR_MASK: u32 = 0x00FFFFFF;
+const ICH_FLASH_SECT_ADDR_SHIFT: u32 = 12;
 
 bitflags! {
     struct Ich8HwsFlashStatus: u16 {
@@ -1920,12 +1931,82 @@ impl IgbHw {
         todo!()
     }
 
+    fn read_ich8_data32(&mut self, info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
+        if (self.mac_type.clone() as u32) < MacType::EmPchSpt as u32 {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        if offset > ICH_FLASH_LINEAR_ADDR_MASK as usize {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & offset as u32)
+            + self.flash_base_address.ok_or(IgbDriverErr::EEPROM)? as u32;
+
+        let mut count = 0;
+        loop {
+            awkernel_lib::delay::wait_microsec(1);
+
+            // Steps
+            self.ich8_cycle_init()?;
+
+            // 32 bit accesses in SPT.
+            let hsflctl = (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? >> 16) as u16;
+
+            let hsflctl = (hsflctl & !(0b11 << 8))
+                | ((((core::mem::size_of::<u32>() - 1) as u16) << 8) & 0b11);
+            let hsflctl = (hsflctl & !(0b11 << 1)) | ((ICH_CYCLE_READ << 1) & 0b11);
+
+            self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, (hsflctl as u32) << 16)?;
+
+            // Write the last 24 bits of offset into Flash Linear address
+            // field in Flash Address
+
+            self.write_ich_flash_reg32(ICH_FLASH_FADDR, flash_linear_address)?;
+
+            // Check if FCERR is set to 1, if set to 1, clear it and try
+            // the whole sequence a few more times, else read in (shift
+            // in) the Flash Data0, the order is least significant byte
+            // first msb to lsb
+            if self
+                .ich8_flash_cycle(info, ICH_FLASH_COMMAND_TIMEOUT)
+                .is_ok()
+            {
+                return Ok(self.read_ich_flash_reg32(ICH_FLASH_FDATA0)?);
+            } else {
+                // If we've gotten here, then things are probably
+                // completely hosed, but if the error condition is
+                // detected, it won't hurt to give it another
+                // try...ICH_FLASH_CYCLE_REPEAT_COUNT times.
+                let regval = self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?;
+                let hsfsts = Ich8HwsFlashStatus::from_bits_truncate(regval);
+
+                if hsfsts.contains(Ich8HwsFlashStatus::FLCERR) {
+                    // Repeat for some time before giving up.
+                    continue;
+                } else if !hsfsts.contains(Ich8HwsFlashStatus::FLCDONE) {
+                    log::warn!("Timeout error - flash cycle did not complete.");
+                    return Err(IgbDriverErr::EEPROM);
+                }
+            }
+
+            count += 1;
+            if count > ICH_FLASH_CYCLE_REPEAT_COUNT {
+                return Err(IgbDriverErr::EEPROM);
+            }
+        }
+    }
+
+    fn ich8_flash_cycle(&mut self, info: &PCIeInfo, timeout: u32) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
     // This function does initial flash setup so that a new read/write/erase cycle can be started.
-    fn ich8_cycle_init(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    fn ich8_cycle_init(&mut self) -> Result<(), IgbDriverErr> {
         let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
-            read_ich_flash_reg32(info, ICH_FLASH_HSFSTS, &self.flash_memory)? as u16
+            self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? as u16
         } else {
-            read_ich_flash_reg16(info, ICH_FLASH_HSFSTS, &self.flash_memory)?
+            self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
         };
 
         let stat = Ich8HwsFlashStatus::from_bits_truncate(regval);
@@ -1940,9 +2021,9 @@ impl IgbHw {
         // Clear DAEL in Hw status by writing a 1
         let stat = stat | Ich8HwsFlashStatus::FLCERR | Ich8HwsFlashStatus::DAEL;
         if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
-            write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32, &mut self.flash_memory)?;
+            self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
         } else {
-            write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits() as u16, &mut self.flash_memory)?;
+            self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits() as u16)?;
         }
 
         // Either we should have a hardware SPI cycle in progress bit to
@@ -1960,13 +2041,9 @@ impl IgbHw {
             // Begin by setting Flash Cycle Done.
             let stat = stat | Ich8HwsFlashStatus::FLCDONE;
             if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
-                write_ich_flash_reg32(
-                    ICH_FLASH_HSFSTS,
-                    stat.bits() as u32,
-                    &mut self.flash_memory,
-                )?;
+                self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
             } else {
-                write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits(), &mut self.flash_memory)?;
+                self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits())?;
             }
 
             Ok(())
@@ -1975,9 +2052,9 @@ impl IgbHw {
             // chance to end before giving up.
             for _ in 0..ICH_FLASH_COMMAND_TIMEOUT {
                 let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
-                    read_ich_flash_reg32(info, ICH_FLASH_HSFSTS, &self.flash_memory)? as u16
+                    self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? as u16
                 } else {
-                    read_ich_flash_reg16(info, ICH_FLASH_HSFSTS, &self.flash_memory)?
+                    self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
                 };
 
                 let stat = Ich8HwsFlashStatus::from_bits_truncate(regval);
@@ -1986,17 +2063,9 @@ impl IgbHw {
                     // timeout, now set the Flash Cycle Done.
                     let stat = stat | Ich8HwsFlashStatus::FLCDONE;
                     if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
-                        write_ich_flash_reg32(
-                            ICH_FLASH_HSFSTS,
-                            stat.bits() as u32,
-                            &mut self.flash_memory,
-                        )?;
+                        self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
                     } else {
-                        write_ich_flash_reg16(
-                            ICH_FLASH_HSFSTS,
-                            stat.bits(),
-                            &mut self.flash_memory,
-                        )?;
+                        self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits())?;
                     }
 
                     return Ok(());
@@ -2301,6 +2370,46 @@ impl IgbHw {
         write_reg(info, super::EECD, *eecd)?;
         write_flush(info)?;
         awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn read_ich_flash_reg32(&mut self, reg: usize) -> Result<u32, IgbDriverErr> {
+        let Some((offset, _)) = &self.flash_memory else {
+            return Err(IgbDriverErr::ReadFailure);
+        };
+
+        offset.read32(reg).ok_or(IgbDriverErr::ReadFailure)
+    }
+
+    #[inline(always)]
+    fn read_ich_flash_reg16(&mut self, reg: usize) -> Result<u16, IgbDriverErr> {
+        let Some((offset, _)) = &self.flash_memory else {
+            return Err(IgbDriverErr::ReadFailure);
+        };
+
+        offset.read16(reg).ok_or(IgbDriverErr::ReadFailure)
+    }
+
+    #[inline(always)]
+    fn write_ich_flash_reg32(&mut self, reg: usize, value: u32) -> Result<(), IgbDriverErr> {
+        let Some((offset, _)) = &mut self.flash_memory else {
+            return Err(IgbDriverErr::ReadFailure);
+        };
+
+        offset.write32(reg, value);
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn write_ich_flash_reg16(&mut self, reg: usize, value: u16) -> Result<(), IgbDriverErr> {
+        let Some((offset, _)) = &mut self.flash_memory else {
+            return Err(IgbDriverErr::ReadFailure);
+        };
+
+        offset.write16(reg, value);
 
         Ok(())
     }
@@ -3498,9 +3607,6 @@ const E1000_SHADOW_RAM_WORDS: u16 = 2048;
 
 const INVM_SIZE: u16 = 64;
 
-const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
-const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
-
 impl EEPROM {
     /// Return `(EEPROM, flash_base_address, flash_bank_size)`.
     ///
@@ -4071,60 +4177,4 @@ fn invm_dward_to_dword_address(dword: u32) -> u16 {
 #[inline(always)]
 fn invm_dward_to_dword_data(dword: u32) -> u16 {
     ((dword & 0xFFFF0000) >> 16) as u16
-}
-
-#[inline(always)]
-fn read_ich_flash_reg32(
-    info: &PCIeInfo,
-    reg: usize,
-    flash_memory: &Option<(BaseAddress, usize)>,
-) -> Result<u32, IgbDriverErr> {
-    let Some((offset, _)) = flash_memory else {
-        return Err(IgbDriverErr::ReadFailure);
-    };
-
-    offset.read32(reg).ok_or(IgbDriverErr::ReadFailure)
-}
-
-#[inline(always)]
-fn read_ich_flash_reg16(
-    info: &PCIeInfo,
-    reg: usize,
-    flash_memory: &Option<(BaseAddress, usize)>,
-) -> Result<u16, IgbDriverErr> {
-    let Some((offset, _)) = flash_memory else {
-        return Err(IgbDriverErr::ReadFailure);
-    };
-
-    offset.read16(reg).ok_or(IgbDriverErr::ReadFailure)
-}
-
-#[inline(always)]
-fn write_ich_flash_reg32(
-    reg: usize,
-    value: u32,
-    flash_memory: &mut Option<(BaseAddress, usize)>,
-) -> Result<(), IgbDriverErr> {
-    let Some((offset, _)) = flash_memory else {
-        return Err(IgbDriverErr::ReadFailure);
-    };
-
-    offset.write32(reg, value);
-
-    Ok(())
-}
-
-#[inline(always)]
-fn write_ich_flash_reg16(
-    reg: usize,
-    value: u16,
-    flash_memory: &mut Option<(BaseAddress, usize)>,
-) -> Result<(), IgbDriverErr> {
-    let Some((offset, _)) = flash_memory else {
-        return Err(IgbDriverErr::ReadFailure);
-    };
-
-    offset.write16(reg, value);
-
-    Ok(())
 }
