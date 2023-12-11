@@ -599,6 +599,15 @@ const EEPROM_ERASE_OPCODE_MICROWIRE: u16 = 0x7; /* EEPROM erase opcode */
 const EEPROM_EWEN_OPCODE_MICROWIRE: u16 = 0x13; /* EEPROM erase/write enable */
 const EEPROM_EWDS_OPCODE_MICROWIRE: u16 = 0x10; /* EEPROM erast/write disable */
 
+const EEPROM_SWDPIN0: u32 = 0x0001; /* SWDPIN 0 EEPROM Value */
+const EEPROM_LED_LOGIC: u32 = 0x0020; /* Led Logic Word */
+const EEPROM_RW_REG_DATA: u32 = 16; /* Offset to data in EEPROM read/write registers */
+const EEPROM_RW_REG_DONE: u32 = 2; /* Offset to READ/WRITE done bit */
+const EEPROM_RW_REG_START: u32 = 1; /* First bit for telling part to start operation */
+const EEPROM_RW_ADDR_SHIFT: u32 = 2; /* Shift to the address bits */
+const EEPROM_POLL_WRITE: u32 = 1; /* Flag for polling for write complete */
+const EEPROM_POLL_READ: u32 = 0; /* Flag for polling for read complete */
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1778,13 +1787,43 @@ impl IgbHw {
         })
     }
 
+    /// Reads a 16 bit word from the EEPROM using the EERD register.
     fn read_eeprom_eerd(
         &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        for d in data.iter_mut() {
+            let eerd = ((offset + 1) << EEPROM_RW_ADDR_SHIFT) + EEPROM_RW_REG_START;
+
+            write_reg(info, super::EERD, eerd)?;
+            self.poll_eerd_eewr_done(info, EEPROM_POLL_READ)?;
+
+            *d = (read_reg(info, super::EERD)? >> EEPROM_RW_REG_DATA) as u16;
+        }
+
+        Ok(())
+    }
+
+    /// Polls the status bit (bit 1) of the EERD to determine when the read is done.
+    fn poll_eerd_eewr_done(&mut self, info: &PCIeInfo, eerd: u32) -> Result<(), IgbDriverErr> {
+        let attempts = 100000;
+        for _ in 0..attempts {
+            let reg = if eerd == EEPROM_POLL_READ {
+                read_reg(info, super::EERD)?
+            } else {
+                read_reg(info, super::EEWR)?
+            };
+
+            if reg & EEPROM_RW_REG_DONE != 0 {
+                return Ok(());
+            }
+
+            awkernel_lib::delay::wait_microsec(5);
+        }
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     fn read_eeprom_ich8(

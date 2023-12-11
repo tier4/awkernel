@@ -685,6 +685,7 @@ const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 const PBS: usize = 0x01008; // Packet Buffer Size
 const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
+const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
 const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 
 // Status Register
