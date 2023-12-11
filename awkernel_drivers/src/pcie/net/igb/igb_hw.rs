@@ -618,6 +618,42 @@ const INVM_INVALIDATED_STRUCTURE: u8 = 0x5;
 const INVM_RSA_KEY_SHA256_DATA_SIZE_IN_DWORDS: u16 = 8;
 const INVM_CSR_AUTOLOAD_DATA_SIZE_IN_DWORDS: u16 = 1;
 
+// EEPROM Word Offsets
+const EEPROM_MAC_ADDR_WORD0: u32 = 0x0000;
+const EEPROM_MAC_ADDR_WORD1: u32 = 0x0001;
+const EEPROM_MAC_ADDR_WORD2: u32 = 0x0002;
+const EEPROM_COMPAT: u32 = 0x0003;
+const EEPROM_ID_LED_SETTINGS: u32 = 0x0004;
+const EEPROM_VERSION: u32 = 0x0005;
+const EEPROM_SERDES_AMPLITUDE: u32 = 0x0006; // For SERDES output amplitude adjustment.
+const EEPROM_PHY_CLASS_WORD: u32 = 0x0007;
+const EEPROM_INIT_CONTROL1_REG: u32 = 0x000A;
+const EEPROM_INIT_CONTROL2_REG: u32 = 0x000F;
+const EEPROM_SWDEF_PINS_CTRL_PORT_1: u32 = 0x0010;
+const EEPROM_INIT_CONTROL4_REG: u32 = 0x0013;
+const EEPROM_INIT_CONTROL3_PORT_B: u32 = 0x0014;
+const EEPROM_INIT_3GIO_3: u32 = 0x001A;
+const EEPROM_LED_1_CFG: u32 = 0x001C;
+const EEPROM_LED_0_2_CFG: u32 = 0x001F;
+const EEPROM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
+const EEPROM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
+const EEPROM_CFG: u32 = 0x0012;
+const EEPROM_FLASH_VERSION: u32 = 0x0032;
+const EEPROM_CHECKSUM_REG: u32 = 0x003F;
+
+const EEPROM_COMPAT_VALID_CSUM: u16 = 0x0001;
+const EEPROM_FUTURE_INIT_WORD1: u16 = 0x0019;
+const EEPROM_FUTURE_INIT_WORD1_VALID_CSUM: u16 = 0x0040;
+
+// NVM offset defaults for i211
+const NVM_INIT_CTRL_2_DEFAULT_I211: u16 = 0x7243;
+const NVM_INIT_CTRL_4_DEFAULT_I211: u16 = 0x00C1;
+const NVM_LED_1_CFG_DEFAULT_I211: u16 = 0x0184;
+const NVM_LED_0_2_CFG_DEFAULT_I211: u16 = 0x200C;
+const NVM_RESERVED_WORD: u16 = 0xFFFF;
+
+const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1838,20 +1874,82 @@ impl IgbHw {
 
     fn read_eeprom_ich8(
         &mut self,
-        info: &PCIeInfo,
-        offset: u32,
-        data: &mut [u16],
+        _info: &PCIeInfo,
+        _offset: u32,
+        _data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        Err(IgbDriverErr::NotSupported)
     }
 
+    /// Reads 16-bit words from the OTP. Return error when the word is not stored in OTP.
     fn read_invm_i210(
         &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        match offset {
+            EEPROM_MAC_ADDR_WORD0 | EEPROM_MAC_ADDR_WORD1 | EEPROM_MAC_ADDR_WORD2 => {
+                // Generate random MAC address if there's none.
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = 0xFFFF;
+                }
+
+                Ok(())
+            }
+            EEPROM_INIT_CONTROL2_REG => {
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = NVM_INIT_CTRL_2_DEFAULT_I211;
+                }
+
+                Ok(())
+            }
+            EEPROM_INIT_CONTROL4_REG => {
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = NVM_INIT_CTRL_4_DEFAULT_I211;
+                }
+
+                Ok(())
+            }
+            EEPROM_LED_1_CFG => {
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = NVM_LED_1_CFG_DEFAULT_I211;
+                }
+
+                Ok(())
+            }
+            EEPROM_LED_0_2_CFG => {
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = NVM_LED_0_2_CFG_DEFAULT_I211;
+                }
+
+                Ok(())
+            }
+            EEPROM_ID_LED_SETTINGS => {
+                if let Ok(d) = self.read_invm_word_i210(info, offset as u16) {
+                    data[0] = d;
+                } else {
+                    data[0] = ID_LED_RESERVED_FFFF;
+                }
+
+                Ok(())
+            }
+            _ => {
+                log::warn!("igb: NVM word {:#x} is not mapped.", offset);
+                data[0] = NVM_RESERVED_WORD;
+                Ok(())
+            }
+        }
     }
 
     /// Reads 16-bit words from the OTP. Return error when the word is not stored in OTP.
