@@ -743,6 +743,12 @@ pub enum PhyType {
 }
 
 #[derive(Debug)]
+struct FlashMemory {
+    base_address: BaseAddress,
+    offset: usize,
+}
+
+#[derive(Debug)]
 pub struct IgbHw {
     mac_type: MacType,
     initialize_hw_bits_disable: bool,
@@ -754,7 +760,7 @@ pub struct IgbHw {
     swfw: u16,
     eeprom_semaphore_present: bool,
     phy_reset_disable: bool,
-    flash_memory: Option<(BaseAddress, usize)>, // (base address, offset)
+    flash_memory: Option<FlashMemory>,
     flash_bank_size: Option<usize>,
     flash_base_address: Option<usize>,
     eeprom: EEPROM,
@@ -1128,11 +1134,17 @@ impl IgbHw {
 
         // https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em.c#L1720-L1740
         let flash_memory = if matches!(mac_type, MacType::EmPchSpt) {
-            Some((info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?, 0xe000))
+            Some(FlashMemory {
+                base_address: info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?,
+                offset: 0xe000,
+            })
         } else if is_ich8(&mac_type) {
             let bar1 = info.get_bar(1).ok_or(IgbDriverErr::NoBar1)?;
             if matches!(bar1, BaseAddress::MMIO { .. }) {
-                Some((bar1, 0))
+                Some(FlashMemory {
+                    base_address: bar1,
+                    offset: 0,
+                })
             } else {
                 return Err(IgbDriverErr::Bar1IsNotMMIO);
             }
@@ -2376,40 +2388,50 @@ impl IgbHw {
 
     #[inline(always)]
     fn read_ich_flash_reg32(&mut self, reg: usize) -> Result<u32, IgbDriverErr> {
-        let Some((offset, _)) = &self.flash_memory else {
+        let Some(flash_memory) = &self.flash_memory else {
             return Err(IgbDriverErr::ReadFailure);
         };
 
-        offset.read32(reg).ok_or(IgbDriverErr::ReadFailure)
+        flash_memory
+            .base_address
+            .read32(reg + flash_memory.offset)
+            .ok_or(IgbDriverErr::ReadFailure)
     }
 
     #[inline(always)]
     fn read_ich_flash_reg16(&mut self, reg: usize) -> Result<u16, IgbDriverErr> {
-        let Some((offset, _)) = &self.flash_memory else {
+        let Some(flash_memory) = &self.flash_memory else {
             return Err(IgbDriverErr::ReadFailure);
         };
 
-        offset.read16(reg).ok_or(IgbDriverErr::ReadFailure)
+        flash_memory
+            .base_address
+            .read16(reg + flash_memory.offset)
+            .ok_or(IgbDriverErr::ReadFailure)
     }
 
     #[inline(always)]
     fn write_ich_flash_reg32(&mut self, reg: usize, value: u32) -> Result<(), IgbDriverErr> {
-        let Some((offset, _)) = &mut self.flash_memory else {
+        let Some(flash_memory) = &mut self.flash_memory else {
             return Err(IgbDriverErr::ReadFailure);
         };
 
-        offset.write32(reg, value);
+        flash_memory
+            .base_address
+            .write32(reg + flash_memory.offset, value);
 
         Ok(())
     }
 
     #[inline(always)]
     fn write_ich_flash_reg16(&mut self, reg: usize, value: u16) -> Result<(), IgbDriverErr> {
-        let Some((offset, _)) = &mut self.flash_memory else {
+        let Some(flash_memory) = &mut self.flash_memory else {
             return Err(IgbDriverErr::ReadFailure);
         };
 
-        offset.write16(reg, value);
+        flash_memory
+            .base_address
+            .write16(reg + flash_memory.offset, value);
 
         Ok(())
     }
@@ -3613,7 +3635,7 @@ impl EEPROM {
     /// https://github.com/openbsd/src/blob/8e9ff1e61e136829a715052f888f67d3617fc787/sys/dev/pci/if_em_hw.c#L6280
     fn new(
         mac_type: &MacType,
-        flash_memory: &Option<(BaseAddress, usize)>,
+        flash_memory: &Option<FlashMemory>,
         info: &PCIeInfo,
     ) -> Result<(Self, Option<usize>, Option<usize>), IgbDriverErr> {
         use MacType::*;
@@ -3783,11 +3805,11 @@ impl EEPROM {
                 )
             }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt => {
-                let (flash_memory, offset) =
-                    flash_memory.as_ref().ok_or(IgbDriverErr::ReadFailure)?;
+                let flash_memory = flash_memory.as_ref().ok_or(IgbDriverErr::ReadFailure)?;
 
                 let flash_size = flash_memory
-                    .read32(*offset + ICH_FLASH_GFPREG)
+                    .base_address
+                    .read32(ICH_FLASH_GFPREG + flash_memory.offset)
                     .ok_or(IgbDriverErr::ReadFailure)?;
 
                 // https://github.com/openbsd/src/blob/4ff40062e57fb8a42d28dcb700c25b8254514628/sys/dev/pci/if_em_hw.c#L6434C12-L6434C29
