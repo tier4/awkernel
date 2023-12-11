@@ -571,13 +571,13 @@ impl Igb {
     /// Volatile write the certain register
     #[inline(always)]
     unsafe fn write_reg(&mut self, reg: usize, val: u32) {
-        self.bar0.write(reg, val);
+        self.bar0.write32(reg, val);
     }
 
     /// Volatile read the e1000's  register
     #[inline(always)]
     unsafe fn read_reg(&self, reg: usize) -> u32 {
-        self.bar0.read(reg).unwrap()
+        self.bar0.read32(reg).unwrap()
     }
 
     /// Disable e1000's interrupt
@@ -650,11 +650,11 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
 
     // First, disable MULR fix in FEXTNVM11
     let fextnvm11 =
-        bar0.read(FEXTNVM11).ok_or(IgbDriverErr::ReadFailure)? | FEXTNVM11_DISABLE_MULR_FIX;
-    bar0.write(FEXTNVM11, fextnvm11);
+        bar0.read32(FEXTNVM11).ok_or(IgbDriverErr::ReadFailure)? | FEXTNVM11_DISABLE_MULR_FIX;
+    bar0.write32(FEXTNVM11, fextnvm11);
 
     let tdlen = bar0
-        .read(tdlen_offset(0))
+        .read32(tdlen_offset(0))
         .ok_or(IgbDriverErr::ReadFailure)?;
     let hang_state = info.read_config_space(PCICFG_DESC_RING_STATUS);
     if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {

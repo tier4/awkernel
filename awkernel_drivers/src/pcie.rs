@@ -40,7 +40,27 @@ impl BaseAddress {
         )
     }
 
-    pub fn read(&self, offset: usize) -> Option<u32> {
+    pub fn read16(&self, offset: usize) -> Option<u16> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let mut val;
+                let port = *addr + offset as u32;
+                core::arch::asm!("in eax, dx",
+                        out("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                Some(val)
+            },
+            BaseAddress::MMIO { addr, size, .. } => {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                unsafe { Some(read_volatile((*addr + offset) as *const u16)) }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn read32(&self, offset: usize) -> Option<u32> {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -60,7 +80,25 @@ impl BaseAddress {
         }
     }
 
-    pub fn write(&mut self, offset: usize, val: u32) {
+    pub fn write16(&mut self, offset: usize, val: u16) {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, ax",
+                        in("ax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+            },
+            BaseAddress::MMIO { addr, size, .. } => unsafe {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                write_volatile((*addr + offset) as *mut u16, val);
+            },
+            _ => (),
+        }
+    }
+
+    pub fn write32(&mut self, offset: usize, val: u32) {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {

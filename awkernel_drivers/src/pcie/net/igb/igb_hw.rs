@@ -1,3 +1,5 @@
+use bitflags::bitflags;
+
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::IgbDriverErr;
@@ -654,6 +656,43 @@ const NVM_RESERVED_WORD: u16 = 0xFFFF;
 
 const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
 
+const ICH_FLASH_GFPREG: usize = 0x0000;
+const ICH_FLASH_HSFSTS: usize = 0x0004;
+const ICH_FLASH_HSFCTL: usize = 0x0006;
+const ICH_FLASH_FADDR: usize = 0x0008;
+const ICH_FLASH_FDATA0: usize = 0x0010;
+const ICH_FLASH_FRACC: usize = 0x0050;
+const ICH_FLASH_FREG0: usize = 0x0054;
+const ICH_FLASH_FREG1: usize = 0x0058;
+const ICH_FLASH_FREG2: usize = 0x005C;
+const ICH_FLASH_FREG3: usize = 0x0060;
+const ICH_FLASH_FPR0: usize = 0x0074;
+const ICH_FLASH_FPR1: usize = 0x0078;
+const ICH_FLASH_SSFSTS: usize = 0x0090;
+const ICH_FLASH_SSFCTL: usize = 0x0092;
+const ICH_FLASH_PREOP: usize = 0x0094;
+const ICH_FLASH_OPTYPE: usize = 0x0096;
+const ICH_FLASH_OPMENU: usize = 0x0098;
+
+const ICH_FLASH_COMMAND_TIMEOUT: u32 = 5000; /* 5000 uSecs - adjusted */
+const ICH_FLASH_ERASE_TIMEOUT: u32 = 3000000; /* Up to 3 seconds - worst case */
+const ICH_FLASH_CYCLE_REPEAT_COUNT: u32 = 10; /* 10 cycles */
+const ICH_FLASH_SEG_SIZE_256: u32 = 256;
+const ICH_FLASH_SEG_SIZE_4K: u32 = 4096;
+const ICH_FLASH_SEG_SIZE_8K: u32 = 8192;
+const ICH_FLASH_SEG_SIZE_64K: u32 = 65536;
+
+bitflags! {
+    struct Ich8HwsFlashStatus: u16 {
+        const FLCDONE = 1; // Flash Cycle Done
+        const FLCERR = 1 << 1; // Flash Cycle Error
+        const DAEL = 1 << 2; // Direct Access error Log
+        const FLCINPROG = 1 << 5; // flash SPI cycle in progress
+        const FLDESVALID = 1 << 14; // Flash Descriptor Valid
+        const FLOCKDN = 1 << 15; // Flash Configuration Lock-Down
+    }
+}
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1184,13 +1223,13 @@ impl IgbHw {
         }
 
         // Clear interrupt mask to stop board from generating interrupts
-        bar0.write(super::IMC, !0);
+        bar0.write32(super::IMC, !0);
 
         // Disable the Transmit and Receive units.  Then delay to allow any
         // pending transactions to complete before we hit the MAC with the
         // global reset.
-        bar0.write(super::RCTL, 0);
-        bar0.write(super::TCTL, super::TCTL_PSP);
+        bar0.write32(super::RCTL, 0);
+        bar0.write32(super::TCTL, super::TCTL_PSP);
         write_flush(info)?;
 
         // The tbi_compatibility_on Flag must be cleared when Rctl is cleared.
@@ -1207,13 +1246,13 @@ impl IgbHw {
         // Must acquire the MDIO ownership before MAC reset. Ownership defaults to firmware after a reset.
         if matches!(self.mac_type, Em82573 | Em82574) {
             let mut extcnf_ctrl = bar0
-                .read(super::EXTCNF_CTRL)
+                .read32(super::EXTCNF_CTRL)
                 .ok_or(IgbDriverErr::ReadFailure)?;
 
             extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
 
             for _ in 0..10 {
-                bar0.write(super::EXTCNF_CTRL, extcnf_ctrl);
+                bar0.write32(super::EXTCNF_CTRL, extcnf_ctrl);
 
                 if extcnf_ctrl & super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP != 0 {
                     break;
@@ -1228,16 +1267,16 @@ impl IgbHw {
         // Workaround for ICH8 bit corruption issue in FIFO memory
         if matches!(self.mac_type, EmIch8lan) {
             // Set Tx and Rx buffer allocation to 8k apiece.
-            bar0.write(super::PBA, E1000_PBA_8K);
+            bar0.write32(super::PBA, E1000_PBA_8K);
 
             // Set Packet Buffer Size to 16k.
-            bar0.write(super::PBS, E1000_PBS_16K);
+            bar0.write32(super::PBS, E1000_PBS_16K);
         }
 
         match self.mac_type {
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
-                let mut ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
+                let mut ctrl = bar0.read32(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
 
                 if !self.phy_reset_disable && self.check_phy_reset_block(info).is_ok() {
                     // PHY HW reset requires MAC CORE reset at the same
@@ -1247,7 +1286,7 @@ impl IgbHw {
 
                     // Gate automatic PHY configuration by hardware on non-managed 82579
                     if matches!(self.mac_type, EmPch2lan)
-                        && bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
+                        && bar0.read32(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
                             & super::FWSM_FW_VALID
                             == 0
                     {
@@ -1256,7 +1295,7 @@ impl IgbHw {
                 };
 
                 self.get_software_flag(info)?;
-                bar0.write(super::CTRL, ctrl | super::CTRL_RST);
+                bar0.write32(super::CTRL, ctrl | super::CTRL_RST);
 
                 // HW reset releases software_flag
                 self.sw_flag = 0;
@@ -1265,7 +1304,7 @@ impl IgbHw {
                 // Ungate automatic PHY configuration on non-managed 82579
                 if matches!(self.mac_type, EmPch2lan)
                     && !self.phy_reset_disable
-                    && bar0.read(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
+                    && bar0.read32(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
                         & super::FWSM_FW_VALID
                         == 0
                 {
@@ -1274,8 +1313,8 @@ impl IgbHw {
                 }
             }
             _ => {
-                let ctrl = bar0.read(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
-                bar0.write(super::CTRL, ctrl | super::CTRL_RST);
+                let ctrl = bar0.read32(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
+                bar0.write32(super::CTRL, ctrl | super::CTRL_RST);
             }
         }
 
@@ -1874,11 +1913,101 @@ impl IgbHw {
 
     fn read_eeprom_ich8(
         &mut self,
-        _info: &PCIeInfo,
-        _offset: u32,
-        _data: &mut [u16],
+        info: &PCIeInfo,
+        offset: u32,
+        data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        Err(IgbDriverErr::NotSupported)
+        todo!()
+    }
+
+    // This function does initial flash setup so that a new read/write/erase cycle can be started.
+    fn ich8_cycle_init(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            read_ich_flash_reg32(info, ICH_FLASH_HSFSTS, &self.flash_memory)? as u16
+        } else {
+            read_ich_flash_reg16(info, ICH_FLASH_HSFSTS, &self.flash_memory)?
+        };
+
+        let stat = Ich8HwsFlashStatus::from_bits_truncate(regval);
+
+        // May be check the Flash Des Valid bit in Hw status
+        if !stat.contains(Ich8HwsFlashStatus::FLDESVALID) {
+            log::warn!("igb: Flash descriptor invalid. SW Sequencing must be used.");
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        // Clear FCERR in Hw status by writing 1
+        // Clear DAEL in Hw status by writing a 1
+        let stat = stat | Ich8HwsFlashStatus::FLCERR | Ich8HwsFlashStatus::DAEL;
+        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32, &mut self.flash_memory)?;
+        } else {
+            write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits() as u16, &mut self.flash_memory)?;
+        }
+
+        // Either we should have a hardware SPI cycle in progress bit to
+        // check against, in order to start a new cycle or FDONE bit should
+        // be changed in the hardware so that it is 1 after hardware reset,
+        // which can then be used as an indication whether a cycle is in
+        // progress or has been completed .. we should also have some
+        // software semaphore mechanism to guard FDONE or the cycle in
+        // progress bit so that two threads access to those bits can be
+        // sequentiallized or a way so that 2 threads dont start the cycle at
+        // the same time
+
+        if !stat.contains(Ich8HwsFlashStatus::FLCINPROG) {
+            // There is no cycle running at present, so we can start a cycle
+            // Begin by setting Flash Cycle Done.
+            let stat = stat | Ich8HwsFlashStatus::FLCDONE;
+            if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                write_ich_flash_reg32(
+                    ICH_FLASH_HSFSTS,
+                    stat.bits() as u32,
+                    &mut self.flash_memory,
+                )?;
+            } else {
+                write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits(), &mut self.flash_memory)?;
+            }
+
+            Ok(())
+        } else {
+            // otherwise poll for sometime so the current cycle has a
+            // chance to end before giving up.
+            for _ in 0..ICH_FLASH_COMMAND_TIMEOUT {
+                let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                    read_ich_flash_reg32(info, ICH_FLASH_HSFSTS, &self.flash_memory)? as u16
+                } else {
+                    read_ich_flash_reg16(info, ICH_FLASH_HSFSTS, &self.flash_memory)?
+                };
+
+                let stat = Ich8HwsFlashStatus::from_bits_truncate(regval);
+                if !stat.contains(Ich8HwsFlashStatus::FLCINPROG) {
+                    // Successful in waiting for previous cycle to
+                    // timeout, now set the Flash Cycle Done.
+                    let stat = stat | Ich8HwsFlashStatus::FLCDONE;
+                    if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                        write_ich_flash_reg32(
+                            ICH_FLASH_HSFSTS,
+                            stat.bits() as u32,
+                            &mut self.flash_memory,
+                        )?;
+                    } else {
+                        write_ich_flash_reg16(
+                            ICH_FLASH_HSFSTS,
+                            stat.bits(),
+                            &mut self.flash_memory,
+                        )?;
+                    }
+
+                    return Ok(());
+                }
+
+                awkernel_lib::delay::wait_microsec(1);
+            }
+
+            log::warn!("igb: Timeout waiting for flash cycle to complete.");
+            Err(IgbDriverErr::EEPROM)
+        }
     }
 
     /// Reads 16-bit words from the OTP. Return error when the word is not stored in OTP.
@@ -2120,7 +2249,7 @@ impl IgbHw {
         eecd &= !E1000_EECD_DI;
         write_reg(info, super::EECD, eecd)?;
 
-        todo!();
+        Ok(())
     }
 
     /// Shift data bits in from the EEPROM
@@ -3369,8 +3498,6 @@ const E1000_SHADOW_RAM_WORDS: u16 = 2048;
 
 const INVM_SIZE: u16 = 64;
 
-const ICH_FLASH_GFPREG: usize = 0x0000;
-
 const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
 const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
 
@@ -3386,7 +3513,7 @@ impl EEPROM {
         use MacType::*;
 
         let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-        let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
+        let eecd = bar0.read32(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
 
         let mut result = match mac_type {
             Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => (
@@ -3504,7 +3631,7 @@ impl EEPROM {
                         (EEPROMType::Invm, INVM_SIZE, false, false)
                     } else if !is_onboard_nvm_eeprom(mac_type, info)? {
                         let eecd = eecd & !E1000_EECD_AUPDEN;
-                        bar0.write(super::EECD, eecd);
+                        bar0.write32(super::EECD, eecd);
 
                         (EEPROMType::Flash, 2048, true, true)
                     } else {
@@ -3554,7 +3681,7 @@ impl EEPROM {
                     flash_memory.as_ref().ok_or(IgbDriverErr::ReadFailure)?;
 
                 let flash_size = flash_memory
-                    .read(*offset + ICH_FLASH_GFPREG)
+                    .read32(*offset + ICH_FLASH_GFPREG)
                     .ok_or(IgbDriverErr::ReadFailure)?;
 
                 // https://github.com/openbsd/src/blob/4ff40062e57fb8a42d28dcb700c25b8254514628/sys/dev/pci/if_em_hw.c#L6434C12-L6434C29
@@ -3584,7 +3711,7 @@ impl EEPROM {
             }
             EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
                 let flash_size = bar0
-                    .read(0xc /* STRAP */)
+                    .read32(0xc /* STRAP */)
                     .ok_or(IgbDriverErr::ReadFailure)?;
 
                 let mut flash_size = (flash_size >> 1 & 0x1f) + 1;
@@ -3615,7 +3742,7 @@ impl EEPROM {
                 return Err(IgbDriverErr::NotSupported);
             }
 
-            let eecd = bar0.read(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
+            let eecd = bar0.read32(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
             let eeprom_size = (eecd & E1000_EECD_SIZE_EX_MASK) >> E1000_EECD_SIZE_EX_SHIFT;
 
             // EEPROM access above 16k is unsupported
@@ -3899,20 +4026,21 @@ fn i2ccd_sfp_data_addr(a: u32) -> u32 {
 #[inline(always)]
 fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgbDriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    bar0.write(offset, value);
+    bar0.write32(offset, value);
     Ok(())
 }
 
 #[inline(always)]
 fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    Ok(bar0.read(offset).ok_or(IgbDriverErr::ReadFailure)?)
+    Ok(bar0.read32(offset).ok_or(IgbDriverErr::ReadFailure)?)
 }
 
 #[inline(always)]
 fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    bar0.read(super::STATUS).ok_or(IgbDriverErr::ReadFailure)?;
+    bar0.read32(super::STATUS)
+        .ok_or(IgbDriverErr::ReadFailure)?;
     Ok(())
 }
 
@@ -3943,4 +4071,60 @@ fn invm_dward_to_dword_address(dword: u32) -> u16 {
 #[inline(always)]
 fn invm_dward_to_dword_data(dword: u32) -> u16 {
     ((dword & 0xFFFF0000) >> 16) as u16
+}
+
+#[inline(always)]
+fn read_ich_flash_reg32(
+    info: &PCIeInfo,
+    reg: usize,
+    flash_memory: &Option<(BaseAddress, usize)>,
+) -> Result<u32, IgbDriverErr> {
+    let Some((offset, _)) = flash_memory else {
+        return Err(IgbDriverErr::ReadFailure);
+    };
+
+    offset.read32(reg).ok_or(IgbDriverErr::ReadFailure)
+}
+
+#[inline(always)]
+fn read_ich_flash_reg16(
+    info: &PCIeInfo,
+    reg: usize,
+    flash_memory: &Option<(BaseAddress, usize)>,
+) -> Result<u16, IgbDriverErr> {
+    let Some((offset, _)) = flash_memory else {
+        return Err(IgbDriverErr::ReadFailure);
+    };
+
+    offset.read16(reg).ok_or(IgbDriverErr::ReadFailure)
+}
+
+#[inline(always)]
+fn write_ich_flash_reg32(
+    reg: usize,
+    value: u32,
+    flash_memory: &mut Option<(BaseAddress, usize)>,
+) -> Result<(), IgbDriverErr> {
+    let Some((offset, _)) = flash_memory else {
+        return Err(IgbDriverErr::ReadFailure);
+    };
+
+    offset.write32(reg, value);
+
+    Ok(())
+}
+
+#[inline(always)]
+fn write_ich_flash_reg16(
+    reg: usize,
+    value: u16,
+    flash_memory: &mut Option<(BaseAddress, usize)>,
+) -> Result<(), IgbDriverErr> {
+    let Some((offset, _)) = flash_memory else {
+        return Err(IgbDriverErr::ReadFailure);
+    };
+
+    offset.write16(reg, value);
+
+    Ok(())
 }
