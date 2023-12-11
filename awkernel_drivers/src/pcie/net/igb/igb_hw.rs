@@ -1943,6 +1943,29 @@ impl IgbHw {
         todo!()
     }
 
+    /// Reads a dword from the NVM using the ICH8 flash access registers.
+    #[inline(always)]
+    fn read_ich8_dword(&mut self, index: usize) -> Result<u32, IgbDriverErr> {
+        self.read_ich8_data32(index)
+    }
+
+    /// Reads a single byte from the NVM using the ICH8 flash access registers.
+    fn read_ich8_byte(&mut self, index: usize) -> Result<u8, IgbDriverErr> {
+        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        let mut word = [0u16; 1];
+
+        self.read_ich8_data(index, &mut word)?;
+
+        Ok(word[0] as u8)
+    }
+
+    fn read_ich8_data(&mut self, index: usize, data: &mut [u16]) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
     fn read_ich8_data32(&mut self, offset: usize) -> Result<u32, IgbDriverErr> {
         if (self.mac_type.clone() as u32) < MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
