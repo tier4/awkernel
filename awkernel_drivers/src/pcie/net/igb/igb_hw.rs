@@ -572,6 +572,26 @@ const NVM_CFG_DONE_PORT_1: u32 = 0x080000; /* ...for second port */
 const NVM_CFG_DONE_PORT_2: u32 = 0x100000; /* ...for third port */
 const NVM_CFG_DONE_PORT_3: u32 = 0x200000; /* ...for fourth port */
 
+// EEPROM Commands - SPI
+const EEPROM_MAX_RETRY_SPI: u16 = 5000; /* Max wait of 5ms, for RDY signal */
+const EEPROM_READ_OPCODE_SPI: u16 = 0x03; /* EEPROM read opcode */
+const EEPROM_WRITE_OPCODE_SPI: u16 = 0x02; /* EEPROM write opcode */
+const EEPROM_A8_OPCODE_SPI: u16 = 0x08; /* opcode bit-3 = address bit-8 */
+const EEPROM_WREN_OPCODE_SPI: u16 = 0x06; /* EEPROM set Write Enable latch */
+const EEPROM_WRDI_OPCODE_SPI: u16 = 0x04; /* EEPROM reset Write Enable latch */
+const EEPROM_RDSR_OPCODE_SPI: u16 = 0x05; /* EEPROM read Status register */
+const EEPROM_WRSR_OPCODE_SPI: u16 = 0x01; /* EEPROM write Status register */
+const EEPROM_ERASE4K_OPCODE_SPI: u16 = 0x20; /* EEPROM ERASE 4KB */
+const EEPROM_ERASE64K_OPCODE_SPI: u16 = 0xD8; /* EEPROM ERASE 64KB */
+const EEPROM_ERASE256_OPCODE_SPI: u16 = 0xDB; /* EEPROM ERASE 256B */
+
+// SPI EEPROM Status Register
+const EEPROM_STATUS_RDY_SPI: u16 = 0x01;
+const EEPROM_STATUS_WEN_SPI: u16 = 0x02;
+const EEPROM_STATUS_BP0_SPI: u16 = 0x04;
+const EEPROM_STATUS_BP1_SPI: u16 = 0x08;
+const EEPROM_STATUS_WPEN_SPI: u16 = 0x80;
+
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
 
@@ -1662,7 +1682,7 @@ impl IgbHw {
         info: &PCIeInfo,
         offset: u32,
         data: &mut [u16],
-    ) -> Result<u16, IgbDriverErr> {
+    ) -> Result<(), IgbDriverErr> {
         // A check for invalid values:  offset too large, too many words, and
         // not enough words.
         if offset >= self.eeprom.word_size as u32
@@ -1672,18 +1692,40 @@ impl IgbHw {
             return Err(IgbDriverErr::EEPROM);
         }
 
+        if self.eeprom.use_eerd {
+            return self.read_eeprom_eerd(info, offset, data);
+        }
+
+        if matches!(self.eeprom.eeprom_type, EEPROMType::Ich8) {
+            return self.read_eeprom_ich8(info, offset, data);
+        }
+
+        if matches!(self.eeprom.eeprom_type, EEPROMType::Invm) {
+            return self.read_invm_i210(info, offset, data);
+        }
+
         // EEPROM's that don't use EERD to read require us to bit-bang the
         // SPI directly. In this case, we need to acquire the EEPROM so that
         // FW or other port software does not interrupt.
-        if is_onboard_nvm_eeprom(&self.mac_type, info)?
-            && get_flash_presence_i210(&self.mac_type, info)?
-            && !self.eeprom.use_eerd
-        {
-            // Prepare the EEPROM for bit-bang reading
-            // self.acquire_eeprom(info)?;
-        }
+        assert!(
+            is_onboard_nvm_eeprom(&self.mac_type, info)?
+                && get_flash_presence_i210(&self.mac_type, info)?
+                && !self.eeprom.use_eerd
+        );
 
-        todo!();
+        self.acquire_eeprom(info, |hw| {
+            // Set up the SPI or Microwire EEPROM for bit-bang reading.  We have
+            // acquired the EEPROM at this point, so any returns should release it
+            match &hw.eeprom.eeprom_type {
+                EEPROMType::SPI => {
+                    todo!("SPI");
+                }
+                EEPROMType::Microwire => {
+                    todo!("Microwire");
+                }
+                _ => Err(IgbDriverErr::EEPROM),
+            }
+        })
     }
 
     //     int32_t
@@ -1787,6 +1829,226 @@ impl IgbHw {
 
     // 	return E1000_SUCCESS;
     // }
+
+    fn read_eeprom_eerd(
+        &mut self,
+        info: &PCIeInfo,
+        offset: u32,
+        data: &mut [u16],
+    ) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn read_eeprom_ich8(
+        &mut self,
+        info: &PCIeInfo,
+        offset: u32,
+        data: &mut [u16],
+    ) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn read_invm_i210(
+        &mut self,
+        info: &PCIeInfo,
+        offset: u32,
+        data: &mut [u16],
+    ) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    /// Reads a 16 bit word from the EEPROM.
+    fn spi_eeprom_ready(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // Read "Status Register" repeatedly until the LSB is cleared.  The
+        // EEPROM will signal that the command has been completed by clearing
+        // bit 0 of the internal status register.  If it's not cleared within
+        // 5 milliseconds, then error out.
+        let mut retry_count = 0;
+        loop {
+            self.shift_out_ee_bits(info, EEPROM_RDSR_OPCODE_SPI, self.eeprom.opcode_bits)?;
+            let spi_stat_reg = self.shift_in_ee_bits(info, 8)?;
+            if spi_stat_reg & EEPROM_STATUS_RDY_SPI == 0 {
+                break;
+            }
+
+            awkernel_lib::delay::wait_microsec(5);
+            retry_count += 5;
+
+            self.standby_eeprom(info)?;
+
+            if retry_count >= EEPROM_MAX_RETRY_SPI {
+                return Err(IgbDriverErr::EEPROM);
+            }
+        }
+
+        // ATMEL SPI write time could vary from 0-20mSec on 3.3V devices (and
+        // only 0-5mSec on 5V devices)
+
+        if retry_count >= EEPROM_MAX_RETRY_SPI {
+            log::warn!("igb: SPI EEPROM Status error");
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        Ok(())
+    }
+
+    /// Returns EEPROM to a "standby" state
+    fn standby_eeprom(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let mut eecd = read_reg(info, super::EECD)?;
+
+        match self.eeprom.eeprom_type {
+            EEPROMType::Microwire => {
+                eecd &= !(E1000_EECD_CS | E1000_EECD_SK);
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                // Clock high
+                eecd |= E1000_EECD_SK;
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                // Select EEPROM
+                eecd |= E1000_EECD_CS;
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                // Clock low
+                eecd &= !E1000_EECD_SK;
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                Ok(())
+            }
+            EEPROMType::SPI => {
+                // Toggle CS to flush commands
+                eecd |= E1000_EECD_CS;
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                eecd &= !E1000_EECD_CS;
+                write_reg(info, super::EECD, eecd)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+                Ok(())
+            }
+            _ => Err(IgbDriverErr::EEPROM),
+        }
+    }
+
+    /// Shift data bits out to the EEPROM.
+    fn shift_out_ee_bits(
+        &mut self,
+        info: &PCIeInfo,
+        data: u16,
+        count: u16,
+    ) -> Result<(), IgbDriverErr> {
+        // We need to shift "count" bits out to the EEPROM. So, value in the
+        // "data" parameter will be shifted out to the EEPROM one bit at a
+        // time. In order to do this, "data" must be broken down into bits.
+        let mut mask = 1 << (count - 1);
+        let mut eecd = read_reg(info, super::EECD)?;
+        match self.eeprom.eeprom_type {
+            EEPROMType::Microwire => {
+                eecd &= !E1000_EECD_DO;
+            }
+            EEPROMType::SPI => {
+                eecd |= E1000_EECD_DO;
+            }
+            _ => (),
+        }
+
+        loop {
+            // A "1" is shifted out to the EEPROM by setting bit "DI" to
+            // a "1", and then raising and then lowering the clock (the
+            // SK bit controls the clock input to the EEPROM).  A "0" is
+            // shifted out to the EEPROM by setting "DI" to "0" and then
+            // raising and then lowering the clock.
+            eecd &= !E1000_EECD_DI;
+
+            if data & mask != 0 {
+                eecd |= E1000_EECD_DI;
+            }
+
+            write_reg(info, super::EECD, eecd)?;
+            write_flush(info)?;
+
+            awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+            self.raise_ee_clk(info, &mut eecd)?;
+            self.lower_ee_clk(info, &mut eecd)?;
+
+            mask >>= 1;
+
+            if mask == 0 {
+                break;
+            }
+        }
+
+        // We leave the "DI" bit set to "0" when we leave this routine.
+        eecd &= !E1000_EECD_DI;
+        write_reg(info, super::EECD, eecd)?;
+
+        todo!();
+    }
+
+    /// Shift data bits in from the EEPROM
+    fn shift_in_ee_bits(&mut self, info: &PCIeInfo, count: u16) -> Result<u16, IgbDriverErr> {
+        // In order to read a register from the EEPROM, we need to shift
+        // 'count' bits in from the EEPROM. Bits are "shifted in" by raising
+        // the clock input to the EEPROM (setting the SK bit), and then
+        // reading the value of the "DO" bit.  During this "shifting in"
+        // process the "DI" bit should always be clear.
+
+        let eecd = read_reg(info, super::EECD)?;
+        let mut eecd = eecd & !(E1000_EECD_DO | E1000_EECD_DI);
+
+        let mut data = 0;
+        for _ in 0..count {
+            data <<= 1;
+            self.raise_ee_clk(info, &mut eecd)?;
+
+            eecd = read_reg(info, super::EECD)?;
+            eecd &= !(E1000_EECD_DI);
+
+            if eecd & E1000_EECD_DO != 0 {
+                data |= 1;
+            }
+
+            self.lower_ee_clk(info, &mut eecd)?;
+        }
+
+        Ok(data)
+    }
+
+    /// Lowers the EEPROM's clock input.
+    fn lower_ee_clk(&mut self, info: &PCIeInfo, eecd: &mut u32) -> Result<(), IgbDriverErr> {
+        // Lower the clock input to the EEPROM (by clearing the SK bit), and
+        // then wait 50 microseconds.
+        *eecd &= !E1000_EECD_SK;
+        write_reg(info, super::EECD, *eecd)?;
+        write_flush(info)?;
+        awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+        Ok(())
+    }
+
+    /// Raises the EEPROM's clock input.
+    fn raise_ee_clk(&mut self, info: &PCIeInfo, eecd: &mut u32) -> Result<(), IgbDriverErr> {
+        // Raise the clock input to the EEPROM (by setting the SK bit), and
+        // then wait <delay> microseconds.
+        *eecd |= E1000_EECD_SK;
+        write_reg(info, super::EECD, *eecd)?;
+        write_flush(info)?;
+        awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
+
+        Ok(())
+    }
 
     fn acquire_eeprom<T, F>(&mut self, info: &PCIeInfo, f: F) -> Result<T, IgbDriverErr>
     where
