@@ -2013,10 +2013,9 @@ impl IgbHw {
                 let regval = self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?;
                 let hsfsts = Ich8HwsFlashStatus::from_bits_truncate(regval);
 
-                if hsfsts.contains(Ich8HwsFlashStatus::FLCERR) {
-                    // Repeat for some time before giving up.
-                    continue;
-                } else if !hsfsts.contains(Ich8HwsFlashStatus::FLCDONE) {
+                if !hsfsts.contains(Ich8HwsFlashStatus::FLCERR)
+                    && !hsfsts.contains(Ich8HwsFlashStatus::FLCDONE)
+                {
                     log::warn!("Timeout error - flash cycle did not complete.");
                     return Err(IgbDriverErr::EEPROM);
                 }
