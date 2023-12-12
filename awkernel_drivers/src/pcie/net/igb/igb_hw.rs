@@ -1949,6 +1949,62 @@ impl IgbHw {
         todo!()
     }
 
+    fn read_eeprom_spt(
+        &mut self,
+        info: &PCIeInfo,
+        offset: usize,
+        data: &mut [u16],
+    ) -> Result<(), IgbDriverErr> {
+        // We need to know which is the valid flash bank.  In the event that
+        // we didn't allocate eeprom_shadow_ram, we may not be managing
+        // flash_bank.  So it cannot be trusted and needs to be updated with
+        // each read.
+
+        if (self.mac_type.clone() as u32) < (MacType::EmPchSpt as u32) {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        self.acquire_software_flag(info, |hw| {
+            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
+                bank
+            } else {
+                0
+            };
+
+            // Adjust offset appropriately if we're on bank 1 - adjust for word size
+            let bank_offset =
+                flash_bank as usize * (hw.flash_bank_size.ok_or(IgbDriverErr::EEPROM)? * 2);
+
+            let mut i = 0;
+            let mut add;
+            while i < data.len() {
+                let act_offset = if (offset + i) % 2 != 0 {
+                    add = 1;
+                    bank_offset + (offset + i - 1) * 2
+                } else {
+                    add = 2;
+                    bank_offset + (offset + i) * 2
+                };
+
+                let dword = hw.read_ich8_dword(act_offset)?;
+
+                if add == 1 {
+                    data[i] = (dword >> 16) as u16;
+                } else {
+                    data[i] = (dword & 0xFFFF) as u16;
+                }
+
+                if !(add == 1 || data.len() - i == 1) {
+                    data[i + 1] = (dword >> 16) as u16;
+                }
+
+                i += add;
+            }
+
+            Ok(())
+        })
+    }
+
     /// finds out the valid bank 0 or 1
     ///
     /// Reads signature byte from the NVM using the flash access registers.
@@ -3590,6 +3646,17 @@ impl IgbHw {
         } else {
             Ok(())
         }
+    }
+
+    fn acquire_software_flag<T, F>(&mut self, info: &PCIeInfo, f: F) -> Result<T, IgbDriverErr>
+    where
+        F: FnOnce(&mut Self) -> Result<T, IgbDriverErr>,
+    {
+        self.get_software_flag(info)?;
+        let result = f(self);
+        self.release_software_flag(info)?;
+
+        result
     }
 
     /// Get software semaphore FLAG bit (SWFLAG).
