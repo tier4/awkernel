@@ -1962,8 +1962,63 @@ impl IgbHw {
         Ok(word[0] as u8)
     }
 
+    /// Reads a byte or word from the NVM using the ICH8 flash access registers.
     fn read_ich8_data(&mut self, index: usize, data: &mut [u16]) -> Result<(), IgbDriverErr> {
-        todo!()
+        if data.len() < 1 || data.len() > 2 || index > ICH_FLASH_LINEAR_ADDR_MASK as usize {
+            return Err(IgbDriverErr::EEPROM);
+        }
+
+        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & index as u32)
+            + self.flash_base_address.ok_or(IgbDriverErr::EEPROM)? as u32;
+
+        for _ in 0..ICH_FLASH_CYCLE_REPEAT_COUNT {
+            awkernel_lib::delay::wait_microsec(1);
+            // Steps
+            self.ich8_cycle_init()?;
+
+            let regval = self.read_ich_flash_reg16(ICH_FLASH_HSFCTL)?;
+            // 0b/1b corresponds to 1 or 2 byte size, respectively.
+            let regval = (regval & !(0b11 << 8)) | ((data.len() as u16 - 1) << 8);
+            let regval = (regval & !(0b11 << 2)) | (ICH_CYCLE_READ << 2);
+            self.write_ich_flash_reg16(ICH_FLASH_HSFCTL, regval)?;
+
+            // Write the last 24 bits of index into Flash Linear address
+            // field in Flash Address
+            // TODO: TBD maybe check the index against the size of flash
+
+            self.write_ich_flash_reg32(ICH_FLASH_FADDR, flash_linear_address)?;
+
+            // Check if FCERR is set to 1, if set to 1, clear it and try
+            // the whole sequence a few more times, else read in (shift
+            // in) the Flash Data0, the order is least significant byte
+            // first msb to lsb
+
+            if self.ich8_flash_cycle(ICH_FLASH_COMMAND_TIMEOUT).is_ok() {
+                let flash_data = self.read_ich_flash_reg(ICH_FLASH_FDATA0)?;
+                if data.len() == 1 {
+                    data[0] = (flash_data & 0x000000FF) as u16;
+                } else if data.len() == 2 {
+                    data[0] = (flash_data & 0x0000FFFF) as u16;
+                }
+
+                return Ok(());
+            } else {
+                // If we've gotten here, then things are probably
+                // completely hosed, but if the error condition is
+                // detected, it won't hurt to give it another
+                // try...ICH_FLASH_CYCLE_REPEAT_COUNT times.
+                let regval = self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?;
+                let hsf_status = Ich8HwsFlashStatus::from_bits_truncate(regval);
+                if !hsf_status.contains(Ich8HwsFlashStatus::FLCERR)
+                    && !hsf_status.contains(Ich8HwsFlashStatus::FLCDONE)
+                {
+                    log::warn!("igb: Timeout error - flash cycle did not complete.");
+                    break;
+                }
+            }
+        }
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     fn read_ich8_data32(&mut self, offset: usize) -> Result<u32, IgbDriverErr> {
@@ -1978,8 +2033,7 @@ impl IgbHw {
         let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & offset as u32)
             + self.flash_base_address.ok_or(IgbDriverErr::EEPROM)? as u32;
 
-        let mut count = 0;
-        loop {
+        for _ in 0..ICH_FLASH_CYCLE_REPEAT_COUNT {
             awkernel_lib::delay::wait_microsec(1);
 
             // Steps
@@ -2017,15 +2071,12 @@ impl IgbHw {
                     && !hsfsts.contains(Ich8HwsFlashStatus::FLCDONE)
                 {
                     log::warn!("Timeout error - flash cycle did not complete.");
-                    return Err(IgbDriverErr::EEPROM);
+                    break;
                 }
             }
-
-            count += 1;
-            if count > ICH_FLASH_CYCLE_REPEAT_COUNT {
-                return Err(IgbDriverErr::EEPROM);
-            }
         }
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     /// This function starts a flash cycle and waits for its completion.
@@ -2463,6 +2514,11 @@ impl IgbHw {
             .base_address
             .read16(reg + flash_memory.offset)
             .ok_or(IgbDriverErr::ReadFailure)
+    }
+
+    #[inline(always)]
+    fn read_ich_flash_reg(&mut self, reg: usize) -> Result<u32, IgbDriverErr> {
+        self.read_ich_flash_reg32(reg)
     }
 
     #[inline(always)]
