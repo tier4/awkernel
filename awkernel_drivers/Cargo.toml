@@ -10,7 +10,8 @@ log = "0.4"
 bitflags = "2.3"
 fontdue = "0.7.3"
 embedded-io = "0.6"
-embedded-hal = "1.0.0-rc.1"
+embedded-hal = "1.0.0-rc.2"
+array-macro = "2.1"
 
 [dependencies.x86_64]
 version = "0.14"

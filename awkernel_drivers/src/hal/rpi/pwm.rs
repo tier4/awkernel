@@ -257,7 +257,7 @@ impl Pwm {
 
 impl SetDutyCycle for Pwm {
     /// Returns the maximum duty cycle
-    fn get_max_duty_cycle(&self) -> u16 {
+    fn max_duty_cycle(&self) -> u16 {
         match self.channel {
             Channel::Ch0 => registers::RNG1.read(self.base) as u16,
             Channel::Ch1 => registers::RNG2.read(self.base) as u16,
@@ -275,7 +275,7 @@ impl SetDutyCycle for Pwm {
 
     /// Sets the duty cycle based on a fraction
     fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) -> Result<(), Self::Error> {
-        let duty = num as u32 * self.get_max_duty_cycle() as u32 / denom as u32;
+        let duty = num as u32 * self.max_duty_cycle() as u32 / denom as u32;
         self.set_duty_cycle(duty as u16)
     }
 

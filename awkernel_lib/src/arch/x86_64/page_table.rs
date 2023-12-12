@@ -32,14 +32,15 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
         let frame =
             PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
 
-        if self
+        match self
             .offset_page_table
             .map_to(page, frame, flags, page_allocator)
-            .is_ok()
         {
-            Ok(())
-        } else {
-            Err("Failed to map page")
+            Ok(flusher) => {
+                flusher.flush();
+                Ok(())
+            }
+            Err(_) => Err("Failed to map page"),
         }
     }
 }
