@@ -693,6 +693,12 @@ const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
 const ICH_FLASH_LINEAR_ADDR_MASK: u32 = 0x00FFFFFF;
 const ICH_FLASH_SECT_ADDR_SHIFT: u32 = 12;
 
+const SHADOW_RAM_WORDS: u32 = 2048;
+const ICH_NVM_SIG_WORD: usize = 0x13;
+const ICH_NVM_SIG_MASK: u32 = 0xC000;
+const ICH_NVM_VALID_SIG_MASK: u32 = 0xC0;
+const ICH_NVM_SIG_VALUE: u32 = 0x80;
+
 bitflags! {
     struct Ich8HwsFlashStatus: u16 {
         const FLCDONE = 1; // Flash Cycle Done
@@ -1941,6 +1947,70 @@ impl IgbHw {
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
         todo!()
+    }
+
+    /// finds out the valid bank 0 or 1
+    ///
+    /// Reads signature byte from the NVM using the flash access registers.
+    /// Word 0x13 bits 15:14 = 10b indicate a valid signature for that bank.
+    fn valid_nvm_bank_detect_ich8lan(&mut self, info: &PCIeInfo) -> Result<u32, IgbDriverErr> {
+        use MacType::*;
+
+        match self.mac_type {
+            EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
+                let bank1_offset = self.flash_bank_size.ok_or(IgbDriverErr::EEPROM)? * 2;
+                let act_offset = ICH_NVM_SIG_WORD * 2;
+
+                // Check bank 0
+                let nvm_dword = self.read_ich8_dword(act_offset)?;
+                let sig_byte = (nvm_dword & 0xFF00) >> 8;
+                if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
+                    return Ok(0);
+                }
+
+                // Check bank 1
+                let nvm_dword = self.read_ich8_dword(act_offset + bank1_offset)?;
+                let sig_byte = (nvm_dword & 0xFF00) >> 8;
+                if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
+                    return Ok(1);
+                }
+
+                return Err(IgbDriverErr::EEPROM);
+            }
+            EmIch8lan | EmIch9lan => {
+                let eecd = read_reg(info, super::EECD)?;
+                if (eecd & E1000_EECD_SEC1VAL_VALID_MASK) == E1000_EECD_SEC1VAL_VALID_MASK {
+                    if eecd & E1000_EECD_SEC1VAL != 0 {
+                        return Ok(1);
+                    } else {
+                        return Ok(0);
+                    }
+                }
+
+                ()
+            }
+            _ => (),
+        }
+
+        let act_offset = ICH_NVM_SIG_WORD * 2 + 1;
+
+        // Check bank 0
+        let sig_byte = self.read_ich8_byte(act_offset)? as u32;
+
+        if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
+            return Ok(0);
+        }
+
+        // Check bank 1
+        let bank1_offset =
+            self.flash_bank_size.ok_or(IgbDriverErr::EEPROM)? * core::mem::size_of::<u16>();
+        let sig_byte = self.read_ich8_byte(act_offset + bank1_offset)? as u32;
+
+        if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
+            return Ok(1);
+        }
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     /// Reads a dword from the NVM using the ICH8 flash access registers.
@@ -3726,13 +3796,20 @@ const E1000_EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
 const E1000_EECD_SIZE: u32 = 0x00000200; // EEPROM Size (0=64 word 1=256 word)
 const E1000_EECD_ADDR_BITS: u32 = 0x00000400; // EEPROM Addressing bits based on type
 const E1000_EECD_TYPE: u32 = 0x00002000;
+const E1000_EECD_AUTO_RD: u32 = 0x00000200; /* EEPROM Auto Read done */
+const E1000_EECD_SIZE_EX_MASK: u32 = 0x00007800;
+const E1000_EECD_SIZE_EX_SHIFT: u32 = 11;
 const E1000_EECD_FLUPD: u32 = 0x00080000;
 const E1000_EECD_AUPDEN: u32 = 0x00100000;
+const E1000_EECD_SHADV: u32 = 0x00200000; /* Shadow RAM Data Valid */
+const E1000_EECD_SEC1VAL: u32 = 0x00400000; /* Sector One Valid */
+const E1000_EECD_SEC1VAL_VALID_MASK: u32 = E1000_EECD_AUTO_RD | E1000_EECD_PRES;
+const E1000_EECD_SECVAL_SHIFT: u32 = 22;
+const E1000_STM_OPCODE: u32 = 0xDB00;
+const E1000_HICR_FW_RESET: u32 = 0xC0;
 
 const E1000_EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
 
-const E1000_EECD_SIZE_EX_MASK: u32 = 0x00007800;
-const E1000_EECD_SIZE_EX_SHIFT: u32 = 11;
 const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
 const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
 
