@@ -396,6 +396,14 @@ const PHY_1000T_CTRL: u32 = 0x09; // 1000Base-T Control Reg
 const PHY_1000T_STATUS: u32 = 0x0A; // 1000Base-T Status Reg
 const PHY_EXT_STATUS: u32 = 0x0F; // Extended Status Reg
 
+const PHY_CTRL_SPD_EN: u32 = 0x00000001;
+const PHY_CTRL_D0A_LPLU: u32 = 0x00000002;
+const PHY_CTRL_NOND0A_LPLU: u32 = 0x00000004;
+const PHY_CTRL_NOND0A_GBE_DISABLE: u32 = 0x00000008;
+const PHY_CTRL_GBE_DISABLE: u32 = 0x00000040;
+const PHY_CTRL_B2B_EN: u32 = 0x00000080;
+const PHY_CTRL_LOOPBACK: u32 = 0x00004000;
+
 // PBA constants
 const E1000_PBA_8K: u32 = 0x0008; /* 8KB, default Rx allocation */
 const _E1000_PBA_10K: u32 = 0x000A;
@@ -469,6 +477,12 @@ const _HV_DC_UPPER: u32 = phy_reg(778, 27); /* Defer Count */
 const _HV_DC_LOWER: u32 = phy_reg(778, 28);
 const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); /* Transmit with no CRS */
 const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
+
+// OEM Bits Phy Register
+const HV_OEM_BITS: u32 = phy_reg(768, 25);
+const HV_OEM_BITS_LPLU: u32 = 0x0004; /* Low Power Link Up */
+const HV_OEM_BITS_GBE_DIS: u32 = 0x0040; /* Gigabit Disable */
+const HV_OEM_BITS_RESTART_AN: u32 = 0x0400; /* Restart Auto-negotiation */
 
 // I82577 Specific Registers
 const I82577_PHY_ADDR_REG: u32 = 16;
@@ -715,6 +729,16 @@ const IGP01E1000_ANALOG_FUSE_COARSE_THRESH: u16 = 0x0040;
 const IGP01E1000_ANALOG_FUSE_COARSE_10: u16 = 0x0010;
 const IGP01E1000_ANALOG_FUSE_FINE_1: u16 = 0x0080;
 const IGP01E1000_ANALOG_FUSE_FINE_10: u16 = 0x0500;
+
+// Extended Configuration Control and Size
+const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
+const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
+const EXTCNF_CTRL_OEM_WRITE_ENABLE: u32 = 0x00000008;
+const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
+const EXTCNF_SIZE_EXT_PCIE_LENGTH_MASK: u32 = 0x00FF0000;
+const EXTCNF_SIZE_EXT_PCIE_LENGTH_SHIFT: u32 = 16;
+const EXTCNF_CTRL_EXT_CNF_POINTER_MASK: u32 = 0x0FFF0000;
+const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
 
 bitflags! {
     struct Ich8HwsFlashStatus: u16 {
@@ -1739,99 +1763,65 @@ impl IgbHw {
         todo!();
     }
 
-    //     306 static void
-    //     307 em_phy_init_script(struct em_hw *hw)
-    //         /* [previous][next][first][last][top][bottom][index][help]
-    //    +307 sys/dev/pci/if_em_hw.c
-    //     */
-    //     308 {
-    //     309         uint16_t phy_saved_data;
-    //     310         DEBUGFUNC("em_phy_init_script");
-    //     311
-    //     312         if (hw->phy_init_script) {
-    //     313                 msec_delay(20);
-    //     314                 /*
-    //     315                  * Save off the current value of register 0x2F5B to be
-    //     316                  * restored at the end of this routine.
-    //     317                  */
-    //     318                 em_read_phy_reg(hw, 0x2F5B, &phy_saved_data);
-    //     319
-    //     320                 /* Disabled the PHY transmitter */
-    //     321                 em_write_phy_reg(hw, 0x2F5B, 0x0003);
-    //     322                 msec_delay(20);
-    //     323                 em_write_phy_reg(hw, 0x0000, 0x0140);
-    //     324                 msec_delay(5);
-    //     325
-    //     326                 switch (hw->mac_type) {
-    //     327                 case em_82541:
-    //     328                 case em_82547:
-    //     329                         em_write_phy_reg(hw, 0x1F95, 0x0001);
-    //     330                         em_write_phy_reg(hw, 0x1F71, 0xBD21);
-    //     331                         em_write_phy_reg(hw, 0x1F79, 0x0018);
-    //     332                         em_write_phy_reg(hw, 0x1F30, 0x1600);
-    //     333                         em_write_phy_reg(hw, 0x1F31, 0x0014);
-    //     334                         em_write_phy_reg(hw, 0x1F32, 0x161C);
-    //     335                         em_write_phy_reg(hw, 0x1F94, 0x0003);
-    //     336                         em_write_phy_reg(hw, 0x1F96, 0x003F);
-    //     337                         em_write_phy_reg(hw, 0x2010, 0x0008);
-    //     338                         break;
-    //     339                 case em_82541_rev_2:
-    //     340                 case em_82547_rev_2:
-    //     341                         em_write_phy_reg(hw, 0x1F73, 0x0099);
-    //     342                         break;
-    //     343                 default:
-    //     344                         break;
-    //     345                 }
-    //     346
-    //     347                 em_write_phy_reg(hw, 0x0000, 0x3300);
-    //     348                 msec_delay(20);
-    //     349
-    //     350                 /* Now enable the transmitter */
-    //     351                 em_write_phy_reg(hw, 0x2F5B, phy_saved_data);
-    //     352
-    //     353                 if (hw->mac_type == em_82547) {
-    //     354                         uint16_t fused, fine, coarse;
-    //     355                         /* Move to analog registers page */
-    //     356                         em_read_phy_reg(hw,
-    //     357                             IGP01E1000_ANALOG_SPARE_FUSE_STATUS, &fused);
-    //     358
-    //     359                         if (!(fused & IGP01E1000_ANALOG_SPARE_FUSE_ENABLED)) {
-    //     360                                 em_read_phy_reg(hw,
-    //     361                                     IGP01E1000_ANALOG_FUSE_STATUS, &fused);
-    //     362
-    //     363                                 fine = fused &
-    //     364                                     IGP01E1000_ANALOG_FUSE_FINE_MASK;
-    //     365                                 coarse = fused &
-    //     366                                     IGP01E1000_ANALOG_FUSE_COARSE_MASK;
-    //     367
-    //     368                                 if (coarse >
-    //     369                                     IGP01E1000_ANALOG_FUSE_COARSE_THRESH) {
-    //     370                                         coarse -=
-    //     371                                             IGP01E1000_ANALOG_FUSE_COARSE_10;
-    //     372                                         fine -=
-    //     373                                             IGP01E1000_ANALOG_FUSE_FINE_1;
-    //     374                                 } else if (coarse ==
-    //     375                                     IGP01E1000_ANALOG_FUSE_COARSE_THRESH)
-    //     376                                         fine -= IGP01E1000_ANALOG_FUSE_FINE_10;
-    //     377
-    //     378                                 fused = (fused &
-    //     379                                     IGP01E1000_ANALOG_FUSE_POLY_MASK) |
-    //     380                                     (fine &
-    //     381                                     IGP01E1000_ANALOG_FUSE_FINE_MASK) |
-    //     382                                     (coarse &
-    //     383                                     IGP01E1000_ANALOG_FUSE_COARSE_MASK);
-    //     384
-    //     385                                 em_write_phy_reg(hw,
-    //     386                                     IGP01E1000_ANALOG_FUSE_CONTROL,
-    //     387                                     fused);
-    //     388
-    //     389                                 em_write_phy_reg(hw,
-    //     390                                     IGP01E1000_ANALOG_FUSE_BYPASS,
-    //     391                                     IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL);
-    //     392                         }
-    //     393                 }
-    //     394         }
-    //     395 }
+    /// SW-based LCD Configuration.
+    /// SW will configure Gbe Disable and LPLU based on the NVM. The four bits are
+    /// collectively called OEM bits.  The OEM Write Enable bit and SW Config bit
+    /// in NVM determines whether HW should configure LPLU and Gbe Disable.
+    fn oem_bits_config_pchlan(
+        &mut self,
+        info: &PCIeInfo,
+        d0_state: bool,
+    ) -> Result<(), IgbDriverErr> {
+        if (self.mac_type.clone() as u32) < (MacType::EmPchlan as u32) {
+            return Ok(());
+        }
+
+        self.swfw_sync_mut(info, SWFW_PHY0_SM, |hw| {
+            if matches!(hw.mac_type, MacType::EmPchlan) {
+                let mac_reg = read_reg(info, super::EXTCNF_CTRL)?;
+                if mac_reg & EXTCNF_CTRL_OEM_WRITE_ENABLE != 0 {
+                    return Ok(());
+                }
+            }
+
+            let mac_reg = read_reg(info, super::FEXTNVM)?;
+            if mac_reg & super::FEXTNVM_SW_CONFIG_ICH8M == 0 {
+                return Ok(());
+            }
+
+            let mac_reg = read_reg(info, PHY_CTRL as usize)?;
+            let oem_reg = hw.read_phy_reg(info, HV_OEM_BITS)? as u32;
+
+            let mut oem_reg = oem_reg & !(HV_OEM_BITS_GBE_DIS | HV_OEM_BITS_LPLU);
+
+            if d0_state {
+                if mac_reg & PHY_CTRL_GBE_DISABLE != 0 {
+                    oem_reg |= HV_OEM_BITS_GBE_DIS;
+                }
+
+                if mac_reg & PHY_CTRL_D0A_LPLU != 0 {
+                    oem_reg |= HV_OEM_BITS_LPLU;
+                }
+
+                // Restart auto-neg to activate the bits
+                if hw.check_phy_reset_block(info).is_err() {
+                    oem_reg |= HV_OEM_BITS_RESTART_AN;
+                }
+            } else {
+                if mac_reg & (PHY_CTRL_GBE_DISABLE | PHY_CTRL_NOND0A_GBE_DISABLE) != 0 {
+                    oem_reg |= HV_OEM_BITS_GBE_DIS;
+                }
+
+                if mac_reg & (PHY_CTRL_D0A_LPLU | PHY_CTRL_NOND0A_LPLU) != 0 {
+                    oem_reg |= HV_OEM_BITS_LPLU;
+                }
+            }
+
+            hw.write_phy_reg(info, HV_OEM_BITS, oem_reg as u16)?;
+
+            Ok(())
+        })
+    }
 
     /// Returns the PHY to the power-on reset state
     fn phy_hw_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
