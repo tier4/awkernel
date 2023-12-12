@@ -699,6 +699,23 @@ const ICH_NVM_SIG_MASK: u32 = 0xC000;
 const ICH_NVM_VALID_SIG_MASK: u32 = 0xC0;
 const ICH_NVM_SIG_VALUE: u32 = 0x80;
 
+// IGP01E1000 Analog Register
+const IGP01E1000_ANALOG_SPARE_FUSE_STATUS: u32 = 0x20D1;
+const IGP01E1000_ANALOG_FUSE_STATUS: u32 = 0x20D0;
+const IGP01E1000_ANALOG_FUSE_CONTROL: u32 = 0x20DC;
+const IGP01E1000_ANALOG_FUSE_BYPASS: u32 = 0x20DE;
+
+const IGP01E1000_ANALOG_FUSE_POLY_MASK: u16 = 0xF000;
+const IGP01E1000_ANALOG_FUSE_FINE_MASK: u16 = 0x0F80;
+const IGP01E1000_ANALOG_FUSE_COARSE_MASK: u16 = 0x0070;
+const IGP01E1000_ANALOG_SPARE_FUSE_ENABLED: u16 = 0x0100;
+const IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL: u16 = 0x0002;
+
+const IGP01E1000_ANALOG_FUSE_COARSE_THRESH: u16 = 0x0040;
+const IGP01E1000_ANALOG_FUSE_COARSE_10: u16 = 0x0010;
+const IGP01E1000_ANALOG_FUSE_FINE_1: u16 = 0x0080;
+const IGP01E1000_ANALOG_FUSE_FINE_10: u16 = 0x0500;
+
 bitflags! {
     struct Ich8HwsFlashStatus: u16 {
         const FLCDONE = 1; // Flash Cycle Done
@@ -1646,6 +1663,175 @@ impl IgbHw {
     fn phy_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!();
     }
+
+    /// IGP phy init script - initializes the GbE PHY
+    fn phy_init_script(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        awkernel_lib::delay::wait_millisec(20);
+
+        // Save off the current value of register 0x2F5B to be restored at the end of this routine.
+        let phy_saved_data = self.read_phy_reg(info, 0x2F5B)?;
+
+        // Disabled the PHY transmitter
+        self.write_phy_reg(info, 0x2F5B, 0x0003)?;
+        awkernel_lib::delay::wait_millisec(20);
+        self.write_phy_reg(info, 0x0000, 0x0140)?;
+        awkernel_lib::delay::wait_millisec(5);
+
+        match self.mac_type {
+            MacType::Em82541 | MacType::Em82547 => {
+                self.write_phy_reg(info, 0x1F95, 0x0001)?;
+                self.write_phy_reg(info, 0x1F71, 0xBD21)?;
+                self.write_phy_reg(info, 0x1F79, 0x0018)?;
+                self.write_phy_reg(info, 0x1F30, 0x1600)?;
+                self.write_phy_reg(info, 0x1F31, 0x0014)?;
+                self.write_phy_reg(info, 0x1F32, 0x161C)?;
+                self.write_phy_reg(info, 0x1F94, 0x0003)?;
+                self.write_phy_reg(info, 0x1F96, 0x003F)?;
+                self.write_phy_reg(info, 0x2010, 0x0008)?;
+            }
+            MacType::Em82541Rev2 | MacType::Em82547Rev2 => {
+                self.write_phy_reg(info, 0x1F73, 0x0099)?;
+            }
+            _ => (),
+        }
+
+        self.write_phy_reg(info, 0x0000, 0x3300)?;
+        awkernel_lib::delay::wait_millisec(20);
+
+        // Now enable the transmitter
+        self.write_phy_reg(info, 0x2F5B, phy_saved_data)?;
+
+        if self.mac_type.clone() as u32 > MacType::Em82547 as u32 {
+            // Move to analog registers page
+            let fused = self.read_phy_reg(info, IGP01E1000_ANALOG_SPARE_FUSE_STATUS)?;
+
+            if fused & IGP01E1000_ANALOG_SPARE_FUSE_ENABLED == 0 {
+                let fused = self.read_phy_reg(info, IGP01E1000_ANALOG_FUSE_STATUS)?;
+
+                let fine = fused & IGP01E1000_ANALOG_FUSE_FINE_MASK;
+                let coarse = fused & IGP01E1000_ANALOG_FUSE_COARSE_MASK;
+
+                let (coarse, fine) = if coarse > IGP01E1000_ANALOG_FUSE_COARSE_THRESH {
+                    (
+                        coarse - IGP01E1000_ANALOG_FUSE_COARSE_10,
+                        fine - IGP01E1000_ANALOG_FUSE_FINE_1,
+                    )
+                } else if coarse == IGP01E1000_ANALOG_FUSE_COARSE_THRESH {
+                    (coarse, fine - IGP01E1000_ANALOG_FUSE_FINE_10)
+                } else {
+                    (coarse, fine)
+                };
+
+                let fused = (fused & IGP01E1000_ANALOG_FUSE_POLY_MASK)
+                    | (fine & IGP01E1000_ANALOG_FUSE_FINE_MASK)
+                    | (coarse & IGP01E1000_ANALOG_FUSE_COARSE_MASK);
+
+                self.write_phy_reg(info, IGP01E1000_ANALOG_FUSE_CONTROL, fused)?;
+
+                self.write_phy_reg(
+                    info,
+                    IGP01E1000_ANALOG_FUSE_BYPASS,
+                    IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL,
+                )?;
+            }
+        }
+
+        todo!();
+    }
+
+    //     306 static void
+    //     307 em_phy_init_script(struct em_hw *hw)
+    //         /* [previous][next][first][last][top][bottom][index][help]
+    //    +307 sys/dev/pci/if_em_hw.c
+    //     */
+    //     308 {
+    //     309         uint16_t phy_saved_data;
+    //     310         DEBUGFUNC("em_phy_init_script");
+    //     311
+    //     312         if (hw->phy_init_script) {
+    //     313                 msec_delay(20);
+    //     314                 /*
+    //     315                  * Save off the current value of register 0x2F5B to be
+    //     316                  * restored at the end of this routine.
+    //     317                  */
+    //     318                 em_read_phy_reg(hw, 0x2F5B, &phy_saved_data);
+    //     319
+    //     320                 /* Disabled the PHY transmitter */
+    //     321                 em_write_phy_reg(hw, 0x2F5B, 0x0003);
+    //     322                 msec_delay(20);
+    //     323                 em_write_phy_reg(hw, 0x0000, 0x0140);
+    //     324                 msec_delay(5);
+    //     325
+    //     326                 switch (hw->mac_type) {
+    //     327                 case em_82541:
+    //     328                 case em_82547:
+    //     329                         em_write_phy_reg(hw, 0x1F95, 0x0001);
+    //     330                         em_write_phy_reg(hw, 0x1F71, 0xBD21);
+    //     331                         em_write_phy_reg(hw, 0x1F79, 0x0018);
+    //     332                         em_write_phy_reg(hw, 0x1F30, 0x1600);
+    //     333                         em_write_phy_reg(hw, 0x1F31, 0x0014);
+    //     334                         em_write_phy_reg(hw, 0x1F32, 0x161C);
+    //     335                         em_write_phy_reg(hw, 0x1F94, 0x0003);
+    //     336                         em_write_phy_reg(hw, 0x1F96, 0x003F);
+    //     337                         em_write_phy_reg(hw, 0x2010, 0x0008);
+    //     338                         break;
+    //     339                 case em_82541_rev_2:
+    //     340                 case em_82547_rev_2:
+    //     341                         em_write_phy_reg(hw, 0x1F73, 0x0099);
+    //     342                         break;
+    //     343                 default:
+    //     344                         break;
+    //     345                 }
+    //     346
+    //     347                 em_write_phy_reg(hw, 0x0000, 0x3300);
+    //     348                 msec_delay(20);
+    //     349
+    //     350                 /* Now enable the transmitter */
+    //     351                 em_write_phy_reg(hw, 0x2F5B, phy_saved_data);
+    //     352
+    //     353                 if (hw->mac_type == em_82547) {
+    //     354                         uint16_t fused, fine, coarse;
+    //     355                         /* Move to analog registers page */
+    //     356                         em_read_phy_reg(hw,
+    //     357                             IGP01E1000_ANALOG_SPARE_FUSE_STATUS, &fused);
+    //     358
+    //     359                         if (!(fused & IGP01E1000_ANALOG_SPARE_FUSE_ENABLED)) {
+    //     360                                 em_read_phy_reg(hw,
+    //     361                                     IGP01E1000_ANALOG_FUSE_STATUS, &fused);
+    //     362
+    //     363                                 fine = fused &
+    //     364                                     IGP01E1000_ANALOG_FUSE_FINE_MASK;
+    //     365                                 coarse = fused &
+    //     366                                     IGP01E1000_ANALOG_FUSE_COARSE_MASK;
+    //     367
+    //     368                                 if (coarse >
+    //     369                                     IGP01E1000_ANALOG_FUSE_COARSE_THRESH) {
+    //     370                                         coarse -=
+    //     371                                             IGP01E1000_ANALOG_FUSE_COARSE_10;
+    //     372                                         fine -=
+    //     373                                             IGP01E1000_ANALOG_FUSE_FINE_1;
+    //     374                                 } else if (coarse ==
+    //     375                                     IGP01E1000_ANALOG_FUSE_COARSE_THRESH)
+    //     376                                         fine -= IGP01E1000_ANALOG_FUSE_FINE_10;
+    //     377
+    //     378                                 fused = (fused &
+    //     379                                     IGP01E1000_ANALOG_FUSE_POLY_MASK) |
+    //     380                                     (fine &
+    //     381                                     IGP01E1000_ANALOG_FUSE_FINE_MASK) |
+    //     382                                     (coarse &
+    //     383                                     IGP01E1000_ANALOG_FUSE_COARSE_MASK);
+    //     384
+    //     385                                 em_write_phy_reg(hw,
+    //     386                                     IGP01E1000_ANALOG_FUSE_CONTROL,
+    //     387                                     fused);
+    //     388
+    //     389                                 em_write_phy_reg(hw,
+    //     390                                     IGP01E1000_ANALOG_FUSE_BYPASS,
+    //     391                                     IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL);
+    //     392                         }
+    //     393                 }
+    //     394         }
+    //     395 }
 
     /// Returns the PHY to the power-on reset state
     fn phy_hw_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
