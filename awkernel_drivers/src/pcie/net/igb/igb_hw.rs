@@ -522,6 +522,13 @@ const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
 const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
 const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
 
+const M88E1543_PAGE_ADDR: u32 = 0x16;
+
+const M88E1512_CFG_REG_1: u32 = 0x0010;
+const M88E1512_CFG_REG_2: u32 = 0x0011;
+const M88E1512_CFG_REG_3: u32 = 0x0007;
+const M88E1512_MODE: u32 = 0x0014;
+
 const IGP03E1000_E_PHY_ID: u32 = 0x02A80390;
 const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
 const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
@@ -2081,6 +2088,52 @@ impl IgbHw {
                 _ => Err(IgbDriverErr::EEPROM),
             }
         })
+    }
+
+    fn initialize_m88e1512_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // Check if this is correct PHY.
+        if self.phy_id != M88E1512_E_PHY_ID {
+            return Ok(());
+        }
+
+        // Switch to PHY page 0xFF.
+        self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0x00FF)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_2, 0x214B)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2144)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_2, 0x0C28)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2146)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_2, 0xB233)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x214D)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_2, 0xCC0C)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2159)?;
+
+        // Switch to PHY page 0xFB.
+        self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0x00FB)?;
+
+        self.write_phy_reg(info, M88E1512_CFG_REG_3, 0x000D)?;
+
+        // Switch to PHY page 0x12.
+        self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0x12)?;
+
+        // Change mode to SGMII-to-Copper
+        self.write_phy_reg(info, M88E1512_MODE, 0x8001)?;
+
+        // Return the PHY to page 0.
+        self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0)?;
+
+        self.phy_hw_reset(info)?;
+
+        awkernel_lib::delay::wait_millisec(1000);
+
+        Ok(())
     }
 
     /// Reads a 16 bit word from the EEPROM using the EERD register.
