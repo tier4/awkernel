@@ -225,13 +225,21 @@ impl Igb {
     }
 }
 
+/// Initialize the hardware to a configuration as specified by the
+/// em_softc structure. The controller is reset, the EEPROM is
+/// verified, the MAC address is set, then the shared initialization
+/// routines are called.
+///
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
 fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     if matches!(hw.get_mac_type(), igb_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
 
+    // Issue a global reset
     hw.reset_hw(info)?;
+
+    // TODO
 
     Ok(())
 }
@@ -686,7 +694,9 @@ const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 const PBS: usize = 0x01008; // Packet Buffer Size
 const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
 const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
+const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
 const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
+const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 
 // Status Register
 const STATUS: usize = 0x00008; // Device Status register
@@ -705,6 +715,7 @@ const STATUS_SPEED_10: u32 = 0x00000000; // Speed 10Mb/s
 const STATUS_SPEED_100: u32 = 0x00000040; // Speed 100Mb/s
 const STATUS_SPEED_1000: u32 = 0x00000080; // Speed 1000Mb/s
 const STATUS_LAN_INIT_DONE: u32 = 0x00000200; // Lan Init Completion
+const STATUS_DEV_RST_SET: u32 = 0x00100000;
 
 // Interrupt Mask Set/Read Register
 const IMS: usize = 0x000D0;
@@ -837,7 +848,7 @@ const _MANC_0298_EN: u32 = 0x00000200; /* Enable RCMP 0298h Filtering */
 const _MANC_IPV4_EN: u32 = 0x00000400; /* Enable IPv4 */
 const _MANC_IPV6_EN: u32 = 0x00000800; /* Enable IPv6 */
 const _MANC_SNAP_EN: u32 = 0x00001000; /* Accept LLC/SNAP */
-const _MANC_ARP_EN: u32 = 0x00002000; /* Enable ARP Request Filtering */
+const MANC_ARP_EN: u32 = 0x00002000; /* Enable ARP Request Filtering */
 const _MANC_NEIGHBOR_EN: u32 = 0x00004000; /* Enable Neighbor Discovery Filtering */
 const _MANC_ARP_RES_EN: u32 = 0x00008000; /* Enable ARP response Filtering */
 const _MANC_TCO_RESET: u32 = 0x00010000; /* TCO Reset Occurred */
@@ -886,7 +897,7 @@ const _CTRL_EXT_SDP5_DIR: u32 = 0x00000200; /* Direction of SDP5 0=in 1=out */
 const _CTRL_EXT_SDP6_DIR: u32 = 0x00000400; /* Direction of SDP6 0=in 1=out */
 const _CTRL_EXT_SDP7_DIR: u32 = 0x00000800; /* Direction of SDP7 0=in 1=out */
 const _CTRL_EXT_ASDCHK: u32 = 0x00001000; /* Initiate an ASD sequence */
-const _CTRL_EXT_EE_RST: u32 = 0x00002000; /* Reinitialize from EEPROM */
+const CTRL_EXT_EE_RST: u32 = 0x00002000; /* Reinitialize from EEPROM */
 const _CTRL_EXT_IPS: u32 = 0x00004000; /* Invert Power State */
 const _CTRL_EXT_SPD_BYPS: u32 = 0x00008000; /* Speed Select Bypass */
 const _CTRL_EXT_RO_DIS: u32 = 0x00020000; /* Relaxed Ordering disable */
@@ -911,7 +922,7 @@ const _CTRL_EXT_DF_PAREN: u32 = 0x02000000; /* descriptor FIFO parity error dete
 
 const MDICNFG: usize = 0x00E04;
 const MDICNFG_EXT_MDIO: u32 = 0x80000000; /* MDI ext/int destination */
-const _MDICNFG_COM_MDIO: u32 = 0x40000000; /* MDI shared w/ lan 0 */
+const MDICNFG_COM_MDIO: u32 = 0x40000000; /* MDI shared w/ lan 0 */
 const MDICNFG_PHY_MASK: u32 = 0x03E00000;
 const MDICNFG_PHY_SHIFT: u32 = 21;
 

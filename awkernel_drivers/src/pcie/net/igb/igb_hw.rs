@@ -687,6 +687,10 @@ const NVM_LED_1_CFG_DEFAULT_I211: u16 = 0x0184;
 const NVM_LED_0_2_CFG_DEFAULT_I211: u16 = 0x200C;
 const NVM_RESERVED_WORD: u16 = 0xFFFF;
 
+// Mask bits for fields in Word 0x24 of the NVM
+const NVM_WORD24_COM_MDIO: u16 = 0x0008; /* MDIO interface shared */
+const NVM_WORD24_EXT_MDIO: u16 = 0x0004; /* MDIO accesses routed external */
+
 const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
 
 const ICH_CYCLE_READ: u16 = 0x0;
@@ -759,6 +763,26 @@ const EXTCNF_SIZE_EXT_PCIE_LENGTH_SHIFT: u32 = 16;
 const EXTCNF_CTRL_EXT_CNF_POINTER_MASK: u32 = 0x0FFF0000;
 const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
 
+const KABGTXD_BGSQLBIAS: u32 = 0x00050000;
+
+// Energy Efficient Ethernet "EEE" registers
+const IPCNFG: usize = 0x0E38; /* Internal PHY Configuration */
+const LTRC: usize = 0x01A0; /* Latency Tolerance Reporting Control */
+const EEER: usize = 0x0E30; /* Energy Efficient Ethernet "EEE" */
+const EEE_SU: usize = 0x0E34; /* EEE Setup */
+const TLPIC: usize = 0x4148; /* EEE Tx LPI Count - TLPIC */
+const RLPIC: usize = 0x414C; /* EEE Rx LPI Count - RLPIC */
+
+// I350 EEE defines
+const IPCNFG_EEE_1G_AN: u32 = 0x00000008; /* IPCNFG EEE Ena 1G AN */
+const IPCNFG_EEE_100M_AN: u32 = 0x00000004; /* IPCNFG EEE Ena 100M AN */
+const EEER_TX_LPI_EN: u32 = 0x00010000; /* EEER Tx LPI Enable */
+const EEER_RX_LPI_EN: u32 = 0x00020000; /* EEER Rx LPI Enable */
+const EEER_LPI_FC: u32 = 0x00040000; /* EEER Ena on Flow Cntrl */
+
+// Number of milliseconds we wait for Eeprom auto read bit done after MAC reset
+const AUTO_READ_DONE_TIMEOUT: u32 = 10;
+
 bitflags! {
     struct Ich8HwsFlashStatus: u16 {
         const FLCDONE = 1; // Flash Cycle Done
@@ -781,7 +805,7 @@ const fn phy_reg(page: u32, reg: u32) -> u32 {
     (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
     Copper,
     Fiber,
@@ -848,7 +872,7 @@ pub struct IgbHw {
     bus_func: u8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MacType {
     Em82542Rev2_0 = 0,
     Em82542Rev2_1,
@@ -1301,7 +1325,7 @@ impl IgbHw {
     pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
-        let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+        // let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         if matches!(self.mac_type, Em82542Rev2_0) {
             return Err(IgbDriverErr::NotSupported);
@@ -1318,13 +1342,13 @@ impl IgbHw {
         }
 
         // Clear interrupt mask to stop board from generating interrupts
-        bar0.write32(super::IMC, !0);
+        write_reg(info, super::IMC, !0)?;
 
         // Disable the Transmit and Receive units.  Then delay to allow any
         // pending transactions to complete before we hit the MAC with the
         // global reset.
-        bar0.write32(super::RCTL, 0);
-        bar0.write32(super::TCTL, super::TCTL_PSP);
+        write_reg(info, super::RCTL, 0)?;
+        write_reg(info, super::TCTL, super::TCTL_PSP)?;
         write_flush(info)?;
 
         // The tbi_compatibility_on Flag must be cleared when Rctl is cleared.
@@ -1340,14 +1364,12 @@ impl IgbHw {
 
         // Must acquire the MDIO ownership before MAC reset. Ownership defaults to firmware after a reset.
         if matches!(self.mac_type, Em82573 | Em82574) {
-            let mut extcnf_ctrl = bar0
-                .read32(super::EXTCNF_CTRL)
-                .ok_or(IgbDriverErr::ReadFailure)?;
+            let mut extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
 
             extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
 
             for _ in 0..10 {
-                bar0.write32(super::EXTCNF_CTRL, extcnf_ctrl);
+                write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
 
                 if extcnf_ctrl & super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP != 0 {
                     break;
@@ -1362,16 +1384,16 @@ impl IgbHw {
         // Workaround for ICH8 bit corruption issue in FIFO memory
         if matches!(self.mac_type, EmIch8lan) {
             // Set Tx and Rx buffer allocation to 8k apiece.
-            bar0.write32(super::PBA, E1000_PBA_8K);
+            write_reg(info, super::PBA, E1000_PBA_8K)?;
 
             // Set Packet Buffer Size to 16k.
-            bar0.write32(super::PBS, E1000_PBS_16K);
+            write_reg(info, super::PBS, E1000_PBS_16K)?;
         }
 
         match self.mac_type {
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
-                let mut ctrl = bar0.read32(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
+                let mut ctrl = read_reg(info, super::CTRL)?;
 
                 if !self.phy_reset_disable && self.check_phy_reset_block(info).is_ok() {
                     // PHY HW reset requires MAC CORE reset at the same
@@ -1381,16 +1403,14 @@ impl IgbHw {
 
                     // Gate automatic PHY configuration by hardware on non-managed 82579
                     if matches!(self.mac_type, EmPch2lan)
-                        && bar0.read32(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
-                            & super::FWSM_FW_VALID
-                            == 0
+                        && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
                     {
                         self.gate_hw_phy_config_ich8lan(info, true)?;
                     }
                 };
 
                 self.get_software_flag(info)?;
-                bar0.write32(super::CTRL, ctrl | super::CTRL_RST);
+                write_reg(info, super::CTRL, ctrl | super::CTRL_RST)?;
 
                 // HW reset releases software_flag
                 self.sw_flag = 0;
@@ -1399,17 +1419,15 @@ impl IgbHw {
                 // Ungate automatic PHY configuration on non-managed 82579
                 if matches!(self.mac_type, EmPch2lan)
                     && !self.phy_reset_disable
-                    && bar0.read32(super::FWSM).ok_or(IgbDriverErr::ReadFailure)?
-                        & super::FWSM_FW_VALID
-                        == 0
+                    && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
                 {
                     awkernel_lib::delay::wait_millisec(10);
                     self.gate_hw_phy_config_ich8lan(info, false)?;
                 }
             }
             _ => {
-                let ctrl = bar0.read32(super::CTRL).ok_or(IgbDriverErr::ReadFailure)?;
-                bar0.write32(super::CTRL, ctrl | super::CTRL_RST);
+                let ctrl = read_reg(info, super::CTRL)?;
+                write_reg(info, super::CTRL, ctrl | super::CTRL_RST)?;
             }
         }
 
@@ -1425,8 +1443,202 @@ impl IgbHw {
             }
         }
 
-        // TODO
-        // https://github.com/openbsd/src/blob/310206ba8923a6e59fdbb6eae66d8488b45fe1d8/sys/dev/pci/if_em_hw.c#L1113
+        // After MAC reset, force reload of EEPROM to restore power-on
+        // settings to device.  Later controllers reload the EEPROM
+        // automatically, so just wait for reload to complete.
+
+        match self.mac_type {
+            Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => {
+                // Wait for EEPROM reload
+                awkernel_lib::delay::wait_microsec(10);
+                let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+                write_reg(info, super::CTRL_EXT, ctrl_ext | super::CTRL_EXT_EE_RST)?;
+                write_flush(info)?;
+                awkernel_lib::delay::wait_microsec(2);
+            }
+            Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2 => {
+                // Wait for EEPROM reload
+                awkernel_lib::delay::wait_millisec(20);
+            }
+            Em82573 | Em82574 => {
+                if !self.is_onboard_nvm_eeprom(info)? {
+                    awkernel_lib::delay::wait_microsec(10);
+                    let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
+                    write_reg(info, super::CTRL_EXT, ctrl_ext | super::CTRL_EXT_EE_RST)?;
+                    write_flush(info)?;
+                }
+
+                // Auto read done will delay 5ms or poll based on mac type
+                self.get_auto_rd_done(info)?;
+            }
+            _ => {
+                // Wait for EEPROM reload (it happens automatically)
+                awkernel_lib::delay::wait_millisec(5);
+            }
+        }
+
+        // Disable HW ARPs on ASF enabled adapters
+        if self.mac_type as u32 >= Em82540 as u32
+            && self.mac_type as u32 <= Em82547Rev2 as u32
+            && self.mac_type != EmICPxxxx
+        {
+            let manc = read_reg(info, super::MANC)?;
+            write_reg(info, super::MANC, manc & !super::MANC_ARP_EN)?;
+        }
+
+        if matches!(self.mac_type, Em82541 | Em82547) {
+            self.phy_init_script(info)?;
+
+            // Configure activity LED after PHY reset
+            let led_ctrl = read_reg(info, LEDCTL)?;
+            let led_ctrl =
+                (led_ctrl & IGP_ACTIVITY_LED_MASK) | IGP_ACTIVITY_LED_ENABLE | IGP_LED3_MODE;
+            write_reg(info, LEDCTL, led_ctrl)?;
+        }
+
+        // For PCH, this write will make sure that any noise
+        // will be detected as a CRC error and be dropped rather than show up
+        // as a bad packet to the DMA engine.
+        if self.mac_type == EmPchlan {
+            write_reg(info, super::CRC_OFFSET, 0x65656565)?;
+        }
+
+        // Clear interrupt mask to stop board from generating interrupts
+        write_reg(info, super::IMC, !0)?;
+
+        // Clear any pending interrupt events.
+        let _icr = read_reg(info, super::ICR)?;
+
+        // If MWI was previously enabled, reenable it.
+        if self.mac_type == Em82542Rev2_0 {
+            // https://github.com/openbsd/src/blob/ccf5da69583c0d4369ab3dc89805c858d4b2e8dc/sys/dev/pci/if_em_hw.c#L1201-L1204
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        if is_ich8(&self.mac_type) {
+            let kab = read_reg(info, super::KABGTXD)?;
+            write_reg(info, super::KABGTXD, kab | KABGTXD_BGSQLBIAS)?;
+        }
+
+        if matches!(self.mac_type, Em82580 | EmI350) {
+            // clear global device reset status bit
+            write_reg(info, super::STATUS, super::STATUS_DEV_RST_SET)?;
+
+            fn nvm_82580_lan_func_offset(a: u8) -> u32 {
+                if a != 0 {
+                    (0x40 + (0x40 * a)) as u32
+                } else {
+                    0
+                }
+            }
+
+            let mut nvm_data = [0u16; 1];
+            self.read_eeprom(
+                info,
+                EEPROM_INIT_CONTROL3_PORT_A + nvm_82580_lan_func_offset(self.bus_func),
+                &mut nvm_data,
+            )?;
+
+            let mut mdicnfg = read_reg(info, super::MDICNFG)?;
+            if nvm_data[0] & NVM_WORD24_EXT_MDIO != 0 {
+                mdicnfg |= super::MDICNFG_EXT_MDIO;
+            }
+            if nvm_data[0] & NVM_WORD24_COM_MDIO != 0 {
+                mdicnfg |= super::MDICNFG_COM_MDIO;
+            }
+            write_reg(info, super::MDICNFG, mdicnfg)?;
+        }
+
+        if matches!(self.mac_type, EmI210 | EmI350) {
+            self.set_eee_i350(info)?;
+        }
+
+        Ok(())
+    }
+
+    fn set_eee_i350(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if (self.mac_type as u32) < MacType::EmI350 as u32 || self.media_type != MediaType::Copper {
+            return Ok(());
+        }
+
+        let mut ipcnfg = read_reg(info, IPCNFG)?;
+        let mut eeer = read_reg(info, EEER)?;
+
+        if self.eee_enable {
+            ipcnfg |= IPCNFG_EEE_1G_AN | IPCNFG_EEE_100M_AN;
+            eeer |= EEER_TX_LPI_EN | EEER_RX_LPI_EN | EEER_LPI_FC;
+        } else {
+            ipcnfg &= !(IPCNFG_EEE_1G_AN | IPCNFG_EEE_100M_AN);
+            eeer &= !(EEER_TX_LPI_EN | EEER_RX_LPI_EN | EEER_LPI_FC);
+        }
+
+        write_reg(info, IPCNFG, ipcnfg)?;
+        write_reg(info, EEER, eeer)?;
+        let _ = read_reg(info, IPCNFG)?;
+        let _ = read_reg(info, EEER)?;
+
+        Ok(())
+    }
+
+    /// Determines if the onboard NVM is FLASH or EEPROM.
+    fn is_onboard_nvm_eeprom(&self, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
+        use MacType::*;
+
+        if is_ich8(&self.mac_type) {
+            return Ok(false);
+        }
+
+        if matches!(self.mac_type, Em82573 | Em82574) {
+            let eecd = read_reg(info, super::EECD)?;
+
+            // Isolate bits 15 & 16
+            let eecd = (eecd >> 15) & 0x03;
+
+            // If both bits are set, device is Flash type
+            if eecd == 0x03 {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Check for EEPROM Auto Read bit done.
+    fn get_auto_rd_done(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        match self.mac_type {
+            Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
+            | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
+            | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
+                let mut timeout = AUTO_READ_DONE_TIMEOUT;
+
+                while timeout > 0 {
+                    if read_reg(info, super::EECD)? & E1000_EECD_AUTO_RD != 0 {
+                        break;
+                    } else {
+                        awkernel_lib::delay::wait_millisec(1);
+                    }
+
+                    timeout -= 1;
+                }
+
+                if timeout == 0 {
+                    return Err(IgbDriverErr::Reset);
+                }
+            }
+            _ => {
+                awkernel_lib::delay::wait_millisec(5);
+            }
+        }
+
+        // PHY configuration from NVM just starts after EECD_AUTO_RD sets to
+        // high. Need to wait for PHY configuration completion before
+        // accessing NVM and PHY.
+
+        if matches!(self.mac_type, Em82573 | Em82574) {
+            awkernel_lib::delay::wait_millisec(25);
+        }
 
         Ok(())
     }
