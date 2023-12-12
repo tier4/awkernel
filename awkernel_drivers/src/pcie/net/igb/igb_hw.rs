@@ -574,6 +574,18 @@ const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; /* Everything but 1000-Half
 const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; /* All 10/100 speeds*/
 const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; /* 10Mbps Full & Half speeds*/
 
+// PHY Control Register
+const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; /* Collision test enable */
+const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; /* bits 6,13: 10=1000, 01=100, 00=10 */
+const MII_CR_FULL_DUPLEX: u16 = 0x0100; /* FDX =1, half duplex =0 */
+const MII_CR_RESTART_AUTO_NEG: u16 = 0x0200; /* Restart auto negotiation */
+const MII_CR_ISOLATE: u16 = 0x0400; /* Isolate PHY from MII */
+const MII_CR_POWER_DOWN: u16 = 0x0800; /* Power down */
+const MII_CR_AUTO_NEG_EN: u16 = 0x1000; /* Auto Neg Enable */
+const MII_CR_SPEED_SELECT_LSB: u16 = 0x2000; /* bits 6,13: 10=1000, 01=100, 00=10 */
+const MII_CR_LOOPBACK: u16 = 0x4000; /* 0 = normal, 1 = loopback */
+const MII_CR_RESET: u16 = 0x8000; /* 0 = normal, 1 = PHY reset */
+
 const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
 const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
 
@@ -1692,7 +1704,55 @@ impl IgbHw {
 
     /// Resets the PHY
     fn phy_reset(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        use MacType::*;
+        use PhyType::*;
+
+        if self.check_phy_reset_block(info).is_err() {
+            return Ok(());
+        }
+
+        match self.phy_type {
+            Igp | Igp2 | Igp3 | Ife => {
+                self.phy_hw_reset(info)?;
+            }
+            _ => {
+                let mut phy_data = self.read_phy_reg(info, PHY_CTRL)?;
+                phy_data |= MII_CR_RESET;
+                self.write_phy_reg(info, PHY_CTRL, phy_data)?;
+                awkernel_lib::delay::wait_microsec(1);
+            }
+        }
+
+        // Allow time for h/w to get to a quiescent state after reset
+        awkernel_lib::delay::wait_millisec(10);
+
+        if matches!(self.phy_type, Igp | Igp2) {
+            self.phy_init_script(info)?;
+        }
+
+        if matches!(self.mac_type, EmPchlan) {
+            self.hv_phy_workarounds_ich8lan(info)?;
+        } else if matches!(self.mac_type, EmPch2lan) {
+            self.lv_phy_workarounds_ich8lan(info)?;
+        }
+
+        if self.mac_type.clone() as u32 >= EmPchlan as u32 {
+            self.oem_bits_config_pchlan(info, true)?;
+        }
+
+        // Ungate automatic PHY configuration on non-managed 82579
+        if matches!(self.mac_type, EmPch2lan)
+            && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
+        {
+            awkernel_lib::delay::wait_millisec(10);
+            self.gate_hw_phy_config_ich8lan(info, false)?;
+        }
+
+        if self.phy_id == M88E1512_E_PHY_ID {
+            self.initialize_m88e1512_phy(info)?;
+        }
+
+        Ok(())
     }
 
     /// IGP phy init script - initializes the GbE PHY
@@ -2098,26 +2158,17 @@ impl IgbHw {
 
         // Switch to PHY page 0xFF.
         self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0x00FF)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_2, 0x214B)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2144)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_2, 0x0C28)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2146)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_2, 0xB233)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x214D)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_2, 0xCC0C)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_1, 0x2159)?;
 
         // Switch to PHY page 0xFB.
         self.write_phy_reg(info, M88E1543_PAGE_ADDR, 0x00FB)?;
-
         self.write_phy_reg(info, M88E1512_CFG_REG_3, 0x000D)?;
 
         // Switch to PHY page 0x12.
