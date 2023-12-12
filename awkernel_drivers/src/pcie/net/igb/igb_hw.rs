@@ -694,7 +694,7 @@ const ICH_FLASH_LINEAR_ADDR_MASK: u32 = 0x00FFFFFF;
 const ICH_FLASH_SECT_ADDR_SHIFT: u32 = 12;
 
 const SHADOW_RAM_WORDS: u32 = 2048;
-const ICH_NVM_SIG_WORD: usize = 0x13;
+const ICH_NVM_SIG_WORD: u32 = 0x13;
 const ICH_NVM_SIG_MASK: u32 = 0xC000;
 const ICH_NVM_VALID_SIG_MASK: u32 = 0xC0;
 const ICH_NVM_SIG_VALUE: u32 = 0x80;
@@ -727,6 +727,12 @@ pub enum MediaType {
     Fiber,
     InternalSerdes,
     OEM,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DataSize {
+    Byte = 1,
+    Word = 2,
 }
 
 #[derive(Debug)]
@@ -1946,13 +1952,40 @@ impl IgbHw {
         offset: u32,
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!()
+        // We need to know which is the valid flash bank.  In the event that
+        // we didn't allocate eeprom_shadow_ram, we may not be managing
+        // flash_bank.  So it cannot be trusted and needs to be updated with
+        // each read.
+
+        if (self.mac_type.clone() as u32) >= (MacType::EmPchSpt as u32) {
+            return self.read_eeprom_spt(info, offset, data);
+        }
+
+        self.acquire_software_flag(info, |hw| {
+            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
+                bank
+            } else {
+                0
+            };
+
+            // Adjust offset appropriately if we're on bank 1 - adjust for word size
+            let bank_offset =
+                flash_bank * (hw.flash_bank_size.ok_or(IgbDriverErr::EEPROM)? * 2) as u32;
+
+            for (i, d) in data.iter_mut().enumerate() {
+                // The NVM part needs a byte offset, hence * 2
+                let act_offset = bank_offset + ((offset + i as u32) * 2);
+                *d = hw.read_ich8_word(act_offset)?;
+            }
+
+            Ok(())
+        })
     }
 
     fn read_eeprom_spt(
         &mut self,
         info: &PCIeInfo,
-        offset: usize,
+        offset: u32,
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
         // We need to know which is the valid flash bank.  In the event that
@@ -1978,12 +2011,12 @@ impl IgbHw {
             let mut i = 0;
             let mut add;
             while i < data.len() {
-                let act_offset = if (offset + i) % 2 != 0 {
+                let act_offset = if (offset + i as u32) % 2 != 0 {
                     add = 1;
-                    bank_offset + (offset + i - 1) * 2
+                    bank_offset as u32 + (offset + i as u32 - 1) * 2
                 } else {
                     add = 2;
-                    bank_offset + (offset + i) * 2
+                    bank_offset as u32 + (offset + i as u32) * 2
                 };
 
                 let dword = hw.read_ich8_dword(act_offset)?;
@@ -2025,7 +2058,7 @@ impl IgbHw {
                 }
 
                 // Check bank 1
-                let nvm_dword = self.read_ich8_dword(act_offset + bank1_offset)?;
+                let nvm_dword = self.read_ich8_dword(act_offset + bank1_offset as u32)?;
                 let sig_byte = (nvm_dword & 0xFF00) >> 8;
                 if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
                     return Ok(1);
@@ -2060,7 +2093,7 @@ impl IgbHw {
         // Check bank 1
         let bank1_offset =
             self.flash_bank_size.ok_or(IgbDriverErr::EEPROM)? * core::mem::size_of::<u16>();
-        let sig_byte = self.read_ich8_byte(act_offset + bank1_offset)? as u32;
+        let sig_byte = self.read_ich8_byte(act_offset + bank1_offset as u32)? as u32;
 
         if (sig_byte & ICH_NVM_VALID_SIG_MASK) == ICH_NVM_SIG_VALUE {
             return Ok(1);
@@ -2071,26 +2104,41 @@ impl IgbHw {
 
     /// Reads a dword from the NVM using the ICH8 flash access registers.
     #[inline(always)]
-    fn read_ich8_dword(&mut self, index: usize) -> Result<u32, IgbDriverErr> {
+    fn read_ich8_dword(&mut self, index: u32) -> Result<u32, IgbDriverErr> {
         self.read_ich8_data32(index)
     }
 
+    /// Reads a word from the NVM using the ICH8 flash access registers.
+    #[inline(always)]
+    fn read_ich8_word(&mut self, index: u32) -> Result<u16, IgbDriverErr> {
+        let mut data = [0u16; 1];
+        self.read_ich8_data(index, DataSize::Word, &mut data)?;
+        Ok(data[0])
+    }
+
     /// Reads a single byte from the NVM using the ICH8 flash access registers.
-    fn read_ich8_byte(&mut self, index: usize) -> Result<u8, IgbDriverErr> {
+    fn read_ich8_byte(&mut self, index: u32) -> Result<u8, IgbDriverErr> {
         if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
         }
 
         let mut word = [0u16; 1];
 
-        self.read_ich8_data(index, &mut word)?;
+        self.read_ich8_data(index, DataSize::Byte, &mut word)?;
 
         Ok(word[0] as u8)
     }
 
     /// Reads a byte or word from the NVM using the ICH8 flash access registers.
-    fn read_ich8_data(&mut self, index: usize, data: &mut [u16]) -> Result<(), IgbDriverErr> {
-        if data.len() < 1 || data.len() > 2 || index > ICH_FLASH_LINEAR_ADDR_MASK as usize {
+    ///
+    /// size - Size of data to read, 1=byte 2=word
+    fn read_ich8_data(
+        &mut self,
+        index: u32,
+        size: DataSize,
+        data: &mut [u16],
+    ) -> Result<(), IgbDriverErr> {
+        if index > ICH_FLASH_LINEAR_ADDR_MASK {
             return Err(IgbDriverErr::EEPROM);
         }
 
@@ -2104,7 +2152,7 @@ impl IgbHw {
 
             let regval = self.read_ich_flash_reg16(ICH_FLASH_HSFCTL)?;
             // 0b/1b corresponds to 1 or 2 byte size, respectively.
-            let regval = (regval & !(0b11 << 8)) | ((data.len() as u16 - 1) << 8);
+            let regval = (regval & !(0b11 << 8)) | ((size as u16 - 1) << 8);
             let regval = (regval & !(0b11 << 2)) | (ICH_CYCLE_READ << 2);
             self.write_ich_flash_reg16(ICH_FLASH_HSFCTL, regval)?;
 
@@ -2121,9 +2169,9 @@ impl IgbHw {
 
             if self.ich8_flash_cycle(ICH_FLASH_COMMAND_TIMEOUT).is_ok() {
                 let flash_data = self.read_ich_flash_reg(ICH_FLASH_FDATA0)?;
-                if data.len() == 1 {
+                if size == DataSize::Byte {
                     data[0] = (flash_data & 0x000000FF) as u16;
-                } else if data.len() == 2 {
+                } else {
                     data[0] = (flash_data & 0x0000FFFF) as u16;
                 }
 
@@ -2147,16 +2195,16 @@ impl IgbHw {
         Err(IgbDriverErr::EEPROM)
     }
 
-    fn read_ich8_data32(&mut self, offset: usize) -> Result<u32, IgbDriverErr> {
+    fn read_ich8_data32(&mut self, offset: u32) -> Result<u32, IgbDriverErr> {
         if (self.mac_type.clone() as u32) < MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
         }
 
-        if offset > ICH_FLASH_LINEAR_ADDR_MASK as usize {
+        if offset > ICH_FLASH_LINEAR_ADDR_MASK {
             return Err(IgbDriverErr::EEPROM);
         }
 
-        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & offset as u32)
+        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & offset)
             + self.flash_base_address.ok_or(IgbDriverErr::EEPROM)? as u32;
 
         for _ in 0..ICH_FLASH_CYCLE_REPEAT_COUNT {
