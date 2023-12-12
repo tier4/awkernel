@@ -48,11 +48,11 @@ type SLBitmap = u64; // must be longer than SLLEN
 use crate::{
     console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
+    delay,
     sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
-    intrinsics::abort,
     mem::transmute,
     ptr::{self, NonNull},
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -251,7 +251,7 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             drop(guard);
             unsafe_puts("failed to allocate heap memory\r\n");
             unsafe_puts("aborting...\r\n");
-            abort(); // there is no free memory left
+            delay::wait_forever(); // there is no free memory left
         }
     }
 
