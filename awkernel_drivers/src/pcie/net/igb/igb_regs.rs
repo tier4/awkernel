@@ -1,0 +1,711 @@
+pub const CTRL: usize = 0x00000; // Device Control Register
+pub const EECD: usize = 0x00010; // EEPROM Control Register
+pub const EERD: usize = 0x00014; // EEPROM Read Register
+pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
+pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
+pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
+pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
+pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
+pub const PBS: usize = 0x01008; // Packet Buffer Size
+pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
+pub const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
+pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
+pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
+
+// Status Register
+pub const STATUS: usize = 0x00008; // Device Status register
+pub const STATUS_FD: u32 = 1 << 0; // Full Duplex
+pub const STATUS_LU: u32 = 1 << 1; // Link Up
+
+pub const STATUS_FUNC_MASK: u32 = 0x0000000C; // PCI Function Mask
+pub const STATUS_FUNC_SHIFT: u32 = 2;
+
+pub const STATUS_FUNC_0: u32 = 0x00000000; // Function 0
+pub const STATUS_FUNC_1: u32 = 0x00000004; // Function 1
+pub const STATUS_TXOFF: u32 = 0x00000010; // transmission paused
+pub const STATUS_TBIMODE: u32 = 0x00000020; // TBI mode
+pub const STATUS_SPEED_MASK: u32 = 0x000000C0;
+pub const STATUS_SPEED_10: u32 = 0x00000000; // Speed 10Mb/s
+pub const STATUS_SPEED_100: u32 = 0x00000040; // Speed 100Mb/s
+pub const STATUS_SPEED_1000: u32 = 0x00000080; // Speed 1000Mb/s
+pub const STATUS_LAN_INIT_DONE: u32 = 0x00000200; // Lan Init Completion
+pub const STATUS_DEV_RST_SET: u32 = 0x00100000;
+
+// Interrupt Mask Set/Read Register
+pub const IMS: usize = 0x000D0;
+pub const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
+pub const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
+pub const IMS_TXDW: u32 = 0x00000001; // Transmit Descriptor Written Back
+pub const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
+pub const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
+pub const IMS_LSC: u32 = 0x00000004; // Link Status Change
+
+// Transmit Registers
+pub const TCTL: usize = 0x00400; // Transmit Control Register
+pub const TIPG: usize = 0x00410; // Transmit IPG Register
+pub const TDBAL: usize = 0x03800; // Transmit Descriptor Base Address Low
+pub const TDBAH: usize = 0x03804; // Transmit Descriptor Base Address High
+pub const TDLEN: usize = 0x03808; // Transmit Descriptor Length
+pub const TDH: usize = 0x03810; // Transmit Descriptor Head
+pub const TDT: usize = 0x03818; // Transmit Descriptor Tail
+pub const TXDCTL: usize = 0x03828; // Transmit Descriptor Control
+
+// Receive Registers
+pub const RCTL: usize = 0x00100; // Receive Control Register
+pub const RDBAL: usize = 0x02800; // Receive Descriptor Base Address Low
+pub const RDBAH: usize = 0x02804; // Receive Descriptor Base Address High
+pub const RDLEN: usize = 0x02808; // Receive Descriptor Base Length
+pub const RDH: usize = 0x02810; // Receive Descriptor Head
+pub const RDT: usize = 0x02818; // Receive Descriptor Tail
+pub const RDTR: usize = 0x2820; // RX Delay Timer Register
+pub const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
+pub const MTA: usize = 0x05200; // Multicast Table Array
+pub const RAL: usize = 0x05400; // Receive Address Low
+pub const RAH: usize = 0x05404; // Receive Address High
+
+pub const GCR: usize = 0x05B00; // 3GIO
+pub const GCR_CMPL_TMOUT_MASK: u32 = 0x0000F000;
+pub const GCR_CMPL_TMOUT_10_MS: u32 = 0x00001000;
+pub const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
+pub const GCR_CAP_VER2: u32 = 0x00040000;
+
+pub const CTRL_RST: u32 = 1 << 26;
+pub const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
+pub const CTRL_I2C_ENA: u32 = 1 << 25;
+pub const CTRL_PHY_RST: u32 = 1 << 31;
+
+pub const TXDCTL_GRAN: u32 = 1 << 24;
+pub const TXDCTL_WTHRESH: u32 = 1 << 16;
+
+pub const TCTL_EN: u32 = 1 << 1; //  Transmitter Enable
+pub const TCTL_PSP: u32 = 1 << 3; //  Pad short packets
+pub const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
+
+pub const TCTL_COLD: u32 = 0x3F << 12; // Collision Distance (FDX)
+pub const TIPG_IPGT: u32 = 0x8;
+pub const TIPG_IPGR1: u32 = 0x2 << 10;
+pub const TIPG_IPGR2: u32 = 0xA << 20;
+
+pub const RCTL_EN: u32 = 1 << 1; // Receive Control Register Enable
+pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
+pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
+pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
+pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
+
+// FEXTNVM registers
+pub const _FEXTNVM7: usize = 0xe;
+pub const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
+pub const _FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
+pub const _FEXTNVM9: usize = 0x5bb4;
+pub const _FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
+pub const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
+pub const FEXTNVM11: usize = 0x05bbc;
+pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
+
+pub const FEXTNVM_SW_CONFIG: u32 = 1;
+pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
+
+pub const _TX_CMD_EOP: u8 = 1 << 0; // End of Packet
+pub const TX_CMD_IFCS: u8 = 1 << 1; // Insert FCS
+pub const _TX_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
+pub const _TX_CMD_RS: u8 = 1 << 3; // Report Status
+pub const _TX_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
+pub const _TX_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
+pub const _TX_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
+pub const _TX_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+
+pub const PCICFG_DESC_RING_STATUS: usize = 0xe4;
+pub const FLUSH_DESC_REQUIRED: u32 = 0x100;
+
+// Extended Configuration Control and Size
+pub const EXTCNF_CTRL: usize = 0x00F00;
+pub const EXTCNF_SIZE: usize = 0x00F08; // Extended Configuration Size
+pub const _EXTCNF_CTRL_PCIE_WRITE_ENABLE: u32 = 0x00000001;
+pub const _EXTCNF_CTRL_PHY_WRITE_ENABLE: u32 = 0x00000002;
+pub const _EXTCNF_CTRL_D_UD_ENABLE: u32 = 0x00000004;
+pub const _EXTCNF_CTRL_D_UD_LATENCY: u32 = 0x00000008;
+pub const _EXTCNF_CTRL_D_UD_OWNER: u32 = 0x00000010;
+pub const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
+pub const _EXTCNF_CTRL_MDIO_HW_OWNERSHIP: u32 = 0x00000040;
+pub const EXTCNF_CTRL_EXT_CNF_POINTER: u32 = 0x0FFF0000;
+pub const _EXTCNF_SIZE_EXT_PHY_LENGTH: u32 = 0x000000FF;
+pub const _EXTCNF_SIZE_EXT_DOCK_LENGTH: u32 = 0x0000FF00;
+pub const EXTCNF_SIZE_EXT_PCIE_LENGTH: u32 = 0x00FF0000;
+pub const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
+pub const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
+pub const EXTCNF_CTRL_GATE_PHY_CFG: u32 = 0x00000080;
+
+pub const EXTCNF_CTRL_OEM_WRITE_ENABLE: u32 = 0x00000008;
+pub const EXTCNF_SIZE_EXT_PCIE_LENGTH_MASK: u32 = 0x00FF0000;
+pub const EXTCNF_SIZE_EXT_PCIE_LENGTH_SHIFT: u32 = 16;
+pub const EXTCNF_CTRL_EXT_CNF_POINTER_MASK: u32 = 0x0FFF0000;
+pub const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
+
+// FW Semaphore
+pub const FWSM: usize = 0x05B54;
+
+pub const _FWSM_MODE_MASK: u32 = 0x0000000E; // FW mode
+pub const _FWSM_MODE_SHIFT: u32 = 1;
+pub const _FWSM_ULP_CFG_DONE: u32 = 0x00000400; // Low power cfg done
+pub const FWSM_FW_VALID: u32 = 0x00008000; // FW established a valid mode
+pub const FWSM_RSPCIPHY: u32 = 0x00000040; // Reset PHY on PCI reset
+pub const _FWSM_DISSW: u32 = 0x10000000; // FW disable SW Write Access
+pub const _FWSM_SKUSEL_MASK: u32 = 0x60000000; // LAN SKU select
+pub const _FWSM_SKUEL_SHIFT: u32 = 29;
+pub const _FWSM_SKUSEL_EMB: u32 = 0x0; // Embedded SKU
+pub const _FWSM_SKUSEL_CONS: u32 = 0x1; // Consumer SKU
+pub const _FWSM_SKUSEL_PERF_100: u32 = 0x2; // Perf & Corp 10/100 SKU
+pub const _FWSM_SKUSEL_PERF_GBE: u32 = 0x3; // Perf & Copr GbE SKU
+
+// Management Control
+pub const MANC: usize = 0x05820;
+
+pub const _MANC_SMBUS_EN: u32 = 0x00000001; // SMBus Enabled - RO
+pub const _MANC_ASF_EN: u32 = 0x00000002; // ASF Enabled - RO
+pub const _MANC_R_ON_FORCE: u32 = 0x00000004; // Reset on Force TCO - RO
+pub const _MANC_RMCP_EN: u32 = 0x00000100; // Enable RCMP 026Fh Filtering
+pub const _MANC_0298_EN: u32 = 0x00000200; // Enable RCMP 0298h Filtering
+pub const _MANC_IPV4_EN: u32 = 0x00000400; // Enable IPv4
+pub const _MANC_IPV6_EN: u32 = 0x00000800; // Enable IPv6
+pub const _MANC_SNAP_EN: u32 = 0x00001000; // Accept LLC/SNAP
+pub const MANC_ARP_EN: u32 = 0x00002000; // Enable ARP Request Filtering
+pub const _MANC_NEIGHBOR_EN: u32 = 0x00004000; // Enable Neighbor Discovery Filtering
+pub const _MANC_ARP_RES_EN: u32 = 0x00008000; // Enable ARP response Filtering
+pub const _MANC_TCO_RESET: u32 = 0x00010000; // TCO Reset Occurred
+pub const _MANC_RCV_TCO_EN: u32 = 0x00020000; // Receive TCO Packets Enabled
+pub const _MANC_REPORT_STATUS: u32 = 0x00040000; // Status Reporting Enabled
+pub const _MANC_RCV_ALL: u32 = 0x00080000; // Receive All Enabled
+pub const MANC_BLK_PHY_RST_ON_IDE: u32 = 0x00040000; // Block phy resets
+pub const _MANC_EN_MAC_ADDR_FILTER: u32 = 0x00100000; // Enable MAC address filtering
+pub const _MANC_EN_MNG2HOST: u32 = 0x00200000; // Enable MNG packets to host memory
+pub const _MANC_EN_IP_ADDR_FILTER: u32 = 0x00400000; // Enable IP address filtering
+pub const _MANC_EN_XSUM_FILTER: u32 = 0x00800000; // Enable checksum filtering
+pub const _MANC_BR_EN: u32 = 0x01000000; // Enable broadcast filtering
+pub const _MANC_SMB_REQ: u32 = 0x01000000; // SMBus Request
+pub const _MANC_SMB_GNT: u32 = 0x02000000; // SMBus Grant
+pub const _MANC_SMB_CLK_IN: u32 = 0x04000000; // SMBus Clock In
+pub const _MANC_SMB_DATA_IN: u32 = 0x08000000; // SMBus Data In
+pub const _MANC_SMB_DATA_OUT: u32 = 0x10000000; // SMBus Data Out
+pub const _MANC_SMB_CLK_OUT: u32 = 0x20000000; // SMBus Clock Out
+
+pub const _MANC_SMB_DATA_OUT_SHIFT: u32 = 28; // SMBus Data Out Shift
+pub const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; // SMBus Clock Out Shift
+
+// SW Semaphore Register
+pub const SWSM: usize = 0x05B50;
+pub const SWSM_SMBI: u32 = 0x00000001; // Driver Semaphore bit
+pub const SWSM_SWESMBI: u32 = 0x00000002; // FW Semaphore bit
+pub const _SWSM_WMNG: u32 = 0x00000004; // Wake MNG Clock
+pub const _SWSM_DRV_LOAD: u32 = 0x00000008; // Driver Loaded Bit
+
+// Extended Device Control
+pub const CTRL_EXT: usize = 0x00018;
+pub const _CTRL_EXT_GPI0_EN: u32 = 0x00000001; // Maps SDP4 to GPI0
+pub const _CTRL_EXT_GPI1_EN: u32 = 0x00000002; // Maps SDP5 to GPI1
+pub const _CTRL_EXT_PHYINT_EN: u32 = _CTRL_EXT_GPI1_EN;
+pub const _CTRL_EXT_GPI2_EN: u32 = 0x00000004; // Maps SDP6 to GPI2
+pub const _CTRL_EXT_LPCD: u32 = 0x00000004; // LCD Power Cycle Done
+pub const _CTRL_EXT_GPI3_EN: u32 = 0x00000008; // Maps SDP7 to GPI3
+pub const CTRL_EXT_SDP4_DATA: u32 = 0x00000010; // Value of SW Defineable Pin 4
+pub const _CTRL_EXT_SDP5_DATA: u32 = 0x00000020; // Value of SW Defineable Pin 5
+pub const _CTRL_EXT_PHY_INT: u32 = _CTRL_EXT_SDP5_DATA;
+pub const _CTRL_EXT_SDP6_DATA: u32 = 0x00000040; // Value of SW Defineable Pin 6
+pub const _CTRL_EXT_SDP7_DATA: u32 = 0x00000080; // Value of SW Defineable Pin 7
+pub const CTRL_EXT_SDP3_DATA: u32 = 0x00000080; // Value of SW Defineable Pin 3
+pub const CTRL_EXT_SDP4_DIR: u32 = 0x00000100; // Direction of SDP4 0=in 1=out
+pub const _CTRL_EXT_SDP5_DIR: u32 = 0x00000200; // Direction of SDP5 0=in 1=out
+pub const _CTRL_EXT_SDP6_DIR: u32 = 0x00000400; // Direction of SDP6 0=in 1=out
+pub const _CTRL_EXT_SDP7_DIR: u32 = 0x00000800; // Direction of SDP7 0=in 1=out
+pub const _CTRL_EXT_ASDCHK: u32 = 0x00001000; // Initiate an ASD sequence
+pub const CTRL_EXT_EE_RST: u32 = 0x00002000; // Reinitialize from EEPROM
+pub const _CTRL_EXT_IPS: u32 = 0x00004000; // Invert Power State
+pub const _CTRL_EXT_SPD_BYPS: u32 = 0x00008000; // Speed Select Bypass
+pub const _CTRL_EXT_RO_DIS: u32 = 0x00020000; // Relaxed Ordering disable
+pub const CTRL_EXT_LINK_MODE_MASK: u32 = 0x00C00000;
+pub const _CTRL_EXT_LINK_MODE_GMII: u32 = 0x00000000;
+pub const _CTRL_EXT_LINK_MODE_TBI: u32 = 0x00C00000;
+pub const _CTRL_EXT_LINK_MODE_KMRN: u32 = 0x00000000;
+pub const CTRL_EXT_LINK_MODE_PCIE_SERDES: u32 = 0x00C00000;
+pub const CTRL_EXT_LINK_MODE_1000BASE_KX: u32 = 0x00400000;
+pub const CTRL_EXT_LINK_MODE_SGMII: u32 = 0x00800000;
+pub const _CTRL_EXT_WR_WMARK_MASK: u32 = 0x03000000;
+pub const _CTRL_EXT_WR_WMARK_256: u32 = 0x00000000;
+pub const _CTRL_EXT_WR_WMARK_320: u32 = 0x01000000;
+pub const _CTRL_EXT_WR_WMARK_384: u32 = 0x02000000;
+pub const _CTRL_EXT_WR_WMARK_448: u32 = 0x03000000;
+pub const _CTRL_EXT_EXT_VLAN: u32 = 0x04000000;
+pub const _CTRL_EXT_DRV_LOAD: u32 = 0x10000000; // Driver loaded bit for FW
+pub const _CTRL_EXT_IAME: u32 = 0x08000000; // Interrupt acknowledge Auto-mask
+pub const _CTRL_EXT_INT_TIMER_CLR: u32 = 0x20000000; // Clear Interrupt timers after IMS clear
+pub const _CRTL_EXT_PB_PAREN: u32 = 0x01000000; // packet buffer parity error detection enabled
+pub const _CTRL_EXT_DF_PAREN: u32 = 0x02000000; // descriptor FIFO parity error detection enable
+
+pub const MDICNFG: usize = 0x00E04;
+pub const MDICNFG_EXT_MDIO: u32 = 0x80000000; // MDI ext/int destination
+pub const MDICNFG_COM_MDIO: u32 = 0x40000000; // MDI shared w/ lan 0
+pub const MDICNFG_PHY_MASK: u32 = 0x03E00000;
+pub const MDICNFG_PHY_SHIFT: u32 = 21;
+
+// SFPI2C Command Register - RW
+pub const I2CCMD: usize = 0x01028;
+pub const I2CCMD_REG_ADDR_SHIFT: usize = 16;
+pub const I2CCMD_PHY_ADDR_SHIFT: usize = 24;
+pub const I2CCMD_OPCODE_READ: u32 = 0x08000000;
+pub const I2CCMD_OPCODE_WRITE: u32 = 0x00000000;
+pub const I2CCMD_READY: u32 = 0x20000000;
+pub const I2CCMD_ERROR: u32 = 0x80000000;
+pub const I2CCMD_PHY_TIMEOUT: u32 = 200;
+pub const MAX_SGMII_PHY_REG_ADDR: u32 = 255;
+
+// SFP modules ID memory locations
+pub const SFF_IDENTIFIER_OFFSET: u32 = 0x00;
+pub const SFF_IDENTIFIER_SFF: u8 = 0x02;
+pub const SFF_IDENTIFIER_SFP: u8 = 0x03;
+pub const SFF_ETH_FLAGS_OFFSET: u32 = 0x06;
+
+// MDI Control
+pub const MDIC: usize = 0x00020;
+pub const _MDIC_DATA_MASK: u32 = 0x0000FFFF;
+pub const _MDIC_REG_MASK: u32 = 0x001F0000;
+pub const MDIC_REG_SHIFT: u32 = 16;
+pub const _MDIC_PHY_MASK: u32 = 0x03E00000;
+pub const MDIC_PHY_SHIFT: u32 = 21;
+pub const MDIC_OP_WRITE: u32 = 0x04000000;
+pub const MDIC_OP_READ: u32 = 0x08000000;
+pub const MDIC_READY: u32 = 0x10000000;
+pub const _MDIC_INT_EN: u32 = 0x20000000;
+pub const MDIC_ERROR: u32 = 0x40000000;
+pub const MDIC_DEST: u32 = 0x80000000;
+
+// PHY 1000 MII Register/Bit Definitions
+// PHY Registers defined by IEEE
+pub const PHY_CTRL: u32 = 0x00; // Control Register
+pub const PHY_STATUS: u32 = 0x01; // Status Register
+pub const PHY_ID1: u32 = 0x02; // Phy Id Reg (word 1)
+pub const PHY_ID2: u32 = 0x03; // Phy Id Reg (word 2)
+pub const PHY_AUTONEG_ADV: u32 = 0x04; // Autoneg Advertisement
+pub const PHY_LP_ABILITY: u32 = 0x05; // Link Partner Ability (Base Page)
+pub const PHY_AUTONEG_EXP: u32 = 0x06; // Autoneg Expansion Reg
+pub const PHY_NEXT_PAGE_TX: u32 = 0x07; // Next Page TX
+pub const PHY_LP_NEXT_PAGE: u32 = 0x08; // Link Partner Next Page
+pub const PHY_1000T_CTRL: u32 = 0x09; // 1000Base-T Control Reg
+pub const PHY_1000T_STATUS: u32 = 0x0A; // 1000Base-T Status Reg
+pub const PHY_EXT_STATUS: u32 = 0x0F; // Extended Status Reg
+
+pub const PHY_CTRL_SPD_EN: u32 = 0x00000001;
+pub const PHY_CTRL_D0A_LPLU: u32 = 0x00000002;
+pub const PHY_CTRL_NOND0A_LPLU: u32 = 0x00000004;
+pub const PHY_CTRL_NOND0A_GBE_DISABLE: u32 = 0x00000008;
+pub const PHY_CTRL_GBE_DISABLE: u32 = 0x00000040;
+pub const PHY_CTRL_B2B_EN: u32 = 0x00000080;
+pub const PHY_CTRL_LOOPBACK: u32 = 0x00004000;
+
+// PBA constants
+pub const PBA_8K: u32 = 0x0008; // 8KB, default Rx allocation
+pub const _PBA_10K: u32 = 0x000A;
+pub const _PBA_12K: u32 = 0x000C; // 12KB, default Rx allocation
+pub const _PBA_14K: u32 = 0x000E; // 14KB
+pub const PBA_16K: u32 = 0x0010; // 16KB, default TX allocation
+pub const _PBA_20K: u32 = 0x0014;
+pub const _PBA_22K: u32 = 0x0016;
+pub const _PBA_24K: u32 = 0x0018;
+pub const _PBA_26K: u32 = 0x001A;
+pub const _PBA_30K: u32 = 0x001E;
+pub const _PBA_32K: u32 = 0x0020;
+pub const _PBA_34K: u32 = 0x0022;
+pub const _PBA_38K: u32 = 0x0026;
+pub const _PBA_40K: u32 = 0x0028;
+pub const _PBA_48K: u32 = 0x0030; // 48KB, default RX allocation
+
+pub const PBS_16K: u32 = PBA_16K;
+
+pub const SW_FLAG_TIMEOUT: usize = 100;
+
+pub const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
+pub const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
+
+// IGP01E1000 Specific Registers
+pub const _IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; // PHY Specific Port Config Register
+pub const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; // PHY Specific Status Register
+pub const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Register
+pub const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
+pub const _IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
+pub const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; // PHY Channel Quality Register
+pub const _IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
+pub const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; // PHY Page Select Core Register
+
+// BM/HV Specific Registers
+pub const BM_PORT_CTRL_PAGE: u32 = 769;
+pub const _BM_PCIE_PAGE: u16 = 770;
+pub const BM_WUC_PAGE: u16 = 800;
+pub const BM_WUC_ADDRESS_OPCODE: u32 = 0x11;
+pub const BM_WUC_DATA_OPCODE: u32 = 0x12;
+pub const BM_WUC_ENABLE_PAGE: u16 = BM_PORT_CTRL_PAGE as u16;
+pub const BM_WUC_ENABLE_REG: u32 = 17;
+pub const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
+pub const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
+
+pub const PHY_PAGE_SHIFT: u32 = 5;
+pub const PHY_UPPER_SHIFT: u32 = 21;
+
+// SW_W_SYNC definitions
+pub const SWFW_EEP_SM: u16 = 0x0001;
+pub const SWFW_PHY0_SM: u16 = 0x0002;
+pub const SWFW_PHY1_SM: u16 = 0x0004;
+pub const _SWFW_MAC_CSR_SM: u16 = 0x0008;
+pub const SWFW_PHY2_SM: u16 = 0x0020;
+pub const SWFW_PHY3_SM: u16 = 0x0040;
+
+// Hanksville definitions
+pub const HV_INTC_FC_PAGE_START: u16 = 768;
+
+pub const _HV_SCC_UPPER: u32 = phy_reg(778, 16); // Single Collision Count
+pub const _HV_SCC_LOWER: u32 = phy_reg(778, 17);
+pub const _HV_ECOL_UPPER: u32 = phy_reg(778, 18); // Excessive Collision Count
+pub const _HV_ECOL_LOWER: u32 = phy_reg(778, 19);
+pub const _HV_MCC_UPPER: u32 = phy_reg(778, 20); // Multiple Collision Count
+pub const _HV_MCC_LOWER: u32 = phy_reg(778, 21);
+pub const _HV_LATECOL_UPPER: u32 = phy_reg(778, 23); // Late Collision Count
+pub const _HV_LATECOL_LOWER: u32 = phy_reg(778, 24);
+pub const _HV_COLC_UPPER: u32 = phy_reg(778, 25); // Collision Count
+pub const _HV_COLC_LOWER: u32 = phy_reg(778, 26);
+pub const _HV_DC_UPPER: u32 = phy_reg(778, 27); // Defer Count
+pub const _HV_DC_LOWER: u32 = phy_reg(778, 28);
+pub const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); // Transmit with no CRS
+pub const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
+
+// OEM Bits Phy Register
+pub const HV_OEM_BITS: u32 = phy_reg(768, 25);
+pub const HV_OEM_BITS_LPLU: u32 = 0x0004; // Low Power Link Up
+pub const HV_OEM_BITS_GBE_DIS: u32 = 0x0040; // Gigabit Disable
+pub const HV_OEM_BITS_RESTART_AN: u32 = 0x0400; // Restart Auto-negotiation
+
+// I82577 Specific Registers
+pub const I82577_PHY_ADDR_REG: u32 = 16;
+pub const _I82577_PHY_CFG_REG: u32 = 22;
+pub const _I82577_PHY_CTRL_REG: u32 = 23;
+
+// I82578 Specific Registers
+pub const I82578_PHY_ADDR_REG: u32 = 29;
+
+// Bit definitions for valid PHY IDs.
+// I = Integrated
+// E = External
+pub const M88_VENDOR: u32 = 0x0141;
+pub const M88E1000_E_PHY_ID: u32 = 0x01410C50;
+pub const M88E1000_I_PHY_ID: u32 = 0x01410C30;
+pub const M88E1011_I_PHY_ID: u32 = 0x01410C20;
+pub const IGP01E1000_I_PHY_ID: u32 = 0x02A80380;
+pub const M88E1000_12_PHY_ID: u32 = M88E1000_E_PHY_ID;
+pub const M88E1000_14_PHY_ID: u32 = M88E1000_E_PHY_ID;
+pub const M88E1011_I_REV_4: u32 = 0x04;
+pub const M88E1111_I_PHY_ID: u32 = 0x01410CC0;
+pub const M88E1112_E_PHY_ID: u32 = 0x01410C90;
+pub const I347AT4_E_PHY_ID: u32 = 0x01410DC0;
+pub const L1LXT971A_PHY_ID: u32 = 0x001378E0;
+pub const GG82563_E_PHY_ID: u32 = 0x01410CA0;
+pub const BME1000_E_PHY_ID: u32 = 0x01410CB0;
+pub const BME1000_E_PHY_ID_R2: u32 = 0x01410CB1;
+pub const M88E1543_E_PHY_ID: u32 = 0x01410EA0;
+pub const I82577_E_PHY_ID: u32 = 0x01540050;
+pub const I82578_E_PHY_ID: u32 = 0x004DD040;
+pub const I82579_E_PHY_ID: u32 = 0x01540090;
+pub const I217_E_PHY_ID: u32 = 0x015400A0;
+pub const I82580_I_PHY_ID: u32 = 0x015403A0;
+pub const I350_I_PHY_ID: u32 = 0x015403B0;
+pub const I210_I_PHY_ID: u32 = 0x01410C00;
+pub const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
+pub const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
+pub const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
+
+pub const M88E1543_PAGE_ADDR: u32 = 0x16;
+
+pub const M88E1512_CFG_REG_1: u32 = 0x0010;
+pub const M88E1512_CFG_REG_2: u32 = 0x0011;
+pub const M88E1512_CFG_REG_3: u32 = 0x0007;
+pub const M88E1512_MODE: u32 = 0x0014;
+
+pub const IGP03E1000_E_PHY_ID: u32 = 0x02A80390;
+pub const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
+pub const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
+pub const IFE_C_E_PHY_ID: u32 = 0x02A80310;
+
+pub const RTL8211_E_PHY_ID: u32 = 0x001CC912;
+
+pub const GG82563_PAGE_SHIFT: u32 = 5;
+pub const GG82563_MIN_ALT_REG: u32 = 30;
+pub const GG82563_PHY_PAGE_SELECT: u32 = gg82563_reg(0, 22); // Page Select
+pub const GG82563_PHY_PAGE_SELECT_ALT: u32 = gg82563_reg(0, 29); // Alternate Page Select
+
+// BME1000 PHY Specific Control Register
+pub const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; // 1 = enable downshift
+pub const BM_PHY_PAGE_SELECT: u32 = 22; // Page Select for BM
+pub const BM_REG_BIAS1: u32 = 29;
+pub const BM_REG_BIAS2: u32 = 30;
+
+// Miscellaneous PHY bit definitions.
+pub const PHY_PREAMBLE: u32 = 0xFFFFFFFF;
+pub const PHY_SOF: u32 = 0x01;
+pub const PHY_OP_READ: u32 = 0x02;
+pub const PHY_OP_WRITE: u32 = 0x01;
+pub const PHY_TURNAROUND: u32 = 0x02;
+pub const PHY_PREAMBLE_SIZE: u32 = 32;
+pub const MII_CR_SPEED_1000: u32 = 0x0040;
+pub const MII_CR_SPEED_100: u32 = 0x2000;
+pub const MII_CR_SPEED_10: u32 = 0x0000;
+pub const PHY_ADDRESS: u32 = 0x01;
+pub const PHY_AUTO_NEG_TIME: u32 = 45; // 4.5 Seconds
+pub const PHY_FORCE_TIME: u32 = 20; // 2.0 Seconds
+pub const PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
+pub const DEVICE_SPEED_MASK: u32 = 0x00000300; // Device Ctrl Reg Speed Mask
+pub const REG4_SPEED_MASK: u32 = 0x01E0;
+pub const REG9_SPEED_MASK: u32 = 0x0300;
+pub const ADVERTISE_10_HALF: u32 = 0x0001;
+pub const ADVERTISE_10_FULL: u32 = 0x0002;
+pub const ADVERTISE_100_HALF: u32 = 0x0004;
+pub const ADVERTISE_100_FULL: u32 = 0x0008;
+pub const ADVERTISE_1000_HALF: u32 = 0x0010;
+pub const ADVERTISE_1000_FULL: u32 = 0x0020;
+pub const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; // Everything but 1000-Half
+pub const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; // All 10/100 speeds
+pub const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; // 10Mbps Full & Half speeds
+
+// PHY Control Register
+pub const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; // Collision test enable
+pub const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10
+pub const MII_CR_FULL_DUPLEX: u16 = 0x0100; // FDX =1, half duplex =0
+pub const MII_CR_RESTART_AUTO_NEG: u16 = 0x0200; // Restart auto negotiation
+pub const MII_CR_ISOLATE: u16 = 0x0400; // Isolate PHY from MII
+pub const MII_CR_POWER_DOWN: u16 = 0x0800; // Power down
+pub const MII_CR_AUTO_NEG_EN: u16 = 0x1000; // Auto Neg Enable
+pub const MII_CR_SPEED_SELECT_LSB: u16 = 0x2000; // bits 6,13: 10=1000, 01=100, 00=10
+pub const MII_CR_LOOPBACK: u16 = 0x4000; // 0 = normal, 1 = loopback
+pub const MII_CR_RESET: u16 = 0x8000; // 0 = normal, 1 = PHY reset
+
+pub const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
+pub const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
+
+// EMI Registers
+pub const I82579_EMI_ADDR: u32 = 0x10;
+pub const I82579_EMI_DATA: u32 = 0x11;
+pub const I82579_LPI_UPDATE_TIMER: u32 = 0x4805; // in 40ns units + 40 ns base value
+pub const I82579_MSE_THRESHOLD: u16 = 0x084F; // Mean Square Error Threshold
+pub const I82579_MSE_LINK_DOWN: u16 = 0x2411; // MSE count before dropping link
+
+pub const LEDCTL: usize = 0x00E00;
+
+pub const IGP_ACTIVITY_LED_MASK: u32 = 0xFFFFF0FF;
+pub const IGP_ACTIVITY_LED_ENABLE: u32 = 0x0300;
+pub const IGP_LED3_MODE: u32 = 0x07000000;
+
+pub const NVM_CFG_DONE_PORT_0: u32 = 0x040000; // MNG config cycle done
+pub const NVM_CFG_DONE_PORT_1: u32 = 0x080000; // ...for second port
+pub const NVM_CFG_DONE_PORT_2: u32 = 0x100000; // ...for third port
+pub const NVM_CFG_DONE_PORT_3: u32 = 0x200000; // ...for fourth port
+
+// EEPROM Commands - SPI
+pub const EEPROM_MAX_RETRY_SPI: u16 = 5000; // Max wait of 5ms, for RDY signal
+pub const EEPROM_READ_OPCODE_SPI: u16 = 0x03; // EEPROM read opcode
+pub const EEPROM_WRITE_OPCODE_SPI: u16 = 0x02; // EEPROM write opcode
+pub const EEPROM_A8_OPCODE_SPI: u16 = 0x08; // opcode bit-3 = address bit-8
+pub const EEPROM_WREN_OPCODE_SPI: u16 = 0x06; // EEPROM set Write Enable latch
+pub const EEPROM_WRDI_OPCODE_SPI: u16 = 0x04; // EEPROM reset Write Enable latch
+pub const EEPROM_RDSR_OPCODE_SPI: u16 = 0x05; // EEPROM read Status register
+pub const EEPROM_WRSR_OPCODE_SPI: u16 = 0x01; // EEPROM write Status register
+pub const EEPROM_ERASE4K_OPCODE_SPI: u16 = 0x20; // EEPROM ERASE 4KB
+pub const EEPROM_ERASE64K_OPCODE_SPI: u16 = 0xD8; // EEPROM ERASE 64KB
+pub const EEPROM_ERASE256_OPCODE_SPI: u16 = 0xDB; // EEPROM ERASE 256B
+
+// SPI EEPROM Status Register
+pub const EEPROM_STATUS_RDY_SPI: u16 = 0x01;
+pub const EEPROM_STATUS_WEN_SPI: u16 = 0x02;
+pub const EEPROM_STATUS_BP0_SPI: u16 = 0x04;
+pub const EEPROM_STATUS_BP1_SPI: u16 = 0x08;
+pub const EEPROM_STATUS_WPEN_SPI: u16 = 0x80;
+
+// EEPROM Commands - Microwire
+pub const EEPROM_READ_OPCODE_MICROWIRE: u16 = 0x6; // EEPROM read opcode
+pub const EEPROM_WRITE_OPCODE_MICROWIRE: u16 = 0x5; // EEPROM write opcode
+pub const EEPROM_ERASE_OPCODE_MICROWIRE: u16 = 0x7; // EEPROM erase opcode
+pub const EEPROM_EWEN_OPCODE_MICROWIRE: u16 = 0x13; // EEPROM erase/write enable
+pub const EEPROM_EWDS_OPCODE_MICROWIRE: u16 = 0x10; // EEPROM erast/write disable
+
+pub const EEPROM_SWDPIN0: u32 = 0x0001; // SWDPIN 0 EEPROM Value
+pub const EEPROM_LED_LOGIC: u32 = 0x0020; // Led Logic Word
+pub const EEPROM_RW_REG_DATA: u32 = 16; // Offset to data in EEPROM read/write registers
+pub const EEPROM_RW_REG_DONE: u32 = 2; // Offset to READ/WRITE done bit
+pub const EEPROM_RW_REG_START: u32 = 1; // First bit for telling part to start operation
+pub const EEPROM_RW_ADDR_SHIFT: u32 = 2; // Shift to the address bits
+pub const EEPROM_POLL_WRITE: u32 = 1; // Flag for polling for write complete
+pub const EEPROM_POLL_READ: u32 = 0; // Flag for polling for read complete
+
+// EEPROM Word Offsets
+pub const EEPROM_MAC_ADDR_WORD0: u32 = 0x0000;
+pub const EEPROM_MAC_ADDR_WORD1: u32 = 0x0001;
+pub const EEPROM_MAC_ADDR_WORD2: u32 = 0x0002;
+pub const EEPROM_COMPAT: u32 = 0x0003;
+pub const EEPROM_ID_LED_SETTINGS: u32 = 0x0004;
+pub const EEPROM_VERSION: u32 = 0x0005;
+pub const EEPROM_SERDES_AMPLITUDE: u32 = 0x0006; // For SERDES output amplitude adjustment.
+pub const EEPROM_PHY_CLASS_WORD: u32 = 0x0007;
+pub const EEPROM_INIT_CONTROL1_REG: u32 = 0x000A;
+pub const EEPROM_INIT_CONTROL2_REG: u32 = 0x000F;
+pub const EEPROM_SWDEF_PINS_CTRL_PORT_1: u32 = 0x0010;
+pub const EEPROM_INIT_CONTROL4_REG: u32 = 0x0013;
+pub const EEPROM_INIT_CONTROL3_PORT_B: u32 = 0x0014;
+pub const EEPROM_INIT_3GIO_3: u32 = 0x001A;
+pub const EEPROM_LED_1_CFG: u32 = 0x001C;
+pub const EEPROM_LED_0_2_CFG: u32 = 0x001F;
+pub const EEPROM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
+pub const EEPROM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
+pub const EEPROM_CFG: u32 = 0x0012;
+pub const EEPROM_FLASH_VERSION: u32 = 0x0032;
+pub const EEPROM_CHECKSUM_REG: u32 = 0x003F;
+
+pub const EEPROM_COMPAT_VALID_CSUM: u16 = 0x0001;
+pub const EEPROM_FUTURE_INIT_WORD1: u16 = 0x0019;
+pub const EEPROM_FUTURE_INIT_WORD1_VALID_CSUM: u16 = 0x0040;
+
+/* EEPROM/Flash Control */
+pub const EECD_SK: u32 = 0x00000001; /* EEPROM Clock */
+pub const EECD_CS: u32 = 0x00000002; /* EEPROM Chip Select */
+pub const EECD_DI: u32 = 0x00000004; /* EEPROM Data In */
+pub const EECD_DO: u32 = 0x00000008; /* EEPROM Data Out */
+pub const E1000_EECD_FWE_MASK: u32 = 0x00000030;
+pub const E1000_EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
+pub const E1000_EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
+pub const E1000_EECD_FWE_SHIFT: u32 = 4;
+pub const EECD_REQ: u32 = 0x00000040; /* EEPROM Access Request */
+pub const EECD_GNT: u32 = 0x00000080; /* EEPROM Access Grant */
+pub const EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
+pub const EECD_SIZE: u32 = 0x00000200; // EEPROM Size (0=64 word 1=256 word)
+pub const EECD_ADDR_BITS: u32 = 0x00000400; // EEPROM Addressing bits based on type
+pub const EECD_TYPE: u32 = 0x00002000;
+pub const EECD_AUTO_RD: u32 = 0x00000200; /* EEPROM Auto Read done */
+pub const EECD_SIZE_EX_MASK: u32 = 0x00007800;
+pub const EECD_SIZE_EX_SHIFT: u32 = 11;
+pub const EECD_FLUPD: u32 = 0x00080000;
+pub const EECD_AUPDEN: u32 = 0x00100000;
+pub const EECD_SHADV: u32 = 0x00200000; /* Shadow RAM Data Valid */
+pub const EECD_SEC1VAL: u32 = 0x00400000; /* Sector One Valid */
+pub const EECD_SEC1VAL_VALID_MASK: u32 = EECD_AUTO_RD | EECD_PRES;
+pub const EECD_SECVAL_SHIFT: u32 = 22;
+pub const STM_OPCODE: u32 = 0xDB00;
+pub const HICR_FW_RESET: u32 = 0xC0;
+
+pub const EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
+
+pub const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
+pub const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
+
+pub const INVM_SIZE: u16 = 64;
+
+pub const INVM_UNINITIALIZED_STRUCTURE: u8 = 0x0;
+pub const INVM_WORD_AUTOLOAD_STRUCTURE: u8 = 0x1;
+pub const INVM_CSR_AUTOLOAD_STRUCTURE: u8 = 0x2;
+pub const INVM_PHY_REGISTER_AUTOLOAD_STRUCTURE: u8 = 0x3;
+pub const INVM_RSA_KEY_SHA256_STRUCTURE: u8 = 0x4;
+pub const INVM_INVALIDATED_STRUCTURE: u8 = 0x5;
+
+pub const INVM_RSA_KEY_SHA256_DATA_SIZE_IN_DWORDS: u16 = 8;
+pub const INVM_CSR_AUTOLOAD_DATA_SIZE_IN_DWORDS: u16 = 1;
+
+// NVM offset defaults for i211
+pub const NVM_INIT_CTRL_2_DEFAULT_I211: u16 = 0x7243;
+pub const NVM_INIT_CTRL_4_DEFAULT_I211: u16 = 0x00C1;
+pub const NVM_LED_1_CFG_DEFAULT_I211: u16 = 0x0184;
+pub const NVM_LED_0_2_CFG_DEFAULT_I211: u16 = 0x200C;
+pub const NVM_RESERVED_WORD: u16 = 0xFFFF;
+
+// Mask bits for fields in Word 0x24 of the NVM
+pub const NVM_WORD24_COM_MDIO: u16 = 0x0008; // MDIO interface shared
+pub const NVM_WORD24_EXT_MDIO: u16 = 0x0004; // MDIO accesses routed external
+
+pub const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
+
+pub const ICH_CYCLE_READ: u16 = 0x0;
+pub const ICH_CYCLE_RESERVED: u16 = 0x1;
+pub const ICH_CYCLE_WRITE: u16 = 0x2;
+pub const ICH_CYCLE_ERASE: u16 = 0x3;
+
+pub const ICH_FLASH_GFPREG: usize = 0x0000;
+pub const ICH_FLASH_HSFSTS: usize = 0x0004;
+pub const ICH_FLASH_HSFCTL: usize = 0x0006;
+pub const ICH_FLASH_FADDR: usize = 0x0008;
+pub const ICH_FLASH_FDATA0: usize = 0x0010;
+pub const ICH_FLASH_FRACC: usize = 0x0050;
+pub const ICH_FLASH_FREG0: usize = 0x0054;
+pub const ICH_FLASH_FREG1: usize = 0x0058;
+pub const ICH_FLASH_FREG2: usize = 0x005C;
+pub const ICH_FLASH_FREG3: usize = 0x0060;
+pub const ICH_FLASH_FPR0: usize = 0x0074;
+pub const ICH_FLASH_FPR1: usize = 0x0078;
+pub const ICH_FLASH_SSFSTS: usize = 0x0090;
+pub const ICH_FLASH_SSFCTL: usize = 0x0092;
+pub const ICH_FLASH_PREOP: usize = 0x0094;
+pub const ICH_FLASH_OPTYPE: usize = 0x0096;
+pub const ICH_FLASH_OPMENU: usize = 0x0098;
+
+pub const ICH_FLASH_COMMAND_TIMEOUT: u32 = 5000; // 5000 uSecs - adjusted
+pub const ICH_FLASH_ERASE_TIMEOUT: u32 = 3000000; // Up to 3 seconds - worst case
+pub const ICH_FLASH_CYCLE_REPEAT_COUNT: u32 = 10; // 10 cycles
+pub const ICH_FLASH_SEG_SIZE_256: u32 = 256;
+pub const ICH_FLASH_SEG_SIZE_4K: u32 = 4096;
+pub const ICH_FLASH_SEG_SIZE_8K: u32 = 8192;
+pub const ICH_FLASH_SEG_SIZE_64K: u32 = 65536;
+
+pub const ICH_FLASH_REG_MAPSIZE: u32 = 0x00A0;
+pub const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
+pub const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
+pub const ICH_FLASH_LINEAR_ADDR_MASK: u32 = 0x00FFFFFF;
+pub const ICH_FLASH_SECT_ADDR_SHIFT: u32 = 12;
+
+pub const SHADOW_RAM_WORDS: u16 = 2048;
+pub const ICH_NVM_SIG_WORD: u32 = 0x13;
+pub const ICH_NVM_SIG_MASK: u32 = 0xC000;
+pub const ICH_NVM_VALID_SIG_MASK: u32 = 0xC0;
+pub const ICH_NVM_SIG_VALUE: u32 = 0x80;
+
+// IGP01E1000 Analog Register
+pub const IGP01E1000_ANALOG_SPARE_FUSE_STATUS: u32 = 0x20D1;
+pub const IGP01E1000_ANALOG_FUSE_STATUS: u32 = 0x20D0;
+pub const IGP01E1000_ANALOG_FUSE_CONTROL: u32 = 0x20DC;
+pub const IGP01E1000_ANALOG_FUSE_BYPASS: u32 = 0x20DE;
+
+pub const IGP01E1000_ANALOG_FUSE_POLY_MASK: u16 = 0xF000;
+pub const IGP01E1000_ANALOG_FUSE_FINE_MASK: u16 = 0x0F80;
+pub const IGP01E1000_ANALOG_FUSE_COARSE_MASK: u16 = 0x0070;
+pub const IGP01E1000_ANALOG_SPARE_FUSE_ENABLED: u16 = 0x0100;
+pub const IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL: u16 = 0x0002;
+
+pub const IGP01E1000_ANALOG_FUSE_COARSE_THRESH: u16 = 0x0040;
+pub const IGP01E1000_ANALOG_FUSE_COARSE_10: u16 = 0x0010;
+pub const IGP01E1000_ANALOG_FUSE_FINE_1: u16 = 0x0080;
+pub const IGP01E1000_ANALOG_FUSE_FINE_10: u16 = 0x0500;
+
+pub const KABGTXD_BGSQLBIAS: u32 = 0x00050000;
+
+// Energy Efficient Ethernet "EEE" registers
+pub const IPCNFG: usize = 0x0E38; // Internal PHY Configuration
+pub const LTRC: usize = 0x01A0; // Latency Tolerance Reporting Control
+pub const EEER: usize = 0x0E30; // Energy Efficient Ethernet "EEE"
+pub const EEE_SU: usize = 0x0E34; // EEE Setup
+pub const TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
+pub const RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
+
+// I350 EEE defines
+pub const IPCNFG_EEE_1G_AN: u32 = 0x00000008; // IPCNFG EEE Ena 1G AN
+pub const IPCNFG_EEE_100M_AN: u32 = 0x00000004; // IPCNFG EEE Ena 100M AN
+pub const EEER_TX_LPI_EN: u32 = 0x00010000; // EEER Tx LPI Enable
+pub const EEER_RX_LPI_EN: u32 = 0x00020000; // EEER Rx LPI Enable
+pub const EEER_LPI_FC: u32 = 0x00040000; // EEER Ena on Flow Cntrl
+
+pub const fn gg82563_reg(page: u32, reg: u32) -> u32 {
+    (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
+}
+
+pub const fn phy_reg(page: u32, reg: u32) -> u32 {
+    (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
+}

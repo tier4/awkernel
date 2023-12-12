@@ -2,7 +2,7 @@ use bitflags::bitflags;
 
 use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
-use super::IgbDriverErr;
+use super::{igb_regs::*, IgbDriverErr};
 
 const E1000_DEV_ID_82543GC_FIBER: u16 = 0x1001;
 const E1000_DEV_ID_82542: u16 = 0x1000;
@@ -381,405 +381,6 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
     (INTEL_VENDOR_ID, E1000_DEV_ID_EP80579_LAN_6),
 ];
 
-// PHY 1000 MII Register/Bit Definitions
-// PHY Registers defined by IEEE
-const PHY_CTRL: u32 = 0x00; // Control Register
-const PHY_STATUS: u32 = 0x01; // Status Register
-const PHY_ID1: u32 = 0x02; // Phy Id Reg (word 1)
-const PHY_ID2: u32 = 0x03; // Phy Id Reg (word 2)
-const PHY_AUTONEG_ADV: u32 = 0x04; // Autoneg Advertisement
-const PHY_LP_ABILITY: u32 = 0x05; // Link Partner Ability (Base Page)
-const PHY_AUTONEG_EXP: u32 = 0x06; // Autoneg Expansion Reg
-const PHY_NEXT_PAGE_TX: u32 = 0x07; // Next Page TX
-const PHY_LP_NEXT_PAGE: u32 = 0x08; // Link Partner Next Page
-const PHY_1000T_CTRL: u32 = 0x09; // 1000Base-T Control Reg
-const PHY_1000T_STATUS: u32 = 0x0A; // 1000Base-T Status Reg
-const PHY_EXT_STATUS: u32 = 0x0F; // Extended Status Reg
-
-const PHY_CTRL_SPD_EN: u32 = 0x00000001;
-const PHY_CTRL_D0A_LPLU: u32 = 0x00000002;
-const PHY_CTRL_NOND0A_LPLU: u32 = 0x00000004;
-const PHY_CTRL_NOND0A_GBE_DISABLE: u32 = 0x00000008;
-const PHY_CTRL_GBE_DISABLE: u32 = 0x00000040;
-const PHY_CTRL_B2B_EN: u32 = 0x00000080;
-const PHY_CTRL_LOOPBACK: u32 = 0x00004000;
-
-// PBA constants
-const E1000_PBA_8K: u32 = 0x0008; /* 8KB, default Rx allocation */
-const _E1000_PBA_10K: u32 = 0x000A;
-const _E1000_PBA_12K: u32 = 0x000C; /* 12KB, default Rx allocation */
-const _E1000_PBA_14K: u32 = 0x000E; /* 14KB */
-const E1000_PBA_16K: u32 = 0x0010; /* 16KB, default TX allocation */
-const _E1000_PBA_20K: u32 = 0x0014;
-const _E1000_PBA_22K: u32 = 0x0016;
-const _E1000_PBA_24K: u32 = 0x0018;
-const _E1000_PBA_26K: u32 = 0x001A;
-const _E1000_PBA_30K: u32 = 0x001E;
-const _E1000_PBA_32K: u32 = 0x0020;
-const _E1000_PBA_34K: u32 = 0x0022;
-const _E1000_PBA_38K: u32 = 0x0026;
-const _E1000_PBA_40K: u32 = 0x0028;
-const _E1000_PBA_48K: u32 = 0x0030; /* 48KB, default RX allocation */
-
-const E1000_PBS_16K: u32 = E1000_PBA_16K;
-
-const SW_FLAG_TIMEOUT: usize = 100;
-
-const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
-const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
-
-// IGP01E1000 Specific Registers
-const _IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; /* PHY Specific Port Config Register */
-const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; /* PHY Specific Status Register */
-const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; /* PHY Specific Control Register */
-const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; /* PHY Link Health Register */
-const _IGP01E1000_GMII_FIFO: u32 = 0x14; /* GMII FIFO Register */
-const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; /* PHY Channel Quality Register */
-const _IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
-const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; /* PHY Page Select Core Register */
-
-// BM/HV Specific Registers
-const BM_PORT_CTRL_PAGE: u32 = 769;
-const _BM_PCIE_PAGE: u16 = 770;
-const BM_WUC_PAGE: u16 = 800;
-const BM_WUC_ADDRESS_OPCODE: u32 = 0x11;
-const BM_WUC_DATA_OPCODE: u32 = 0x12;
-const BM_WUC_ENABLE_PAGE: u16 = BM_PORT_CTRL_PAGE as u16;
-const BM_WUC_ENABLE_REG: u32 = 17;
-const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
-const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
-
-const PHY_PAGE_SHIFT: u32 = 5;
-const PHY_UPPER_SHIFT: u32 = 21;
-
-// SW_W_SYNC definitions
-const SWFW_EEP_SM: u16 = 0x0001;
-const SWFW_PHY0_SM: u16 = 0x0002;
-const SWFW_PHY1_SM: u16 = 0x0004;
-const _SWFW_MAC_CSR_SM: u16 = 0x0008;
-const SWFW_PHY2_SM: u16 = 0x0020;
-const SWFW_PHY3_SM: u16 = 0x0040;
-
-// Hanksville definitions
-const HV_INTC_FC_PAGE_START: u16 = 768;
-
-const _HV_SCC_UPPER: u32 = phy_reg(778, 16); /* Single Collision Count */
-const _HV_SCC_LOWER: u32 = phy_reg(778, 17);
-const _HV_ECOL_UPPER: u32 = phy_reg(778, 18); /* Excessive Collision Count */
-const _HV_ECOL_LOWER: u32 = phy_reg(778, 19);
-const _HV_MCC_UPPER: u32 = phy_reg(778, 20); /* Multiple Collision Count */
-const _HV_MCC_LOWER: u32 = phy_reg(778, 21);
-const _HV_LATECOL_UPPER: u32 = phy_reg(778, 23); /* Late Collision Count */
-const _HV_LATECOL_LOWER: u32 = phy_reg(778, 24);
-const _HV_COLC_UPPER: u32 = phy_reg(778, 25); /* Collision Count */
-const _HV_COLC_LOWER: u32 = phy_reg(778, 26);
-const _HV_DC_UPPER: u32 = phy_reg(778, 27); /* Defer Count */
-const _HV_DC_LOWER: u32 = phy_reg(778, 28);
-const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); /* Transmit with no CRS */
-const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
-
-// OEM Bits Phy Register
-const HV_OEM_BITS: u32 = phy_reg(768, 25);
-const HV_OEM_BITS_LPLU: u32 = 0x0004; /* Low Power Link Up */
-const HV_OEM_BITS_GBE_DIS: u32 = 0x0040; /* Gigabit Disable */
-const HV_OEM_BITS_RESTART_AN: u32 = 0x0400; /* Restart Auto-negotiation */
-
-// I82577 Specific Registers
-const I82577_PHY_ADDR_REG: u32 = 16;
-const _I82577_PHY_CFG_REG: u32 = 22;
-const _I82577_PHY_CTRL_REG: u32 = 23;
-
-// I82578 Specific Registers
-const I82578_PHY_ADDR_REG: u32 = 29;
-
-// Bit definitions for valid PHY IDs.
-// I = Integrated
-// E = External
-const M88_VENDOR: u32 = 0x0141;
-const M88E1000_E_PHY_ID: u32 = 0x01410C50;
-const M88E1000_I_PHY_ID: u32 = 0x01410C30;
-const M88E1011_I_PHY_ID: u32 = 0x01410C20;
-const IGP01E1000_I_PHY_ID: u32 = 0x02A80380;
-const M88E1000_12_PHY_ID: u32 = M88E1000_E_PHY_ID;
-const M88E1000_14_PHY_ID: u32 = M88E1000_E_PHY_ID;
-const M88E1011_I_REV_4: u32 = 0x04;
-const M88E1111_I_PHY_ID: u32 = 0x01410CC0;
-const M88E1112_E_PHY_ID: u32 = 0x01410C90;
-const I347AT4_E_PHY_ID: u32 = 0x01410DC0;
-const L1LXT971A_PHY_ID: u32 = 0x001378E0;
-const GG82563_E_PHY_ID: u32 = 0x01410CA0;
-const BME1000_E_PHY_ID: u32 = 0x01410CB0;
-const BME1000_E_PHY_ID_R2: u32 = 0x01410CB1;
-const M88E1543_E_PHY_ID: u32 = 0x01410EA0;
-const I82577_E_PHY_ID: u32 = 0x01540050;
-const I82578_E_PHY_ID: u32 = 0x004DD040;
-const I82579_E_PHY_ID: u32 = 0x01540090;
-const I217_E_PHY_ID: u32 = 0x015400A0;
-const I82580_I_PHY_ID: u32 = 0x015403A0;
-const I350_I_PHY_ID: u32 = 0x015403B0;
-const I210_I_PHY_ID: u32 = 0x01410C00;
-const IGP04E1000_E_PHY_ID: u32 = 0x02A80391;
-const M88E1141_E_PHY_ID: u32 = 0x01410CD0;
-const M88E1512_E_PHY_ID: u32 = 0x01410DD0;
-
-const M88E1543_PAGE_ADDR: u32 = 0x16;
-
-const M88E1512_CFG_REG_1: u32 = 0x0010;
-const M88E1512_CFG_REG_2: u32 = 0x0011;
-const M88E1512_CFG_REG_3: u32 = 0x0007;
-const M88E1512_MODE: u32 = 0x0014;
-
-const IGP03E1000_E_PHY_ID: u32 = 0x02A80390;
-const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
-const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
-const IFE_C_E_PHY_ID: u32 = 0x02A80310;
-
-const RTL8211_E_PHY_ID: u32 = 0x001CC912;
-
-const GG82563_PAGE_SHIFT: u32 = 5;
-const GG82563_MIN_ALT_REG: u32 = 30;
-const GG82563_PHY_PAGE_SELECT: u32 = gg82563_reg(0, 22); // Page Select
-const GG82563_PHY_PAGE_SELECT_ALT: u32 = gg82563_reg(0, 29); // Alternate Page Select
-
-// BME1000 PHY Specific Control Register
-const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; /* 1 = enable downshift */
-const BM_PHY_PAGE_SELECT: u32 = 22; /* Page Select for BM */
-const BM_REG_BIAS1: u32 = 29;
-const BM_REG_BIAS2: u32 = 30;
-
-// Miscellaneous PHY bit definitions.
-const PHY_PREAMBLE: u32 = 0xFFFFFFFF;
-const PHY_SOF: u32 = 0x01;
-const PHY_OP_READ: u32 = 0x02;
-const PHY_OP_WRITE: u32 = 0x01;
-const PHY_TURNAROUND: u32 = 0x02;
-const PHY_PREAMBLE_SIZE: u32 = 32;
-const MII_CR_SPEED_1000: u32 = 0x0040;
-const MII_CR_SPEED_100: u32 = 0x2000;
-const MII_CR_SPEED_10: u32 = 0x0000;
-const E1000_PHY_ADDRESS: u32 = 0x01;
-const PHY_AUTO_NEG_TIME: u32 = 45; /* 4.5 Seconds */
-const PHY_FORCE_TIME: u32 = 20; /* 2.0 Seconds */
-const PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
-const DEVICE_SPEED_MASK: u32 = 0x00000300; /* Device Ctrl Reg Speed Mask */
-const REG4_SPEED_MASK: u32 = 0x01E0;
-const REG9_SPEED_MASK: u32 = 0x0300;
-const ADVERTISE_10_HALF: u32 = 0x0001;
-const ADVERTISE_10_FULL: u32 = 0x0002;
-const ADVERTISE_100_HALF: u32 = 0x0004;
-const ADVERTISE_100_FULL: u32 = 0x0008;
-const ADVERTISE_1000_HALF: u32 = 0x0010;
-const ADVERTISE_1000_FULL: u32 = 0x0020;
-const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; /* Everything but 1000-Half */
-const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; /* All 10/100 speeds*/
-const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; /* 10Mbps Full & Half speeds*/
-
-// PHY Control Register
-const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; /* Collision test enable */
-const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; /* bits 6,13: 10=1000, 01=100, 00=10 */
-const MII_CR_FULL_DUPLEX: u16 = 0x0100; /* FDX =1, half duplex =0 */
-const MII_CR_RESTART_AUTO_NEG: u16 = 0x0200; /* Restart auto negotiation */
-const MII_CR_ISOLATE: u16 = 0x0400; /* Isolate PHY from MII */
-const MII_CR_POWER_DOWN: u16 = 0x0800; /* Power down */
-const MII_CR_AUTO_NEG_EN: u16 = 0x1000; /* Auto Neg Enable */
-const MII_CR_SPEED_SELECT_LSB: u16 = 0x2000; /* bits 6,13: 10=1000, 01=100, 00=10 */
-const MII_CR_LOOPBACK: u16 = 0x4000; /* 0 = normal, 1 = loopback */
-const MII_CR_RESET: u16 = 0x8000; /* 0 = normal, 1 = PHY reset */
-
-const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
-const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
-
-// EMI Registers
-const I82579_EMI_ADDR: u32 = 0x10;
-const I82579_EMI_DATA: u32 = 0x11;
-const I82579_LPI_UPDATE_TIMER: u32 = 0x4805; /* in 40ns units + 40 ns base value */
-const I82579_MSE_THRESHOLD: u16 = 0x084F; /* Mean Square Error Threshold */
-const I82579_MSE_LINK_DOWN: u16 = 0x2411; /* MSE count before dropping link */
-
-const LEDCTL: usize = 0x00E00;
-
-const IGP_ACTIVITY_LED_MASK: u32 = 0xFFFFF0FF;
-const IGP_ACTIVITY_LED_ENABLE: u32 = 0x0300;
-const IGP_LED3_MODE: u32 = 0x07000000;
-
-const NVM_CFG_DONE_PORT_0: u32 = 0x040000; /* MNG config cycle done */
-const NVM_CFG_DONE_PORT_1: u32 = 0x080000; /* ...for second port */
-const NVM_CFG_DONE_PORT_2: u32 = 0x100000; /* ...for third port */
-const NVM_CFG_DONE_PORT_3: u32 = 0x200000; /* ...for fourth port */
-
-// EEPROM Commands - SPI
-const EEPROM_MAX_RETRY_SPI: u16 = 5000; /* Max wait of 5ms, for RDY signal */
-const EEPROM_READ_OPCODE_SPI: u16 = 0x03; /* EEPROM read opcode */
-const EEPROM_WRITE_OPCODE_SPI: u16 = 0x02; /* EEPROM write opcode */
-const EEPROM_A8_OPCODE_SPI: u16 = 0x08; /* opcode bit-3 = address bit-8 */
-const EEPROM_WREN_OPCODE_SPI: u16 = 0x06; /* EEPROM set Write Enable latch */
-const EEPROM_WRDI_OPCODE_SPI: u16 = 0x04; /* EEPROM reset Write Enable latch */
-const EEPROM_RDSR_OPCODE_SPI: u16 = 0x05; /* EEPROM read Status register */
-const EEPROM_WRSR_OPCODE_SPI: u16 = 0x01; /* EEPROM write Status register */
-const EEPROM_ERASE4K_OPCODE_SPI: u16 = 0x20; /* EEPROM ERASE 4KB */
-const EEPROM_ERASE64K_OPCODE_SPI: u16 = 0xD8; /* EEPROM ERASE 64KB */
-const EEPROM_ERASE256_OPCODE_SPI: u16 = 0xDB; /* EEPROM ERASE 256B */
-
-// SPI EEPROM Status Register
-const EEPROM_STATUS_RDY_SPI: u16 = 0x01;
-const EEPROM_STATUS_WEN_SPI: u16 = 0x02;
-const EEPROM_STATUS_BP0_SPI: u16 = 0x04;
-const EEPROM_STATUS_BP1_SPI: u16 = 0x08;
-const EEPROM_STATUS_WPEN_SPI: u16 = 0x80;
-
-// EEPROM Commands - Microwire
-const EEPROM_READ_OPCODE_MICROWIRE: u16 = 0x6; /* EEPROM read opcode */
-const EEPROM_WRITE_OPCODE_MICROWIRE: u16 = 0x5; /* EEPROM write opcode */
-const EEPROM_ERASE_OPCODE_MICROWIRE: u16 = 0x7; /* EEPROM erase opcode */
-const EEPROM_EWEN_OPCODE_MICROWIRE: u16 = 0x13; /* EEPROM erase/write enable */
-const EEPROM_EWDS_OPCODE_MICROWIRE: u16 = 0x10; /* EEPROM erast/write disable */
-
-const EEPROM_SWDPIN0: u32 = 0x0001; /* SWDPIN 0 EEPROM Value */
-const EEPROM_LED_LOGIC: u32 = 0x0020; /* Led Logic Word */
-const EEPROM_RW_REG_DATA: u32 = 16; /* Offset to data in EEPROM read/write registers */
-const EEPROM_RW_REG_DONE: u32 = 2; /* Offset to READ/WRITE done bit */
-const EEPROM_RW_REG_START: u32 = 1; /* First bit for telling part to start operation */
-const EEPROM_RW_ADDR_SHIFT: u32 = 2; /* Shift to the address bits */
-const EEPROM_POLL_WRITE: u32 = 1; /* Flag for polling for write complete */
-const EEPROM_POLL_READ: u32 = 0; /* Flag for polling for read complete */
-
-const INVM_UNINITIALIZED_STRUCTURE: u8 = 0x0;
-const INVM_WORD_AUTOLOAD_STRUCTURE: u8 = 0x1;
-const INVM_CSR_AUTOLOAD_STRUCTURE: u8 = 0x2;
-const INVM_PHY_REGISTER_AUTOLOAD_STRUCTURE: u8 = 0x3;
-const INVM_RSA_KEY_SHA256_STRUCTURE: u8 = 0x4;
-const INVM_INVALIDATED_STRUCTURE: u8 = 0x5;
-
-const INVM_RSA_KEY_SHA256_DATA_SIZE_IN_DWORDS: u16 = 8;
-const INVM_CSR_AUTOLOAD_DATA_SIZE_IN_DWORDS: u16 = 1;
-
-// EEPROM Word Offsets
-const EEPROM_MAC_ADDR_WORD0: u32 = 0x0000;
-const EEPROM_MAC_ADDR_WORD1: u32 = 0x0001;
-const EEPROM_MAC_ADDR_WORD2: u32 = 0x0002;
-const EEPROM_COMPAT: u32 = 0x0003;
-const EEPROM_ID_LED_SETTINGS: u32 = 0x0004;
-const EEPROM_VERSION: u32 = 0x0005;
-const EEPROM_SERDES_AMPLITUDE: u32 = 0x0006; // For SERDES output amplitude adjustment.
-const EEPROM_PHY_CLASS_WORD: u32 = 0x0007;
-const EEPROM_INIT_CONTROL1_REG: u32 = 0x000A;
-const EEPROM_INIT_CONTROL2_REG: u32 = 0x000F;
-const EEPROM_SWDEF_PINS_CTRL_PORT_1: u32 = 0x0010;
-const EEPROM_INIT_CONTROL4_REG: u32 = 0x0013;
-const EEPROM_INIT_CONTROL3_PORT_B: u32 = 0x0014;
-const EEPROM_INIT_3GIO_3: u32 = 0x001A;
-const EEPROM_LED_1_CFG: u32 = 0x001C;
-const EEPROM_LED_0_2_CFG: u32 = 0x001F;
-const EEPROM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
-const EEPROM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
-const EEPROM_CFG: u32 = 0x0012;
-const EEPROM_FLASH_VERSION: u32 = 0x0032;
-const EEPROM_CHECKSUM_REG: u32 = 0x003F;
-
-const EEPROM_COMPAT_VALID_CSUM: u16 = 0x0001;
-const EEPROM_FUTURE_INIT_WORD1: u16 = 0x0019;
-const EEPROM_FUTURE_INIT_WORD1_VALID_CSUM: u16 = 0x0040;
-
-// NVM offset defaults for i211
-const NVM_INIT_CTRL_2_DEFAULT_I211: u16 = 0x7243;
-const NVM_INIT_CTRL_4_DEFAULT_I211: u16 = 0x00C1;
-const NVM_LED_1_CFG_DEFAULT_I211: u16 = 0x0184;
-const NVM_LED_0_2_CFG_DEFAULT_I211: u16 = 0x200C;
-const NVM_RESERVED_WORD: u16 = 0xFFFF;
-
-// Mask bits for fields in Word 0x24 of the NVM
-const NVM_WORD24_COM_MDIO: u16 = 0x0008; /* MDIO interface shared */
-const NVM_WORD24_EXT_MDIO: u16 = 0x0004; /* MDIO accesses routed external */
-
-const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
-
-const ICH_CYCLE_READ: u16 = 0x0;
-const ICH_CYCLE_RESERVED: u16 = 0x1;
-const ICH_CYCLE_WRITE: u16 = 0x2;
-const ICH_CYCLE_ERASE: u16 = 0x3;
-
-const ICH_FLASH_GFPREG: usize = 0x0000;
-const ICH_FLASH_HSFSTS: usize = 0x0004;
-const ICH_FLASH_HSFCTL: usize = 0x0006;
-const ICH_FLASH_FADDR: usize = 0x0008;
-const ICH_FLASH_FDATA0: usize = 0x0010;
-const ICH_FLASH_FRACC: usize = 0x0050;
-const ICH_FLASH_FREG0: usize = 0x0054;
-const ICH_FLASH_FREG1: usize = 0x0058;
-const ICH_FLASH_FREG2: usize = 0x005C;
-const ICH_FLASH_FREG3: usize = 0x0060;
-const ICH_FLASH_FPR0: usize = 0x0074;
-const ICH_FLASH_FPR1: usize = 0x0078;
-const ICH_FLASH_SSFSTS: usize = 0x0090;
-const ICH_FLASH_SSFCTL: usize = 0x0092;
-const ICH_FLASH_PREOP: usize = 0x0094;
-const ICH_FLASH_OPTYPE: usize = 0x0096;
-const ICH_FLASH_OPMENU: usize = 0x0098;
-
-const ICH_FLASH_COMMAND_TIMEOUT: u32 = 5000; /* 5000 uSecs - adjusted */
-const ICH_FLASH_ERASE_TIMEOUT: u32 = 3000000; /* Up to 3 seconds - worst case */
-const ICH_FLASH_CYCLE_REPEAT_COUNT: u32 = 10; /* 10 cycles */
-const ICH_FLASH_SEG_SIZE_256: u32 = 256;
-const ICH_FLASH_SEG_SIZE_4K: u32 = 4096;
-const ICH_FLASH_SEG_SIZE_8K: u32 = 8192;
-const ICH_FLASH_SEG_SIZE_64K: u32 = 65536;
-
-const ICH_FLASH_REG_MAPSIZE: u32 = 0x00A0;
-const ICH_FLASH_SECTOR_SIZE: u32 = 4096;
-const ICH_GFPREG_BASE_MASK: u32 = 0x1FFF;
-const ICH_FLASH_LINEAR_ADDR_MASK: u32 = 0x00FFFFFF;
-const ICH_FLASH_SECT_ADDR_SHIFT: u32 = 12;
-
-const SHADOW_RAM_WORDS: u32 = 2048;
-const ICH_NVM_SIG_WORD: u32 = 0x13;
-const ICH_NVM_SIG_MASK: u32 = 0xC000;
-const ICH_NVM_VALID_SIG_MASK: u32 = 0xC0;
-const ICH_NVM_SIG_VALUE: u32 = 0x80;
-
-// IGP01E1000 Analog Register
-const IGP01E1000_ANALOG_SPARE_FUSE_STATUS: u32 = 0x20D1;
-const IGP01E1000_ANALOG_FUSE_STATUS: u32 = 0x20D0;
-const IGP01E1000_ANALOG_FUSE_CONTROL: u32 = 0x20DC;
-const IGP01E1000_ANALOG_FUSE_BYPASS: u32 = 0x20DE;
-
-const IGP01E1000_ANALOG_FUSE_POLY_MASK: u16 = 0xF000;
-const IGP01E1000_ANALOG_FUSE_FINE_MASK: u16 = 0x0F80;
-const IGP01E1000_ANALOG_FUSE_COARSE_MASK: u16 = 0x0070;
-const IGP01E1000_ANALOG_SPARE_FUSE_ENABLED: u16 = 0x0100;
-const IGP01E1000_ANALOG_FUSE_ENABLE_SW_CONTROL: u16 = 0x0002;
-
-const IGP01E1000_ANALOG_FUSE_COARSE_THRESH: u16 = 0x0040;
-const IGP01E1000_ANALOG_FUSE_COARSE_10: u16 = 0x0010;
-const IGP01E1000_ANALOG_FUSE_FINE_1: u16 = 0x0080;
-const IGP01E1000_ANALOG_FUSE_FINE_10: u16 = 0x0500;
-
-// Extended Configuration Control and Size
-const EXTCNF_CTRL_MDIO_SW_OWNERSHIP: u32 = 0x00000020;
-const EXTCNF_CTRL_LCD_WRITE_ENABLE: u32 = 0x00000001;
-const EXTCNF_CTRL_OEM_WRITE_ENABLE: u32 = 0x00000008;
-const EXTCNF_CTRL_SWFLAG: u32 = 0x00000020;
-const EXTCNF_SIZE_EXT_PCIE_LENGTH_MASK: u32 = 0x00FF0000;
-const EXTCNF_SIZE_EXT_PCIE_LENGTH_SHIFT: u32 = 16;
-const EXTCNF_CTRL_EXT_CNF_POINTER_MASK: u32 = 0x0FFF0000;
-const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
-
-const KABGTXD_BGSQLBIAS: u32 = 0x00050000;
-
-// Energy Efficient Ethernet "EEE" registers
-const IPCNFG: usize = 0x0E38; /* Internal PHY Configuration */
-const LTRC: usize = 0x01A0; /* Latency Tolerance Reporting Control */
-const EEER: usize = 0x0E30; /* Energy Efficient Ethernet "EEE" */
-const EEE_SU: usize = 0x0E34; /* EEE Setup */
-const TLPIC: usize = 0x4148; /* EEE Tx LPI Count - TLPIC */
-const RLPIC: usize = 0x414C; /* EEE Rx LPI Count - RLPIC */
-
-// I350 EEE defines
-const IPCNFG_EEE_1G_AN: u32 = 0x00000008; /* IPCNFG EEE Ena 1G AN */
-const IPCNFG_EEE_100M_AN: u32 = 0x00000004; /* IPCNFG EEE Ena 100M AN */
-const EEER_TX_LPI_EN: u32 = 0x00010000; /* EEER Tx LPI Enable */
-const EEER_RX_LPI_EN: u32 = 0x00020000; /* EEER Rx LPI Enable */
-const EEER_LPI_FC: u32 = 0x00040000; /* EEER Ena on Flow Cntrl */
-
 // Number of milliseconds we wait for Eeprom auto read bit done after MAC reset
 const AUTO_READ_DONE_TIMEOUT: u32 = 10;
 
@@ -796,14 +397,6 @@ bitflags! {
 
 // Number of milliseconds we wait for PHY configuration done after MAC reset
 const PHY_CFG_TIMEOUT: u32 = 100;
-
-const fn gg82563_reg(page: u32, reg: u32) -> u32 {
-    (page << GG82563_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
-}
-
-const fn phy_reg(page: u32, reg: u32) -> u32 {
-    (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
@@ -1262,8 +855,8 @@ impl IgbHw {
                 | MacType::EmI210
                 | MacType::EmI350
         ) {
-            let reg = read_reg(info, super::STATUS)?;
-            let bus_func = (reg & super::STATUS_FUNC_MASK) >> super::STATUS_FUNC_SHIFT;
+            let reg = read_reg(info, STATUS)?;
+            let bus_func = (reg & STATUS_FUNC_MASK) >> STATUS_FUNC_SHIFT;
 
             let swfw = match bus_func {
                 0 => SWFW_PHY0_SM,
@@ -1342,13 +935,13 @@ impl IgbHw {
         }
 
         // Clear interrupt mask to stop board from generating interrupts
-        write_reg(info, super::IMC, !0)?;
+        write_reg(info, IMC, !0)?;
 
         // Disable the Transmit and Receive units.  Then delay to allow any
         // pending transactions to complete before we hit the MAC with the
         // global reset.
-        write_reg(info, super::RCTL, 0)?;
-        write_reg(info, super::TCTL, super::TCTL_PSP)?;
+        write_reg(info, RCTL, 0)?;
+        write_reg(info, TCTL, TCTL_PSP)?;
         write_flush(info)?;
 
         // The tbi_compatibility_on Flag must be cleared when Rctl is cleared.
@@ -1364,17 +957,17 @@ impl IgbHw {
 
         // Must acquire the MDIO ownership before MAC reset. Ownership defaults to firmware after a reset.
         if matches!(self.mac_type, Em82573 | Em82574) {
-            let mut extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
+            let mut extcnf_ctrl = read_reg(info, EXTCNF_CTRL)?;
 
-            extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
+            extcnf_ctrl |= EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
 
             for _ in 0..10 {
-                write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+                write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
 
-                if extcnf_ctrl & super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP != 0 {
+                if extcnf_ctrl & EXTCNF_CTRL_MDIO_SW_OWNERSHIP != 0 {
                     break;
                 } else {
-                    extcnf_ctrl |= super::EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
+                    extcnf_ctrl |= EXTCNF_CTRL_MDIO_SW_OWNERSHIP;
                 }
 
                 awkernel_lib::delay::wait_millisec(2);
@@ -1384,33 +977,33 @@ impl IgbHw {
         // Workaround for ICH8 bit corruption issue in FIFO memory
         if matches!(self.mac_type, EmIch8lan) {
             // Set Tx and Rx buffer allocation to 8k apiece.
-            write_reg(info, super::PBA, E1000_PBA_8K)?;
+            write_reg(info, PBA, PBA_8K)?;
 
             // Set Packet Buffer Size to 16k.
-            write_reg(info, super::PBS, E1000_PBS_16K)?;
+            write_reg(info, PBS, PBS_16K)?;
         }
 
         match self.mac_type {
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
-                let mut ctrl = read_reg(info, super::CTRL)?;
+                let mut ctrl = read_reg(info, CTRL)?;
 
                 if !self.phy_reset_disable && self.check_phy_reset_block(info).is_ok() {
                     // PHY HW reset requires MAC CORE reset at the same
                     // time to make sure the interface between MAC and
                     // the external PHY is reset.
-                    ctrl |= super::CTRL_PHY_RST;
+                    ctrl |= CTRL_PHY_RST;
 
                     // Gate automatic PHY configuration by hardware on non-managed 82579
                     if matches!(self.mac_type, EmPch2lan)
-                        && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
+                        && read_reg(info, FWSM)? & FWSM_FW_VALID == 0
                     {
                         self.gate_hw_phy_config_ich8lan(info, true)?;
                     }
                 };
 
                 self.get_software_flag(info)?;
-                write_reg(info, super::CTRL, ctrl | super::CTRL_RST)?;
+                write_reg(info, CTRL, ctrl | CTRL_RST)?;
 
                 // HW reset releases software_flag
                 self.sw_flag = 0;
@@ -1419,15 +1012,15 @@ impl IgbHw {
                 // Ungate automatic PHY configuration on non-managed 82579
                 if matches!(self.mac_type, EmPch2lan)
                     && !self.phy_reset_disable
-                    && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
+                    && read_reg(info, FWSM)? & FWSM_FW_VALID == 0
                 {
                     awkernel_lib::delay::wait_millisec(10);
                     self.gate_hw_phy_config_ich8lan(info, false)?;
                 }
             }
             _ => {
-                let ctrl = read_reg(info, super::CTRL)?;
-                write_reg(info, super::CTRL, ctrl | super::CTRL_RST)?;
+                let ctrl = read_reg(info, CTRL)?;
+                write_reg(info, CTRL, ctrl | CTRL_RST)?;
             }
         }
 
@@ -1451,8 +1044,8 @@ impl IgbHw {
             Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => {
                 // Wait for EEPROM reload
                 awkernel_lib::delay::wait_microsec(10);
-                let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-                write_reg(info, super::CTRL_EXT, ctrl_ext | super::CTRL_EXT_EE_RST)?;
+                let ctrl_ext = read_reg(info, CTRL_EXT)?;
+                write_reg(info, CTRL_EXT, ctrl_ext | CTRL_EXT_EE_RST)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(2);
             }
@@ -1463,8 +1056,8 @@ impl IgbHw {
             Em82573 | Em82574 => {
                 if !self.is_onboard_nvm_eeprom(info)? {
                     awkernel_lib::delay::wait_microsec(10);
-                    let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-                    write_reg(info, super::CTRL_EXT, ctrl_ext | super::CTRL_EXT_EE_RST)?;
+                    let ctrl_ext = read_reg(info, CTRL_EXT)?;
+                    write_reg(info, CTRL_EXT, ctrl_ext | CTRL_EXT_EE_RST)?;
                     write_flush(info)?;
                 }
 
@@ -1482,8 +1075,8 @@ impl IgbHw {
             && self.mac_type as u32 <= Em82547Rev2 as u32
             && self.mac_type != EmICPxxxx
         {
-            let manc = read_reg(info, super::MANC)?;
-            write_reg(info, super::MANC, manc & !super::MANC_ARP_EN)?;
+            let manc = read_reg(info, MANC)?;
+            write_reg(info, MANC, manc & !MANC_ARP_EN)?;
         }
 
         if matches!(self.mac_type, Em82541 | Em82547) {
@@ -1500,14 +1093,14 @@ impl IgbHw {
         // will be detected as a CRC error and be dropped rather than show up
         // as a bad packet to the DMA engine.
         if self.mac_type == EmPchlan {
-            write_reg(info, super::CRC_OFFSET, 0x65656565)?;
+            write_reg(info, CRC_OFFSET, 0x65656565)?;
         }
 
         // Clear interrupt mask to stop board from generating interrupts
-        write_reg(info, super::IMC, !0)?;
+        write_reg(info, IMC, !0)?;
 
         // Clear any pending interrupt events.
-        let _icr = read_reg(info, super::ICR)?;
+        let _icr = read_reg(info, ICR)?;
 
         // If MWI was previously enabled, reenable it.
         if self.mac_type == Em82542Rev2_0 {
@@ -1516,13 +1109,13 @@ impl IgbHw {
         }
 
         if is_ich8(&self.mac_type) {
-            let kab = read_reg(info, super::KABGTXD)?;
-            write_reg(info, super::KABGTXD, kab | KABGTXD_BGSQLBIAS)?;
+            let kab = read_reg(info, KABGTXD)?;
+            write_reg(info, KABGTXD, kab | KABGTXD_BGSQLBIAS)?;
         }
 
         if matches!(self.mac_type, Em82580 | EmI350) {
             // clear global device reset status bit
-            write_reg(info, super::STATUS, super::STATUS_DEV_RST_SET)?;
+            write_reg(info, STATUS, STATUS_DEV_RST_SET)?;
 
             fn nvm_82580_lan_func_offset(a: u8) -> u32 {
                 if a != 0 {
@@ -1539,14 +1132,14 @@ impl IgbHw {
                 &mut nvm_data,
             )?;
 
-            let mut mdicnfg = read_reg(info, super::MDICNFG)?;
+            let mut mdicnfg = read_reg(info, MDICNFG)?;
             if nvm_data[0] & NVM_WORD24_EXT_MDIO != 0 {
-                mdicnfg |= super::MDICNFG_EXT_MDIO;
+                mdicnfg |= MDICNFG_EXT_MDIO;
             }
             if nvm_data[0] & NVM_WORD24_COM_MDIO != 0 {
-                mdicnfg |= super::MDICNFG_COM_MDIO;
+                mdicnfg |= MDICNFG_COM_MDIO;
             }
-            write_reg(info, super::MDICNFG, mdicnfg)?;
+            write_reg(info, MDICNFG, mdicnfg)?;
         }
 
         if matches!(self.mac_type, EmI210 | EmI350) {
@@ -1589,7 +1182,7 @@ impl IgbHw {
         }
 
         if matches!(self.mac_type, Em82573 | Em82574) {
-            let eecd = read_reg(info, super::EECD)?;
+            let eecd = read_reg(info, EECD)?;
 
             // Isolate bits 15 & 16
             let eecd = (eecd >> 15) & 0x03;
@@ -1614,7 +1207,7 @@ impl IgbHw {
                 let mut timeout = AUTO_READ_DONE_TIMEOUT;
 
                 while timeout > 0 {
-                    if read_reg(info, super::EECD)? & E1000_EECD_AUTO_RD != 0 {
+                    if read_reg(info, EECD)? & EECD_AUTO_RD != 0 {
                         break;
                     } else {
                         awkernel_lib::delay::wait_millisec(1);
@@ -1704,8 +1297,8 @@ impl IgbHw {
 
         // Power on SGMII phy if it is disabled
         if matches!(self.mac_type, Em82580 | EmI210 | EmI350) {
-            let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-            write_reg(info, super::CTRL_EXT, ctrl_ext & !super::CTRL_EXT_SDP3_DATA)?;
+            let ctrl_ext = read_reg(info, CTRL_EXT)?;
+            write_reg(info, CTRL_EXT, ctrl_ext & !CTRL_EXT_SDP3_DATA)?;
             write_flush(info)?;
             awkernel_lib::delay::wait_millisec(300);
         }
@@ -1784,10 +1377,10 @@ impl IgbHw {
                     || self.phy_id == M88E1543_E_PHY_ID
                     || self.phy_id == M88E1512_E_PHY_ID
                 {
-                    let mut mdic = read_reg(info, super::MDICNFG)?;
-                    if mdic & super::MDICNFG_EXT_MDIO != 0 {
-                        mdic &= super::MDICNFG_PHY_MASK;
-                        self.phy_addr = mdic >> super::MDICNFG_PHY_SHIFT;
+                    let mut mdic = read_reg(info, MDICNFG)?;
+                    if mdic & MDICNFG_EXT_MDIO != 0 {
+                        mdic &= MDICNFG_PHY_MASK;
+                        self.phy_addr = mdic >> MDICNFG_PHY_SHIFT;
                     }
                     is_match = true;
                 }
@@ -1906,9 +1499,9 @@ impl IgbHw {
                 return Ok(());
             }
 
-            let extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
-            let extcnf_ctrl = extcnf_ctrl & !super::EXTCNF_CTRL_SWFLAG;
-            write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+            let extcnf_ctrl = read_reg(info, EXTCNF_CTRL)?;
+            let extcnf_ctrl = extcnf_ctrl & !EXTCNF_CTRL_SWFLAG;
+            write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
         }
 
         Ok(())
@@ -1953,9 +1546,7 @@ impl IgbHw {
         }
 
         // Ungate automatic PHY configuration on non-managed 82579
-        if matches!(self.mac_type, EmPch2lan)
-            && read_reg(info, super::FWSM)? & super::FWSM_FW_VALID == 0
-        {
+        if matches!(self.mac_type, EmPch2lan) && read_reg(info, FWSM)? & FWSM_FW_VALID == 0 {
             awkernel_lib::delay::wait_millisec(10);
             self.gate_hw_phy_config_ich8lan(info, false)?;
         }
@@ -2057,14 +1648,14 @@ impl IgbHw {
 
         self.swfw_sync_mut(info, SWFW_PHY0_SM, |hw| {
             if matches!(hw.mac_type, MacType::EmPchlan) {
-                let mac_reg = read_reg(info, super::EXTCNF_CTRL)?;
+                let mac_reg = read_reg(info, EXTCNF_CTRL)?;
                 if mac_reg & EXTCNF_CTRL_OEM_WRITE_ENABLE != 0 {
                     return Ok(());
                 }
             }
 
-            let mac_reg = read_reg(info, super::FEXTNVM)?;
-            if mac_reg & super::FEXTNVM_SW_CONFIG_ICH8M == 0 {
+            let mac_reg = read_reg(info, FEXTNVM)?;
+            if mac_reg & FEXTNVM_SW_CONFIG_ICH8M == 0 {
                 return Ok(());
             }
 
@@ -2116,8 +1707,8 @@ impl IgbHw {
                 // assert and deassert.  For em_82571 hardware and later, we
                 // instead delay for 50us between and 10ms after the
                 // deassertion.
-                let ctrl = read_reg(info, super::CTRL)?;
-                write_reg(info, super::CTRL, ctrl | super::CTRL_PHY_RST)?;
+                let ctrl = read_reg(info, CTRL)?;
+                write_reg(info, CTRL, ctrl | CTRL_PHY_RST)?;
                 write_flush(info)?;
 
                 if (hw.mac_type.clone() as u32) < Em82571 as u32 {
@@ -2126,7 +1717,7 @@ impl IgbHw {
                     awkernel_lib::delay::wait_microsec(100);
                 }
 
-                write_reg(info, super::CTRL, ctrl)?;
+                write_reg(info, CTRL, ctrl)?;
                 write_flush(info)?;
 
                 if (hw.mac_type.clone() as u32) >= Em82571 as u32 {
@@ -2142,18 +1733,18 @@ impl IgbHw {
             // Read the Extended Device Control Register, assert the
             // PHY_RESET_DIR bit to put the PHY into reset. Then, take it
             // out of reset.
-            let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-            let ctrl_ext = ctrl_ext | super::CTRL_EXT_SDP4_DIR;
-            let ctrl_ext = ctrl_ext & !super::CTRL_EXT_SDP4_DATA;
+            let ctrl_ext = read_reg(info, CTRL_EXT)?;
+            let ctrl_ext = ctrl_ext | CTRL_EXT_SDP4_DIR;
+            let ctrl_ext = ctrl_ext & !CTRL_EXT_SDP4_DATA;
 
-            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+            write_reg(info, CTRL_EXT, ctrl_ext)?;
             write_flush(info)?;
 
             awkernel_lib::delay::wait_millisec(10);
 
-            let ctrl_ext = ctrl_ext | super::CTRL_EXT_SDP4_DATA;
+            let ctrl_ext = ctrl_ext | CTRL_EXT_SDP4_DATA;
 
-            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+            write_reg(info, CTRL_EXT, ctrl_ext)?;
             write_flush(info)?;
         }
 
@@ -2197,40 +1788,40 @@ impl IgbHw {
                 self.mac_type,
                 EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
             ) {
-            super::FEXTNVM_SW_CONFIG_ICH8M
+            FEXTNVM_SW_CONFIG_ICH8M
         } else {
-            super::FEXTNVM_SW_CONFIG
+            FEXTNVM_SW_CONFIG
         };
 
-        let reg_data = read_reg(info, super::FEXTNVM)?;
+        let reg_data = read_reg(info, FEXTNVM)?;
         if reg_data & sw_cfg_mask == 0 {
             return Ok(());
         }
 
         // Wait for basic configuration completes before proceeding
         for _ in 0..50 {
-            let reg_data = read_reg(info, super::STATUS)?;
+            let reg_data = read_reg(info, STATUS)?;
             awkernel_lib::delay::wait_microsec(100);
-            if reg_data & super::STATUS_LAN_INIT_DONE != 0 {
+            if reg_data & STATUS_LAN_INIT_DONE != 0 {
                 break;
             }
         }
 
         // Clear the Init Done bit for the next init event
-        let reg_data = read_reg(info, super::STATUS)?;
-        let reg_data = reg_data & !super::STATUS_LAN_INIT_DONE;
-        write_reg(info, super::STATUS, reg_data)?;
+        let reg_data = read_reg(info, STATUS)?;
+        let reg_data = reg_data & !STATUS_LAN_INIT_DONE;
+        write_reg(info, STATUS, reg_data)?;
 
         // Make sure HW does not configure LCD from PHY extended
         // configuration before SW configuration
-        let reg_data = read_reg(info, super::EXTCNF_CTRL)?;
-        if reg_data & super::EXTCNF_CTRL_LCD_WRITE_ENABLE == 0 {
-            let reg_data = read_reg(info, super::EXTCNF_SIZE)?;
-            let cnf_size = reg_data & super::EXTCNF_SIZE_EXT_PCIE_LENGTH;
+        let reg_data = read_reg(info, EXTCNF_CTRL)?;
+        if reg_data & EXTCNF_CTRL_LCD_WRITE_ENABLE == 0 {
+            let reg_data = read_reg(info, EXTCNF_SIZE)?;
+            let cnf_size = reg_data & EXTCNF_SIZE_EXT_PCIE_LENGTH;
             let cnf_size = cnf_size >> 16;
             if cnf_size != 0 {
-                let reg_data = read_reg(info, super::EXTCNF_CTRL)?;
-                let cnf_base_addr = reg_data & super::EXTCNF_CTRL_EXT_CNF_POINTER;
+                let reg_data = read_reg(info, EXTCNF_CTRL)?;
+                let cnf_base_addr = reg_data & EXTCNF_CTRL_EXT_CNF_POINTER;
                 // cnf_base_addr is in DWORD
                 let cnf_base_addr = cnf_base_addr >> 16;
 
@@ -2409,10 +2000,10 @@ impl IgbHw {
         for d in data.iter_mut() {
             let eerd = ((offset + 1) << EEPROM_RW_ADDR_SHIFT) + EEPROM_RW_REG_START;
 
-            write_reg(info, super::EERD, eerd)?;
+            write_reg(info, EERD, eerd)?;
             self.poll_eerd_eewr_done(info, EEPROM_POLL_READ)?;
 
-            *d = (read_reg(info, super::EERD)? >> EEPROM_RW_REG_DATA) as u16;
+            *d = (read_reg(info, EERD)? >> EEPROM_RW_REG_DATA) as u16;
         }
 
         Ok(())
@@ -2423,9 +2014,9 @@ impl IgbHw {
         let attempts = 100000;
         for _ in 0..attempts {
             let reg = if eerd == EEPROM_POLL_READ {
-                read_reg(info, super::EERD)?
+                read_reg(info, EERD)?
             } else {
-                read_reg(info, super::EEWR)?
+                read_reg(info, EEWR)?
             };
 
             if reg & EEPROM_RW_REG_DONE != 0 {
@@ -2559,9 +2150,9 @@ impl IgbHw {
                 return Err(IgbDriverErr::EEPROM);
             }
             EmIch8lan | EmIch9lan => {
-                let eecd = read_reg(info, super::EECD)?;
-                if (eecd & E1000_EECD_SEC1VAL_VALID_MASK) == E1000_EECD_SEC1VAL_VALID_MASK {
-                    if eecd & E1000_EECD_SEC1VAL != 0 {
+                let eecd = read_reg(info, EECD)?;
+                if (eecd & EECD_SEC1VAL_VALID_MASK) == EECD_SEC1VAL_VALID_MASK {
+                    if eecd & EECD_SEC1VAL != 0 {
                         return Ok(1);
                     } else {
                         return Ok(0);
@@ -3002,30 +2593,30 @@ impl IgbHw {
 
     /// Returns EEPROM to a "standby" state
     fn standby_eeprom(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        let mut eecd = read_reg(info, super::EECD)?;
+        let mut eecd = read_reg(info, EECD)?;
 
         match self.eeprom.eeprom_type {
             EEPROMType::Microwire => {
-                eecd &= !(E1000_EECD_CS | E1000_EECD_SK);
-                write_reg(info, super::EECD, eecd)?;
+                eecd &= !(EECD_CS | EECD_SK);
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
                 // Clock high
-                eecd |= E1000_EECD_SK;
-                write_reg(info, super::EECD, eecd)?;
+                eecd |= EECD_SK;
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
                 // Select EEPROM
-                eecd |= E1000_EECD_CS;
-                write_reg(info, super::EECD, eecd)?;
+                eecd |= EECD_CS;
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
                 // Clock low
-                eecd &= !E1000_EECD_SK;
-                write_reg(info, super::EECD, eecd)?;
+                eecd &= !EECD_SK;
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
@@ -3033,13 +2624,13 @@ impl IgbHw {
             }
             EEPROMType::SPI => {
                 // Toggle CS to flush commands
-                eecd |= E1000_EECD_CS;
-                write_reg(info, super::EECD, eecd)?;
+                eecd |= EECD_CS;
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
-                eecd &= !E1000_EECD_CS;
-                write_reg(info, super::EECD, eecd)?;
+                eecd &= !EECD_CS;
+                write_reg(info, EECD, eecd)?;
                 write_flush(info)?;
                 awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
@@ -3060,13 +2651,13 @@ impl IgbHw {
         // "data" parameter will be shifted out to the EEPROM one bit at a
         // time. In order to do this, "data" must be broken down into bits.
         let mut mask = 1 << (count - 1);
-        let mut eecd = read_reg(info, super::EECD)?;
+        let mut eecd = read_reg(info, EECD)?;
         match self.eeprom.eeprom_type {
             EEPROMType::Microwire => {
-                eecd &= !E1000_EECD_DO;
+                eecd &= !EECD_DO;
             }
             EEPROMType::SPI => {
-                eecd |= E1000_EECD_DO;
+                eecd |= EECD_DO;
             }
             _ => (),
         }
@@ -3077,13 +2668,13 @@ impl IgbHw {
             // SK bit controls the clock input to the EEPROM).  A "0" is
             // shifted out to the EEPROM by setting "DI" to "0" and then
             // raising and then lowering the clock.
-            eecd &= !E1000_EECD_DI;
+            eecd &= !EECD_DI;
 
             if data & mask != 0 {
-                eecd |= E1000_EECD_DI;
+                eecd |= EECD_DI;
             }
 
-            write_reg(info, super::EECD, eecd)?;
+            write_reg(info, EECD, eecd)?;
             write_flush(info)?;
 
             awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
@@ -3099,8 +2690,8 @@ impl IgbHw {
         }
 
         // We leave the "DI" bit set to "0" when we leave this routine.
-        eecd &= !E1000_EECD_DI;
-        write_reg(info, super::EECD, eecd)?;
+        eecd &= !EECD_DI;
+        write_reg(info, EECD, eecd)?;
 
         Ok(())
     }
@@ -3113,18 +2704,18 @@ impl IgbHw {
         // reading the value of the "DO" bit.  During this "shifting in"
         // process the "DI" bit should always be clear.
 
-        let eecd = read_reg(info, super::EECD)?;
-        let mut eecd = eecd & !(E1000_EECD_DO | E1000_EECD_DI);
+        let eecd = read_reg(info, EECD)?;
+        let mut eecd = eecd & !(EECD_DO | EECD_DI);
 
         let mut data = 0;
         for _ in 0..count {
             data <<= 1;
             self.raise_ee_clk(info, &mut eecd)?;
 
-            eecd = read_reg(info, super::EECD)?;
-            eecd &= !(E1000_EECD_DI);
+            eecd = read_reg(info, EECD)?;
+            eecd &= !(EECD_DI);
 
-            if eecd & E1000_EECD_DO != 0 {
+            if eecd & EECD_DO != 0 {
                 data |= 1;
             }
 
@@ -3138,8 +2729,8 @@ impl IgbHw {
     fn lower_ee_clk(&mut self, info: &PCIeInfo, eecd: &mut u32) -> Result<(), IgbDriverErr> {
         // Lower the clock input to the EEPROM (by clearing the SK bit), and
         // then wait 50 microseconds.
-        *eecd &= !E1000_EECD_SK;
-        write_reg(info, super::EECD, *eecd)?;
+        *eecd &= !EECD_SK;
+        write_reg(info, EECD, *eecd)?;
         write_flush(info)?;
         awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
@@ -3150,8 +2741,8 @@ impl IgbHw {
     fn raise_ee_clk(&mut self, info: &PCIeInfo, eecd: &mut u32) -> Result<(), IgbDriverErr> {
         // Raise the clock input to the EEPROM (by setting the SK bit), and
         // then wait <delay> microseconds.
-        *eecd |= E1000_EECD_SK;
-        write_reg(info, super::EECD, *eecd)?;
+        *eecd |= EECD_SK;
+        write_reg(info, EECD, *eecd)?;
         write_flush(info)?;
         awkernel_lib::delay::wait_microsec(self.eeprom.delay_usec as u64);
 
@@ -3220,25 +2811,25 @@ impl IgbHw {
         use MacType::*;
 
         self.swfw_sync_mut(info, SWFW_EEP_SM, move |hw| {
-            let eecd = read_reg(info, super::EECD)?;
+            let eecd = read_reg(info, EECD)?;
 
             // !!(!A && !B) == !(A || B)
 
             if !matches!(hw.mac_type, Em82573 | Em82574) {
                 // Request EEPROM Access
                 if hw.mac_type.clone() as u32 > Em82544 as u32 {
-                    write_reg(info, super::EECD, eecd | E1000_EECD_REQ)?;
-                    let mut eecd = read_reg(info, super::EECD)?;
+                    write_reg(info, EECD, eecd | EECD_REQ)?;
+                    let mut eecd = read_reg(info, EECD)?;
                     let mut i = 0;
 
-                    while eecd & E1000_EECD_GNT == 0 && i < E1000_EEPROM_GRANT_ATTEMPTS {
+                    while eecd & EECD_GNT == 0 && i < EEPROM_GRANT_ATTEMPTS {
                         i += 1;
                         awkernel_lib::delay::wait_microsec(5);
-                        eecd = read_reg(info, super::EECD)?;
+                        eecd = read_reg(info, EECD)?;
                     }
 
-                    if eecd & E1000_EECD_GNT == 0 {
-                        write_reg(info, super::EECD, eecd & !E1000_EECD_REQ)?;
+                    if eecd & EECD_GNT == 0 {
+                        write_reg(info, EECD, eecd & !EECD_REQ)?;
                         log::warn!("igb: Could not acquire EEPROM grant");
                         return Err(IgbDriverErr::EEPROM);
                     }
@@ -3248,20 +2839,20 @@ impl IgbHw {
             // Setup EEPROM for Read/Write
             match hw.eeprom.eeprom_type {
                 EEPROMType::Microwire => {
-                    let eecd = read_reg(info, super::EECD)?;
-                    let eecd = eecd & !(E1000_EECD_DI | E1000_EECD_SK);
+                    let eecd = read_reg(info, EECD)?;
+                    let eecd = eecd & !(EECD_DI | EECD_SK);
                     // Clear SK and DI
-                    write_reg(info, super::EECD, eecd)?;
+                    write_reg(info, EECD, eecd)?;
 
                     // Set CS
-                    let eecd = eecd | E1000_EECD_CS;
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = eecd | EECD_CS;
+                    write_reg(info, EECD, eecd)?;
                 }
                 EEPROMType::SPI => {
                     // Clear SK and CS
-                    let eecd = read_reg(info, super::EECD)?;
-                    let eecd = eecd & !(E1000_EECD_CS | E1000_EECD_SK);
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = read_reg(info, EECD)?;
+                    let eecd = eecd & !(EECD_CS | EECD_SK);
+                    write_reg(info, EECD, eecd)?;
                     awkernel_lib::delay::wait_microsec(1);
                 }
                 _ => (),
@@ -3270,30 +2861,30 @@ impl IgbHw {
             let result = f(hw);
 
             // release eeprom
-            let eecd = read_reg(info, super::EECD)?;
+            let eecd = read_reg(info, EECD)?;
 
             match hw.eeprom.eeprom_type {
                 EEPROMType::SPI => {
-                    let eecd = eecd | E1000_EECD_CS; // Pull CS high
-                    let eecd = eecd & !E1000_EECD_SK; // Lower SCK
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = eecd | EECD_CS; // Pull CS high
+                    let eecd = eecd & !EECD_SK; // Lower SCK
+                    write_reg(info, EECD, eecd)?;
                     awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
                 }
                 EEPROMType::Microwire => {
                     // cleanup eeprom
                     // CS on Microwire is active-high
-                    let eecd = eecd & !(E1000_EECD_CS | E1000_EECD_DI);
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = eecd & !(EECD_CS | EECD_DI);
+                    write_reg(info, EECD, eecd)?;
 
                     // Rising edge of clock
-                    let eecd = eecd | E1000_EECD_SK;
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = eecd | EECD_SK;
+                    write_reg(info, EECD, eecd)?;
                     write_flush(info)?;
                     awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
 
                     // Falling edge of clock
-                    let eecd = eecd & !E1000_EECD_SK;
-                    write_reg(info, super::EECD, eecd)?;
+                    let eecd = eecd & !EECD_SK;
+                    write_reg(info, EECD, eecd)?;
                     write_flush(info)?;
                     awkernel_lib::delay::wait_microsec(hw.eeprom.delay_usec as u64);
                 }
@@ -3302,9 +2893,9 @@ impl IgbHw {
 
             // Stop requesting EEPROM access
             if hw.mac_type.clone() as u32 > Em82544 as u32 {
-                let eecd = read_reg(info, super::EECD)?;
-                let eecd = eecd & !E1000_EECD_REQ;
-                write_reg(info, super::EECD, eecd)?;
+                let eecd = read_reg(info, EECD)?;
+                let eecd = eecd & !EECD_REQ;
+                write_reg(info, EECD, eecd)?;
             }
 
             result
@@ -3336,7 +2927,7 @@ impl IgbHw {
             let mut timeout = PHY_CFG_TIMEOUT;
 
             while timeout > 0 {
-                if read_reg(info, super::EEMNGCTL)? & cfg_mask != 0 {
+                if read_reg(info, EEMNGCTL)? & cfg_mask != 0 {
                     break;
                 } else {
                     awkernel_lib::delay::wait_millisec(1);
@@ -3543,7 +3134,7 @@ impl IgbHw {
         }
 
         let swfw = if matches!(self.mac_type, Em80003es2lan | Em82575 | Em82576)
-            && read_reg(info, super::STATUS)? & super::STATUS_FUNC_1 != 0
+            && read_reg(info, STATUS)? & STATUS_FUNC_1 != 0
         {
             SWFW_PHY1_SM
         } else {
@@ -3785,7 +3376,7 @@ impl IgbHw {
     ) -> Result<(), IgbDriverErr> {
         // SGMII active is only set on some specific chips
         if self.sgmii_active && !self.sgmii_uses_mdio_82575(info)? {
-            if reg_addr > super::MAX_SGMII_PHY_REG_ADDR {
+            if reg_addr > MAX_SGMII_PHY_REG_ADDR {
                 return Err(IgbDriverErr::Param);
             }
             return self.write_phy_reg_i2c(info, reg_addr, phy_data);
@@ -3806,23 +3397,23 @@ impl IgbHw {
             // the desired data.
 
             let mdic = ((phy_data as u32)
-                | (reg_addr << super::MDIC_REG_SHIFT)
-                | (self.phy_addr << super::MDIC_PHY_SHIFT)
-                | (super::MDIC_OP_WRITE)) as u32;
+                | (reg_addr << MDIC_REG_SHIFT)
+                | (self.phy_addr << MDIC_PHY_SHIFT)
+                | (MDIC_OP_WRITE)) as u32;
 
-            write_reg(info, super::MDIC, mdic)?;
+            write_reg(info, MDIC, mdic)?;
 
             // Poll the ready bit to see if the MDI read completed
             let mut mdic = 0;
             for _ in 0..641 {
                 awkernel_lib::delay::wait_microsec(5);
-                mdic = read_reg(info, super::MDIC)?;
-                if mdic & super::MDIC_READY != 0 {
+                mdic = read_reg(info, MDIC)?;
+                if mdic & MDIC_READY != 0 {
                     break;
                 }
             }
 
-            if mdic & super::MDIC_READY == 0 {
+            if mdic & MDIC_READY == 0 {
                 return Err(IgbDriverErr::Phy);
             }
 
@@ -3851,12 +3442,12 @@ impl IgbHw {
     fn sgmii_uses_mdio_82575(&self, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
         match self.mac_type {
             MacType::Em82575 | MacType::Em82576 => {
-                let reg = read_reg(info, super::MDIC)?;
-                Ok(reg & super::MDIC_DEST != 0)
+                let reg = read_reg(info, MDIC)?;
+                Ok(reg & MDIC_DEST != 0)
             }
             MacType::Em82580 | MacType::EmI350 | MacType::EmI210 => {
-                let reg = read_reg(info, super::MDICNFG)?;
-                Ok(reg & super::MDICNFG_EXT_MDIO != 0)
+                let reg = read_reg(info, MDICNFG)?;
+                Ok(reg & MDICNFG_EXT_MDIO != 0)
             }
             _ => Ok(false),
         }
@@ -3882,29 +3473,29 @@ impl IgbHw {
         // Set up Op-code, Phy Address, and register address in the I2CCMD
         // register.  The MAC will take care of interfacing with the
         // PHY to retrieve the desired data.
-        let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT)
-            | (self.phy_addr << super::I2CCMD_PHY_ADDR_SHIFT)
-            | super::I2CCMD_OPCODE_WRITE
+        let i2ccmd = (offset << I2CCMD_REG_ADDR_SHIFT)
+            | (self.phy_addr << I2CCMD_PHY_ADDR_SHIFT)
+            | I2CCMD_OPCODE_WRITE
             | phy_data_swapped as u32;
 
-        write_reg(info, super::I2CCMD, i2ccmd)?;
+        write_reg(info, I2CCMD, i2ccmd)?;
 
         // Poll the ready bit to see if the I2C read completed
         let mut i2ccmd = 0;
-        for _ in 0..super::I2CCMD_PHY_TIMEOUT {
+        for _ in 0..I2CCMD_PHY_TIMEOUT {
             awkernel_lib::delay::wait_microsec(50);
-            i2ccmd = read_reg(info, super::I2CCMD)?;
-            if i2ccmd & super::I2CCMD_READY != 0 {
+            i2ccmd = read_reg(info, I2CCMD)?;
+            if i2ccmd & I2CCMD_READY != 0 {
                 break;
             }
         }
 
-        if i2ccmd & super::I2CCMD_READY == 0 {
+        if i2ccmd & I2CCMD_READY == 0 {
             log::warn!("igb: I2CCMD Write did not complete.");
             return Err(IgbDriverErr::Phy);
         }
 
-        if i2ccmd & super::I2CCMD_ERROR != 0 {
+        if i2ccmd & I2CCMD_ERROR != 0 {
             log::warn!("igb: I2CCMD Error bit set.");
             return Err(IgbDriverErr::Phy);
         }
@@ -3920,28 +3511,28 @@ impl IgbHw {
         // Set up Op-code, Phy Address, and register address in the I2CCMD
         // register. The MAC will take care of interfacing with the
         // PHY to retrieve the desired data.
-        let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT)
-            | (self.phy_addr << super::I2CCMD_PHY_ADDR_SHIFT)
-            | super::I2CCMD_OPCODE_READ;
+        let i2ccmd = (offset << I2CCMD_REG_ADDR_SHIFT)
+            | (self.phy_addr << I2CCMD_PHY_ADDR_SHIFT)
+            | I2CCMD_OPCODE_READ;
 
-        write_reg(info, super::I2CCMD, i2ccmd)?;
+        write_reg(info, I2CCMD, i2ccmd)?;
 
         // Poll the ready bit to see if the I2C read completed
         let mut i2ccmd = 0;
-        for _ in 0..super::I2CCMD_PHY_TIMEOUT {
+        for _ in 0..I2CCMD_PHY_TIMEOUT {
             awkernel_lib::delay::wait_microsec(50);
-            i2ccmd = read_reg(info, super::I2CCMD)?;
-            if i2ccmd & super::I2CCMD_READY != 0 {
+            i2ccmd = read_reg(info, I2CCMD)?;
+            if i2ccmd & I2CCMD_READY != 0 {
                 break;
             }
         }
 
-        if i2ccmd & super::I2CCMD_READY == 0 {
+        if i2ccmd & I2CCMD_READY == 0 {
             log::warn!("igb: I2CCMD Read did not complete.");
             return Err(IgbDriverErr::Phy);
         }
 
-        if i2ccmd & super::I2CCMD_ERROR != 0 {
+        if i2ccmd & I2CCMD_ERROR != 0 {
             log::warn!("igb: I2CCMD Error bit set.");
             return Err(IgbDriverErr::Phy);
         }
@@ -3954,7 +3545,7 @@ impl IgbHw {
     fn read_phy_reg_ex(&self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
         // SGMII active is only set on some specific chips
         if self.sgmii_active && !self.sgmii_uses_mdio_82575(info)? {
-            if reg_addr > super::MAX_SGMII_PHY_REG_ADDR {
+            if reg_addr > MAX_SGMII_PHY_REG_ADDR {
                 return Err(IgbDriverErr::Param);
             }
             return self.read_phy_reg_i2c(info, reg_addr);
@@ -3971,28 +3562,28 @@ impl IgbHw {
         if self.mac_type.clone() as usize > MacType::Em82543 as usize {
             // Set up Op-code, Phy Address, and register address in the MDI Control register.
             // The MAC will take care of interfacing with the PHY to retrieve the desired data.
-            let mdic = ((reg_addr << super::MDIC_REG_SHIFT)
-                | (self.phy_addr << super::MDIC_PHY_SHIFT)
-                | (super::MDIC_OP_READ)) as u32;
+            let mdic = ((reg_addr << MDIC_REG_SHIFT)
+                | (self.phy_addr << MDIC_PHY_SHIFT)
+                | (MDIC_OP_READ)) as u32;
 
-            write_reg(info, super::MDIC, mdic)?;
+            write_reg(info, MDIC, mdic)?;
 
             // Poll the ready bit to see if the MDI read completed
             let mut mdic = 0;
             for _ in 0..1960 {
                 awkernel_lib::delay::wait_microsec(50);
-                mdic = read_reg(info, super::MDIC)?;
-                if mdic & super::MDIC_READY != 0 {
+                mdic = read_reg(info, MDIC)?;
+                if mdic & MDIC_READY != 0 {
                     break;
                 }
             }
 
-            if mdic & super::MDIC_READY == 0 {
+            if mdic & MDIC_READY == 0 {
                 log::warn!("igb: MDI Read did not complete.");
                 return Err(IgbDriverErr::Phy);
             }
 
-            if mdic & super::MDIC_ERROR != 0 {
+            if mdic & MDIC_ERROR != 0 {
                 log::warn!("igb: MDI Error bit set.");
                 return Err(IgbDriverErr::Phy);
             }
@@ -4045,7 +3636,7 @@ impl IgbHw {
                 return Err(IgbDriverErr::SwfwSync);
             }
 
-            swfw_sync = read_reg(info, super::SW_FW_SYNC)?;
+            swfw_sync = read_reg(info, SW_FW_SYNC)?;
 
             if swfw_sync & (fwmask | swmask) != 0 {
                 break;
@@ -4062,7 +3653,7 @@ impl IgbHw {
         }
 
         swfw_sync |= swmask;
-        write_reg(info, super::SW_FW_SYNC, swfw_sync)?;
+        write_reg(info, SW_FW_SYNC, swfw_sync)?;
 
         self.put_hw_eeprom_semaphore(info)?;
 
@@ -4080,9 +3671,9 @@ impl IgbHw {
 
         while self.get_hw_eeprom_semaphore(info).is_err() {}
 
-        let swfw_sync = read_reg(info, super::SW_FW_SYNC)?;
+        let swfw_sync = read_reg(info, SW_FW_SYNC)?;
         let swfw_sync = swfw_sync & !(mask as u32);
-        write_reg(info, super::SW_FW_SYNC, swfw_sync)?;
+        write_reg(info, SW_FW_SYNC, swfw_sync)?;
 
         self.put_hw_eeprom_semaphore(info)
     }
@@ -4103,12 +3694,12 @@ impl IgbHw {
         let mut timeout = self.eeprom.word_size + 1;
 
         while timeout > 0 {
-            let swsm = read_reg(info, super::SWSM)? | super::SWSM_SWESMBI;
-            write_reg(info, super::SWSM, swsm)?;
+            let swsm = read_reg(info, SWSM)? | SWSM_SWESMBI;
+            write_reg(info, SWSM, swsm)?;
 
             // If we managed to set the bit we got the semaphore.
-            let swsm = read_reg(info, super::SWSM)?;
-            if swsm & super::SWSM_SWESMBI != 0 {
+            let swsm = read_reg(info, SWSM)?;
+            if swsm & SWSM_SWESMBI != 0 {
                 break;
             }
 
@@ -4131,16 +3722,12 @@ impl IgbHw {
             return Ok(());
         }
 
-        let swsm = read_reg(info, super::SWSM)?;
+        let swsm = read_reg(info, SWSM)?;
         if matches!(self.mac_type, MacType::Em80003es2lan) {
             // Release both semaphores.
-            write_reg(
-                info,
-                super::SWSM,
-                swsm & !(super::SWSM_SMBI | super::SWSM_SWESMBI),
-            )?;
+            write_reg(info, SWSM, swsm & !(SWSM_SMBI | SWSM_SWESMBI))?;
         } else {
-            write_reg(info, super::SWSM, swsm & !(super::SWSM_SWESMBI))?;
+            write_reg(info, SWSM, swsm & !(SWSM_SWESMBI))?;
         };
 
         Ok(())
@@ -4152,11 +3739,11 @@ impl IgbHw {
             return Ok(());
         }
 
-        let swsm = read_reg(info, super::SWSM)?;
+        let swsm = read_reg(info, SWSM)?;
 
         // Release the SW semaphores.
-        let swsm = swsm & !super::SWSM_SMBI;
-        write_reg(info, super::SWSM, swsm)?;
+        let swsm = swsm & !SWSM_SMBI;
+        write_reg(info, SWSM, swsm)?;
 
         Ok(())
     }
@@ -4169,10 +3756,10 @@ impl IgbHw {
 
         let mut timeout = self.eeprom.word_size + 1;
         while timeout > 0 {
-            let swsm = read_reg(info, super::SWSM)?;
+            let swsm = read_reg(info, SWSM)?;
 
             // If SMBI bit cleared, it is now set and we hold the semaphore
-            if swsm & super::SWSM_SMBI == 0 {
+            if swsm & SWSM_SMBI == 0 {
                 break;
             }
 
@@ -4213,9 +3800,9 @@ impl IgbHw {
 
             let mut extcnf_ctrl = 0;
             while timeout > 0 {
-                extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
+                extcnf_ctrl = read_reg(info, EXTCNF_CTRL)?;
 
-                if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG == 0 {
+                if extcnf_ctrl & EXTCNF_CTRL_SWFLAG == 0 {
                     break;
                 }
 
@@ -4229,13 +3816,13 @@ impl IgbHw {
             }
 
             timeout = SW_FLAG_TIMEOUT;
-            extcnf_ctrl |= super::EXTCNF_CTRL_SWFLAG;
-            write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+            extcnf_ctrl |= EXTCNF_CTRL_SWFLAG;
+            write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
 
             while timeout > 0 {
-                extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
+                extcnf_ctrl = read_reg(info, EXTCNF_CTRL)?;
 
-                if extcnf_ctrl & super::EXTCNF_CTRL_SWFLAG != 0 {
+                if extcnf_ctrl & EXTCNF_CTRL_SWFLAG != 0 {
                     break;
                 }
 
@@ -4245,8 +3832,8 @@ impl IgbHw {
 
             if timeout == 0 {
                 log::warn!("igb: Failed to acquire the semaphore, FW or HW has it.");
-                extcnf_ctrl &= !super::EXTCNF_CTRL_SWFLAG;
-                write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+                extcnf_ctrl &= !EXTCNF_CTRL_SWFLAG;
+                write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
                 return Err(IgbDriverErr::Config);
             }
         }
@@ -4265,10 +3852,10 @@ impl IgbHw {
             let mut blocked = true;
 
             while blocked && i < 30 {
-                let fwsm = read_reg(info, super::FWSM)?;
+                let fwsm = read_reg(info, FWSM)?;
                 i += 1;
 
-                if (fwsm & super::FWSM_RSPCIPHY) == 0 {
+                if (fwsm & FWSM_RSPCIPHY) == 0 {
                     blocked = true;
                     awkernel_lib::delay::wait_millisec(10);
                 } else {
@@ -4284,12 +3871,12 @@ impl IgbHw {
         }
 
         let manc = if self.mac_type.clone() as u32 > MacType::Em82547Rev2 as u32 {
-            read_reg(info, super::MANC)?
+            read_reg(info, MANC)?
         } else {
             0
         };
 
-        if manc & super::MANC_BLK_PHY_RST_ON_IDE != 0 {
+        if manc & MANC_BLK_PHY_RST_ON_IDE != 0 {
             Err(IgbDriverErr::PhyReset)
         } else {
             Ok(())
@@ -4306,15 +3893,15 @@ impl IgbHw {
             return Ok(());
         }
 
-        let mut extcnf_ctrl = read_reg(info, super::EXTCNF_CTRL)?;
+        let mut extcnf_ctrl = read_reg(info, EXTCNF_CTRL)?;
 
         if gate {
-            extcnf_ctrl |= super::EXTCNF_CTRL_GATE_PHY_CFG
+            extcnf_ctrl |= EXTCNF_CTRL_GATE_PHY_CFG
         } else {
-            extcnf_ctrl &= !super::EXTCNF_CTRL_GATE_PHY_CFG;
+            extcnf_ctrl &= !EXTCNF_CTRL_GATE_PHY_CFG;
         }
 
-        write_reg(info, super::EXTCNF_CTRL, extcnf_ctrl)?;
+        write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
 
         Ok(())
     }
@@ -4328,20 +3915,20 @@ const MASTER_DISABLE_TIMEOUT: u32 = 800;
 /// increase the value to either 10ms to 200ms for capability version 1 config,
 /// or 16ms to 55ms for version 2.
 fn set_pciex_completion_timeout(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    let mut gcr = read_reg(info, super::GCR)?;
+    let mut gcr = read_reg(info, GCR)?;
 
     // Only take action if timeout value is not set by system BIOS
     //
     // If capabilities version is type 1 we can write the
     // timeout of 10ms to 200ms through the GCR register
-    if gcr & super::GCR_CMPL_TMOUT_MASK == 0 && gcr & super::GCR_CAP_VER2 != 0 {
-        gcr |= super::GCR_CMPL_TMOUT_10_MS;
+    if gcr & GCR_CMPL_TMOUT_MASK == 0 && gcr & GCR_CAP_VER2 != 0 {
+        gcr |= GCR_CMPL_TMOUT_10_MS;
     }
 
     // Disable completion timeout resend
-    gcr &= super::GCR_CMPL_TMOUT_RESEND;
+    gcr &= GCR_CMPL_TMOUT_RESEND;
 
-    write_reg(info, super::GCR, gcr)?;
+    write_reg(info, GCR, gcr)?;
 
     Ok(())
 }
@@ -4351,7 +3938,7 @@ fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     set_pcie_express_master_disable(info)?;
 
     for _ in 0..MASTER_DISABLE_TIMEOUT {
-        if read_reg(info, super::CTRL)? & super::CTRL_GIO_MASTER_DISABLE != 0 {
+        if read_reg(info, CTRL)? & CTRL_GIO_MASTER_DISABLE != 0 {
             return Ok(());
         }
     }
@@ -4361,8 +3948,8 @@ fn disable_pciex_master(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
 
 /// https://github.com/openbsd/src/blob/da407c5b03f3f213fdfa21192733861c3bdeeb5f/sys/dev/pci/if_em_hw.c#L9533
 fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-    let ctrl = read_reg(info, super::CTRL)?;
-    write_reg(info, super::CTRL, ctrl | super::CTRL_GIO_MASTER_DISABLE)?;
+    let ctrl = read_reg(info, CTRL)?;
+    write_reg(info, CTRL, ctrl | CTRL_GIO_MASTER_DISABLE)?;
 
     Ok(())
 }
@@ -4388,42 +3975,6 @@ struct EEPROM {
     use_eewr: bool,
 }
 
-/* EEPROM/Flash Control */
-const E1000_EECD_SK: u32 = 0x00000001; /* EEPROM Clock */
-const E1000_EECD_CS: u32 = 0x00000002; /* EEPROM Chip Select */
-const E1000_EECD_DI: u32 = 0x00000004; /* EEPROM Data In */
-const E1000_EECD_DO: u32 = 0x00000008; /* EEPROM Data Out */
-const E1000_EECD_FWE_MASK: u32 = 0x00000030;
-const E1000_EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
-const E1000_EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
-const E1000_EECD_FWE_SHIFT: u32 = 4;
-const E1000_EECD_REQ: u32 = 0x00000040; /* EEPROM Access Request */
-const E1000_EECD_GNT: u32 = 0x00000080; /* EEPROM Access Grant */
-const E1000_EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
-const E1000_EECD_SIZE: u32 = 0x00000200; // EEPROM Size (0=64 word 1=256 word)
-const E1000_EECD_ADDR_BITS: u32 = 0x00000400; // EEPROM Addressing bits based on type
-const E1000_EECD_TYPE: u32 = 0x00002000;
-const E1000_EECD_AUTO_RD: u32 = 0x00000200; /* EEPROM Auto Read done */
-const E1000_EECD_SIZE_EX_MASK: u32 = 0x00007800;
-const E1000_EECD_SIZE_EX_SHIFT: u32 = 11;
-const E1000_EECD_FLUPD: u32 = 0x00080000;
-const E1000_EECD_AUPDEN: u32 = 0x00100000;
-const E1000_EECD_SHADV: u32 = 0x00200000; /* Shadow RAM Data Valid */
-const E1000_EECD_SEC1VAL: u32 = 0x00400000; /* Sector One Valid */
-const E1000_EECD_SEC1VAL_VALID_MASK: u32 = E1000_EECD_AUTO_RD | E1000_EECD_PRES;
-const E1000_EECD_SECVAL_SHIFT: u32 = 22;
-const E1000_STM_OPCODE: u32 = 0xDB00;
-const E1000_HICR_FW_RESET: u32 = 0xC0;
-
-const E1000_EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
-
-const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
-const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
-
-const E1000_SHADOW_RAM_WORDS: u16 = 2048;
-
-const INVM_SIZE: u16 = 64;
-
 impl EEPROM {
     /// Return `(EEPROM, flash_base_address, flash_bank_size)`.
     ///
@@ -4436,7 +3987,7 @@ impl EEPROM {
         use MacType::*;
 
         let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-        let eecd = bar0.read32(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
+        let eecd = bar0.read32(EECD).ok_or(IgbDriverErr::ReadFailure)?;
 
         let mut result = match mac_type {
             Em82542Rev2_0 | Em82542Rev2_1 | Em82543 | Em82544 => (
@@ -4454,7 +4005,7 @@ impl EEPROM {
                 None,
             ),
             Em82540 | Em82545 | Em82545Rev3 | Em82546 | Em82546Rev3 => {
-                let (word_size, address_bits) = if eecd & E1000_EECD_SIZE != 0 {
+                let (word_size, address_bits) = if eecd & EECD_SIZE != 0 {
                     (256, 8)
                 } else {
                     (64, 6)
@@ -4476,8 +4027,8 @@ impl EEPROM {
                 )
             }
             Em82541 | Em82541Rev2 | Em82547 | Em82547Rev2 => {
-                if eecd & E1000_EECD_TYPE != 0 {
-                    let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
+                if eecd & EECD_TYPE != 0 {
+                    let (page_size, address_bits) = if eecd & EECD_ADDR_BITS != 0 {
                         (32, 16)
                     } else {
                         (8, 8)
@@ -4498,7 +4049,7 @@ impl EEPROM {
                         None,
                     )
                 } else {
-                    let (word_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
+                    let (word_size, address_bits) = if eecd & EECD_ADDR_BITS != 0 {
                         (256, 8)
                     } else {
                         (64, 6)
@@ -4521,7 +4072,7 @@ impl EEPROM {
                 }
             }
             Em82571 | Em82572 => {
-                let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
+                let (page_size, address_bits) = if eecd & EECD_ADDR_BITS != 0 {
                     (32, 16)
                 } else {
                     (8, 8)
@@ -4543,7 +4094,7 @@ impl EEPROM {
                 )
             }
             Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | EmI210 | EmI350 => {
-                let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
+                let (page_size, address_bits) = if eecd & EECD_ADDR_BITS != 0 {
                     (32, 16)
                 } else {
                     (8, 8)
@@ -4553,8 +4104,8 @@ impl EEPROM {
                     if !get_flash_presence_i210(mac_type, info)? {
                         (EEPROMType::Invm, INVM_SIZE, false, false)
                     } else if !is_onboard_nvm_eeprom(mac_type, info)? {
-                        let eecd = eecd & !E1000_EECD_AUPDEN;
-                        bar0.write32(super::EECD, eecd);
+                        let eecd = eecd & !EECD_AUPDEN;
+                        bar0.write32(EECD, eecd);
 
                         (EEPROMType::Flash, 2048, true, true)
                     } else {
@@ -4578,7 +4129,7 @@ impl EEPROM {
                 )
             }
             Em80003es2lan => {
-                let (page_size, address_bits) = if eecd & E1000_EECD_ADDR_BITS != 0 {
+                let (page_size, address_bits) = if eecd & EECD_ADDR_BITS != 0 {
                     (32, 16)
                 } else {
                     (8, 8)
@@ -4623,7 +4174,7 @@ impl EEPROM {
                         opcode_bits: 0,
                         delay_usec: 0,
                         page_size: None,
-                        word_size: E1000_SHADOW_RAM_WORDS,
+                        word_size: SHADOW_RAM_WORDS,
                         address_bits: 0,
                         use_eerd: false,
                         use_eewr: false,
@@ -4646,7 +4197,7 @@ impl EEPROM {
                         opcode_bits: 0,
                         delay_usec: 0,
                         page_size: None,
-                        word_size: E1000_SHADOW_RAM_WORDS,
+                        word_size: SHADOW_RAM_WORDS,
                         address_bits: 0,
                         use_eerd: false,
                         use_eewr: false,
@@ -4665,8 +4216,8 @@ impl EEPROM {
                 return Err(IgbDriverErr::NotSupported);
             }
 
-            let eecd = bar0.read32(super::EECD).ok_or(IgbDriverErr::ReadFailure)?;
-            let eeprom_size = (eecd & E1000_EECD_SIZE_EX_MASK) >> E1000_EECD_SIZE_EX_SHIFT;
+            let eecd = bar0.read32(EECD).ok_or(IgbDriverErr::ReadFailure)?;
+            let eeprom_size = (eecd & EECD_SIZE_EX_MASK) >> EECD_SIZE_EX_SHIFT;
 
             // EEPROM access above 16k is unsupported
             if eeprom_size + EEPROM_WORD_SIZE_SHIFT > EEPROM_WORD_SIZE_SHIFT_MAX {
@@ -4688,7 +4239,7 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, Ig
     }
 
     if matches!(mac_type, Em82573 | Em82574) {
-        let eecd = read_reg(info, super::EECD)?;
+        let eecd = read_reg(info, EECD)?;
 
         // Isolate bits 15 & 16
         let eecd = (eecd >> 15) & 0x03;
@@ -4707,9 +4258,9 @@ fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, 
         return Ok(true);
     }
 
-    let eecd = read_reg(info, super::EECD)?;
+    let eecd = read_reg(info, EECD)?;
 
-    if eecd & E1000_EECD_FLUPD != 0 {
+    if eecd & EECD_FLUPD != 0 {
         Ok(true)
     } else {
         Ok(false)
@@ -4734,26 +4285,26 @@ fn set_media_type(
 
     if matches!(mac_type, Em82575 | Em82580 | Em82576 | EmI210 | EmI350) {
         let mut media_type = MediaType::Copper;
-        let mut ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-        let mode = ctrl_ext & super::CTRL_EXT_LINK_MODE_MASK;
+        let mut ctrl_ext = read_reg(info, CTRL_EXT)?;
+        let mode = ctrl_ext & CTRL_EXT_LINK_MODE_MASK;
 
         match mode {
-            super::CTRL_EXT_LINK_MODE_1000BASE_KX => {
+            CTRL_EXT_LINK_MODE_1000BASE_KX => {
                 media_type = MediaType::InternalSerdes;
-                ctrl_ext |= super::CTRL_I2C_ENA;
+                ctrl_ext |= CTRL_I2C_ENA;
             }
-            super::CTRL_EXT_LINK_MODE_SGMII | super::CTRL_EXT_LINK_MODE_PCIE_SERDES => {
-                if mode == super::CTRL_EXT_LINK_MODE_SGMII {
-                    let mdic = read_reg(info, super::MDICNFG)?;
+            CTRL_EXT_LINK_MODE_SGMII | CTRL_EXT_LINK_MODE_PCIE_SERDES => {
+                if mode == CTRL_EXT_LINK_MODE_SGMII {
+                    let mdic = read_reg(info, MDICNFG)?;
 
-                    ctrl_ext |= super::CTRL_I2C_ENA;
+                    ctrl_ext |= CTRL_I2C_ENA;
 
-                    if mdic & super::MDICNFG_EXT_MDIO != 0 {
+                    if mdic & MDICNFG_EXT_MDIO != 0 {
                         sgmii_active = true;
                     }
                 }
 
-                ctrl_ext |= super::CTRL_I2C_ENA;
+                ctrl_ext |= CTRL_I2C_ENA;
 
                 match set_sfp_media_type_82575(info) {
                     Ok((media_type_ret, sgmii_active_ret)) => {
@@ -4763,29 +4314,27 @@ fn set_media_type(
                     _ => {
                         media_type = MediaType::InternalSerdes;
 
-                        if (ctrl_ext & super::CTRL_EXT_LINK_MODE_MASK)
-                            == super::CTRL_EXT_LINK_MODE_SGMII
-                        {
+                        if (ctrl_ext & CTRL_EXT_LINK_MODE_MASK) == CTRL_EXT_LINK_MODE_SGMII {
                             media_type = MediaType::Copper;
                             sgmii_active = true;
                         }
                     }
                 }
 
-                ctrl_ext &= !super::CTRL_EXT_LINK_MODE_MASK;
+                ctrl_ext &= !CTRL_EXT_LINK_MODE_MASK;
 
                 if sgmii_active {
-                    ctrl_ext |= super::CTRL_EXT_LINK_MODE_SGMII;
+                    ctrl_ext |= CTRL_EXT_LINK_MODE_SGMII;
                 } else {
-                    ctrl_ext |= super::CTRL_EXT_LINK_MODE_PCIE_SERDES;
+                    ctrl_ext |= CTRL_EXT_LINK_MODE_PCIE_SERDES;
                 }
             }
             _ => {
-                ctrl_ext &= !super::CTRL_I2C_ENA;
+                ctrl_ext &= !CTRL_I2C_ENA;
             }
         }
 
-        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+        write_reg(info, CTRL_EXT, ctrl_ext)?;
         return Ok((tbi_compatibility_en, media_type, sgmii_active));
     }
 
@@ -4816,9 +4365,9 @@ fn set_media_type(
                 Ok((tbi_compatibility_en, MediaType::Copper, sgmii_active))
             }
             _ => {
-                let status = read_reg(info, super::STATUS)?;
+                let status = read_reg(info, STATUS)?;
 
-                if status & super::STATUS_TBIMODE != 0 {
+                if status & STATUS_TBIMODE != 0 {
                     // tbi_compatibility is not valid on fiber
                     Ok((false, MediaType::Fiber, sgmii_active))
                 } else {
@@ -4847,9 +4396,9 @@ bitflags::bitflags! {
 /// Return `(media_type, sgmii_active)`.
 fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDriverErr> {
     // Turn I2C interface ON and power on sfp cage
-    let ctrl_ext = read_reg(info, super::CTRL_EXT)?;
-    let ctrl_ext = ctrl_ext & !super::CTRL_EXT_SDP3_DATA;
-    write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+    let ctrl_ext = read_reg(info, CTRL_EXT)?;
+    let ctrl_ext = ctrl_ext & !CTRL_EXT_SDP3_DATA;
+    write_reg(info, CTRL_EXT, ctrl_ext)?;
 
     write_flush(info)?;
 
@@ -4857,7 +4406,7 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
     let mut timeout = 3;
     let mut transceiver_type = 0;
     while timeout > 0 {
-        match read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_IDENTIFIER_OFFSET)) {
+        match read_sfp_data_byte(info, i2ccd_sfp_data_addr(SFF_IDENTIFIER_OFFSET)) {
             Ok(val) => {
                 transceiver_type = val;
                 break;
@@ -4870,21 +4419,20 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
     }
 
     if timeout == 0 {
-        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+        write_reg(info, CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     }
 
-    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(super::SFF_ETH_FLAGS_OFFSET))
+    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(SFF_ETH_FLAGS_OFFSET))
     else {
-        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+        write_reg(info, CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     };
 
     let eth_flags = SfpE1000Flags::from_bits_truncate(eth_flags);
 
     // Check if there is some SFP module plugged and powered
-    let result = if transceiver_type == super::SFF_IDENTIFIER_SFP
-        || transceiver_type == super::SFF_IDENTIFIER_SFF
+    let result = if transceiver_type == SFF_IDENTIFIER_SFP || transceiver_type == SFF_IDENTIFIER_SFF
     {
         if eth_flags.contains(SfpE1000Flags::E1000_BASE_LX)
             || eth_flags.contains(SfpE1000Flags::E1000_BASE_SX)
@@ -4897,15 +4445,15 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
         } else if eth_flags.contains(SfpE1000Flags::E1000_BASE_T) {
             (MediaType::Copper, true)
         } else {
-            write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+            write_reg(info, CTRL_EXT, ctrl_ext)?;
             return Err(IgbDriverErr::Config);
         }
     } else {
-        write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+        write_reg(info, CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Config);
     };
 
-    write_reg(info, super::CTRL_EXT, ctrl_ext)?;
+    write_reg(info, CTRL_EXT, ctrl_ext)?;
     Ok(result)
 }
 
@@ -4916,26 +4464,26 @@ fn read_sfp_data_byte(info: &PCIeInfo, offset: u32) -> Result<u8, IgbDriverErr> 
 
     // Set up Op-code, EEPROM Address, in the I2CCMD register.
     // The MAC will take care of interfacing with the EEPROM to retrieve the desired data.
-    let i2ccmd = (offset << super::I2CCMD_REG_ADDR_SHIFT) | super::I2CCMD_OPCODE_READ;
-    write_reg(info, super::I2CCMD, i2ccmd)?;
+    let i2ccmd = (offset << I2CCMD_REG_ADDR_SHIFT) | I2CCMD_OPCODE_READ;
+    write_reg(info, I2CCMD, i2ccmd)?;
 
     let mut data_local = 0;
 
     // Poll the ready bit to see if the I2C read completed
-    for _ in 0..super::I2CCMD_PHY_TIMEOUT {
+    for _ in 0..I2CCMD_PHY_TIMEOUT {
         awkernel_lib::delay::wait_microsec(50);
 
-        data_local = read_reg(info, super::I2CCMD)?;
-        if data_local & super::I2CCMD_READY != 0 {
+        data_local = read_reg(info, I2CCMD)?;
+        if data_local & I2CCMD_READY != 0 {
             break;
         }
     }
 
-    if data_local & super::I2CCMD_READY == 0 {
+    if data_local & I2CCMD_READY == 0 {
         return Err(IgbDriverErr::Phy);
     }
 
-    if data_local & super::I2CCMD_ERROR != 0 {
+    if data_local & I2CCMD_ERROR != 0 {
         return Err(IgbDriverErr::Phy);
     }
 
@@ -4962,8 +4510,7 @@ fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
 #[inline(always)]
 fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    bar0.read32(super::STATUS)
-        .ok_or(IgbDriverErr::ReadFailure)?;
+    bar0.read32(STATUS).ok_or(IgbDriverErr::ReadFailure)?;
     Ok(())
 }
 
