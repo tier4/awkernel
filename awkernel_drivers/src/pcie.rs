@@ -398,6 +398,10 @@ impl PCIeInfo {
         self.msix.as_mut()
     }
 
+    pub fn get_pcie_cap_mut(&mut self) -> Option<&mut capability::pcie_cap::PCIeCap> {
+        self.pcie_cap.as_mut()
+    }
+
     pub fn read_status_command(&self) -> registers::StatusCommand {
         registers::STATUS_COMMAND.read(self.addr)
     }

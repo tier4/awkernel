@@ -1,7 +1,9 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    self, capability::msi::MultipleMessage, BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo,
+    self,
+    capability::{msi::MultipleMessage, pcie_cap},
+    BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
@@ -240,7 +242,7 @@ impl Igb {
 /// routines are called.
 ///
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
-fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+fn hardware_init(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<(), IgbDriverErr> {
     use igb_hw::MacType::*;
 
     if matches!(hw.get_mac_type(), igb_hw::MacType::EmPchSpt) {
@@ -276,10 +278,40 @@ fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDrive
     }
 
     // Disable PCIe Active State Power Management (ASPM)
+    disable_aspm(hw, info);
 
     // TODO
 
     Ok(())
+}
+
+/// Disable the L0S and L1 LINK states.
+fn disable_aspm(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) {
+    use crate::pcie::capability::pcie_cap::registers::LinkStatusControl;
+    use igb_hw::MacType::*;
+
+    if !matches!(hw.get_mac_type(), Em82571 | Em82572 | Em82573 | Em82574) {
+        return;
+    }
+
+    let Some(cap) = info.get_pcie_cap_mut() else {
+        return;
+    };
+
+    // Disable PCIe Active State Power Management (ASPM).
+    let mut val = cap.get_link_status_control();
+
+    match hw.get_mac_type() {
+        Em82571 | Em82572 => {
+            val.remove(LinkStatusControl::ASPM_L1);
+        }
+        Em82573 | Em82574 => {
+            val.remove(LinkStatusControl::ASPM_L1 | LinkStatusControl::ASPM_L0S);
+        }
+        _ => (),
+    }
+
+    cap.set_link_status_control(val);
 }
 
 //===========================================================================
