@@ -90,15 +90,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             {
                 let now = awkernel_lib::delay::uptime();
                 if now >= send_ipi {
-                    let dur = 10_000_000; // 1000[ms]
+                    let dur = 20_000; // 20[ms]
                     if now - send_ipi >= dur {
-                        // Send IPI to CPU#2.
-                        let target_cpu = 2;
-                        log::info!("Send IPI to CPU#{target_cpu}.");
-                        awkernel_lib::interrupt::send_ipi(config::PREEMPT_IRQ, target_cpu);
-
                         // Send IPI to all CPUs except for primary CPU.
-                        log::info!("[primary CPU] send IPI to all CPUs.");
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(
                             config::PREEMPT_IRQ,
                         );
