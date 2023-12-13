@@ -361,12 +361,8 @@ impl InterruptController for X2Apic {
 
     fn send_ipi(&mut self, irq: u16, target: u16) {
         if let Some(vector) = self.validate_and_convert_irq(irq) {
-            // Calculate logical x2APIC ID from physical x2APIC ID
-            let target = target as u32;
-            let logical_x2apic_id = (((target >> 4) & 0xFFFF) << 16) | (1 << (target & 0xF));
-
             self.interrupt(
-                logical_x2apic_id,
+                target as u32,
                 registers::DestinationShorthand::NoShorthand,
                 registers::IcrFlags::empty(),
                 registers::DeliveryMode::Fixed,
