@@ -2031,13 +2031,28 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Writes a 16 bit word from the EEPROM using the EEWR register.
     fn write_eeprom_eewr(
         &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &[u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        self.swfw_sync_mut(info, SWFW_EEP_SM, |hw| {
+            for (i, d) in data.iter().enumerate() {
+                let register_value = ((*d as u32) << EEPROM_RW_REG_DATA)
+                    | ((offset + i as u32) << EEPROM_RW_ADDR_SHIFT)
+                    | EEPROM_RW_REG_START;
+
+                hw.poll_eerd_eewr_done(info, EEPROM_POLL_WRITE)?;
+
+                write_reg(info, EEWR, register_value)?;
+
+                hw.poll_eerd_eewr_done(info, EEPROM_POLL_WRITE)?;
+            }
+
+            todo!();
+        })
     }
 
     fn write_eeprom_spi(
