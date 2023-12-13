@@ -2236,13 +2236,24 @@ impl IgbHw {
         Err(IgbDriverErr::EEPROM)
     }
 
+    /// Writes a 16 bit word or words to the EEPROM using the ICH8's flash access
+    /// register.  Actually, writes are written to the shadow ram cache in the hw
+    /// structure hw->em_shadow_ram.  em_commit_shadow_ram flushes this to
+    /// the NVM, which occurs when the NVM checksum is updated.
     fn write_eeprom_ich8(
-        &mut self,
-        info: &PCIeInfo,
-        offset: u32,
-        data: &[u16],
+        &self,
+        _info: &PCIeInfo,
+        _offset: u32,
+        _data: &[u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        // A driver can write to the NVM only if it has eeprom_shadow_ram
+        // allocated.  Subsequent reads to the modified words are read from
+        // this cached structure as well.  Writes will only go into this
+        // cached structure unless it's followed by a call to
+        // em_update_eeprom_checksum() where it will commit the changes and
+        // clear the "modified" field.
+
+        Err(IgbDriverErr::EEPROM)
     }
 
     fn read_eeprom_ich8(
