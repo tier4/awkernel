@@ -335,8 +335,12 @@ pub const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Registe
 pub const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
 pub const _IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
 pub const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; // PHY Channel Quality Register
-pub const _IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
+pub const IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
 pub const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; // PHY Page Select Core Register
+
+pub const IGP02E1000_PM_SPD: u16 = 0x0001; // Smart Power Down
+pub const IGP02E1000_PM_D3_LPLU: u16 = 0x0004; // Enable LPLU in non-D0a modes
+pub const IGP02E1000_PM_D0_LPLU: u16 = 0x0002; // Enable LPLU in D0a mode
 
 // BM/HV Specific Registers
 pub const BM_PORT_CTRL_PAGE: u32 = 769;
@@ -605,6 +609,10 @@ pub const EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
 
 pub const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
 pub const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
+
+// EEPROM Map defines (WORD OFFSETS)
+pub const EEPROM_NODE_ADDRESS_BYTE_0: u32 = 0;
+pub const EEPROM_PBA_BYTE_1: u32 = 8;
 
 pub const INVM_SIZE: u16 = 64;
 

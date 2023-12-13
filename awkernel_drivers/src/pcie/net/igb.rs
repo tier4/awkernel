@@ -239,6 +239,8 @@ impl Igb {
 ///
 /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em.c#L1845
 fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    use igb_hw::MacType::*;
+
     if matches!(hw.get_mac_type(), igb_hw::MacType::EmPchSpt) {
         check_desc_ring(info)?;
     }
@@ -255,6 +257,23 @@ fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDrive
         // if it fails a second time its a real issue.
         hw.validate_eeprom_checksum(info)?
     }
+
+    if self::igb_hw::get_flash_presence_i210(&hw.get_mac_type(), info)? {
+        hw.read_part_num(info)?;
+    }
+
+    // Set up smart power down as default off on newer adapters
+    if matches!(
+        hw.get_mac_type(),
+        Em82571 | Em82572 | Em82575 | Em82576 | Em82580 | EmI210 | EmI350
+    ) {
+        // Speed up time to link by disabling smart power down
+        let phy_tmp = hw.read_phy_reg(info, IGP02E1000_PHY_POWER_MGMT)?;
+        let phy_tmp = phy_tmp & !IGP02E1000_PM_SPD;
+        hw.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_tmp)?;
+    }
+
+    // Disable PCIe Active State Power Management (ASPM)
 
     // TODO
 

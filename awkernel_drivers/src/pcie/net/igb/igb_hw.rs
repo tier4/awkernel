@@ -1,6 +1,9 @@
 use bitflags::bitflags;
 
-use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
+use crate::{
+    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
+    pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
+};
 
 use super::{igb_regs::*, IgbDriverErr};
 
@@ -412,7 +415,7 @@ enum DataSize {
     Word = 2,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PhyType {
     M88,
     Igp,
@@ -435,6 +438,14 @@ pub enum PhyType {
 struct FlashMemory {
     base_address: BaseAddress,
     offset: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FC {
+    None,
+    RxPause,
+    TxPause,
+    Full,
 }
 
 #[derive(Debug)]
@@ -463,6 +474,13 @@ pub struct IgbHw {
     phy_type: PhyType,
     phy_id: u32,
     bus_func: u8,
+    fc_high_water: u16,
+    fc_low_water: u16,
+    fc_pause_time: u16,
+    fc_send_xon: bool,
+    fc: FC,
+    max_frame_size: u32,
+    min_frame_size: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -803,8 +821,14 @@ fn is_ich8(mac_type: &MacType) -> bool {
     )
 }
 
+fn round_up(value: u32, multiple: u32) -> u32 {
+    (value + multiple - 1) & !(multiple - 1)
+}
+
 impl IgbHw {
     pub fn new(info: &mut PCIeInfo) -> Result<Self, IgbDriverErr> {
+        use MacType::*;
+
         let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
             get_mac_type(info.get_id(), info)?;
 
@@ -848,12 +872,7 @@ impl IgbHw {
 
         let (bus_func, swfw) = if matches!(
             mac_type,
-            MacType::Em80003es2lan
-                | MacType::Em82575
-                | MacType::Em82576
-                | MacType::Em82580
-                | MacType::EmI210
-                | MacType::EmI350
+            Em80003es2lan | Em82575 | Em82576 | Em82580 | EmI210 | EmI350
         ) {
             let reg = read_reg(info, STATUS)?;
             let bus_func = (reg & STATUS_FUNC_MASK) >> STATUS_FUNC_SHIFT;
@@ -870,6 +889,49 @@ impl IgbHw {
         } else {
             (0, 0)
         };
+
+        let max_frame_size = match mac_type {
+            Em82573 => {
+                return Err(IgbDriverErr::NotSupported);
+            }
+            Em82571 | Em82572 | Em82574 | Em82575 | Em82576 | Em82580 | EmI210 | EmI350
+            | EmIch9lan | EmIch10lan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp
+            | EmPchAdp | Em80003es2lan => {
+                // 9K Jumbo Frame size
+                9234
+            }
+            EmPchlan => 4096,
+            Em82542Rev2_0 | Em82542Rev2_1 | EmIch8lan => ETHER_MAX_LEN,
+            _ => MAX_JUMBO_FRAME_SIZE,
+        } as u32;
+
+        let min_frame_size = (ETHER_MIN_LEN + ETHER_CRC_LEN) as u32;
+
+        // These parameters control the automatic generation (Tx) and
+        // response (Rx) to Ethernet PAUSE frames.
+        // - High water mark should allow for at least two frames to be
+        //   received after sending an XOFF.
+        // - Low water mark works best when it is very near the high water mark.
+        //   This allows the receiver to restart by sending XON when it has
+        //   drained a bit.  Here we use an arbitrary value of 1500 which will
+        //   restart after one full frame is pulled from the buffer.  There
+        //   could be several smaller frames in the buffer and if so they will
+        //   not trigger the XON until their total number reduces the buffer
+        //   by 1500.
+        // - The pause time is fairly large at 1000 x 512ns = 512 usec.
+
+        let rx_buffer_size = read_reg(info, PBA)? & 0xffff << 10;
+        let fc_high_water = rx_buffer_size as u16 - round_up(max_frame_size, 1024) as u16;
+        let fc_low_water = fc_high_water - 1500;
+        let fc_send_xon = true;
+        let fc = FC::Full;
+        let fc_pause_time = if mac_type == Em80003es2lan {
+            0xFFFF
+        } else {
+            1000
+        };
+
+        // TODO
 
         let mut hw = Self {
             mac_type,
@@ -896,6 +958,13 @@ impl IgbHw {
             phy_type: PhyType::Undefined,
             phy_id: 0,
             bus_func,
+            fc_high_water,
+            fc_low_water,
+            fc_pause_time,
+            fc_send_xon,
+            fc,
+            max_frame_size,
+            min_frame_size,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -3292,7 +3361,7 @@ impl IgbHw {
     }
 
     /// Writes a value to a PHY register
-    fn write_phy_reg(
+    pub fn write_phy_reg(
         &mut self,
         info: &PCIeInfo,
         reg_addr: u32,
@@ -3350,7 +3419,7 @@ impl IgbHw {
 
     /// Reads the value from a PHY register, if the value is on a specific non zero
     /// page, sets the page first.
-    fn read_phy_reg(&mut self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
+    pub fn read_phy_reg(&mut self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
         use MacType::*;
 
         if matches!(
@@ -4131,6 +4200,24 @@ impl IgbHw {
         write_reg(info, EXTCNF_CTRL, extcnf_ctrl)?;
 
         Ok(())
+    }
+
+    /// Reads the adapter's part number from the EEPROM
+    pub fn read_part_num(&mut self, info: &PCIeInfo) -> Result<u32, IgbDriverErr> {
+        // Get word 0 from EEPROM
+        let mut data = [0; 1];
+        self.read_eeprom(info, EEPROM_PBA_BYTE_1, &mut data)?;
+
+        // Save word 0 in upper half of part_num
+        let mut part_num = (data[0] as u32) << 16;
+
+        // Get word 1 from EEPROM
+        self.read_eeprom(info, EEPROM_PBA_BYTE_1 + 1, &mut data)?;
+
+        // Save word 1 in lower half of part_num
+        part_num |= data[0] as u32;
+
+        Ok(part_num)
     }
 
     /// Verifies that the EEPROM has a valid checksum
