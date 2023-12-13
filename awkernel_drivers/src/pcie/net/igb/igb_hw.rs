@@ -2051,17 +2051,69 @@ impl IgbHw {
                 hw.poll_eerd_eewr_done(info, EEPROM_POLL_WRITE)?;
             }
 
-            todo!();
+            Ok(())
         })
     }
 
+    /// Writes a 16 bit word to a given offset in an SPI EEPROM.
     fn write_eeprom_spi(
         &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &[u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        let mut widx = 0;
+
+        while widx < data.len() {
+            let write_opcode = EEPROM_WRITE_OPCODE_SPI;
+            self.spi_eeprom_ready(info)?;
+
+            self.standby_eeprom(info)?;
+
+            // Send the WRITE ENABLE command (8 bit opcode)
+            self.shift_out_ee_bits(info, EEPROM_WREN_OPCODE_SPI, self.eeprom.opcode_bits)?;
+
+            self.standby_eeprom(info)?;
+
+            // Some SPI eeproms use the 8th address bit embedded in the opcode
+            let write_opcode = if (self.eeprom.address_bits == 8) && (offset >= 128) {
+                write_opcode | EEPROM_A8_OPCODE_SPI
+            } else {
+                write_opcode
+            };
+
+            // Send the Write command (8-bit opcode + addr)
+            self.shift_out_ee_bits(info, write_opcode, self.eeprom.opcode_bits)?;
+
+            self.shift_out_ee_bits(
+                info,
+                ((offset + widx as u32) * 2) as u16,
+                self.eeprom.address_bits,
+            )?;
+
+            // Send the data
+            // Loop to allow for up to whole page write (32 bytes) of eeprom
+            while widx < data.len() {
+                let word_out = data[widx];
+                let word_out = (word_out >> 8) | (word_out << 8);
+                self.shift_out_ee_bits(info, word_out, 16)?;
+                widx += 1;
+
+                // Some larger eeprom sizes are capable of a 32-byte PAGE WRITE
+                // operation, while the smaller eeproms are capable of an
+                // 8-byte PAGE WRITE operation.  Break the inner loop to pass
+                // new address
+                if (((offset + widx as u32) * 2)
+                    % self.eeprom.page_size.ok_or(IgbDriverErr::EEPROM)? as u32)
+                    == 0
+                {
+                    self.standby_eeprom(info)?;
+                    break;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn write_eeprom_microwire(
