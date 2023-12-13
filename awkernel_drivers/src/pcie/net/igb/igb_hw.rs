@@ -4235,8 +4235,51 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Flushes the cached eeprom to NVM. This is done by saving the modified values
+    /// in the eeprom cache and the non modified values in the currently active bank
+    /// to the new bank.
     fn commit_shadow_ram(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        if matches!(self.mac_type, MacType::Em82573 | MacType::Em82574) {
+            // The flop register will be used to determine if flash type is STM
+            let flop = read_reg(info, FLOP)?;
+            let mut i = 0;
+            let mut eecd;
+            loop {
+                eecd = read_reg(info, EECD)?;
+                if eecd & EECD_FLUPD == 0 {
+                    break;
+                }
+                awkernel_lib::delay::wait_microsec(5);
+
+                i += 1;
+                if i == 100000 {
+                    return Err(IgbDriverErr::EEPROM);
+                }
+            }
+
+            // If STM opcode located in bits 15:8 of flop, reset firmware
+            if (flop & 0xFF00) == STM_OPCODE {
+                write_reg(info, HICR, HICR_FW_RESET)?;
+            }
+
+            // Perform the flash update
+            write_reg(info, EECD, eecd | EECD_FLUPD)?;
+
+            loop {
+                eecd = read_reg(info, EECD)?;
+                if eecd & EECD_FLUPD == 0 {
+                    break;
+                }
+                awkernel_lib::delay::wait_microsec(5);
+
+                i += 1;
+                if i == 100000 {
+                    return Err(IgbDriverErr::EEPROM);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

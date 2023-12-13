@@ -10,9 +10,11 @@ pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
 pub const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
+pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
+pub const HICR: usize = 0x08F00; // Host Interface Control
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -577,10 +579,10 @@ pub const EECD_SK: u32 = 0x00000001; /* EEPROM Clock */
 pub const EECD_CS: u32 = 0x00000002; /* EEPROM Chip Select */
 pub const EECD_DI: u32 = 0x00000004; /* EEPROM Data In */
 pub const EECD_DO: u32 = 0x00000008; /* EEPROM Data Out */
-pub const E1000_EECD_FWE_MASK: u32 = 0x00000030;
-pub const E1000_EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
-pub const E1000_EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
-pub const E1000_EECD_FWE_SHIFT: u32 = 4;
+pub const EECD_FWE_MASK: u32 = 0x00000030;
+pub const EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
+pub const EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
+pub const EECD_FWE_SHIFT: u32 = 4;
 pub const EECD_REQ: u32 = 0x00000040; /* EEPROM Access Request */
 pub const EECD_GNT: u32 = 0x00000080; /* EEPROM Access Grant */
 pub const EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
