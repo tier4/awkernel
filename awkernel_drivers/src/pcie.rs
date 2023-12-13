@@ -332,6 +332,7 @@ pub struct PCIeInfo {
     base_addresses: [BaseAddress; 6],
     msi: Option<capability::msi::MSI>,
     msix: Option<capability::msix::MSIX>,
+    pcie_cap: Option<capability::pcie_cap::PCIeCap>,
 }
 
 impl fmt::Display for PCIeInfo {
@@ -372,6 +373,7 @@ impl PCIeInfo {
                 base_addresses: array![_ => BaseAddress::None; 6],
                 msi: None,
                 msix: None,
+                pcie_cap: None,
             })
         }
     }
