@@ -2116,13 +2116,85 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Writes a 16 bit word to a given offset in a Microwire EEPROM.
     fn write_eeprom_microwire(
         &mut self,
         info: &PCIeInfo,
         offset: u32,
         data: &[u16],
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        // Send the write enable command to the EEPROM (3-bit opcode plus
+        // 6/8-bit dummy address beginning with 11).  It's less work to
+        // include the 11 of the dummy address as part of the opcode than it
+        // is to shift it over the correct number of bits for the address.
+        // This puts the EEPROM into write/erase mode.
+        self.shift_out_ee_bits(
+            info,
+            EEPROM_EWEN_OPCODE_MICROWIRE,
+            self.eeprom.opcode_bits + 2,
+        )?;
+
+        self.shift_out_ee_bits(info, 0, self.eeprom.address_bits - 2)?;
+
+        // Prepare the EEPROM
+        self.standby_eeprom(info)?;
+
+        let mut words_written = 0;
+        while words_written < data.len() {
+            // Send the Write command (3-bit opcode + addr)
+            self.shift_out_ee_bits(info, EEPROM_WRITE_OPCODE_MICROWIRE, self.eeprom.opcode_bits)?;
+
+            self.shift_out_ee_bits(
+                info,
+                (offset + words_written as u32) as u16,
+                self.eeprom.address_bits,
+            )?;
+
+            // Send the data
+            self.shift_out_ee_bits(info, data[words_written], 16)?;
+
+            // Toggle the CS line.  This in effect tells the EEPROM to
+            // execute the previous command.
+            self.standby_eeprom(info)?;
+
+            // Read DO repeatedly until it is high (equal to '1').  The
+            // EEPROM will signal that the command has been completed by
+            // raising the DO signal. If DO does not go high in 10
+            // milliseconds, then error out.
+            let mut i = 0;
+            loop {
+                let eecd = read_reg(info, EECD)?;
+                if eecd & EECD_DO != 0 {
+                    break;
+                }
+                awkernel_lib::delay::wait_microsec(50);
+
+                i += 1;
+                if i >= 200 {
+                    return Err(IgbDriverErr::EEPROM);
+                }
+            }
+
+            // Recover from write
+            self.standby_eeprom(info)?;
+
+            words_written += 1;
+        }
+
+        // Send the write disable command to the EEPROM (3-bit opcode plus
+        // 6/8-bit dummy address beginning with 10).  It's less work to
+        // include the 10 of the dummy address as part of the opcode than it
+        // is to shift it over the correct number of bits for the address.
+        // This takes the EEPROM out of write/erase mode.
+        self.shift_out_ee_bits(
+            info,
+            EEPROM_EWDS_OPCODE_MICROWIRE,
+            self.eeprom.opcode_bits + 2,
+        )?;
+
+        self.shift_out_ee_bits(info, 0, self.eeprom.address_bits - 2)?;
+
+        Ok(())
     }
 
     /// Reads a 16 bit word from the EEPROM using the EERD register.
