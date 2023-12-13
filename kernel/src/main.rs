@@ -98,7 +98,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                         log::info!("Send IPI to CPU#{target_cpu}.");
                         awkernel_lib::interrupt::send_ipi(config::PREEMPT_IRQ, target_cpu);
 
-                        delay::wait_microsec(1000_000);
+                        delay::wait_microsec(1_000_000);
 
                         // Send IPI to all CPUs except for primary CPU.
                         log::info!("[primary CPU] send IPI to all CPUs.");
