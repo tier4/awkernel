@@ -567,8 +567,10 @@ pub const EEPROM_CHECKSUM_REG: u32 = 0x003F;
 pub const EEPROM_CHECKSUM_REG_ICP_XXXX: u32 = EEPROM_CHECKSUM_REG;
 
 pub const EEPROM_COMPAT_VALID_CSUM: u16 = 0x0001;
-pub const EEPROM_FUTURE_INIT_WORD1: u16 = 0x0019;
+pub const EEPROM_FUTURE_INIT_WORD1: u32 = 0x0019;
 pub const EEPROM_FUTURE_INIT_WORD1_VALID_CSUM: u16 = 0x0040;
+
+pub const EEPROM_SUM: u16 = 0xBABA; // For checksumming, the sum of all words in the EEPROM should equal 0xBABA.
 
 /* EEPROM/Flash Control */
 pub const EECD_SK: u32 = 0x00000001; /* EEPROM Clock */

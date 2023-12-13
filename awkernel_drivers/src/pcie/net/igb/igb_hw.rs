@@ -4141,12 +4141,6 @@ impl IgbHw {
     pub fn validate_eeprom_checksum(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
-        let checsum_reg = if self.mac_type != EmICPxxxx {
-            EEPROM_CHECKSUM_REG
-        } else {
-            EEPROM_CHECKSUM_REG_ICP_XXXX
-        };
-
         if matches!(self.mac_type, Em82573 | Em82574) && !self.is_onboard_nvm_eeprom(info)? {
             // Check bit 4 of word 10h.  If it is 0, firmware is done
             // updating 10h-12h.  Checksum may need to be fixed.
@@ -4167,91 +4161,49 @@ impl IgbHw {
             }
         }
 
-        todo!();
-    }
+        if is_ich8(&self.mac_type) {
+            // Drivers must allocate the shadow ram structure for the
+            // EEPROM checksum to be updated.  Otherwise, this bit as
+            // well as the checksum must both be set correctly for this
+            // validation to pass.
+            let (word, valid_csum_mask) = match self.mac_type {
+                EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
+                    (EEPROM_COMPAT, EEPROM_COMPAT_VALID_CSUM)
+                }
+                _ => (
+                    EEPROM_FUTURE_INIT_WORD1,
+                    EEPROM_FUTURE_INIT_WORD1_VALID_CSUM,
+                ),
+            };
 
-    // 7126 int32_t
-    // 7127 em_validate_eeprom_checksum(struct em_hw *hw)
-    //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 7128 {
-    // 7129         uint16_t checksum = 0;
-    // 7130         uint16_t i, eeprom_data;
-    // 7131         uint16_t checksum_reg;
-    // 7132         DEBUGFUNC("em_validate_eeprom_checksum");
-    // 7133
-    // 7134         checksum_reg = hw->mac_type != em_icp_xxxx ?
-    // 7135             EEPROM_CHECKSUM_REG :
-    // 7136             EEPROM_CHECKSUM_REG_ICP_xxxx;
-    // 7137
-    // 7138         if (((hw->mac_type == em_82573) || (hw->mac_type == em_82574)) &&
-    // 7139             (em_is_onboard_nvm_eeprom(hw) == FALSE)) {
-    // 7140                 /*
-    // 7141                  * Check bit 4 of word 10h.  If it is 0, firmware is done
-    // 7142                  * updating 10h-12h.  Checksum may need to be fixed.
-    // 7143                  */
-    // 7144                 em_read_eeprom(hw, 0x10, 1, &eeprom_data);
-    // 7145                 if ((eeprom_data & 0x10) == 0) {
-    // 7146                         /*
-    // 7147                          * Read 0x23 and check bit 15.  This bit is a 1 when
-    // 7148                          * the checksum has already been fixed.  If the
-    // 7149                          * checksum is still wrong and this bit is a 1, we
-    // 7150                          * need to return bad checksum.  Otherwise, we need
-    // 7151                          * to set this bit to a 1 and update the checksum.
-    // 7152                          */
-    // 7153                         em_read_eeprom(hw, 0x23, 1, &eeprom_data);
-    // 7154                         if ((eeprom_data & 0x8000) == 0) {
-    // 7155                                 eeprom_data |= 0x8000;
-    // 7156                                 em_write_eeprom(hw, 0x23, 1, &eeprom_data);
-    // 7157                                 em_update_eeprom_checksum(hw);
-    // 7158                         }
-    // 7159                 }
-    // 7160         }
-    // 7161         if (IS_ICH8(hw->mac_type)) {
-    // 7162                 uint16_t word;
-    // 7163                 uint16_t valid_csum_mask;
-    // 7164
-    // 7165                 /*
-    // 7166                  * Drivers must allocate the shadow ram structure for the
-    // 7167                  * EEPROM checksum to be updated.  Otherwise, this bit as
-    // 7168                  * well as the checksum must both be set correctly for this
-    // 7169                  * validation to pass.
-    // 7170                  */
-    // 7171                 switch (hw->mac_type) {
-    // 7172                 case em_pch_lpt:
-    // 7173                 case em_pch_spt:
-    // 7174                 case em_pch_cnp:
-    // 7175                 case em_pch_tgp:
-    // 7176                 case em_pch_adp:
-    // 7177                         word = EEPROM_COMPAT;
-    // 7178                         valid_csum_mask = EEPROM_COMPAT_VALID_CSUM;
-    // 7179                         break;
-    // 7180                 default:
-    // 7181                         word = EEPROM_FUTURE_INIT_WORD1;
-    // 7182                         valid_csum_mask = EEPROM_FUTURE_INIT_WORD1_VALID_CSUM;
-    // 7183                         break;
-    // 7184                 }
-    // 7185                 em_read_eeprom(hw, word, 1, &eeprom_data);
-    // 7186                 if ((eeprom_data & valid_csum_mask) == 0) {
-    // 7187                         eeprom_data |= valid_csum_mask;
-    // 7188                         em_write_eeprom(hw, word, 1, &eeprom_data);
-    // 7189                         em_update_eeprom_checksum(hw);
-    // 7190                 }
-    // 7191         }
-    // 7192         for (i = 0; i < (checksum_reg + 1); i++) {
-    // 7193                 if (em_read_eeprom(hw, i, 1, &eeprom_data) < 0) {
-    // 7194                         DEBUGOUT("EEPROM Read Error\n");
-    // 7195                         return -E1000_ERR_EEPROM;
-    // 7196                 }
-    // 7197                 checksum += eeprom_data;
-    // 7198         }
-    // 7199
-    // 7200         if (checksum == (uint16_t) EEPROM_SUM)
-    // 7201                 return E1000_SUCCESS;
-    // 7202         else {
-    // 7203                 DEBUGOUT("EEPROM Checksum Invalid\n");
-    // 7204                 return -E1000_ERR_EEPROM;
-    // 7205         }
-    // 7206 }
+            let mut eeprom_data = [0; 1];
+            self.read_eeprom(info, word, &mut eeprom_data)?;
+            if (eeprom_data[0] & valid_csum_mask) == 0 {
+                eeprom_data[0] |= valid_csum_mask;
+                self.write_eeprom(info, word, &eeprom_data)?;
+                self.update_eeprom_checksum(info)?;
+            }
+        }
+
+        let checksum_reg = if self.mac_type != EmICPxxxx {
+            EEPROM_CHECKSUM_REG
+        } else {
+            EEPROM_CHECKSUM_REG_ICP_XXXX
+        };
+
+        let mut checksum: u16 = 0;
+        for i in 0..=checksum_reg {
+            let mut eeprom_data = [0; 1];
+            self.read_eeprom(info, i, &mut eeprom_data)?;
+            checksum += eeprom_data[0];
+        }
+
+        if checksum == EEPROM_SUM {
+            Ok(())
+        } else {
+            Err(IgbDriverErr::EEPROM)
+        }
+    }
 
     fn update_eeprom_checksum(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!();
@@ -4604,7 +4556,7 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, Ig
     Ok(true)
 }
 
-fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
+pub fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
     if matches!(mac_type, MacType::EmI210) {
         return Ok(true);
     }

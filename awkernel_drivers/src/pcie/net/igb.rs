@@ -246,6 +246,16 @@ fn hardware_init(hw: &mut igb_hw::IgbHw, info: &PCIeInfo) -> Result<(), IgbDrive
     // Issue a global reset
     hw.reset_hw(info)?;
 
+    // Make sure we have a good EEPROM before we read from it
+    if igb_hw::get_flash_presence_i210(&hw.get_mac_type(), info)?
+        && hw.validate_eeprom_checksum(info).is_err()
+    {
+        // Some PCIe parts fail the first check due to
+        // the link being in sleep state, call it again,
+        // if it fails a second time its a real issue.
+        hw.validate_eeprom_checksum(info)?
+    }
+
     // TODO
 
     Ok(())
