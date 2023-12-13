@@ -4205,7 +4205,37 @@ impl IgbHw {
         }
     }
 
-    fn update_eeprom_checksum(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    /// Calculates the EEPROM checksum and writes it to the EEPROM
+    ///
+    /// Sums the first 63 16 bit words of the EEPROM. Subtracts the sum from 0xBABA.
+    /// Writes the difference to word offset 63 of the EEPROM.
+    fn update_eeprom_checksum(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let mut checksum: u16 = 0;
+        for i in 0..EEPROM_CHECKSUM_REG {
+            let mut eeprom_data = [0; 1];
+            self.read_eeprom(info, i, &mut eeprom_data)?;
+            checksum += eeprom_data[0];
+        }
+
+        let checksum = EEPROM_SUM - checksum;
+        self.write_eeprom(info, EEPROM_CHECKSUM_REG, &[checksum])?;
+
+        if self.eeprom.eeprom_type == EEPROMType::Flash {
+            self.commit_shadow_ram(info)?;
+        } else if self.eeprom.eeprom_type == EEPROMType::Ich8 {
+            self.commit_shadow_ram(info)?;
+
+            // Reload the EEPROM, or else modifications will not appear
+            // until after next adapter reset.
+            let ctrl_ext = read_reg(info, CTRL_EXT)?;
+            write_reg(info, CTRL_EXT, ctrl_ext | CTRL_EXT_EE_RST)?;
+            awkernel_lib::delay::wait_millisec(10);
+        }
+
+        Ok(())
+    }
+
+    fn commit_shadow_ram(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!();
     }
 }
@@ -4257,7 +4287,7 @@ fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), IgbDriverErr> 
     Ok(())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EEPROMType {
     Microwire,
     SPI,
