@@ -931,8 +931,6 @@ impl IgbHw {
             1000
         };
 
-        // TODO
-
         let mut hw = Self {
             mac_type,
             initialize_hw_bits_disable,
@@ -978,8 +976,16 @@ impl IgbHw {
     }
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
-    fn init_hw(info: &PCIeInfo) {
-        todo!();
+    pub fn init_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    pub fn check_for_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
     }
 
     /// Reset the transmit and receive units; mask and clear all interrupts.

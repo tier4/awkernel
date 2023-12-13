@@ -280,7 +280,8 @@ fn hardware_init(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<(), IgbD
     // Disable PCIe Active State Power Management (ASPM)
     disable_aspm(hw, info);
 
-    // TODO
+    hw.init_hw(info)?;
+    hw.check_for_link(info)?;
 
     Ok(())
 }
