@@ -12,8 +12,6 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use acpi::{AcpiTables, PciConfigRegions};
 
 mod capability;
-pub mod msi;
-mod msix;
 pub mod net;
 pub mod pcie_id;
 
@@ -332,8 +330,8 @@ pub struct PCIeInfo {
     multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
-    msi: Option<msi::MSI>,
-    msix: Option<msix::MSIX>,
+    msi: Option<capability::msi::MSI>,
+    msix: Option<capability::msix::MSIX>,
 }
 
 impl fmt::Display for PCIeInfo {
@@ -390,11 +388,11 @@ impl PCIeInfo {
         self.revision_id = revision_id;
     }
 
-    pub fn get_msi_mut(&mut self) -> Option<&mut msi::MSI> {
+    pub fn get_msi_mut(&mut self) -> Option<&mut capability::msi::MSI> {
         self.msi.as_mut()
     }
 
-    pub fn get_msix_mut(&mut self) -> Option<&mut msix::MSIX> {
+    pub fn get_msix_mut(&mut self) -> Option<&mut capability::msix::MSIX> {
         self.msix.as_mut()
     }
 

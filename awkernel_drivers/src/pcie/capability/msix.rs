@@ -1,4 +1,4 @@
-use super::{BaseAddress, PCIeInfo};
+use crate::pcie::{BaseAddress, PCIeInfo};
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};

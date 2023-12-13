@@ -1,3 +1,6 @@
+pub mod msi;
+pub mod msix;
+
 use super::PCIeInfo;
 
 pub const NULL: u8 = 0x00;
@@ -45,16 +48,19 @@ pub fn read(info: &mut PCIeInfo) {
         match cap_id as u8 {
             MSI => read_msi(info, cap_addr),
             MSIX => read_msix(info, cap_addr),
+            PCI_EXPRESS => read_pcie(info, cap_addr),
             _ => (),
         }
     }
 }
 
 fn read_msix(info: &mut PCIeInfo, cap_ptr: usize) {
-    info.msix = super::msix::MSIX::new(info, cap_ptr);
+    info.msix = msix::MSIX::new(info, cap_ptr);
 }
 
 fn read_msi(info: &mut PCIeInfo, cap_ptr: usize) {
-    let msi = super::msi::MSI::new(cap_ptr);
+    let msi = msi::MSI::new(cap_ptr);
     info.msi = Some(msi);
 }
+
+fn read_pcie(info: &mut PCIeInfo, cap_ptr: usize) {}

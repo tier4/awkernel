@@ -1,6 +1,8 @@
 //! # Intel Gigabit Ethernet Controller
 
-use crate::pcie::{self, msi::MultipleMessage, BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo};
+use crate::pcie::{
+    self, capability::msi::MultipleMessage, BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo,
+};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
