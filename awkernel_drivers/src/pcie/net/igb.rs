@@ -102,6 +102,10 @@ where
     Ok(())
 }
 
+pub fn activate() {
+    todo!()
+}
+
 #[derive(Debug)]
 pub enum IgbDriverErr {
     MemoryMapFailure,
