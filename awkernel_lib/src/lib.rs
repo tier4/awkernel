@@ -1,6 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(feature = "std", feature(thread_local))]
-#![feature(core_intrinsics)]
 #![feature(allocator_api)]
 
 use core::{cell::Cell, marker::PhantomData};
