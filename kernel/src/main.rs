@@ -16,6 +16,7 @@ use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
+use awkernel_lib::delay;
 use core::fmt::Debug;
 use kernel_info::KernelInfo;
 
@@ -92,12 +93,18 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 if now >= send_ipi {
                     let dur = 10_000_000; // 1000[ms]
                     if now - send_ipi >= dur {
+                        // Send IPI to CPU#2.
+                        let target_cpu = 2;
+                        log::info!("Send IPI to CPU#{target_cpu}.");
+                        awkernel_lib::interrupt::send_ipi(config::PREEMPT_IRQ, target_cpu);
+
+                        delay::wait_microsec(1000_000);
+
                         // Send IPI to all CPUs except for primary CPU.
-                        log::info!("[primary CPU] send IPI");
+                        log::info!("[primary CPU] send IPI to all CPUs.");
                         awkernel_lib::interrupt::send_ipi_broadcast_without_self(
                             config::PREEMPT_IRQ,
                         );
-                        log::info!("[primary CPU] send IPI done");
 
                         send_ipi = now;
                     }
