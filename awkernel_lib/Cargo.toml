@@ -20,7 +20,8 @@ version = "0.14"
 optional = true
 
 [dependencies.acpi]
-git = "https://github.com/tier4/acpi.git"
+# version = "5.0"
+git = "https://github.com/ytakano/acpi.git"
 optional = true
 
 [dependencies.bootloader_api]

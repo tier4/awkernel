@@ -224,7 +224,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
     let pcie_info = PciConfigRegions::new(acpi).unwrap();
-    for segment in pcie_info.list_all() {
+    for segment in pcie_info.iter() {
         let flags = Flags {
             write: true,
             execute: false,
@@ -233,7 +233,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
             device: true,
         };
 
-        let mut config_start = segment.base_address() as usize;
+        let mut config_start = segment.physical_address as usize;
         let config_end = config_start + CONFIG_SPACE_SIZE;
 
         while config_start < config_end {
@@ -252,8 +252,8 @@ pub fn init_with_acpi<F, FA, PT, E>(
             config_start += PAGESIZE;
         }
 
-        let base_address = segment.base_address();
-        for bus in segment.buses() {
+        let base_address = segment.physical_address;
+        for bus in segment.bus_range {
             scan_devices(
                 dma_offset,
                 bus,
