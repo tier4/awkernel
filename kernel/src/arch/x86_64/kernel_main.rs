@@ -165,6 +165,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
+    if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
+        log::info!("SRAT: {:?}", srat);
+    } else {
+        log::error!("Failed to find SRAT.");
+        wait_forever();
+    }
+
     // 7. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
         log::error!("Failed to map stack memory.");
