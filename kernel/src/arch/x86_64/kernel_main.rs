@@ -166,7 +166,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
-        log::info!("SRAT: {:?}", srat);
+        for entry in srat.entries() {
+            match entry {
+                awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(lapic) => {
+                    log::info!("SRAT entry: {:?}", lapic);
+                }
+                _ => (),
+            }
+        }
     } else {
         log::error!("Failed to find SRAT.");
         wait_forever();

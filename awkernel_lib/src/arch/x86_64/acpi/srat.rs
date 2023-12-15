@@ -58,8 +58,8 @@ impl<'a> Iterator for SratEntryIter<'a> {
                 header.entry_type,
                 entry_pointer,
                 (0x0 => SratEntry::LocalApic as SratLApic),
-                (0x1 => SratEntry::LocalX2Apic as SratX2Apic),
-                (0x2 => SratEntry::MemoryAffinity as SratMemoryAffinity)
+                (0x1 => SratEntry::MemoryAffinity as SratMemoryAffinity),
+                (0x2 => SratEntry::LocalX2Apic as SratX2Apic)
             );
         }
 
