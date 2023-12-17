@@ -13,6 +13,7 @@ use acpi::{AcpiTables, PciConfigRegions};
 
 mod capability;
 pub mod net;
+pub mod pcie_class;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
@@ -126,6 +127,7 @@ pub enum PCIeDeviceErr {
     InitFailure,
     PageTableFailure,
     UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
+    InvalidClass,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -146,6 +148,9 @@ impl fmt::Display for PCIeDeviceErr {
                     f,
                     "Unregistered PCIe device: bus = {bus}, device = {device}, vendor = {vendor}"
                 )
+            }
+            Self::InvalidClass => {
+                write!(f, "Invalid PCIe class.")
             }
         }
     }
@@ -193,11 +198,17 @@ pub(crate) mod registers {
     pub const HEADER_TYPE_PCI_TO_PCI_BRIDGE: u8 = 1;
     pub const HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE: u8 = 2;
 
+    // Type 0 and 1
     mmio_r!(offset 0x00 => pub DEVICE_VENDOR_ID<u32>);
     mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
     mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
     mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
-    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>); // for Type 0 and 1
+    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>);
+
+    // Type 1 (PCI-to-PCI bridge)
+    mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
+
+    // Capability
     mmio_r!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
 
     pub const BAR0: usize = 0x10;
@@ -253,9 +264,11 @@ pub fn init_with_acpi<F, FA, PT, E>(
         }
 
         let base_address = segment.physical_address;
+
         for bus in segment.bus_range {
             scan_devices(
                 dma_offset,
+                segment.segment_group,
                 bus,
                 base_address as usize,
                 page_table,
@@ -267,6 +280,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
 pub fn init_with_addr<F, FA, PT, E>(
     dma_offset: usize,
+    segment_group: u16,
     base_address: usize,
     page_table: &mut PT,
     page_allocator: &mut FA,
@@ -280,6 +294,7 @@ pub fn init_with_addr<F, FA, PT, E>(
     for bus in (starting_bus as u32)..256 {
         scan_devices(
             dma_offset,
+            segment_group,
             bus as u8,
             base_address,
             page_table,
@@ -291,6 +306,7 @@ pub fn init_with_addr<F, FA, PT, E>(
 /// Scan and initialize the PICe devices
 fn scan_devices<F, FA, PT, E>(
     dma_offset: usize,
+    segment_group: u16,
     bus: u8,
     base_address: usize,
     page_table: &mut PT,
@@ -305,7 +321,7 @@ fn scan_devices<F, FA, PT, E>(
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
-            if let Ok(device) = PCIeInfo::from_addr(bus, addr) {
+            if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, addr) {
                 let multiple_functions = device.multiple_functions;
 
                 let _ = device.attach(dma_offset, page_table, page_allocator);
@@ -322,10 +338,12 @@ fn scan_devices<F, FA, PT, E>(
 #[derive(Debug)]
 pub struct PCIeInfo {
     pub(crate) addr: usize,
+    segment_group: u16,
     bus: u8,
     id: u16,
     vendor: u16,
     revision_id: u8,
+    pcie_class: pcie_class::PCIeClass,
     device_name: Option<pcie_id::PCIeID>,
     multiple_functions: bool,
     pub(crate) header_type: u8,
@@ -339,15 +357,15 @@ impl fmt::Display for PCIeInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "id: {:#x}, vendor: {:#x}, header type: {:#x}",
-            self.id, self.vendor, self.header_type
+            "bus: {:#x}, vendor: {:#x}, device: {:#x}, header type: {:#x}",
+            self.bus, self.vendor, self.id, self.header_type
         )
     }
 }
 
 impl PCIeInfo {
     /// Get the information for PCIe device
-    fn from_addr(bus: u8, addr: usize) -> Result<PCIeInfo, PCIeDeviceErr> {
+    fn from_addr(segment_group: u16, bus: u8, addr: usize) -> Result<PCIeInfo, PCIeDeviceErr> {
         let ids = registers::DEVICE_VENDOR_ID.read(addr);
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -358,15 +376,23 @@ impl PCIeInfo {
         let cls_rev_id = registers::CLASS_CODE_REVISION_ID.read(addr);
         let revision_id = (cls_rev_id & 0xff) as u8;
 
+        let pcie_class = pcie_class::PCIeClass::from_u8(
+            (cls_rev_id >> 24) as u8,
+            ((cls_rev_id >> 16) & 0xff) as u8,
+        )
+        .ok_or(PCIeDeviceErr::InvalidClass)?;
+
         if id == !0 || vendor == !0 {
             Err(PCIeDeviceErr::InitFailure)
         } else {
             Ok(PCIeInfo {
                 addr,
+                segment_group,
                 bus,
                 id,
                 vendor,
                 revision_id,
+                pcie_class,
                 device_name: None,
                 multiple_functions,
                 header_type,

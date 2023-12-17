@@ -59,7 +59,8 @@ impl<'a> Iterator for SratEntryIter<'a> {
                 entry_pointer,
                 (0x0 => SratEntry::LocalApic as SratLApic),
                 (0x1 => SratEntry::MemoryAffinity as SratMemoryAffinity),
-                (0x2 => SratEntry::LocalX2Apic as SratX2Apic)
+                (0x2 => SratEntry::LocalX2Apic as SratX2Apic),
+                (0x5 => SratEntry::GenericInitiatorAffinity as SratGenericInitiatorAffinity)
             );
         }
 
@@ -79,6 +80,7 @@ pub enum SratEntry<'a> {
     LocalApic(&'a SratLApic),
     LocalX2Apic(&'a SratX2Apic),
     MemoryAffinity(&'a SratMemoryAffinity),
+    GenericInitiatorAffinity(&'a SratGenericInitiatorAffinity),
 }
 
 #[repr(C, packed)]
@@ -118,6 +120,18 @@ pub struct SratMemoryAffinity {
     pub reserved2: [u8; 4],  // Reserved
     pub flags: u32,          // Flags
     pub reserved3: [u8; 8],  // Reserved
+}
+
+#[repr(C, packed)]
+#[derive(Debug)]
+pub struct SratGenericInitiatorAffinity {
+    pub header: EntryHeader, // type is 0x5 for this type of structure, length is 32
+    pub reserved1: u8,       // Reserved
+    pub device_handle_type: u8, // The type of device handle
+    pub domain: u32,         // The domain to which this initiator belongs to
+    pub device_handle: [u8; 16], // The device handle
+    pub flags: u32,          // Flags
+    pub reserved2: [u8; 4],  // Reserved
 }
 
 unsafe impl AcpiTable for Srat {
