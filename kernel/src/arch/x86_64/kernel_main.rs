@@ -2,7 +2,11 @@
 //!
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
-use super::{config::DMA_SIZE, heap::map_heap, interrupt_handler};
+use super::{
+    config::DMA_SIZE,
+    heap::{map_backup_heap, map_primary_heap},
+    interrupt_handler,
+};
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
@@ -66,18 +70,21 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Initialize the backup heap memory allocator.
-/// 5. Enable logger.
-/// 6. Initialize ACPI.
-/// 7. Initialize stack memory regions for non-primary CPUs.
-/// 8. Initialize `awkernel_lib`.
-/// 9. Initialize APIC.
-/// 10. Write boot images to wake non-primary CPUs up.
-/// 11. Boot non-primary CPUs.
-/// 12. Initialize PCIe devices.
-/// 13. Initialize the primary heap memory allocator.
-/// 14. Initialize interrupt handlers.
-/// 15. Call `crate::main()`.
+/// 4. Map the page #0.
+/// 5. Initialize the backup heap memory allocator.
+/// 6. Enable logger.
+/// 7. Get offset address to physical memory.
+/// 8. Initialize ACPI.
+/// 9. Get NUMA information.
+/// 10. Initialize stack memory regions for non-primary CPUs.
+/// 11. Initialize `awkernel_lib`.
+/// 12. Initialize APIC.
+/// 13. Write boot images to wake non-primary CPUs up.
+/// 14. Boot non-primary CPUs.
+/// 15. Initialize PCIe devices.
+/// 16. Initialize the primary heap memory allocator.
+/// 17. Initialize interrupt handlers.
+/// 18. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     enable_fpu(); // 1. Enable SSE.
 
@@ -95,14 +102,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // Map the page #0.
+    // 4. Map the page #0.
     map_page0(boot_info, &mut page_table);
 
-    // 4. Initialize the backup heap memory allocator.
+    // 5. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table);
 
-    // 5. Enable logger.
+    // 6. Enable logger.
     super::console::register_console();
 
     log::info!(
@@ -111,7 +118,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_pages * PAGESIZE
     );
 
-    // Get offset address to physical memory.
+    // 7. Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
         unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
         wait_forever();
@@ -120,7 +127,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     log::info!("Physical memory offset: 0x{:x}", offset);
 
-    // 6. Initialize ACPI.
+    // 8. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -129,68 +136,46 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // Get NUMA information.
+    // 9. Get NUMA information.
     let (mut numa_to_mem, cpu_to_numa) =
         get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
 
     let mut page_allocators = BTreeMap::new();
 
-    for numa_id in numa_to_mem.keys() {
-        let mut page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
+    let numas: Vec<_> = numa_to_mem.keys().map(|n| *n).collect();
+    for numa_id in numas.iter() {
+        let page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
         page_allocators.insert(*numa_id, page_allocator);
     }
 
-    // let mut numa_frames = BTreeMap::new();
-
-    // for (numa_id, regions) in numa_to_mem.iter() {
-    //     let frames = boot_info
-    //         .memory_regions
-    //         .iter()
-    //         .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-    //         .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
-    //         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
-    //     numa_frames.insert(*numa_id, frames);
-    // }
-
-    // // Create a page allocator.
-    // let mut frames = boot_info
-    //     .memory_regions
-    //     .iter()
-    //     .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-    //     .flat_map(|m| {
-    //         if m.start != backup_region.start {
-    //             m.start..m.end
-    //         } else if let Some(frame) = backup_next_frame {
-    //             frame.start_address().as_u64()..m.end
-    //         } else {
-    //             0..0
-    //         }
-    //         .step_by(PAGESIZE as _)
-    //     })
-    //     .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
-
-    // let mut page_allocator = PageAllocator::new(&mut frames);
-
-    // 7. Initialize stack memory regions for non-primary CPUs.
+    // 10. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
-    // 8. Initialize `awkernel_lib` and `awkernel_driver`
-    let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
-    awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocators);
+    let (mut awkernel_page_table, type_apic) =
+        if let Some(page_allocator0) = page_allocators.get_mut(&0) {
+            // 11. Initialize `awkernel_lib` and `awkernel_driver`
+            let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
+            awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
 
-    // 9. Initialize APIC.
-    let type_apic = awkernel_drivers::interrupt_controller::apic::new(
-        &mut awkernel_page_table,
-        &mut page_allocators,
-    );
+            // 12. Initialize APIC.
+            let type_apic = awkernel_drivers::interrupt_controller::apic::new(
+                &mut awkernel_page_table,
+                page_allocator0,
+            );
 
-    // 10. Write boot images to wake non-primary CPUs up.
+            (awkernel_page_table, type_apic)
+        } else {
+            log::error!("No page allocator for NUMA #0.");
+            awkernel_lib::delay::wait_forever();
+        };
+
+    // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
 
-    // 11. Boot non-primary CPUs.
+    // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
@@ -221,16 +206,16 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
-    // 12. Initialize PCIe devices.
+    // 15. Initialize PCIe devices.
     awkernel_drivers::pcie::init_with_acpi(
         DMA_START,
         &acpi,
         &mut awkernel_page_table,
-        &mut page_allocator,
+        &mut page_allocators,
     );
 
-    // 13. Initialize the primary heap memory allocator.
-    init_primary_heap(&mut page_table, &mut page_allocator);
+    // 16. Initialize the primary heap memory allocator.
+    init_primary_heap(&mut page_table, &mut page_allocators);
 
     BSP_READY.store(true, Ordering::Release);
 
@@ -238,7 +223,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         core::hint::spin_loop();
     }
 
-    // 14. Initialize interrupt handlers.
+    // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 
     let kernel_info = KernelInfo {
@@ -246,22 +231,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         cpu_id: 0,
     };
 
-    // 15. Call `crate::main()`.
+    // 18. Call `crate::main()`.
     crate::main(kernel_info);
 
     wait_forever()
 }
 
-fn init_primary_heap<T>(
+fn init_primary_heap(
     page_table: &mut OffsetPageTable<'static>,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+    page_allocators: &mut BTreeMap<u32, VecPageAllocator>,
+) {
     let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
-    let primary_size = 1 << 48; // up to 256TiB
 
-    let num_pages = map_heap(page_table, page_allocator, primary_start, primary_size);
+    let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
 
     let heap_size = num_pages * PAGESIZE;
     unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
@@ -456,7 +438,7 @@ fn map_page0(boot_info: &mut BootInfo, page_table: &mut OffsetPageTable<'static>
         }
     }
 
-    if let Some(_) = page0 {
+    if page0.is_none() {
         unsafe { unsafe_puts("The page #0 is not available.\r\n") };
         wait_forever();
     };
@@ -508,7 +490,7 @@ fn init_backup_heap(
 
     let mut page_allocator = PageAllocator::new(&mut frames);
 
-    let backup_pages = map_heap(
+    let backup_pages = map_backup_heap(
         page_table,
         &mut page_allocator,
         HEAP_START,
@@ -547,7 +529,12 @@ fn get_numa_info(
                     let length =
                         affinity.lo_length as usize | ((affinity.hi_length as usize) << 32);
 
-                    numa_id_to_memory.insert(affinity.domain, (start, length));
+                    numa_id_to_memory
+                        .entry(affinity.domain)
+                        .or_insert_with(|| Vec::new())
+                        .push((start, length));
+
+                    log::debug!("{:?}", entry);
                 }
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(srat_apic) => {
                     let domain = srat_apic.lo_dm as u32
@@ -575,37 +562,47 @@ fn get_numa_info(
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
     {
-        for (numa_id, (start, length)) in numa_id_to_memory.iter() {
-            if *start <= region.start as usize && region.end as usize <= *start + *length {
-                log::info!(
-                    "Memory region 0x{:x} - 0x{:x} is in NUMA node {}",
-                    region.start,
-                    region.end,
-                    numa_id
-                );
+        log::debug!(
+            "Memory region 0x{:x} - 0x{:x} ({} KiB) is not in NUMA node",
+            region.start,
+            region.end,
+            (region.end - region.start) / 1024
+        );
 
-                let new_region = if region.start != backup_region.start {
-                    // Exclude the backup heap memory region.
-                    region.clone()
-                } else if region.start == 0 {
-                    // Exclude the page #0.
-                    continue;
-                } else if let Some(frame) = backup_next_frame {
-                    MemoryRegion {
-                        start: frame.start_address().as_u64(),
-                        end: region.end,
-                        kind: MemoryRegionKind::Usable,
-                    }
-                } else {
-                    MemoryRegion::empty()
-                };
+        'outer: for (numa_id, mems) in numa_id_to_memory.iter() {
+            for (start, length) in mems.iter() {
+                if *start <= region.start as usize && region.end as usize <= *start + *length {
+                    log::info!(
+                        "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
+                        region.start,
+                        region.end,
+                        (region.end - region.start) / 1024,
+                        numa_id
+                    );
 
-                memory_regions
-                    .entry(*numa_id)
-                    .or_insert_with(|| Vec::new())
-                    .push(new_region);
+                    let new_region = if region.start != backup_region.start {
+                        // Exclude the backup heap memory region.
+                        region.clone()
+                    } else if region.start == 0 {
+                        // Exclude the page #0.
+                        continue;
+                    } else if let Some(frame) = backup_next_frame {
+                        MemoryRegion {
+                            start: frame.start_address().as_u64(),
+                            end: region.end,
+                            kind: MemoryRegionKind::Usable,
+                        }
+                    } else {
+                        MemoryRegion::empty()
+                    };
 
-                break;
+                    memory_regions
+                        .entry(*numa_id)
+                        .or_insert_with(|| Vec::new())
+                        .push(new_region);
+
+                    break 'outer;
+                }
             }
         }
     }
@@ -646,7 +643,6 @@ fn init_dma(
 
     let mut page_allocator = page_allocator::VecPageAllocator::new(numa_memory);
     let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
-    let dma_end = dma_start + (dma_region.end - dma_region.start) as usize;
 
     for (i, dma_phy_frame) in (dma_region.start..dma_region.end)
         .step_by(PAGESIZE as _)

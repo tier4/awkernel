@@ -1,7 +1,8 @@
 //! Allocate pages for heap memory.
 
+use alloc::collections::BTreeMap;
 use awkernel_lib::{
-    arch::x86_64::page_allocator::PageAllocator,
+    arch::x86_64::page_allocator::{PageAllocator, VecPageAllocator},
     console::{unsafe_print_hex_u64, unsafe_puts},
     paging::PAGESIZE,
 };
@@ -15,7 +16,7 @@ use x86_64::{
 
 /// Map virtual memory of heap memory to physical memory.
 /// Return the number of allocated pages from `HEAP_START`.
-pub(super) fn map_heap<T>(
+pub(super) fn map_backup_heap<T>(
     page_table: &mut OffsetPageTable<'static>,
     page_allocator: &mut PageAllocator<T>,
     start: usize,
@@ -56,6 +57,54 @@ where
         };
 
         num_pages += 1;
+    }
+
+    num_pages
+}
+
+pub(super) fn map_primary_heap(
+    page_table: &mut OffsetPageTable<'static>,
+    page_allocators: &mut BTreeMap<u32, VecPageAllocator>,
+    mut start: usize,
+) -> usize {
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_EXECUTE
+        | PageTableFlags::GLOBAL;
+    let mut num_pages = 0;
+
+    for (_, page_allocator) in page_allocators.iter_mut() {
+        let mut pages = 0;
+        for addr in (start..).step_by(PAGESIZE) {
+            // Allocate a physical page.
+            let Some(frame) = page_allocator.allocate_frame() else {
+                return num_pages;
+            };
+
+            // Map a virtual page to the physical memory.
+            let page = Page::containing_address(VirtAddr::new(addr as u64));
+            unsafe {
+                match page_table.map_to(page, frame, flags, page_allocator) {
+                    Ok(m) => {
+                        m.flush();
+                    }
+                    Err(MapToError::PageAlreadyMapped(f)) => {
+                        unsafe_puts("error: MapToError::PageAlreadyMapped(0x");
+                        unsafe_print_hex_u64(f.start_address().as_u64());
+                        unsafe_puts(")\r\n");
+                        return num_pages;
+                    }
+                    _ => {
+                        return num_pages;
+                    }
+                }
+            };
+
+            pages += 1;
+        }
+
+        start += pages * PAGESIZE;
+        num_pages += pages;
     }
 
     num_pages

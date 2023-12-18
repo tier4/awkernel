@@ -14,13 +14,11 @@ pub struct X86;
 
 impl super::Arch for X86 {}
 
-pub fn init<T>(
+pub fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+) {
     // Initialize timer.
     acpi::init(acpi);
     delay::init(acpi, page_table, page_allocator);

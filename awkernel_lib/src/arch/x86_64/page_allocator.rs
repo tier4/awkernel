@@ -62,7 +62,7 @@ pub struct VecPageAllocator {
 }
 
 unsafe impl FrameAllocator<Size4KiB> for VecPageAllocator {
-    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+    fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
         loop {
             let Some(range) = self.range.get(self.index) else {
                 return None;
@@ -131,6 +131,16 @@ where
             .next()
             .map(|frame| Frame { frame })
             .ok_or("no more frames")
+    }
+}
+
+impl crate::paging::FrameAllocator<Frame, &'static str> for VecPageAllocator {
+    fn allocate_frame(&mut self) -> Result<Frame, &'static str> {
+        if let Some(frame) = FrameAllocator::allocate_frame(self) {
+            Ok(Frame { frame })
+        } else {
+            Err("no more frames")
+        }
     }
 }
 

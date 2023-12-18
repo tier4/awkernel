@@ -214,13 +214,16 @@ pub(crate) mod registers {
     pub const BAR0: usize = 0x10;
 }
 
+#[cfg(feature = "x86")]
+use alloc::collections::BTreeMap;
+
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT, E>(
     dma_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
-    page_allocator: &mut FA,
+    page_allocators: &mut BTreeMap<u32, FA>,
 ) where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -246,6 +249,10 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
         let mut config_start = segment.physical_address as usize;
         let config_end = config_start + CONFIG_SPACE_SIZE;
+
+        let Some(page_allocator) = page_allocators.get_mut(&(segment.segment_group as u32)) else {
+            continue;
+        };
 
         while config_start < config_end {
             let phy_addr = PhyAddr::new(config_start);

@@ -1,4 +1,4 @@
-use super::PageAllocator;
+use super::page_allocator::{PageAllocator, VecPageAllocator};
 use crate::addr::Addr;
 use x86_64::{
     structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
@@ -25,6 +25,35 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
         phy_addr: crate::addr::phy_addr::PhyAddr,
         flags: crate::paging::Flags,
         page_allocator: &mut super::page_allocator::PageAllocator<'a, T>,
+    ) -> Result<(), &'static str> {
+        let flags = flags_to_x86_flags(flags);
+
+        let page = Page::containing_address(VirtAddr::new(virt_addr.as_usize() as u64));
+        let frame =
+            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
+
+        match self
+            .offset_page_table
+            .map_to(page, frame, flags, page_allocator)
+        {
+            Ok(flusher) => {
+                flusher.flush();
+                Ok(())
+            }
+            Err(_) => Err("Failed to map page"),
+        }
+    }
+}
+
+impl<'a> crate::paging::PageTable<super::page_allocator::Frame, VecPageAllocator, &'static str>
+    for PageTable<'a>
+{
+    unsafe fn map_to(
+        &mut self,
+        virt_addr: crate::addr::virt_addr::VirtAddr,
+        phy_addr: crate::addr::phy_addr::PhyAddr,
+        flags: crate::paging::Flags,
+        page_allocator: &mut VecPageAllocator,
     ) -> Result<(), &'static str> {
         let flags = flags_to_x86_flags(flags);
 
