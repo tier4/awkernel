@@ -158,9 +158,10 @@ async fn temperature_adt7410(mut i2c: I2cBus) {
 }
 
 async fn test_pwm() {
-    let mut pwm0 = pwm::Pwm::new(pwm::Channel::Ch0, false).unwrap();
+    let mut pwm0 = pwm::Pwm::new(pwm::Channel::Ch0, true).unwrap();
 
     pwm0.enable().unwrap();
+    pwm0.set_frequency(500).unwrap();
     pwm0.set_duty_cycle_percent(85).unwrap();
 
     let mut pwm1 = pwm::Pwm::new(pwm::Channel::Ch1, false).unwrap();

@@ -1,4 +1,4 @@
-use self::{acpi::AcpiMapper, page_allocator::PageAllocator};
+use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use ::acpi::AcpiTables;
 use x86_64::structures::paging::PhysFrame;
 
@@ -17,7 +17,7 @@ impl super::Arch for X86 {}
 pub fn init<T>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut page_table::PageTable,
-    page_allocator: &mut PageAllocator<T>,
+    page_allocator: &mut VecPageAllocator,
 ) where
     T: Iterator<Item = PhysFrame> + Send,
 {

@@ -9,11 +9,7 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use acpi::{platform::ProcessorState, AcpiTables};
-use alloc::{
-    boxed::Box,
-    collections::{BTreeMap, BTreeSet},
-    vec::Vec,
-};
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
@@ -21,7 +17,7 @@ use awkernel_drivers::interrupt_controller::apic::{
 use awkernel_lib::{
     arch::x86_64::{
         acpi::AcpiMapper,
-        page_allocator::{self, get_page_table, PageAllocator},
+        page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
     console::unsafe_puts,
@@ -134,54 +130,61 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     };
 
     // Get NUMA information.
-    let (memory_regions, cpu_to_numa) =
+    let (mut numa_to_mem, cpu_to_numa) =
         get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
 
-    let mut numa_frames = BTreeMap::new();
+    let mut page_allocators = BTreeMap::new();
 
-    for (numa_id, regions) in memory_regions.iter() {
-        let frames = boot_info
-            .memory_regions
-            .iter()
-            .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-            .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
-            .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
-        numa_frames.insert(*numa_id, frames);
+    for numa_id in numa_to_mem.keys() {
+        let mut page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
+        page_allocators.insert(*numa_id, page_allocator);
     }
 
-    // Create a page allocator.
-    let mut frames = boot_info
-        .memory_regions
-        .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-        .flat_map(|m| {
-            if m.start != backup_region.start {
-                m.start..m.end
-            } else if let Some(frame) = backup_next_frame {
-                frame.start_address().as_u64()..m.end
-            } else {
-                0..0
-            }
-            .step_by(PAGESIZE as _)
-        })
-        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+    // let mut numa_frames = BTreeMap::new();
 
-    let mut page_allocator = PageAllocator::new(&mut frames);
+    // for (numa_id, regions) in numa_to_mem.iter() {
+    //     let frames = boot_info
+    //         .memory_regions
+    //         .iter()
+    //         .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
+    //         .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
+    //         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+    //     numa_frames.insert(*numa_id, frames);
+    // }
+
+    // // Create a page allocator.
+    // let mut frames = boot_info
+    //     .memory_regions
+    //     .iter()
+    //     .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
+    //     .flat_map(|m| {
+    //         if m.start != backup_region.start {
+    //             m.start..m.end
+    //         } else if let Some(frame) = backup_next_frame {
+    //             frame.start_address().as_u64()..m.end
+    //         } else {
+    //             0..0
+    //         }
+    //         .step_by(PAGESIZE as _)
+    //     })
+    //     .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+
+    // let mut page_allocator = PageAllocator::new(&mut frames);
 
     // 7. Initialize stack memory regions for non-primary CPUs.
-    if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
+    if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
 
     // 8. Initialize `awkernel_lib` and `awkernel_driver`
     let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
-    awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocator);
+    awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, &mut page_allocators);
 
     // 9. Initialize APIC.
     let type_apic = awkernel_drivers::interrupt_controller::apic::new(
         &mut awkernel_page_table,
-        &mut page_allocator,
+        &mut page_allocators,
     );
 
     // 10. Write boot images to wake non-primary CPUs up.
@@ -494,7 +497,7 @@ fn init_backup_heap(
         }
     }
 
-    let Some(backup_heap_region) = backup_heap_region  else {
+    let Some(backup_heap_region) = backup_heap_region else {
         unsafe { unsafe_puts("Failed to find a backup heap memory region.\r\n") };
         wait_forever();
     };
@@ -581,9 +584,12 @@ fn get_numa_info(
                     numa_id
                 );
 
-                // Exclude the backup heap memory region.
                 let new_region = if region.start != backup_region.start {
+                    // Exclude the backup heap memory region.
                     region.clone()
+                } else if region.start == 0 {
+                    // Exclude the page #0.
+                    continue;
                 } else if let Some(frame) = backup_next_frame {
                     MemoryRegion {
                         start: frame.start_address().as_u64(),
@@ -611,13 +617,15 @@ fn init_dma(
     numa_id: u32,
     numa_memory: &mut BTreeMap<u32, Vec<MemoryRegion>>,
     page_table: &mut OffsetPageTable<'static>,
-) {
-    let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
-    let dma_end = dma_start + DMA_SIZE;
-
+) -> VecPageAllocator {
     let mut dma_region = None;
 
-    for region in numa_memory.get_mut(&numa_id).unwrap().iter_mut() {
+    let Some(mut numa_memory) = numa_memory.remove(&numa_id) else {
+        log::error!("Failed to get NUMA memory. NUMA ID = {}", numa_id);
+        awkernel_lib::delay::wait_forever();
+    };
+
+    for region in numa_memory.iter_mut() {
         if region.end - region.start >= DMA_SIZE as u64 {
             dma_region = Some(MemoryRegion {
                 start: region.start,
@@ -631,5 +639,39 @@ fn init_dma(
         }
     }
 
-    // TODO
+    let Some(dma_region) = dma_region else {
+        log::error!("Failed to allocate a DMA region. NUMA ID = {}", numa_id);
+        awkernel_lib::delay::wait_forever();
+    };
+
+    let mut page_allocator = page_allocator::VecPageAllocator::new(numa_memory);
+    let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
+    let dma_end = dma_start + (dma_region.end - dma_region.start) as usize;
+
+    for (i, dma_phy_frame) in (dma_region.start..dma_region.end)
+        .step_by(PAGESIZE as _)
+        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)))
+        .enumerate()
+    {
+        let virt_frame =
+            Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE as usize) as u64));
+        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+
+        unsafe {
+            page_table
+                .map_to(virt_frame, dma_phy_frame, flags, &mut page_allocator)
+                .unwrap()
+                .flush()
+        };
+    }
+
+    unsafe {
+        awkernel_lib::dma_pool::init_dma_pool(
+            numa_id as usize,
+            awkernel_lib::addr::virt_addr::VirtAddr::new(dma_start),
+            (dma_region.end - dma_region.start) as usize,
+        )
+    };
+
+    page_allocator
 }

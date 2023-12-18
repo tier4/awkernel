@@ -1,8 +1,10 @@
 use crate::{
     addr::Addr,
+    paging::PAGESIZE,
     sync::mutex::{MCSNode, Mutex},
 };
-use bootloader_api::BootInfo;
+use alloc::vec::Vec;
+use bootloader_api::{info::MemoryRegion, BootInfo};
 use core::ptr::{read_volatile, write_volatile};
 use x86_64::{
     registers::control::Cr3,
@@ -50,6 +52,52 @@ where
         let mut node = MCSNode::new();
         let mut guard = self.frames.lock(&mut node);
         guard.next()
+    }
+}
+
+pub struct VecPageAllocator {
+    range: Vec<MemoryRegion>,
+    index: usize,
+    addr: usize,
+}
+
+unsafe impl FrameAllocator<Size4KiB> for VecPageAllocator {
+    fn allocate_frame(&mut self) -> Option<PhysFrame> {
+        loop {
+            let Some(range) = self.range.get(self.index) else {
+                return None;
+            };
+
+            let result = self.addr as u64;
+
+            if (range.start..range.end).contains(&result) {
+                self.addr += PAGESIZE;
+                return Some(PhysFrame::containing_address(PhysAddr::new(result)));
+            } else {
+                self.index += 1;
+                if let Some(addr) = self.range.get(self.index) {
+                    self.addr = addr.start as usize;
+                }
+            }
+        }
+    }
+}
+
+impl VecPageAllocator {
+    pub fn new(range: Vec<MemoryRegion>) -> Self {
+        if let Some(addr) = range.get(0) {
+            return Self {
+                addr: addr.start as usize,
+                range,
+                index: 0,
+            };
+        } else {
+            Self {
+                range,
+                index: 0,
+                addr: 0,
+            }
+        }
     }
 }
 

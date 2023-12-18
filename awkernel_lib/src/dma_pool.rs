@@ -29,8 +29,8 @@ pub struct DMAPool {
     numa_id: usize,
 }
 
-pub unsafe fn init_dma_pool(num_id: usize, start: VirtAddr, size: usize) {
-    assert!(num_id < NUMA_NUM_MAX);
+pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
+    assert!(numa_id < NUMA_NUM_MAX);
 
     let ptr = start.as_mut_ptr::<u8>();
     let pool = core::slice::from_raw_parts_mut(ptr, size);
@@ -40,7 +40,7 @@ pub unsafe fn init_dma_pool(num_id: usize, start: VirtAddr, size: usize) {
 
     let mut node = MCSNode::new();
 
-    CONTINUOUS_MEMORY_POOLS[num_id]
+    CONTINUOUS_MEMORY_POOLS[numa_id]
         .lock(&mut node)
         .insert_free_block_ptr(pool);
 }
