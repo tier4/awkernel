@@ -3,6 +3,7 @@ pub const STACK_START: usize = 256 * 1024 * 1024; // 256MiB
 
 pub const HEAP_START: usize = 8 * 1024 * 1024 * 1024; // 8GiB
 
-pub const DMA_START: usize = 3 * 1024 * 1024 * 1024 * 1024; // 3TiB
+pub const DMA_START: usize = 4 * 1024 * 1024 * 1024; // 4GiB
+pub const DMA_SIZE: usize = 64 * 1024 * 1024; // 64MiB per NUMA node
 
 pub const PREEMPT_IRQ: u16 = 255;

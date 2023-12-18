@@ -2,14 +2,18 @@
 //!
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
-use super::{heap::map_heap, interrupt_handler};
+use super::{config::DMA_SIZE, heap::map_heap, interrupt_handler};
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
     config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use acpi::{platform::ProcessorState, AcpiTables};
-use alloc::boxed::Box;
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    vec::Vec,
+};
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
@@ -26,7 +30,10 @@ use awkernel_lib::{
     paging::PAGESIZE,
 };
 use bootloader_api::{
-    config::Mapping, entry_point, info::MemoryRegionKind, BootInfo, BootloaderConfig,
+    config::Mapping,
+    entry_point,
+    info::{MemoryRegion, MemoryRegionKind},
+    BootInfo, BootloaderConfig,
 };
 use core::{
     arch::asm,
@@ -35,7 +42,9 @@ use core::{
 };
 use x86_64::{
     registers::control::{Cr0, Cr0Flags, Cr4, Cr4Flags},
-    structures::paging::{Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB},
+    structures::paging::{
+        FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, PhysFrame, Size4KiB,
+    },
     PhysAddr, VirtAddr,
 };
 
@@ -90,35 +99,21 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    if !boot_info.memory_regions.iter().any(|m| m.start == 0) {
-        unsafe { unsafe_puts("The page #0 is in use.\r\n") };
-        wait_forever();
-    }
+    // Map the page #0.
+    map_page0(boot_info, &mut page_table);
 
-    // Create a page allocator.
-    let mut frames = boot_info
-        .memory_regions
-        .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-        .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
-        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+    // 4. Initialize the backup heap memory allocator.
+    let (backup_pages, backup_region, backup_next_frame) =
+        init_backup_heap(boot_info, &mut page_table);
 
-    let mut page_allocator = PageAllocator::new(&mut frames);
+    // 5. Enable logger.
+    super::console::register_console();
 
-    unsafe {
-        match page_table.map_to(
-            Page::containing_address(VirtAddr::new(0)),
-            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-            &mut page_allocator,
-        ) {
-            Ok(f) => f.flush(),
-            Err(_) => {
-                unsafe_puts("Failed to map 0.\r\n");
-                wait_forever();
-            }
-        }
-    }
+    log::info!(
+        "Backup heap: start = 0x{:x}, size = {}",
+        HEAP_START,
+        backup_pages * PAGESIZE
+    );
 
     // Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
@@ -126,33 +121,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
     let offset = *offset;
-
-    let backup_start = HEAP_START;
-    let backup_size = BACKUP_HEAP_SIZE;
-
-    // 4. Initialize the backup heap memory allocator.
-    // Map backup heap memory region.
-    map_heap(
-        &mut page_table,
-        &mut page_allocator,
-        backup_start,
-        backup_size,
-    );
-
-    // Initialize.
-    unsafe { awkernel_lib::heap::init_backup(backup_start, backup_size) }; // Enable heap allocator.
-
-    // Set to use the backup allocator in kernel.
-    unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
-
-    // 5. Enable logger.
-    super::console::register_console();
-
-    log::info!(
-        "Backup heap: start = 0x{:x}, size = {}",
-        backup_start,
-        backup_size
-    );
 
     log::info!("Physical memory offset: 0x{:x}", offset);
 
@@ -164,6 +132,41 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         log::error!("Failed to initialize ACPI.");
         wait_forever();
     };
+
+    // Get NUMA information.
+    let (memory_regions, cpu_to_numa) =
+        get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
+
+    let mut numa_frames = BTreeMap::new();
+
+    for (numa_id, regions) in memory_regions.iter() {
+        let frames = boot_info
+            .memory_regions
+            .iter()
+            .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
+            .flat_map(|m| (m.start..m.end).step_by(PAGESIZE as _))
+            .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+        numa_frames.insert(*numa_id, frames);
+    }
+
+    // Create a page allocator.
+    let mut frames = boot_info
+        .memory_regions
+        .iter()
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
+        .flat_map(|m| {
+            if m.start != backup_region.start {
+                m.start..m.end
+            } else if let Some(frame) = backup_next_frame {
+                frame.start_address().as_u64()..m.end
+            } else {
+                0..0
+            }
+            .step_by(PAGESIZE as _)
+        })
+        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+
+    let mut page_allocator = PageAllocator::new(&mut frames);
 
     // 7. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &mut page_table, &mut page_allocator).is_err() {
@@ -212,15 +215,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
-        wait_forever();
-    }
-
-    if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
-        for entry in srat.entries() {
-            // log::info!("SRAT entry: {:?}", entry);
-        }
-    } else {
-        log::error!("Failed to find SRAT.");
         wait_forever();
     }
 
@@ -448,4 +442,194 @@ fn non_primary_kernel_main() -> ! {
     crate::main(kernel_info); // jump to userland
 
     wait_forever();
+}
+
+fn map_page0(boot_info: &mut BootInfo, page_table: &mut OffsetPageTable<'static>) {
+    let mut page0 = None;
+    for region in boot_info.memory_regions.iter() {
+        if region.kind == MemoryRegionKind::Usable && region.start == 0 {
+            page0 = Some(region.clone());
+            break;
+        }
+    }
+
+    if let Some(_) = page0 {
+        unsafe { unsafe_puts("The page #0 is not available.\r\n") };
+        wait_forever();
+    };
+
+    let mut frames = (0..PAGESIZE as u64)
+        .step_by(PAGESIZE as _)
+        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+
+    let mut page_allocator = PageAllocator::new(&mut frames);
+
+    unsafe {
+        match page_table.map_to(
+            Page::containing_address(VirtAddr::new(0)),
+            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
+            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            &mut page_allocator,
+        ) {
+            Ok(f) => f.flush(),
+            Err(_) => {
+                unsafe_puts("Failed to map the page #0.\r\n");
+                wait_forever();
+            }
+        }
+    }
+}
+
+fn init_backup_heap(
+    boot_info: &mut BootInfo,
+    page_table: &mut OffsetPageTable<'static>,
+) -> (usize, MemoryRegion, Option<PhysFrame>) {
+    let mut backup_heap_region = None;
+    for region in boot_info.memory_regions.iter() {
+        if region.kind == MemoryRegionKind::Usable
+            && region.end - region.start > BACKUP_HEAP_SIZE as u64 * 2
+        {
+            backup_heap_region = Some(region.clone());
+            break;
+        }
+    }
+
+    let Some(backup_heap_region) = backup_heap_region  else {
+        unsafe { unsafe_puts("Failed to find a backup heap memory region.\r\n") };
+        wait_forever();
+    };
+
+    let mut frames = (backup_heap_region.start..backup_heap_region.end)
+        .step_by(PAGESIZE as _)
+        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
+
+    let mut page_allocator = PageAllocator::new(&mut frames);
+
+    let backup_pages = map_heap(
+        page_table,
+        &mut page_allocator,
+        HEAP_START,
+        BACKUP_HEAP_SIZE,
+    );
+
+    let next_page = page_allocator.allocate_frame();
+
+    // Initialize.
+    // Enable heap allocator.
+    unsafe {
+        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::TALLOC.use_primary_then_backup()
+    };
+
+    (backup_pages, backup_heap_region, next_page)
+}
+
+/// Get NUMA information from ACPI.
+/// Return a map from NUMA ID to memory region and a map from CPU ID to NUMA ID.
+fn get_numa_info(
+    boot_info: &mut BootInfo,
+    acpi: &AcpiTables<AcpiMapper>,
+    backup_region: &MemoryRegion,
+    backup_next_frame: Option<PhysFrame>,
+) -> (BTreeMap<u32, Vec<MemoryRegion>>, BTreeMap<u32, u32>) {
+    let mut numa_id_to_memory = BTreeMap::new();
+    let mut cpu_to_numa_id = BTreeMap::new();
+
+    if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
+        for entry in srat.entries() {
+            // log::info!("SRAT entry: {:?}", entry);
+            match entry {
+                awkernel_lib::arch::x86_64::acpi::srat::SratEntry::MemoryAffinity(affinity) => {
+                    let start = affinity.lo_base as usize | ((affinity.hi_base as usize) << 32);
+                    let length =
+                        affinity.lo_length as usize | ((affinity.hi_length as usize) << 32);
+
+                    numa_id_to_memory.insert(affinity.domain, (start, length));
+                }
+                awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(srat_apic) => {
+                    let domain = srat_apic.lo_dm as u32
+                        | ((srat_apic.hi_dm[0] as u32) << 8)
+                        | ((srat_apic.hi_dm[1] as u32) << 16)
+                        | ((srat_apic.hi_dm[2] as u32) << 24);
+                    cpu_to_numa_id.insert(srat_apic.apic_id as u32, domain);
+                }
+                awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalX2Apic(srat_apic) => {
+                    let domain = srat_apic.domain;
+                    cpu_to_numa_id.insert(srat_apic.x2apic_id, domain);
+                }
+                _ => (),
+            }
+        }
+    } else {
+        log::error!("Failed to find SRAT.");
+        wait_forever();
+    }
+
+    let mut memory_regions = BTreeMap::new();
+
+    for region in boot_info
+        .memory_regions
+        .iter()
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
+    {
+        for (numa_id, (start, length)) in numa_id_to_memory.iter() {
+            if *start <= region.start as usize && region.end as usize <= *start + *length {
+                log::info!(
+                    "Memory region 0x{:x} - 0x{:x} is in NUMA node {}",
+                    region.start,
+                    region.end,
+                    numa_id
+                );
+
+                // Exclude the backup heap memory region.
+                let new_region = if region.start != backup_region.start {
+                    region.clone()
+                } else if let Some(frame) = backup_next_frame {
+                    MemoryRegion {
+                        start: frame.start_address().as_u64(),
+                        end: region.end,
+                        kind: MemoryRegionKind::Usable,
+                    }
+                } else {
+                    MemoryRegion::empty()
+                };
+
+                memory_regions
+                    .entry(*numa_id)
+                    .or_insert_with(|| Vec::new())
+                    .push(new_region);
+
+                break;
+            }
+        }
+    }
+
+    (memory_regions, cpu_to_numa_id)
+}
+
+fn init_dma(
+    numa_id: u32,
+    numa_memory: &mut BTreeMap<u32, Vec<MemoryRegion>>,
+    page_table: &mut OffsetPageTable<'static>,
+) {
+    let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
+    let dma_end = dma_start + DMA_SIZE;
+
+    let mut dma_region = None;
+
+    for region in numa_memory.get_mut(&numa_id).unwrap().iter_mut() {
+        if region.end - region.start >= DMA_SIZE as u64 {
+            dma_region = Some(MemoryRegion {
+                start: region.start,
+                end: region.start + DMA_SIZE as u64,
+                kind: MemoryRegionKind::Usable,
+            });
+
+            region.start = region.start + DMA_SIZE as u64;
+
+            break;
+        }
+    }
+
+    // TODO
 }
