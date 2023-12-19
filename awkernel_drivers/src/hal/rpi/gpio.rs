@@ -294,13 +294,13 @@ impl ErrorType for GpioPinIn {
 /// Implement `InputPin` trait for `GpioPin` to provide methods for checking if the pin is high or low.
 impl InputPin for GpioPinIn {
     /// Check if the GPIO pin is high.
-    fn is_high(&self) -> Result<bool, Self::Error> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev() + self.base, 1) == 1;
         Ok(state)
     }
 
     /// Check if the GPIO pin is low.
-    fn is_low(&self) -> Result<bool, Self::Error> {
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
         let state = gpio_read(self.pin, gplev() + self.base, 1) == 0;
         Ok(state)
     }
