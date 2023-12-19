@@ -557,7 +557,7 @@ impl PCIeInfo {
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 if net::igb::match_device(self.vendor, self.id) {
-                    return net::igb::attach(self, dma_offset, page_table, page_allocator);
+                    // return net::igb::attach(self, dma_offset, page_table, page_allocator);
                 }
             }
             _ => (),

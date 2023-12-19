@@ -114,9 +114,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     super::console::register_console();
 
     log::info!(
-        "Backup heap: start = 0x{:x}, size = {}",
+        "Backup heap: start = 0x{:x}, size = {}MiB",
         HEAP_START,
-        backup_pages * PAGESIZE
+        backup_pages * PAGESIZE / 1024 / 1024
     );
 
     // 6. Get offset address to physical memory.
@@ -141,18 +141,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (mut numa_to_mem, cpu_to_numa) =
         get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
 
-    log::debug!("9");
-
     let mut page_allocators = BTreeMap::new();
 
     let numas: Vec<_> = numa_to_mem.keys().map(|n| *n).collect();
-    log::debug!("9.1");
     for numa_id in numas.iter() {
         let page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
-
-        log::debug!("9.2");
         page_allocators.insert(*numa_id, page_allocator);
-        log::debug!("9.3");
     }
 
     // 9. Initialize stack memory regions for non-primary CPUs.
@@ -161,15 +155,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
-    log::debug!("10");
-
     let (mut awkernel_page_table, type_apic) =
         if let Some(page_allocator0) = page_allocators.get_mut(&0) {
             // 10. Initialize `awkernel_lib` and `awkernel_driver`
             let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
             awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
-
-            log::debug!("11");
 
             // 11. Initialize APIC.
             let type_apic = awkernel_drivers::interrupt_controller::apic::new(
@@ -180,8 +170,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             // 12. Map the page #0.
             map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
 
-            log::debug!("12");
-
             (awkernel_page_table, type_apic)
         } else {
             log::error!("No page allocator for NUMA #0.");
@@ -191,17 +179,12 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
 
-    log::debug!("13");
-
     // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
         TypeApic::Xapic(xapic) => {
-            log::debug!("14.0");
             let result = wake_non_primary_cpus(&xapic, &acpi, offset);
-
-            log::debug!("14.1");
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(xapic));
@@ -270,9 +253,9 @@ fn init_primary_heap(
     unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
 
     log::info!(
-        "Primary heap: start = 0x{:x}, size = {}",
+        "Primary heap: start = 0x{:x}, size = {}MiB",
         primary_start,
-        heap_size
+        heap_size / 1024 / 1024
     );
 }
 
@@ -358,7 +341,6 @@ fn wake_non_primary_cpus(
     BOOTED_APS.store(num_aps, Ordering::Release);
 
     for ap in processor_info.application_processors.iter() {
-        log::debug!("AP = {}", ap.local_apic_id);
         if matches!(ap.state, ProcessorState::WaitingForSipi) {
             send_ipi(apic, ap.local_apic_id, offset);
         }
@@ -564,8 +546,6 @@ fn get_numa_info(
                         .entry(affinity.domain)
                         .or_insert_with(|| Vec::new())
                         .push((start, length));
-
-                    log::debug!("{:?}", entry);
                 }
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(srat_apic) => {
                     if srat_apic.flags & 1 == 0 {
@@ -627,19 +607,22 @@ fn get_numa_info(
             continue;
         }
 
+        fn wrap_up(addr: u64) -> u64 {
+            (addr.checked_add(PAGESIZE as u64 - 1).unwrap()) & !(PAGESIZE as u64 - 1)
+        }
+
+        fn wrap_down(addr: u64) -> u64 {
+            addr & !(PAGESIZE as u64 - 1)
+        }
+
+        let usable_start = wrap_up(usable_region.start);
+        let usable_end = wrap_down(usable_region.end);
+
         'outer: for (numa_id, mems) in numa_id_to_memory.iter() {
             for (start, length) in mems.iter() {
                 let end = *start + *length;
-                if (*start..end).contains(&(usable_region.start as usize)) {
-                    if (*start..=end).contains(&(usable_region.end as usize)) {
-                        log::info!(
-                            "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
-                            usable_region.start,
-                            usable_region.end,
-                            (usable_region.end - usable_region.start) / 1024,
-                            numa_id
-                        );
-
+                if (*start..end).contains(&(usable_start as usize)) {
+                    if (*start..=end).contains(&(usable_end as usize)) {
                         memory_regions
                             .entry(*numa_id)
                             .or_insert_with(|| Vec::new())
@@ -647,17 +630,9 @@ fn get_numa_info(
 
                         break 'outer;
                     } else {
-                        log::info!(
-                            "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
-                            usable_region.start,
-                            end,
-                            (end as u64 - usable_region.start) / 1024,
-                            numa_id
-                        );
-
                         let remain = MemoryRegion {
                             start: end as u64,
-                            end: usable_region.end,
+                            end: usable_end,
                             kind: MemoryRegionKind::Usable,
                         };
 
@@ -733,12 +708,12 @@ fn init_dma(
                 .flush()
         };
     }
-    log::debug!(
-        "init_dma 3: physical.region (start, end) = (0x{:x}, 0x{:x}), dma_start = 0x{:x}, size = {} MiB",
-        dma_phy_region.start,
-        dma_phy_region.end,
+
+    log::info!(
+        "DMA(NUMA #{}): start = 0x{:x}, size = {}MiB",
+        numa_id,
         dma_start,
-        (dma_phy_region.end - dma_phy_region.start) / 1024 / 1024
+        DMA_SIZE / 1024 / 1024
     );
 
     unsafe {

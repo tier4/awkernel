@@ -32,12 +32,6 @@ pub struct DMAPool {
 pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
     assert!(numa_id < NUMA_NUM_MAX);
 
-    log::debug!(
-        "init_dma_pool 2: start = 0x{:x}, size = 0x{:x}",
-        start.as_usize(),
-        size,
-    );
-
     let pool = core::slice::from_raw_parts_mut(start.as_usize() as *mut u8, size);
 
     let Some(pool) = NonNull::new(pool) else {
