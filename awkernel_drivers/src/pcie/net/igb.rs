@@ -191,17 +191,17 @@ impl Igb {
         let perm_mac_addr = hw.get_perm_mac_addr();
         log::debug!(
             "igb: MAC = {:x}::{:x}::{:x}::{:x}::{:x}::{:x}",
-            perm_mac_addr[5],
-            perm_mac_addr[4],
-            perm_mac_addr[3],
-            perm_mac_addr[2],
+            perm_mac_addr[0],
             perm_mac_addr[1],
-            perm_mac_addr[0]
+            perm_mac_addr[2],
+            perm_mac_addr[3],
+            perm_mac_addr[4],
+            perm_mac_addr[5]
         );
 
         loop {}
 
-        let bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
+        let mut bar0 = info.get_bar(0).ok_or(PCIeDeviceErr::InitFailure)?;
 
         // allocate send and recv descriptor ring
         let tx_ring_len = PAGESIZE / size_of::<TxDescriptor>();
@@ -247,6 +247,10 @@ impl Igb {
             irq: None,
         })
     }
+}
+
+fn allocate_desc_rings(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<(), IgbDriverErr> {
+    todo!();
 }
 
 /// Initialize the hardware to a configuration as specified by the

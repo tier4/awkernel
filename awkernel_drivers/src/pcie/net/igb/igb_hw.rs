@@ -4774,17 +4774,12 @@ fn is_onboard_nvm_eeprom(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, Ig
 }
 
 pub fn get_flash_presence_i210(mac_type: &MacType, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
-    if matches!(mac_type, MacType::EmI210) {
+    if *mac_type != MacType::EmI210 {
         return Ok(true);
     }
 
     let eecd = read_reg(info, EECD)?;
-
-    if eecd & EECD_FLUPD != 0 {
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    Ok(eecd & EECD_FLUPD != 0)
 }
 
 /// Set media type and TBI compatibility.
