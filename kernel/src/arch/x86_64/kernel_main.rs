@@ -13,7 +13,11 @@ use crate::{
     kernel_info::KernelInfo,
 };
 use acpi::{platform::ProcessorState, AcpiTables};
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{
+    boxed::Box,
+    collections::{BTreeMap, VecDeque},
+    vec::Vec,
+};
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
@@ -140,12 +144,18 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (mut numa_to_mem, cpu_to_numa) =
         get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
 
+    log::debug!("9");
+
     let mut page_allocators = BTreeMap::new();
 
     let numas: Vec<_> = numa_to_mem.keys().map(|n| *n).collect();
+    log::debug!("9.1");
     for numa_id in numas.iter() {
         let page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
+
+        log::debug!("9.2");
         page_allocators.insert(*numa_id, page_allocator);
+        log::debug!("9.3");
     }
 
     // 10. Initialize stack memory regions for non-primary CPUs.
@@ -154,17 +164,23 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     }
 
+    log::debug!("10");
+
     let (mut awkernel_page_table, type_apic) =
         if let Some(page_allocator0) = page_allocators.get_mut(&0) {
             // 11. Initialize `awkernel_lib` and `awkernel_driver`
             let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
             awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
 
+            log::debug!("11");
+
             // 12. Initialize APIC.
             let type_apic = awkernel_drivers::interrupt_controller::apic::new(
                 &mut awkernel_page_table,
                 page_allocator0,
             );
+
+            log::debug!("12");
 
             (awkernel_page_table, type_apic)
         } else {
@@ -472,7 +488,7 @@ fn init_backup_heap(
     let mut backup_heap_region = None;
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable
-            && region.end - region.start > BACKUP_HEAP_SIZE as u64 * 2
+            && region.end - region.start >= BACKUP_HEAP_SIZE as u64 * 2
         {
             backup_heap_region = Some(region.clone());
             break;
@@ -525,6 +541,10 @@ fn get_numa_info(
             // log::info!("SRAT entry: {:?}", entry);
             match entry {
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::MemoryAffinity(affinity) => {
+                    if affinity.flags & 1 == 0 {
+                        continue;
+                    }
+
                     let start = affinity.lo_base as usize | ((affinity.hi_base as usize) << 32);
                     let length =
                         affinity.lo_length as usize | ((affinity.hi_length as usize) << 32);
@@ -537,6 +557,10 @@ fn get_numa_info(
                     log::debug!("{:?}", entry);
                 }
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(srat_apic) => {
+                    if srat_apic.flags & 1 == 0 {
+                        continue;
+                    }
+
                     let domain = srat_apic.lo_dm as u32
                         | ((srat_apic.hi_dm[0] as u32) << 8)
                         | ((srat_apic.hi_dm[1] as u32) << 16)
@@ -544,6 +568,10 @@ fn get_numa_info(
                     cpu_to_numa_id.insert(srat_apic.apic_id as u32, domain);
                 }
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalX2Apic(srat_apic) => {
+                    if srat_apic.flags & 1 == 0 {
+                        continue;
+                    }
+
                     let domain = srat_apic.domain;
                     cpu_to_numa_id.insert(srat_apic.x2apic_id, domain);
                 }
@@ -557,55 +585,86 @@ fn get_numa_info(
 
     let mut memory_regions = BTreeMap::new();
 
-    for region in boot_info
+    let mut usable_regions: VecDeque<MemoryRegion> = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start != 0)
-    {
-        log::debug!(
-            "Memory region 0x{:x} - 0x{:x} ({} KiB) is not in NUMA node",
-            region.start,
-            region.end,
-            (region.end - region.start) / 1024
-        );
+        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .map(|m| m.clone())
+        .collect();
+
+    loop {
+        let Some(usable_region) = usable_regions.pop_front() else {
+            break;
+        };
+
+        if usable_region == *backup_region {
+            if let Some(frame) = backup_next_frame {
+                // Exclude the backup heap memory region.
+                MemoryRegion {
+                    start: frame.start_address().as_u64(),
+                    end: usable_region.end,
+                    kind: MemoryRegionKind::Usable,
+                }
+            } else {
+                usable_region
+            }
+        } else {
+            usable_region
+        };
+
+        if usable_region.start == 0 || usable_region.start == usable_region.end {
+            continue;
+        }
 
         'outer: for (numa_id, mems) in numa_id_to_memory.iter() {
             for (start, length) in mems.iter() {
-                if *start <= region.start as usize && region.end as usize <= *start + *length {
-                    log::info!(
-                        "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
-                        region.start,
-                        region.end,
-                        (region.end - region.start) / 1024,
-                        numa_id
-                    );
+                let end = *start + *length;
+                if (*start..end).contains(&(usable_region.start as usize)) {
+                    if (*start..=end).contains(&(usable_region.end as usize)) {
+                        log::info!(
+                            "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
+                            usable_region.start,
+                            usable_region.end,
+                            (usable_region.end - usable_region.start) / 1024,
+                            numa_id
+                        );
 
-                    let new_region = if region.start != backup_region.start {
-                        // Exclude the backup heap memory region.
-                        region.clone()
-                    } else if region.start == 0 {
-                        // Exclude the page #0.
-                        continue;
-                    } else if let Some(frame) = backup_next_frame {
-                        MemoryRegion {
-                            start: frame.start_address().as_u64(),
-                            end: region.end,
-                            kind: MemoryRegionKind::Usable,
-                        }
+                        memory_regions
+                            .entry(*numa_id)
+                            .or_insert_with(|| Vec::new())
+                            .push(usable_region);
+
+                        break 'outer;
                     } else {
-                        MemoryRegion::empty()
-                    };
+                        log::info!(
+                            "Memory region 0x{:x} - 0x{:x} ({} KiB) is in NUMA node {}",
+                            usable_region.start,
+                            end,
+                            (end as u64 - usable_region.start) / 1024,
+                            numa_id
+                        );
 
-                    memory_regions
-                        .entry(*numa_id)
-                        .or_insert_with(|| Vec::new())
-                        .push(new_region);
+                        let remain = MemoryRegion {
+                            start: end as u64,
+                            end: usable_region.end,
+                            kind: MemoryRegionKind::Usable,
+                        };
 
-                    break 'outer;
+                        memory_regions
+                            .entry(*numa_id)
+                            .or_insert_with(|| Vec::new())
+                            .push(usable_region);
+
+                        usable_regions.push_front(remain);
+
+                        break 'outer;
+                    }
                 }
             }
         }
     }
+
+    log::debug!("memory_regions = {:?}", memory_regions);
 
     (memory_regions, cpu_to_numa_id)
 }
@@ -615,7 +674,7 @@ fn init_dma(
     numa_memory: &mut BTreeMap<u32, Vec<MemoryRegion>>,
     page_table: &mut OffsetPageTable<'static>,
 ) -> VecPageAllocator {
-    let mut dma_region = None;
+    let mut dma_phy_region = None;
 
     let Some(mut numa_memory) = numa_memory.remove(&numa_id) else {
         log::error!("Failed to get NUMA memory. NUMA ID = {}", numa_id);
@@ -623,35 +682,40 @@ fn init_dma(
     };
 
     for region in numa_memory.iter_mut() {
+        let end = region.start + DMA_SIZE as u64;
         if region.end - region.start >= DMA_SIZE as u64 {
-            dma_region = Some(MemoryRegion {
+            dma_phy_region = Some(MemoryRegion {
                 start: region.start,
-                end: region.start + DMA_SIZE as u64,
+                end,
                 kind: MemoryRegionKind::Usable,
             });
 
-            region.start = region.start + DMA_SIZE as u64;
+            region.start = end;
 
             break;
         }
     }
 
-    let Some(dma_region) = dma_region else {
+    let Some(dma_phy_region) = dma_phy_region else {
         log::error!("Failed to allocate a DMA region. NUMA ID = {}", numa_id);
         awkernel_lib::delay::wait_forever();
     };
 
     let mut page_allocator = page_allocator::VecPageAllocator::new(numa_memory);
     let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
+    let flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        // | PageTableFlags::NO_CACHE
+        | PageTableFlags::NO_EXECUTE
+        | PageTableFlags::GLOBAL;
 
-    for (i, dma_phy_frame) in (dma_region.start..dma_region.end)
+    for (i, dma_phy_frame) in (dma_phy_region.start..dma_phy_region.end)
         .step_by(PAGESIZE as _)
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)))
         .enumerate()
     {
         let virt_frame =
             Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE as usize) as u64));
-        let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 
         unsafe {
             page_table
@@ -660,12 +724,19 @@ fn init_dma(
                 .flush()
         };
     }
+    log::debug!(
+        "init_dma 3: physical.region (start, end) = (0x{:x}, 0x{:x}), dma_start = 0x{:x}, size = {} MiB",
+        dma_phy_region.start,
+        dma_phy_region.end,
+        dma_start,
+        (dma_phy_region.end - dma_phy_region.start) / 1024 / 1024
+    );
 
     unsafe {
         awkernel_lib::dma_pool::init_dma_pool(
             numa_id as usize,
             awkernel_lib::addr::virt_addr::VirtAddr::new(dma_start),
-            (dma_region.end - dma_region.start) as usize,
+            (dma_phy_region.end - dma_phy_region.start) as usize,
         )
     };
 

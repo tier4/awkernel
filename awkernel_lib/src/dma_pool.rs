@@ -19,8 +19,10 @@ type TLSFAlloc = Tlsf<'static, FLBitmap, SLBitmap, FLLEN, SLLEN>;
 
 const NUMA_NUM_MAX: usize = 16;
 
-static CONTINUOUS_MEMORY_POOLS: [Mutex<TLSFAlloc>; NUMA_NUM_MAX] =
+static CONTINUOUS_MEMORY_POOL: [Mutex<TLSFAlloc>; NUMA_NUM_MAX] =
     array_macro::array![_ => Mutex::new(TLSFAlloc::new()); NUMA_NUM_MAX];
+
+static mut DMA_POOL: TLSFAlloc = TLSFAlloc::new();
 
 pub struct DMAPool {
     virt_addr: VirtAddr,
@@ -32,17 +34,35 @@ pub struct DMAPool {
 pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
     assert!(numa_id < NUMA_NUM_MAX);
 
-    let ptr = start.as_mut_ptr::<u8>();
-    let pool = core::slice::from_raw_parts_mut(ptr, size);
+    log::debug!("init_dma_pool");
+
+    let pool = core::slice::from_raw_parts_mut(start.as_usize() as *mut u8, size);
     let Some(pool) = NonNull::new(pool) else {
         return;
     };
 
-    let mut node = MCSNode::new();
+    log::debug!("init_dma_pool 1");
 
-    CONTINUOUS_MEMORY_POOLS[numa_id]
-        .lock(&mut node)
-        .insert_free_block_ptr(pool);
+    // let mut node = MCSNode::new();
+
+    log::debug!(
+        "init_dma_pool 2: start = {:p}, size = 0x{:x}",
+        pool.as_ptr(),
+        pool.len()
+    );
+
+    {
+        // let mut guard = CONTINUOUS_MEMORY_POOL[numa_id].lock(&mut node);
+
+        // guard.insert_free_block_ptr(pool);
+    }
+
+    DMA_POOL.insert_free_block_ptr(pool);
+
+    unsafe { crate::console::unsafe_puts("init_dma_pool 3\r\n") };
+
+    log::debug!("init_dma_pool 3");
+    loop {}
 }
 
 impl DMAPool {
@@ -55,7 +75,7 @@ impl DMAPool {
         let mut node = MCSNode::new();
 
         let pool = {
-            let mut allocator = CONTINUOUS_MEMORY_POOLS[numa_id].lock(&mut node);
+            let mut allocator = CONTINUOUS_MEMORY_POOL[numa_id].lock(&mut node);
             allocator.allocate(layout)?
         };
 
@@ -113,7 +133,7 @@ impl Drop for DMAPool {
     fn drop(&mut self) {
         let ptr = self.virt_addr.as_mut_ptr::<u8>();
         let mut node = MCSNode::new();
-        let mut allocator = CONTINUOUS_MEMORY_POOLS[self.numa_id].lock(&mut node);
+        let mut allocator = CONTINUOUS_MEMORY_POOL[self.numa_id].lock(&mut node);
         unsafe {
             allocator.deallocate(NonNull::new_unchecked(ptr), PAGESIZE);
         }
