@@ -221,7 +221,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             wait_forever();
         }
     };
-    loop {}
 
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
@@ -471,9 +470,9 @@ fn map_page0(
     };
 
     let flags = awkernel_lib::paging::Flags {
-        execute: false,
+        execute: true,
         write: true,
-        cache: false,
+        cache: true,
         device: false,
         write_through: false,
     };
