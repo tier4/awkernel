@@ -186,7 +186,18 @@ impl Igb {
 
         hw.read_mac_addr(&info)?;
 
-        log::debug!("e1000: {:?}\r\n{:?}", hw, info);
+        log::debug!("igb: {:?}\r\n{:?}", hw, info);
+
+        let perm_mac_addr = hw.get_perm_mac_addr();
+        log::debug!(
+            "igb: MAC = {:x}::{:x}::{:x}::{:x}::{:x}::{:x}",
+            perm_mac_addr[5],
+            perm_mac_addr[4],
+            perm_mac_addr[3],
+            perm_mac_addr[2],
+            perm_mac_addr[1],
+            perm_mac_addr[0]
+        );
 
         loop {}
 

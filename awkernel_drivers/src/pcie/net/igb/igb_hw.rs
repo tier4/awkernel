@@ -4415,6 +4415,10 @@ impl IgbHw {
 
         Ok(())
     }
+
+    pub fn get_perm_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
+        self.perm_mac_addr
+    }
 }
 
 fn nvm_82580_lan_func_offset(a: u8) -> u16 {
