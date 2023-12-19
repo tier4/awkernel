@@ -31,7 +31,7 @@ use awkernel_lib::{
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
-    paging::PAGESIZE,
+    paging::{PageTable, PAGESIZE},
 };
 use bootloader_api::{
     config::Mapping,
@@ -74,15 +74,15 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
-/// 4. Map the page #0.
-/// 5. Initialize the backup heap memory allocator.
-/// 6. Enable logger.
-/// 7. Get offset address to physical memory.
-/// 8. Initialize ACPI.
-/// 9. Get NUMA information.
-/// 10. Initialize stack memory regions for non-primary CPUs.
-/// 11. Initialize `awkernel_lib`.
-/// 12. Initialize APIC.
+/// 4. Initialize the backup heap memory allocator.
+/// 5. Enable logger.
+/// 6. Get offset address to physical memory.
+/// 7. Initialize ACPI.
+/// 8. Get NUMA information.
+/// 9. Initialize stack memory regions for non-primary CPUs.
+/// 10. Initialize `awkernel_lib`.
+/// 11. Initialize APIC.
+/// 12. Map the page #0.
 /// 13. Write boot images to wake non-primary CPUs up.
 /// 14. Boot non-primary CPUs.
 /// 15. Initialize PCIe devices.
@@ -106,14 +106,11 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 4. Map the page #0.
-    map_page0(boot_info, &mut page_table);
-
-    // 5. Initialize the backup heap memory allocator.
+    // 4. Initialize the backup heap memory allocator.
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table);
 
-    // 6. Enable logger.
+    // 5. Enable logger.
     super::console::register_console();
 
     log::info!(
@@ -122,7 +119,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         backup_pages * PAGESIZE
     );
 
-    // 7. Get offset address to physical memory.
+    // 6. Get offset address to physical memory.
     let Some(offset) = boot_info.physical_memory_offset.as_ref() else {
         unsafe { unsafe_puts("Failed to get the physical memory offset.\r\n") };
         wait_forever();
@@ -131,7 +128,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     log::info!("Physical memory offset: 0x{:x}", offset);
 
-    // 8. Initialize ACPI.
+    // 7. Initialize ACPI.
     let acpi = if let Some(acpi) = awkernel_lib::arch::x86_64::acpi::create_acpi(boot_info, offset)
     {
         acpi
@@ -140,7 +137,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         wait_forever();
     };
 
-    // 9. Get NUMA information.
+    // 8. Get NUMA information.
     let (mut numa_to_mem, cpu_to_numa) =
         get_numa_info(boot_info, &acpi, &backup_region, backup_next_frame);
 
@@ -158,7 +155,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         log::debug!("9.3");
     }
 
-    // 10. Initialize stack memory regions for non-primary CPUs.
+    // 9. Initialize stack memory regions for non-primary CPUs.
     if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
@@ -168,17 +165,20 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let (mut awkernel_page_table, type_apic) =
         if let Some(page_allocator0) = page_allocators.get_mut(&0) {
-            // 11. Initialize `awkernel_lib` and `awkernel_driver`
+            // 10. Initialize `awkernel_lib` and `awkernel_driver`
             let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
             awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
 
             log::debug!("11");
 
-            // 12. Initialize APIC.
+            // 11. Initialize APIC.
             let type_apic = awkernel_drivers::interrupt_controller::apic::new(
                 &mut awkernel_page_table,
                 page_allocator0,
             );
+
+            // 12. Map the page #0.
+            map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
 
             log::debug!("12");
 
@@ -191,12 +191,17 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
 
+    log::debug!("13");
+
     // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
         TypeApic::Xapic(xapic) => {
+            log::debug!("14.0");
             let result = wake_non_primary_cpus(&xapic, &acpi, offset);
+
+            log::debug!("14.1");
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(xapic));
@@ -216,6 +221,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             wait_forever();
         }
     };
+    loop {}
 
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
@@ -353,6 +359,7 @@ fn wake_non_primary_cpus(
     BOOTED_APS.store(num_aps, Ordering::Release);
 
     for ap in processor_info.application_processors.iter() {
+        log::debug!("AP = {}", ap.local_apic_id);
         if matches!(ap.state, ProcessorState::WaitingForSipi) {
             send_ipi(apic, ap.local_apic_id, offset);
         }
@@ -445,7 +452,11 @@ fn non_primary_kernel_main() -> ! {
     wait_forever();
 }
 
-fn map_page0(boot_info: &mut BootInfo, page_table: &mut OffsetPageTable<'static>) {
+fn map_page0(
+    boot_info: &mut BootInfo,
+    page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
+    page_allocator: &mut VecPageAllocator,
+) {
     let mut page0 = None;
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable && region.start == 0 {
@@ -459,20 +470,22 @@ fn map_page0(boot_info: &mut BootInfo, page_table: &mut OffsetPageTable<'static>
         wait_forever();
     };
 
-    let mut frames = (0..PAGESIZE as u64)
-        .step_by(PAGESIZE as _)
-        .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)));
-
-    let mut page_allocator = PageAllocator::new(&mut frames);
+    let flags = awkernel_lib::paging::Flags {
+        execute: false,
+        write: true,
+        cache: false,
+        device: false,
+        write_through: false,
+    };
 
     unsafe {
         match page_table.map_to(
-            Page::containing_address(VirtAddr::new(0)),
-            PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(0)),
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-            &mut page_allocator,
+            awkernel_lib::addr::virt_addr::VirtAddr::new(0),
+            awkernel_lib::addr::phy_addr::PhyAddr::new(0),
+            flags,
+            page_allocator,
         ) {
-            Ok(f) => f.flush(),
+            Ok(_) => {}
             Err(_) => {
                 unsafe_puts("Failed to map the page #0.\r\n");
                 wait_forever();
@@ -519,8 +532,8 @@ fn init_backup_heap(
     // Enable heap allocator.
     unsafe {
         awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
-        awkernel_lib::heap::TALLOC.use_primary_then_backup()
-    };
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+    }
 
     (backup_pages, backup_heap_region, next_page)
 }
@@ -538,7 +551,6 @@ fn get_numa_info(
 
     if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
         for entry in srat.entries() {
-            // log::info!("SRAT entry: {:?}", entry);
             match entry {
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::MemoryAffinity(affinity) => {
                     if affinity.flags & 1 == 0 {
@@ -597,7 +609,7 @@ fn get_numa_info(
             break;
         };
 
-        if usable_region == *backup_region {
+        let usable_region = if usable_region.start == backup_region.start {
             if let Some(frame) = backup_next_frame {
                 // Exclude the backup heap memory region.
                 MemoryRegion {
@@ -606,7 +618,7 @@ fn get_numa_info(
                     kind: MemoryRegionKind::Usable,
                 }
             } else {
-                usable_region
+                continue;
             }
         } else {
             usable_region
@@ -663,8 +675,6 @@ fn get_numa_info(
             }
         }
     }
-
-    log::debug!("memory_regions = {:?}", memory_regions);
 
     (memory_regions, cpu_to_numa_id)
 }
