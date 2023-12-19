@@ -184,6 +184,8 @@ impl Igb {
 
         hardware_init(&mut hw, &mut info)?;
 
+        hw.read_mac_addr(&info)?;
+
         log::debug!("e1000: {:?}\r\n{:?}", hw, info);
 
         loop {}

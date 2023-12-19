@@ -481,6 +481,8 @@ pub struct IgbHw {
     fc: FC,
     max_frame_size: u32,
     min_frame_size: u32,
+    perm_mac_addr: [u8; NODE_ADDRESS_SIZE],
+    mac_addr: [u8; NODE_ADDRESS_SIZE],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -963,6 +965,8 @@ impl IgbHw {
             fc,
             max_frame_size,
             min_frame_size,
+            perm_mac_addr: [0; NODE_ADDRESS_SIZE],
+            mac_addr: [0; NODE_ADDRESS_SIZE],
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -2279,8 +2283,8 @@ impl IgbHw {
         offset: u32,
         data: &mut [u16],
     ) -> Result<(), IgbDriverErr> {
-        for d in data.iter_mut() {
-            let eerd = ((offset + 1) << EEPROM_RW_ADDR_SHIFT) + EEPROM_RW_REG_START;
+        for (i, d) in data.iter_mut().enumerate() {
+            let eerd = ((offset + i as u32) << EEPROM_RW_ADDR_SHIFT) | EEPROM_RW_REG_START;
 
             write_reg(info, EERD, eerd)?;
             self.poll_eerd_eewr_done(info, EEPROM_POLL_READ)?;
@@ -2601,9 +2605,9 @@ impl IgbHw {
             // 32 bit accesses in SPT.
             let hsflctl = (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? >> 16) as u16;
 
-            let hsflctl = (hsflctl & !(0b11 << 8))
-                | ((((core::mem::size_of::<u32>() - 1) as u16) << 8) & 0b11);
-            let hsflctl = (hsflctl & !(0b11 << 1)) | ((ICH_CYCLE_READ << 1) & 0b11);
+            let hsflctl =
+                (hsflctl & !(0b11 << 8)) | (((core::mem::size_of::<u32>() - 1) as u16 & 0b11) << 8);
+            let hsflctl = (hsflctl & !(0b11 << 1)) | (ICH_CYCLE_READ & 0b11 << 1);
 
             self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, (hsflctl as u32) << 16)?;
 
@@ -4374,9 +4378,52 @@ impl IgbHw {
 
         Ok(())
     }
+
+    /// Reads the adapter's MAC address from the EEPROM and inverts the LSB for the
+    /// second function of dual function devices
+    pub fn read_mac_addr(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        let ia_base_addr = if self.mac_type == EmICPxxxx {
+            return Err(IgbDriverErr::NotSupported);
+        } else if matches!(self.mac_type, Em82580 | EmI350) {
+            nvm_82580_lan_func_offset(self.bus_func)
+        } else {
+            0
+        };
+
+        for i in (0..NODE_ADDRESS_SIZE).step_by(2) {
+            let offset = i >> 1;
+            let mut eeprom_data = [0; 1];
+            self.read_eeprom(info, offset as u32 + ia_base_addr as u32, &mut eeprom_data)?;
+            self.perm_mac_addr[i] = (eeprom_data[0] & 0x00FF) as u8;
+            self.perm_mac_addr[i + 1] = (eeprom_data[0] >> 8) as u8;
+        }
+
+        match self.mac_type {
+            Em82546 | Em82546Rev3 | Em82571 | Em82575 | Em82576 | Em80003es2lan => {
+                if read_reg(info, STATUS)? & STATUS_FUNC_1 != 0 {
+                    self.perm_mac_addr[5] ^= 0x01;
+                }
+            }
+            _ => {}
+        }
+
+        for i in 0..NODE_ADDRESS_SIZE {
+            self.mac_addr[i] = self.perm_mac_addr[i];
+        }
+
+        Ok(())
+    }
 }
 
-const MASTER_DISABLE_TIMEOUT: u32 = 800;
+fn nvm_82580_lan_func_offset(a: u8) -> u16 {
+    if a == 0 {
+        0
+    } else {
+        0x40 + (0x40 * a as u16)
+    }
+}
 
 /// The defaults for 82575 and 82576 should be in the range of 50us to 50ms,
 /// however the hardware default for these parts is 500us to 1ms which is less

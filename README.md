@@ -9,14 +9,14 @@ isolated zero-copy communications written in Rust.
   - [x] Publish and subscribe
   - [x] Service
   - [x] Action
-- [ ] Isolation
-  - [x] Memory space isolation
-  - [ ] Temporal isolation
-- [ ] Scheduling
+- [x] Memory space isolation
+- [ ] Scheduler
   - [x] FIFO scheduler
   - [ ] DAG scheduler
     - [ ] GEDF DAG Scheduler
-- [x] O(1) memory allocator
+- [ ] Memory allocator
+  - [x] O(1) memory allocator
+  - [ ] NUMA aware memory allocator
 
 ## Dependencies
 

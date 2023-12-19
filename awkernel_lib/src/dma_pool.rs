@@ -22,6 +22,7 @@ const NUMA_NUM_MAX: usize = 16;
 static CONTINUOUS_MEMORY_POOL: [Mutex<TLSFAlloc>; NUMA_NUM_MAX] =
     array_macro::array![_ => Mutex::new(TLSFAlloc::new()); NUMA_NUM_MAX];
 
+#[derive(Debug)]
 pub struct DMAPool {
     virt_addr: VirtAddr,
     phy_addr: PhyAddr,
@@ -94,7 +95,7 @@ impl DMAPool {
 
     #[inline(always)]
     pub unsafe fn get_slice<'a, T: Sized>(&'a self) -> &'a [T] {
-        assert!(self.size % core::mem::size_of::<T>() == 0);
+        debug_assert!(self.size % core::mem::size_of::<T>() == 0);
         core::slice::from_raw_parts::<'a, T>(
             self.virt_addr.as_ptr(),
             self.size / core::mem::size_of::<T>(),
@@ -103,7 +104,7 @@ impl DMAPool {
 
     #[inline(always)]
     pub unsafe fn get_slice_mut<'a, T: Sized>(&'a mut self) -> &'a mut [T] {
-        assert!(self.size % core::mem::size_of::<T>() == 0);
+        debug_assert!(self.size % core::mem::size_of::<T>() == 0);
         core::slice::from_raw_parts_mut::<'a, T>(
             self.virt_addr.as_mut_ptr(),
             self.size / core::mem::size_of::<T>(),

@@ -723,3 +723,7 @@ pub const fn gg82563_reg(page: u32, reg: u32) -> u32 {
 pub const fn phy_reg(page: u32, reg: u32) -> u32 {
     (page << PHY_PAGE_SHIFT) | (reg & MAX_PHY_REG_ADDRESS)
 }
+
+pub const NODE_ADDRESS_SIZE: usize = 6;
+
+pub const MASTER_DISABLE_TIMEOUT: u32 = 800;
