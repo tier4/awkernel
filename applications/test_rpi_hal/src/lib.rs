@@ -56,7 +56,7 @@ pub async fn _switching_pull_down() {
     let mut gpio26 = pin.into_output(); // Make GPIO26 the output mode
 
     let pin = GpioPin::new(16).unwrap(); // Use GPIO16
-    let gpio16 = pin.into_input(PullMode::Down).unwrap();
+    let mut gpio16 = pin.into_input(PullMode::Down).unwrap();
 
     loop {
         if gpio16.is_high().unwrap() {
@@ -74,7 +74,7 @@ pub async fn _switching_pull_up() {
     let mut gpio26 = pin.into_output(); // Make GPIO26 the output mode
 
     let pin = GpioPin::new(16).unwrap(); // Use GPIO16
-    let gpio16 = pin.into_input(PullMode::Up).unwrap();
+    let mut gpio16 = pin.into_input(PullMode::Up).unwrap();
 
     loop {
         if gpio16.is_high().unwrap() {
@@ -92,7 +92,7 @@ pub async fn blink_and_switch() {
     let mut gpio26 = pin.into_output(); // Make GPIO26 the output mode
 
     let pin = GpioPin::new(16).unwrap(); // Use GPIO16
-    let gpio16 = pin.into_input(PullMode::Up).unwrap();
+    let mut gpio16 = pin.into_input(PullMode::Up).unwrap();
 
     let mut flag = true;
 
