@@ -77,6 +77,8 @@ pub const CTRL_RST: u32 = 1 << 26;
 pub const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
 pub const CTRL_I2C_ENA: u32 = 1 << 25;
 pub const CTRL_PHY_RST: u32 = 1 << 31;
+pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
+pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
 
 pub const TXDCTL_GRAN: u32 = 1 << 24;
 pub const TXDCTL_WTHRESH: u32 = 1 << 16;
@@ -97,9 +99,9 @@ pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
 
 // FEXTNVM registers
-pub const _FEXTNVM7: usize = 0xe;
+pub const FEXTNVM7: usize = 0xe;
 pub const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
-pub const _FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
+pub const FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
 pub const _FEXTNVM9: usize = 0x5bb4;
 pub const _FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
 pub const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
@@ -150,7 +152,7 @@ pub const FWSM: usize = 0x05B54;
 
 pub const _FWSM_MODE_MASK: u32 = 0x0000000E; // FW mode
 pub const _FWSM_MODE_SHIFT: u32 = 1;
-pub const _FWSM_ULP_CFG_DONE: u32 = 0x00000400; // Low power cfg done
+pub const FWSM_ULP_CFG_DONE: u32 = 0x00000400; // Low power cfg done
 pub const FWSM_FW_VALID: u32 = 0x00008000; // FW established a valid mode
 pub const FWSM_RSPCIPHY: u32 = 0x00000040; // Reset PHY on PCI reset
 pub const _FWSM_DISSW: u32 = 0x10000000; // FW disable SW Write Access
@@ -243,6 +245,7 @@ pub const _CTRL_EXT_IAME: u32 = 0x08000000; // Interrupt acknowledge Auto-mask
 pub const _CTRL_EXT_INT_TIMER_CLR: u32 = 0x20000000; // Clear Interrupt timers after IMS clear
 pub const _CRTL_EXT_PB_PAREN: u32 = 0x01000000; // packet buffer parity error detection enabled
 pub const _CTRL_EXT_DF_PAREN: u32 = 0x02000000; // descriptor FIFO parity error detection enable
+pub const CTRL_EXT_FORCE_SMBUS: u32 = 0x00000800; // Force SMBus mode
 
 pub const MDICNFG: usize = 0x00E04;
 pub const MDICNFG_EXT_MDIO: u32 = 0x80000000; // MDI ext/int destination
@@ -730,3 +733,33 @@ pub const MASTER_DISABLE_TIMEOUT: u32 = 800;
 
 pub const MAX_TXD: usize = 512;
 pub const MAX_RXD: usize = 256;
+
+pub const H2ME: usize = SWSM; // Host to ME
+
+pub const H2ME_ULP: u32 = 0x00000800; // ULP Indication Bit
+pub const H2ME_ENFORCE_SETTINGS: u32 = 0x00001000; // Enforce Settings
+
+// SMBus Control Phy Register
+pub const CV_SMB_CTRL: u32 = phy_reg(769, 23);
+pub const CV_SMB_CTRL_FORCE_SMBUS: u16 = 0x0001;
+
+// PHY Power Management Control
+pub const HV_PM_CTRL: u32 = phy_reg(770, 17);
+pub const HV_PM_CTRL_K1_CLK_REQ: u16 = 0x200;
+pub const HV_PM_CTRL_K1_ENABLE: u16 = 0x4000;
+
+// I218 Ultra Low Power Configuration 1 Register
+pub const I218_ULP_CONFIG1: u32 = phy_reg(779, 16);
+pub const I218_ULP_CONFIG1_START: u16 = 0x0001; // Start auto ULP config
+pub const I218_ULP_CONFIG1_IND: u16 = 0x0004; // Pwr up from ULP indication
+pub const I218_ULP_CONFIG1_STICKY_ULP: u16 = 0x0010; // Set sticky ULP mode
+pub const I218_ULP_CONFIG1_INBAND_EXIT: u16 = 0x0020; // Inband on ULP exit
+pub const I218_ULP_CONFIG1_WOL_HOST: u16 = 0x0040; // WoL Host on ULP exit
+pub const I218_ULP_CONFIG1_RESET_TO_SMBUS: u16 = 0x0100; // Reset to SMBus mode
+
+// enable ULP even if when phy powered down via lanphypc
+pub const I218_ULP_CONFIG1_EN_ULP_LANPHYPC: u16 = 0x0400;
+
+// disable clear of sticky ULP on PERST
+pub const I218_ULP_CONFIG1_DIS_CLR_STICKY_ON_PERST: u16 = 0x0800;
+pub const I218_ULP_CONFIG1_DISABLE_SMB_PERST: u16 = 0x1000; // Disable on PERST#

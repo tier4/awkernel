@@ -1,8 +1,9 @@
 use bitflags::bitflags;
+use smoltcp::phy;
 
 use crate::{
     net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
-    pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
+    pcie::{capability::read, pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
 };
 
 use super::{igb_regs::*, IgbDriverErr};
@@ -981,9 +982,225 @@ impl IgbHw {
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
     pub fn init_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        // force full DMA clock frequency for ICH8
+        if self.mac_type == EmIch8lan {
+            let reg_data = read_reg(info, STATUS)?;
+            let reg_data = reg_data & !0x80000000;
+            write_reg(info, STATUS, reg_data)?;
+        }
+
+        if matches!(
+            self.mac_type,
+            EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+        ) {
+            // The MAC-PHY interconnect may still be in SMBus mode
+            // after Sx->S0.  Toggle the LANPHYPC Value bit to force
+            // the interconnect to PCIe mode, but only if there is no
+            // firmware present otherwise firmware will have done it.
+            let fwsm = read_reg(info, FWSM)?;
+            if (fwsm & FWSM_FW_VALID) == 0 {
+                let mut ctrl = read_reg(info, CTRL)?;
+                ctrl |= CTRL_LANPHYPC_OVERRIDE;
+                ctrl &= !CTRL_LANPHYPC_VALUE;
+                write_reg(info, CTRL, ctrl)?;
+                awkernel_lib::delay::wait_microsec(10);
+                ctrl &= !CTRL_LANPHYPC_OVERRIDE;
+                write_reg(info, CTRL, ctrl)?;
+                awkernel_lib::delay::wait_microsec(50);
+            }
+
+            // Gate automatic PHY configuration on non-managed 82579
+            if self.mac_type == EmPch2lan {
+                self.gate_hw_phy_config_ich8lan(info, true)?;
+            }
+        }
+
+        // 1584         if (hw->mac_type == em_pchlan ||
+        //     1585                 hw->mac_type == em_pch2lan ||
+        //     1586                 hw->mac_type == em_pch_lpt ||
+        //     1587                 hw->mac_type == em_pch_spt ||
+        //     1588                 hw->mac_type == em_pch_cnp ||
+        //     1589                 hw->mac_type == em_pch_tgp ||
+        //     1590                 hw->mac_type == em_pch_adp) {
+        //     1591                 /*
+        //     1592                  * The MAC-PHY interconnect may still be in SMBus mode
+        //     1593                  * after Sx->S0.  Toggle the LANPHYPC Value bit to force
+        //     1594                  * the interconnect to PCIe mode, but only if there is no
+        //     1595                  * firmware present otherwise firmware will have done it.
+        //     1596                  */
+        //     1597                 fwsm = E1000_READ_REG(hw, FWSM);
+        //     1598                 if ((fwsm & E1000_FWSM_FW_VALID) == 0) {
+        //     1599                         ctrl = E1000_READ_REG(hw, CTRL);
+        //     1600                         ctrl |=  E1000_CTRL_LANPHYPC_OVERRIDE;
+        //     1601                         ctrl &= ~E1000_CTRL_LANPHYPC_VALUE;
+        //     1602                         E1000_WRITE_REG(hw, CTRL, ctrl);
+        //     1603                         usec_delay(10);
+        //     1604                         ctrl &= ~E1000_CTRL_LANPHYPC_OVERRIDE;
+        //     1605                         E1000_WRITE_REG(hw, CTRL, ctrl);
+        //     1606                         msec_delay(50);
+        //     1607                 }
+        //     1608
+        //     1609                 /* Gate automatic PHY configuration on non-managed 82579 */
+        //     1610                 if (hw->mac_type == em_pch2lan)
+        //     1611                         em_gate_hw_phy_config_ich8lan(hw, TRUE);
+        //     1612
+        //     1613                 em_disable_ulp_lpt_lp(hw, TRUE);
+        //     1614                 /*
+        //     1615                  * Reset the PHY before any access to it.  Doing so,
+        //     1616                  * ensures that the PHY is in a known good state before
+        //     1617                  * we read/write PHY registers.  The generic reset is
+        //     1618                  * sufficient here, because we haven't determined
+        //     1619                  * the PHY type yet.
+        //     1620                  */
+        //     1621                 em_phy_reset(hw);
+        //     1622
+        //     1623                 /* Ungate automatic PHY configuration on non-managed 82579 */
+        //     1624                 if (hw->mac_type == em_pch2lan &&
+        //     1625                         (fwsm & E1000_FWSM_FW_VALID) == 0)
+        //     1626                         em_gate_hw_phy_config_ich8lan(hw, FALSE);
+        //     1627
+        //     1628                 /* Set MDIO slow mode before any other MDIO access */
+        //     1629                 ret_val = em_set_mdio_slow_mode_hv(hw);
+        //     1630                 if (ret_val)
+        //     1631                         return ret_val;
+        //     1632         }
+
         // TODO
 
         Ok(())
+    }
+
+    /// em_disable_ulp_lpt_lp - unconfigure Ultra Low Power mode for LynxPoint-LP
+    ///
+    /// Un-configure ULP mode when link is up, the system is transitioned from
+    /// Sx or the driver is unloaded.  If on a Manageability Engine (ME) enabled
+    /// system, poll for an indication from ME that ULP has been un-configured.
+    /// If not on an ME enabled system, un-configure the ULP mode by software.
+    ///
+    /// During nominal operation, this function is called when link is acquired
+    /// to disable ULP mode (force=FALSE); otherwise, for example when unloading
+    /// the driver or during Sx->S0 transitions, this is called with force=TRUE
+    /// to forcibly disable ULP.
+    fn disable_ulp_lpt_lp(&mut self, info: &PCIeInfo, force: bool) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if (self.mac_type as u32) < EmPchLpt as u32
+            || matches!(
+                info.id,
+                E1000_DEV_ID_PCH_LPT_I217_LM
+                    | E1000_DEV_ID_PCH_LPT_I217_V
+                    | E1000_DEV_ID_PCH_I218_LM2
+                    | E1000_DEV_ID_PCH_I218_V2
+            )
+        {
+            return Ok(());
+        }
+
+        if read_reg(info, FWSM)? & FWSM_FW_VALID != 0 {
+            if force {
+                // Request ME un-configure ULP mode in the PHY
+                let mut mac_reg = read_reg(info, H2ME)?;
+                mac_reg &= !H2ME_ULP;
+                mac_reg |= H2ME_ENFORCE_SETTINGS;
+                write_reg(info, H2ME, mac_reg)?;
+            }
+
+            // Poll up to 300msec for ME to clear ULP_CFG_DONE.
+            let mut i = 0;
+            while read_reg(info, FWSM)? & FWSM_ULP_CFG_DONE != 0 {
+                if i == 30 {
+                    return Err(IgbDriverErr::Phy);
+                }
+
+                awkernel_lib::delay::wait_microsec(10);
+                i += 1;
+            }
+
+            if force {
+                let mut mac_reg = read_reg(info, H2ME)?;
+                mac_reg &= !H2ME_ENFORCE_SETTINGS;
+                write_reg(info, H2ME, mac_reg)?;
+            } else {
+                // Clear H2ME.ULP after ME ULP configuration
+                let mut mac_reg = read_reg(info, H2ME)?;
+                mac_reg &= !H2ME_ULP;
+                write_reg(info, H2ME, mac_reg)?;
+            }
+
+            return Ok(());
+        }
+
+        self.acquire_software_flag(info, |hw| {
+            if force {
+                // Toggle LANPHYPC Value bit
+                hw.toggle_lanphypc_pch_lpt(info)?;
+            }
+
+            // Unforce SMBus mode in PHY
+            let phy_reg = if let Ok(phy_reg) = hw.read_phy_reg(info, CV_SMB_CTRL) {
+                phy_reg
+            } else {
+                // The MAC might be in PCIe mode, so temporarily force to
+                // SMBus mode in order to access the PHY.
+                let mut mac_reg = read_reg(info, CTRL_EXT)?;
+                mac_reg |= CTRL_EXT_FORCE_SMBUS;
+                write_reg(info, CTRL_EXT, mac_reg)?;
+
+                awkernel_lib::delay::wait_microsec(50);
+
+                hw.read_phy_reg(info, CV_SMB_CTRL)?
+            };
+
+            let phy_reg = phy_reg & !CV_SMB_CTRL_FORCE_SMBUS;
+            hw.write_phy_reg(info, CV_SMB_CTRL, phy_reg)?;
+
+            // Unforce SMBus mode in PHY
+            let mac_reg = read_reg(info, CTRL_EXT)?;
+            let mac_reg = mac_reg & !CTRL_EXT_FORCE_SMBUS;
+            write_reg(info, CTRL_EXT, mac_reg)?;
+
+            // When ULP mode was previously entered, K1 was disabled by the
+            // hardware.  Re-Enable K1 in the PHY when exiting ULP.
+            let phy_reg = hw.read_phy_reg(info, HV_PM_CTRL)?;
+            let phy_reg = phy_reg | HV_PM_CTRL_K1_ENABLE;
+            hw.write_phy_reg(info, HV_PM_CTRL, phy_reg)?;
+
+            // Clear ULP enabled configuration
+            let phy_reg = hw.read_phy_reg(info, I218_ULP_CONFIG1)?;
+            let phy_reg = phy_reg
+                & !(I218_ULP_CONFIG1_IND
+                    | I218_ULP_CONFIG1_STICKY_ULP
+                    | I218_ULP_CONFIG1_RESET_TO_SMBUS
+                    | I218_ULP_CONFIG1_WOL_HOST
+                    | I218_ULP_CONFIG1_INBAND_EXIT
+                    | I218_ULP_CONFIG1_EN_ULP_LANPHYPC
+                    | I218_ULP_CONFIG1_DIS_CLR_STICKY_ON_PERST
+                    | I218_ULP_CONFIG1_DISABLE_SMB_PERST);
+            hw.write_phy_reg(info, I218_ULP_CONFIG1, phy_reg)?;
+
+            // Commit ULP changes by starting auto ULP configuration
+            let phy_reg = phy_reg | I218_ULP_CONFIG1_START;
+            hw.write_phy_reg(info, I218_ULP_CONFIG1, phy_reg)?;
+
+            // Clear Disable SMBus Release on PERST# in MAC
+            let mac_reg = read_reg(info, FEXTNVM7)?;
+            let mac_reg = mac_reg & !FEXTNVM7_DISABLE_SMB_PERST;
+            write_reg(info, FEXTNVM7, mac_reg)?;
+            Ok(())
+        })?;
+
+        if force {
+            self.phy_reset(info)?;
+            awkernel_lib::delay::wait_millisec(50);
+        }
+
+        Ok(())
+    }
+
+    fn toggle_lanphypc_pch_lpt(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
     }
 
     pub fn check_for_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
