@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use smoltcp::phy;
 
 use crate::{
     net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
@@ -1106,12 +1105,67 @@ impl IgbHw {
         todo!();
     }
 
-    fn phy_no_cable_workaround(&mut self) -> Result<(), IgbDriverErr> {
-        todo!();
+    /// Explicitly disables jumbo frames and resets some PHY registers back to hw-
+    /// defaults. This is necessary in case the ethernet cable was inserted AFTER
+    /// the firmware initialized the PHY. Otherwise it is left in a state where
+    /// it is possible to transmit but not receive packets. Observed on I217-LM and
+    /// fixed in FreeBSD's sys/dev/e1000/e1000_ich8lan.c.
+    fn phy_no_cable_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // disable Rx path while enabling workaround
+        let ctrl_reg = self.read_phy_reg(info, I2_DFT_CTRL)?;
+        self.write_phy_reg(info, I2_DFT_CTRL, ctrl_reg | (1 << 14))?;
+
+        fn inner(hw: &mut IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+            // Write MAC register values back to h/w defaults
+            let mut mac_reg = read_reg(info, FFLT_DBG)?;
+            mac_reg &= !(0xF << 14);
+            write_reg(info, FFLT_DBG, mac_reg)?;
+
+            let mut mac_reg = read_reg(info, RCTL)?;
+            mac_reg &= !RCTL_SECRC;
+            write_reg(info, RCTL, mac_reg)?;
+
+            let data = hw.read_kmrn_reg(info, KUMCTRLSTA_OFFSET_CTRL)?;
+            hw.write_kmrn_reg(info, KUMCTRLSTA_OFFSET_CTRL, data & !(1 << 0))?;
+
+            let mut data = hw.read_kmrn_reg(info, KUMCTRLSTA_OFFSET_HD_CTRL)?;
+            data &= !(0xF << 8);
+            data |= 0xB << 8;
+            hw.write_kmrn_reg(info, KUMCTRLSTA_OFFSET_HD_CTRL, data)?;
+
+            // Write PHY register values back to h/w defaults
+            let mut data = hw.read_phy_reg(info, I2_SMBUS_CTRL)?;
+            data &= !(0x7F << 5);
+            hw.write_phy_reg(info, I2_SMBUS_CTRL, data)?;
+
+            let mut data = hw.read_phy_reg(info, I2_MODE_CTRL)?;
+            data |= 1 << 13;
+            hw.write_phy_reg(info, I2_MODE_CTRL, data)?;
+
+            // 776.20 and 776.23 are not documented in i217-ethernet-controller-datasheet.pdf...
+            let mut data = hw.read_phy_reg(info, phy_reg(776, 20))?;
+            data &= !(0x3FF << 2);
+            data |= 0x8 << 2;
+            hw.write_phy_reg(info, phy_reg(776, 20), data)?;
+
+            hw.write_phy_reg(info, phy_reg(776, 23), 0x7E00)?;
+
+            let data = hw.read_phy_reg(info, I2_PCIE_POWER_CTRL)?;
+            hw.write_phy_reg(info, I2_PCIE_POWER_CTRL, data & !(1 << 10))?;
+
+            Ok(())
+        }
+
+        let result = inner(self, info);
+
+        // re-enable Rx path after enabling workaround
+        self.write_phy_reg(info, I2_DFT_CTRL, ctrl_reg & !(1 << 14))?;
+
+        result
     }
 
     fn read_kmrn_reg(&mut self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
-        self.swfw_sync_mut(info, self.swfw, |hw| {
+        self.swfw_sync_mut(info, self.swfw, |_| {
             // Write register address
             let reg_val =
                 ((reg_addr << KUMCTRLSTA_OFFSET_SHIFT) & KUMCTRLSTA_OFFSET) | KUMCTRLSTA_REN;
@@ -1121,6 +1175,22 @@ impl IgbHw {
 
             // Read the data returned
             Ok(read_reg(info, KUMCTRLSTA)? as u16)
+        })
+    }
+
+    fn write_kmrn_reg(
+        &mut self,
+        info: &PCIeInfo,
+        reg_addr: u32,
+        data: u16,
+    ) -> Result<(), IgbDriverErr> {
+        self.swfw_sync_mut(info, self.swfw, |_| {
+            let reg_val = ((reg_addr << KUMCTRLSTA_OFFSET_SHIFT) & KUMCTRLSTA_OFFSET) | data as u32;
+
+            write_reg(info, KUMCTRLSTA, reg_val)?;
+            awkernel_lib::delay::wait_microsec(2);
+
+            Ok(())
         })
     }
 

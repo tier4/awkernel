@@ -23,6 +23,7 @@ pub const HICR: usize = 0x08F00; // Host Interface Control
 pub const TARC0: usize = 0x03840; // TX Arbitration Count (0)
 pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
 pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
+pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -873,3 +874,21 @@ pub const KUMCTRLSTA_MASK: u32 = 0x0000FFFF;
 pub const KUMCTRLSTA_OFFSET: u32 = 0x001F0000;
 pub const KUMCTRLSTA_OFFSET_SHIFT: u32 = 16;
 pub const KUMCTRLSTA_REN: u32 = 0x00200000;
+
+pub const KUMCTRLSTA_OFFSET_FIFO_CTRL: u32 = 0x00000000;
+pub const KUMCTRLSTA_OFFSET_CTRL: u32 = 0x00000001;
+pub const KUMCTRLSTA_OFFSET_INB_CTRL: u32 = 0x00000002;
+pub const KUMCTRLSTA_OFFSET_DIAG: u32 = 0x00000003;
+pub const KUMCTRLSTA_OFFSET_TIMEOUTS: u32 = 0x00000004;
+pub const KUMCTRLSTA_OFFSET_INB_PARAM: u32 = 0x00000009;
+pub const KUMCTRLSTA_OFFSET_HD_CTRL: u32 = 0x00000010;
+pub const KUMCTRLSTA_OFFSET_M2P_SERDES: u32 = 0x0000001E;
+pub const KUMCTRLSTA_OFFSET_M2P_MODES: u32 = 0x0000001F;
+
+pub const IGP3_KMRN_POWER_MNG_CTRL: u32 = phy_reg(770, 17); // KMRN Power Management Control Register
+
+// I217 definitions
+pub const I2_DFT_CTRL: u32 = phy_reg(769, 20);
+pub const I2_SMBUS_CTRL: u32 = phy_reg(769, 23);
+pub const I2_MODE_CTRL: u32 = HV_KMRN_MODE_CTRL;
+pub const I2_PCIE_POWER_CTRL: u32 = IGP3_KMRN_POWER_MNG_CTRL;
