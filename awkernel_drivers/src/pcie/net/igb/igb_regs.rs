@@ -896,3 +896,14 @@ pub const I2_DFT_CTRL: u32 = phy_reg(769, 20);
 pub const I2_SMBUS_CTRL: u32 = phy_reg(769, 23);
 pub const I2_MODE_CTRL: u32 = HV_KMRN_MODE_CTRL;
 pub const I2_PCIE_POWER_CTRL: u32 = IGP3_KMRN_POWER_MNG_CTRL;
+
+// Number of high/low register pairs in the RAR. The RAR (Receive Address
+// Registers) holds the directed and multicast addresses that we monitor. We
+// reserve one of these spots for our directed address, allowing us room for
+// E1000_RAR_ENTRIES - 1 multicast addresses.
+pub const RAR_ENTRIES: usize = 15;
+pub const RAR_ENTRIES_ICH8LAN: usize = 7;
+pub const RAR_ENTRIES_82575: usize = 16;
+pub const RAR_ENTRIES_82576: usize = 24;
+pub const RAR_ENTRIES_82580: usize = 24;
+pub const RAR_ENTRIES_I350: usize = 32;

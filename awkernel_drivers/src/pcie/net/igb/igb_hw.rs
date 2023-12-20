@@ -1099,10 +1099,57 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Initializes receive address filters.
+    ///
+    /// Places the MAC address in receive address register 0 and clears the rest
+    /// of the receive address registers. Clears the multicast table. Assumes
+    /// the receiver is in reset when the routine is called.
     fn init_rx_addrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
-        todo!();
+        if matches!(
+            self.mac_type,
+            EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp | EmPch2lan
+        ) {
+            if self.phy_no_cable_workaround(info).is_err() {
+                log::warn!(" ...failed to apply em_phy_no_cable_workaround.");
+            }
+        }
+
+        // Setup the receive address.
+        self.rar_set(info, &self.mac_addr, 0)?;
+
+        // Reserve a spot for the Locally Administered Address to work around
+        // an 82571 issue in which a reset on one port will reload the MAC on
+        // the other port.
+        if self.mac_type == Em82571 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        let rar_num = if is_ich8(&self.mac_type) {
+            if self.mac_type == EmIch8lan {
+                RAR_ENTRIES_ICH8LAN
+            } else {
+                RAR_ENTRIES_ICH8LAN - 1
+            }
+        } else {
+            match self.mac_type {
+                Em82580 => RAR_ENTRIES_82580,
+                EmI210 => RAR_ENTRIES_82575,
+                EmI350 => RAR_ENTRIES_I350,
+                _ => RAR_ENTRIES,
+            }
+        };
+
+        // Zero out the other 15 receive addresses.
+        for i in 1..rar_num {
+            write_reg_array(info, RA, i << 1, 0)?;
+            write_flush(info)?;
+            write_reg_array(info, RA, (i << 1) + 1, 0)?;
+            write_flush(info)?;
+        }
+
+        Ok(())
     }
 
     /// Puts an ethernet address into a receive address register.
