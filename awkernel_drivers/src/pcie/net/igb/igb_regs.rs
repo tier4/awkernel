@@ -727,3 +727,6 @@ pub const fn phy_reg(page: u32, reg: u32) -> u32 {
 pub const NODE_ADDRESS_SIZE: usize = 6;
 
 pub const MASTER_DISABLE_TIMEOUT: u32 = 800;
+
+pub const MAX_TXD: usize = 512;
+pub const MAX_RXD: usize = 256;

@@ -3,13 +3,12 @@
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
 use super::{
-    config::DMA_SIZE,
     heap::{map_backup_heap, map_primary_heap},
     interrupt_handler,
 };
 use crate::{
     arch::{config::DMA_START, x86_64::stack::map_stack},
-    config::{BACKUP_HEAP_SIZE, HEAP_START, STACK_SIZE},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START, STACK_SIZE},
     kernel_info::KernelInfo,
 };
 use acpi::{platform::ProcessorState, AcpiTables};

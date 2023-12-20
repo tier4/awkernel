@@ -8,6 +8,7 @@ use crate::pcie::{
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
+    dma_pool::DMAPool,
     net::{NetDevice, NET_MANAGER},
     paging::{Flags, Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
@@ -25,6 +26,26 @@ mod igb_hw;
 mod igb_regs;
 
 use igb_regs::*;
+
+struct Rx {
+    dma_alloc: DMAPool,
+    rx_desc_head: usize,
+    rx_desc_tail: usize,
+
+    // Statistics
+    dropped_pkts: u64,
+}
+
+struct Tx {
+    dma_alloc: DMAPool,
+    tx_desc_head: usize,
+    tx_desc_tail: usize,
+}
+
+struct Queue {
+    tx: Tx,
+    rx: Rx,
+}
 
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
@@ -52,9 +73,11 @@ struct RxDescriptor {
 /// Intel Gigabit Ethernet Controller driver
 pub struct Igb {
     info: PCIeInfo,
+    hw: igb_hw::IgbHw,
+    que: Queue,
+
     irq: Option<u16>,
     bar0: BaseAddress,
-    hw: igb_hw::IgbHw,
 
     // Receive Descriptor Ring
     rx_ring: &'static mut [RxDescriptor],
@@ -132,6 +155,7 @@ pub enum IgbDriverErr {
     Param,
     PhyType,
     EEPROM,
+    DMAPool,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -165,6 +189,7 @@ impl fmt::Display for IgbDriverErr {
             Self::Param => write!(f, "Parameter failure."),
             Self::PhyType => write!(f, "PHY type failure."),
             Self::EEPROM => write!(f, "EEPROM failure."),
+            Self::DMAPool => write!(f, "DMA pool failure."),
         }
     }
 }
@@ -182,6 +207,8 @@ impl Igb {
     {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
+        let que = allocate_desc_rings(&info)?;
+
         hardware_init(&mut hw, &mut info)?;
 
         hw.read_mac_addr(&info)?;
@@ -190,7 +217,7 @@ impl Igb {
 
         let perm_mac_addr = hw.get_perm_mac_addr();
         log::debug!(
-            "igb: MAC = {:x}::{:x}::{:x}::{:x}::{:x}::{:x}",
+            "igb: MAC = {:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
             perm_mac_addr[0],
             perm_mac_addr[1],
             perm_mac_addr[2],
@@ -237,6 +264,7 @@ impl Igb {
         Ok(Self {
             info,
             hw,
+            que,
             bar0,
             rx_ring,
             rx_ring_pa: rx_ring_pa.as_usize() as u64,
@@ -249,8 +277,34 @@ impl Igb {
     }
 }
 
-fn allocate_desc_rings(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<(), IgbDriverErr> {
-    todo!();
+fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
+    let tx_size = core::mem::size_of::<TxDescriptor>() * MAX_TXD;
+    assert_eq!(tx_size & (PAGESIZE - 1), 0);
+
+    let rx_size = core::mem::size_of::<RxDescriptor>() * MAX_RXD;
+    assert_eq!(rx_size & (PAGESIZE - 1), 0);
+
+    let tx_dma_pool = DMAPool::new(info.segment_group as usize, tx_size / PAGESIZE)
+        .ok_or(IgbDriverErr::DMAPool)?;
+    let rx_dma_pool = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
+        .ok_or(IgbDriverErr::DMAPool)?;
+
+    let tx = Tx {
+        tx_desc_head: 0,
+        tx_desc_tail: 0,
+        dma_alloc: tx_dma_pool,
+    };
+
+    let rx = Rx {
+        rx_desc_head: 0,
+        rx_desc_tail: 0,
+        dma_alloc: rx_dma_pool,
+        dropped_pkts: 0,
+    };
+
+    let que = Queue { tx, rx };
+
+    Ok(que)
 }
 
 /// Initialize the hardware to a configuration as specified by the
