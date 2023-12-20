@@ -1086,9 +1086,28 @@ impl IgbHw {
             }
         }
 
+        // For 82542 (rev 2.0), disable MWI and put the receiver into reset
+        if self.mac_type == Em82542Rev2_0 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        // Setup the receive address. This involves initializing all of the
+        // Receive Address Registers (RARs 0 - 15).
+        self.init_rx_addrs(info)?;
+
         // TODO
 
         Ok(())
+    }
+
+    fn init_rx_addrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        todo!();
+    }
+
+    fn phy_no_cable_workaround(&mut self) -> Result<(), IgbDriverErr> {
+        todo!();
     }
 
     /// Clears the VLAN filer table
@@ -1125,53 +1144,12 @@ impl IgbHw {
             } else {
                 0
             };
-            write_reg(info, VFTA + (offset << 2), vfta_value)?;
+            write_reg_array(info, VFTA, offset, vfta_value)?;
             write_flush(info)?;
         }
 
         Ok(())
     }
-
-    //     8151 STATIC void
-    // 8152 em_clear_vfta(struct em_hw *hw)
-    //      /* [previous][next][first][last][top][bottom][index][help]
-    // +8152 sys/dev/pci/if_em_hw.c
-    //  */
-    // 8153 {
-    // 8154         uint32_t offset;
-    // 8155         uint32_t vfta_value = 0;
-    // 8156         uint32_t vfta_offset = 0;
-    // 8157         uint32_t vfta_bit_in_reg = 0;
-    // 8158         if (IS_ICH8(hw->mac_type))
-    // 8159                 return;
-    // 8160
-    // 8161         if ((hw->mac_type == em_82573) || (hw->mac_type == em_82574)) {
-    // 8162                 if (hw->mng_cookie.vlan_id != 0) {
-    // 8163                         /*
-    // 8164                          * The VFTA is a 4096b bit-field, each identifying a
-    // 8165                          * single VLAN ID.  The following operations
-    // 8166                          * determine which 32b entry (i.e. offset) into the
-    // 8167                          * array we want to set the VLAN ID (i.e. bit) of the
-    // 8168                          * manageability unit.
-    // 8169                          */
-    // 8170                         vfta_offset = (hw->mng_cookie.vlan_id >>
-    // 8171                             E1000_VFTA_ENTRY_SHIFT) & E1000_VFTA_ENTRY_MASK;
-    // 8172
-    // 8173                         vfta_bit_in_reg = 1 << (hw->mng_cookie.vlan_id &
-    // 8174                             E1000_VFTA_ENTRY_BIT_SHIFT_MASK);
-    // 8175                 }
-    // 8176         }
-    // 8177         for (offset = 0; offset < E1000_VLAN_FILTER_TBL_SIZE; offset++) {
-    // 8178                 /*
-    // 8179                  * If the offset we want to clear is the same offset of the
-    // 8180                  * manageability VLAN ID, then clear all bits except that of
-    // 8181                  * the manageability unit
-    // 8182                  */
-    // 8183                 vfta_value = (offset == vfta_offset) ? vfta_bit_in_reg : 0;
-    // 8184                 E1000_WRITE_REG_ARRAY(hw, VFTA, offset, vfta_value);
-    // 8185                 E1000_WRITE_FLUSH(hw);
-    // 8186         }
-    // 8187 }
 
     pub fn get_initialize_hw_bits_disable(&self) -> bool {
         self.initialize_hw_bits_disable
@@ -5482,6 +5460,18 @@ pub fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgbDr
 }
 
 #[inline(always)]
+pub fn write_reg_array(
+    info: &PCIeInfo,
+    offset: usize,
+    index: usize,
+    value: u32,
+) -> Result<(), IgbDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    bar0.write32(offset + (index << 2), value);
+    Ok(())
+}
+
+#[inline(always)]
 pub fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     Ok(bar0.read32(offset).ok_or(IgbDriverErr::ReadFailure)?)
@@ -5529,7 +5519,7 @@ fn invm_dward_to_dword_data(dword: u32) -> u16 {
 fn clear_vfta_i350(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     for offset in 0..VLAN_FILTER_TBL_SIZE {
         for _ in 0..10 {
-            write_reg(info, VFTA + (offset << 2), 0)?;
+            write_reg_array(info, VFTA, offset, 0)?;
         }
         write_flush(info)?;
     }
