@@ -1110,6 +1110,20 @@ impl IgbHw {
         todo!();
     }
 
+    fn read_kmrn_reg(&mut self, info: &PCIeInfo, reg_addr: u32) -> Result<u16, IgbDriverErr> {
+        self.swfw_sync_mut(info, self.swfw, |hw| {
+            // Write register address
+            let reg_val =
+                ((reg_addr << KUMCTRLSTA_OFFSET_SHIFT) & KUMCTRLSTA_OFFSET) | KUMCTRLSTA_REN;
+
+            write_reg(info, KUMCTRLSTA, reg_val)?;
+            awkernel_lib::delay::wait_microsec(2);
+
+            // Read the data returned
+            Ok(read_reg(info, KUMCTRLSTA)? as u16)
+        })
+    }
+
     /// Clears the VLAN filer table
     fn clear_vfta(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
