@@ -24,6 +24,7 @@ pub const TARC0: usize = 0x03840; // TX Arbitration Count (0)
 pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
 pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
 pub const FFLT_DBG: usize = 0x05F04; // Debug Register
+pub const RA: usize = 0x05400; // Receive Address - RW Array
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -75,6 +76,9 @@ pub const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
 pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
+
+// Receive Address
+pub const RAH_AV: u32 = 0x80000000; // Receive descriptor valid
 
 pub const GCR: usize = 0x05B00; // 3GIO
 pub const GCR_CMPL_TMOUT_MASK: u32 = 0x0000F000;

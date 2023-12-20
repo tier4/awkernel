@@ -1105,6 +1105,51 @@ impl IgbHw {
         todo!();
     }
 
+    /// Puts an ethernet address into a receive address register.
+    fn rar_set(&self, info: &PCIeInfo, addr: &[u8], index: u32) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        // HW expects these in little endian so we reverse the byte order
+        // from network order (big endian) to little endian
+        let rar_low = (addr[0] as u32)
+            | ((addr[1] as u32) << 8)
+            | ((addr[2] as u32) << 16)
+            | ((addr[3] as u32) << 24);
+        let mut rar_high = (addr[4] as u32) | ((addr[5] as u32) << 8);
+
+        // Disable Rx and flush all Rx frames before enabling RSS to avoid Rx
+        // unit hang.
+        //
+        // Description: If there are any Rx frames queued up or otherwise
+        // present in the HW before RSS is enabled, and then we enable RSS,
+        // the HW Rx unit will hang.  To work around this issue, we have to
+        // disable receives and flush out all Rx frames before we enable RSS.
+        // To do so, we modify we redirect all Rx traffic to manageability
+        // and then reset the HW. This flushes away Rx frames, and (since the
+        // redirections to manageability persists across resets) keeps new
+        // ones from coming in while we work.  Then, we clear the Address
+        // Valid AV bit for all MAC addresses and undo the re-direction to
+        // manageability. Now, frames are coming in again, but the MAC won't
+        // accept them, so far so good.  We now proceed to initialize RSS (if
+        // necessary) and configure the Rx unit.  Last, we re-enable the AV
+        // bits and continue on our merry way.
+
+        match self.mac_type {
+            Em82571 | Em82572 | Em80003es2lan => (),
+            _ => {
+                // Indicate to hardware the Address is Valid.
+                rar_high |= RAH_AV;
+            }
+        }
+
+        write_reg_array(info, RA, (index << 1) as usize, rar_low)?;
+        write_flush(info)?;
+        write_reg_array(info, RA, ((index << 1) + 1) as usize, rar_high)?;
+        write_flush(info)?;
+
+        Ok(())
+    }
+
     /// Explicitly disables jumbo frames and resets some PHY registers back to hw-
     /// defaults. This is necessary in case the ethernet cable was inserted AFTER
     /// the firmware initialized the PHY. Otherwise it is left in a state where
