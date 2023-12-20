@@ -3,6 +3,7 @@
 use crate::pcie::{
     self,
     capability::{msi::MultipleMessage, pcie_cap},
+    net::igb::igb_hw::MacType,
     BaseAddress, PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
@@ -45,6 +46,7 @@ struct Tx {
 struct Queue {
     tx: Tx,
     rx: Rx,
+    me: usize,
 }
 
 #[repr(C)]
@@ -74,7 +76,7 @@ struct RxDescriptor {
 pub struct Igb {
     info: PCIeInfo,
     hw: igb_hw::IgbHw,
-    que: Queue,
+    que: [Queue; 1],
 
     irq: Option<u16>,
     bar0: BaseAddress,
@@ -207,7 +209,19 @@ impl Igb {
     {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let que = allocate_desc_rings(&info)?;
+        let que = [allocate_desc_rings(&info)?];
+
+        // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
+        if (hw.get_mac_type() as u32) >= MacType::Em82571 as u32
+            && !hw.get_initialize_hw_bits_disable()
+        {
+            for q in que.iter() {
+                let offset = txdctl(q.me);
+                let mut reg_txdctl = igb_hw::read_reg(&info, offset)?;
+                reg_txdctl |= TXDCTL_COUNT_DESC;
+                igb_hw::write_reg(&mut info, offset, reg_txdctl)?;
+            }
+        }
 
         hardware_init(&mut hw, &mut info)?;
 
@@ -302,7 +316,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         dropped_pkts: 0,
     };
 
-    let que = Queue { tx, rx };
+    let que = Queue { tx, rx, me: 0 };
 
     Ok(que)
 }

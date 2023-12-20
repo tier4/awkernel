@@ -18,6 +18,8 @@ pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 pub const HICR: usize = 0x08F00; // Host Interface Control
+pub const TARC0: usize = 0x03840; // TX Arbitration Count (0)
+pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -83,14 +85,8 @@ pub const CTRL_PHY_RST: u32 = 1 << 31;
 pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
 pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
 
-pub const TXDCTL_GRAN: u32 = 1 << 24;
-pub const TXDCTL_WTHRESH: u32 = 1 << 16;
-
-pub const TCTL_EN: u32 = 1 << 1; //  Transmitter Enable
-pub const TCTL_PSP: u32 = 1 << 3; //  Pad short packets
 pub const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
 
-pub const TCTL_COLD: u32 = 0x3F << 12; // Collision Distance (FDX)
 pub const TIPG_IPGT: u32 = 0x8;
 pub const TIPG_IPGR1: u32 = 0x2 << 10;
 pub const TIPG_IPGR2: u32 = 0xA << 20;
@@ -508,6 +504,44 @@ pub const I82579_MSE_LINK_DOWN: u16 = 0x2411; // MSE count before dropping link
 
 pub const LEDCTL: usize = 0x00E00;
 
+pub const LEDCTL_LED0_MODE_MASK: u32 = 0x0000000F;
+pub const LEDCTL_LED0_MODE_SHIFT: u32 = 0;
+pub const LEDCTL_LED0_BLINK_RATE: u32 = 0x0000020;
+pub const LEDCTL_LED0_IVRT: u32 = 0x00000040;
+pub const LEDCTL_LED0_BLINK: u32 = 0x00000080;
+pub const LEDCTL_LED1_MODE_MASK: u32 = 0x00000F00;
+pub const LEDCTL_LED1_MODE_SHIFT: u32 = 8;
+pub const LEDCTL_LED1_BLINK_RATE: u32 = 0x0002000;
+pub const LEDCTL_LED1_IVRT: u32 = 0x00004000;
+pub const LEDCTL_LED1_BLINK: u32 = 0x00008000;
+pub const LEDCTL_LED2_MODE_MASK: u32 = 0x000F0000;
+pub const LEDCTL_LED2_MODE_SHIFT: u32 = 16;
+pub const LEDCTL_LED2_BLINK_RATE: u32 = 0x00200000;
+pub const LEDCTL_LED2_IVRT: u32 = 0x00400000;
+pub const LEDCTL_LED2_BLINK: u32 = 0x00800000;
+pub const LEDCTL_LED3_MODE_MASK: u32 = 0x0F000000;
+pub const LEDCTL_LED3_MODE_SHIFT: u32 = 24;
+pub const LEDCTL_LED3_BLINK_RATE: u32 = 0x20000000;
+pub const LEDCTL_LED3_IVRT: u32 = 0x40000000;
+pub const LEDCTL_LED3_BLINK: u32 = 0x80000000;
+
+pub const LEDCTL_MODE_LINK_10_1000: u32 = 0x0;
+pub const LEDCTL_MODE_LINK_100_1000: u32 = 0x1;
+pub const LEDCTL_MODE_LINK_UP: u32 = 0x2;
+pub const LEDCTL_MODE_ACTIVITY: u32 = 0x3;
+pub const LEDCTL_MODE_LINK_ACTIVITY: u32 = 0x4;
+pub const LEDCTL_MODE_LINK_10: u32 = 0x5;
+pub const LEDCTL_MODE_LINK_100: u32 = 0x6;
+pub const LEDCTL_MODE_LINK_1000: u32 = 0x7;
+pub const LEDCTL_MODE_PCIX_MODE: u32 = 0x8;
+pub const LEDCTL_MODE_FULL_DUPLEX: u32 = 0x9;
+pub const LEDCTL_MODE_COLLISION: u32 = 0xA;
+pub const LEDCTL_MODE_BUS_SPEED: u32 = 0xB;
+pub const LEDCTL_MODE_BUS_SIZE: u32 = 0xC;
+pub const LEDCTL_MODE_PAUSED: u32 = 0xD;
+pub const LEDCTL_MODE_LED_ON: u32 = 0xE;
+pub const LEDCTL_MODE_LED_OFF: u32 = 0xF;
+
 pub const IGP_ACTIVITY_LED_MASK: u32 = 0xFFFFF0FF;
 pub const IGP_ACTIVITY_LED_ENABLE: u32 = 0x0300;
 pub const IGP_LED3_MODE: u32 = 0x07000000;
@@ -643,7 +677,27 @@ pub const NVM_RESERVED_WORD: u16 = 0xFFFF;
 pub const NVM_WORD24_COM_MDIO: u16 = 0x0008; // MDIO interface shared
 pub const NVM_WORD24_EXT_MDIO: u16 = 0x0004; // MDIO accesses routed external
 
+pub const ID_LED_RESERVED_0000: u16 = 0x0000;
 pub const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
+pub const ID_LED_RESERVED_82573: u16 = 0xF746;
+pub const ID_LED_DEFAULT_82573: u16 = 0x1811;
+pub const ID_LED_DEFAULT: u16 = (ID_LED_OFF1_ON2 << 12)
+    | (ID_LED_OFF1_OFF2 << 8)
+    | (ID_LED_DEF1_DEF2 << 4)
+    | (ID_LED_DEF1_DEF2);
+pub const ID_LED_DEFAULT_ICH8LAN: u16 = (ID_LED_DEF1_DEF2 << 12)
+    | (ID_LED_DEF1_OFF2 << 8)
+    | (ID_LED_DEF1_ON2 << 4)
+    | (ID_LED_DEF1_DEF2);
+pub const ID_LED_DEF1_DEF2: u16 = 0x1;
+pub const ID_LED_DEF1_ON2: u16 = 0x2;
+pub const ID_LED_DEF1_OFF2: u16 = 0x3;
+pub const ID_LED_ON1_DEF2: u16 = 0x4;
+pub const ID_LED_ON1_ON2: u16 = 0x5;
+pub const ID_LED_ON1_OFF2: u16 = 0x6;
+pub const ID_LED_OFF1_DEF2: u16 = 0x7;
+pub const ID_LED_OFF1_ON2: u16 = 0x8;
+pub const ID_LED_OFF1_OFF2: u16 = 0x9;
 
 pub const ICH_CYCLE_READ: u16 = 0x0;
 pub const ICH_CYCLE_RESERVED: u16 = 0x1;
@@ -769,3 +823,39 @@ pub const I218_ULP_CONFIG1_DISABLE_SMB_PERST: u16 = 0x1000; // Disable on PERST#
 
 pub const FEXTNVM3_PHY_CFG_COUNTER_MASK: u32 = 0x0C000000;
 pub const FEXTNVM3_PHY_CFG_COUNTER_50MSEC: u32 = 0x08000000;
+
+// Transmit Descriptor Control
+pub const TXDCTL_PTHRESH: u32 = 0x000000FF; // TXDCTL Prefetch Threshold
+pub const TXDCTL_HTHRESH: u32 = 0x0000FF00; // TXDCTL Host Threshold
+pub const TXDCTL_WTHRESH: u32 = 0x00FF0000; // TXDCTL Writeback Threshold
+pub const TXDCTL_GRAN: u32 = 0x01000000; // TXDCTL Granularity
+pub const TXDCTL_LWTHRESH: u32 = 0xFE000000; // TXDCTL Low Threshold
+pub const TXDCTL_FULL_TX_DESC_WB: u32 = 0x01010000; // GRAN=1, WTHRESH=1
+pub const TXDCTL_COUNT_DESC: u32 = 0x00400000; // Enable the counting of desc. still to be processed.
+pub const TXDCTL_QUEUE_ENABLE: u32 = 0x02000000;
+
+pub fn txdctl(n: usize) -> usize {
+    if n < 4 {
+        0x03828 + n * 0x100
+    } else {
+        0x0E028 + n * 0x40
+    }
+}
+
+// Transmit Control
+pub const TCTL_RST: u32 = 0x00000001; // software reset
+pub const TCTL_EN: u32 = 0x00000002; // enable tx
+pub const TCTL_BCE: u32 = 0x00000004; // busy check enable
+pub const TCTL_PSP: u32 = 0x00000008; // pad short packets
+pub const TCTL_COLD: u32 = 0x003ff000; // collision distance
+pub const TCTL_SWXOFF: u32 = 0x00400000; // SW Xoff transmission
+pub const TCTL_PBE: u32 = 0x00800000; // Packet Burst Enable
+pub const TCTL_RTLC: u32 = 0x01000000; // Re-transmit on late collision
+pub const TCTL_NRTU: u32 = 0x02000000; // No Re-transmit on underrun
+pub const TCTL_MULR: u32 = 0x10000000; // Multiple request support
+
+// Extended Transmit Control
+pub const TCTL_EXT_BST_MASK: u32 = 0x000003FF; // Backoff Slot Time
+pub const TCTL_EXT_GCEX_MASK: u32 = 0x000FFC00; // Gigabit Carry Extend Padding
+
+pub const CTRL_EXT_PHYPDEN: u32 = 0x00100000;
