@@ -20,6 +20,7 @@ pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 pub const HICR: usize = 0x08F00; // Host Interface Control
 pub const TARC0: usize = 0x03840; // TX Arbitration Count (0)
 pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
+pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -859,3 +860,5 @@ pub const TCTL_EXT_BST_MASK: u32 = 0x000003FF; // Backoff Slot Time
 pub const TCTL_EXT_GCEX_MASK: u32 = 0x000FFC00; // Gigabit Carry Extend Padding
 
 pub const CTRL_EXT_PHYPDEN: u32 = 0x00100000;
+
+pub const VLAN_FILTER_TBL_SIZE: usize = 128; // VLAN Filter Table (4096 bits)

@@ -1055,6 +1055,20 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Due to hw errata, if the host tries to configure the VFTA register
+    /// while performing queries from the BMC or DMA, then the VFTA in some
+    /// cases won't be written.
+    fn clear_vfta_i350(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        for offset in 0..VLAN_FILTER_TBL_SIZE {
+            for _ in 0..10 {
+                write_reg(info, VFTA + (offset << 2), 0)?;
+            }
+            write_flush(info)?;
+        }
+
+        Ok(())
+    }
+
     pub fn get_initialize_hw_bits_disable(&self) -> bool {
         self.initialize_hw_bits_disable
     }
@@ -1162,139 +1176,6 @@ impl IgbHw {
 
         Ok(())
     }
-
-    //     1231 STATIC void
-    // 1232 em_initialize_hardware_bits(struct em_softc *sc)
-    //      /* [previous][next][first][last][top][bottom][index][help]
-    // +1232 sys/dev/pci/if_em_hw.c
-    //  */
-    // 1233 {
-    // 1234         struct em_hw *hw = &sc->hw;
-    // 1235         struct em_queue *que;
-    // 1236
-    // 1237         DEBUGFUNC("em_initialize_hardware_bits");
-    // 1238
-    // 1239         if ((hw->mac_type >= em_82571) && (!hw->initialize_hw_bits_disable)) {
-    // 1240                 /* Settings common to all silicon */
-    // 1241                 uint32_t reg_ctrl, reg_ctrl_ext;
-    // 1242                 uint32_t reg_tarc0, reg_tarc1;
-    // 1243                 uint32_t reg_tctl;
-    // 1244                 uint32_t reg_txdctl;
-    // 1245                 reg_tarc0 = E1000_READ_REG(hw, TARC0);
-    // 1246                 reg_tarc0 &= ~0x78000000;       /* Clear bits 30, 29, 28, and
-    // 1247                                                  * 27 */
-    // 1248                 FOREACH_QUEUE(sc, que) {
-    // 1249                         reg_txdctl = E1000_READ_REG(hw, TXDCTL(que->me));
-    // 1250                         reg_txdctl |= E1000_TXDCTL_COUNT_DESC;  /* Set bit 22 */
-    // 1251                         E1000_WRITE_REG(hw, TXDCTL(que->me), reg_txdctl);
-    // 1252                 }
-    // 1253
-    // 1254                 /*
-    // 1255                  * Old code always initialized queue 1,
-    // 1256                  * even when unused, keep behaviour
-    // 1257                  */
-    // 1258                 if (sc->num_queues == 1) {
-    // 1259                         reg_txdctl = E1000_READ_REG(hw, TXDCTL(1));
-    // 1260                         reg_txdctl |= E1000_TXDCTL_COUNT_DESC;
-    // 1261                         E1000_WRITE_REG(hw, TXDCTL(1), reg_txdctl);
-    // 1262                 }
-    // 1263
-    // 1264                 switch (hw->mac_type) {
-    // 1265                 case em_82571:
-    // 1266                 case em_82572:
-    // 1267                         reg_tarc1 = E1000_READ_REG(hw, TARC1);
-    // 1268                         reg_tctl = E1000_READ_REG(hw, TCTL);
-    // 1269
-    // 1270                         /* Set the phy Tx compatible mode bits */
-    // 1271                         reg_tarc1 &= ~0x60000000; /* Clear bits 30 and 29 */
-    // 1272
-    // 1273                         reg_tarc0 |= 0x07800000; /* Set TARC0 bits 23-26 */
-    // 1274                         reg_tarc1 |= 0x07000000; /* Set TARC1 bits 24-26 */
-    // 1275
-    // 1276                         if (reg_tctl & E1000_TCTL_MULR)
-    // 1277                                 /* Clear bit 28 if MULR is 1b */
-    // 1278                                 reg_tarc1 &= ~0x10000000;
-    // 1279                         else
-    // 1280                                 /* Set bit 28 if MULR is 0b */
-    // 1281                                 reg_tarc1 |= 0x10000000;
-    // 1282
-    // 1283                         E1000_WRITE_REG(hw, TARC1, reg_tarc1);
-    // 1284                         break;
-    // 1285                 case em_82573:
-    // 1286                 case em_82574:
-    // 1287                         reg_ctrl_ext = E1000_READ_REG(hw, CTRL_EXT);
-    // 1288                         reg_ctrl = E1000_READ_REG(hw, CTRL);
-    // 1289
-    // 1290                         reg_ctrl_ext &= ~0x00800000;    /* Clear bit 23 */
-    // 1291                         reg_ctrl_ext |= 0x00400000;     /* Set bit 22 */
-    // 1292                         reg_ctrl &= ~0x20000000;        /* Clear bit 29 */
-    // 1293
-    // 1294                         E1000_WRITE_REG(hw, CTRL_EXT, reg_ctrl_ext);
-    // 1295                         E1000_WRITE_REG(hw, CTRL, reg_ctrl);
-    // 1296                         break;
-    // 1297                 case em_80003es2lan:
-    // 1298                         if ((hw->media_type == em_media_type_fiber) ||
-    // 1299                         (hw->media_type == em_media_type_internal_serdes)) {
-    // 1300                                 /* Clear bit 20 */
-    // 1301                                 reg_tarc0 &= ~0x00100000;
-    // 1302                         }
-    // 1303                         reg_tctl = E1000_READ_REG(hw, TCTL);
-    // 1304                         reg_tarc1 = E1000_READ_REG(hw, TARC1);
-    // 1305                         if (reg_tctl & E1000_TCTL_MULR)
-    // 1306                                 /* Clear bit 28 if MULR is 1b */
-    // 1307                                 reg_tarc1 &= ~0x10000000;
-    // 1308                         else
-    // 1309                                 /* Set bit 28 if MULR is 0b */
-    // 1310                                 reg_tarc1 |= 0x10000000;
-    // 1311
-    // 1312                         E1000_WRITE_REG(hw, TARC1, reg_tarc1);
-    // 1313                         break;
-    // 1314                 case em_ich8lan:
-    // 1315                 case em_ich9lan:
-    // 1316                 case em_ich10lan:
-    // 1317                 case em_pchlan:
-    // 1318                 case em_pch2lan:
-    // 1319                 case em_pch_lpt:
-    // 1320                 case em_pch_spt:
-    // 1321                 case em_pch_cnp:
-    // 1322                 case em_pch_tgp:
-    // 1323                 case em_pch_adp:
-    // 1324                         if (hw->mac_type == em_ich8lan)
-    // 1325                                 /* Set TARC0 bits 29 and 28 */
-    // 1326                                 reg_tarc0 |= 0x30000000;
-    // 1327
-    // 1328                         reg_ctrl_ext = E1000_READ_REG(hw, CTRL_EXT);
-    // 1329                         reg_ctrl_ext |= 0x00400000;     /* Set bit 22 */
-    // 1330                         /* Enable PHY low-power state when MAC is at D3 w/o WoL */
-    // 1331                         if (hw->mac_type >= em_pchlan)
-    // 1332                                 reg_ctrl_ext |= E1000_CTRL_EXT_PHYPDEN;
-    // 1333                         E1000_WRITE_REG(hw, CTRL_EXT, reg_ctrl_ext);
-    // 1334
-    // 1335                         reg_tarc0 |= 0x0d800000;        /* Set TARC0 bits 23,
-    // 1336                                                          * 24, 26, 27 */
-    // 1337
-    // 1338                         reg_tarc1 = E1000_READ_REG(hw, TARC1);
-    // 1339                         reg_tctl = E1000_READ_REG(hw, TCTL);
-    // 1340
-    // 1341                         if (reg_tctl & E1000_TCTL_MULR)
-    // 1342                                 /* Clear bit 28 if MULR is 1b */
-    // 1343                                 reg_tarc1 &= ~0x10000000;
-    // 1344                         else
-    // 1345                                 /* Set bit 28 if MULR is 0b */
-    // 1346                                 reg_tarc1 |= 0x10000000;
-    // 1347
-    // 1348                         reg_tarc1 |= 0x45000000;        /* Set bit 24, 26 and
-    // 1349                                                          * 30 */
-    // 1350
-    // 1351                         E1000_WRITE_REG(hw, TARC1, reg_tarc1);
-    // 1352                         break;
-    // 1353                 default:
-    // 1354                         break;
-    // 1355                 }
-    // 1356
-    // 1357                 E1000_WRITE_REG(hw, TARC0, reg_tarc0);
-    // 1358         }
-    // 1359 }
 
     /// em_disable_ulp_lpt_lp - unconfigure Ultra Low Power mode for LynxPoint-LP
     ///
