@@ -2,6 +2,9 @@ pub const CTRL: usize = 0x00000; // Device Control Register
 pub const EECD: usize = 0x00010; // EEPROM Control Register
 pub const EERD: usize = 0x00014; // EEPROM Read Register
 pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
+pub const FEXTNVM3: usize = 0x0003C; // Future Extended NVM 3 - RW
+pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
+pub const _FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
@@ -210,7 +213,7 @@ pub const _CTRL_EXT_GPI0_EN: u32 = 0x00000001; // Maps SDP4 to GPI0
 pub const _CTRL_EXT_GPI1_EN: u32 = 0x00000002; // Maps SDP5 to GPI1
 pub const _CTRL_EXT_PHYINT_EN: u32 = _CTRL_EXT_GPI1_EN;
 pub const _CTRL_EXT_GPI2_EN: u32 = 0x00000004; // Maps SDP6 to GPI2
-pub const _CTRL_EXT_LPCD: u32 = 0x00000004; // LCD Power Cycle Done
+pub const CTRL_EXT_LPCD: u32 = 0x00000004; // LCD Power Cycle Done
 pub const _CTRL_EXT_GPI3_EN: u32 = 0x00000008; // Maps SDP7 to GPI3
 pub const CTRL_EXT_SDP4_DATA: u32 = 0x00000010; // Value of SW Defineable Pin 4
 pub const _CTRL_EXT_SDP5_DATA: u32 = 0x00000020; // Value of SW Defineable Pin 5
@@ -763,3 +766,6 @@ pub const I218_ULP_CONFIG1_EN_ULP_LANPHYPC: u16 = 0x0400;
 // disable clear of sticky ULP on PERST
 pub const I218_ULP_CONFIG1_DIS_CLR_STICKY_ON_PERST: u16 = 0x0800;
 pub const I218_ULP_CONFIG1_DISABLE_SMB_PERST: u16 = 0x1000; // Disable on PERST#
+
+pub const FEXTNVM3_PHY_CFG_COUNTER_MASK: u32 = 0x0C000000;
+pub const FEXTNVM3_PHY_CFG_COUNTER_50MSEC: u32 = 0x08000000;

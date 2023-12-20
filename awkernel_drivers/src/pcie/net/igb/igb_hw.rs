@@ -1015,57 +1015,24 @@ impl IgbHw {
             if self.mac_type == EmPch2lan {
                 self.gate_hw_phy_config_ich8lan(info, true)?;
             }
-        }
 
-        // 1584         if (hw->mac_type == em_pchlan ||
-        //     1585                 hw->mac_type == em_pch2lan ||
-        //     1586                 hw->mac_type == em_pch_lpt ||
-        //     1587                 hw->mac_type == em_pch_spt ||
-        //     1588                 hw->mac_type == em_pch_cnp ||
-        //     1589                 hw->mac_type == em_pch_tgp ||
-        //     1590                 hw->mac_type == em_pch_adp) {
-        //     1591                 /*
-        //     1592                  * The MAC-PHY interconnect may still be in SMBus mode
-        //     1593                  * after Sx->S0.  Toggle the LANPHYPC Value bit to force
-        //     1594                  * the interconnect to PCIe mode, but only if there is no
-        //     1595                  * firmware present otherwise firmware will have done it.
-        //     1596                  */
-        //     1597                 fwsm = E1000_READ_REG(hw, FWSM);
-        //     1598                 if ((fwsm & E1000_FWSM_FW_VALID) == 0) {
-        //     1599                         ctrl = E1000_READ_REG(hw, CTRL);
-        //     1600                         ctrl |=  E1000_CTRL_LANPHYPC_OVERRIDE;
-        //     1601                         ctrl &= ~E1000_CTRL_LANPHYPC_VALUE;
-        //     1602                         E1000_WRITE_REG(hw, CTRL, ctrl);
-        //     1603                         usec_delay(10);
-        //     1604                         ctrl &= ~E1000_CTRL_LANPHYPC_OVERRIDE;
-        //     1605                         E1000_WRITE_REG(hw, CTRL, ctrl);
-        //     1606                         msec_delay(50);
-        //     1607                 }
-        //     1608
-        //     1609                 /* Gate automatic PHY configuration on non-managed 82579 */
-        //     1610                 if (hw->mac_type == em_pch2lan)
-        //     1611                         em_gate_hw_phy_config_ich8lan(hw, TRUE);
-        //     1612
-        //     1613                 em_disable_ulp_lpt_lp(hw, TRUE);
-        //     1614                 /*
-        //     1615                  * Reset the PHY before any access to it.  Doing so,
-        //     1616                  * ensures that the PHY is in a known good state before
-        //     1617                  * we read/write PHY registers.  The generic reset is
-        //     1618                  * sufficient here, because we haven't determined
-        //     1619                  * the PHY type yet.
-        //     1620                  */
-        //     1621                 em_phy_reset(hw);
-        //     1622
-        //     1623                 /* Ungate automatic PHY configuration on non-managed 82579 */
-        //     1624                 if (hw->mac_type == em_pch2lan &&
-        //     1625                         (fwsm & E1000_FWSM_FW_VALID) == 0)
-        //     1626                         em_gate_hw_phy_config_ich8lan(hw, FALSE);
-        //     1627
-        //     1628                 /* Set MDIO slow mode before any other MDIO access */
-        //     1629                 ret_val = em_set_mdio_slow_mode_hv(hw);
-        //     1630                 if (ret_val)
-        //     1631                         return ret_val;
-        //     1632         }
+            self.disable_ulp_lpt_lp(info, true)?;
+
+            // Reset the PHY before any access to it.  Doing so,
+            // ensures that the PHY is in a known good state before
+            // we read/write PHY registers.  The generic reset is
+            // sufficient here, because we haven't determined
+            // the PHY type yet.
+            self.phy_reset(info)?;
+
+            // Ungate automatic PHY configuration on non-managed 82579
+            if self.mac_type == EmPch2lan && (fwsm & FWSM_FW_VALID) == 0 {
+                self.gate_hw_phy_config_ich8lan(info, false)?;
+            }
+
+            // Set MDIO slow mode before any other MDIO access
+            self.set_mdio_slow_mode_hv(info)?;
+        }
 
         // TODO
 
@@ -1199,8 +1166,47 @@ impl IgbHw {
         Ok(())
     }
 
+    /// toggle the LANPHYPC pin value
+    ///
+    /// Toggling the LANPHYPC pin value fully power-cycles the PHY and is
+    /// used to reset the PHY to a quiescent state when necessary.
     fn toggle_lanphypc_pch_lpt(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // Set Phy Config Counter to 50msec
+        let mut mac_reg = read_reg(info, FEXTNVM3)?;
+        mac_reg &= !FEXTNVM3_PHY_CFG_COUNTER_MASK;
+        mac_reg |= FEXTNVM3_PHY_CFG_COUNTER_50MSEC;
+        write_reg(info, FEXTNVM3, mac_reg)?;
+
+        // Toggle LANPHYPC Value bit
+        let mut mac_reg = read_reg(info, CTRL)?;
+        mac_reg |= CTRL_LANPHYPC_OVERRIDE;
+        mac_reg &= !CTRL_LANPHYPC_VALUE;
+        write_reg(info, CTRL, mac_reg)?;
+        write_flush(info)?;
+        awkernel_lib::delay::wait_millisec(1);
+        mac_reg &= !CTRL_LANPHYPC_OVERRIDE;
+        write_reg(info, CTRL, mac_reg)?;
+        write_flush(info)?;
+
+        if (self.mac_type as u32) < MacType::EmPchLpt as u32 {
+            awkernel_lib::delay::wait_millisec(50);
+        } else {
+            let mut count = 20;
+            loop {
+                awkernel_lib::delay::wait_millisec(5);
+                if read_reg(info, CTRL_EXT)? & CTRL_EXT_LPCD != 0 {
+                    break;
+                }
+                count -= 1;
+                if count == 0 {
+                    break;
+                }
+            }
+
+            awkernel_lib::delay::wait_millisec(30);
+        }
+
+        Ok(())
     }
 
     pub fn check_for_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
