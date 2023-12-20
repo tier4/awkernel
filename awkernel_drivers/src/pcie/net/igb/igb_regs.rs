@@ -5,6 +5,7 @@ pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
 pub const FEXTNVM3: usize = 0x0003C; // Future Extended NVM 3 - RW
 pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
 pub const _FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
+pub const VET: usize = 0x00038; // VLAN Ether Type - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
@@ -862,3 +863,7 @@ pub const TCTL_EXT_GCEX_MASK: u32 = 0x000FFC00; // Gigabit Carry Extend Padding
 pub const CTRL_EXT_PHYPDEN: u32 = 0x00100000;
 
 pub const VLAN_FILTER_TBL_SIZE: usize = 128; // VLAN Filter Table (4096 bits)
+
+pub const VFTA_ENTRY_SHIFT: u16 = 0x5;
+pub const VFTA_ENTRY_MASK: u16 = 0x7F;
+pub const VFTA_ENTRY_BIT_SHIFT_MASK: u16 = 0x1F;

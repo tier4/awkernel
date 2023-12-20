@@ -450,6 +450,18 @@ pub enum FC {
 }
 
 #[derive(Debug)]
+struct HostMngDhcpCookie {
+    signature: u32,
+    status: u8,
+    reserved0: u8,
+    vlan_id: u16,
+    reserved1: u32,
+    reserved2: u16,
+    reserved3: u8,
+    checksum: u8,
+}
+
+#[derive(Debug)]
 pub struct IgbHw {
     mac_type: MacType,
     initialize_hw_bits_disable: bool,
@@ -484,6 +496,7 @@ pub struct IgbHw {
     min_frame_size: u32,
     perm_mac_addr: [u8; NODE_ADDRESS_SIZE],
     mac_addr: [u8; NODE_ADDRESS_SIZE],
+    mng_cookie: HostMngDhcpCookie,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -968,6 +981,16 @@ impl IgbHw {
             min_frame_size,
             perm_mac_addr: [0; NODE_ADDRESS_SIZE],
             mac_addr: [0; NODE_ADDRESS_SIZE],
+            mng_cookie: HostMngDhcpCookie {
+                signature: 0,
+                status: 0,
+                reserved0: 0,
+                vlan_id: 0,
+                reserved1: 0,
+                reserved2: 0,
+                reserved3: 0,
+                checksum: 0,
+            },
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1050,24 +1073,105 @@ impl IgbHw {
         // Must be called after em_set_media_type because media_type is used
         self.initialize_hardware_bits(info)?;
 
+        // VET hardcoded to standard value and VFTA removed in ICH8/ICH9 LAN
+        if !is_ich8(&self.mac_type) {
+            if (self.mac_type as u32) < Em82546Rev3 as u32 {
+                write_reg(info, VET, 0)?;
+            }
+
+            if self.mac_type == EmI350 {
+                clear_vfta_i350(info)?;
+            } else {
+                self.clear_vfta(info)?;
+            }
+        }
+
         // TODO
 
         Ok(())
     }
 
-    /// Due to hw errata, if the host tries to configure the VFTA register
-    /// while performing queries from the BMC or DMA, then the VFTA in some
-    /// cases won't be written.
-    fn clear_vfta_i350(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        for offset in 0..VLAN_FILTER_TBL_SIZE {
-            for _ in 0..10 {
-                write_reg(info, VFTA + (offset << 2), 0)?;
+    /// Clears the VLAN filer table
+    fn clear_vfta(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if is_ich8(&self.mac_type) {
+            return Ok(());
+        }
+
+        let (vfta_offset, vfta_bit_in_reg) = if matches!(self.mac_type, Em82573 | Em82574) {
+            if self.mng_cookie.vlan_id != 0 {
+                // The VFTA is a 4096b bit-field, each identifying a
+                // single VLAN ID.  The following operations
+                // determine which 32b entry (i.e. offset) into the
+                // array we want to set the VLAN ID (i.e. bit) of the
+                // manageability unit.
+                let vfta_offset = (self.mng_cookie.vlan_id >> VFTA_ENTRY_SHIFT) & VFTA_ENTRY_MASK;
+                let vfta_bit_in_reg = 1 << (self.mng_cookie.vlan_id & VFTA_ENTRY_BIT_SHIFT_MASK);
+                (vfta_offset, vfta_bit_in_reg)
+            } else {
+                (0, 0)
             }
+        } else {
+            (0, 0)
+        };
+
+        for offset in 0..VLAN_FILTER_TBL_SIZE {
+            // If the offset we want to clear is the same offset of the
+            // manageability VLAN ID, then clear all bits except that of
+            // the manageability unit
+            let vfta_value = if offset == vfta_offset as usize {
+                vfta_bit_in_reg
+            } else {
+                0
+            };
+            write_reg(info, VFTA + (offset << 2), vfta_value)?;
             write_flush(info)?;
         }
 
         Ok(())
     }
+
+    //     8151 STATIC void
+    // 8152 em_clear_vfta(struct em_hw *hw)
+    //      /* [previous][next][first][last][top][bottom][index][help]
+    // +8152 sys/dev/pci/if_em_hw.c
+    //  */
+    // 8153 {
+    // 8154         uint32_t offset;
+    // 8155         uint32_t vfta_value = 0;
+    // 8156         uint32_t vfta_offset = 0;
+    // 8157         uint32_t vfta_bit_in_reg = 0;
+    // 8158         if (IS_ICH8(hw->mac_type))
+    // 8159                 return;
+    // 8160
+    // 8161         if ((hw->mac_type == em_82573) || (hw->mac_type == em_82574)) {
+    // 8162                 if (hw->mng_cookie.vlan_id != 0) {
+    // 8163                         /*
+    // 8164                          * The VFTA is a 4096b bit-field, each identifying a
+    // 8165                          * single VLAN ID.  The following operations
+    // 8166                          * determine which 32b entry (i.e. offset) into the
+    // 8167                          * array we want to set the VLAN ID (i.e. bit) of the
+    // 8168                          * manageability unit.
+    // 8169                          */
+    // 8170                         vfta_offset = (hw->mng_cookie.vlan_id >>
+    // 8171                             E1000_VFTA_ENTRY_SHIFT) & E1000_VFTA_ENTRY_MASK;
+    // 8172
+    // 8173                         vfta_bit_in_reg = 1 << (hw->mng_cookie.vlan_id &
+    // 8174                             E1000_VFTA_ENTRY_BIT_SHIFT_MASK);
+    // 8175                 }
+    // 8176         }
+    // 8177         for (offset = 0; offset < E1000_VLAN_FILTER_TBL_SIZE; offset++) {
+    // 8178                 /*
+    // 8179                  * If the offset we want to clear is the same offset of the
+    // 8180                  * manageability VLAN ID, then clear all bits except that of
+    // 8181                  * the manageability unit
+    // 8182                  */
+    // 8183                 vfta_value = (offset == vfta_offset) ? vfta_bit_in_reg : 0;
+    // 8184                 E1000_WRITE_REG_ARRAY(hw, VFTA, offset, vfta_value);
+    // 8185                 E1000_WRITE_FLUSH(hw);
+    // 8186         }
+    // 8187 }
 
     pub fn get_initialize_hw_bits_disable(&self) -> bool {
         self.initialize_hw_bits_disable
@@ -5417,4 +5521,18 @@ fn invm_dward_to_dword_address(dword: u32) -> u16 {
 #[inline(always)]
 fn invm_dward_to_dword_data(dword: u32) -> u16 {
     ((dword & 0xFFFF0000) >> 16) as u16
+}
+
+/// Due to hw errata, if the host tries to configure the VFTA register
+/// while performing queries from the BMC or DMA, then the VFTA in some
+/// cases won't be written.
+fn clear_vfta_i350(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    for offset in 0..VLAN_FILTER_TBL_SIZE {
+        for _ in 0..10 {
+            write_reg(info, VFTA + (offset << 2), 0)?;
+        }
+        write_flush(info)?;
+    }
+
+    Ok(())
 }
