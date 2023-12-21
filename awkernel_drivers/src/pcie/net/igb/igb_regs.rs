@@ -164,8 +164,8 @@ pub const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
 // FW Semaphore
 pub const FWSM: usize = 0x05B54;
 
-pub const _FWSM_MODE_MASK: u32 = 0x0000000E; // FW mode
-pub const _FWSM_MODE_SHIFT: u32 = 1;
+pub const FWSM_MODE_MASK: u32 = 0x0000000E; // FW mode
+pub const FWSM_MODE_SHIFT: u32 = 1;
 pub const FWSM_ULP_CFG_DONE: u32 = 0x00000400; // Low power cfg done
 pub const FWSM_FW_VALID: u32 = 0x00008000; // FW established a valid mode
 pub const FWSM_RSPCIPHY: u32 = 0x00000040; // Reset PHY on PCI reset
@@ -176,6 +176,13 @@ pub const _FWSM_SKUSEL_EMB: u32 = 0x0; // Embedded SKU
 pub const _FWSM_SKUSEL_CONS: u32 = 0x1; // Consumer SKU
 pub const _FWSM_SKUSEL_PERF_100: u32 = 0x2; // Perf & Corp 10/100 SKU
 pub const _FWSM_SKUSEL_PERF_GBE: u32 = 0x3; // Perf & Copr GbE SKU
+
+pub const MNG_DHCP_COMMAND_TIMEOUT: u32 = 10; // Time in ms to process MNG command
+pub const MNG_DHCP_COOKIE_OFFSET: u32 = 0x6F0; // Cookie offset
+pub const MNG_DHCP_COOKIE_LENGTH: u32 = 0x10; // Cookie length
+pub const MNG_IAMT_MODE: u32 = 0x3;
+pub const MNG_ICH_IAMT_MODE: u32 = 0x2;
+pub const IAMT_SIGNATURE: u32 = 0x544D4149; // Intel(R) Active Management Technology signature
 
 // Management Control
 pub const MANC: usize = 0x05820;
