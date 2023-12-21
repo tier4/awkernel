@@ -1112,7 +1112,61 @@ impl IgbHw {
     }
 
     fn id_led_init(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        if (self.mac_type as u32) < Em82540 as u32 || self.mac_type == EmICPxxxx {
+            // Nothing to do
+            return Ok(());
+        }
+
+        let ledctl = read_reg(info, LEDCTL)?;
+        self.ledctl_default = ledctl;
+        self.ledctl_mode1 = self.ledctl_default;
+        self.ledctl_mode2 = self.ledctl_default;
+
+        let mut eeprom_data = [0; 1];
+        self.read_eeprom(info, EEPROM_ID_LED_SETTINGS, &mut eeprom_data)?;
+
+        if self.mac_type == Em82573 && eeprom_data[0] == ID_LED_RESERVED_82573 {
+            eeprom_data[0] = ID_LED_DEFAULT_82573;
+        } else if eeprom_data[0] == ID_LED_RESERVED_0000 || eeprom_data[0] == ID_LED_RESERVED_FFFF {
+            if matches!(self.mac_type, EmIch8lan | EmIch9lan | EmIch10lan) {
+                eeprom_data[0] = ID_LED_DEFAULT_ICH8LAN;
+            } else {
+                eeprom_data[0] = ID_LED_DEFAULT;
+            }
+        }
+
+        let ledctl_mask = 0x000000FF;
+
+        for i in 0..4 {
+            let temp = (eeprom_data[0] >> (i << 2)) & 0x0f;
+            match temp {
+                ID_LED_ON1_DEF2 | ID_LED_ON1_ON2 | ID_LED_ON1_OFF2 => {
+                    self.ledctl_mode1 &= !(ledctl_mask << (i << 3));
+                    self.ledctl_mode1 |= LEDCTL_MODE_LED_ON << (i << 3);
+                }
+                ID_LED_OFF1_DEF2 | ID_LED_OFF1_ON2 | ID_LED_OFF1_OFF2 => {
+                    self.ledctl_mode1 &= !(ledctl_mask << (i << 3));
+                    self.ledctl_mode1 |= LEDCTL_MODE_LED_OFF << (i << 3);
+                }
+                _ => (),
+            }
+
+            match temp {
+                ID_LED_DEF1_ON2 | ID_LED_ON1_ON2 | ID_LED_OFF1_ON2 => {
+                    self.ledctl_mode2 &= !(ledctl_mask << (i << 3));
+                    self.ledctl_mode2 |= LEDCTL_MODE_LED_ON << (i << 3);
+                }
+                ID_LED_DEF1_OFF2 | ID_LED_ON1_OFF2 | ID_LED_OFF1_OFF2 => {
+                    self.ledctl_mode2 &= !(ledctl_mask << (i << 3));
+                    self.ledctl_mode2 |= LEDCTL_MODE_LED_OFF << (i << 3);
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
     }
 
     /// Configures flow control and link settings.
