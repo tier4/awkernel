@@ -2822,7 +2822,7 @@ impl IgbHw {
             }
 
             let mac_reg = read_reg(info, PHY_CTRL as usize)?;
-            let oem_reg = hw.read_phy_reg(info, HV_OEM_BITS)? as u32;
+            let oem_reg = hw.read_phy_reg(info, HV_OEM_BITS)?;
 
             let mut oem_reg = oem_reg & !(HV_OEM_BITS_GBE_DIS | HV_OEM_BITS_LPLU);
 
