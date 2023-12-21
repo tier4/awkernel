@@ -491,6 +491,9 @@ pub struct IgbHw {
     mng_cookie: HostMngDhcpCookie,
     autoneg: bool,
     icp_xxxx_is_link_up: bool,
+    ledctl_default: u32,
+    ledctl_mode1: u32,
+    ledctl_mode2: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -988,6 +991,9 @@ impl IgbHw {
             },
             autoneg: true,
             icp_xxxx_is_link_up: false,
+            ledctl_default: 0,
+            ledctl_mode1: 0,
+            ledctl_mode2: 0,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1056,7 +1062,7 @@ impl IgbHw {
 
         // Initialize Identification LED
         // Skip this because fileds regarding LED are never used.
-        // self.id_led_init(info)?;
+        self.id_led_init(info)?;
 
         let (tbi_compatibility_en, media_type, sgmii_active) =
             set_media_type(&self.mac_type, info)?;
@@ -1103,6 +1109,10 @@ impl IgbHw {
         // TODO
 
         Ok(())
+    }
+
+    fn id_led_init(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
     }
 
     /// Configures flow control and link settings.
@@ -1304,7 +1314,31 @@ impl IgbHw {
         todo!();
     }
 
+    /// Copper link setup for em_phy_82577 series.
     fn copper_link_82577_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if self.phy_reset_disable {
+            return Ok(());
+        }
+
+        // Enable CRS on TX for half-duplex operation.
+        let mut phy_data = self.read_phy_reg(info, I82577_PHY_CFG_REG)?;
+
+        phy_data |= I82577_PHY_CFG_ENABLE_CRS_ON_TX | I82577_PHY_CFG_ENABLE_DOWNSHIFT;
+
+        self.write_phy_reg(info, I82577_PHY_CFG_REG, phy_data)?;
+
+        // Wait 15ms for MAC to configure PHY from eeprom settings
+        awkernel_lib::delay::wait_millisec(15);
+
+        // disable lplu d0 during driver init
+        self.set_lplu_state_pchlan(info, false)?;
+
+        write_reg(info, LEDCTL, self.ledctl_mode1)?;
+
+        Ok(())
+    }
+
+    fn set_lplu_state_pchlan(&mut self, info: &PCIeInfo, active: bool) -> Result<(), IgbDriverErr> {
         todo!();
     }
 

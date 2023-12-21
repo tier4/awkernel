@@ -405,11 +405,6 @@ pub const HV_OEM_BITS_LPLU: u32 = 0x0004; // Low Power Link Up
 pub const HV_OEM_BITS_GBE_DIS: u32 = 0x0040; // Gigabit Disable
 pub const HV_OEM_BITS_RESTART_AN: u32 = 0x0400; // Restart Auto-negotiation
 
-// I82577 Specific Registers
-pub const I82577_PHY_ADDR_REG: u32 = 16;
-pub const _I82577_PHY_CFG_REG: u32 = 22;
-pub const _I82577_PHY_CTRL_REG: u32 = 23;
-
 // I82578 Specific Registers
 pub const I82578_PHY_ADDR_REG: u32 = 29;
 
@@ -951,6 +946,15 @@ pub const FC_NONE: u8 = 0;
 pub const FC_RX_PAUSE: u8 = 1;
 pub const FC_TX_PAUSE: u8 = 2;
 pub const FC_FULL: u8 = 3;
+
+// I82577 Specific Registers
+pub const I82577_PHY_ADDR_REG: u32 = 16;
+pub const I82577_PHY_CFG_REG: u32 = 22;
+pub const I82577_PHY_CTRL_REG: u32 = 23;
+
+// I82577 Config Register
+pub const I82577_PHY_CFG_ENABLE_CRS_ON_TX: u16 = 1 << 15;
+pub const I82577_PHY_CFG_ENABLE_DOWNSHIFT: u16 = (1 << 10) + (1 << 11);
 
 // 82580 specific PHY registers
 pub const I82580_ADDR_REG: u32 = 16;
