@@ -952,6 +952,14 @@ pub const FC_RX_PAUSE: u8 = 1;
 pub const FC_TX_PAUSE: u8 = 2;
 pub const FC_FULL: u8 = 3;
 
+// 82580 specific PHY registers
+pub const I82580_ADDR_REG: u32 = 16;
+pub const I82580_CFG_REG: u32 = 22;
+pub const I82580_CFG_ASSERT_CRS_ON_TX: u16 = 1 << 15;
+pub const I82580_CFG_ENABLE_DOWNSHIFT: u16 = 3 << 10; // auto downshift 100/10
+pub const I82580_CTRL_REG: u32 = 23;
+pub const I82580_CTRL_DOWNSHIFT_MASK: u16 = 7 << 10;
+
 // Realtek 8169S/8110S gigE PHY registers
 
 // RTL8211B(L)/RTL8211C(L)

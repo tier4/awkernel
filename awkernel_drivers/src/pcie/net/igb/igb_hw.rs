@@ -1257,7 +1257,7 @@ impl IgbHw {
         // Check link status. Wait up to 100 microseconds for link to become
         // valid.
 
-        for i in 0..10 {
+        for _ in 0..10 {
             self.read_phy_reg(info, PHY_STATUS)?;
             let phy_data = self.read_phy_reg(info, PHY_STATUS)?;
 
@@ -1309,7 +1309,20 @@ impl IgbHw {
     }
 
     fn copper_link_82580_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        if self.phy_reset_disable {
+            return Ok(());
+        }
+
+        self.phy_hw_reset(info)?;
+
+        // Enable CRS on TX. This must be set for half-duplex operation.
+        let mut phy_data = self.read_phy_reg(info, I82580_CFG_REG)?;
+
+        phy_data |= I82580_CFG_ASSERT_CRS_ON_TX | I82580_CFG_ENABLE_DOWNSHIFT;
+
+        self.write_phy_reg(info, I82580_CFG_REG, phy_data)?;
+
+        Ok(())
     }
 
     fn copper_link_rtl8211_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
