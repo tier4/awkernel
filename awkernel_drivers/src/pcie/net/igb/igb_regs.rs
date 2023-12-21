@@ -52,6 +52,13 @@ pub const STATUS_SPEED_1000: u32 = 0x00000080; // Speed 1000Mb/s
 pub const STATUS_LAN_INIT_DONE: u32 = 0x00000200; // Lan Init Completion
 pub const STATUS_DEV_RST_SET: u32 = 0x00100000;
 
+pub const E1000_82542_2_0_REV_ID: u32 = 2;
+pub const E1000_82542_2_1_REV_ID: u32 = 3;
+pub const E1000_REVISION_0: u32 = 0;
+pub const E1000_REVISION_1: u32 = 1;
+pub const E1000_REVISION_2: u32 = 2;
+pub const E1000_REVISION_3: u32 = 3;
+
 // Interrupt Mask Set/Read Register
 pub const IMS: usize = 0x000D0;
 pub const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
@@ -452,6 +459,64 @@ pub const M88E1512_CFG_REG_2: u32 = 0x0011;
 pub const M88E1512_CFG_REG_3: u32 = 0x0007;
 pub const M88E1512_MODE: u32 = 0x0014;
 
+// M88E1000 Specific Registers
+pub const M88E1000_PHY_SPEC_CTRL: u32 = 0x10; // PHY Specific Control Register
+pub const M88E1000_PHY_SPEC_STATUS: u32 = 0x11; // PHY Specific Status Register
+pub const M88E1000_INT_ENABLE: u32 = 0x12; // Interrupt Enable Register
+pub const M88E1000_INT_STATUS: u32 = 0x13; // Interrupt Status Register
+pub const M88E1000_EXT_PHY_SPEC_CTRL: u32 = 0x14; // Extended PHY Specific Control
+pub const M88E1000_RX_ERR_CNTR: u32 = 0x15; // Receive Error Counter
+
+// M88E1000 PHY Specific Control Register
+pub const M88E1000_PSCR_JABBER_DISABLE: u16 = 0x0001; // 1=Jabber Function disabled
+pub const M88E1000_PSCR_POLARITY_REVERSAL: u16 = 0x0002; // 1=Polarity Reversal enabled
+pub const M88E1000_PSCR_SQE_TEST: u16 = 0x0004; // 1=SQE Test enabled
+pub const M88E1000_PSCR_CLK125_DISABLE: u16 = 0x0010; // 1=CLK125 low, 0=CLK125 toggling
+
+pub const M88E1000_PSCR_MDI_MANUAL_MODE: u16 = 0x0000; // MDI Crossover Mode bits 6:5, Manual MDI configuration
+pub const M88E1000_PSCR_MDIX_MANUAL_MODE: u16 = 0x0020; // Manual MDIX configuration
+pub const M88E1000_PSCR_AUTO_X_1000T: u16 = 0x0040; // 1000BASE-T: Auto crossover, 100BASE-TX/10BASE-T: MDI Mode
+pub const M88E1000_PSCR_AUTO_X_MODE: u16 = 0x0060; // Auto crossover enabled all speeds.
+pub const M88E1000_PSCR_10BT_EXT_DIST_ENABLE: u16 = 0x0080; // 1=Enable Extended 10BASE-T distance (Lower 10BASE-T RX Threshold), 0=Normal 10BASE-T RX Threshold
+pub const M88E1000_PSCR_MII_5BIT_ENABLE: u16 = 0x0100; // 1=5-Bit interface in 100BASE-TX, 0=MII interface in 100BASE-TX
+pub const M88E1000_PSCR_SCRAMBLER_DISABLE: u16 = 0x0200; // 1=Scrambler disable
+pub const M88E1000_PSCR_FORCE_LINK_GOOD: u16 = 0x0400; // 1=Force link good
+pub const M88E1000_PSCR_ASSERT_CRS_ON_TX: u16 = 0x0800; // 1=Assert CRS on Transmit
+
+// M88E1141 specific
+pub const M88E1000_EPSCR_TX_TIME_CTRL: u16 = 0x0002; // Add Delay
+pub const M88E1000_EPSCR_RX_TIME_CTRL: u16 = 0x0080; // Add Delay
+
+// Number of times we will attempt to autonegotiate before downshifting if we
+// are the master
+pub const M88E1000_EPSCR_MASTER_DOWNSHIFT_MASK: u16 = 0x0C00;
+pub const M88E1000_EPSCR_MASTER_DOWNSHIFT_1X: u16 = 0x0000;
+pub const M88E1000_EPSCR_MASTER_DOWNSHIFT_2X: u16 = 0x0400;
+pub const M88E1000_EPSCR_MASTER_DOWNSHIFT_3X: u16 = 0x0800;
+pub const M88E1000_EPSCR_MASTER_DOWNSHIFT_4X: u16 = 0x0C00;
+
+// Number of times we will attempt to autonegotiate before downshifting if we
+// are the slave
+pub const M88E1000_EPSCR_SLAVE_DOWNSHIFT_MASK: u16 = 0x0300;
+pub const M88E1000_EPSCR_SLAVE_DOWNSHIFT_DIS: u16 = 0x0000;
+pub const M88E1000_EPSCR_SLAVE_DOWNSHIFT_1X: u16 = 0x0100;
+pub const M88E1000_EPSCR_SLAVE_DOWNSHIFT_2X: u16 = 0x0200;
+pub const M88E1000_EPSCR_SLAVE_DOWNSHIFT_3X: u16 = 0x0300;
+pub const M88E1000_EPSCR_TX_CLK_2_5: u16 = 0x0060; // 2.5 MHz TX_CLK
+pub const M88E1000_EPSCR_TX_CLK_25: u16 = 0x0070; // 25  MHz TX_CLK
+pub const M88E1000_EPSCR_TX_CLK_0: u16 = 0x0000; // NO  TX_CLK
+
+// M88EC018 Rev 2 specific DownShift settings
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_MASK: u16 = 0x0E00;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_1X: u16 = 0x0000;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_2X: u16 = 0x0200;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_3X: u16 = 0x0400;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_4X: u16 = 0x0600;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_5X: u16 = 0x0800;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_6X: u16 = 0x0A00;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_7X: u16 = 0x0C00;
+pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_8X: u16 = 0x0E00;
+
 pub const IGP03E1000_E_PHY_ID: u32 = 0x02A80390;
 pub const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
 pub const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
@@ -566,7 +631,7 @@ pub const GG82563_PHY_KMRN_MISC: u32 = gg82563_reg(194, 26); // Misc.
 pub const GG82563_ICR_DIS_PADDING: u16 = 0x0010; // Disable Padding Use
 
 // BME1000 PHY Specific Control Register
-pub const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; // 1 = enable downshift
+pub const BME1000_PSCR_ENABLE_DOWNSHIFT: u16 = 0x0800; // 1 = enable downshift
 pub const BM_PHY_PAGE_SELECT: u32 = 22; // Page Select for BM
 pub const BM_REG_BIAS1: u32 = 29;
 pub const BM_REG_BIAS2: u32 = 30;
@@ -628,6 +693,10 @@ pub const MII_SR_100X_FD_CAPS: u16 = 0x4000; // 100X  Full Duplex Capable
 
 pub const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
 pub const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
+
+// I82578 Downshift settings (Extended PHY Specific Control Register)
+pub const I82578_EPSCR_DOWNSHIFT_ENABLE: u16 = 0x0020;
+pub const I82578_EPSCR_DOWNSHIFT_COUNTER_MASK: u16 = 0x001C;
 
 // EMI Registers
 pub const I82579_EMI_ADDR: u32 = 0x10;

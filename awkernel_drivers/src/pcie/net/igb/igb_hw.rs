@@ -1,4 +1,5 @@
 use bitflags::bitflags;
+use smoltcp::phy;
 
 use crate::{
     net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
@@ -1360,8 +1361,106 @@ impl IgbHw {
         todo!();
     }
 
+    /// Copper link setup for em_phy_m88 series.
     fn copper_link_mgp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        use MacType::*;
+
+        if self.phy_reset_disable {
+            return Ok(());
+        }
+
+        // disable lplu d0 during driver init
+        if matches!(
+            self.mac_type,
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+        ) {
+            self.set_lplu_state_pchlan(info, false)?;
+        }
+
+        // Enable CRS on TX. This must be set for half-duplex operation.
+        let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_CTRL)?;
+        if self.phy_id == M88E1141_E_PHY_ID {
+            phy_data |= 0x00000008;
+            self.write_phy_reg(info, M88E1000_PHY_SPEC_CTRL, phy_data)?;
+            phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_CTRL)?;
+            phy_data &= !M88E1000_PSCR_ASSERT_CRS_ON_TX;
+        }
+        // For BM PHY this bit is downshift enable
+        else if self.phy_type != PhyType::Bm {
+            phy_data |= M88E1000_PSCR_ASSERT_CRS_ON_TX;
+        }
+
+        // Options: MDI/MDI-X = 0 (default) 0 - Auto for all speeds 1 - MDI
+        // mode 2 - MDI-X mode 3 - Auto for 1000Base-T only (MDI-X for
+        // 10/100Base-T modes)
+        phy_data &= !M88E1000_PSCR_AUTO_X_MODE;
+        phy_data |= M88E1000_PSCR_AUTO_X_MODE;
+
+        // Options: disable_polarity_correction = 0 (default) Automatic
+        // Correction for Reversed Cable Polarity 0 - Disabled 1 - Enabled
+        phy_data &= !M88E1000_PSCR_POLARITY_REVERSAL;
+
+        // Enable downshift on BM (disabled by default)
+        if self.phy_type == PhyType::Bm {
+            phy_data |= BME1000_PSCR_ENABLE_DOWNSHIFT;
+        }
+
+        self.write_phy_reg(info, M88E1000_PHY_SPEC_CTRL, phy_data)?;
+
+        let phy_revision = self.phy_revision.ok_or(IgbDriverErr::Phy)?;
+
+        if (self.phy_type == PhyType::M88
+            && phy_revision < M88E1011_I_REV_4
+            && self.phy_id != BME1000_E_PHY_ID)
+            || self.phy_type == PhyType::Oem
+        {
+            // Force TX_CLK in the Extended PHY Specific Control Register
+            // to 25MHz clock
+            phy_data = self.read_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL)?;
+
+            if self.phy_type == PhyType::Oem {
+                phy_data |= M88E1000_EPSCR_TX_TIME_CTRL;
+                phy_data |= M88E1000_EPSCR_RX_TIME_CTRL;
+            }
+
+            phy_data |= M88E1000_EPSCR_TX_CLK_25;
+
+            if phy_revision == E1000_REVISION_2 && self.phy_id == M88E1111_I_PHY_ID {
+                // Vidalia Phy, set the downshift counter to 5x
+                phy_data &= !M88EC018_EPSCR_DOWNSHIFT_COUNTER_MASK;
+                phy_data |= M88EC018_EPSCR_DOWNSHIFT_COUNTER_5X;
+                self.write_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL, phy_data)?;
+            } else {
+                // Configure Master and Slave downshift values
+                phy_data &=
+                    !(M88E1000_EPSCR_MASTER_DOWNSHIFT_MASK | M88E1000_EPSCR_SLAVE_DOWNSHIFT_MASK);
+                phy_data |= M88E1000_EPSCR_MASTER_DOWNSHIFT_1X | M88E1000_EPSCR_SLAVE_DOWNSHIFT_1X;
+                self.write_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL, phy_data)?;
+            }
+        }
+
+        if self.phy_type == PhyType::Bm && phy_revision == 1 {
+            // Set PHY page 0, register 29 to 0x0003
+            // The next two writes are supposed to lower BER for gig connection
+            self.write_phy_reg(info, BM_REG_BIAS1, 0x0003)?;
+
+            // Set PHY page 0, register 30 to 0x0000
+            self.write_phy_reg(info, BM_REG_BIAS2, 0x0000)?;
+        }
+
+        if self.phy_type == PhyType::I82578 {
+            phy_data = self.read_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL)?;
+
+            // 82578 PHY - set the downshift count to 1x.
+            phy_data |= I82578_EPSCR_DOWNSHIFT_ENABLE;
+            phy_data &= !I82578_EPSCR_DOWNSHIFT_COUNTER_MASK;
+            self.write_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL, phy_data)?;
+        }
+
+        // SW Reset the PHY so all changes take effect
+        self.phy_reset(info)?;
+
+        Ok(())
     }
 
     /// Copper link setup for em_phy_gg82563 series.
