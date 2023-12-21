@@ -453,6 +453,23 @@ struct HostMngDhcpCookie {
     checksum: u8,
 }
 
+pub const ADVERTISE_10_HALF: u16 = 0x0001;
+pub const ADVERTISE_10_FULL: u16 = 0x0002;
+pub const ADVERTISE_100_HALF: u16 = 0x0004;
+pub const ADVERTISE_100_FULL: u16 = 0x0008;
+pub const ADVERTISE_1000_HALF: u16 = 0x0010;
+pub const ADVERTISE_1000_FULL: u16 = 0x0020;
+
+pub const AUTONEG_ADVERTISE_SPEED_DEFAULT: u16 = 0x002F; // Everything but 1000-Half
+pub const AUTONEG_ADVERTISE_10_100_ALL: u16 = 0x000F; // All 10/100 speeds
+pub const AUTONEG_ADVERTISE_10_ALL: u16 = 0x0003; // 10Mbps Full & Half speeds
+
+const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
+    | ADVERTISE_10_FULL
+    | ADVERTISE_100_HALF
+    | ADVERTISE_100_FULL
+    | ADVERTISE_1000_FULL;
+
 #[derive(Debug)]
 pub struct IgbHw {
     mac_type: MacType,
@@ -495,6 +512,7 @@ pub struct IgbHw {
     ledctl_default: u32,
     ledctl_mode1: u32,
     ledctl_mode2: u32,
+    autoneg_advertised: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -995,6 +1013,7 @@ impl IgbHw {
             ledctl_default: 0,
             ledctl_mode1: 0,
             ledctl_mode2: 0,
+            autoneg_advertised: AUTONEG_ADV_DEFAULT,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1358,6 +1377,84 @@ impl IgbHw {
     }
 
     fn copper_link_igp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    /// This function sets the lplu state according to the active flag.  When
+    /// activating lplu this function also disables smart speed and vise versa.
+    /// lplu will not be activated unless the device autonegotiation advertisement
+    /// meets standards of either 10 or 10/100 or 10/100/1000 at all duplexes.
+    fn set_d3_lplu_state(&mut self, info: &PCIeInfo, active: bool) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if self.phy_type != PhyType::Igp
+            && self.phy_type != PhyType::Igp2
+            && self.phy_type != PhyType::Igp3
+        {
+            return Ok(());
+        }
+
+        fn active_post(hw: &mut IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+            // When LPLU is enabled we should disable SmartSpeed
+            let mut phy_data = hw.read_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG)?;
+            phy_data &= !IGP01E1000_PSCFR_SMART_SPEED;
+            hw.write_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG, phy_data)?;
+            Ok(())
+        }
+
+        // During driver activity LPLU should not be used or it will attain
+        // link from the lowest speeds starting from 10Mbps. The capability
+        // is used for Dx transitions and states
+        if matches!(self.mac_type, Em82541Rev2 | Em82547Rev2) {
+            let mut phy_data = self.read_phy_reg(info, IGP01E1000_GMII_FIFO)?;
+
+            if !active {
+                phy_data &= !IGP01E1000_GMII_FLEX_SPD;
+                self.write_phy_reg(info, IGP01E1000_GMII_FIFO, phy_data)?;
+            } else if self.autoneg_advertised == AUTONEG_ADVERTISE_SPEED_DEFAULT
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_ALL
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_100_ALL
+            {
+                phy_data |= IGP01E1000_GMII_FLEX_SPD;
+                self.write_phy_reg(info, IGP01E1000_GMII_FIFO, phy_data)?;
+
+                active_post(self, info)?;
+            }
+        } else if is_ich8(&self.mac_type) {
+            // MAC writes into PHY register based on the state transition
+            // and start auto-negotiation. SW driver can overwrite the
+            // settings in CSR PHY power control E1000_PHY_CTRL register.
+            let mut phy_ctrl = read_reg(info, PHY_CTRL as usize)?;
+
+            if !active {
+                phy_ctrl &= !PHY_CTRL_NOND0A_LPLU;
+                write_reg(info, PHY_CTRL as usize, phy_ctrl)?;
+            } else if self.autoneg_advertised == AUTONEG_ADVERTISE_SPEED_DEFAULT
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_ALL
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_100_ALL
+            {
+                phy_ctrl |= PHY_CTRL_NOND0A_LPLU;
+                write_reg(info, PHY_CTRL as usize, phy_ctrl)?;
+
+                active_post(self, info)?;
+            }
+        } else {
+            let mut phy_data = self.read_phy_reg(info, IGP02E1000_PHY_POWER_MGMT)?;
+
+            if !active {
+                phy_data &= !IGP02E1000_PM_D3_LPLU;
+                self.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_data)?;
+            } else if self.autoneg_advertised == AUTONEG_ADVERTISE_SPEED_DEFAULT
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_ALL
+                || self.autoneg_advertised == AUTONEG_ADVERTISE_10_100_ALL
+            {
+                phy_data |= IGP02E1000_PM_D3_LPLU;
+                self.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_data)?;
+
+                active_post(self, info)?;
+            }
+        }
+
         todo!();
     }
 

@@ -360,14 +360,26 @@ pub const MAX_PHY_REG_ADDRESS: u32 = 0x1F; // 5 bit address bus (0-0x1F)
 pub const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
 
 // IGP01E1000 Specific Registers
-pub const _IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; // PHY Specific Port Config Register
+pub const IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; // PHY Specific Port Config Register
 pub const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; // PHY Specific Status Register
 pub const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Register
 pub const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
-pub const _IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
+pub const IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
 pub const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; // PHY Channel Quality Register
 pub const IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
 pub const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; // PHY Page Select Core Register
+
+// IGP01E1000 Specific Port Config Register - R/W
+pub const IGP01E1000_PSCFR_AUTO_MDIX_PAR_DETECT: u16 = 0x0010;
+pub const IGP01E1000_PSCFR_PRE_EN: u16 = 0x0020;
+pub const IGP01E1000_PSCFR_SMART_SPEED: u16 = 0x0080;
+pub const IGP01E1000_PSCFR_DISABLE_TPLOOPBACK: u16 = 0x0100;
+pub const IGP01E1000_PSCFR_DISABLE_JABBER: u16 = 0x0400;
+pub const IGP01E1000_PSCFR_DISABLE_TRANSMIT: u16 = 0x2000;
+
+// IGP01E1000 GMII FIFO Register
+pub const IGP01E1000_GMII_FLEX_SPD: u16 = 0x10; // Enable flexible speed on Link-Up
+pub const IGP01E1000_GMII_SPD: u16 = 0x20; // Enable SPD
 
 pub const IGP02E1000_PM_SPD: u16 = 0x0001; // Smart Power Down
 pub const IGP02E1000_PM_D3_LPLU: u16 = 0x0004; // Enable LPLU in non-D0a modes
