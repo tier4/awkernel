@@ -951,3 +951,76 @@ pub const FC_NONE: u8 = 0;
 pub const FC_RX_PAUSE: u8 = 1;
 pub const FC_TX_PAUSE: u8 = 2;
 pub const FC_FULL: u8 = 3;
+
+// Realtek 8169S/8110S gigE PHY registers
+
+// RTL8211B(L)/RTL8211C(L)
+pub const RGEPHY_CR: u32 = 0x10; // PHY Specific Control
+pub const RGEPHY_CR_ASSERT_CRS: u16 = 0x0800;
+pub const RGEPHY_CR_FORCE_LINK: u16 = 0x0400;
+pub const RGEPHY_CR_MDI_MASK: u16 = 0x0060;
+pub const RGEPHY_CR_MDIX_AUTO: u16 = 0x0040;
+pub const RGEPHY_CR_MDIX_MANUAL: u16 = 0x0020;
+pub const RGEPHY_CR_MDI_MANUAL: u16 = 0x0000;
+pub const RGEPHY_CR_CLK125_DIS: u16 = 0x0010;
+pub const RGEPHY_CR_ALDPS: u16 = 0x0004; // RTL8251 only
+pub const RGEPHY_CR_JABBER_DIS: u16 = 0x0001;
+
+// RTL8211B(L)/RTL8211C(L)
+pub const RGEPHY_SR: u32 = 0x11; // PHY Specific Status
+pub const RGEPHY_SR_SPEED_1000MBPS: u16 = 0x8000;
+pub const RGEPHY_SR_SPEED_100MBPS: u16 = 0x4000;
+pub const RGEPHY_SR_SPEED_10MBPS: u16 = 0x0000;
+pub const RGEPHY_SR_SPEED_MASK: u16 = 0xc000;
+pub const RGEPHY_SR_FDX: u16 = 0x2000; // full duplex
+pub const RGEPHY_SR_PAGE_RECEIVED: u16 = 0x1000; // new page received
+pub const RGEPHY_SR_SPD_DPLX_RESOLVED: u16 = 0x0800; // speed/duplex resolved
+pub const RGEPHY_SR_LINK: u16 = 0x0400; // link up
+pub const RGEPHY_SR_MDI_XOVER: u16 = 0x0040; // MDI crossover
+pub const RGEPHY_SR_ALDPS: u16 = 0x0008; // RTL8211C(L) only
+pub const RGEPHY_SR_JABBER: u16 = 0x0001; // Jabber
+
+// pub const RGEPHY_SR_SPEED(X)              ((X) & RGEPHY_SR_SPEED_MASK)
+
+// RTL8211F
+pub const RGEPHY_F_SR: u32 = 0x1A; // PHY Specific Status
+pub const RGEPHY_F_SR_SPEED_1000MBPS: u16 = 0x0020;
+pub const RGEPHY_F_SR_SPEED_100MBPS: u16 = 0x0010;
+pub const RGEPHY_F_SR_SPEED_10MBPS: u16 = 0x0000;
+pub const RGEPHY_F_SR_SPEED_MASK: u16 = 0x0030;
+pub const RGEPHY_F_SR_FDX: u16 = 0x0008;
+pub const RGEPHY_F_SR_LINK: u16 = 0x0004;
+
+// pub const RGEPHY_F_SR_SPEED(X)            ((X) & RGEPHY_F_SR_SPEED_MASK)
+
+pub const RGEPHY_LC: u32 = 0x18; // PHY LED Control Register
+pub const RGEPHY_LC_P2: u32 = 0x1A; // PHY LED Control Register, Page 2
+pub const RGEPHY_LC_DISABLE: u16 = 0x8000; // disable leds
+
+// Led pusle strething
+pub const RGEPHY_LC_PULSE_1_3S: u16 = 0x7000;
+pub const RGEPHY_LC_PULSE_670MS: u16 = 0x6000;
+pub const RGEPHY_LC_PULSE_340MS: u16 = 0x5000;
+pub const RGEPHY_LC_PULSE_170MS: u16 = 0x4000;
+pub const RGEPHY_LC_PULSE_84MS: u16 = 0x3000;
+pub const RGEPHY_LC_PULSE_42MS: u16 = 0x2000;
+pub const RGEPHY_LC_PULSE_21MS: u16 = 0x1000;
+pub const RGEPHY_LC_PULSE_0MS: u16 = 0x0000;
+pub const RGEPHY_LC_LINK: u16 = 0x0008; // Link and speed indicated by combination of leds
+pub const RGEPHY_LC_DUPLEX: u16 = 0x0004;
+pub const RGEPHY_LC_RX: u16 = 0x0002;
+pub const RGEPHY_LC_TX: u16 = 0x0001;
+
+pub const RGEPHY_PS: u32 = 0x1F; // Page Select Register
+pub const RGEPHY_PS_PAGE_0: u16 = 0x0000;
+pub const RGEPHY_PS_PAGE_1: u16 = 0x0001;
+pub const RGEPHY_PS_PAGE_2: u16 = 0x0002;
+pub const RGEPHY_PS_PAGE_3: u16 = 0x0003;
+pub const RGEPHY_PS_PAGE_4: u16 = 0x0004;
+
+// RTL8211F
+pub const RGEPHY_PS_PAGE_MII: u32 = 0x0d08;
+pub const RGEPHY_MIICR1: u16 = 0x11;
+pub const RGEPHY_MIICR1_TXDLY_EN: u16 = 0x0100;
+pub const RGEPHY_MIICR2: u16 = 0x15;
+pub const RGEPHY_MIICR2_RXDLY_EN: u16 = 0x0008;

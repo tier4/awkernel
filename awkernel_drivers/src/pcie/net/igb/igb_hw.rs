@@ -1313,7 +1313,51 @@ impl IgbHw {
     }
 
     fn copper_link_rtl8211_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // SW Reset the PHY so all changes take effect
+        self.phy_hw_reset(info)?;
+
+        // Enable CRS on TX. This must be set for half-duplex operation.
+
+        let mut phy_data = self.read_phy_reg_ex(info, RGEPHY_CR)?;
+        phy_data |= RGEPHY_CR_ASSERT_CRS;
+        self.write_phy_reg_ex(info, RGEPHY_CR, phy_data)?;
+
+        // LED Control Register 0x18
+        phy_data = self.read_phy_reg_ex(info, RGEPHY_LC)?;
+        phy_data &= 0x80FF; // bit-15=0 disable, clear bit 8-10
+        self.write_phy_reg_ex(info, RGEPHY_LC, phy_data)?;
+
+        // LED Control and Definition Register 0x11, PHY spec status reg
+        phy_data = self.read_phy_reg_ex(info, RGEPHY_SR)?;
+        phy_data |= 0x0010; // LED active Low
+        self.write_phy_reg_ex(info, RGEPHY_SR, phy_data)?;
+        self.read_phy_reg_ex(info, RGEPHY_SR)?;
+
+        // Switch to Page2
+        phy_data = RGEPHY_PS_PAGE_2;
+        self.write_phy_reg_ex(info, RGEPHY_PS, phy_data)?;
+
+        phy_data = 0x0000;
+        self.write_phy_reg_ex(info, RGEPHY_LC_P2, phy_data)?;
+
+        awkernel_lib::delay::wait_microsec(5);
+
+        // LED Configuration Control Reg for setting for 0x1A Register
+        phy_data = self.read_phy_reg_ex(info, RGEPHY_LC_P2)?;
+        phy_data &= 0xF000;
+        phy_data |= 0x0F24;
+        self.write_phy_reg_ex(info, RGEPHY_LC_P2, phy_data)?;
+        self.read_phy_reg_ex(info, RGEPHY_LC_P2)?;
+
+        // After setting Page2, go back to Page 0
+        phy_data = 0;
+        self.write_phy_reg_ex(info, RGEPHY_PS, phy_data)?;
+
+        // pulse streching= 42-84ms, blink rate=84mm
+        phy_data = 0x140 | RGEPHY_LC_PULSE_42MS | RGEPHY_LC_LINK | RGEPHY_LC_DUPLEX | RGEPHY_LC_RX;
+        self.write_phy_reg_ex(info, RGEPHY_LC, phy_data)?;
+
+        Ok(())
     }
 
     fn setup_fiber_serdes_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
