@@ -507,6 +507,22 @@ pub const MII_CR_SPEED_SELECT_LSB: u16 = 0x2000; // bits 6,13: 10=1000, 01=100, 
 pub const MII_CR_LOOPBACK: u16 = 0x4000; // 0 = normal, 1 = loopback
 pub const MII_CR_RESET: u16 = 0x8000; // 0 = normal, 1 = PHY reset
 
+// PHY Status Register
+pub const MII_SR_EXTENDED_CAPS: u16 = 0x0001; // Extended register capabilities
+pub const MII_SR_JABBER_DETECT: u16 = 0x0002; // Jabber Detected
+pub const MII_SR_LINK_STATUS: u16 = 0x0004; // Link Status 1 = link
+pub const MII_SR_AUTONEG_CAPS: u16 = 0x0008; // Auto Neg Capable
+pub const MII_SR_REMOTE_FAULT: u16 = 0x0010; // Remote Fault Detect
+pub const MII_SR_AUTONEG_COMPLETE: u16 = 0x0020; // Auto Neg Complete
+pub const MII_SR_PREAMBLE_SUPPRESS: u16 = 0x0040; // Preamble may be suppressed
+pub const MII_SR_EXTENDED_STATUS: u16 = 0x0100; // Ext. status info in Reg 0x0F
+pub const MII_SR_100T2_HD_CAPS: u16 = 0x0200; // 100T2 Half Duplex Capable
+pub const MII_SR_100T2_FD_CAPS: u16 = 0x0400; // 100T2 Full Duplex Capable
+pub const MII_SR_10T_HD_CAPS: u16 = 0x0800; // 10T   Half Duplex Capable
+pub const MII_SR_10T_FD_CAPS: u16 = 0x1000; // 10T   Full Duplex Capable
+pub const MII_SR_100X_HD_CAPS: u16 = 0x2000; // 100X  Half Duplex Capable
+pub const MII_SR_100X_FD_CAPS: u16 = 0x4000; // 100X  Full Duplex Capable
+
 pub const HV_KMRN_MODE_CTRL: u32 = phy_reg(769, 16);
 pub const HV_KMRN_MDIO_SLOW: u32 = 0x0400;
 
@@ -895,6 +911,10 @@ pub const KUMCTRLSTA_OFFSET_INB_PARAM: u32 = 0x00000009;
 pub const KUMCTRLSTA_OFFSET_HD_CTRL: u32 = 0x00000010;
 pub const KUMCTRLSTA_OFFSET_M2P_SERDES: u32 = 0x0000001E;
 pub const KUMCTRLSTA_OFFSET_M2P_MODES: u32 = 0x0000001F;
+
+// In-Band Control
+pub const KUMCTRLSTA_INB_CTRL_LINK_STATUS_TX_TIMEOUT_DEFAULT: u16 = 0x00000500;
+pub const KUMCTRLSTA_INB_CTRL_DIS_PADDING: u16 = 0x00000010;
 
 pub const IGP3_KMRN_POWER_MNG_CTRL: u32 = phy_reg(770, 17); // KMRN Power Management Control Register
 

@@ -489,6 +489,8 @@ pub struct IgbHw {
     perm_mac_addr: [u8; NODE_ADDRESS_SIZE],
     mac_addr: [u8; NODE_ADDRESS_SIZE],
     mng_cookie: HostMngDhcpCookie,
+    autoneg: bool,
+    icp_xxxx_is_link_up: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -984,6 +986,8 @@ impl IgbHw {
                 reserved3: 0,
                 checksum: 0,
             },
+            autoneg: true,
+            icp_xxxx_is_link_up: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1190,8 +1194,126 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Detects which PHY is present and setup the speed and duplex
     fn setup_copper_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        match self.mac_type {
+            Em80003es2lan | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
+            | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => {
+                // Set the mac to wait the maximum time between each
+                // iteration and increase the max iterations when polling the
+                // phy; this fixes erroneous timeouts at 10Mbps.
+                self.write_kmrn_reg(info, gg82563_reg(0x34, 4), 0xFFFF)?;
+                let mut reg_data = self.read_kmrn_reg(info, gg82563_reg(0x34, 9))?;
+                reg_data |= 0x3F;
+                self.write_kmrn_reg(info, gg82563_reg(0x34, 9), reg_data)?;
+            }
+            _ => (),
+        }
+
+        // Check if it is a valid PHY and set PHY mode if necessary.
+        self.copper_link_preconfig(info)?;
+
+        if self.mac_type == Em80003es2lan {
+            // Kumeran registers are written-only
+            let mut reg_data = KUMCTRLSTA_INB_CTRL_LINK_STATUS_TX_TIMEOUT_DEFAULT;
+            reg_data |= KUMCTRLSTA_INB_CTRL_DIS_PADDING;
+            self.write_kmrn_reg(info, KUMCTRLSTA_OFFSET_INB_CTRL, reg_data)?;
+        }
+
+        match self.phy_type {
+            PhyType::Igp | PhyType::Igp3 | PhyType::Igp2 => {
+                self.copper_link_igp_setup(info)?;
+            }
+            PhyType::M88 | PhyType::Bm | PhyType::Oem | PhyType::I82578 => {
+                self.copper_link_mgp_setup(info)?;
+            }
+            PhyType::Gg82563 => {
+                self.copper_link_ggp_setup(info)?;
+            }
+            PhyType::I82577 | PhyType::I82579 | PhyType::I217 => {
+                self.copper_link_82577_setup(info)?;
+            }
+            PhyType::I82580 => {
+                self.copper_link_82580_setup(info)?;
+            }
+            PhyType::Rtl8211 => {
+                self.copper_link_rtl8211_setup(info)?;
+            }
+            _ => (),
+        }
+
+        if self.autoneg {
+            // Setup autoneg and flow control advertisement and perform
+            // autonegotiation
+            self.copper_link_autoneg(info)?;
+        } else {
+            // PHY will be set to 10H, 10F, 100H,or 100F depending on
+            // value from forced_speed_duplex.
+            self.phy_force_speed_duplex(info)?;
+        }
+
+        // Check link status. Wait up to 100 microseconds for link to become
+        // valid.
+
+        for i in 0..10 {
+            self.read_phy_reg(info, PHY_STATUS)?;
+            let phy_data = self.read_phy_reg(info, PHY_STATUS)?;
+
+            self.icp_xxxx_is_link_up = (phy_data & MII_SR_LINK_STATUS) != 0;
+
+            if phy_data & MII_SR_LINK_STATUS != 0 {
+                // Config the MAC and PHY after link is up
+                self.copper_link_postconfig(info)?;
+
+                return Ok(());
+            }
+
+            awkernel_lib::delay::wait_microsec(10);
+        }
+
+        Ok(())
+    }
+
+    fn copper_link_postconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn phy_force_speed_duplex(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_autoneg(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_preconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_igp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_mgp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_ggp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_82577_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_82580_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn copper_link_rtl8211_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
     }
 
     fn setup_fiber_serdes_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
