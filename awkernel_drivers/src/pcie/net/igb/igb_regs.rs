@@ -408,9 +408,9 @@ pub const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
 
 // OEM Bits Phy Register
 pub const HV_OEM_BITS: u32 = phy_reg(768, 25);
-pub const HV_OEM_BITS_LPLU: u32 = 0x0004; // Low Power Link Up
-pub const HV_OEM_BITS_GBE_DIS: u32 = 0x0040; // Gigabit Disable
-pub const HV_OEM_BITS_RESTART_AN: u32 = 0x0400; // Restart Auto-negotiation
+pub const HV_OEM_BITS_LPLU: u16 = 0x0004; // Low Power Link Up
+pub const HV_OEM_BITS_GBE_DIS: u16 = 0x0040; // Gigabit Disable
+pub const HV_OEM_BITS_RESTART_AN: u16 = 0x0400; // Restart Auto-negotiation
 
 // I82578 Specific Registers
 pub const I82578_PHY_ADDR_REG: u32 = 29;

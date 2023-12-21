@@ -1472,8 +1472,26 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Set Low Power Link Up state
+    ///
+    /// Sets the LPLU state according to the active flag.  For PCH, if OEM write
+    /// bit are disabled in the NVM, writing the LPLU bits in the MAC will not set
+    /// the phy speed. This function will manually set the LPLU bit and restart
+    /// auto-neg as hw would do. D3 and D0 LPLU will call the same function
+    /// since it configures the same bit.
     fn set_lplu_state_pchlan(&mut self, info: &PCIeInfo, active: bool) -> Result<(), IgbDriverErr> {
-        todo!();
+        let mut oem_reg = self.read_phy_reg(info, HV_OEM_BITS)?;
+
+        if active {
+            oem_reg |= HV_OEM_BITS_LPLU;
+        } else {
+            oem_reg &= !HV_OEM_BITS_LPLU;
+        }
+
+        oem_reg |= HV_OEM_BITS_RESTART_AN;
+        self.write_phy_reg(info, HV_OEM_BITS, oem_reg)?;
+
+        Ok(())
     }
 
     fn copper_link_82580_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
