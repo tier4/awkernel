@@ -440,14 +440,6 @@ struct FlashMemory {
     offset: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FC {
-    None,
-    RxPause,
-    TxPause,
-    Full,
-}
-
 #[derive(Debug)]
 struct HostMngDhcpCookie {
     signature: u32,
@@ -490,7 +482,8 @@ pub struct IgbHw {
     fc_low_water: u16,
     fc_pause_time: u16,
     fc_send_xon: bool,
-    fc: FC,
+    fc: u8,
+    original_fc: u8,
     max_frame_size: u32,
     min_frame_size: u32,
     perm_mac_addr: [u8; NODE_ADDRESS_SIZE],
@@ -939,7 +932,7 @@ impl IgbHw {
         let fc_high_water = rx_buffer_size as u16 - round_up(max_frame_size, 1024) as u16;
         let fc_low_water = fc_high_water - 1500;
         let fc_send_xon = true;
-        let fc = FC::Full;
+        let fc = FC_FULL;
         let fc_pause_time = if mac_type == Em80003es2lan {
             0xFFFF
         } else {
@@ -976,6 +969,7 @@ impl IgbHw {
             fc_pause_time,
             fc_send_xon,
             fc,
+            original_fc: fc,
             max_frame_size,
             min_frame_size,
             perm_mac_addr: [0; NODE_ADDRESS_SIZE],
@@ -1094,9 +1088,114 @@ impl IgbHw {
         // Receive Address Registers (RARs 0 - 15).
         self.init_rx_addrs(info)?;
 
+        // For 82542 (rev 2.0), take the receiver out of reset and enable MWI
+        if self.mac_type == Em82542Rev2_0 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        // Call a subroutine to configure the link and setup flow control.
+        self.setup_link(info)?;
+
         // TODO
 
         Ok(())
+    }
+
+    /// Configures flow control and link settings.
+    ///
+    /// Determines which flow control settings to use. Calls the appropriate media-
+    /// specific link configuration function. Configures the flow control settings.
+    /// Assuming the adapter has a valid link partner, a valid link should be
+    /// established. Assumes the hardware has previously been reset and the
+    /// transmitter and receiver are not enabled.
+    fn setup_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        // In the case of the phy reset being blocked, we already have a
+        // link. We do not have to set it up again.
+        if self.check_phy_reset_block(info).is_err() {
+            return Ok(());
+        }
+
+        // We want to save off the original Flow Control configuration just
+        // in case we get disconnected and then reconnected into a different
+        // hub or switch with different Flow Control capabilities.
+        if self.mac_type == Em82542Rev2_0 || (self.mac_type as u32) < Em82543 as u32 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        // Take the 4 bits from EEPROM word 0x0F that determine the initial
+        // polarity value for the SW controlled pins, and setup the Extended
+        // Device Control reg with that info. This is needed because one of
+        // the SW controlled pins is used for signal detection.  So this
+        // should be done before em_setup_pcs_link() or em_phy_setup() is
+        // called.
+        if self.mac_type == Em82543 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        // Make sure we have a valid PHY
+        self.detect_gig_phy(info)?;
+
+        // Call the necessary subroutine to configure the link.
+        match self.media_type {
+            MediaType::Copper | MediaType::OEM => {
+                self.setup_copper_link(info)?;
+            }
+            _ => {
+                self.setup_fiber_serdes_link(info)?;
+            }
+        }
+
+        // Initialize the flow control address, type, and PAUSE timer
+        // registers to their default values.  This is done even if flow
+        // control is disabled, because it does not hurt anything to
+        // initialize these registers.
+
+        // FCAL/H and FCT are hardcoded to standard values in
+        // em_ich8lan / em_ich9lan / em_ich10lan.
+        if !is_ich8(&self.mac_type) {
+            write_reg(info, FCT, FLOW_CONTROL_TYPE)?;
+            write_reg(info, FCAH, FLOW_CONTROL_ADDRESS_HIGH)?;
+            write_reg(info, FCAL, FLOW_CONTROL_ADDRESS_LOW)?;
+        }
+        write_reg(info, FCTTV, self.fc_pause_time as u32)?;
+
+        use PhyType::*;
+        if matches!(self.phy_type, I82577 | I82578 | I82579 | I217) {
+            write_reg(info, FCRTV_PCH, 0x1000)?;
+            self.write_phy_reg(info, phy_reg(BM_PORT_CTRL_PAGE, 27), self.fc_pause_time)?;
+        }
+
+        // Set the flow control receive threshold registers.  Normally, these
+        // registers will be set to a default threshold that may be adjusted
+        // later by the driver's runtime code.  However, if the ability to
+        // transmit pause frames in not enabled, then these registers will be
+        // set to 0.
+        if self.fc & FC_TX_PAUSE == 0 {
+            write_reg(info, FCRTL, 0)?;
+            write_reg(info, FCRTH, 0)?;
+        } else {
+            // We need to set up the Receive Threshold high and low water
+            // marks as well as (optionally) enabling the transmission of
+            // XON frames.
+            if self.fc_send_xon {
+                write_reg(info, FCRTL, self.fc_low_water as u32 | FCRTL_XONE)?;
+            } else {
+                write_reg(info, FCRTL, self.fc_low_water as u32)?;
+                write_reg(info, FCRTH, self.fc_high_water as u32)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn setup_copper_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
+    }
+
+    fn setup_fiber_serdes_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!()
     }
 
     /// Initializes receive address filters.

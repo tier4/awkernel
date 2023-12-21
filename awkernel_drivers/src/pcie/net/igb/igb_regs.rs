@@ -7,15 +7,21 @@ pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
 pub const _FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
 pub const KUMCTRLSTA: usize = 0x00034; // MAC-PHY interface - RW
 pub const VET: usize = 0x00038; // VLAN Ether Type - RW
+pub const FCAL: usize = 0x00028; // Flow Control Address Low - RW
+pub const FCAH: usize = 0x0002C; // Flow Control Address High -RW
+pub const FCT: usize = 0x00030; // Flow Control Type - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
+pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
 pub const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
 pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
+pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
+pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
@@ -25,6 +31,7 @@ pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
 pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
 pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 pub const RA: usize = 0x05400; // Receive Address - RW Array
+pub const FCRTV_PCH: usize = 0x05F40; // PCH Flow Control Refresh Timer Value
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -907,3 +914,20 @@ pub const RAR_ENTRIES_82575: usize = 16;
 pub const RAR_ENTRIES_82576: usize = 24;
 pub const RAR_ENTRIES_82580: usize = 24;
 pub const RAR_ENTRIES_I350: usize = 32;
+
+// Flow Control
+pub const FCRTH_RTH: u32 = 0x0000FFF8; // Mask Bits[15:3] for RTH
+pub const FCRTH_XFCE: u32 = 0x80000000; // External Flow Control Enable
+pub const FCRTL_RTL: u32 = 0x0000FFF8; // Mask Bits[15:3] for RTL
+pub const FCRTL_XONE: u32 = 0x80000000; // Enable XON frame transmission
+
+// Flow Control Constants
+pub const FLOW_CONTROL_ADDRESS_LOW: u32 = 0x00C28001;
+pub const FLOW_CONTROL_ADDRESS_HIGH: u32 = 0x00000100;
+pub const FLOW_CONTROL_TYPE: u32 = 0x8808;
+
+// Flow Control Settings
+pub const FC_NONE: u8 = 0;
+pub const FC_RX_PAUSE: u8 = 1;
+pub const FC_TX_PAUSE: u8 = 2;
+pub const FC_FULL: u8 = 3;
