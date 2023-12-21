@@ -1364,9 +1364,220 @@ impl IgbHw {
         todo!();
     }
 
+    /// Copper link setup for em_phy_gg82563 series.
     fn copper_link_ggp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if !self.phy_reset_disable {
+            // Enable CRS on TX for half-duplex operation.
+            let mut phy_data = self.read_phy_reg(info, GG82563_PHY_MAC_SPEC_CTRL)?;
+
+            phy_data |= GG82563_MSCR_ASSERT_CRS_ON_TX;
+            // Use 25MHz for both link down and 1000BASE-T for Tx clock
+            phy_data |= GG82563_MSCR_TX_CLK_1000MBPS_25MHZ;
+
+            self.write_phy_reg(info, GG82563_PHY_MAC_SPEC_CTRL, phy_data)?;
+
+            // Options: MDI/MDI-X = 0 (default) 0 - Auto for all speeds 1
+            // - MDI mode 2 - MDI-X mode 3 - Auto for 1000Base-T only
+            // (MDI-X for 10/100Base-T modes)
+            phy_data = self.read_phy_reg(info, GG82563_PHY_SPEC_CTRL)?;
+            phy_data &= !GG82563_PSCR_CROSSOVER_MODE_MASK;
+            phy_data |= GG82563_PSCR_CROSSOVER_MODE_AUTO;
+
+            // Options: disable_polarity_correction = 0 (default)
+            // Automatic Correction for Reversed Cable Polarity 0 -
+            // Disabled 1 - Enabled
+            phy_data &= !GG82563_PSCR_POLARITY_REVERSAL_DISABLE;
+            self.write_phy_reg(info, GG82563_PHY_SPEC_CTRL, phy_data)?;
+
+            // SW Reset the PHY so all changes take effect
+            self.phy_reset(info)?;
+        }
+
+        if self.mac_type == MacType::Em80003es2lan {
+            // Bypass RX and TX FIFO's
+            self.write_kmrn_reg(
+                info,
+                KUMCTRLSTA_OFFSET_FIFO_CTRL,
+                KUMCTRLSTA_FIFO_CTRL_RX_BYPASS | KUMCTRLSTA_FIFO_CTRL_TX_BYPASS,
+            )?;
+
+            let mut phy_data = self.read_phy_reg(info, GG82563_PHY_SPEC_CTRL_2)?;
+            phy_data &= !GG82563_PSCR2_REVERSE_AUTO_NEG;
+            self.write_phy_reg(info, GG82563_PHY_SPEC_CTRL_2, phy_data)?;
+
+            let mut reg_data = read_reg(info, CTRL_EXT)?;
+            reg_data &= !CTRL_EXT_LINK_MODE_MASK;
+            write_reg(info, CTRL_EXT, reg_data)?;
+
+            // Do not init these registers when the HW is in IAMT mode,
+            // since the firmware will have already initialized them. We
+            // only initialize them if the HW is not in IAMT mode.
+            if self.check_mng_mode(info)? {
+                // Enable Electrical Idle on the PHY
+                phy_data = self.read_phy_reg(info, GG82563_PHY_PWR_MGMT_CTRL)?;
+                phy_data |= GG82563_PMCR_ENABLE_ELECTRICAL_IDLE;
+                self.write_phy_reg(info, GG82563_PHY_PWR_MGMT_CTRL, phy_data)?;
+
+                phy_data = self.read_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL)?;
+                phy_data &= !GG82563_KMCR_PASS_FALSE_CARRIER;
+                self.write_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL, phy_data)?;
+            }
+
+            // Workaround: Disable padding in Kumeran interface in the
+            // MAC and in the PHY to avoid CRC errors.
+            phy_data = self.read_phy_reg(info, GG82563_PHY_INBAND_CTRL)?;
+            phy_data |= GG82563_ICR_DIS_PADDING;
+            self.write_phy_reg(info, GG82563_PHY_INBAND_CTRL, phy_data)?;
+        }
+
+        Ok(())
+    }
+
+    fn check_mng_mode(&mut self, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
         todo!();
     }
+
+    //     2549 static int32_t
+    // 2550 em_copper_link_ggp_setup(struct em_hw *hw)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 2551 {
+    // 2552         int32_t  ret_val;
+    // 2553         uint16_t phy_data;
+    // 2554         uint32_t reg_data;
+    // 2555         DEBUGFUNC("em_copper_link_ggp_setup");
+    // 2556
+    // 2557         if (!hw->phy_reset_disable) {
+    // 2558
+    // 2559                 /* Enable CRS on TX for half-duplex operation. */
+    // 2560                 ret_val = em_read_phy_reg(hw, GG82563_PHY_MAC_SPEC_CTRL,
+    // 2561                     &phy_data);
+    // 2562                 if (ret_val)
+    // 2563                         return ret_val;
+    // 2564
+    // 2565                 phy_data |= GG82563_MSCR_ASSERT_CRS_ON_TX;
+    // 2566                 /* Use 25MHz for both link down and 1000BASE-T for Tx clock */
+    // 2567                 phy_data |= GG82563_MSCR_TX_CLK_1000MBPS_25MHZ;
+    // 2568
+    // 2569                 ret_val = em_write_phy_reg(hw, GG82563_PHY_MAC_SPEC_CTRL,
+    // 2570                     phy_data);
+    // 2571                 if (ret_val)
+    // 2572                         return ret_val;
+    // 2573                 /*
+    // 2574                  * Options: MDI/MDI-X = 0 (default) 0 - Auto for all speeds 1
+    // 2575                  * - MDI mode 2 - MDI-X mode 3 - Auto for 1000Base-T only
+    // 2576                  * (MDI-X for 10/100Base-T modes)
+    // 2577                  */
+    // 2578                 ret_val = em_read_phy_reg(hw, GG82563_PHY_SPEC_CTRL,
+    // 2579                     &phy_data);
+    // 2580
+    // 2581                 if (ret_val)
+    // 2582                         return ret_val;
+    // 2583
+    // 2584                 phy_data &= ~GG82563_PSCR_CROSSOVER_MODE_MASK;
+    // 2585
+    // 2586                 switch (hw->mdix) {
+    // 2587                 case 1:
+    // 2588                         phy_data |= GG82563_PSCR_CROSSOVER_MODE_MDI;
+    // 2589                         break;
+    // 2590                 case 2:
+    // 2591                         phy_data |= GG82563_PSCR_CROSSOVER_MODE_MDIX;
+    // 2592                         break;
+    // 2593                 case 0:
+    // 2594                 default:
+    // 2595                         phy_data |= GG82563_PSCR_CROSSOVER_MODE_AUTO;
+    // 2596                         break;
+    // 2597                 }
+    // 2598                 /*
+    // 2599                  * Options: disable_polarity_correction = 0 (default)
+    // 2600                  * Automatic Correction for Reversed Cable Polarity 0 -
+    // 2601                  * Disabled 1 - Enabled
+    // 2602                  */
+    // 2603                 phy_data &= ~GG82563_PSCR_POLARITY_REVERSAL_DISABLE;
+    // 2604                 if (hw->disable_polarity_correction == 1)
+    // 2605                         phy_data |= GG82563_PSCR_POLARITY_REVERSAL_DISABLE;
+    // 2606                 ret_val = em_write_phy_reg(hw, GG82563_PHY_SPEC_CTRL,
+    // 2607                     phy_data);
+    // 2608
+    // 2609                 if (ret_val)
+    // 2610                         return ret_val;
+    // 2611
+    // 2612                 /* SW Reset the PHY so all changes take effect */
+    // 2613                 ret_val = em_phy_reset(hw);
+    // 2614                 if (ret_val) {
+    // 2615                         DEBUGOUT("Error Resetting the PHY\n");
+    // 2616                         return ret_val;
+    // 2617                 }
+    // 2618         }                       /* phy_reset_disable */
+    // 2619         if (hw->mac_type == em_80003es2lan) {
+    // 2620                 /* Bypass RX and TX FIFO's */
+    // 2621                 ret_val = em_write_kmrn_reg(hw,
+    // 2622                     E1000_KUMCTRLSTA_OFFSET_FIFO_CTRL,
+    // 2623                     E1000_KUMCTRLSTA_FIFO_CTRL_RX_BYPASS |
+    // 2624                     E1000_KUMCTRLSTA_FIFO_CTRL_TX_BYPASS);
+    // 2625                 if (ret_val)
+    // 2626                         return ret_val;
+    // 2627
+    // 2628                 ret_val = em_read_phy_reg(hw, GG82563_PHY_SPEC_CTRL_2,
+    // 2629                     &phy_data);
+    // 2630                 if (ret_val)
+    // 2631                         return ret_val;
+    // 2632
+    // 2633                 phy_data &= ~GG82563_PSCR2_REVERSE_AUTO_NEG;
+    // 2634                 ret_val = em_write_phy_reg(hw, GG82563_PHY_SPEC_CTRL_2,
+    // 2635                     phy_data);
+    // 2636
+    // 2637                 if (ret_val)
+    // 2638                         return ret_val;
+    // 2639
+    // 2640                 reg_data = E1000_READ_REG(hw, CTRL_EXT);
+    // 2641                 reg_data &= ~(E1000_CTRL_EXT_LINK_MODE_MASK);
+    // 2642                 E1000_WRITE_REG(hw, CTRL_EXT, reg_data);
+    // 2643
+    // 2644                 ret_val = em_read_phy_reg(hw, GG82563_PHY_PWR_MGMT_CTRL,
+    // 2645                     &phy_data);
+    // 2646                 if (ret_val)
+    // 2647                         return ret_val;
+    // 2648                 /*
+    // 2649                  * Do not init these registers when the HW is in IAMT mode,
+    // 2650                  * since the firmware will have already initialized them. We
+    // 2651                  * only initialize them if the HW is not in IAMT mode.
+    // 2652                  */
+    // 2653                 if (em_check_mng_mode(hw) == FALSE) {
+    // 2654                         /* Enable Electrical Idle on the PHY */
+    // 2655                         phy_data |= GG82563_PMCR_ENABLE_ELECTRICAL_IDLE;
+    // 2656                         ret_val = em_write_phy_reg(hw,
+    // 2657                             GG82563_PHY_PWR_MGMT_CTRL, phy_data);
+    // 2658                         if (ret_val)
+    // 2659                                 return ret_val;
+    // 2660
+    // 2661                         ret_val = em_read_phy_reg(hw,
+    // 2662                             GG82563_PHY_KMRN_MODE_CTRL, &phy_data);
+    // 2663                         if (ret_val)
+    // 2664                                 return ret_val;
+    // 2665
+    // 2666                         phy_data &= ~GG82563_KMCR_PASS_FALSE_CARRIER;
+    // 2667                         ret_val = em_write_phy_reg(hw,
+    // 2668                             GG82563_PHY_KMRN_MODE_CTRL, phy_data);
+    // 2669
+    // 2670                         if (ret_val)
+    // 2671                                 return ret_val;
+    // 2672                 }
+    // 2673                 /*
+    // 2674                  * Workaround: Disable padding in Kumeran interface in the
+    // 2675                  * MAC and in the PHY to avoid CRC errors.
+    // 2676                  */
+    // 2677                 ret_val = em_read_phy_reg(hw, GG82563_PHY_INBAND_CTRL,
+    // 2678                     &phy_data);
+    // 2679                 if (ret_val)
+    // 2680                         return ret_val;
+    // 2681                 phy_data |= GG82563_ICR_DIS_PADDING;
+    // 2682                 ret_val = em_write_phy_reg(hw, GG82563_PHY_INBAND_CTRL,
+    // 2683                     phy_data);
+    // 2684                 if (ret_val)
+    // 2685                         return ret_val;
+    // 2686         }
+    // 2687         return E1000_SUCCESS;
+    // 2688 }
 
     /// Copper link setup for em_phy_82577 series.
     fn copper_link_82577_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {

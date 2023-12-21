@@ -454,8 +454,109 @@ pub const RTL8211_E_PHY_ID: u32 = 0x001CC912;
 
 pub const GG82563_PAGE_SHIFT: u32 = 5;
 pub const GG82563_MIN_ALT_REG: u32 = 30;
+
+// GG82563 PHY Specific Status Register (Page 0, Register 16)
+pub const GG82563_PSCR_DISABLE_JABBER: u16 = 0x0001; // 1=Disable Jabber
+pub const GG82563_PSCR_POLARITY_REVERSAL_DISABLE: u16 = 0x0002; // 1=Polarity Reversal Disabled
+pub const GG82563_PSCR_POWER_DOWN: u16 = 0x0004; // 1=Power Down
+pub const GG82563_PSCR_COPPER_TRANSMITER_DISABLE: u16 = 0x0008; // 1=Transmitter Disabled
+pub const GG82563_PSCR_CROSSOVER_MODE_MASK: u16 = 0x0060;
+pub const GG82563_PSCR_CROSSOVER_MODE_MDI: u16 = 0x0000; // 00=Manual MDI configuration
+pub const GG82563_PSCR_CROSSOVER_MODE_MDIX: u16 = 0x0020; // 01=Manual MDIX configuration
+pub const GG82563_PSCR_CROSSOVER_MODE_AUTO: u16 = 0x0060; // 11=Automatic crossover
+pub const GG82563_PSCR_ENALBE_EXTENDED_DISTANCE: u16 = 0x0080; // 1=Enable Extended Distance
+pub const GG82563_PSCR_ENERGY_DETECT_MASK: u16 = 0x0300;
+pub const GG82563_PSCR_ENERGY_DETECT_OFF: u16 = 0x0000; // 00,01=Off
+pub const GG82563_PSCR_ENERGY_DETECT_RX: u16 = 0x0200; // 10=Sense on Rx only (Energy Detect)
+pub const GG82563_PSCR_ENERGY_DETECT_RX_TM: u16 = 0x0300; // 11=Sense and Tx NLP
+pub const GG82563_PSCR_FORCE_LINK_GOOD: u16 = 0x0400; // 1=Force Link Good
+pub const GG82563_PSCR_DOWNSHIFT_ENABLE: u16 = 0x0800; // 1=Enable Downshift
+pub const GG82563_PSCR_DOWNSHIFT_COUNTER_MASK: u16 = 0x7000;
+pub const GG82563_PSCR_DOWNSHIFT_COUNTER_SHIFT: u16 = 12;
+
+// GG82563 Specific Registers
+pub const GG82563_PHY_SPEC_CTRL: u32 = gg82563_reg(0, 16); // PHY Specific Control
+pub const GG82563_PHY_SPEC_STATUS: u32 = gg82563_reg(0, 17); // PHY Specific Status
+pub const GG82563_PHY_INT_ENABLE: u32 = gg82563_reg(0, 18); // Interrupt Enable
+pub const GG82563_PHY_SPEC_STATUS_2: u32 = gg82563_reg(0, 19); // PHY Specific Status 2
+pub const GG82563_PHY_RX_ERR_CNTR: u32 = gg82563_reg(0, 21); // Receive Error Counter
 pub const GG82563_PHY_PAGE_SELECT: u32 = gg82563_reg(0, 22); // Page Select
+pub const GG82563_PHY_SPEC_CTRL_2: u32 = gg82563_reg(0, 26); // PHY Specific Control 2
 pub const GG82563_PHY_PAGE_SELECT_ALT: u32 = gg82563_reg(0, 29); // Alternate Page Select
+pub const GG82563_PHY_TEST_CLK_CTRL: u32 = gg82563_reg(0, 30); // Test Clock Control (use reg. 29 to select)
+
+pub const GG82563_PHY_MAC_SPEC_CTRL: u32 = gg82563_reg(2, 21); // MAC Specific Control Register
+pub const GG82563_PHY_MAC_SPEC_CTRL_2: u32 = gg82563_reg(2, 26); // MAC Specific Control 2
+
+pub const GG82563_PHY_DSP_DISTANCE: u32 = gg82563_reg(5, 26); // DSP Distance
+
+// PHY Specific Control Register 2 (Page 0, Register 26)
+pub const GG82563_PSCR2_10BT_POLARITY_FORCE: u16 = 0x0002; // 1=Force Negative Polarity
+pub const GG82563_PSCR2_1000MB_TEST_SELECT_MASK: u16 = 0x000C;
+pub const GG82563_PSCR2_1000MB_TEST_SELECT_NORMAL: u16 = 0x0000; // 00,01=Normal Operation
+pub const GG82563_PSCR2_1000MB_TEST_SELECT_112NS: u16 = 0x0008; // 10=Select 112ns Sequence
+pub const GG82563_PSCR2_1000MB_TEST_SELECT_16NS: u16 = 0x000C; // 11=Select 16ns Sequence
+pub const GG82563_PSCR2_REVERSE_AUTO_NEG: u16 = 0x2000; // 1=Reverse Auto-Negotiation
+pub const GG82563_PSCR2_1000BT_DISABLE: u16 = 0x4000; // 1=Disable 1000BASE-T
+pub const GG82563_PSCR2_TRANSMITER_TYPE_MASK: u16 = 0x8000;
+pub const GG82563_PSCR2_TRANSMITTER_TYPE_CLASS_B: u16 = 0x0000; // 0=Class B
+pub const GG82563_PSCR2_TRANSMITTER_TYPE_CLASS_A: u16 = 0x8000; // 1=Class A
+
+// MAC Specific Control Register (Page 2, Register 21)
+// Tx clock speed for Link Down and 1000BASE-T for the following speeds
+pub const GG82563_MSCR_TX_CLK_MASK: u16 = 0x0007;
+pub const GG82563_MSCR_TX_CLK_10MBPS_2_5MHZ: u16 = 0x0004;
+pub const GG82563_MSCR_TX_CLK_100MBPS_25MHZ: u16 = 0x0005;
+pub const GG82563_MSCR_TX_CLK_1000MBPS_2_5MHZ: u16 = 0x0006;
+pub const GG82563_MSCR_TX_CLK_1000MBPS_25MHZ: u16 = 0x0007;
+
+pub const GG82563_MSCR_ASSERT_CRS_ON_TX: u16 = 0x0010; // 1=Assert
+
+// Page 193 - Port Control Registers
+pub const GG82563_PHY_KMRN_MODE_CTRL: u32 = gg82563_reg(193, 16); // Kumeran Mode Control
+pub const GG82563_PHY_PORT_RESET: u32 = gg82563_reg(193, 17); // Port Reset
+pub const GG82563_PHY_REVISION_ID: u32 = gg82563_reg(193, 18); // Revision ID
+pub const GG82563_PHY_DEVICE_ID: u32 = gg82563_reg(193, 19); // Device ID
+pub const GG82563_PHY_PWR_MGMT_CTRL: u32 = gg82563_reg(193, 20); // Power Management Control
+pub const GG82563_PHY_RATE_ADAPT_CTRL: u32 = gg82563_reg(193, 25); // Rate Adaptation Control
+
+// Kumeran Mode Control Register (Page 193, Register 16)
+pub const GG82563_KMCR_PHY_LEDS_EN: u16 = 0x0020; // 1=PHY LEDs, 0=Kumeran Inband LEDs
+pub const GG82563_KMCR_FORCE_LINK_UP: u16 = 0x0040; // 1=Force Link Up
+pub const GG82563_KMCR_SUPPRESS_SGMII_EPD_EXT: u16 = 0x0080;
+pub const GG82563_KMCR_MDIO_BUS_SPEED_SELECT_MASK: u16 = 0x0400;
+pub const GG82563_KMCR_MDIO_BUS_SPEED_SELECT: u16 = 0x0400; // 1=6.25MHz, 0=0.8MHz
+pub const GG82563_KMCR_PASS_FALSE_CARRIER: u16 = 0x0800;
+
+// Power Management Control Register (Page 193, Register 20)
+pub const GG82563_PMCR_ENABLE_ELECTRICAL_IDLE: u16 = 0x0001; // 1=Enable SERDES Electrical Idle
+pub const GG82563_PMCR_DISABLE_PORT: u16 = 0x0002; // 1=Disable Port
+pub const GG82563_PMCR_DISABLE_SERDES: u16 = 0x0004; // 1=Disable SERDES
+pub const GG82563_PMCR_REVERSE_AUTO_NEG: u16 = 0x0008; // 1=Enable Reverse Auto-Negotiation
+pub const GG82563_PMCR_DISABLE_1000_NON_D0: u16 = 0x0010; // 1=Disable 1000Mbps Auto-Neg in non D0
+pub const GG82563_PMCR_DISABLE_1000: u16 = 0x0020; // 1=Disable 1000Mbps Auto-Neg Always
+pub const GG82563_PMCR_REVERSE_AUTO_NEG_D0A: u16 = 0x0040; // 1=Enable D0a Reverse Auto-Negotiation
+pub const GG82563_PMCR_FORCE_POWER_STATE: u16 = 0x0080; // 1=Force Power State
+pub const GG82563_PMCR_PROGRAMMED_POWER_STATE_MASK: u16 = 0x0300;
+pub const GG82563_PMCR_PROGRAMMED_POWER_STATE_DR: u16 = 0x0000; // 00=Dr
+pub const GG82563_PMCR_PROGRAMMED_POWER_STATE_D0U: u16 = 0x0100; // 01=D0u
+pub const GG82563_PMCR_PROGRAMMED_POWER_STATE_D0A: u16 = 0x0200; // 10=D0a
+pub const GG82563_PMCR_PROGRAMMED_POWER_STATE_D3: u16 = 0x0300; // 11=D3
+
+// Page 194 - KMRN Registers
+pub const GG82563_PHY_KMRN_FIFO_CTRL_STAT: u32 = gg82563_reg(194, 16); // FIFO's Control/Status
+pub const GG82563_PHY_KMRN_CTRL: u32 = gg82563_reg(194, 17); // Control
+pub const GG82563_PHY_INBAND_CTRL: u32 = gg82563_reg(194, 18); // Inband Control
+pub const GG82563_PHY_KMRN_DIAGNOSTIC: u32 = gg82563_reg(194, 19); // Diagnostic
+pub const GG82563_PHY_ACK_TIMEOUTS: u32 = gg82563_reg(194, 20); // Acknowledge Timeouts
+pub const GG82563_PHY_ADV_ABILITY: u32 = gg82563_reg(194, 21); // Advertised Ability
+pub const GG82563_PHY_LINK_PARTNER_ADV_ABILITY: u32 = gg82563_reg(194, 23); // Link Partner Advertised Ability
+pub const GG82563_PHY_ADV_NEXT_PAGE: u32 = gg82563_reg(194, 24); // Advertised Next Page
+pub const GG82563_PHY_LINK_PARTNER_ADV_NEXT_PAGE: u32 = gg82563_reg(194, 25); // Link Partner Advertised Next page
+pub const GG82563_PHY_KMRN_MISC: u32 = gg82563_reg(194, 26); // Misc.
+
+// In-Band Control Register (Page 194, Register 18)
+pub const GG82563_ICR_DIS_PADDING: u16 = 0x0010; // Disable Padding Use
 
 // BME1000 PHY Specific Control Register
 pub const BME1000_PSCR_ENABLE_DOWNSHIFT: u32 = 0x0800; // 1 = enable downshift
@@ -644,28 +745,28 @@ pub const EEPROM_FUTURE_INIT_WORD1_VALID_CSUM: u16 = 0x0040;
 
 pub const EEPROM_SUM: u16 = 0xBABA; // For checksumming, the sum of all words in the EEPROM should equal 0xBABA.
 
-/* EEPROM/Flash Control */
-pub const EECD_SK: u32 = 0x00000001; /* EEPROM Clock */
-pub const EECD_CS: u32 = 0x00000002; /* EEPROM Chip Select */
-pub const EECD_DI: u32 = 0x00000004; /* EEPROM Data In */
-pub const EECD_DO: u32 = 0x00000008; /* EEPROM Data Out */
+// EEPROM/Flash Control
+pub const EECD_SK: u32 = 0x00000001; // EEPROM Clock
+pub const EECD_CS: u32 = 0x00000002; // EEPROM Chip Select
+pub const EECD_DI: u32 = 0x00000004; // EEPROM Data In
+pub const EECD_DO: u32 = 0x00000008; // EEPROM Data Out
 pub const EECD_FWE_MASK: u32 = 0x00000030;
-pub const EECD_FWE_DIS: u32 = 0x00000010; /* Disable FLASH writes */
-pub const EECD_FWE_EN: u32 = 0x00000020; /* Enable FLASH writes */
+pub const EECD_FWE_DIS: u32 = 0x00000010; // Disable FLASH writes
+pub const EECD_FWE_EN: u32 = 0x00000020; // Enable FLASH writes
 pub const EECD_FWE_SHIFT: u32 = 4;
-pub const EECD_REQ: u32 = 0x00000040; /* EEPROM Access Request */
-pub const EECD_GNT: u32 = 0x00000080; /* EEPROM Access Grant */
-pub const EECD_PRES: u32 = 0x00000100; /* EEPROM Present */
+pub const EECD_REQ: u32 = 0x00000040; // EEPROM Access Request
+pub const EECD_GNT: u32 = 0x00000080; // EEPROM Access Grant
+pub const EECD_PRES: u32 = 0x00000100; // EEPROM Present
 pub const EECD_SIZE: u32 = 0x00000200; // EEPROM Size (0=64 word 1=256 word)
 pub const EECD_ADDR_BITS: u32 = 0x00000400; // EEPROM Addressing bits based on type
 pub const EECD_TYPE: u32 = 0x00002000;
-pub const EECD_AUTO_RD: u32 = 0x00000200; /* EEPROM Auto Read done */
+pub const EECD_AUTO_RD: u32 = 0x00000200; // EEPROM Auto Read done
 pub const EECD_SIZE_EX_MASK: u32 = 0x00007800;
 pub const EECD_SIZE_EX_SHIFT: u32 = 11;
 pub const EECD_FLUPD: u32 = 0x00080000;
 pub const EECD_AUPDEN: u32 = 0x00100000;
-pub const EECD_SHADV: u32 = 0x00200000; /* Shadow RAM Data Valid */
-pub const EECD_SEC1VAL: u32 = 0x00400000; /* Sector One Valid */
+pub const EECD_SHADV: u32 = 0x00200000; // Shadow RAM Data Valid
+pub const EECD_SEC1VAL: u32 = 0x00400000; // Sector One Valid
 pub const EECD_SEC1VAL_VALID_MASK: u32 = EECD_AUTO_RD | EECD_PRES;
 pub const EECD_SECVAL_SHIFT: u32 = 22;
 pub const STM_OPCODE: u32 = 0xDB00;
@@ -910,6 +1011,10 @@ pub const KUMCTRLSTA_OFFSET_M2P_MODES: u32 = 0x0000001F;
 // In-Band Control
 pub const KUMCTRLSTA_INB_CTRL_LINK_STATUS_TX_TIMEOUT_DEFAULT: u16 = 0x00000500;
 pub const KUMCTRLSTA_INB_CTRL_DIS_PADDING: u16 = 0x00000010;
+
+// FIFO Control
+pub const KUMCTRLSTA_FIFO_CTRL_RX_BYPASS: u16 = 0x00000008;
+pub const KUMCTRLSTA_FIFO_CTRL_TX_BYPASS: u16 = 0x00000800;
 
 pub const IGP3_KMRN_POWER_MNG_CTRL: u32 = phy_reg(770, 17); // KMRN Power Management Control Register
 
