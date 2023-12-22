@@ -1380,6 +1380,50 @@ impl IgbHw {
         todo!();
     }
 
+    /// This function sets the lplu d0 state according to the active flag.  When
+    /// activating lplu this function also disables smart speed and vise versa.
+    /// lplu will not be activated unless the device autonegotiation advertisement
+    /// meets standards of either 10 or 10/100 or 10/100/1000 at all duplexes.
+    fn set_d0_lplu_state(&mut self, info: &PCIeInfo, active: bool) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if (self.mac_type as u32) <= Em82547Rev2 as u32 {
+            return Ok(());
+        }
+
+        fn active_post(hw: &mut IgbHw, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+            // When LPLU is enabled we should disable SmartSpeed
+            let mut phy_data = hw.read_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG)?;
+            phy_data &= !IGP01E1000_PSCFR_SMART_SPEED;
+            hw.write_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG, phy_data)?;
+            Ok(())
+        }
+
+        if is_ich8(&self.mac_type) {
+            let mut phy_ctrl = read_reg(info, PHY_CTRL as usize)?;
+            if active {
+                phy_ctrl |= PHY_CTRL_D0A_LPLU;
+                write_reg(info, PHY_CTRL as usize, phy_ctrl)?;
+                active_post(self, info)?;
+            } else {
+                phy_ctrl &= !PHY_CTRL_D0A_LPLU;
+                write_reg(info, PHY_CTRL as usize, phy_ctrl)?;
+            }
+        } else {
+            let mut phy_data = self.read_phy_reg(info, IGP02E1000_PHY_POWER_MGMT)?;
+            if active {
+                phy_data |= IGP02E1000_PM_D0_LPLU;
+                self.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_data)?;
+                active_post(self, info)?;
+            } else {
+                phy_data &= !IGP02E1000_PM_D0_LPLU;
+                self.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_data)?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// This function sets the lplu state according to the active flag.  When
     /// activating lplu this function also disables smart speed and vise versa.
     /// lplu will not be activated unless the device autonegotiation advertisement
@@ -1455,7 +1499,7 @@ impl IgbHw {
             }
         }
 
-        todo!();
+        Ok(())
     }
 
     /// Copper link setup for em_phy_m88 series.
