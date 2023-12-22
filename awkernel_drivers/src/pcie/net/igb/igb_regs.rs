@@ -362,12 +362,20 @@ pub const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
 // IGP01E1000 Specific Registers
 pub const IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; // PHY Specific Port Config Register
 pub const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; // PHY Specific Status Register
-pub const _IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Register
+pub const IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Register
 pub const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
 pub const IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
 pub const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; // PHY Channel Quality Register
 pub const IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
 pub const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; // PHY Page Select Core Register
+
+// IGP01E1000 Specific Port Control Register - R/W
+pub const IGP01E1000_PSCR_TP_LOOPBACK: u16 = 0x0010;
+pub const IGP01E1000_PSCR_CORRECT_NC_SCMBLR: u16 = 0x0200;
+pub const IGP01E1000_PSCR_TEN_CRS_SELECT: u16 = 0x0400;
+pub const IGP01E1000_PSCR_FLIP_CHIP: u16 = 0x0800;
+pub const IGP01E1000_PSCR_AUTO_MDIX: u16 = 0x1000;
+pub const IGP01E1000_PSCR_FORCE_MDI_MDIX: u16 = 0x2000; // 0-MDI, 1-MDIX
 
 // IGP01E1000 Specific Port Config Register - R/W
 pub const IGP01E1000_PSCFR_AUTO_MDIX_PAR_DETECT: u16 = 0x0010;
@@ -430,6 +438,19 @@ pub const HV_OEM_BITS: u32 = phy_reg(768, 25);
 pub const HV_OEM_BITS_LPLU: u16 = 0x0004; // Low Power Link Up
 pub const HV_OEM_BITS_GBE_DIS: u16 = 0x0040; // Gigabit Disable
 pub const HV_OEM_BITS_RESTART_AN: u16 = 0x0400; // Restart Auto-negotiation
+
+// 1000BASE-T Control Register
+pub const CR_1000T_ASYM_PAUSE: u16 = 0x0080; // Advertise asymmetric pause bit
+pub const CR_1000T_HD_CAPS: u16 = 0x0100; // Advertise 1000T HD capability
+pub const CR_1000T_FD_CAPS: u16 = 0x0200; // Advertise 1000T FD capability
+pub const CR_1000T_REPEATER_DTE: u16 = 0x0400; // 1=Repeater/switch device port, 0=DTE device
+pub const CR_1000T_MS_VALUE: u16 = 0x0800; // 1=Configure PHY as Master, 0=Configure PHY as Slave
+pub const CR_1000T_MS_ENABLE: u16 = 0x1000; // 1=Master/Slave manual config value, 0=Automatic Master/Slave config
+pub const CR_1000T_TEST_MODE_NORMAL: u16 = 0x0000; // Normal Operation
+pub const CR_1000T_TEST_MODE_1: u16 = 0x2000; // Transmit Waveform test
+pub const CR_1000T_TEST_MODE_2: u16 = 0x4000; // Master Transmit Jitter test
+pub const CR_1000T_TEST_MODE_3: u16 = 0x6000; // Slave Transmit Jitter test
+pub const CR_1000T_TEST_MODE_4: u16 = 0x8000; // Transmitter Distortion test
 
 // I82578 Specific Registers
 pub const I82578_PHY_ADDR_REG: u32 = 29;

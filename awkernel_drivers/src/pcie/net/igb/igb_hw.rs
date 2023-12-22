@@ -435,6 +435,28 @@ pub enum PhyType {
     Undefined,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DspConfigState {
+    Disabled,
+    Enabled,
+    Activated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MSType {
+    Default,
+    ForceMaster,
+    ForceSlave,
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FfeConfig {
+    Enabled,
+    Active,
+    Blocked,
+}
+
 #[derive(Debug)]
 struct FlashMemory {
     base_address: BaseAddress,
@@ -513,6 +535,10 @@ pub struct IgbHw {
     ledctl_mode1: u32,
     ledctl_mode2: u32,
     autoneg_advertised: u16,
+    dsp_config_state: DspConfigState,
+    master_slave: MSType,
+    original_master_slave: MSType,
+    ffe_config_state: FfeConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1014,6 +1040,10 @@ impl IgbHw {
             ledctl_mode1: 0,
             ledctl_mode2: 0,
             autoneg_advertised: AUTONEG_ADV_DEFAULT,
+            dsp_config_state: DspConfigState::Disabled,
+            master_slave: MSType::Default,
+            original_master_slave: MSType::Default,
+            ffe_config_state: FfeConfig::Enabled,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1376,8 +1406,119 @@ impl IgbHw {
         todo!();
     }
 
+    /// Copper link setup for em_phy_igp series.
     fn copper_link_igp_setup(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        use MacType::*;
+
+        if self.phy_reset_disable {
+            return Ok(());
+        }
+
+        self.phy_reset(info)?;
+
+        // Wait 15ms for MAC to configure PHY from eeprom settings
+        awkernel_lib::delay::wait_millisec(15);
+
+        if self.mac_type != EmIch8lan && self.mac_type != EmIch9lan && self.mac_type != EmIch10lan {
+            // Configure activity LED after PHY reset
+            let mut led_ctrl = read_reg(info, LEDCTL)?;
+            led_ctrl &= IGP_ACTIVITY_LED_MASK;
+            led_ctrl |= IGP_ACTIVITY_LED_ENABLE | IGP_LED3_MODE;
+            write_reg(info, LEDCTL, led_ctrl)?;
+        }
+
+        // The NVM settings will configure LPLU in D3 for IGP2 and IGP3 PHYs
+        if self.phy_type == PhyType::Igp {
+            // disable lplu d3 during driver init
+            self.set_d3_lplu_state(info, false)?;
+        }
+
+        // disable lplu d0 during driver init
+        if self.mac_type == EmPchlan
+            || self.mac_type == EmPch2lan
+            || self.mac_type == EmPchLpt
+            || self.mac_type == EmPchSpt
+            || self.mac_type == EmPchCnp
+            || self.mac_type == EmPchTgp
+            || self.mac_type == EmPchAdp
+        {
+            self.set_lplu_state_pchlan(info, false)?;
+        } else {
+            self.set_d0_lplu_state(info, false)?;
+        }
+
+        // Configure mdi-mdix settings
+        let mut phy_data = self.read_phy_reg(info, IGP01E1000_PHY_PORT_CTRL)?;
+
+        if self.mac_type == Em82541 || self.mac_type == Em82547 {
+            self.dsp_config_state = DspConfigState::Disabled;
+            // Force MDI for earlier revs of the IGP PHY
+            phy_data &= !(IGP01E1000_PSCR_AUTO_MDIX | IGP01E1000_PSCR_FORCE_MDI_MDIX);
+        } else {
+            self.dsp_config_state = DspConfigState::Enabled;
+            phy_data &= !IGP01E1000_PSCR_AUTO_MDIX;
+            phy_data |= IGP01E1000_PSCR_AUTO_MDIX;
+        }
+
+        self.write_phy_reg(info, IGP01E1000_PHY_PORT_CTRL, phy_data)?;
+
+        // set auto-master slave resolution settings
+        if self.autoneg {
+            let phy_ms_setting = self.master_slave;
+            if self.ffe_config_state == FfeConfig::Active {
+                self.ffe_config_state = FfeConfig::Enabled;
+            }
+
+            if self.dsp_config_state == DspConfigState::Activated {
+                self.dsp_config_state = DspConfigState::Enabled;
+            }
+
+            // when autonegotiation advertisement is only 1000Mbps then
+            // we should disable SmartSpeed and enable Auto MasterSlave
+            // resolution as hardware default.
+            if self.autoneg_advertised == ADVERTISE_1000_FULL {
+                // Disabled SmartSpeed
+                let mut phy_data = self.read_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG)?;
+                phy_data &= !IGP01E1000_PSCFR_SMART_SPEED;
+                self.write_phy_reg(info, IGP01E1000_PHY_PORT_CONFIG, phy_data)?;
+
+                // Set auto Master/Slave resolution process
+                let mut phy_data = self.read_phy_reg(info, PHY_1000T_CTRL)?;
+                phy_data &= !CR_1000T_MS_ENABLE;
+                self.write_phy_reg(info, PHY_1000T_CTRL, phy_data)?;
+            }
+
+            let mut phy_data = self.read_phy_reg(info, PHY_1000T_CTRL)?;
+
+            // load defaults for future use
+            self.original_master_slave = if phy_data & CR_1000T_MS_ENABLE != 0 {
+                if phy_data & CR_1000T_MS_VALUE != 0 {
+                    MSType::ForceMaster
+                } else {
+                    MSType::ForceSlave
+                }
+            } else {
+                MSType::Auto
+            };
+
+            match phy_ms_setting {
+                MSType::ForceMaster => {
+                    phy_data |= CR_1000T_MS_ENABLE | CR_1000T_MS_VALUE;
+                }
+                MSType::ForceSlave => {
+                    phy_data |= CR_1000T_MS_ENABLE;
+                    phy_data &= !CR_1000T_MS_VALUE;
+                }
+                MSType::Auto => {
+                    phy_data &= !CR_1000T_MS_ENABLE;
+                }
+                _ => (),
+            }
+
+            self.write_phy_reg(info, PHY_1000T_CTRL, phy_data)?;
+        }
+
+        Ok(())
     }
 
     /// This function sets the lplu d0 state according to the active flag.  When
