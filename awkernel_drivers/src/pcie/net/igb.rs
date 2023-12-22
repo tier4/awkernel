@@ -161,7 +161,8 @@ pub enum IgbDriverErr {
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
-    fn from(_value: IgbDriverErr) -> Self {
+    fn from(value: IgbDriverErr) -> Self {
+        log::error!("igb: {:?}", value);
         PCIeDeviceErr::InitFailure
     }
 }
@@ -239,6 +240,8 @@ impl Igb {
             perm_mac_addr[4],
             perm_mac_addr[5]
         );
+
+        return Err(PCIeDeviceErr::NotYetImplemented);
 
         loop {}
 

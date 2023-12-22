@@ -1391,19 +1391,23 @@ impl IgbHw {
     }
 
     fn copper_link_postconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // todo!();
+        Ok(())
     }
 
     fn phy_force_speed_duplex(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // todo!();
+        Ok(())
     }
 
     fn copper_link_autoneg(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // todo!();
+        Ok(())
     }
 
     fn copper_link_preconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // todo!();
+        Ok(())
     }
 
     /// Copper link setup for em_phy_igp series.
@@ -1941,7 +1945,8 @@ impl IgbHw {
     }
 
     fn setup_fiber_serdes_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        // todo!()
+        Ok(())
     }
 
     /// Initializes receive address filters.
@@ -2788,7 +2793,7 @@ impl IgbHw {
         }
 
         // default phy address, most phys reside here, but not all (ICH10)
-        if !matches!(self.mac_type, EmICPxxxx) {
+        if self.mac_type != EmICPxxxx {
             self.phy_addr = 1;
         } else {
             self.phy_addr = 0; // There is a phy at phy_addr 0 on EP80579
@@ -3393,9 +3398,10 @@ impl IgbHw {
             self.read_eeprom(info, word_addr + i * 2, &mut reg_data)?;
             self.read_eeprom(info, word_addr + i * 2 + 1, &mut reg_addr)?;
 
-            self.get_software_flag(info)?;
-            self.write_phy_reg(info, reg_addr[0] as u32, reg_data[0])?;
-            self.release_software_flag(info)?;
+            self.acquire_software_flag(info, |hw| {
+                hw.write_phy_reg(info, reg_addr[0] as u32, reg_data[0])?;
+                Ok(())
+            })?;
         }
 
         Ok(())
@@ -5402,13 +5408,11 @@ impl IgbHw {
         let mut timeout = 200;
 
         while timeout > 0 {
-            if self.get_hw_eeprom_semaphore(info).is_ok() {
-                return Err(IgbDriverErr::SwfwSync);
-            }
+            self.get_hw_eeprom_semaphore(info)?;
 
             swfw_sync = read_reg(info, SW_FW_SYNC)?;
 
-            if swfw_sync & (fwmask | swmask) != 0 {
+            if swfw_sync & (fwmask | swmask) == 0 {
                 break;
             }
 
@@ -5451,11 +5455,11 @@ impl IgbHw {
     /// Using the combination of SMBI and SWESMBI semaphore bits when resetting adapter or Eeprom access.
     /// https://github.com/openbsd/src/blob/d9ecc40d45e66a0a0b11c895967c9bb8f737e659/sys/dev/pci/if_em_hw.c#L9719
     fn get_hw_eeprom_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        if self.eeprom_semaphore_present {
+        if !self.eeprom_semaphore_present {
             return Ok(());
         }
 
-        if matches!(self.mac_type, MacType::Em80003es2lan) {
+        if self.mac_type == MacType::Em80003es2lan {
             // Get the SW semaphore.
             return self.get_software_semaphore(info);
         }
@@ -5564,7 +5568,7 @@ impl IgbHw {
 
         if is_ich8(&self.mac_type) {
             if self.sw_flag != 0 {
-                self.sw_flag -= 1;
+                self.sw_flag += 1;
                 return Ok(());
             }
 
