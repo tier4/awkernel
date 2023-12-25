@@ -538,6 +538,7 @@ pub struct IgbHw {
     master_slave: MSType,
     original_master_slave: MSType,
     ffe_config_state: FfeConfig,
+    get_link_status: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1043,6 +1044,7 @@ impl IgbHw {
             master_slave: MSType::Default,
             original_master_slave: MSType::Default,
             ffe_config_state: FfeConfig::Enabled,
+            get_link_status: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1399,7 +1401,39 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Setup auto-negotiation and flow control advertisements,
+    /// and then perform auto-negotiation.
     fn copper_link_autoneg(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // Perform some bounds checking on the hw->autoneg_advertised
+        // parameter.  If this variable is zero, then set it to the default.
+        self.autoneg_advertised &= AUTONEG_ADVERTISE_SPEED_DEFAULT;
+
+        // If autoneg_advertised is zero, we assume it was not defaulted by
+        // the calling code so we set to advertise full capability.
+        if self.autoneg_advertised == 0 {
+            self.autoneg_advertised = AUTONEG_ADVERTISE_SPEED_DEFAULT;
+        }
+
+        // IFE phy only supports 10/100
+        if self.phy_type == PhyType::Ife {
+            self.autoneg_advertised &= AUTONEG_ADVERTISE_10_100_ALL;
+        }
+
+        self.phy_setup_autoneg(info)?;
+
+        // Restart auto-negotiation by setting the Auto Neg Enable bit and
+        // the Auto Neg Restart bit in the PHY control register.
+        let mut phy_data = self.read_phy_reg(info, PHY_CTRL)?;
+
+        phy_data |= MII_CR_AUTO_NEG_EN | MII_CR_RESTART_AUTO_NEG;
+        self.write_phy_reg(info, PHY_CTRL, phy_data)?;
+
+        self.get_link_status = true;
+
+        Ok(())
+    }
+
+    fn phy_setup_autoneg(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // todo!();
         Ok(())
     }
