@@ -554,6 +554,7 @@ pub struct IgbHw {
     get_link_status: bool,
     autoneg_failed: bool,
     speed_downgraded: bool,
+    serdes_link_down: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1062,6 +1063,7 @@ impl IgbHw {
             get_link_status: false,
             autoneg_failed: false,
             speed_downgraded: false,
+            serdes_link_down: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1697,7 +1699,39 @@ impl IgbHw {
         &mut self,
         info: &PCIeInfo,
     ) -> Result<(Speed, Duplex), IgbDriverErr> {
-        todo!();
+        self.serdes_link_down = true;
+
+        // Read the PCS Status register for link state. For non-copper mode,
+        // the status register is not accurate. The PCS status register is
+        // used instead.
+        let pcs = read_reg(info, PCS_LSTAT)?;
+
+        // The link up bit determines when link is up on autoneg. The sync ok
+        // gets set once both sides sync up and agree upon link. Stable link
+        // can be determined by checking for both link up and link sync ok
+        if (pcs & PCS_LSTS_LINK_OK != 0) && (pcs & PCS_LSTS_SYNK_OK != 0) {
+            self.serdes_link_down = false;
+
+            // Detect and store PCS speed
+            let speed = if pcs & PCS_LSTS_SPEED_1000 != 0 {
+                Speed::S1000Mbps
+            } else if pcs & PCS_LSTS_SPEED_100 != 0 {
+                Speed::S100Mbps
+            } else {
+                Speed::S10Mbps
+            };
+
+            // Detect and store PCS duplex
+            let duplex = if pcs & PCS_LSTS_DUPLEX_FULL != 0 {
+                Duplex::Full
+            } else {
+                Duplex::Half
+            };
+
+            Ok((speed, duplex))
+        } else {
+            Err(IgbDriverErr::Phy)
+        }
     }
 
     fn configure_kmrn_for_1000(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {

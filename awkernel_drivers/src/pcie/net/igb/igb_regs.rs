@@ -23,6 +23,7 @@ pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const PCS_LSTAT: usize = 0x0420C; // PCS Link Status - RO
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 pub const HICR: usize = 0x08F00; // Host Interface Control
@@ -90,6 +91,12 @@ pub const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
 pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
+
+pub const PCS_LSTS_LINK_OK: u32 = 0x01;
+pub const PCS_LSTS_SPEED_100: u32 = 0x02;
+pub const PCS_LSTS_SPEED_1000: u32 = 0x04;
+pub const PCS_LSTS_DUPLEX_FULL: u32 = 0x08;
+pub const PCS_LSTS_SYNK_OK: u32 = 0x10;
 
 // Receive Address
 pub const RAH_AV: u32 = 0x80000000; // Receive descriptor valid
