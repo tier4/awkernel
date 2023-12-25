@@ -121,6 +121,8 @@ pub const CTRL_I2C_ENA: u32 = 1 << 25;
 pub const CTRL_PHY_RST: u32 = 1 << 31;
 pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
 pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
+pub const CTRL_RFCE: u32 = 0x08000000; // Receive Flow Control enable
+pub const CTRL_TFCE: u32 = 0x10000000; // Transmit flow control enable
 
 pub const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
 

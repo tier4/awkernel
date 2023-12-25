@@ -1622,8 +1622,56 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Forces the MAC's flow control settings.
+    ///
+    /// Sets the TFCE and RFCE bits in the device control register to reflect
+    /// the adapter settings. TFCE and RFCE need to be explicitly set by
+    /// software when a Copper PHY is used because autonegotiation is managed
+    /// by the PHY rather than the MAC. Software must also configure these
+    /// bits when link is forced on a fiber connection.
     fn force_mac_fc(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo
+        // Get the current configuration of the Device Control Register
+        let mut ctrl = read_reg(info, CTRL)?;
+
+        // Because we didn't get link via the internal auto-negotiation
+        // mechanism (we either forced link or we got link via PHY auto-neg),
+        // we have to manually enable/disable transmit an receive flow
+        // control.
+        //
+        // The "Case" statement below enables/disable flow control according to
+        // the "hw->fc" parameter.
+        //
+        // The possible values of the "fc" parameter are: 0:  Flow control is
+        // completely disabled 1:  Rx flow control is enabled (we can receive
+        // pause frames but not send pause frames). 2:  Tx flow control is
+        // enabled (we can send pause frames but we do not receive
+        // pause frames). 3:  Both Rx and TX flow control (symmetric) is
+        // enabled. other:  No other values should be possible at this point.
+
+        match self.fc {
+            FC_NONE => {
+                ctrl &= !(CTRL_TFCE | CTRL_RFCE);
+            }
+            FC_RX_PAUSE => {
+                ctrl &= !CTRL_TFCE;
+                ctrl |= CTRL_RFCE;
+            }
+            FC_TX_PAUSE => {
+                ctrl &= !CTRL_RFCE;
+                ctrl |= CTRL_TFCE;
+            }
+            FC_FULL => {
+                ctrl |= CTRL_TFCE | CTRL_RFCE;
+            }
+            _ => return Err(IgbDriverErr::Config),
+        }
+
+        // Disable TX Flow Control for 82542 (rev 2.0)
+        if self.mac_type == MacType::Em82542Rev2_0 {
+            ctrl &= !CTRL_TFCE;
+        }
+
+        write_reg(info, CTRL, ctrl)?;
 
         Ok(())
     }
