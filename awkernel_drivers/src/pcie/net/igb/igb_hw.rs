@@ -1,9 +1,8 @@
 use bitflags::bitflags;
-use smoltcp::phy;
 
 use crate::{
     net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
-    pcie::{capability::read, pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
+    pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
 };
 
 use super::{igb_regs::*, IgbDriverErr};
@@ -1405,8 +1404,81 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Make sure we have a valid PHY and change PHY mode before link setup.
     fn copper_link_preconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo!();
+        use MacType::*;
+
+        let ctrl = read_reg(info, CTRL)?;
+
+        // With 82543, we need to force speed and duplex on the MAC equal to
+        // what the PHY speed and duplex configuration is. In addition, we
+        // need to perform a hardware reset on the PHY to take it out of
+        // reset.
+        if self.mac_type == Em82543 {
+            let mut ctrl = ctrl | CTRL_SLU;
+            ctrl &= !(CTRL_FRCSPD | CTRL_FRCDPX);
+            write_reg(info, CTRL, ctrl)?;
+        } else {
+            let ctrl = ctrl | CTRL_FRCSPD | CTRL_FRCDPX | CTRL_SLU;
+            write_reg(info, CTRL, ctrl)?;
+            self.phy_hw_reset(info)?;
+        }
+
+        // Set PHY to class A mode (if necessary)
+        self.set_phy_mode(info)?;
+
+        if self.mac_type == Em82545Rev3 || self.mac_type == Em82546Rev3 {
+            let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_CTRL)?;
+            phy_data |= 0x00000008;
+            self.write_phy_reg(info, M88E1000_PHY_SPEC_CTRL, phy_data)?;
+        }
+
+        if (self.mac_type as u32) <= Em82543 as u32
+            || self.mac_type == Em82541
+            || self.mac_type == Em82547
+            || self.mac_type == Em82541Rev2
+            || self.mac_type == Em82547Rev2
+        {
+            self.phy_reset_disable = false;
+        }
+
+        if (self.mac_type == Em82575
+            || self.mac_type == Em82580
+            || self.mac_type == Em82576
+            || self.mac_type == EmI210
+            || self.mac_type == EmI350)
+            && self.sgmii_active
+        {
+            // allow time for SFP cage time to power up phy
+            awkernel_lib::delay::wait_millisec(300);
+
+            // SFP documentation requires the following to configure the SFP module
+            // to work on SGMII.  No further documentation is given.
+            self.write_phy_reg(info, 0x1B, 0x8084)?;
+            self.phy_hw_reset(info)?;
+        }
+
+        Ok(())
+    }
+
+    /// Set PHY to class A mode
+    /// Assumes the following operations will follow to enable the new class mode.
+    ///  1. Do a PHY soft reset
+    ///  2. Restart auto-negotiation or force link.
+    fn set_phy_mode(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if self.mac_type == Em82545Rev3 && self.media_type == MediaType::Copper {
+            let mut eeprom_data = [0; 1];
+            self.read_eeprom(info, EEPROM_PHY_CLASS_WORD, &mut eeprom_data)?;
+
+            if eeprom_data[0] != EEPROM_RESERVED_WORD && eeprom_data[0] & EEPROM_PHY_CLASS_A != 0 {
+                self.write_phy_reg(info, M88E1000_PHY_PAGE_SELECT, 0x000B)?;
+                self.write_phy_reg(info, M88E1000_PHY_GEN_CONTROL, 0x8104)?;
+                self.phy_reset_disable = false;
+            }
+        }
+
         Ok(())
     }
 

@@ -561,7 +561,7 @@ impl PCIeInfo {
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 if net::igb::match_device(self.vendor, self.id) {
-                    log::debug!("Intel IGB device found: {}", self);
+                    log::debug!("Intel GbE NIC has found: {}", self);
                     return net::igb::attach(self, dma_offset, page_table, page_allocator);
                 }
             }

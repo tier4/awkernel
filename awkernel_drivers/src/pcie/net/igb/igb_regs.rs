@@ -100,6 +100,9 @@ pub const GCR_CMPL_TMOUT_10_MS: u32 = 0x00001000;
 pub const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
 pub const GCR_CAP_VER2: u32 = 0x00040000;
 
+pub const CTRL_SLU: u32 = 0x00000040; // Set link up (Force Link)
+pub const CTRL_FRCSPD: u32 = 0x00000800; // Force Speed
+pub const CTRL_FRCDPX: u32 = 0x00001000; // Force Duplex
 pub const CTRL_RST: u32 = 1 << 26;
 pub const CTRL_GIO_MASTER_DISABLE: u32 = 1 << 2;
 pub const CTRL_I2C_ENA: u32 = 1 << 25;
@@ -539,6 +542,12 @@ pub const M88E1000_EPSCR_TX_CLK_2_5: u16 = 0x0060; // 2.5 MHz TX_CLK
 pub const M88E1000_EPSCR_TX_CLK_25: u16 = 0x0070; // 25  MHz TX_CLK
 pub const M88E1000_EPSCR_TX_CLK_0: u16 = 0x0000; // NO  TX_CLK
 
+pub const M88E1000_PHY_EXT_CTRL: u32 = 0x1A; // PHY extend control register
+pub const M88E1000_PHY_PAGE_SELECT: u32 = 0x1D; // Reg 29 for page number setting
+pub const M88E1000_PHY_GEN_CONTROL: u32 = 0x1E; // Its meaning depends on reg 29
+pub const M88E1000_PHY_VCO_REG_BIT8: u32 = 0x100; // Bits 8 & 11 are adjusted for
+pub const M88E1000_PHY_VCO_REG_BIT11: u32 = 0x800; // improved BER performance
+
 // M88EC018 Rev 2 specific DownShift settings
 pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_MASK: u16 = 0x0E00;
 pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_1X: u16 = 0x0000;
@@ -885,6 +894,9 @@ pub const EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM # attempts to gain grant
 
 pub const EEPROM_WORD_SIZE_SHIFT: u32 = 6;
 pub const EEPROM_WORD_SIZE_SHIFT_MAX: u32 = 14;
+
+pub const EEPROM_RESERVED_WORD: u16 = 0xFFFF;
+pub const EEPROM_PHY_CLASS_A: u16 = 0x8000;
 
 // EEPROM Map defines (WORD OFFSETS)
 pub const EEPROM_NODE_ADDRESS_BYTE_0: u32 = 0;
