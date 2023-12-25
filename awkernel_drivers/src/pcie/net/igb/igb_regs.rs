@@ -385,6 +385,21 @@ pub const _MDIC_INT_EN: u32 = 0x20000000;
 pub const MDIC_ERROR: u32 = 0x40000000;
 pub const MDIC_DEST: u32 = 0x80000000;
 
+// 1000BASE-T Status Register
+pub const SR_1000T_IDLE_ERROR_CNT: u16 = 0x00FF; // Num idle errors since last read
+pub const SR_1000T_ASYM_PAUSE_DIR: u16 = 0x0100; // LP asymmetric pause direction bit
+pub const SR_1000T_LP_HD_CAPS: u16 = 0x0400; // LP is 1000T HD capable
+pub const SR_1000T_LP_FD_CAPS: u16 = 0x0800; // LP is 1000T FD capable
+pub const SR_1000T_REMOTE_RX_STATUS: u16 = 0x1000; // Remote receiver OK
+pub const SR_1000T_LOCAL_RX_STATUS: u16 = 0x2000; // Local receiver OK
+pub const SR_1000T_MS_CONFIG_RES: u16 = 0x4000; // 1=Local TX is Master, 0=Slave
+pub const SR_1000T_MS_CONFIG_FAULT: u16 = 0x8000; // Master/Slave config fault
+pub const SR_1000T_REMOTE_RX_STATUS_SHIFT: u16 = 12;
+pub const SR_1000T_LOCAL_RX_STATUS_SHIFT: u16 = 13;
+pub const SR_1000T_PHY_EXCESSIVE_IDLE_ERR_COUNT: u16 = 5;
+pub const FFE_IDLE_ERR_COUNT_TIMEOUT_20: usize = 20;
+pub const FFE_IDLE_ERR_COUNT_TIMEOUT_100: usize = 100;
+
 // PHY 1000 MII Register/Bit Definitions
 // PHY Registers defined by IEEE
 pub const PHY_CTRL: u32 = 0x00; // Control Register
@@ -465,6 +480,29 @@ pub const IGP01E1000_GMII_SPD: u16 = 0x20; // Enable SPD
 pub const IGP02E1000_PM_SPD: u16 = 0x0001; // Smart Power Down
 pub const IGP02E1000_PM_D3_LPLU: u16 = 0x0004; // Enable LPLU in non-D0a modes
 pub const IGP02E1000_PM_D0_LPLU: u16 = 0x0002; // Enable LPLU in D0a mode
+
+pub const IGP01E1000_PHY_CHANNEL_NUM: usize = 4;
+pub const IGP02E1000_PHY_CHANNEL_NUM: usize = 4;
+
+pub const IGP01E1000_PHY_EDAC_MU_INDEX: u16 = 0xC000;
+pub const IGP01E1000_PHY_EDAC_SIGN_EXT_9_BITS: u16 = 0x8000;
+
+pub const IGP01E1000_PHY_AGC_PARAM_A: u32 = 0x1171;
+pub const IGP01E1000_PHY_AGC_PARAM_B: u32 = 0x1271;
+pub const IGP01E1000_PHY_AGC_PARAM_C: u32 = 0x1471;
+pub const IGP01E1000_PHY_AGC_PARAM_D: u32 = 0x1871;
+
+// IGP01E1000 DSP Reset Register
+pub const IGP01E1000_PHY_DSP_RESET: u32 = 0x1F33;
+pub const IGP01E1000_PHY_DSP_SET: u32 = 0x1F71;
+pub const IGP01E1000_PHY_DSP_FFE: u32 = 0x1F35;
+
+pub const IGP01E1000_PHY_DSP_FFE_CM_CP: u16 = 0x0069;
+
+pub const IGP01E1000_PHY_DSP_FFE_DEFAULT: u16 = 0x002A;
+
+pub const IGP01E1000_IEEE_RESTART_AUTONEG: u16 = 0x3300;
+pub const IGP01E1000_IEEE_FORCE_GIGA: u16 = 0x0140;
 
 // BM/HV Specific Registers
 pub const BM_PORT_CTRL_PAGE: u32 = 769;

@@ -384,6 +384,26 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
     (INTEL_VENDOR_ID, E1000_DEV_ID_EP80579_LAN_6),
 ];
 
+pub const IGP_CABLE_LENGTH_10: u16 = 10;
+pub const IGP_CABLE_LENGTH_20: u16 = 20;
+pub const IGP_CABLE_LENGTH_30: u16 = 30;
+pub const IGP_CABLE_LENGTH_40: u16 = 40;
+pub const IGP_CABLE_LENGTH_50: u16 = 50;
+pub const IGP_CABLE_LENGTH_60: u16 = 60;
+pub const IGP_CABLE_LENGTH_70: u16 = 70;
+pub const IGP_CABLE_LENGTH_80: u16 = 80;
+pub const IGP_CABLE_LENGTH_90: u16 = 90;
+pub const IGP_CABLE_LENGTH_100: u16 = 100;
+pub const IGP_CABLE_LENGTH_110: u16 = 110;
+pub const IGP_CABLE_LENGTH_115: u16 = 115;
+pub const IGP_CABLE_LENGTH_120: u16 = 120;
+pub const IGP_CABLE_LENGTH_130: u16 = 130;
+pub const IGP_CABLE_LENGTH_140: u16 = 140;
+pub const IGP_CABLE_LENGTH_150: u16 = 150;
+pub const IGP_CABLE_LENGTH_160: u16 = 160;
+pub const IGP_CABLE_LENGTH_170: u16 = 170;
+pub const IGP_CABLE_LENGTH_180: u16 = 180;
+
 // Number of milliseconds we wait for Eeprom auto read bit done after MAC reset
 const AUTO_READ_DONE_TIMEOUT: u32 = 10;
 
@@ -1891,14 +1911,134 @@ impl IgbHw {
         Ok(())
     }
 
+    /// 82541_rev_2 & 82547_rev_2 have the capability to configure the DSP when a
+    /// gigabit link is achieved to improve link quality.
     fn config_dsp_after_link_change(
         &mut self,
         info: &PCIeInfo,
-        _link_up: bool,
+        link_up: bool,
     ) -> Result<(), IgbDriverErr> {
-        // todo
+        if self.phy_type != PhyType::Igp {
+            return Ok(());
+        }
+
+        let dsp_reg_array = [
+            IGP01E1000_PHY_AGC_PARAM_A,
+            IGP01E1000_PHY_AGC_PARAM_B,
+            IGP01E1000_PHY_AGC_PARAM_C,
+            IGP01E1000_PHY_AGC_PARAM_D,
+        ];
+
+        if link_up {
+            let (speed, _duplex) = self.get_speed_and_duplex(info)?;
+
+            if speed == Speed::S1000Mbps {
+                let (min_length, _max_length) = self.get_cable_length(info)?;
+
+                if self.dsp_config_state == DspConfigState::Enabled
+                    && min_length >= IGP_CABLE_LENGTH_50
+                {
+                    for i in 0..IGP01E1000_PHY_CHANNEL_NUM {
+                        let mut phy_data = self.read_phy_reg(info, dsp_reg_array[i])?;
+                        phy_data &= !IGP01E1000_PHY_EDAC_MU_INDEX;
+                        self.write_phy_reg(info, dsp_reg_array[i], phy_data)?;
+                    }
+                    self.dsp_config_state = DspConfigState::Activated;
+                }
+
+                if self.ffe_config_state == FfeConfig::Enabled && min_length < IGP_CABLE_LENGTH_50 {
+                    let mut ffe_idle_err_timeout = FFE_IDLE_ERR_COUNT_TIMEOUT_20;
+                    let mut idle_errs = 0;
+
+                    // clear previous idle error counts
+                    self.read_phy_reg(info, PHY_1000T_STATUS)?;
+
+                    let mut i = 0;
+                    while i < ffe_idle_err_timeout {
+                        awkernel_lib::delay::wait_millisec(1);
+                        let phy_data = self.read_phy_reg(info, PHY_1000T_STATUS)?;
+
+                        idle_errs += phy_data & SR_1000T_IDLE_ERROR_CNT;
+                        if idle_errs > SR_1000T_PHY_EXCESSIVE_IDLE_ERR_COUNT {
+                            self.ffe_config_state = FfeConfig::Active;
+
+                            self.write_phy_reg(
+                                info,
+                                IGP01E1000_PHY_DSP_FFE,
+                                IGP01E1000_PHY_DSP_FFE_CM_CP,
+                            )?;
+
+                            break;
+                        }
+
+                        if idle_errs != 0 {
+                            ffe_idle_err_timeout = FFE_IDLE_ERR_COUNT_TIMEOUT_100;
+                        }
+
+                        i += 1;
+                    }
+                }
+            }
+        } else {
+            if self.dsp_config_state == DspConfigState::Activated {
+                // Save off the current value of register 0x2F5B to
+                // be restored at the end of the routines.
+                let phy_saved_data = self.read_phy_reg(info, 0x2F5B)?;
+
+                // Disable the PHY transmitter
+                self.write_phy_reg(info, 0x2F5B, 0x0003)?;
+
+                awkernel_lib::delay::wait_microsec(20);
+
+                self.write_phy_reg(info, 0x000, IGP01E1000_IEEE_FORCE_GIGA)?;
+
+                for i in 0..IGP01E1000_PHY_CHANNEL_NUM {
+                    let mut phy_data = self.read_phy_reg(info, dsp_reg_array[i])?;
+
+                    phy_data &= !IGP01E1000_PHY_EDAC_MU_INDEX;
+                    phy_data |= IGP01E1000_PHY_EDAC_SIGN_EXT_9_BITS;
+
+                    self.write_phy_reg(info, dsp_reg_array[i], phy_data)?;
+                }
+
+                self.write_phy_reg(info, 0x0000, IGP01E1000_IEEE_RESTART_AUTONEG)?;
+
+                awkernel_lib::delay::wait_microsec(20);
+
+                // Now enable the transmitter
+                self.write_phy_reg(info, 0x2F5B, phy_saved_data)?;
+
+                self.dsp_config_state = DspConfigState::Enabled;
+            }
+
+            if self.ffe_config_state == FfeConfig::Active {
+                // Save off the current value of register 0x2F5B to
+                // be restored at the end of the routines.
+                let phy_saved_data = self.read_phy_reg(info, 0x2F5B)?;
+
+                // Disable the PHY transmitter
+                self.write_phy_reg(info, 0x2F5B, 0x0003)?;
+
+                awkernel_lib::delay::wait_microsec(20);
+
+                self.write_phy_reg(info, 0x000, IGP01E1000_IEEE_FORCE_GIGA)?;
+                self.write_phy_reg(info, IGP01E1000_PHY_DSP_FFE, IGP01E1000_PHY_DSP_FFE_DEFAULT)?;
+                self.write_phy_reg(info, 0x0000, IGP01E1000_IEEE_RESTART_AUTONEG)?;
+
+                awkernel_lib::delay::wait_microsec(20);
+
+                // Now enable the transmitter
+                self.write_phy_reg(info, 0x2F5B, phy_saved_data)?;
+
+                self.ffe_config_state = FfeConfig::Enabled;
+            }
+        }
 
         Ok(())
+    }
+
+    fn get_cable_length(&mut self, info: &PCIeInfo) -> Result<(u16, u16), IgbDriverErr> {
+        todo!()
     }
 
     /// Force PHY speed and duplex settings to hw->forced_speed_duplex
