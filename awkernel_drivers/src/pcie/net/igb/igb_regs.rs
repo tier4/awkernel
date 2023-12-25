@@ -128,6 +128,13 @@ pub const TIPG_IPGT: u32 = 0x8;
 pub const TIPG_IPGR1: u32 = 0x2 << 10;
 pub const TIPG_IPGR2: u32 = 0xA << 20;
 
+pub const TIPG_IPGT_MASK: u32 = 0x000003FF;
+pub const TIPG_IPGR1_MASK: u32 = 0x000FFC00;
+pub const TIPG_IPGR2_MASK: u32 = 0x3FF00000;
+
+pub const DEFAULT_80003ES2LAN_TIPG_IPGT_10_100: u32 = 0x00000009;
+pub const DEFAULT_80003ES2LAN_TIPG_IPGT_1000: u32 = 0x00000008;
+
 pub const RCTL_EN: u32 = 1 << 1; // Receive Control Register Enable
 pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
 pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
@@ -1208,6 +1215,10 @@ pub const KUMCTRLSTA_OFFSET_M2P_MODES: u32 = 0x0000001F;
 // In-Band Control
 pub const KUMCTRLSTA_INB_CTRL_LINK_STATUS_TX_TIMEOUT_DEFAULT: u16 = 0x00000500;
 pub const KUMCTRLSTA_INB_CTRL_DIS_PADDING: u16 = 0x00000010;
+
+// Half-Duplex Control
+pub const KUMCTRLSTA_HD_CTRL_10_100_DEFAULT: u16 = 0x00000004;
+pub const KUMCTRLSTA_HD_CTRL_1000_DEFAULT: u16 = 0x00000000;
 
 // FIFO Control
 pub const KUMCTRLSTA_FIFO_CTRL_RX_BYPASS: u16 = 0x00000008;

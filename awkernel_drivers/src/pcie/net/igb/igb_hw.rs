@@ -1735,7 +1735,23 @@ impl IgbHw {
     }
 
     fn configure_kmrn_for_1000(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        self.write_kmrn_reg(
+            info,
+            KUMCTRLSTA_OFFSET_HD_CTRL,
+            KUMCTRLSTA_HD_CTRL_1000_DEFAULT,
+        )?;
+
+        // Configure Transmit Inter-Packet Gap
+        let mut tipg = read_reg(info, TIPG)?;
+        tipg &= !TIPG_IPGT_MASK;
+        tipg |= DEFAULT_80003ES2LAN_TIPG_IPGT_1000;
+        write_reg(info, TIPG, tipg)?;
+
+        let mut reg_data = self.read_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL)?;
+        reg_data &= !GG82563_KMCR_PASS_FALSE_CARRIER;
+        self.write_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL, reg_data)?;
+
+        Ok(())
     }
 
     fn configure_kmrn_for_10_100(
