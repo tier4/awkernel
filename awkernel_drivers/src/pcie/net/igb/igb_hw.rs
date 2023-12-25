@@ -402,6 +402,14 @@ bitflags! {
 const PHY_CFG_TIMEOUT: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedDuplex {
+    S10Half,
+    S10Full,
+    S100Half,
+    S100Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Speed {
     S10Mbps = 10,
     S100Mbps = 100,
@@ -556,6 +564,7 @@ pub struct IgbHw {
     speed_downgraded: bool,
     serdes_link_down: bool,
     txcw: u32,
+    forced_speed_duplex: SpeedDuplex,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1066,6 +1075,7 @@ impl IgbHw {
             speed_downgraded: false,
             serdes_link_down: false,
             txcw: 0,
+            forced_speed_duplex: SpeedDuplex::S10Half,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1891,8 +1901,170 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Force PHY speed and duplex settings to hw->forced_speed_duplex
     fn phy_force_speed_duplex(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo!();
+        use PhyType::*;
+
+        // Turn off Flow control if we are forcing speed and duplex.
+        self.fc = FC_NONE;
+
+        // Read the Device Control Register.
+        let mut ctrl = read_reg(info, CTRL)?;
+
+        // Set the bits to Force Speed and Duplex in the Device Ctrl Reg.
+        ctrl |= CTRL_FRCSPD | CTRL_FRCDPX;
+        ctrl &= !(DEVICE_SPEED_MASK);
+
+        // Clear the Auto Speed Detect Enable bit.
+        ctrl &= !CTRL_ASDE;
+
+        // Read the MII Control Register.
+        let mut mii_ctrl_reg = self.read_phy_reg(info, PHY_CTRL)?;
+
+        // We need to disable autoneg in order to force link and duplex.
+
+        mii_ctrl_reg &= !MII_CR_AUTO_NEG_EN;
+
+        // Are we forcing Full or Half Duplex?
+        if self.forced_speed_duplex == SpeedDuplex::S100Full
+            || self.forced_speed_duplex == SpeedDuplex::S10Full
+        {
+            // We want to force full duplex so we SET the full duplex
+            // bits in the Device and MII Control Registers.
+            ctrl |= CTRL_FD;
+            mii_ctrl_reg |= MII_CR_FULL_DUPLEX;
+        } else {
+            // We want to force half duplex so we CLEAR the full duplex
+            // bits in the Device and MII Control Registers.
+            ctrl &= !CTRL_FD;
+            mii_ctrl_reg &= !MII_CR_FULL_DUPLEX;
+        }
+
+        // Are we forcing 100Mbps???
+        if self.forced_speed_duplex == SpeedDuplex::S100Full
+            || self.forced_speed_duplex == SpeedDuplex::S100Half
+        {
+            // Set the 100Mb bit and turn off the 1000Mb and 10Mb bits.
+            ctrl |= CTRL_SPD_100;
+            mii_ctrl_reg |= MII_CR_SPEED_100;
+            mii_ctrl_reg &= !(MII_CR_SPEED_1000 | MII_CR_SPEED_10);
+        } else {
+            // Set the 10Mb bit and turn off the 1000Mb and 100Mb bits.
+            ctrl &= !(CTRL_SPD_1000 | CTRL_SPD_100);
+            mii_ctrl_reg |= MII_CR_SPEED_10;
+            mii_ctrl_reg &= !(MII_CR_SPEED_1000 | MII_CR_SPEED_100);
+        }
+
+        self.config_collision_dist(info)?;
+
+        // Write the configured values back to the Device Control Reg.
+        write_reg(info, CTRL, ctrl)?;
+
+        if matches!(self.phy_type, M88 | Gg82563 | Bm | Oem | I82578) {
+            let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_CTRL)?;
+
+            // Clear Auto-Crossover to force MDI manually. M88E1000
+            // requires MDI forced whenever speed are duplex are forced.
+            phy_data &= !M88E1000_PSCR_AUTO_X_MODE;
+            self.write_phy_reg(info, M88E1000_PHY_SPEC_CTRL, phy_data)?;
+
+            // Need to reset the PHY or these changes will be ignored
+            mii_ctrl_reg |= MII_CR_RESET;
+        } else if self.phy_type == Rtl8211 {
+            let mut phy_data = self.read_phy_reg_ex(info, RGEPHY_CR)?;
+
+            // Clear Auto-Crossover to force MDI manually. RTL8211 requires
+            // MDI forced whenever speed are duplex are forced.
+            phy_data |= RGEPHY_CR_MDI_MASK; // enable MDIX
+            self.write_phy_reg_ex(info, RGEPHY_CR, phy_data)?;
+            mii_ctrl_reg |= MII_CR_RESET;
+        } else if self.phy_type == Ife {
+            let mut phy_data = self.read_phy_reg(info, IFE_PHY_MDIX_CONTROL)?;
+
+            phy_data &= !IFE_PMC_AUTO_MDIX;
+            phy_data &= !IFE_PMC_FORCE_MDIX;
+
+            self.write_phy_reg(info, IFE_PHY_MDIX_CONTROL, phy_data)?;
+        } else {
+            // Clear Auto-Crossover to force MDI manually.  IGP requires
+            // MDI forced whenever speed or duplex are forced.
+            let mut phy_data = self.read_phy_reg(info, IGP01E1000_PHY_PORT_CTRL)?;
+
+            phy_data &= !IGP01E1000_PSCR_AUTO_MDIX;
+            phy_data &= !IGP01E1000_PSCR_FORCE_MDI_MDIX;
+
+            self.write_phy_reg(info, IGP01E1000_PHY_PORT_CTRL, phy_data)?;
+        }
+
+        // Write back the modified PHY MII control register.
+        self.write_phy_reg(info, PHY_CTRL, mii_ctrl_reg)?;
+
+        awkernel_lib::delay::wait_microsec(1);
+
+        if matches!(self.phy_type, M88 | Bm | Oem) {
+            // Because we reset the PHY above, we need to re-force TX_CLK
+            // in the Extended PHY Specific Control Register to 25MHz
+            // clock.  This value defaults back to a 2.5MHz clock when
+            // the PHY is reset.
+            let mut phy_data = self.read_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL)?;
+
+            phy_data |= M88E1000_EPSCR_TX_CLK_25;
+            self.write_phy_reg(info, M88E1000_EXT_PHY_SPEC_CTRL, phy_data)?;
+
+            // In addition, because of the s/w reset above, we need to
+            // duplex operation.
+            // enable CRS on TX.  This must be set for both full and half
+            let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_CTRL)?;
+
+            if self.phy_id == M88E1141_E_PHY_ID {
+                phy_data &= !M88E1000_PSCR_ASSERT_CRS_ON_TX
+            } else {
+                phy_data |= M88E1000_PSCR_ASSERT_CRS_ON_TX;
+            }
+
+            self.write_phy_reg(info, M88E1000_PHY_SPEC_CTRL, phy_data)?;
+
+            if matches!(self.mac_type, MacType::Em82544 | MacType::Em82543)
+                && !self.autoneg
+                && matches!(
+                    self.forced_speed_duplex,
+                    SpeedDuplex::S10Full | SpeedDuplex::S10Half
+                )
+            {
+                self.polarity_reversal_workaround(info)?;
+            }
+        } else if self.phy_type == Rtl8211 {
+            // In addition, because of the s/w reset above, we need to enable
+            // CRX on TX.  This must be set for both full and half duplex
+            // operation.
+            let mut phy_data = self.read_phy_reg_ex(info, RGEPHY_CR)?;
+
+            phy_data &= !RGEPHY_CR_ASSERT_CRS;
+            self.write_phy_reg_ex(info, RGEPHY_CR, phy_data)?;
+        } else if self.phy_type == Gg82563 {
+            // The TX_CLK of the Extended PHY Specific Control Register
+            // defaults to 2.5MHz on a reset.  We need to re-force it
+            // back to 25MHz, if we're not in a forced 10/duplex
+            // configuration.
+            let mut phy_data = self.read_phy_reg(info, GG82563_PHY_MAC_SPEC_CTRL)?;
+
+            phy_data &= !GG82563_MSCR_TX_CLK_MASK;
+
+            if matches!(
+                self.forced_speed_duplex,
+                SpeedDuplex::S10Full | SpeedDuplex::S10Half
+            ) {
+                phy_data |= GG82563_MSCR_TX_CLK_10MBPS_2_5MHZ
+            } else {
+                phy_data |= GG82563_MSCR_TX_CLK_1000MBPS_25MHZ;
+            }
+
+            // Also due to the reset, we need to enable CRS on Tx.
+            phy_data |= GG82563_MSCR_ASSERT_CRS_ON_TX;
+
+            self.write_phy_reg(info, GG82563_PHY_MAC_SPEC_CTRL, phy_data)?;
+        }
+
         Ok(())
     }
 
@@ -2036,6 +2208,10 @@ impl IgbHw {
         }
 
         Ok(())
+    }
+
+    fn polarity_reversal_workaround(&mut self, _info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        Err(IgbDriverErr::NotSupported)
     }
 
     /// Make sure we have a valid PHY and change PHY mode before link setup.

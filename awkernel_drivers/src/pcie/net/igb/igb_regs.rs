@@ -121,6 +121,7 @@ pub const GCR_CAP_VER2: u32 = 0x00040000;
 
 pub const CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
 pub const CTRL_LRST: u32 = 0x00000008; // Link reset. 0=normal,1=reset
+pub const CTRL_ASDE: u32 = 0x00000020; // Auto-speed detect enable
 pub const CTRL_SLU: u32 = 0x00000040; // Set link up (Force Link)
 pub const CTRL_ILOS: u32 = 0x00000080; // Invert Loss-Of Signal
 pub const CTRL_SPD_100: u32 = 0x00000100; // Force 100Mb
@@ -653,6 +654,11 @@ pub const IFE_E_PHY_ID: u32 = 0x02A80330; // 10/100 PHY
 pub const IFE_PLUS_E_PHY_ID: u32 = 0x02A80320;
 pub const IFE_C_E_PHY_ID: u32 = 0x02A80310;
 
+pub const IFE_PHY_MDIX_CONTROL: u32 = 0x1C; // MDI/MDI-X Control register
+
+pub const IFE_PMC_AUTO_MDIX: u16 = 0x0080; // 1=enable MDI/MDI-X feature, default 0=disabled
+pub const IFE_PMC_FORCE_MDIX: u16 = 0x0040; // 1=force MDIX-X, 0=force MDI
+
 pub const RTL8211_E_PHY_ID: u32 = 0x001CC912;
 
 pub const GG82563_PAGE_SHIFT: u32 = 5;
@@ -774,9 +780,9 @@ pub const PHY_OP_READ: u32 = 0x02;
 pub const PHY_OP_WRITE: u32 = 0x01;
 pub const PHY_TURNAROUND: u32 = 0x02;
 pub const PHY_PREAMBLE_SIZE: u32 = 32;
-pub const MII_CR_SPEED_1000: u32 = 0x0040;
-pub const MII_CR_SPEED_100: u32 = 0x2000;
-pub const MII_CR_SPEED_10: u32 = 0x0000;
+pub const MII_CR_SPEED_1000: u16 = 0x0040;
+pub const MII_CR_SPEED_100: u16 = 0x2000;
+pub const MII_CR_SPEED_10: u16 = 0x0000;
 pub const PHY_ADDRESS: u32 = 0x01;
 pub const PHY_AUTO_NEG_TIME: u32 = 45; // 4.5 Seconds
 pub const PHY_FORCE_TIME: u32 = 20; // 2.0 Seconds
