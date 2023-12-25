@@ -2870,8 +2870,33 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Change VCO speed register to improve Bit Error Rate performance of SERDES.
     fn set_vco_speed(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        if !matches!(self.mac_type, MacType::Em82545Rev3 | MacType::Em82546Rev3) {
+            return Ok(());
+        }
+
+        // Set PHY register 30, page 5, bit 8 to 0
+
+        let default_page = self.read_phy_reg(info, M88E1000_PHY_PAGE_SELECT)?;
+
+        self.write_phy_reg(info, M88E1000_PHY_PAGE_SELECT, 0x0005)?;
+
+        let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_GEN_CONTROL)?;
+        phy_data &= !M88E1000_PHY_VCO_REG_BIT8;
+        self.write_phy_reg(info, M88E1000_PHY_GEN_CONTROL, phy_data)?;
+
+        // Set PHY register 30, page 4, bit 11 to 1
+        self.write_phy_reg(info, M88E1000_PHY_PAGE_SELECT, 0x0004)?;
+
+        let mut phy_data = self.read_phy_reg(info, M88E1000_PHY_GEN_CONTROL)?;
+
+        phy_data |= M88E1000_PHY_VCO_REG_BIT11;
+        self.write_phy_reg(info, M88E1000_PHY_GEN_CONTROL, phy_data)?;
+
+        self.write_phy_reg(info, M88E1000_PHY_PAGE_SELECT, default_page)?;
+
+        Ok(())
     }
 
     /// Initializes receive address filters.

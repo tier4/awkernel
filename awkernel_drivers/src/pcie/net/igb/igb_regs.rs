@@ -634,8 +634,8 @@ pub const M88E1000_EPSCR_TX_CLK_0: u16 = 0x0000; // NO  TX_CLK
 pub const M88E1000_PHY_EXT_CTRL: u32 = 0x1A; // PHY extend control register
 pub const M88E1000_PHY_PAGE_SELECT: u32 = 0x1D; // Reg 29 for page number setting
 pub const M88E1000_PHY_GEN_CONTROL: u32 = 0x1E; // Its meaning depends on reg 29
-pub const M88E1000_PHY_VCO_REG_BIT8: u32 = 0x100; // Bits 8 & 11 are adjusted for
-pub const M88E1000_PHY_VCO_REG_BIT11: u32 = 0x800; // improved BER performance
+pub const M88E1000_PHY_VCO_REG_BIT8: u16 = 0x100; // Bits 8 & 11 are adjusted for
+pub const M88E1000_PHY_VCO_REG_BIT11: u16 = 0x800; // improved BER performance
 
 // M88EC018 Rev 2 specific DownShift settings
 pub const M88EC018_EPSCR_DOWNSHIFT_COUNTER_MASK: u16 = 0x0E00;
