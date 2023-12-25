@@ -2826,7 +2826,24 @@ impl IgbHw {
     }
 
     fn power_up_serdes_link_82575(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        if self.media_type != MediaType::InternalSerdes && !self.sgmii_active {
+            return Ok(());
+        }
+
+        // Enable PCS to turn on link
+        let mut reg = read_reg(info, PCS_CFG0)?;
+        reg |= PCS_CFG_PCS_EN;
+        write_reg(info, PCS_CFG0, reg)?;
+
+        // Power up the laser
+        reg = read_reg(info, CTRL_EXT)?;
+        reg &= !CTRL_EXT_SDP3_DATA;
+        write_reg(info, CTRL_EXT, reg)?;
+
+        write_flush(info)?;
+        awkernel_lib::delay::wait_microsec(5);
+
+        Ok(())
     }
 
     fn adjust_serdes_amplitude(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
@@ -2836,203 +2853,6 @@ impl IgbHw {
     fn set_vco_speed(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         todo!()
     }
-
-    // 2124 static int32_t
-    // 2125 em_setup_fiber_serdes_link(struct em_hw *hw)
-    //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 2126 {
-    // 2127         uint32_t ctrl, ctrl_ext, reg;
-    // 2128         uint32_t status;
-    // 2129         uint32_t txcw = 0;
-    // 2130         uint32_t i;
-    // 2131         uint32_t signal = 0;
-    // 2132         int32_t  ret_val;
-    // 2133         DEBUGFUNC("em_setup_fiber_serdes_link");
-    // 2134
-    // 2135         if (hw->media_type != em_media_type_internal_serdes &&
-    // 2136             hw->sgmii_active == FALSE)
-    // 2137                 return -E1000_ERR_CONFIG;
-    // 2138
-    // 2139         /*
-    // 2140          * On 82571 and 82572 Fiber connections, SerDes loopback mode
-    // 2141          * persists until explicitly turned off or a power cycle is
-    // 2142          * performed.  A read to the register does not indicate its status.
-    // 2143          * Therefore, we ensure loopback mode is disabled during
-    // 2144          * initialization.
-    // 2145          */
-    // 2146         if (hw->mac_type == em_82571 || hw->mac_type == em_82572 ||
-    // 2147             hw->mac_type >= em_82575)
-    // 2148                 E1000_WRITE_REG(hw, SCTL, E1000_DISABLE_SERDES_LOOPBACK);
-    // 2149
-    // 2150         if (hw->mac_type >= em_82575)
-    // 2151                 em_power_up_serdes_link_82575(hw);
-    // 2152
-    // 2153         /*
-    // 2154          * On adapters with a MAC newer than 82544, SWDP 1 will be set when
-    // 2155          * the optics detect a signal. On older adapters, it will be cleared
-    // 2156          * when there is a signal.  This applies to fiber media only. If
-    // 2157          * we're on serdes media, adjust the output amplitude to value set in
-    // 2158          * the EEPROM.
-    // 2159          */
-    // 2160         ctrl = E1000_READ_REG(hw, CTRL);
-    // 2161         if (hw->media_type == em_media_type_fiber)
-    // 2162                 signal = (hw->mac_type > em_82544) ? E1000_CTRL_SWDPIN1 : 0;
-    // 2163
-    // 2164         ret_val = em_adjust_serdes_amplitude(hw);
-    // 2165         if (ret_val)
-    // 2166                 return ret_val;
-    // 2167
-    // 2168         /* Take the link out of reset */
-    // 2169         ctrl &= ~(E1000_CTRL_LRST);
-    // 2170
-    // 2171         if (hw->mac_type >= em_82575) {
-    // 2172                 /* set both sw defined pins on 82575/82576*/
-    // 2173                 ctrl |= E1000_CTRL_SWDPIN0 | E1000_CTRL_SWDPIN1;
-    // 2174
-    // 2175                 ctrl_ext = E1000_READ_REG(hw, CTRL_EXT);
-    // 2176                 switch (ctrl_ext & E1000_CTRL_EXT_LINK_MODE_MASK) {
-    // 2177                 case E1000_CTRL_EXT_LINK_MODE_1000BASE_KX:
-    // 2178                 case E1000_CTRL_EXT_LINK_MODE_PCIE_SERDES:
-    // 2179                         /* the backplane is always connected */
-    // 2180                         reg = E1000_READ_REG(hw, PCS_LCTL);
-    // 2181                         reg |= E1000_PCS_LCTL_FORCE_FCTRL;
-    // 2182                         reg |= E1000_PCS_LCTL_FSV_1000 | E1000_PCS_LCTL_FDV_FULL;
-    // 2183                         reg |= E1000_PCS_LCTL_FSD;        /* Force Speed */
-    // 2184                         DEBUGOUT("Configuring Forced Link\n");
-    // 2185                         E1000_WRITE_REG(hw, PCS_LCTL, reg);
-    // 2186                         em_force_mac_fc(hw);
-    // 2187                         hw->autoneg_failed = 0;
-    // 2188                         return E1000_SUCCESS;
-    // 2189                         break;
-    // 2190                 default:
-    // 2191                         /* Set switch control to serdes energy detect */
-    // 2192                         reg = E1000_READ_REG(hw, CONNSW);
-    // 2193                         reg |= E1000_CONNSW_ENRGSRC;
-    // 2194                         E1000_WRITE_REG(hw, CONNSW, reg);
-    // 2195                         break;
-    // 2196                 }
-    // 2197         }
-    // 2198
-    // 2199         /* Adjust VCO speed to improve BER performance */
-    // 2200         ret_val = em_set_vco_speed(hw);
-    // 2201         if (ret_val)
-    // 2202                 return ret_val;
-    // 2203
-    // 2204         em_config_collision_dist(hw);
-    // 2205         /*
-    // 2206          * Check for a software override of the flow control settings, and
-    // 2207          * setup the device accordingly.  If auto-negotiation is enabled,
-    // 2208          * then software will have to set the "PAUSE" bits to the correct
-    // 2209          * value in the Tranmsit Config Word Register (TXCW) and re-start
-    // 2210          * auto-negotiation.  However, if auto-negotiation is disabled, then
-    // 2211          * software will have to manually configure the two flow control
-    // 2212          * enable bits in the CTRL register.
-    // 2213          *
-    // 2214          * The possible values of the "fc" parameter are: 0:  Flow control is
-    // 2215          * completely disabled 1:  Rx flow control is enabled (we can receive
-    // 2216          * pause frames, but not send pause frames). 2:  Tx flow control is
-    // 2217          * enabled (we can send pause frames but we do not support receiving
-    // 2218          * pause frames). 3:  Both Rx and TX flow control (symmetric) are
-    // 2219          * enabled.
-    // 2220          */
-    // 2221         switch (hw->fc) {
-    // 2222         case E1000_FC_NONE:
-    // 2223                 /*
-    // 2224                  * Flow control is completely disabled by a software
-    // 2225                  * over-ride.
-    // 2226                  */
-    // 2227                 txcw = (E1000_TXCW_ANE | E1000_TXCW_FD);
-    // 2228                 break;
-    // 2229         case E1000_FC_RX_PAUSE:
-    // 2230                 /*
-    // 2231                  * RX Flow control is enabled and TX Flow control is disabled
-    // 2232                  * by a software over-ride. Since there really isn't a way to
-    // 2233                  * advertise that we are capable of RX Pause ONLY, we will
-    // 2234                  * advertise that we support both symmetric and asymmetric RX
-    // 2235                  * PAUSE. Later, we will disable the adapter's ability to
-    // 2236                  * send PAUSE frames.
-    // 2237                  */
-    // 2238                 txcw = (E1000_TXCW_ANE | E1000_TXCW_FD |
-    // 2239                     E1000_TXCW_PAUSE_MASK);
-    // 2240                 break;
-    // 2241         case E1000_FC_TX_PAUSE:
-    // 2242                 /*
-    // 2243                  * TX Flow control is enabled, and RX Flow control is
-    // 2244                  * disabled, by a software over-ride.
-    // 2245                  */
-    // 2246                 txcw = (E1000_TXCW_ANE | E1000_TXCW_FD | E1000_TXCW_ASM_DIR);
-    // 2247                 break;
-    // 2248         case E1000_FC_FULL:
-    // 2249                 /*
-    // 2250                  * Flow control (both RX and TX) is enabled by a software
-    // 2251                  * over-ride.
-    // 2252                  */
-    // 2253                 txcw = (E1000_TXCW_ANE | E1000_TXCW_FD |
-    // 2254                     E1000_TXCW_PAUSE_MASK);
-    // 2255                 break;
-    // 2256         default:
-    // 2257                 DEBUGOUT("Flow control param set incorrectly\n");
-    // 2258                 return -E1000_ERR_CONFIG;
-    // 2259                 break;
-    // 2260         }
-    // 2261         /*
-    // 2262          * Since auto-negotiation is enabled, take the link out of reset (the
-    // 2263          * link will be in reset, because we previously reset the chip). This
-    // 2264          * will restart auto-negotiation.  If auto-negotiation is successful
-    // 2265          * then the link-up status bit will be set and the flow control
-    // 2266          * enable bits (RFCE and TFCE) will be set according to their
-    // 2267          * negotiated value.
-    // 2268          */
-    // 2269         DEBUGOUT("Auto-negotiation enabled\n");
-    // 2270
-    // 2271         E1000_WRITE_REG(hw, TXCW, txcw);
-    // 2272         E1000_WRITE_REG(hw, CTRL, ctrl);
-    // 2273         E1000_WRITE_FLUSH(hw);
-    // 2274
-    // 2275         hw->txcw = txcw;
-    // 2276         msec_delay(1);
-    // 2277         /*
-    // 2278          * If we have a signal (the cable is plugged in) then poll for a
-    // 2279          * "Link-Up" indication in the Device Status Register.  Time-out if a
-    // 2280          * link isn't seen in 500 milliseconds seconds (Auto-negotiation
-    // 2281          * should complete in less than 500 milliseconds even if the other
-    // 2282          * end is doing it in SW). For internal serdes, we just assume a
-    // 2283          * signal is present, then poll.
-    // 2284          */
-    // 2285         if (hw->media_type == em_media_type_internal_serdes ||
-    // 2286             (E1000_READ_REG(hw, CTRL) & E1000_CTRL_SWDPIN1) == signal) {
-    // 2287                 DEBUGOUT("Looking for Link\n");
-    // 2288                 for (i = 0; i < (LINK_UP_TIMEOUT / 10); i++) {
-    // 2289                         msec_delay(10);
-    // 2290                         status = E1000_READ_REG(hw, STATUS);
-    // 2291                         if (status & E1000_STATUS_LU)
-    // 2292                                 break;
-    // 2293                 }
-    // 2294                 if (i == (LINK_UP_TIMEOUT / 10)) {
-    // 2295                         DEBUGOUT("Never got a valid link from auto-neg!!!\n");
-    // 2296                         hw->autoneg_failed = 1;
-    // 2297                         /*
-    // 2298                          * AutoNeg failed to achieve a link, so we'll call
-    // 2299                          * em_check_for_link. This routine will force the
-    // 2300                          * link up if we detect a signal. This will allow us
-    // 2301                          * to communicate with non-autonegotiating link
-    // 2302                          * partners.
-    // 2303                          */
-    // 2304                         ret_val = em_check_for_link(hw);
-    // 2305                         if (ret_val) {
-    // 2306                                 DEBUGOUT("Error while checking for link\n");
-    // 2307                                 return ret_val;
-    // 2308                         }
-    // 2309                         hw->autoneg_failed = 0;
-    // 2310                 } else {
-    // 2311                         hw->autoneg_failed = 0;
-    // 2312                         DEBUGOUT("Valid Link Found\n");
-    // 2313                 }
-    // 2314         } else {
-    // 2315                 DEBUGOUT("No Signal Detected\n");
-    // 2316         }
-    // 2317         return E1000_SUCCESS;
-    // 2318 }
 
     /// Initializes receive address filters.
     ///

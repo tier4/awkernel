@@ -26,6 +26,7 @@ pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const PCS_CFG0: usize = 0x04200; // PCS Configuration 0 - RW
 pub const PCS_LCTL: usize = 0x04208; // PCS Link Control - RW
 pub const PCS_LSTAT: usize = 0x0420C; // PCS Link Status - RO
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
