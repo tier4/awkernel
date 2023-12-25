@@ -1754,12 +1754,35 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Configure the MAC-to-PHY interface for 10/100Mbps
     fn configure_kmrn_for_10_100(
         &mut self,
         info: &PCIeInfo,
         duplex: Duplex,
     ) -> Result<(), IgbDriverErr> {
-        todo!();
+        self.write_kmrn_reg(
+            info,
+            KUMCTRLSTA_OFFSET_HD_CTRL,
+            KUMCTRLSTA_HD_CTRL_10_100_DEFAULT,
+        )?;
+
+        // Configure Transmit Inter-Packet Gap
+        let mut tipg = read_reg(info, TIPG)?;
+        tipg &= !TIPG_IPGT_MASK;
+        tipg |= DEFAULT_80003ES2LAN_TIPG_IPGT_10_100;
+        write_reg(info, TIPG, tipg)?;
+
+        let mut reg_data = self.read_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL)?;
+
+        if duplex == Duplex::Half {
+            reg_data |= GG82563_KMCR_PASS_FALSE_CARRIER;
+        } else {
+            reg_data &= !GG82563_KMCR_PASS_FALSE_CARRIER;
+        }
+
+        self.write_phy_reg(info, GG82563_PHY_KMRN_MODE_CTRL, reg_data)?;
+
+        Ok(())
     }
 
     fn kumeran_lock_loss_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
