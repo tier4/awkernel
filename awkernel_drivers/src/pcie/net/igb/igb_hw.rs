@@ -1418,8 +1418,25 @@ impl IgbHw {
         Ok(())
     }
 
-    fn config_collision_dist(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    /// Sets the collision distance in the Transmit Control register
+    ///
+    /// Link should have been established previously. Reads the speed and duplex
+    /// information from the Device Status register.
+    fn config_collision_dist(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // todo
+        let col_dist = if (self.mac_type as u32) < MacType::Em82543 as u32 {
+            COLLISION_DISTANCE_82542
+        } else {
+            COLLISION_DISTANCE
+        };
+
+        let mut tctl = read_reg(info, TCTL)?;
+
+        tctl &= !TCTL_COLD;
+        tctl |= col_dist << COLD_SHIFT;
+
+        write_reg(info, TCTL, tctl)?;
+        write_flush(info)?;
 
         Ok(())
     }

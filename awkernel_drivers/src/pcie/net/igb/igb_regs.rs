@@ -122,6 +122,18 @@ pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
 
+// Collision related configuration parameters
+pub const COLLISION_THRESHOLD: u32 = 15;
+pub const CT_SHIFT: u32 = 4;
+
+// Collision distance is a 0-based value that applies to
+// half-duplex-capable hardware only.
+pub const COLLISION_DISTANCE: u32 = 63;
+pub const COLLISION_DISTANCE_82542: u32 = 64;
+pub const FDX_COLLISION_DISTANCE: u32 = COLLISION_DISTANCE;
+pub const HDX_COLLISION_DISTANCE: u32 = COLLISION_DISTANCE;
+pub const COLD_SHIFT: u32 = 12;
+
 // FEXTNVM registers
 pub const FEXTNVM7: usize = 0xe;
 pub const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
