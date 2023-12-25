@@ -754,6 +754,19 @@ pub const NWAY_AR_ASM_DIR: u16 = 0x0800; // Asymmetric Pause Direction bit
 pub const NWAY_AR_REMOTE_FAULT: u16 = 0x2000; // Remote Fault detected
 pub const NWAY_AR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
 
+// Link Partner Ability Register (Base Page)
+pub const NWAY_LPAR_SELECTOR_FIELD: u16 = 0x0000; // LP protocol selector field
+pub const NWAY_LPAR_10T_HD_CAPS: u16 = 0x0020; // LP is 10T   Half Duplex Capable
+pub const NWAY_LPAR_10T_FD_CAPS: u16 = 0x0040; // LP is 10T   Full Duplex Capable
+pub const NWAY_LPAR_100TX_HD_CAPS: u16 = 0x0080; // LP is 100TX Half Duplex Capable
+pub const NWAY_LPAR_100TX_FD_CAPS: u16 = 0x0100; // LP is 100TX Full Duplex Capable
+pub const NWAY_LPAR_100T4_CAPS: u16 = 0x0200; // LP is 100T4 Capable
+pub const NWAY_LPAR_PAUSE: u16 = 0x0400; // LP Pause operation desired
+pub const NWAY_LPAR_ASM_DIR: u16 = 0x0800; // LP Asymmetric Pause Direction bit
+pub const NWAY_LPAR_REMOTE_FAULT: u16 = 0x2000; // LP has detected Remote Fault
+pub const NWAY_LPAR_ACKNOWLEDGE: u16 = 0x4000; // LP has rx'd link code word
+pub const NWAY_LPAR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
+
 // PHY Control Register
 pub const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; // Collision test enable
 pub const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10

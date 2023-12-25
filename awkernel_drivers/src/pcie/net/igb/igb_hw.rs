@@ -402,6 +402,19 @@ bitflags! {
 const PHY_CFG_TIMEOUT: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Speed {
+    S10Mbps = 10,
+    S100Mbps = 100,
+    S1000Mbps = 1000,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Duplex {
+    Half,
+    Full,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
     Copper,
     Fiber,
@@ -539,6 +552,7 @@ pub struct IgbHw {
     original_master_slave: MSType,
     ffe_config_state: FfeConfig,
     get_link_status: bool,
+    autoneg_failed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1045,6 +1059,7 @@ impl IgbHw {
             original_master_slave: MSType::Default,
             ffe_config_state: FfeConfig::Enabled,
             get_link_status: false,
+            autoneg_failed: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1423,7 +1438,6 @@ impl IgbHw {
     /// Link should have been established previously. Reads the speed and duplex
     /// information from the Device Status register.
     fn config_collision_dist(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo
         let col_dist = if (self.mac_type as u32) < MacType::Em82543 as u32 {
             COLLISION_DISTANCE_82542
         } else {
@@ -1485,10 +1499,133 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Configures flow control settings after link is established
+    ///
+    /// Should be called immediately after a valid link has been established.
+    /// Forces MAC flow control settings if link was forced. When in MII/GMII mode
+    /// and autonegotiation is enabled, the MAC flow control settings will be set
+    /// based on the flow control negotiated by the PHY. In TBI mode, the TFCE
+    /// and RFCE bits will be automatically set to the negotiated flow control mode.
     fn config_fc_after_link_up(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // Check for the case where we have fiber media and auto-neg failed
+        // so we had to force link.  In this case, we need to force the
+        // configuration of the MAC to match the "fc" parameter.
+        if (self.media_type == MediaType::Fiber && self.autoneg_failed)
+            || (self.media_type == MediaType::InternalSerdes && self.autoneg_failed)
+            || (self.media_type == MediaType::Copper && !self.autoneg)
+            || (self.media_type == MediaType::OEM && !self.autoneg)
+        {
+            self.force_mac_fc(info)?;
+        }
+
+        // Check for the case where we have copper media and auto-neg is
+        // enabled.  In this case, we need to check and see if Auto-Neg has
+        // completed, and if so, how the PHY and link partner has flow
+        // control configured.
+        if matches!(self.media_type, MediaType::Copper | MediaType::OEM) && self.autoneg {
+            // Read the MII Status Register and check to see if AutoNeg
+            // has completed.  We read this twice because this reg has
+            // some "sticky" (latched) bits.
+            self.read_phy_reg(info, PHY_STATUS)?;
+            let mii_status_reg = self.read_phy_reg(info, PHY_STATUS)?;
+
+            if mii_status_reg & MII_SR_AUTONEG_COMPLETE != 0 {
+                // The AutoNeg process has completed, so we now need
+                // to read both the Auto Negotiation Advertisement
+                // Register (Address 4) and the Auto_Negotiation Base
+                // Page Ability Register (Address 5) to determine how
+                // flow control was negotiated.
+                let mii_nway_adv_reg = self.read_phy_reg(info, PHY_AUTONEG_ADV)?;
+                let mii_nway_lp_ability_reg = self.read_phy_reg(info, PHY_LP_ABILITY)?;
+
+                // Two bits in the Auto Negotiation Advertisement
+                // Register (Address 4) and two bits in the Auto
+                // Negotiation Base Page Ability Register (Address 5)
+                // determine flow control for both the PHY and the
+                // link partner.  The following table, taken out of
+                // the IEEE 802.3ab/D6.0 dated March 25, 1999,
+                // describes these PAUSE resolution bits and how flow
+                // control is determined based upon these settings.
+                // NOTE:  DC = Don't Care
+                //
+                //   LOCAL DEVICE   |   LINK PARTNER  |
+                //  PAUSE | ASM_DIR | PAUSE | ASM_DIR | NIC Resolution
+                // -------|---------|-------|---------|---------------
+                //    0   |    0    |  DC   |   DC    | em_fc_none
+                //    0   |    1    |   0   |   DC    | em_fc_none
+                //    0   |    1    |   1   |    0    | em_fc_none
+                //    0   |    1    |   1   |    1    | em_fc_tx_pause
+                //    1   |    0    |   0   |   DC    | em_fc_none
+                //    1   |   DC    |   1   |   DC    | em_fc_full
+                //    1   |    1    |   0   |    0    | em_fc_none
+                //    1   |    1    |   0   |    1    | em_fc_rx_pause
+
+                // Are both PAUSE bits set to 1?  If so, this implies
+                // Symmetric Flow Control is enabled at both ends.
+                // The ASM_DIR bits are irrelevant per the spec.
+                //
+                // For Symmetric Flow Control:
+                //
+                //   LOCAL DEVICE  |   LINK PARTNER
+                // PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+                // -------|---------|-------|---------|---------------
+                //    1   |   DC    |   1   |   DC    | em_fc_full
+                if (mii_nway_adv_reg & NWAY_AR_PAUSE) != 0
+                    && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE) != 0
+                {
+                    // Now we need to check if the user selected
+                    // RX ONLY of pause frames.  In this case, we
+                    // had to advertise FULL flow control because
+                    // we could not advertise RX ONLY. Hence, we
+                    // must now check to see if we need to turn
+                    // OFF  the TRANSMISSION of PAUSE frames.
+                    if self.original_fc == FC_FULL {
+                        self.fc = FC_FULL;
+                    } else {
+                        self.fc = FC_RX_PAUSE;
+                    }
+                } else if (mii_nway_adv_reg & NWAY_AR_PAUSE == 0)
+                    && (mii_nway_adv_reg & NWAY_AR_ASM_DIR != 0)
+                    && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE != 0)
+                    && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
+                {
+                    self.fc = FC_TX_PAUSE;
+                } else if (mii_nway_adv_reg & NWAY_AR_PAUSE != 0)
+                    && (mii_nway_adv_reg & NWAY_AR_ASM_DIR != 0)
+                    && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE == 0)
+                    && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
+                {
+                    self.fc = FC_RX_PAUSE;
+                } else {
+                    self.fc = FC_RX_PAUSE;
+                }
+
+                // Now we need to do one last check...  If we auto-
+                // negotiated to HALF DUPLEX, flow control should not
+                // be enabled per IEEE 802.3 spec.
+                let (_speed, duplex) = self.get_speed_and_duplex(info)?;
+                if duplex == Duplex::Half {
+                    self.fc = FC_NONE;
+                }
+
+                // Now we call a subroutine to actually force the MAC
+                // controller to use the correct flow control
+                // settings.
+                self.force_mac_fc(info)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn force_mac_fc(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // todo
 
         Ok(())
+    }
+
+    fn get_speed_and_duplex(&mut self, info: &PCIeInfo) -> Result<(Speed, Duplex), IgbDriverErr> {
+        todo!()
     }
 
     fn config_dsp_after_link_change(
