@@ -1391,10 +1391,93 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Config the MAC and the PHY after link is up.
+    ///   1) Set up the MAC to the current PHY speed/duplex
+    ///      if we are on 82543.  If we
+    ///      are on newer silicon, we only need to configure
+    ///      collision distance in the Transmit Control Register.
+    ///   2) Set up flow control on the MAC to that established with
+    ///      the link partner.
+    ///   3) Config DSP to improve Gigabit link quality for some PHY revisions.
     fn copper_link_postconfig(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo!();
+        use MacType::*;
+
+        if (self.mac_type as u32) >= Em82544 as u32 && self.mac_type != EmICPxxxx {
+            self.config_collision_dist(info)?;
+        } else {
+            self.config_mac_to_phy(info)?;
+        }
+
+        self.config_fc_after_link_up(info)?;
+
+        // Config DSP to improve Giga link quality
+        if self.phy_type == PhyType::Igp {
+            self.config_dsp_after_link_change(info, true)?;
+        }
+
         Ok(())
     }
+
+    fn config_collision_dist(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // todo
+
+        Ok(())
+    }
+
+    fn config_mac_to_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // todo
+
+        Ok(())
+    }
+
+    fn config_fc_after_link_up(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // todo
+
+        Ok(())
+    }
+
+    fn config_dsp_after_link_change(
+        &mut self,
+        info: &PCIeInfo,
+        _link_up: bool,
+    ) -> Result<(), IgbDriverErr> {
+        // todo
+
+        Ok(())
+    }
+
+    //     3129 int32_t
+    // 3130 em_copper_link_postconfig(struct em_hw *hw)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 3131 {
+    // 3132         int32_t ret_val;
+    // 3133         DEBUGFUNC("em_copper_link_postconfig");
+    // 3134
+    // 3135         if (hw->mac_type >= em_82544 &&
+    // 3136             hw->mac_type != em_icp_xxxx) {
+    // 3137                 em_config_collision_dist(hw);
+    // 3138         } else {
+    // 3139                 ret_val = em_config_mac_to_phy(hw);
+    // 3140                 if (ret_val) {
+    // 3141                         DEBUGOUT("Error configuring MAC to PHY settings\n");
+    // 3142                         return ret_val;
+    // 3143                 }
+    // 3144         }
+    // 3145         ret_val = em_config_fc_after_link_up(hw);
+    // 3146         if (ret_val) {
+    // 3147                 DEBUGOUT("Error Configuring Flow Control\n");
+    // 3148                 return ret_val;
+    // 3149         }
+    // 3150         /* Config DSP to improve Giga link quality */
+    // 3151         if (hw->phy_type == em_phy_igp) {
+    // 3152                 ret_val = em_config_dsp_after_link_change(hw, TRUE);
+    // 3153                 if (ret_val) {
+    // 3154                         DEBUGOUT("Error Configuring DSP after link up\n");
+    // 3155                         return ret_val;
+    // 3156                 }
+    // 3157         }
+    // 3158         return E1000_SUCCESS;
+    // 3159 }
 
     fn phy_force_speed_duplex(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // todo!();
