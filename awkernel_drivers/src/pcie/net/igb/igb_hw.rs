@@ -1785,8 +1785,50 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Work-around for 82566 Kumeran PCS lock loss:
+    /// On link status change (i.e. PCI reset, speed change) and link is up and
+    /// speed is gigabit-
+    /// 0) if workaround is optionally disabled do nothing
+    /// 1) wait 1ms for Kumeran link to come up
+    /// 2) check Kumeran Diagnostic register PCS lock loss bit
+    /// 3) if not set the link is locked (all is good), otherwise...
+    /// 4) reset the PHY
+    /// 5) repeat up to 10 times
+    /// Note: this is only called for IGP3 copper when speed is 1gb.
     fn kumeran_lock_loss_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!();
+        // Make sure link is up before proceeding.  If not just return.
+        // Attempting this while link is negotiating fouled up link stability
+        self.read_phy_reg(info, PHY_STATUS)?;
+        let phy_data = self.read_phy_reg(info, PHY_STATUS)?;
+
+        if phy_data & MII_SR_LINK_STATUS != 0 {
+            for _ in 0..10 {
+                // read once to clear
+                self.read_phy_reg(info, IGP3_KMRN_DIAG)?;
+
+                // and again to get new status
+                let phy_data = self.read_phy_reg(info, IGP3_KMRN_DIAG)?;
+
+                // check for PCS lock
+                if phy_data & IGP3_KMRN_DIAG_PCS_LOCK_LOSS == 0 {
+                    return Ok(());
+                }
+
+                // Issue PHY reset
+                self.phy_hw_reset(info)?;
+                awkernel_lib::delay::wait_millisec(5);
+            }
+
+            // Disable GigE link negotiation
+            let mut reg = read_reg(info, PHY_CTRL as usize)?;
+            reg |= PHY_CTRL_GBE_DISABLE | PHY_CTRL_NOND0A_GBE_DISABLE;
+            write_reg(info, PHY_CTRL as usize, reg)?;
+
+            // unable to acquire PCS lock
+            return Err(IgbDriverErr::Phy);
+        }
+
+        Ok(())
     }
 
     fn config_dsp_after_link_change(

@@ -1224,7 +1224,10 @@ pub const KUMCTRLSTA_HD_CTRL_1000_DEFAULT: u16 = 0x00000000;
 pub const KUMCTRLSTA_FIFO_CTRL_RX_BYPASS: u16 = 0x00000008;
 pub const KUMCTRLSTA_FIFO_CTRL_TX_BYPASS: u16 = 0x00000800;
 
+pub const IGP3_KMRN_DIAG: u32 = phy_reg(770, 19); // KMRN Diagnostic register
 pub const IGP3_KMRN_POWER_MNG_CTRL: u32 = phy_reg(770, 17); // KMRN Power Management Control Register
+
+pub const IGP3_KMRN_DIAG_PCS_LOCK_LOSS: u16 = 0x0002; // RX PCS is not synced
 
 // I217 definitions
 pub const I2_DFT_CTRL: u32 = phy_reg(769, 20);
