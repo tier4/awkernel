@@ -1441,8 +1441,46 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Sets MAC speed and duplex settings to reflect the those in the PHY
+    ///
+    /// The contents of the PHY register containing the needed information need to
+    /// be passed in.
     fn config_mac_to_phy(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo
+        // 82544 or newer MAC, Auto Speed Detection takes care of MAC
+        // speed/duplex configuration.
+        if (self.mac_type as u32) >= MacType::Em82544 as u32 && self.mac_type != MacType::EmICPxxxx
+        {
+            return Ok(());
+        }
+
+        // Read the Device Control Register and set the bits to Force Speed
+        // and Duplex.
+        let mut ctrl = read_reg(info, CTRL)?;
+        ctrl |= CTRL_FRCSPD | CTRL_FRCDPX;
+        ctrl &= !(CTRL_SPD_SEL | CTRL_ILOS);
+
+        // Set up duplex in the Device Control and Transmit Control registers
+        // depending on negotiated values.
+        let phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_STATUS)?;
+
+        if phy_data & M88E1000_PSSR_DPLX != 0 {
+            ctrl |= CTRL_FD;
+        } else {
+            ctrl &= !CTRL_FD;
+        }
+
+        self.config_collision_dist(info)?;
+
+        // Set up speed in the Device Control register depending on
+        // negotiated values.
+        if phy_data & M88E1000_PSSR_SPEED == M88E1000_PSSR_1000MBS {
+            ctrl |= CTRL_SPD_1000;
+        } else if phy_data & M88E1000_PSSR_SPEED == M88E1000_PSSR_100MBS {
+            ctrl |= CTRL_SPD_100;
+        }
+
+        // Write the configured values back to the Device Control Reg.
+        write_reg(info, CTRL, ctrl)?;
 
         Ok(())
     }

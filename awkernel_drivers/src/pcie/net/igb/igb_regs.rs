@@ -100,7 +100,12 @@ pub const GCR_CMPL_TMOUT_10_MS: u32 = 0x00001000;
 pub const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
 pub const GCR_CAP_VER2: u32 = 0x00040000;
 
+pub const CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
 pub const CTRL_SLU: u32 = 0x00000040; // Set link up (Force Link)
+pub const CTRL_ILOS: u32 = 0x00000080; // Invert Loss-Of Signal
+pub const CTRL_SPD_100: u32 = 0x00000100; // Force 100Mb
+pub const CTRL_SPD_1000: u32 = 0x00000200; // Force 1Gb
+pub const CTRL_SPD_SEL: u32 = 0x00000300; // Speed Select Mask
 pub const CTRL_FRCSPD: u32 = 0x00000800; // Force Speed
 pub const CTRL_FRCDPX: u32 = 0x00001000; // Force Duplex
 pub const CTRL_RST: u32 = 1 << 26;
@@ -530,6 +535,26 @@ pub const M88E1000_PSCR_MII_5BIT_ENABLE: u16 = 0x0100; // 1=5-Bit interface in 1
 pub const M88E1000_PSCR_SCRAMBLER_DISABLE: u16 = 0x0200; // 1=Scrambler disable
 pub const M88E1000_PSCR_FORCE_LINK_GOOD: u16 = 0x0400; // 1=Force link good
 pub const M88E1000_PSCR_ASSERT_CRS_ON_TX: u16 = 0x0800; // 1=Assert CRS on Transmit
+
+// M88E1000 PHY Specific Status Register
+pub const M88E1000_PSSR_JABBER: u16 = 0x0001; // 1=Jabber
+pub const M88E1000_PSSR_REV_POLARITY: u16 = 0x0002; // 1=Polarity reversed
+pub const M88E1000_PSSR_DOWNSHIFT: u16 = 0x0020; // 1=Downshifted
+pub const M88E1000_PSSR_MDIX: u16 = 0x0040; // 1=MDIX; 0=MDI
+pub const M88E1000_PSSR_CABLE_LENGTH: u16 = 0x0380; // 0=<50M;1=50-80M;2=80-110M; 3=110-140M;4=>140M
+pub const M88E1000_PSSR_LINK: u16 = 0x0400; // 1=Link up, 0=Link down
+pub const M88E1000_PSSR_SPD_DPLX_RESOLVED: u16 = 0x0800; // 1=Speed & Duplex resolved
+pub const M88E1000_PSSR_PAGE_RCVD: u16 = 0x1000; // 1=Page received
+pub const M88E1000_PSSR_DPLX: u16 = 0x2000; // 1=Duplex 0=Half Duplex
+pub const M88E1000_PSSR_SPEED: u16 = 0xC000; // Speed, bits 14:15
+pub const M88E1000_PSSR_10MBS: u16 = 0x0000; // 00=10Mbs
+pub const M88E1000_PSSR_100MBS: u16 = 0x4000; // 01=100Mbs
+pub const M88E1000_PSSR_1000MBS: u16 = 0x8000; // 10=1000Mbs
+
+pub const M88E1000_PSSR_REV_POLARITY_SHIFT: u16 = 1;
+pub const M88E1000_PSSR_DOWNSHIFT_SHIFT: u16 = 5;
+pub const M88E1000_PSSR_MDIX_SHIFT: u16 = 6;
+pub const M88E1000_PSSR_CABLE_LENGTH_SHIFT: u16 = 7;
 
 // M88E1141 specific
 pub const M88E1000_EPSCR_TX_TIME_CTRL: u16 = 0x0002; // Add Delay
