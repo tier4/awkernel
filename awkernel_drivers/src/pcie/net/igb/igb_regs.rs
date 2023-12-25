@@ -693,8 +693,8 @@ pub const PHY_AUTO_NEG_TIME: u32 = 45; // 4.5 Seconds
 pub const PHY_FORCE_TIME: u32 = 20; // 2.0 Seconds
 pub const PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
 pub const DEVICE_SPEED_MASK: u32 = 0x00000300; // Device Ctrl Reg Speed Mask
-pub const REG4_SPEED_MASK: u32 = 0x01E0;
-pub const REG9_SPEED_MASK: u32 = 0x0300;
+pub const REG4_SPEED_MASK: u16 = 0x01E0;
+pub const REG9_SPEED_MASK: u16 = 0x0300;
 pub const ADVERTISE_10_HALF: u32 = 0x0001;
 pub const ADVERTISE_10_FULL: u32 = 0x0002;
 pub const ADVERTISE_100_HALF: u32 = 0x0004;
@@ -704,6 +704,18 @@ pub const ADVERTISE_1000_FULL: u32 = 0x0020;
 pub const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = 0x002F; // Everything but 1000-Half
 pub const AUTONEG_ADVERTISE_10_100_ALL: u32 = 0x000F; // All 10/100 speeds
 pub const AUTONEG_ADVERTISE_10_ALL: u32 = 0x0003; // 10Mbps Full & Half speeds
+
+// Autoneg Advertisement Register
+pub const NWAY_AR_SELECTOR_FIELD: u16 = 0x0001; // indicates IEEE 802.3 CSMA/CD
+pub const NWAY_AR_10T_HD_CAPS: u16 = 0x0020; // 10T   Half Duplex Capable
+pub const NWAY_AR_10T_FD_CAPS: u16 = 0x0040; // 10T   Full Duplex Capable
+pub const NWAY_AR_100TX_HD_CAPS: u16 = 0x0080; // 100TX Half Duplex Capable
+pub const NWAY_AR_100TX_FD_CAPS: u16 = 0x0100; // 100TX Full Duplex Capable
+pub const NWAY_AR_100T4_CAPS: u16 = 0x0200; // 100T4 Capable
+pub const NWAY_AR_PAUSE: u16 = 0x0400; // Pause operation desired
+pub const NWAY_AR_ASM_DIR: u16 = 0x0800; // Asymmetric Pause Direction bit
+pub const NWAY_AR_REMOTE_FAULT: u16 = 0x2000; // Remote Fault detected
+pub const NWAY_AR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
 
 // PHY Control Register
 pub const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; // Collision test enable

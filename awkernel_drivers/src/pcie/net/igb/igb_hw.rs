@@ -1433,8 +1433,113 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Configures PHY autoneg and flow control advertisement settings
     fn phy_setup_autoneg(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // todo!();
+        // Read the MII Auto-Neg Advertisement Register (Address 4).
+        let mut mii_autoneg_adv_reg = self.read_phy_reg(info, PHY_AUTONEG_ADV)?;
+
+        let mut mii_1000t_ctrl_reg = if self.phy_type != PhyType::Ife {
+            // Read the MII 1000Base-T Control Register (Address 9).
+            self.read_phy_reg(info, PHY_1000T_CTRL)?
+        } else {
+            0
+        };
+
+        // Need to parse both autoneg_advertised and fc and set up the
+        // appropriate PHY registers.  First we will parse for
+        // autoneg_advertised software override.  Since we can advertise a
+        // plethora of combinations, we need to check each bit individually.
+
+        // First we clear all the 10/100 mb speed bits in the Auto-Neg
+        // Advertisement Register (Address 4) and the 1000 mb speed bits in
+        // the  1000Base-T Control Register (Address 9).
+        mii_autoneg_adv_reg &= !REG4_SPEED_MASK;
+        mii_1000t_ctrl_reg &= !REG9_SPEED_MASK;
+
+        // Do we want to advertise 10 Mb Half Duplex?
+        if self.autoneg_advertised & ADVERTISE_10_HALF != 0 {
+            mii_autoneg_adv_reg |= NWAY_AR_10T_HD_CAPS;
+        }
+
+        // Do we want to advertise 10 Mb Full Duplex?
+        if self.autoneg_advertised & ADVERTISE_10_FULL != 0 {
+            mii_autoneg_adv_reg |= NWAY_AR_10T_FD_CAPS;
+        }
+
+        // Do we want to advertise 100 Mb Half Duplex?
+        if self.autoneg_advertised & ADVERTISE_100_HALF != 0 {
+            mii_autoneg_adv_reg |= NWAY_AR_100TX_HD_CAPS;
+        }
+
+        // Do we want to advertise 100 Mb Full Duplex?
+        if self.autoneg_advertised & ADVERTISE_100_FULL != 0 {
+            mii_autoneg_adv_reg |= NWAY_AR_100TX_FD_CAPS;
+        }
+
+        // We do not allow the Phy to advertise 1000 Mb Half Duplex
+        if self.autoneg_advertised & ADVERTISE_1000_HALF != 0 {
+            log::warn!("Advertise 1000mb Half duplex requested, request denied!");
+        }
+
+        // Do we want to advertise 1000 Mb Full Duplex?
+        if self.autoneg_advertised & ADVERTISE_1000_FULL != 0 {
+            mii_1000t_ctrl_reg |= CR_1000T_FD_CAPS;
+            if self.phy_type == PhyType::Ife {
+                log::warn!("PhyType::Ife is a 10/100 PHY. Gigabit speed is not supported.");
+            }
+        }
+
+        // Check for a software override of the flow control settings, and
+        // setup the PHY advertisement registers accordingly.  If
+        // auto-negotiation is enabled, then software will have to set the
+        // "PAUSE" bits to the correct value in the Auto-Negotiation
+        // Advertisement Register (PHY_AUTONEG_ADV) and re-start
+        // auto-negotiation.
+        //
+        // The possible values of the "fc" parameter are: 0:  Flow control is
+        // completely disabled 1:  Rx flow control is enabled (we can receive
+        // pause frames but not send pause frames). 2:  Tx flow control is
+        // enabled (we can send pause frames but we do not support receiving
+        // pause frames). 3:  Both Rx and TX flow control (symmetric) are
+        // enabled. other:  No software override.  The flow control
+        // configuration in the EEPROM is used.
+
+        match self.fc {
+            FC_NONE => {
+                // Flow control is completely disabled.
+                mii_autoneg_adv_reg &= !(NWAY_AR_ASM_DIR | NWAY_AR_PAUSE);
+            }
+            FC_RX_PAUSE => {
+                // RX Flow control is enabled, and TX Flow control is
+                // disabled, by a software over-ride.
+                //
+                // Since there really isn't a way to advertise that we are
+                // capable of RX Pause ONLY, we will advertise that we
+                // support both symmetric and asymmetric RX PAUSE.  Later (in
+                // em_config_fc_after_link_up) we will disable the hw's
+                // ability to send PAUSE frames.
+                mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR | NWAY_AR_PAUSE;
+            }
+            FC_TX_PAUSE => {
+                // TX Flow control is enabled, and RX Flow control is
+                // disabled, by a software over-ride.
+                mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR;
+                mii_autoneg_adv_reg &= !NWAY_AR_PAUSE;
+            }
+            FC_FULL => {
+                // Flow control is enabled, both TX and RX, by a software
+                // over-ride.
+                mii_autoneg_adv_reg |= NWAY_AR_ASM_DIR | NWAY_AR_PAUSE;
+            }
+            _ => return Err(IgbDriverErr::Config),
+        }
+
+        self.write_phy_reg(info, PHY_AUTONEG_ADV, mii_autoneg_adv_reg)?;
+
+        if self.phy_type != PhyType::Ife {
+            self.write_phy_reg(info, PHY_1000T_CTRL, mii_1000t_ctrl_reg)?;
+        }
+
         Ok(())
     }
 
