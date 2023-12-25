@@ -976,6 +976,9 @@ pub const EEPROM_CFG: u32 = 0x0012;
 pub const EEPROM_FLASH_VERSION: u32 = 0x0032;
 pub const EEPROM_CHECKSUM_REG: u32 = 0x003F;
 
+// Mask bits for SERDES amplitude adjustment in Word 6 of the EEPROM
+pub const EEPROM_SERDES_AMPLITUDE_MASK: u16 = 0x000F;
+
 pub const EEPROM_CHECKSUM_REG_ICP_XXXX: u32 = EEPROM_CHECKSUM_REG;
 
 pub const EEPROM_COMPAT_VALID_CSUM: u16 = 0x0001;

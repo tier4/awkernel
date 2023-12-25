@@ -2846,8 +2846,28 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Adjust SERDES output amplitude based on EEPROM setting.
     fn adjust_serdes_amplitude(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        todo!()
+        if self.media_type != MediaType::InternalSerdes
+            || (self.mac_type as u32) >= MacType::Em82575 as u32
+        {
+            return Ok(());
+        }
+
+        if !matches!(self.mac_type, MacType::Em82545Rev3 | MacType::Em82546Rev3) {
+            return Ok(());
+        }
+
+        let mut eeprom_data = [0; 1];
+        self.read_eeprom(info, EEPROM_SERDES_AMPLITUDE, &mut eeprom_data)?;
+
+        if eeprom_data[0] != EEPROM_RESERVED_WORD {
+            // Adjust SERDES output amplitude only.
+            eeprom_data[0] &= EEPROM_SERDES_AMPLITUDE_MASK;
+            self.write_phy_reg(info, M88E1000_PHY_EXT_CTRL, eeprom_data[0])?;
+        }
+
+        Ok(())
     }
 
     fn set_vco_speed(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
