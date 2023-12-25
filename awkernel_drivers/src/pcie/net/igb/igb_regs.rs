@@ -767,6 +767,13 @@ pub const NWAY_LPAR_REMOTE_FAULT: u16 = 0x2000; // LP has detected Remote Fault
 pub const NWAY_LPAR_ACKNOWLEDGE: u16 = 0x4000; // LP has rx'd link code word
 pub const NWAY_LPAR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
 
+// Autoneg Expansion Register
+pub const NWAY_ER_LP_NWAY_CAPS: u16 = 0x0001; // LP has Auto Neg Capability
+pub const NWAY_ER_PAGE_RXD: u16 = 0x0002; // LP is 10T   Half Duplex Capable
+pub const NWAY_ER_NEXT_PAGE_CAPS: u16 = 0x0004; // LP is 10T   Full Duplex Capable
+pub const NWAY_ER_LP_NEXT_PAGE_CAPS: u16 = 0x0008; // LP is 100TX Half Duplex Capable
+pub const NWAY_ER_PAR_DETECT_FAULT: u16 = 0x0010; // LP is 100TX Full Duplex Capable
+
 // PHY Control Register
 pub const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; // Collision test enable
 pub const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10

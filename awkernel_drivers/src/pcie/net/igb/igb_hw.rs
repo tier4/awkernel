@@ -553,6 +553,7 @@ pub struct IgbHw {
     ffe_config_state: FfeConfig,
     get_link_status: bool,
     autoneg_failed: bool,
+    speed_downgraded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1060,6 +1061,7 @@ impl IgbHw {
             ffe_config_state: FfeConfig::Enabled,
             get_link_status: false,
             autoneg_failed: false,
+            speed_downgraded: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1624,8 +1626,94 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Detects the current speed and duplex settings of the hardware.
     fn get_speed_and_duplex(&mut self, info: &PCIeInfo) -> Result<(Speed, Duplex), IgbDriverErr> {
-        todo!()
+        use MacType::*;
+
+        if (self.mac_type as u32) >= Em82575 as u32 && self.media_type != MediaType::Copper {
+            return self.get_pcs_speed_and_duplex_82575(info);
+        }
+
+        let (speed, duplex) = if (self.mac_type as u32) >= Em82543 as u32 {
+            let status = read_reg(info, STATUS)?;
+            let speed = if status & STATUS_SPEED_1000 != 0 {
+                Speed::S1000Mbps
+            } else if status & STATUS_SPEED_100 != 0 {
+                Speed::S100Mbps
+            } else {
+                Speed::S10Mbps
+            };
+
+            let duplex = if status & STATUS_FD != 0 {
+                Duplex::Full
+            } else {
+                Duplex::Half
+            };
+            (speed, duplex)
+        } else {
+            (Speed::S1000Mbps, Duplex::Full)
+        };
+
+        // IGP01 PHY may advertise full duplex operation after speed
+        // downgrade even if it is operating at half duplex.  Here we set the
+        // duplex settings to match the duplex in the link partner's
+        // capabilities.
+        let duplex = if self.phy_type == PhyType::Igp && self.speed_downgraded {
+            let phy_data = self.read_phy_reg(info, PHY_AUTONEG_EXP)?;
+
+            if phy_data & NWAY_ER_LP_NWAY_CAPS == 0 {
+                Duplex::Half
+            } else {
+                let phy_data = self.read_phy_reg(info, PHY_LP_ABILITY)?;
+                if (speed == Speed::S100Mbps && phy_data & NWAY_LPAR_100TX_FD_CAPS == 0)
+                    || (speed == Speed::S10Mbps && phy_data & NWAY_LPAR_10T_FD_CAPS == 0)
+                {
+                    Duplex::Half
+                } else {
+                    duplex
+                }
+            }
+        } else {
+            duplex
+        };
+
+        if self.mac_type == Em80003es2lan && self.media_type == MediaType::Copper {
+            if speed == Speed::S1000Mbps {
+                self.configure_kmrn_for_1000(info)?;
+            } else {
+                self.configure_kmrn_for_10_100(info, duplex)?;
+            }
+        }
+
+        if self.mac_type == EmIch8lan && self.phy_type == PhyType::Igp3 && speed == Speed::S1000Mbps
+        {
+            self.kumeran_lock_loss_workaround(info)?;
+        }
+
+        Ok((speed, duplex))
+    }
+
+    fn get_pcs_speed_and_duplex_82575(
+        &mut self,
+        info: &PCIeInfo,
+    ) -> Result<(Speed, Duplex), IgbDriverErr> {
+        todo!();
+    }
+
+    fn configure_kmrn_for_1000(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn configure_kmrn_for_10_100(
+        &mut self,
+        info: &PCIeInfo,
+        duplex: Duplex,
+    ) -> Result<(), IgbDriverErr> {
+        todo!();
+    }
+
+    fn kumeran_lock_loss_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        todo!();
     }
 
     fn config_dsp_after_link_change(
@@ -1637,39 +1725,6 @@ impl IgbHw {
 
         Ok(())
     }
-
-    //     3129 int32_t
-    // 3130 em_copper_link_postconfig(struct em_hw *hw)
-    //      /* [previous][next][first][last][top][bottom][index][help]  */
-    // 3131 {
-    // 3132         int32_t ret_val;
-    // 3133         DEBUGFUNC("em_copper_link_postconfig");
-    // 3134
-    // 3135         if (hw->mac_type >= em_82544 &&
-    // 3136             hw->mac_type != em_icp_xxxx) {
-    // 3137                 em_config_collision_dist(hw);
-    // 3138         } else {
-    // 3139                 ret_val = em_config_mac_to_phy(hw);
-    // 3140                 if (ret_val) {
-    // 3141                         DEBUGOUT("Error configuring MAC to PHY settings\n");
-    // 3142                         return ret_val;
-    // 3143                 }
-    // 3144         }
-    // 3145         ret_val = em_config_fc_after_link_up(hw);
-    // 3146         if (ret_val) {
-    // 3147                 DEBUGOUT("Error Configuring Flow Control\n");
-    // 3148                 return ret_val;
-    // 3149         }
-    // 3150         /* Config DSP to improve Giga link quality */
-    // 3151         if (hw->phy_type == em_phy_igp) {
-    // 3152                 ret_val = em_config_dsp_after_link_change(hw, TRUE);
-    // 3153                 if (ret_val) {
-    // 3154                         DEBUGOUT("Error Configuring DSP after link up\n");
-    // 3155                         return ret_val;
-    // 3156                 }
-    // 3157         }
-    // 3158         return E1000_SUCCESS;
-    // 3159 }
 
     fn phy_force_speed_duplex(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // todo!();
