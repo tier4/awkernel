@@ -1,6 +1,7 @@
 pub const CTRL: usize = 0x00000; // Device Control Register
 pub const EECD: usize = 0x00010; // EEPROM Control Register
 pub const EERD: usize = 0x00014; // EEPROM Read Register
+pub const SCTL: usize = 0x00024; // SerDes Control - RW
 pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
 pub const FEXTNVM3: usize = 0x0003C; // Future Extended NVM 3 - RW
 pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
@@ -10,11 +11,13 @@ pub const VET: usize = 0x00038; // VLAN Ether Type - RW
 pub const FCAL: usize = 0x00028; // Flow Control Address Low - RW
 pub const FCAH: usize = 0x0002C; // Flow Control Address High -RW
 pub const FCT: usize = 0x00030; // Flow Control Type - RW
+pub const CONNSW: usize = 0x00034; // Copper/Fiber switch control - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
 pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
+pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
@@ -23,6 +26,7 @@ pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const PCS_LCTL: usize = 0x04208; // PCS Link Control - RW
 pub const PCS_LSTAT: usize = 0x0420C; // PCS Link Status - RO
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
@@ -92,6 +96,13 @@ pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
 
+pub const CONNSW_ENRGSRC: u32 = 0x4;
+pub const PCS_CFG_PCS_EN: u32 = 8;
+pub const PCS_LCTL_FSV_1000: u32 = 4;
+pub const PCS_LCTL_FDV_FULL: u32 = 8;
+pub const PCS_LCTL_FSD: u32 = 0x10;
+pub const PCS_LCTL_FORCE_FCTRL: u32 = 0x80;
+
 pub const PCS_LSTS_LINK_OK: u32 = 0x01;
 pub const PCS_LSTS_SPEED_100: u32 = 0x02;
 pub const PCS_LSTS_SPEED_1000: u32 = 0x04;
@@ -108,6 +119,7 @@ pub const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
 pub const GCR_CAP_VER2: u32 = 0x00040000;
 
 pub const CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
+pub const CTRL_LRST: u32 = 0x00000008; // Link reset. 0=normal,1=reset
 pub const CTRL_SLU: u32 = 0x00000040; // Set link up (Force Link)
 pub const CTRL_ILOS: u32 = 0x00000080; // Invert Loss-Of Signal
 pub const CTRL_SPD_100: u32 = 0x00000100; // Force 100Mb
@@ -123,6 +135,15 @@ pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
 pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
 pub const CTRL_RFCE: u32 = 0x08000000; // Receive Flow Control enable
 pub const CTRL_TFCE: u32 = 0x10000000; // Transmit flow control enable
+
+pub const CTRL_SWDPIN0: u32 = 0x00040000; // SWDPIN 0 value
+pub const CTRL_SWDPIN1: u32 = 0x00080000; // SWDPIN 1 value
+pub const CTRL_SWDPIN2: u32 = 0x00100000; // SWDPIN 2 value
+pub const CTRL_SWDPIN3: u32 = 0x00200000; // SWDPIN 3 value
+pub const CTRL_SWDPIO0: u32 = 0x00400000; // SWDPIN 0 Input or output
+pub const CTRL_SWDPIO1: u32 = 0x00800000; // SWDPIN 1 input or output
+pub const CTRL_SWDPIO2: u32 = 0x01000000; // SWDPIN 2 input or output
+pub const CTRL_SWDPIO3: u32 = 0x02000000; // SWDPIN 3 input or output
 
 pub const TCTL_CT: u32 = 0x0F << 4; // Collision Thresold
 
@@ -142,6 +163,18 @@ pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
 pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
+
+// Transmit Configuration Word
+pub const TXCW_FD: u32 = 0x00000020; // TXCW full duplex
+pub const TXCW_HD: u32 = 0x00000040; // TXCW half duplex
+pub const TXCW_PAUSE: u32 = 0x00000080; // TXCW sym pause request
+pub const TXCW_ASM_DIR: u32 = 0x00000100; // TXCW astm pause direction
+pub const TXCW_PAUSE_MASK: u32 = 0x00000180; // TXCW pause request mask
+pub const TXCW_RF: u32 = 0x00003000; // TXCW remote fault
+pub const TXCW_NP: u32 = 0x00008000; // TXCW next page
+pub const TXCW_CW: u32 = 0x0000ffff; // TxConfigWord mask
+pub const TXCW_TXC: u32 = 0x40000000; // Transmit Config control
+pub const TXCW_ANE: u32 = 0x80000000; // Auto-neg enable
 
 // Collision related configuration parameters
 pub const COLLISION_THRESHOLD: u32 = 15;
@@ -203,6 +236,8 @@ pub const EXTCNF_SIZE_EXT_PCIE_LENGTH_MASK: u32 = 0x00FF0000;
 pub const EXTCNF_SIZE_EXT_PCIE_LENGTH_SHIFT: u32 = 16;
 pub const EXTCNF_CTRL_EXT_CNF_POINTER_MASK: u32 = 0x0FFF0000;
 pub const EXTCNF_CTRL_EXT_CNF_POINTER_SHIFT: u32 = 16;
+
+pub const DISABLE_SERDES_LOOPBACK: u32 = 0x0400;
 
 // FW Semaphore
 pub const FWSM: usize = 0x05B54;
