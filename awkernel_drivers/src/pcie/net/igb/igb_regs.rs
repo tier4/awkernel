@@ -18,6 +18,7 @@ pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
 pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
+pub const RXCW: usize = 0x00180; // RX Configuration Word - RO
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
@@ -97,6 +98,15 @@ pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
 
+// Receive Configuration Word
+pub const RXCW_CW: u32 = 0x0000ffff; // RxConfigWord mask
+pub const RXCW_NC: u32 = 0x04000000; // Receive config no carrier
+pub const RXCW_IV: u32 = 0x08000000; // Receive config invalid
+pub const RXCW_CC: u32 = 0x10000000; // Receive config change
+pub const RXCW_C: u32 = 0x20000000; // Receive config
+pub const RXCW_SYNCH: u32 = 0x40000000; // Receive config synch
+pub const RXCW_ANC: u32 = 0x80000000; // Auto-neg complete
+
 pub const CONNSW_ENRGSRC: u32 = 0x4;
 pub const PCS_CFG_PCS_EN: u32 = 8;
 pub const PCS_LCTL_FSV_1000: u32 = 4;
@@ -161,6 +171,7 @@ pub const DEFAULT_80003ES2LAN_TIPG_IPGT_10_100: u32 = 0x00000009;
 pub const DEFAULT_80003ES2LAN_TIPG_IPGT_1000: u32 = 0x00000008;
 
 pub const RCTL_EN: u32 = 1 << 1; // Receive Control Register Enable
+pub const RCTL_SBP: u32 = 1 << 2; // store bad packet
 pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
 pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension

@@ -3888,7 +3888,285 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Checks to see if the link status of the hardware has changed.
+    ///
+    /// Called by any function that needs to check the link status of the adapter.
     pub fn check_for_link(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if (self.mac_type as u32) >= Em82575 as u32 && self.media_type != MediaType::Copper {
+            self.get_pcs_speed_and_duplex_82575(info)?;
+            self.get_link_status = self.serdes_link_down;
+            return Ok(());
+        }
+
+        let ctrl = read_reg(info, CTRL)?;
+        let status = read_reg(info, STATUS)?;
+
+        let mut rxcw = 0;
+        let mut signal = 0;
+
+        // On adapters with a MAC newer than 82544, SW Defineable pin 1 will
+        // be set when the optics detect a signal. On older adapters, it will
+        // be cleared when there is a signal.  This applies to fiber media
+        // only.
+        if matches!(
+            self.media_type,
+            MediaType::Fiber | MediaType::InternalSerdes
+        ) {
+            rxcw = read_reg(info, RXCW)?;
+
+            if self.media_type == MediaType::Fiber {
+                signal = if (self.mac_type as u32) > MacType::Em82544 as u32 {
+                    CTRL_SWDPIN1
+                } else {
+                    0
+                };
+
+                if status & STATUS_LU != 0 {
+                    self.get_link_status = false;
+                }
+            }
+        }
+
+        // If we have a copper PHY then we only want to go out to the PHY
+        // registers to see if Auto-Neg has completed and/or if our link
+        // status has changed.  The get_link_status flag will be set if we
+        // receive a Link Status Change interrupt or we have Rx Sequence
+        // Errors.
+
+        if matches!(self.media_type, MediaType::Copper | MediaType::OEM) && self.get_link_status {
+            // First we want to see if the MII Status Register reports
+            // link.  If so, then we want to get the current speed/duplex
+            // of the PHY. Read the register twice since the link bit is
+            // sticky.
+            self.read_phy_reg(info, PHY_STATUS)?;
+            let phy_data = self.read_phy_reg(info, PHY_STATUS)?;
+
+            self.icp_xxxx_is_link_up = phy_data & MII_SR_LINK_STATUS != 0;
+
+            if self.mac_type == EmPchlan {
+                self.k1_gig_workaround_hv(info, self.icp_xxxx_is_link_up)?;
+            }
+
+            if phy_data & MII_SR_LINK_STATUS != 0 {
+                self.get_link_status = false;
+
+                if self.phy_type == PhyType::I82578 {
+                    self.link_stall_workaround_hv(info)?;
+                }
+
+                if self.mac_type == EmPchlan {
+                    self.k1_workaround_hv(info)?;
+                }
+
+                // Work-around I218 hang issue
+                if matches!(
+                    info.get_id(),
+                    E1000_DEV_ID_PCH_LPTLP_I218_LM
+                        | E1000_DEV_ID_PCH_LPTLP_I218_V
+                        | E1000_DEV_ID_PCH_I218_LM3
+                        | E1000_DEV_ID_PCH_I218_V3
+                ) {
+                    self.k1_workaround_lpt_lp(info, self.icp_xxxx_is_link_up)?;
+                }
+
+                // Check if there was DownShift, must be checked
+                // immediately after link-up
+                self.check_downshift(info)?;
+
+                // Enable/Disable EEE after link up
+                if matches!(
+                    self.mac_type,
+                    EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+                ) {
+                    self.set_eee_cphlan(info)?;
+                }
+
+                // If we are on 82544 or 82543 silicon and
+                // speed/duplex are forced to 10H or 10F, then we
+                // will implement the polarity reversal workaround.
+                // We disable interrupts first, and upon returning,
+                // place the devices interrupt state to its previous
+                // value except for the link status change interrupt
+                // which will happen due to the execution of this
+                // workaround.
+                if matches!(self.mac_type, Em82543 | Em82544)
+                    && !self.autoneg
+                    && matches!(
+                        self.forced_speed_duplex,
+                        SpeedDuplex::S10Full | SpeedDuplex::S10Half
+                    )
+                {
+                    return Err(IgbDriverErr::NotSupported);
+                }
+            } else {
+                // No link detected
+                self.config_dsp_after_link_change(info, false)?;
+            }
+
+            // If we are forcing speed/duplex, then we simply return
+            // since we have already determined whether we have link or
+            // not.
+            if !self.autoneg {
+                return Err(IgbDriverErr::Config);
+            }
+
+            // optimize the dsp settings for the igp phy
+            self.config_dsp_after_link_change(info, true)?;
+
+            // We have a M88E1000 PHY and Auto-Neg is enabled.  If we
+            // have Si on board that is 82544 or newer, Auto Speed
+            // Detection takes care of MAC speed/duplex configuration.
+            // So we only need to configure Collision Distance in the
+            // MAC.  Otherwise, we need to force speed/duplex on the MAC
+            // to the current PHY speed/duplex settings.
+            if (self.mac_type as u32) >= Em82544 as u32 && self.mac_type != EmICPxxxx {
+                self.config_collision_dist(info)?;
+            } else {
+                self.config_mac_to_phy(info)?;
+            }
+
+            // Configure Flow Control now that Auto-Neg has completed.
+            // First, we need to restore the desired flow control
+            // settings because we may have had to re-autoneg with a
+            // different link partner.
+            self.config_fc_after_link_up(info)?;
+
+            // At this point we know that we are on copper and we have
+            // auto-negotiated link.  These are conditions for checking
+            // the link partner capability register.  We use the link
+            // speed to determine if TBI compatibility needs to be turned
+            // on or off.  If the link is not at gigabit speed, then TBI
+            // compatibility is not needed.  If we are at gigabit speed,
+            // we turn on TBI compatibility.
+            if self.tbi_compatibility_en {
+                let (speed, _duplex) = self.get_speed_and_duplex(info)?;
+
+                if speed != Speed::S1000Mbps {
+                    // If link speed is not set to gigabit speed,
+                    // we do not need to enable TBI
+                    // compatibility.
+                    if self.tbi_compatibility_on {
+                        // If we previously were in the mode,
+                        // turn it off.
+                        let mut rctl = read_reg(info, RCTL)?;
+                        rctl &= !RCTL_SBP;
+                        write_reg(info, RCTL, rctl)?;
+                        self.tbi_compatibility_on = false;
+                    }
+                } else if !self.tbi_compatibility_on {
+                    // If TBI compatibility is was previously
+                    // off, turn it on. For compatibility with a
+                    // TBI link partner, we will store bad
+                    // packets. Some frames have an additional
+                    // byte on the end and will look like CRC
+                    // errors to the hardware.
+                    self.tbi_compatibility_on = true;
+                    let mut rctl = read_reg(info, RCTL)?;
+                    rctl |= RCTL_SBP;
+                    write_reg(info, RCTL, rctl)?;
+                }
+            }
+        } else if ((self.media_type == MediaType::Fiber && ctrl & CTRL_SWDPIN1 == signal)
+            || self.media_type == MediaType::InternalSerdes)
+            && status & STATUS_LU == 0
+            && rxcw & RXCW_C == 0
+        {
+            // If we don't have link (auto-negotiation failed or link partner
+            // cannot auto-negotiate), the cable is plugged in (we have signal),
+            // and our link partner is not trying to auto-negotiate with us (we
+            // are receiving idles or data), we need to force link up. We also
+            // need to give auto-negotiation time to complete, in case the cable
+            // was just plugged in. The autoneg_failed flag does this.
+
+            if !self.autoneg_failed {
+                self.autoneg_failed = true;
+                return Ok(());
+            }
+
+            // Disable auto-negotiation in the TXCW register
+            write_reg(info, TXCW, self.txcw & !TXCW_ANE)?;
+
+            // Force link-up and also force full-duplex.
+            let mut ctrl = read_reg(info, CTRL)?;
+            ctrl |= CTRL_SLU | CTRL_FD;
+            write_reg(info, CTRL, ctrl)?;
+
+            // Configure Flow Control after forcing link up.
+            self.config_fc_after_link_up(info)?;
+        } else if matches!(
+            self.media_type,
+            MediaType::Fiber | MediaType::InternalSerdes
+        ) && status & STATUS_LU != 0
+            && rxcw & RXCW_C != 0
+        {
+            // If we are forcing link and we are receiving /C/ ordered sets,
+            // re-enable auto-negotiation in the TXCW register and disable forced
+            // link in the Device Control register in an attempt to
+            // auto-negotiate with our link partner.
+
+            write_reg(info, TXCW, self.txcw)?;
+            write_reg(info, CTRL, ctrl & !CTRL_SLU)?;
+
+            self.serdes_link_down = false;
+        } else if self.media_type == MediaType::InternalSerdes
+            && TXCW_ANE & read_reg(info, TXCW)? == 0
+        {
+            // If we force link for non-auto-negotiation switch, check link
+            // status based on MAC synchronization for internal serdes media
+            // type.
+
+            // SYNCH bit and IV bit are sticky.
+            awkernel_lib::delay::wait_microsec(10);
+
+            if RXCW_SYNCH & read_reg(info, RXCW)? != 0 {
+                if rxcw & RXCW_IV == 0 {
+                    self.serdes_link_down = false;
+                }
+            } else {
+                self.serdes_link_down = true;
+            }
+        }
+
+        if self.media_type == MediaType::InternalSerdes && TXCW_ANE & read_reg(info, TXCW)? != 0 {
+            self.serdes_link_down = STATUS_LU & read_reg(info, STATUS)? == 0;
+        }
+
+        Ok(())
+    }
+
+    fn set_eee_cphlan(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn check_downshift(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn k1_workaround_lpt_lp(&mut self, info: &PCIeInfo, link_up: bool) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn k1_gig_workaround_hv(&mut self, info: &PCIeInfo, link_up: bool) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn link_stall_workaround_hv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn k1_workaround_hv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // TODO
 
         Ok(())
