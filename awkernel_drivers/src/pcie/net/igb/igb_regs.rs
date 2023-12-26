@@ -1179,6 +1179,9 @@ pub const NVM_RESERVED_WORD: u16 = 0xFFFF;
 pub const NVM_WORD24_COM_MDIO: u16 = 0x0008; // MDIO interface shared
 pub const NVM_WORD24_EXT_MDIO: u16 = 0x0004; // MDIO accesses routed external
 
+pub const E1000_NVM_K1_CONFIG: u32 = 0x1B; // NVM K1 Config Word
+pub const E1000_NVM_K1_ENABLE: u16 = 0x1; // NVM Enable K1 bit
+
 pub const ID_LED_RESERVED_0000: u16 = 0x0000;
 pub const ID_LED_RESERVED_FFFF: u16 = 0xFFFF;
 pub const ID_LED_RESERVED_82573: u16 = 0xF746;

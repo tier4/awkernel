@@ -4232,9 +4232,57 @@ impl IgbHw {
         Ok(())
     }
 
-    fn k1_gig_workaround_hv(&mut self, info: &PCIeInfo, link_up: bool) -> Result<(), IgbDriverErr> {
-        // TODO
+    fn k1_gig_workaround_hv(&mut self, info: &PCIeInfo, link: bool) -> Result<(), IgbDriverErr> {
+        if self.mac_type != MacType::EmPchlan {
+            return Ok(());
+        }
 
+        let mut phy_data = [0; 1];
+        self.read_eeprom_ich8(info, E1000_NVM_K1_CONFIG, &mut phy_data)?;
+
+        let mut k1_enable = phy_data[0] & E1000_NVM_K1_ENABLE != 0;
+
+        // Disable K1 when link is 1Gbps, otherwise use the NVM setting
+        if link {
+            if self.phy_type == PhyType::I82578 {
+                let mut phy_data = self.read_phy_reg(info, BM_CS_STATUS)?;
+                phy_data &= BM_CS_STATUS_LINK_UP | BM_CS_STATUS_RESOLVED | BM_CS_STATUS_SPEED_MASK;
+
+                if phy_data
+                    == (BM_CS_STATUS_LINK_UP | BM_CS_STATUS_RESOLVED | BM_CS_STATUS_SPEED_1000)
+                {
+                    k1_enable = false;
+                }
+            } else if self.phy_type == PhyType::I82577 {
+                let mut phy_data = self.read_phy_reg(info, HV_M_STATUS)?;
+                phy_data &=
+                    HV_M_STATUS_LINK_UP | HV_M_STATUS_AUTONEG_COMPLETE | HV_M_STATUS_SPEED_MASK;
+
+                if phy_data
+                    == (HV_M_STATUS_LINK_UP | HV_M_STATUS_AUTONEG_COMPLETE | HV_M_STATUS_SPEED_1000)
+                {
+                    k1_enable = false;
+                }
+            }
+
+            // Link stall fix for link up
+            self.write_phy_reg(info, phy_reg(770, 19), 0x0100)?;
+        } else {
+            // Link stall fix for link down
+            self.write_phy_reg(info, phy_reg(770, 19), 0x4100)?;
+        }
+
+        self.configure_k1_ich8lan(info, k1_enable)?;
+
+        Ok(())
+    }
+
+    fn configure_k1_ich8lan(
+        &mut self,
+        info: &PCIeInfo,
+        k1_enable: bool,
+    ) -> Result<(), IgbDriverErr> {
+        // TODO
         Ok(())
     }
 
