@@ -226,6 +226,15 @@ impl Igb {
 
         hardware_init(&mut hw, &mut info)?;
 
+        // Set the transmit descriptor write-back policy
+        if (hw.get_mac_type() as u32) > MacType::Em82544 as u32 {
+            for q in que.iter() {
+                let ctrl = igb_hw::read_reg(&info, txdctl(q.me))?;
+                let ctrl = (ctrl & !TXDCTL_WTHRESH) | TXDCTL_FULL_TX_DESC_WB;
+                igb_hw::write_reg(&mut info, txdctl(q.me), ctrl)?;
+            }
+        }
+
         hw.read_mac_addr(&info)?;
 
         log::debug!("igb: {:?}\r\n{:?}", hw, info);

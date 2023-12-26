@@ -514,6 +514,7 @@ struct FlashMemory {
     offset: usize,
 }
 
+#[repr(C)]
 #[derive(Debug)]
 struct HostMngDhcpCookie {
     signature: u32,
@@ -1216,9 +1217,81 @@ impl IgbHw {
             return Err(IgbDriverErr::NotSupported);
         }
 
+        // Zero out the Multicast HASH table
+        let mta_size = if is_ich8(&self.mac_type) {
+            MC_TBL_SIZE_ICH8LAN
+        } else {
+            MC_TBL_SIZE
+        };
+
+        for i in 0..mta_size {
+            write_reg_array(info, MTA, i, 0)?;
+            // use write flush to prevent Memory Write Block (MWB) from
+            // occurring when accessing our register space
+            write_flush(info)?;
+        }
+
+        // More time needed for PHY to initialize
+        if is_ich8(&self.mac_type) {
+            awkernel_lib::delay::wait_millisec(15);
+        }
+
+        // The 82578 Rx buffer will stall if wakeup is enabled in host and
+        // the ME.  Reading the BM_WUC register will clear the host wakeup bit.
+        // Reset the phy after disabling host wakeup to reset the Rx buffer.
+        if self.phy_type == PhyType::I82578 {
+            self.read_phy_reg(info, phy_reg(BM_WUC_PAGE as u32, 1))?;
+            self.phy_reset(info)?;
+        }
+
         // Call a subroutine to configure the link and setup flow control.
         self.setup_link(info)?;
 
+        if matches!(self.mac_type, Em82573 | Em82574) {
+            self.enable_tx_pkt_filtering(info)?;
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    /// This function checks whether tx pkt filtering needs to be enabled or not.
+    fn enable_tx_pkt_filtering(&mut self, info: &PCIeInfo) -> Result<bool, IgbDriverErr> {
+        let mut tx_filter = false;
+
+        // called in init as well as watchdog timer functions
+        if self.check_mng_mode(info)? {
+            if self.mng_enable_host_if(info).is_ok() {
+                if self.host_if_read_cookier(info).is_ok() {
+                    let checksum = self.mng_cookie.checksum;
+                    self.mng_cookie.checksum = 0;
+
+                    if self.mng_cookie.signature == IAMT_SIGNATURE
+                        && checksum == calculate_mng_checksum(&self.mng_cookie)
+                    {
+                        if self.mng_cookie.status & MNG_DHCP_COOKIE_STATUS_PARSING_SUPPORT != 0 {
+                            tx_filter = true;
+                        }
+                    } else {
+                        tx_filter = true;
+                    }
+                } else {
+                    tx_filter = true;
+                }
+            }
+        }
+
+        Ok(tx_filter)
+    }
+
+    fn mng_enable_host_if(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+
+        Ok(())
+    }
+
+    fn host_if_read_cookier(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // TODO
 
         Ok(())
@@ -8467,4 +8540,8 @@ fn clear_vfta_i350(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     }
 
     Ok(())
+}
+
+fn calculate_mng_checksum(data: &HostMngDhcpCookie) -> u8 {
+    todo!()
 }

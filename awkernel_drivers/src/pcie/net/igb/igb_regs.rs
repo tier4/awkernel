@@ -275,6 +275,8 @@ pub const MNG_IAMT_MODE: u32 = 0x3;
 pub const MNG_ICH_IAMT_MODE: u32 = 0x2;
 pub const IAMT_SIGNATURE: u32 = 0x544D4149; // Intel(R) Active Management Technology signature
 
+pub const MNG_DHCP_COOKIE_STATUS_PARSING_SUPPORT: u8 = 0x1; // DHCP parsing enabled
+
 // Management Control
 pub const MANC: usize = 0x05820;
 
@@ -771,6 +773,11 @@ pub const IFE_PHY_MDIX_CONTROL: u32 = 0x1C; // MDI/MDI-X Control register
 
 pub const IFE_PMC_AUTO_MDIX: u16 = 0x0080; // 1=enable MDI/MDI-X feature, default 0=disabled
 pub const IFE_PMC_FORCE_MDIX: u16 = 0x0040; // 1=force MDIX-X, 0=force MDI
+
+pub const MC_TBL_SIZE: usize = 128; // Multicast Filter Table (4096 bits)
+pub const VLAN_FILTER_TBL_SIZE: usize = 128; // VLAN Filter Table (4096 bits)
+
+pub const MC_TBL_SIZE_ICH8LAN: usize = 32;
 
 pub const RTL8211_E_PHY_ID: u32 = 0x001CC912;
 
@@ -1376,8 +1383,6 @@ pub const TCTL_EXT_BST_MASK: u32 = 0x000003FF; // Backoff Slot Time
 pub const TCTL_EXT_GCEX_MASK: u32 = 0x000FFC00; // Gigabit Carry Extend Padding
 
 pub const CTRL_EXT_PHYPDEN: u32 = 0x00100000;
-
-pub const VLAN_FILTER_TBL_SIZE: usize = 128; // VLAN Filter Table (4096 bits)
 
 pub const VFTA_ENTRY_SHIFT: u16 = 0x5;
 pub const VFTA_ENTRY_MASK: u16 = 0x7F;
