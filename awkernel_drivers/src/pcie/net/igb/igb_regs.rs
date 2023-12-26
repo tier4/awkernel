@@ -462,11 +462,13 @@ pub const MAX_PHY_MULTI_PAGE_REG: u32 = 0xF; // Registers equal on all pages
 pub const IGP01E1000_PHY_PORT_CONFIG: u32 = 0x10; // PHY Specific Port Config Register
 pub const _IGP01E1000_PHY_PORT_STATUS: u32 = 0x11; // PHY Specific Status Register
 pub const IGP01E1000_PHY_PORT_CTRL: u32 = 0x12; // PHY Specific Control Register
-pub const _IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
+pub const IGP01E1000_PHY_LINK_HEALTH: u32 = 0x13; // PHY Link Health Register
 pub const IGP01E1000_GMII_FIFO: u32 = 0x14; // GMII FIFO Register
 pub const _IGP01E1000_PHY_CHANNEL_QUALITY: u32 = 0x15; // PHY Channel Quality Register
 pub const IGP02E1000_PHY_POWER_MGMT: u32 = 0x19;
 pub const IGP01E1000_PHY_PAGE_SELECT: u32 = 0x1F; // PHY Page Select Core Register
+
+pub const IGP01E1000_PLHR_SS_DOWNGRADE: u16 = 0x8000;
 
 // IGP01E1000 Specific Port Control Register - R/W
 pub const IGP01E1000_PSCR_TP_LOOPBACK: u16 = 0x0010;

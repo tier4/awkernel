@@ -4156,8 +4156,26 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Check if Downshift occurred
+    ///
+    /// For phy's older then IGP, this function reads the Downshift bit in the Phy
+    /// Specific Status register.  For IGP phy's, it reads the Downgrade bit in the
+    /// Link Health register.  In IGP this bit is latched high, so the driver must
+    /// read it immediately after link is established.
     fn check_downshift(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+        use PhyType::*;
+
+        if matches!(self.phy_type, Igp | Igp2 | Igp3) {
+            let phy_data = self.read_phy_reg(info, IGP01E1000_PHY_LINK_HEALTH)?;
+            self.speed_downgraded = phy_data & IGP01E1000_PLHR_SS_DOWNGRADE != 0;
+        } else if matches!(self.phy_type, M88 | Gg82563 | Oem | I82578) {
+            let phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_STATUS)?;
+            self.speed_downgraded =
+                (phy_data & M88E1000_PSSR_DOWNSHIFT) >> M88E1000_PSSR_DOWNSHIFT_SHIFT != 0;
+        } else if self.phy_type == Ife {
+            // em_phy_ife supports 10/100 speed only
+            self.speed_downgraded = false;
+        }
 
         Ok(())
     }
