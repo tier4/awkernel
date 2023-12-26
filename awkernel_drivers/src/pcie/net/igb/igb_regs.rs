@@ -337,7 +337,7 @@ pub const _CTRL_EXT_SDP7_DIR: u32 = 0x00000800; // Direction of SDP7 0=in 1=out
 pub const _CTRL_EXT_ASDCHK: u32 = 0x00001000; // Initiate an ASD sequence
 pub const CTRL_EXT_EE_RST: u32 = 0x00002000; // Reinitialize from EEPROM
 pub const _CTRL_EXT_IPS: u32 = 0x00004000; // Invert Power State
-pub const _CTRL_EXT_SPD_BYPS: u32 = 0x00008000; // Speed Select Bypass
+pub const CTRL_EXT_SPD_BYPS: u32 = 0x00008000; // Speed Select Bypass
 pub const _CTRL_EXT_RO_DIS: u32 = 0x00020000; // Relaxed Ordering disable
 pub const CTRL_EXT_LINK_MODE_MASK: u32 = 0x00C00000;
 pub const _CTRL_EXT_LINK_MODE_GMII: u32 = 0x00000000;

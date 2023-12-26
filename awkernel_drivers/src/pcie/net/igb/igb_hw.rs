@@ -4277,12 +4277,40 @@ impl IgbHw {
         Ok(())
     }
 
+    // Configure K1 power state
+    //
+    // Configure the K1 power state based on the provided parameter.
+    // Assumes semaphore already acquired.
     fn configure_k1_ich8lan(
         &mut self,
         info: &PCIeInfo,
         k1_enable: bool,
     ) -> Result<(), IgbDriverErr> {
-        // TODO
+        let mut kmrn_reg = self.read_kmrn_reg(info, KMRNCTRLSTA_K1_CONFIG)?;
+
+        if k1_enable {
+            kmrn_reg |= KMRNCTRLSTA_K1_ENABLE;
+        } else {
+            kmrn_reg &= !KMRNCTRLSTA_K1_ENABLE;
+        }
+
+        self.write_kmrn_reg(info, KMRNCTRLSTA_K1_CONFIG, kmrn_reg)?;
+
+        awkernel_lib::delay::wait_microsec(20);
+
+        let ctrl_ext = read_reg(info, CTRL_EXT)?;
+        let ctrl_reg = read_reg(info, CTRL)?;
+
+        let mut reg = ctrl_reg & !(CTRL_SPD_1000 | CTRL_SPD_100);
+        reg |= CTRL_FRCSPD;
+        write_reg(info, CTRL, reg)?;
+
+        write_reg(info, CTRL_EXT, ctrl_ext | CTRL_EXT_SPD_BYPS)?;
+        awkernel_lib::delay::wait_microsec(20);
+        write_reg(info, CTRL, ctrl_reg)?;
+        write_reg(info, CTRL_EXT, ctrl_ext)?;
+        awkernel_lib::delay::wait_microsec(20);
+
         Ok(())
     }
 
