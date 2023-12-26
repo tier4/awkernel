@@ -432,7 +432,7 @@ pub const PHY_CTRL_NOND0A_LPLU: u32 = 0x00000004;
 pub const PHY_CTRL_NOND0A_GBE_DISABLE: u32 = 0x00000008;
 pub const PHY_CTRL_GBE_DISABLE: u32 = 0x00000040;
 pub const PHY_CTRL_B2B_EN: u32 = 0x00000080;
-pub const PHY_CTRL_LOOPBACK: u32 = 0x00004000;
+pub const PHY_CTRL_LOOPBACK: u16 = 0x00004000;
 
 // PBA constants
 pub const PBA_8K: u32 = 0x0008; // 8KB, default Rx allocation
@@ -620,6 +620,10 @@ pub const HV_OEM_BITS: u32 = phy_reg(768, 25);
 pub const HV_OEM_BITS_LPLU: u16 = 0x0004; // Low Power Link Up
 pub const HV_OEM_BITS_GBE_DIS: u16 = 0x0040; // Gigabit Disable
 pub const HV_OEM_BITS_RESTART_AN: u16 = 0x0400; // Restart Auto-negotiation
+
+pub const HV_MUX_DATA_CTRL: u32 = phy_reg(776, 16);
+pub const HV_MUX_DATA_CTRL_GEN_TO_MAC: u16 = 0x0400;
+pub const HV_MUX_DATA_CTRL_FORCE_SPEED: u16 = 0x0004;
 
 // 1000BASE-T Control Register
 pub const CR_1000T_ASYM_PAUSE: u16 = 0x0080; // Advertise asymmetric pause bit

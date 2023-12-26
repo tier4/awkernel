@@ -4238,8 +4238,44 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Si workaround
+    ///
+    /// This function works around a Si bug where the link partner can get
+    /// a link up indication before the PHY does.  If small packets are sent
+    /// by the link partner they can be placed in the packet buffer without
+    /// being properly accounted for by the PHY and will stall preventing
+    /// further packets from being received.  The workaround is to clear the
+    /// packet buffer after the PHY detects link up.
     fn link_stall_workaround_hv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+        if self.phy_type != PhyType::I82578 {
+            return Ok(());
+        }
+
+        // Do not apply workaround if in PHY loopback bit 14 set
+        let phy_data = self.read_phy_reg(info, PHY_CTRL)?;
+        if phy_data & PHY_CTRL_LOOPBACK != 0 {
+            return Ok(());
+        }
+
+        // check if link is up and at 1Gbps
+        let mut phy_data = self.read_phy_reg(info, BM_CS_STATUS)?;
+
+        phy_data &= BM_CS_STATUS_LINK_UP | BM_CS_STATUS_RESOLVED | BM_CS_STATUS_SPEED_MASK;
+
+        if phy_data != BM_CS_STATUS_LINK_UP | BM_CS_STATUS_RESOLVED | BM_CS_STATUS_SPEED_1000 {
+            return Ok(());
+        }
+
+        awkernel_lib::delay::wait_millisec(200);
+
+        // flush the packets in the fifo buffer
+        self.write_phy_reg(
+            info,
+            HV_MUX_DATA_CTRL,
+            HV_MUX_DATA_CTRL_GEN_TO_MAC | HV_MUX_DATA_CTRL_FORCE_SPEED,
+        )?;
+
+        self.write_phy_reg(info, HV_MUX_DATA_CTRL, HV_MUX_DATA_CTRL_GEN_TO_MAC)?;
 
         Ok(())
     }
