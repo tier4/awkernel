@@ -384,6 +384,17 @@ pub const E1000_DEVICES: [(u16, u16); 185] = [
     (INTEL_VENDOR_ID, E1000_DEV_ID_EP80579_LAN_6),
 ];
 
+pub const CABLE_LENGTH_50: u16 = 0;
+pub const CABLE_LENGTH_50_80: u16 = 1;
+pub const CABLE_LENGTH_80_110: u16 = 2;
+pub const CABLE_LENGTH_110_140: u16 = 3;
+pub const CABLE_LENGTH_140: u16 = 4;
+
+pub const GG_CABLE_LENGTH_60: u16 = 0;
+pub const GG_CABLE_LENGTH_60_115: u16 = 1;
+pub const GG_CABLE_LENGTH_115_150: u16 = 2;
+pub const GG_CABLE_LENGTH_150: u16 = 4;
+
 pub const IGP_CABLE_LENGTH_10: u16 = 10;
 pub const IGP_CABLE_LENGTH_20: u16 = 20;
 pub const IGP_CABLE_LENGTH_30: u16 = 30;
@@ -1938,10 +1949,10 @@ impl IgbHw {
                 if self.dsp_config_state == DspConfigState::Enabled
                     && min_length >= IGP_CABLE_LENGTH_50
                 {
-                    for i in 0..IGP01E1000_PHY_CHANNEL_NUM {
-                        let mut phy_data = self.read_phy_reg(info, dsp_reg_array[i])?;
+                    for reg in dsp_reg_array.iter() {
+                        let mut phy_data = self.read_phy_reg(info, *reg)?;
                         phy_data &= !IGP01E1000_PHY_EDAC_MU_INDEX;
-                        self.write_phy_reg(info, dsp_reg_array[i], phy_data)?;
+                        self.write_phy_reg(info, *reg, phy_data)?;
                     }
                     self.dsp_config_state = DspConfigState::Activated;
                 }
@@ -1992,13 +2003,13 @@ impl IgbHw {
 
                 self.write_phy_reg(info, 0x000, IGP01E1000_IEEE_FORCE_GIGA)?;
 
-                for i in 0..IGP01E1000_PHY_CHANNEL_NUM {
-                    let mut phy_data = self.read_phy_reg(info, dsp_reg_array[i])?;
+                for reg in dsp_reg_array.iter() {
+                    let mut phy_data = self.read_phy_reg(info, *reg)?;
 
                     phy_data &= !IGP01E1000_PHY_EDAC_MU_INDEX;
                     phy_data |= IGP01E1000_PHY_EDAC_SIGN_EXT_9_BITS;
 
-                    self.write_phy_reg(info, dsp_reg_array[i], phy_data)?;
+                    self.write_phy_reg(info, *reg, phy_data)?;
                 }
 
                 self.write_phy_reg(info, 0x0000, IGP01E1000_IEEE_RESTART_AUTONEG)?;
@@ -2037,8 +2048,164 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Estimates the cable length.
+    ///
+    /// This function always returns a ranged length (minimum & maximum).
+    /// So for M88 phy's, this function interprets the one value returned from the
+    /// register to the minimum and maximum range.
+    /// For IGP phy's, the function calculates the range by the AGC registers.
     fn get_cable_length(&mut self, info: &PCIeInfo) -> Result<(u16, u16), IgbDriverErr> {
-        todo!()
+        use PhyType::*;
+
+        // Use old method for Phy older than IGP
+        if matches!(self.phy_type, M88 | Oem | I82578) {
+            let phy_data = self.read_phy_reg(info, M88E1000_PHY_SPEC_STATUS)?;
+
+            let cable_length =
+                (phy_data & M88E1000_PSSR_CABLE_LENGTH) >> M88E1000_PSSR_CABLE_LENGTH_SHIFT;
+
+            // Convert the enum value to ranged values
+            let (min_length, max_length) = match cable_length {
+                CABLE_LENGTH_50 => (0, IGP_CABLE_LENGTH_50),
+                CABLE_LENGTH_50_80 => (IGP_CABLE_LENGTH_50, IGP_CABLE_LENGTH_80),
+                CABLE_LENGTH_80_110 => (IGP_CABLE_LENGTH_80, IGP_CABLE_LENGTH_110),
+                CABLE_LENGTH_110_140 => (IGP_CABLE_LENGTH_110, IGP_CABLE_LENGTH_140),
+                CABLE_LENGTH_140 => (IGP_CABLE_LENGTH_140, IGP_CABLE_LENGTH_170),
+                _ => return Err(IgbDriverErr::Phy),
+            };
+
+            Ok((min_length, max_length))
+        } else if self.phy_type == Rtl8211 {
+            // no cable length info on RTL8211, fake
+            Ok((0, IGP_CABLE_LENGTH_50))
+        } else if self.phy_type == Gg82563 {
+            let phy_data = self.read_phy_reg(info, GG82563_PHY_DSP_DISTANCE)?;
+
+            let cable_length = phy_data & GG82563_DSPD_CABLE_LENGTH;
+
+            let (min_length, max_length) = match cable_length {
+                GG_CABLE_LENGTH_60 => (0, IGP_CABLE_LENGTH_60),
+                GG_CABLE_LENGTH_60_115 => (IGP_CABLE_LENGTH_60, IGP_CABLE_LENGTH_115),
+                GG_CABLE_LENGTH_115_150 => (IGP_CABLE_LENGTH_115, IGP_CABLE_LENGTH_150),
+                GG_CABLE_LENGTH_150 => (IGP_CABLE_LENGTH_150, IGP_CABLE_LENGTH_180),
+                _ => return Err(IgbDriverErr::Phy),
+            };
+
+            Ok((min_length, max_length))
+        } else if self.phy_type == Igp {
+            let agc_reg_array = [
+                IGP01E1000_PHY_AGC_A,
+                IGP01E1000_PHY_AGC_B,
+                IGP01E1000_PHY_AGC_C,
+                IGP01E1000_PHY_AGC_D,
+            ];
+
+            // Read the AGC registers for all channels
+            let mut agc_value = 0;
+            let mut min_agc_value = IGP01E1000_AGC_LENGTH_TABLE_SIZE;
+            for reg in agc_reg_array.iter() {
+                let phy_data = self.read_phy_reg(info, *reg)?;
+
+                let cur_agc_value = phy_data >> IGP01E1000_AGC_LENGTH_SHIFT;
+
+                // Value bound check.
+                if cur_agc_value >= IGP01E1000_AGC_LENGTH_TABLE_SIZE - 1 || cur_agc_value == 0 {
+                    return Err(IgbDriverErr::Phy);
+                }
+
+                agc_value += cur_agc_value;
+
+                // Update minimal AGC value.
+                if min_agc_value > cur_agc_value {
+                    min_agc_value = cur_agc_value;
+                }
+            }
+
+            // Remove the minimal AGC result for length < 50m
+            if agc_value < IGP01E1000_PHY_CHANNEL_NUM as u16 * IGP_CABLE_LENGTH_50 {
+                agc_value -= min_agc_value;
+
+                // Get the average length of the remaining 3 channels
+                agc_value /= IGP01E1000_PHY_CHANNEL_NUM as u16 - 1;
+            } else {
+                // Get the average length of all 4 channels
+                agc_value /= IGP01E1000_PHY_CHANNEL_NUM as u16;
+            }
+
+            // Set the range of the calculated length.
+            let min_length = if IGP_CABLE_LENGTH_TABLE[agc_value as usize] > IGP01E1000_AGC_RANGE {
+                IGP_CABLE_LENGTH_TABLE[agc_value as usize] - IGP01E1000_AGC_RANGE
+            } else {
+                0
+            };
+
+            let max_length = IGP_CABLE_LENGTH_TABLE[agc_value as usize] + IGP01E1000_AGC_RANGE;
+
+            Ok((min_length, max_length))
+        } else if self.phy_type == Igp2 || self.phy_type == Igp3 {
+            let agc_reg_array = [
+                IGP02E1000_PHY_AGC_A,
+                IGP02E1000_PHY_AGC_B,
+                IGP02E1000_PHY_AGC_C,
+                IGP02E1000_PHY_AGC_D,
+            ];
+
+            // Read the AGC registers for all channels
+            let mut min_agc_index = IGP02E1000_AGC_LENGTH_TABLE_SIZE - 1;
+            let mut max_agc_index = 0;
+            let mut agc_value = 0;
+            for reg in agc_reg_array.iter() {
+                let phy_data = self.read_phy_reg(info, *reg)?;
+
+                // Getting bits 15:9, which represent the combination
+                // of course and fine gain values.  The result is a
+                // number that can be put into the lookup table to
+                // obtain the approximate cable length.
+                let cur_agc_index =
+                    (phy_data >> IGP02E1000_AGC_LENGTH_SHIFT) >> IGP02E1000_AGC_LENGTH_MASK;
+
+                // Array index bound check.
+                if cur_agc_index >= IGP02E1000_AGC_LENGTH_TABLE_SIZE || cur_agc_index == 0 {
+                    return Err(IgbDriverErr::Phy);
+                }
+
+                // Remove min & max AGC values from calculation.
+                min_agc_index = if IGP_2_CABLE_LENGTH_TABLE[min_agc_index as usize]
+                    > IGP_2_CABLE_LENGTH_TABLE[cur_agc_index as usize]
+                {
+                    cur_agc_index
+                } else {
+                    min_agc_index
+                };
+
+                max_agc_index = if IGP_2_CABLE_LENGTH_TABLE[max_agc_index as usize]
+                    < IGP_2_CABLE_LENGTH_TABLE[cur_agc_index as usize]
+                {
+                    cur_agc_index
+                } else {
+                    max_agc_index
+                };
+
+                agc_value += IGP_2_CABLE_LENGTH_TABLE[cur_agc_index as usize];
+            }
+
+            agc_value -= IGP_2_CABLE_LENGTH_TABLE[min_agc_index as usize]
+                + IGP_2_CABLE_LENGTH_TABLE[max_agc_index as usize];
+            agc_value /= IGP02E1000_PHY_CHANNEL_NUM as u16 - 2;
+
+            // Calculate cable length with the error range of +/- 10 meters.
+            let min_length = if agc_value > IGP02E1000_AGC_RANGE {
+                agc_value - IGP02E1000_AGC_RANGE
+            } else {
+                0
+            };
+
+            let max_length = agc_value + IGP02E1000_AGC_RANGE;
+
+            Ok((min_length, max_length))
+        } else {
+            Ok((0, 0))
+        }
     }
 
     /// Force PHY speed and duplex settings to hw->forced_speed_duplex

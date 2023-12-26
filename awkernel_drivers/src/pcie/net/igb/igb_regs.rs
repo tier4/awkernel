@@ -492,6 +492,18 @@ pub const IGP01E1000_PHY_AGC_PARAM_B: u32 = 0x1271;
 pub const IGP01E1000_PHY_AGC_PARAM_C: u32 = 0x1471;
 pub const IGP01E1000_PHY_AGC_PARAM_D: u32 = 0x1871;
 
+// IGP01E1000 AGC Registers - stores the cable length values
+pub const IGP01E1000_PHY_AGC_A: u32 = 0x1172;
+pub const IGP01E1000_PHY_AGC_B: u32 = 0x1272;
+pub const IGP01E1000_PHY_AGC_C: u32 = 0x1472;
+pub const IGP01E1000_PHY_AGC_D: u32 = 0x1872;
+
+// IGP02E1000 AGC Registers for cable length values
+pub const IGP02E1000_PHY_AGC_A: u32 = 0x11B1;
+pub const IGP02E1000_PHY_AGC_B: u32 = 0x12B1;
+pub const IGP02E1000_PHY_AGC_C: u32 = 0x14B1;
+pub const IGP02E1000_PHY_AGC_D: u32 = 0x18B1;
+
 // IGP01E1000 DSP Reset Register
 pub const IGP01E1000_PHY_DSP_RESET: u32 = 0x1F33;
 pub const IGP01E1000_PHY_DSP_SET: u32 = 0x1F71;
@@ -503,6 +515,37 @@ pub const IGP01E1000_PHY_DSP_FFE_DEFAULT: u16 = 0x002A;
 
 pub const IGP01E1000_IEEE_RESTART_AUTONEG: u16 = 0x3300;
 pub const IGP01E1000_IEEE_FORCE_GIGA: u16 = 0x0140;
+
+pub const IGP01E1000_AGC_LENGTH_TABLE_SIZE: u16 = 128;
+pub const IGP02E1000_AGC_LENGTH_TABLE_SIZE: u16 = 113;
+
+pub const IGP01E1000_AGC_LENGTH_SHIFT: u16 = 7; // Coarse - 13:11, Fine - 10:7
+pub const IGP02E1000_AGC_LENGTH_SHIFT: u16 = 9; // Coarse - 15:13, Fine - 12:9
+
+// IGP02E1000 AGC Register Length 9-bit mask
+pub const IGP02E1000_AGC_LENGTH_MASK: u16 = 0x7F;
+
+// The precision error of the cable length is +/- 10 meters
+pub const IGP01E1000_AGC_RANGE: u16 = 10;
+pub const IGP02E1000_AGC_RANGE: u16 = 15;
+
+// IGP cable length table
+pub const IGP_CABLE_LENGTH_TABLE: [u16; IGP01E1000_AGC_LENGTH_TABLE_SIZE as usize] = [
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 10, 10, 10, 10, 10, 10, 10, 20, 20, 20, 20,
+    20, 25, 25, 25, 25, 25, 25, 25, 30, 30, 30, 30, 40, 40, 40, 40, 40, 40, 40, 40, 40, 50, 50, 50,
+    50, 50, 50, 50, 60, 60, 60, 60, 60, 60, 60, 60, 60, 70, 70, 70, 70, 70, 70, 80, 80, 80, 80, 80,
+    80, 90, 90, 90, 90, 90, 90, 90, 90, 90, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100,
+    100, 100, 100, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110, 110,
+    110, 110, 120, 120, 120, 120, 120, 120, 120, 120, 120, 120,
+];
+
+pub const IGP_2_CABLE_LENGTH_TABLE: [u16; IGP02E1000_AGC_LENGTH_TABLE_SIZE as usize] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 3, 5, 8, 11, 13, 16, 18, 21, 0, 0, 0, 3, 6, 10, 13, 16, 19, 23, 26, 29,
+    32, 35, 38, 41, 6, 10, 14, 18, 22, 26, 30, 33, 37, 41, 44, 48, 51, 54, 58, 61, 21, 26, 31, 35,
+    40, 44, 49, 53, 57, 61, 65, 68, 72, 75, 79, 82, 40, 45, 51, 56, 61, 66, 70, 75, 79, 83, 87, 91,
+    94, 98, 101, 104, 60, 66, 72, 77, 82, 87, 92, 96, 100, 104, 108, 111, 114, 117, 119, 121, 83,
+    89, 95, 100, 105, 109, 113, 116, 119, 122, 124, 104, 109, 114, 118, 121, 124,
+];
 
 // BM/HV Specific Registers
 pub const BM_PORT_CTRL_PAGE: u32 = 769;
@@ -804,6 +847,9 @@ pub const GG82563_PHY_KMRN_MISC: u32 = gg82563_reg(194, 26); // Misc.
 
 // In-Band Control Register (Page 194, Register 18)
 pub const GG82563_ICR_DIS_PADDING: u16 = 0x0010; // Disable Padding Use
+
+// DSP Distance Register (Page 5, Register 26)
+pub const GG82563_DSPD_CABLE_LENGTH: u16 = 0x0007; // 0 = <50M; 1 = 50-80M; 2 = 80-110M; 3 = 110-140M; 4 = >140M
 
 // BME1000 PHY Specific Control Register
 pub const BME1000_PSCR_ENABLE_DOWNSHIFT: u16 = 0x0800; // 1 = enable downshift
