@@ -4,7 +4,7 @@ pub const EERD: usize = 0x00014; // EEPROM Read Register
 pub const SCTL: usize = 0x00024; // SerDes Control - RW
 pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
 pub const FEXTNVM3: usize = 0x0003C; // Future Extended NVM 3 - RW
-pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
+pub const FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
 pub const FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
 pub const KUMCTRLSTA: usize = 0x00034; // MAC-PHY interface - RW
 pub const VET: usize = 0x00038; // VLAN Ether Type - RW
@@ -571,6 +571,14 @@ pub const BM_WUC_ENABLE_REG: u32 = 17;
 pub const BM_WUC_ENABLE_BIT: u16 = 1 << 2;
 pub const BM_WUC_HOST_WU_BIT: u16 = 1 << 4;
 
+// BM PHY Copper Specific Status
+pub const BM_CS_STATUS: u32 = 17;
+pub const BM_CS_STATUS_ENERGY_DETECT: u16 = 0x0010; // Energy Detect Status
+pub const BM_CS_STATUS_LINK_UP: u16 = 0x0400;
+pub const BM_CS_STATUS_RESOLVED: u16 = 0x0800;
+pub const BM_CS_STATUS_SPEED_MASK: u16 = 0xC000;
+pub const BM_CS_STATUS_SPEED_1000: u16 = 0x8000;
+
 pub const PHY_PAGE_SHIFT: u32 = 5;
 pub const PHY_UPPER_SHIFT: u32 = 21;
 
@@ -599,6 +607,13 @@ pub const _HV_DC_UPPER: u32 = phy_reg(778, 27); // Defer Count
 pub const _HV_DC_LOWER: u32 = phy_reg(778, 28);
 pub const _HV_TNCRS_UPPER: u32 = phy_reg(778, 29); // Transmit with no CRS
 pub const _HV_TNCRS_LOWER: u32 = phy_reg(778, 30);
+
+// 82577 Mobile Phy Status Register
+pub const HV_M_STATUS: u32 = 26;
+pub const HV_M_STATUS_AUTONEG_COMPLETE: u16 = 0x1000;
+pub const HV_M_STATUS_SPEED_MASK: u16 = 0x0300;
+pub const HV_M_STATUS_SPEED_1000: u16 = 0x0200;
+pub const HV_M_STATUS_LINK_UP: u16 = 0x0040;
 
 // OEM Bits Phy Register
 pub const HV_OEM_BITS: u32 = phy_reg(768, 25);
@@ -1311,6 +1326,10 @@ pub const I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_SHIFT: u16 = 8;
 
 pub const FEXTNVM3_PHY_CFG_COUNTER_MASK: u32 = 0x0C000000;
 pub const FEXTNVM3_PHY_CFG_COUNTER_50MSEC: u32 = 0x08000000;
+
+pub const FEXTNVM4_BEACON_DURATION_MASK: u32 = 0x7;
+pub const FEXTNVM4_BEACON_DURATION_8USEC: u32 = 0x7;
+pub const FEXTNVM4_BEACON_DURATION_16USEC: u32 = 0x3;
 
 pub const FEXTNVM6_REQ_PLL_CLK: u32 = 0x00000100;
 pub const FEXTNVM6_ENABLE_K1_ENTRY_CONDITION: u32 = 0x00000200;

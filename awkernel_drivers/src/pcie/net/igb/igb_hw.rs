@@ -3956,8 +3956,8 @@ impl IgbHw {
                     self.link_stall_workaround_hv(info)?;
                 }
 
-                if self.mac_type == EmPchlan {
-                    self.k1_workaround_hv(info)?;
+                if self.mac_type == EmPch2lan {
+                    self.k1_workaround_lv(info)?;
                 }
 
                 // Work-around I218 hang issue
@@ -4244,8 +4244,24 @@ impl IgbHw {
         Ok(())
     }
 
-    fn k1_workaround_hv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+    /// Workaround to set the K1 beacon duration for 82579 parts
+    fn k1_workaround_lv(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let phy_data = self.read_phy_reg(info, BM_CS_STATUS)?;
+
+        if phy_data & (HV_M_STATUS_LINK_UP | HV_M_STATUS_AUTONEG_COMPLETE)
+            == HV_M_STATUS_LINK_UP | HV_M_STATUS_AUTONEG_COMPLETE
+        {
+            let mut mac_reg = read_reg(info, FEXTNVM4)?;
+            mac_reg &= !FEXTNVM4_BEACON_DURATION_MASK;
+
+            if phy_data & HV_M_STATUS_SPEED_1000 != 0 {
+                mac_reg |= FEXTNVM4_BEACON_DURATION_8USEC;
+            } else {
+                mac_reg |= FEXTNVM4_BEACON_DURATION_16USEC;
+            }
+
+            write_reg(info, FEXTNVM4, mac_reg)?;
+        }
 
         Ok(())
     }
