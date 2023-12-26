@@ -3980,7 +3980,7 @@ impl IgbHw {
                     self.mac_type,
                     EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
                 ) {
-                    self.set_eee_cphlan(info)?;
+                    self.set_eee_pchlan(info)?;
                 }
 
                 // If we are on 82544 or 82543 silicon and
@@ -4136,8 +4136,22 @@ impl IgbHw {
         Ok(())
     }
 
-    fn set_eee_cphlan(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+    /// Enable/disable EEE based on setting in dev_spec structure.  The bits in
+    /// the LPI Control register will remain set only if/when link is up.
+    fn set_eee_pchlan(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        if matches!(self.phy_type, PhyType::I82579 | PhyType::I217) {
+            return Ok(());
+        }
+
+        let mut phy_reg = self.read_phy_reg(info, I82579_LPI_CTRL)?;
+
+        if self.eee_enable {
+            phy_reg &= !I82579_LPI_CTRL_ENABLE_MASK;
+        } else {
+            phy_reg |= I82579_LPI_CTRL_ENABLE_MASK;
+        }
+
+        self.write_phy_reg(info, I82579_LPI_CTRL, phy_reg)?;
 
         Ok(())
     }

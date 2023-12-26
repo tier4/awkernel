@@ -969,6 +969,11 @@ pub const I82579_LPI_UPDATE_TIMER: u32 = 0x4805; // in 40ns units + 40 ns base v
 pub const I82579_MSE_THRESHOLD: u16 = 0x084F; // Mean Square Error Threshold
 pub const I82579_MSE_LINK_DOWN: u16 = 0x2411; // MSE count before dropping link
 
+// PHY Low Power Idle Control
+pub const I82579_LPI_CTRL: u32 = phy_reg(772, 20);
+pub const I82579_LPI_CTRL_ENABLE_MASK: u16 = 0x6000;
+pub const I82579_LPI_CTRL_FORCE_PLL_LOCK_COUNT: u16 = 0x80;
+
 pub const LEDCTL: usize = 0x00E00;
 
 pub const LEDCTL_LED0_MODE_MASK: u32 = 0x0000000F;
