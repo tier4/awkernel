@@ -4180,8 +4180,54 @@ impl IgbHw {
         Ok(())
     }
 
-    fn k1_workaround_lpt_lp(&mut self, info: &PCIeInfo, link_up: bool) -> Result<(), IgbDriverErr> {
-        // TODO
+    /// When K1 is enabled for 1Gbps, the MAC can miss 2 DMA completion indications
+    /// preventing further DMA write requests.  Workaround the issue by disabling
+    /// the de-assertion of the clock request when in 1Gbps mode.
+    /// Also, set appropriate Tx re-transmission timeouts for 10 and 100Half link
+    /// speeds in order to avoid Tx hangs.
+    fn k1_workaround_lpt_lp(&mut self, info: &PCIeInfo, link: bool) -> Result<(), IgbDriverErr> {
+        let fextnvm6 = read_reg(info, FEXTNVM6)?;
+        let status = read_reg(info, STATUS)?;
+
+        if link && status & STATUS_SPEED_1000 != 0 {
+            let reg = self.read_kmrn_reg(info, KMRNCTRLSTA_K1_CONFIG)?;
+            self.write_kmrn_reg(info, KMRNCTRLSTA_K1_CONFIG, reg & !KMRNCTRLSTA_K1_ENABLE)?;
+
+            awkernel_lib::delay::wait_microsec(10);
+
+            write_reg(info, FEXTNVM6, fextnvm6 | FEXTNVM6_REQ_PLL_CLK)?;
+
+            self.write_kmrn_reg(info, KMRNCTRLSTA_K1_CONFIG, reg)?;
+        } else {
+            // clear FEXTNVM6 bit 8 on link down or 10/100
+            let mut fextnvm6 = fextnvm6 & !FEXTNVM6_REQ_PLL_CLK;
+
+            if !link || (status & STATUS_SPEED_100 != 0 && status & STATUS_FD != 0) {
+                write_reg(info, FEXTNVM6, fextnvm6)?;
+            } else {
+                let mut reg = self.read_phy_reg(info, I217_INBAND_CTRL)?;
+
+                // Clear link status transmit timeout
+                reg &= !I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_MASK;
+
+                if status & STATUS_SPEED_100 != 0 {
+                    // Set inband Tx timeout to 5x10us for 100Half
+                    reg |= 5 << I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_SHIFT;
+
+                    // Do not extend the K1 entry latency for 100Half
+                    fextnvm6 &= !FEXTNVM6_ENABLE_K1_ENTRY_CONDITION;
+                } else {
+                    // Set inband Tx timeout to 50x10us for 10Full/Half
+                    reg |= 50 << I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_SHIFT;
+
+                    // Extend the K1 entry latency for 10 Mbps
+                    fextnvm6 |= FEXTNVM6_ENABLE_K1_ENTRY_CONDITION;
+                }
+
+                self.write_phy_reg(info, I217_INBAND_CTRL, reg)?;
+                write_reg(info, FEXTNVM6, fextnvm6)?;
+            }
+        }
 
         Ok(())
     }

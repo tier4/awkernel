@@ -5,7 +5,7 @@ pub const SCTL: usize = 0x00024; // SerDes Control - RW
 pub const FEXTNVM: usize = 0x00028; // Future Extended NVM register
 pub const FEXTNVM3: usize = 0x0003C; // Future Extended NVM 3 - RW
 pub const _FEXTNVM4: usize = 0x00024; // Future Extended NVM 4 - RW
-pub const _FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
+pub const FEXTNVM6: usize = 0x00010; // Future Extended NVM 6 - RW
 pub const KUMCTRLSTA: usize = 0x00034; // MAC-PHY interface - RW
 pub const VET: usize = 0x00038; // VLAN Ether Type - RW
 pub const FCAL: usize = 0x00028; // Flow Control Address Low - RW
@@ -870,6 +870,9 @@ pub const BM_PHY_PAGE_SELECT: u32 = 22; // Page Select for BM
 pub const BM_REG_BIAS1: u32 = 29;
 pub const BM_REG_BIAS2: u32 = 30;
 
+pub const KMRNCTRLSTA_K1_CONFIG: u32 = 0x7;
+pub const KMRNCTRLSTA_K1_ENABLE: u16 = 0x0002;
+
 // Miscellaneous PHY bit definitions.
 pub const PHY_PREAMBLE: u32 = 0xFFFFFFFF;
 pub const PHY_SOF: u32 = 0x01;
@@ -1301,8 +1304,16 @@ pub const I218_ULP_CONFIG1_EN_ULP_LANPHYPC: u16 = 0x0400;
 pub const I218_ULP_CONFIG1_DIS_CLR_STICKY_ON_PERST: u16 = 0x0800;
 pub const I218_ULP_CONFIG1_DISABLE_SMB_PERST: u16 = 0x1000; // Disable on PERST#
 
+// Inband Control
+pub const I217_INBAND_CTRL: u32 = phy_reg(770, 18);
+pub const I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_MASK: u16 = 0x3F00;
+pub const I217_INBAND_CTRL_LINK_STAT_TX_TIMEOUT_SHIFT: u16 = 8;
+
 pub const FEXTNVM3_PHY_CFG_COUNTER_MASK: u32 = 0x0C000000;
 pub const FEXTNVM3_PHY_CFG_COUNTER_50MSEC: u32 = 0x08000000;
+
+pub const FEXTNVM6_REQ_PLL_CLK: u32 = 0x00000100;
+pub const FEXTNVM6_ENABLE_K1_ENTRY_CONDITION: u32 = 0x00000200;
 
 // Transmit Descriptor Control
 pub const TXDCTL_PTHRESH: u32 = 0x000000FF; // TXDCTL Prefetch Threshold
