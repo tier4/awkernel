@@ -39,6 +39,7 @@ pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
 pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 pub const RA: usize = 0x05400; // Receive Address - RW Array
 pub const FCRTV_PCH: usize = 0x05F40; // PCH Flow Control Refresh Timer Value
+pub const HOST_IF: usize = 0x08800; // Host Interface
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register

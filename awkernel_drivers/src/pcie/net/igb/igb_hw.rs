@@ -1263,7 +1263,7 @@ impl IgbHw {
         // called in init as well as watchdog timer functions
         if self.check_mng_mode(info)? {
             if self.mng_enable_host_if(info).is_ok() {
-                if self.host_if_read_cookier(info).is_ok() {
+                if self.host_if_read_cookie(info).is_ok() {
                     let checksum = self.mng_cookie.checksum;
                     self.mng_cookie.checksum = 0;
 
@@ -1291,8 +1291,14 @@ impl IgbHw {
         Ok(())
     }
 
-    fn host_if_read_cookier(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+    /// This function reads the cookie from ARC ram.
+    fn host_if_read_cookie(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let buffer: &mut [u32; 4] = unsafe { core::mem::transmute(&mut self.mng_cookie) };
+        let offset = (MNG_DHCP_COOKIE_OFFSET >> 2) as usize;
+
+        for (i, buf) in buffer.iter_mut().enumerate() {
+            *buf = read_reg_array(info, HOST_IF, offset + i)?;
+        }
 
         Ok(())
     }
@@ -8490,6 +8496,14 @@ pub fn write_reg_array(
 pub fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     Ok(bar0.read32(offset).ok_or(IgbDriverErr::ReadFailure)?)
+}
+
+#[inline(always)]
+pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u32, IgbDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
+    Ok(bar0
+        .read32(offset + (index << 2))
+        .ok_or(IgbDriverErr::ReadFailure)?)
 }
 
 #[inline(always)]
