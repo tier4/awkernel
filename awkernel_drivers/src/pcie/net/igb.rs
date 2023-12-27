@@ -110,10 +110,6 @@ where
     Ok(())
 }
 
-pub fn activate() {
-    todo!()
-}
-
 #[derive(Debug)]
 pub enum IgbDriverErr {
     MemoryMapFailure,
@@ -196,6 +192,13 @@ impl Igb {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
+        // TODO: em_allocate_pci_resources()
+        //
+        // 1757         sc->msix = 0;
+        // 1758         sc->legacy_irq = 0;
+        // 1759         if (em_allocate_msix(sc) && em_allocate_legacy(sc))
+        // 1760                 return (ENXIO);
+
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
         let que = [allocate_desc_rings(&info)?];
