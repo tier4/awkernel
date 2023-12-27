@@ -1343,8 +1343,131 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Clears all hardware statistics counters.
     fn clear_hw_cntrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+        pub use MacType::*;
+
+        read_reg(info, CRCERRS)?;
+        read_reg(info, SYMERRS)?;
+        read_reg(info, MPC)?;
+        read_reg(info, SCC)?;
+        read_reg(info, ECOL)?;
+        read_reg(info, MCC)?;
+        read_reg(info, LATECOL)?;
+        read_reg(info, COLC)?;
+        read_reg(info, DC)?;
+        read_reg(info, SEC)?;
+        read_reg(info, RLEC)?;
+        read_reg(info, XONRXC)?;
+        read_reg(info, XONTXC)?;
+        read_reg(info, XOFFRXC)?;
+        read_reg(info, XOFFTXC)?;
+        read_reg(info, FCRUC)?;
+
+        if is_ich8(&self.mac_type) {
+            read_reg(info, PRC64)?;
+            read_reg(info, PRC127)?;
+            read_reg(info, PRC255)?;
+            read_reg(info, PRC511)?;
+            read_reg(info, PRC1023)?;
+            read_reg(info, PRC1522)?;
+        }
+
+        read_reg(info, GPRC)?;
+        read_reg(info, BPRC)?;
+        read_reg(info, MPRC)?;
+        read_reg(info, GPTC)?;
+        read_reg(info, GORCL)?;
+        read_reg(info, GORCH)?;
+        read_reg(info, GOTCL)?;
+        read_reg(info, GOTCH)?;
+        read_reg(info, RNBC)?;
+        read_reg(info, RUC)?;
+        read_reg(info, RFC)?;
+        read_reg(info, ROC)?;
+        read_reg(info, RJC)?;
+        read_reg(info, TORL)?;
+        read_reg(info, TORH)?;
+        read_reg(info, TOTL)?;
+        read_reg(info, TOTH)?;
+        read_reg(info, TPR)?;
+        read_reg(info, TPT)?;
+
+        if !is_ich8(&self.mac_type) {
+            read_reg(info, PTC64)?;
+            read_reg(info, PTC127)?;
+            read_reg(info, PTC255)?;
+            read_reg(info, PTC511)?;
+            read_reg(info, PTC1023)?;
+            read_reg(info, PTC1522)?;
+        }
+
+        read_reg(info, MPTC)?;
+        read_reg(info, BPTC)?;
+
+        if (self.mac_type as u32) < Em82543 as u32 {
+            return Ok(());
+        }
+
+        read_reg(info, ALGNERRC)?;
+        read_reg(info, RXERRC)?;
+        read_reg(info, TNCRS)?;
+        read_reg(info, CEXTERR)?;
+        read_reg(info, TSCTC)?;
+        read_reg(info, TSCTFC)?;
+
+        if (self.mac_type as u32) <= Em82544 as u32 || self.mac_type == EmICPxxxx {
+            return Ok(());
+        }
+
+        read_reg(info, MGTPRC)?;
+        read_reg(info, MGTPDC)?;
+        read_reg(info, MGTPTC)?;
+
+        if (self.mac_type as u32) <= Em82547Rev2 as u32 {
+            return Ok(());
+        }
+
+        read_reg(info, IAC)?;
+        read_reg(info, ICRXOC)?;
+
+        if matches!(
+            self.phy_type,
+            PhyType::I82577 | PhyType::I82578 | PhyType::I82579 | PhyType::I217
+        ) {
+            self.read_phy_reg(info, HV_SCC_UPPER)?;
+            self.read_phy_reg(info, HV_SCC_LOWER)?;
+            self.read_phy_reg(info, HV_ECOL_UPPER)?;
+            self.read_phy_reg(info, HV_ECOL_LOWER)?;
+            self.read_phy_reg(info, HV_MCC_UPPER)?;
+            self.read_phy_reg(info, HV_MCC_LOWER)?;
+            self.read_phy_reg(info, HV_LATECOL_UPPER)?;
+            self.read_phy_reg(info, HV_LATECOL_LOWER)?;
+            self.read_phy_reg(info, HV_COLC_UPPER)?;
+            self.read_phy_reg(info, HV_COLC_LOWER)?;
+            self.read_phy_reg(info, HV_DC_UPPER)?;
+            self.read_phy_reg(info, HV_DC_LOWER)?;
+            self.read_phy_reg(info, HV_TNCRS_UPPER)?;
+            self.read_phy_reg(info, HV_TNCRS_LOWER)?;
+        }
+
+        if matches!(self.mac_type, EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan)
+            || !matches!(
+                self.mac_type,
+                EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+            )
+        {
+            return Ok(());
+        }
+
+        read_reg(info, ICRXPTC)?;
+        read_reg(info, ICRXATC)?;
+        read_reg(info, ICTXPTC)?;
+        read_reg(info, ICTXATC)?;
+        read_reg(info, ICTXQEC)?;
+        read_reg(info, ICTXQMTC)?;
+        read_reg(info, ICRXDMTC)?;
+
         Ok(())
     }
 
