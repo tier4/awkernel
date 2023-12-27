@@ -433,6 +433,28 @@ bitflags! {
 const PHY_CFG_TIMEOUT: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PCIBusSpeed {
+    Unknown,
+    S33,
+    S66,
+    S100,
+    S120,
+    S133,
+    S2500,
+    Reserved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PCIBusType {
+    Unknown,
+    PCI,
+    PCIX,
+    PCIExpress,
+    CPP,
+    _Reserved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpeedDuplex {
     S10Half,
     S10Full,
@@ -597,6 +619,8 @@ pub struct IgbHw {
     serdes_link_down: bool,
     txcw: u32,
     forced_speed_duplex: SpeedDuplex,
+    bus_type: PCIBusType,
+    bus_speed: PCIBusSpeed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1108,6 +1132,8 @@ impl IgbHw {
             serdes_link_down: false,
             txcw: 0,
             forced_speed_duplex: SpeedDuplex::S10Half,
+            bus_type: PCIBusType::Unknown,
+            bus_speed: PCIBusSpeed::Unknown,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1322,8 +1348,66 @@ impl IgbHw {
         Ok(())
     }
 
+    /// Configure PCI-Ex no-snoop
     fn set_pci_ex_no_snoop(&mut self, info: &PCIeInfo, no_snoop: u32) -> Result<(), IgbDriverErr> {
         // TODO
+        Ok(())
+    }
+
+    /// Gets the current PCI bus type, speed, and width of the hardware
+    fn get_bus_info(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        match self.mac_type {
+            Em82542Rev2_0 | Em82542Rev2_1 => {
+                self.bus_type = PCIBusType::Unknown;
+                self.bus_speed = PCIBusSpeed::Unknown;
+            }
+            EmICPxxxx => {
+                self.bus_type = PCIBusType::CPP;
+                self.bus_speed = PCIBusSpeed::Unknown;
+            }
+            Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
+            | EmI210 | EmI350 => {
+                self.bus_type = PCIBusType::PCIExpress;
+                self.bus_speed = PCIBusSpeed::S2500;
+            }
+            EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
+            | EmPchCnp | EmPchTgp | EmPchAdp => {
+                self.bus_type = PCIBusType::PCIExpress;
+                self.bus_speed = PCIBusSpeed::S2500;
+            }
+            _ => {
+                let status = read_reg(info, STATUS)?;
+                self.bus_type = if status & STATUS_PCIX_MODE != 0 {
+                    PCIBusType::PCIX
+                } else {
+                    PCIBusType::PCI
+                };
+
+                if info.id == E1000_DEV_ID_82546EB_QUAD_COPPER {
+                    self.bus_speed = if self.bus_type == PCIBusType::PCI {
+                        PCIBusSpeed::S66
+                    } else {
+                        PCIBusSpeed::S120
+                    };
+                } else if self.bus_type == PCIBusType::PCI {
+                    self.bus_speed = if status & STATUS_PCI66 != 0 {
+                        PCIBusSpeed::S66
+                    } else {
+                        PCIBusSpeed::S33
+                    };
+                } else {
+                    match status & STATUS_PCIX_SPEED {
+                        STATUS_PCIX_SPEED_66 => self.bus_speed = PCIBusSpeed::S66,
+                        STATUS_PCIX_SPEED_100 => self.bus_speed = PCIBusSpeed::S100,
+                        STATUS_PCIX_SPEED_133 => self.bus_speed = PCIBusSpeed::S133,
+                        _ => self.bus_speed = PCIBusSpeed::Reserved,
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -4548,8 +4632,6 @@ impl IgbHw {
     /// https://github.com/openbsd/src/blob/18bc31b7ebc17ab66d1354464ff2ee3ba31f7750/sys/dev/pci/if_em_hw.c#L925
     pub fn reset_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
-
-        // let mut bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
 
         if matches!(self.mac_type, Em82542Rev2_0) {
             return Err(IgbDriverErr::NotSupported);

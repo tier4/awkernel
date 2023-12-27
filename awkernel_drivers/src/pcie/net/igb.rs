@@ -159,6 +159,7 @@ pub enum IgbDriverErr {
     EEPROM,
     DMAPool,
     HostInterfaceCommand,
+    NotImplemented,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -195,6 +196,7 @@ impl fmt::Display for IgbDriverErr {
             Self::EEPROM => write!(f, "EEPROM failure."),
             Self::DMAPool => write!(f, "DMA pool failure."),
             Self::HostInterfaceCommand => write!(f, "Host interface command failure."),
+            Self::NotImplemented => write!(f, "Not implemented."),
         }
     }
 }

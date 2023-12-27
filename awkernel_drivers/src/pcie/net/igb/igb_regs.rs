@@ -60,7 +60,15 @@ pub const STATUS_SPEED_10: u32 = 0x00000000; // Speed 10Mb/s
 pub const STATUS_SPEED_100: u32 = 0x00000040; // Speed 100Mb/s
 pub const STATUS_SPEED_1000: u32 = 0x00000080; // Speed 1000Mb/s
 pub const STATUS_LAN_INIT_DONE: u32 = 0x00000200; // Lan Init Completion
+pub const STATUS_PCI66: u32 = 0x00000800; // In 66MHz slot
+pub const STATUS_PCIX_MODE: u32 = 0x00002000; // PCI-X mode
+pub const STATUS_PCIX_SPEED: u32 = 0x0000C000; // PCI-X bus speed
 pub const STATUS_DEV_RST_SET: u32 = 0x00100000;
+
+// Constants used to interpret the masked PCI-X bus speed.
+pub const STATUS_PCIX_SPEED_66: u32 = 0x00000000; // PCI-X bus speed  50-66 MHz
+pub const STATUS_PCIX_SPEED_100: u32 = 0x00004000; // PCI-X bus speed  66-100 MHz
+pub const STATUS_PCIX_SPEED_133: u32 = 0x00008000; // PCI-X bus speed 100-133 MHz
 
 pub const E1000_82542_2_0_REV_ID: u32 = 2;
 pub const E1000_82542_2_1_REV_ID: u32 = 3;
@@ -145,14 +153,19 @@ pub const GCR_TXD_NO_SNOOP: u32 = 0x00000008;
 pub const GCR_TXDSCW_NO_SNOOP: u32 = 0x00000010;
 pub const GCR_TXDSCR_NO_SNOOP: u32 = 0x00000020;
 
-pub const PCI_EX_NO_SNOOP_ALL: u32 = (GCR_RXD_NO_SNOOP
+pub const PCI_EX_NO_SNOOP_ALL: u32 = GCR_RXD_NO_SNOOP
     | GCR_RXDSCW_NO_SNOOP
     | GCR_RXDSCR_NO_SNOOP
     | GCR_TXD_NO_SNOOP
     | GCR_TXDSCW_NO_SNOOP
-    | GCR_TXDSCR_NO_SNOOP);
+    | GCR_TXDSCR_NO_SNOOP;
 
 pub const PCI_EX_82566_SNOOP_ALL: u32 = PCI_EX_NO_SNOOP_ALL;
+
+// PCI-Ex Config Space
+pub const PCI_EX_LINK_STATUS: u32 = 0x12;
+pub const PCI_EX_LINK_WIDTH_MASK: u16 = 0x3F0;
+pub const PCI_EX_LINK_WIDTH_SHIFT: u16 = 4;
 
 pub const CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
 pub const CTRL_LRST: u32 = 0x00000008; // Link reset. 0=normal,1=reset
