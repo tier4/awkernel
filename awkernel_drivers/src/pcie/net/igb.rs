@@ -158,6 +158,7 @@ pub enum IgbDriverErr {
     PhyType,
     EEPROM,
     DMAPool,
+    HostInterfaceCommand,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -193,6 +194,7 @@ impl fmt::Display for IgbDriverErr {
             Self::PhyType => write!(f, "PHY type failure."),
             Self::EEPROM => write!(f, "EEPROM failure."),
             Self::DMAPool => write!(f, "DMA pool failure."),
+            Self::HostInterfaceCommand => write!(f, "Host interface command failure."),
         }
     }
 }

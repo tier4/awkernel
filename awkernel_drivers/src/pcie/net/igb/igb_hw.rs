@@ -1285,10 +1285,26 @@ impl IgbHw {
         Ok(tx_filter)
     }
 
+    /// This function checks whether the HOST IF is enabled for command operation
+    /// and also checks whether the previous command is completed.
+    /// It busy waits in case of previous command is not completed.
     fn mng_enable_host_if(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
-        // TODO
+        // Check that the host interface is enabled.
+        let hicr = read_reg(info, HICR)?;
+        if hicr & HICR_EN == 0 {
+            return Err(IgbDriverErr::HostInterfaceCommand);
+        }
 
-        Ok(())
+        // Check the previous command is completed.
+        for _ in 0..MNG_DHCP_COMMAND_TIMEOUT {
+            let hicr = read_reg(info, HICR)?;
+            if hicr & HICR_C == 0 {
+                return Ok(());
+            }
+            awkernel_lib::delay::wait_millisec(1);
+        }
+
+        Err(IgbDriverErr::HostInterfaceCommand)
     }
 
     /// This function reads the cookie from ARC ram.

@@ -67,6 +67,10 @@ pub const E1000_REVISION_1: u32 = 1;
 pub const E1000_REVISION_2: u32 = 2;
 pub const E1000_REVISION_3: u32 = 3;
 
+// Host Interface Control Register
+pub const HICR_EN: u32 = 0x00000001; // Enable Bit - RO
+pub const HICR_C: u32 = 0x00000002; // Driver sets this bit when done to put command in RAM
+
 // Interrupt Mask Set/Read Register
 pub const IMS: usize = 0x000D0;
 pub const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
