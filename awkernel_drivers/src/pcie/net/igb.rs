@@ -427,6 +427,7 @@ impl NetDevice for Igb {
     }
 
     fn send(&mut self, data: &[u8]) -> Option<()> {
+        // em_start()
         todo!()
     }
 }
@@ -467,6 +468,11 @@ impl Igb {
         } else {
             Err(IgbDriverErr::InitializeInterrupt)
         }
+    }
+
+    fn init(&mut self) -> Result<(), IgbDriverErr> {
+        // em_init()
+        todo!()
     }
 }
 
