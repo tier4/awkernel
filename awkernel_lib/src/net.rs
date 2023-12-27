@@ -1,25 +1,66 @@
-use core::fmt::Display;
-
-use crate::sync::mcs::MCSNode;
-use crate::sync::mutex::Mutex;
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
-use smoltcp::iface::{Config, Interface};
-use smoltcp::phy::{self, DeviceCapabilities};
-use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, Ipv4Address};
+use core::fmt::Display;
+use smoltcp::{
+    iface::{Config, Interface},
+    phy::{self, DeviceCapabilities},
+    time::Instant,
+    wire::{EthernetAddress, HardwareAddress, Ipv4Address},
+};
+
+use bitflags::bitflags;
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct NetFlags: u16 {
+        const UP = 1 << 0; // interface is up
+        const BROADCAST = 1 << 1; // broadcast address valid
+        const DEBUG = 1 << 2; // turn on debugging
+        const LOOPBACK = 1 << 3; // is a loopback net
+        const POINTOPOINT = 1 << 4; // is point-to-point link
+        const STATICARP = 1 << 5; // only static ARP
+        const RUNNING = 1 << 6; // resources allocated
+        const NOARP = 1 << 7; // no address resolution protocol
+        const PROMISC = 1 << 8; // receive all packets
+        const ALLMULTI = 1 << 9; // receive all multicast packets
+        const OACTIVE = 1 << 10; // transmission in progress
+        const SIMPLEX = 1 << 11; // can't hear own transmissions
+        const LINK0 = 1 << 12; // per link layer defined bit
+        const LINK1 = 1 << 13; // per link layer defined bit
+        const LINK2 = 1 << 14; // per link layer defined bit
+        const MULTICAST = 1 << 15; // supports multicast
+    }
+
+    /// Capabilities that interfaces can advertise.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct NetCapabilities: u32 {
+        const CSUM_IPv4 = 1 << 0; // can do IPv4 header csum
+        const CSUM_TCPv4 = 1 << 1; // can do IPv4/TCP csum
+        const CSUM_UDPv4 = 1 << 2; // can do IPv4/UDP csum
+        const VLAN_MTU = 1 << 4; // VLAN-compatible MTU
+        const VLAN_HWTAGGING = 1 << 5; // hardware VLAN tag support
+        const CSUM_TCPv6 = 1 << 7; // can do IPv6/TCP checksums
+        const CSUM_UDPv6 = 1 << 8; // can do IPv6/UDP checksums
+        const TSOv4 = 1 << 12; // IPv4/TCP segment offload
+        const TSOv6 = 1 << 13; // IPv6/TCP segment offload
+        const LRO = 1 << 14; // TCP large recv offload
+        const WOL = 1 << 15; // can do wake on lan
+    }
+}
 
 pub trait NetDevice {
     fn recv(&mut self) -> Option<Vec<u8>>;
-    fn send(&mut self, data: &mut [u8]) -> Option<()>;
+    fn send(&mut self, data: &[u8]) -> Option<()>;
+
+    fn flags(&self) -> NetFlags;
+    fn capabilities(&self) -> NetCapabilities;
+    fn link_speed(&self) -> u64;
     fn can_send(&self) -> bool;
-    fn mac_address(&mut self) -> [u8; 6];
-    fn link_up(&mut self) -> bool;
-    fn full_duplex(&mut self) -> bool;
+    fn mac_address(&self) -> [u8; 6];
+    fn link_up(&self) -> bool;
+    fn full_duplex(&self) -> bool;
 
-    // Link speed in Mbps
-    fn link_speed(&mut self) -> u64;
-
-    fn device_name(&self) -> &'static str;
+    fn device_short_name(&self) -> &'static str;
 }
 
 #[derive(Clone)]
@@ -231,7 +272,7 @@ impl NetManager {
 
             let ipv4_addr = netif.ipv4_addr.clone();
             let ipv4_gateway = netif.ipv4_gateway;
-            let device_name = inner.device_name();
+            let device_name = inner.device_short_name();
 
             result.push(IfStatus {
                 device_name,

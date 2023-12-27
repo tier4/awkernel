@@ -395,23 +395,23 @@ pub const GG_CABLE_LENGTH_60_115: u16 = 1;
 pub const GG_CABLE_LENGTH_115_150: u16 = 2;
 pub const GG_CABLE_LENGTH_150: u16 = 4;
 
-pub const IGP_CABLE_LENGTH_10: u16 = 10;
-pub const IGP_CABLE_LENGTH_20: u16 = 20;
-pub const IGP_CABLE_LENGTH_30: u16 = 30;
-pub const IGP_CABLE_LENGTH_40: u16 = 40;
+pub const _IGP_CABLE_LENGTH_10: u16 = 10;
+pub const _IGP_CABLE_LENGTH_20: u16 = 20;
+pub const _IGP_CABLE_LENGTH_30: u16 = 30;
+pub const _IGP_CABLE_LENGTH_40: u16 = 40;
 pub const IGP_CABLE_LENGTH_50: u16 = 50;
 pub const IGP_CABLE_LENGTH_60: u16 = 60;
-pub const IGP_CABLE_LENGTH_70: u16 = 70;
+pub const _IGP_CABLE_LENGTH_70: u16 = 70;
 pub const IGP_CABLE_LENGTH_80: u16 = 80;
-pub const IGP_CABLE_LENGTH_90: u16 = 90;
-pub const IGP_CABLE_LENGTH_100: u16 = 100;
+pub const _IGP_CABLE_LENGTH_90: u16 = 90;
+pub const _IGP_CABLE_LENGTH_100: u16 = 100;
 pub const IGP_CABLE_LENGTH_110: u16 = 110;
 pub const IGP_CABLE_LENGTH_115: u16 = 115;
-pub const IGP_CABLE_LENGTH_120: u16 = 120;
-pub const IGP_CABLE_LENGTH_130: u16 = 130;
+pub const _IGP_CABLE_LENGTH_120: u16 = 120;
+pub const _IGP_CABLE_LENGTH_130: u16 = 130;
 pub const IGP_CABLE_LENGTH_140: u16 = 140;
 pub const IGP_CABLE_LENGTH_150: u16 = 150;
-pub const IGP_CABLE_LENGTH_160: u16 = 160;
+pub const _IGP_CABLE_LENGTH_160: u16 = 160;
 pub const IGP_CABLE_LENGTH_170: u16 = 170;
 pub const IGP_CABLE_LENGTH_180: u16 = 180;
 
@@ -2555,7 +2555,7 @@ impl IgbHw {
                 // number that can be put into the lookup table to
                 // obtain the approximate cable length.
                 let cur_agc_index =
-                    (phy_data >> IGP02E1000_AGC_LENGTH_SHIFT) >> IGP02E1000_AGC_LENGTH_MASK;
+                    (phy_data >> IGP02E1000_AGC_LENGTH_SHIFT) & IGP02E1000_AGC_LENGTH_MASK;
 
                 // Array index bound check.
                 if cur_agc_index >= IGP02E1000_AGC_LENGTH_TABLE_SIZE || cur_agc_index == 0 {

@@ -122,13 +122,14 @@ pub enum AddressType {
     T64B, // 64 bit address space
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PCIeDeviceErr {
     InitFailure,
+    ReadFailure,
     PageTableFailure,
     UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
     InvalidClass,
-    NotYetImplemented,
+    NotImplemented,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -153,8 +154,11 @@ impl fmt::Display for PCIeDeviceErr {
             Self::InvalidClass => {
                 write!(f, "Invalid PCIe class.")
             }
-            Self::NotYetImplemented => {
-                write!(f, "Not yet implemented.")
+            Self::NotImplemented => {
+                write!(f, "Not implemented.")
+            }
+            Self::ReadFailure => {
+                write!(f, "Failed to read the device register.")
             }
         }
     }
@@ -561,7 +565,6 @@ impl PCIeInfo {
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 if net::igb::match_device(self.vendor, self.id) {
-                    log::debug!("Intel GbE NIC has found: {}", self);
                     return net::igb::attach(self, dma_offset, page_table, page_allocator);
                 }
             }
@@ -581,11 +584,7 @@ impl PCIeInfo {
 }
 
 pub trait PCIeDevice {
-    /// Each PCIe device has a register space,
-    const REG_SPACE_SIZE: u64;
-
-    /// Initialize the device hardware.
-    fn init(&mut self) -> Result<(), PCIeDeviceErr>;
+    fn device_name(&self) -> &'static str;
 }
 
 /// Read the base address of `addr`.
