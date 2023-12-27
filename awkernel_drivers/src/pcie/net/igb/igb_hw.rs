@@ -8572,6 +8572,15 @@ fn clear_vfta_i350(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     Ok(())
 }
 
-fn calculate_mng_checksum(data: &HostMngDhcpCookie) -> u8 {
-    todo!()
+/// This function calculates the checksum.
+fn calculate_mng_checksum(buffer: &HostMngDhcpCookie) -> u8 {
+    let buffer: &[u8; 16] = unsafe { core::mem::transmute(buffer) };
+
+    let mut sum: u8 = 0;
+    for buf in buffer.iter() {
+        sum = sum.wrapping_add(*buf);
+    }
+
+    let z: u8 = 0;
+    z.wrapping_sub(sum)
 }
