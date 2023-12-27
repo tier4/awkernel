@@ -19,6 +19,7 @@ pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
 pub const RXCW: usize = 0x00180; // RX Configuration Word - RO
+pub const TCTL_EXT: usize = 0x00404; // Extended TX Control - RW
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
@@ -36,6 +37,7 @@ pub const HICR: usize = 0x08F00; // Host Interface Control
 pub const TARC0: usize = 0x03840; // TX Arbitration Count (0)
 pub const TARC1: usize = 0x03940; // TX Arbitration Count (1)
 pub const VFTA: usize = 0x05600; //VLAN Filter Table Array - RW Array
+pub const FFLT: usize = 0x05F00; // Flexible Filter Length Table - RW Array
 pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 pub const RA: usize = 0x05400; // Receive Address - RW Array
 pub const FCRTV_PCH: usize = 0x05F40; // PCH Flow Control Refresh Timer Value
@@ -134,6 +136,24 @@ pub const GCR_CMPL_TMOUT_10_MS: u32 = 0x00001000;
 pub const GCR_CMPL_TMOUT_RESEND: u32 = 0x00010000;
 pub const GCR_CAP_VER2: u32 = 0x00040000;
 
+pub const GCR_L1_ACT_WITHOUT_L0S_RX: u32 = 0x08000000;
+
+pub const GCR_RXD_NO_SNOOP: u32 = 0x00000001;
+pub const GCR_RXDSCW_NO_SNOOP: u32 = 0x00000002;
+pub const GCR_RXDSCR_NO_SNOOP: u32 = 0x00000004;
+pub const GCR_TXD_NO_SNOOP: u32 = 0x00000008;
+pub const GCR_TXDSCW_NO_SNOOP: u32 = 0x00000010;
+pub const GCR_TXDSCR_NO_SNOOP: u32 = 0x00000020;
+
+pub const PCI_EX_NO_SNOOP_ALL: u32 = (GCR_RXD_NO_SNOOP
+    | GCR_RXDSCW_NO_SNOOP
+    | GCR_RXDSCR_NO_SNOOP
+    | GCR_TXD_NO_SNOOP
+    | GCR_TXDSCW_NO_SNOOP
+    | GCR_TXDSCR_NO_SNOOP);
+
+pub const PCI_EX_82566_SNOOP_ALL: u32 = PCI_EX_NO_SNOOP_ALL;
+
 pub const CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
 pub const CTRL_LRST: u32 = 0x00000008; // Link reset. 0=normal,1=reset
 pub const CTRL_ASDE: u32 = 0x00000020; // Auto-speed detect enable
@@ -174,6 +194,8 @@ pub const TIPG_IPGR2_MASK: u32 = 0x3FF00000;
 
 pub const DEFAULT_80003ES2LAN_TIPG_IPGT_10_100: u32 = 0x00000009;
 pub const DEFAULT_80003ES2LAN_TIPG_IPGT_1000: u32 = 0x00000008;
+
+pub const DEFAULT_80003ES2LAN_TCTL_EXT_GCEX: u32 = 0x00010000;
 
 pub const RCTL_EN: u32 = 1 << 1; // Receive Control Register Enable
 pub const RCTL_SBP: u32 = 1 << 2; // store bad packet
@@ -345,7 +367,7 @@ pub const _CTRL_EXT_ASDCHK: u32 = 0x00001000; // Initiate an ASD sequence
 pub const CTRL_EXT_EE_RST: u32 = 0x00002000; // Reinitialize from EEPROM
 pub const _CTRL_EXT_IPS: u32 = 0x00004000; // Invert Power State
 pub const CTRL_EXT_SPD_BYPS: u32 = 0x00008000; // Speed Select Bypass
-pub const _CTRL_EXT_RO_DIS: u32 = 0x00020000; // Relaxed Ordering disable
+pub const CTRL_EXT_RO_DIS: u32 = 0x00020000; // Relaxed Ordering disable
 pub const CTRL_EXT_LINK_MODE_MASK: u32 = 0x00C00000;
 pub const _CTRL_EXT_LINK_MODE_GMII: u32 = 0x00000000;
 pub const _CTRL_EXT_LINK_MODE_TBI: u32 = 0x00C00000;

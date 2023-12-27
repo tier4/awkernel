@@ -1251,8 +1251,79 @@ impl IgbHw {
             self.enable_tx_pkt_filtering(info)?;
         }
 
-        // TODO
+        if self.mac_type == Em80003es2lan {
+            // Enable retransmit on late collisions
+            let mut tctl = read_reg(info, TCTL)?;
+            tctl |= TCTL_RTLC;
+            write_reg(info, TCTL, tctl)?;
 
+            // Configure Gigabit Carry Extend Padding
+            let mut tctl_ext = read_reg(info, TCTL_EXT)?;
+            tctl_ext &= !TCTL_EXT_GCEX_MASK;
+            tctl_ext |= DEFAULT_80003ES2LAN_TCTL_EXT_GCEX;
+            write_reg(info, TCTL_EXT, tctl_ext)?;
+
+            // Configure Transmit Inter-Packet Gap
+            let mut tipg = read_reg(info, TIPG)?;
+            tipg &= !TIPG_IPGT_MASK;
+            tipg |= DEFAULT_80003ES2LAN_TIPG_IPGT_1000;
+            write_reg(info, TIPG, tipg)?;
+
+            let mut fflt = read_reg_array(info, FFLT, 0x0001)?;
+            fflt &= !0x00100000;
+            write_reg_array(info, FFLT, 0x0001, fflt)?;
+        }
+
+        if matches!(self.mac_type, Em82573 | Em82574) {
+            let mut gcr = read_reg(info, GCR)?;
+            gcr |= GCR_L1_ACT_WITHOUT_L0S_RX;
+            write_reg(info, GCR, gcr)?;
+        }
+
+        // Clear all of the statistics registers (clear on read).  It is
+        // important that we do this after we have tried to establish link
+        // because the symbol error count will increment wildly if there is
+        // no link.
+        self.clear_hw_cntrs(info)?;
+
+        // ICH8 No-snoop bits are opposite polarity. Set to snoop by default after reset.
+        if is_ich8(&self.mac_type) {
+            let snoop = if self.mac_type == EmIch8lan {
+                PCI_EX_82566_SNOOP_ALL
+            } else {
+                !PCI_EX_NO_SNOOP_ALL
+            };
+
+            self.set_pci_ex_no_snoop(info, snoop)?;
+        }
+
+        // ungate DMA clock to avoid packet loss
+        if (self.mac_type as u32) >= EmPchTgp as u32 {
+            let mut fflt_dbg = read_reg(info, FFLT_DBG)?;
+            fflt_dbg |= 1 << 12;
+            write_reg(info, FFLT_DBG, fflt_dbg)?;
+        }
+
+        if info.id == E1000_DEV_ID_82546GB_QUAD_COPPER
+            || info.id == E1000_DEV_ID_82546GB_QUAD_COPPER_KSP3
+        {
+            let mut ctrl_ext = read_reg(info, CTRL_EXT)?;
+            // Relaxed ordering must be disabled to avoid a parity error
+            // crash in a PCI slot.
+            ctrl_ext |= CTRL_EXT_RO_DIS;
+            write_reg(info, CTRL_EXT, ctrl_ext)?;
+        }
+
+        Ok(())
+    }
+
+    fn clear_hw_cntrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        // TODO
+        Ok(())
+    }
+
+    fn set_pci_ex_no_snoop(&mut self, info: &PCIeInfo, no_snoop: u32) -> Result<(), IgbDriverErr> {
+        // TODO
         Ok(())
     }
 
