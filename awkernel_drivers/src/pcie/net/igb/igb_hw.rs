@@ -1350,7 +1350,27 @@ impl IgbHw {
 
     /// Configure PCI-Ex no-snoop
     fn set_pci_ex_no_snoop(&mut self, info: &PCIeInfo, no_snoop: u32) -> Result<(), IgbDriverErr> {
-        // TODO
+        if self.bus_type == PCIBusType::Unknown {
+            self.get_bus_info(info)?;
+        }
+
+        if self.bus_type != PCIBusType::PCIExpress {
+            return Ok(());
+        }
+
+        if no_snoop != 0 {
+            let mut gcr = read_reg(info, GCR)?;
+            gcr &= !PCI_EX_NO_SNOOP_ALL;
+            gcr |= no_snoop;
+            write_reg(info, GCR, gcr)?;
+        }
+
+        if is_ich8(&self.mac_type) {
+            let mut ctrl_ext = read_reg(info, CTRL_EXT)?;
+            ctrl_ext |= CTRL_EXT_RO_DIS;
+            write_reg(info, CTRL_EXT, ctrl_ext)?;
+        }
+
         Ok(())
     }
 
