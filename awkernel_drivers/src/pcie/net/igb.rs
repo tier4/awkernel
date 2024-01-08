@@ -77,6 +77,7 @@ pub struct Igb {
 
     flags: NetFlags,
     capabilities: NetCapabilities,
+    icp_xxxx_is_link_up: bool,
 }
 
 pub fn attach<F, FA, E>(
@@ -262,14 +263,102 @@ impl Igb {
             perm_mac_addr[5]
         );
 
-        Ok(Self {
+        // Initialize statistics
+        hw.clear_hw_cntrs(&info)?;
+
+        hw.set_get_link_status(true);
+
+        let igb = Self {
             info,
             hw,
             que,
             irq: None,
             flags,
             capabilities,
-        })
+            icp_xxxx_is_link_up: false,
+        };
+
+        igb.new2()
+    }
+
+    fn new2(mut self) -> Result<Self, PCIeDeviceErr> {
+        self.update_link_status()?;
+
+        // Indicate SOL/IDER usage
+        if self.hw.check_phy_reset_block(&self.info).is_err() {
+            log::warn!("igb: PHY reset is blocked due to SOL/IDER session.");
+        }
+
+        Ok(self)
+    }
+
+    fn update_link_status(&mut self) -> Result<(), IgbDriverErr> {
+        // TODO: em_update_link_status()
+        Ok(())
+    }
+
+    fn init_pcie_msi(&mut self) -> Result<u16, IgbDriverErr> {
+        self.info.disable_legacy_interrupt();
+
+        if let Some(msix) = self.info.get_msix_mut() {
+            msix.disalbe();
+        }
+
+        if let Some(msi) = self.info.get_msi_mut() {
+            msi.disable();
+
+            if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
+                "igb",
+                Box::new(|_irq| {
+                    log::debug!("igb interrupt.");
+                }),
+            ) {
+                msi.set_multiple_message_enable(MultipleMessage::One)
+                    .unwrap();
+
+                #[cfg(feature = "x86")]
+                msi.set_x86_interrupt(0, irq, false, false);
+
+                self.irq = Some(irq);
+                awkernel_lib::interrupt::enable_irq(irq);
+
+                msi.enable();
+
+                Ok(irq)
+            } else {
+                Err(IgbDriverErr::InitializeInterrupt)
+            }
+        } else {
+            Err(IgbDriverErr::InitializeInterrupt)
+        }
+    }
+
+    fn init(&mut self) -> Result<(), IgbDriverErr> {
+        // em_init()
+        todo!()
+    }
+
+    fn stop(&mut self, softonly: bool) -> Result<(), IgbDriverErr> {
+        // em_stop()
+
+        self.flags.remove(NetFlags::RUNNING);
+
+        if !softonly {
+            // TODO: em_disable_intr()
+        }
+
+        if self.hw.get_mac_type() as u32 >= MacType::EmPchSpt as u32 {
+            // TODO: em_flush_desc_rings()
+        }
+
+        if !softonly {
+            self.hw.reset_hw(&self.info)?;
+        }
+
+        // TODO: em_free_transmit_structures()
+        // TODO: em_free_receive_structures()
+
+        todo!()
     }
 }
 
@@ -428,50 +517,6 @@ impl NetDevice for Igb {
 
     fn send(&mut self, data: &[u8]) -> Option<()> {
         // em_start()
-        todo!()
-    }
-}
-
-//===========================================================================
-impl Igb {
-    fn init_pcie_msi(&mut self) -> Result<u16, IgbDriverErr> {
-        self.info.disable_legacy_interrupt();
-
-        if let Some(msix) = self.info.get_msix_mut() {
-            msix.disalbe();
-        }
-
-        if let Some(msi) = self.info.get_msi_mut() {
-            msi.disable();
-
-            if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-                "igb",
-                Box::new(|_irq| {
-                    log::debug!("igb interrupt.");
-                }),
-            ) {
-                msi.set_multiple_message_enable(MultipleMessage::One)
-                    .unwrap();
-
-                #[cfg(feature = "x86")]
-                msi.set_x86_interrupt(0, irq, false, false);
-
-                self.irq = Some(irq);
-                awkernel_lib::interrupt::enable_irq(irq);
-
-                msi.enable();
-
-                Ok(irq)
-            } else {
-                Err(IgbDriverErr::InitializeInterrupt)
-            }
-        } else {
-            Err(IgbDriverErr::InitializeInterrupt)
-        }
-    }
-
-    fn init(&mut self) -> Result<(), IgbDriverErr> {
-        // em_init()
         todo!()
     }
 }

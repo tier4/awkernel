@@ -1344,7 +1344,7 @@ impl IgbHw {
     }
 
     /// Clears all hardware statistics counters.
-    fn clear_hw_cntrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    pub fn clear_hw_cntrs(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         pub use MacType::*;
 
         read_reg(info, CRCERRS)?;
@@ -2798,6 +2798,10 @@ impl IgbHw {
         self.get_link_status = true;
 
         Ok(())
+    }
+
+    pub fn set_get_link_status(&mut self, flag: bool) {
+        self.get_link_status = flag;
     }
 
     /// Configures PHY autoneg and flow control advertisement settings
@@ -7928,7 +7932,7 @@ impl IgbHw {
     /// Checks if PHY reset is blocked due to SOL/IDER session, for example.
     /// Returning E1000_BLK_PHY_RESET isn't necessarily an error.  But it's up to
     /// the caller to figure out how to deal with it.
-    fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+    pub fn check_phy_reset_block(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         if is_ich8(&self.mac_type) {
             let mut i = 0;
             let mut blocked = true;
