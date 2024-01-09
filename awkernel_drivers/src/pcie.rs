@@ -295,9 +295,7 @@ impl DeviceInfo {
     }
 
     pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
-        let Some(bar) = self.base_addresses.get(i) else {
-            return None;
-        };
+        let bar = self.base_addresses.get(i)?;
 
         match bar {
             #[cfg(feature = "x86")]
