@@ -1,3 +1,39 @@
+//! # UART's device driver for Raspberry Pi.
+//!
+//! Raspberry Pi 4 has 6 UARTs.
+//! UART0 is dedicated to the console, while UART2 to UART5 are available for user applications.
+//! Both UART0 and UART1 utilize GPIO14 for Tx (transmit) and GPIO15 for Rx (receive).
+//! Consequently, Awkernel does not use UART1.
+//!
+//! The table below outlines the GPIO pins associated with each UART and their availability on the Raspberry Pi 3 and 4 models.
+//!
+//! | UART | Tx | Rx | Rpi3 | Rpi4 |
+//! |------|----|----|------|------|
+//! | 0/1  | 14 | 15 | ✓    | ✓    |
+//! | 2    |  0 |  1 |      | ✓    |
+//! | 3    |  4 |  5 |      | ✓    |
+//! | 4    |  8 |  9 |      | ✓    |
+//! | 5    | 12 | 13 |      | ✓    |
+//!
+//! ## Example
+//!
+//! The following example shows how to use UART2.
+//!
+//! ```
+//! use awkernel_drivers::hal::rpi::uart::{Uart, Uarts};
+//! use embedded_io::{Read, Write};
+//!
+//! let mut uart2 = Uart::new(Uarts::Uart2, 115200).unwrap();
+//!
+//! let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
+//!
+//! let write_buf = b"Hello, world!\r\n";
+//! let mut read_buf = [0; 32];
+//!
+//! let write_size = uart2.write(write_buf).unwrap();
+//! let read_size = uart2.read(&mut read_buf).unwrap();
+//! ```
+
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use awkernel_lib::{
