@@ -232,7 +232,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn(async { Ok(()) }, SchedulerType::FIFO);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
@@ -449,15 +449,15 @@ pub fn run_main() {
 
                     let task_end = uptime();
                     task_exec_times[measure_count] = task_end - task_start;
-                    if measure_count == MAX_MEASURE_SIZE - 1 {
-                        log::debug!(
-                            "CPU#{:?} utilization = {:.3} [%]",
-                            awkernel_lib::cpu::cpu_id(),
-                            task_exec_times.iter().sum::<u64>() as f64
-                                / ((uptime() - measure_duration_start) as f64)
-                                * 100.0,
-                        );
-                    }
+                    // if measure_count == MAX_MEASURE_SIZE - 1 {
+                    //     log::debug!(
+                    //         "CPU#{:?} utilization = {:.3} [%]",
+                    //         awkernel_lib::cpu::cpu_id(),
+                    //         task_exec_times.iter().sum::<u64>() as f64
+                    //             / ((uptime() - measure_duration_start) as f64)
+                    //             * 100.0,
+                    //     );
+                    // }
                     perf::add_context_save_end(cpu_id, task_end);
                     measure_count = (measure_count + 1) % MAX_MEASURE_SIZE;
 
@@ -512,12 +512,10 @@ pub fn run_main() {
                     let mut tasks = TASKS.lock(&mut node);
                     tasks.remove(task.id);
                 }
-                Err(err) => {
+                Err(_) => {
                     // Caught panic.
                     info.state = State::Panicked;
                     drop(info);
-
-                    log::error!("Task has panicked!: {:?}", err);
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);

@@ -1,3 +1,12 @@
+//! # IRQ Number
+//!
+//! | INTID            | Interrupt Type           | Notes                                        |
+//! |------------------|--------------------------|----------------------------------------------|
+//! | 0 - 15           | SGIs                     | Banked per PE                                |
+//! | 16 - 31          | PPIs                     | Banked per PE                                |
+//! | 32 - 1019        | SPIs                     |                                              |
+//! | 1020 - 1023      | Special interrupt number | Used to signal special cases                 |
+
 use alloc::boxed::Box;
 use awkernel_lib::interrupt::InterruptController;
 use core::default::Default;
@@ -271,6 +280,14 @@ impl InterruptController for GICv2 {
     fn send_ipi_broadcast_without_self(&mut self, irq: u16) {
         let value = registers::GIDG_SGIR_TARGET_ALL_EXCEPT_SELF | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);
+    }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (1, self.max_it)
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (96, self.max_it)
     }
 }
 

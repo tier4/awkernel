@@ -9,9 +9,11 @@
 //! | 1024 - 8191      | Reserved LPIs            |                                              |
 //! | 8192 and greater | LPIs                     | The upper boundary is IMPLEMENTATION DEFINED |
 //!
-//! # Reference
+//! # References
 //!
-//! https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c
+//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c
+//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3_its.c
+//! - https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.txt
 
 use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::{
@@ -397,6 +399,14 @@ impl InterruptController for GICv3 {
 
     fn pending_irqs<'a>(&self) -> Box<dyn Iterator<Item = u16>> {
         Box::new(PendingInterruptIterator)
+    }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (1, 1024)
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (96, 1020)
     }
 }
 

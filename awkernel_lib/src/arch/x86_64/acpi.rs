@@ -3,6 +3,8 @@ use bootloader_api::BootInfo;
 use core::ptr::{write_volatile, NonNull};
 use x86_64::VirtAddr;
 
+pub mod srat;
+
 static mut PM_TIMER: Option<PmTimer> = None;
 
 #[derive(Debug, Clone)]

@@ -21,7 +21,7 @@
 //!
 //!     // Accept a connection.
 //!     while let Ok(server_recv_goal) = server.accept().await {
-//!         spawn(server_main(server_recv_goal), SchedulerType::FIFO).await;
+//!         spawn("server".into(), server_main(server_recv_goal), SchedulerType::FIFO).await;
 //!     }
 //! }
 //!

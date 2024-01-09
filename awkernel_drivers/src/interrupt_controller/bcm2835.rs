@@ -158,6 +158,14 @@ impl InterruptController for BCM2835IntCtrl {
             self.local_base + cpu_id * 4,
         );
     }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (1, 128)
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (0, 0)
+    }
 }
 
 pub struct PendingInterruptIterator {

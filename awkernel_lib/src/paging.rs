@@ -17,6 +17,14 @@ where
     fn allocate_frame(&mut self) -> Result<F, E>;
 }
 
+/// Allocate a frame for NUMA node of `numa_id`.
+pub trait NUMAFrameAllocator<F, E>
+where
+    F: Frame,
+{
+    fn allocate_frame(&mut self, numa_id: usize) -> Result<F, E>;
+}
+
 pub trait PageTable<F, FA, E>
 where
     F: Frame,

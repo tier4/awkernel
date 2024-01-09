@@ -8,9 +8,9 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 bitflags = "2.3"
-fontdue = "0.7.3"
-embedded-io = "0.6"
 embedded-hal = "1.0.0-rc.3"
+embedded-hal-nb = "1.0.0-rc.3"
+embedded-graphics-core = "0.4.0"
 array-macro = "2.1"
 
 [dependencies.x86_64]
@@ -18,7 +18,8 @@ version = "0.14"
 optional = true
 
 [dependencies.acpi]
-git = "https://github.com/tier4/acpi.git"
+# version = "5.0"
+git = "https://github.com/ytakano/acpi.git"
 optional = true
 
 [dependencies.awkernel_lib]
@@ -44,8 +45,13 @@ features = [
 
 [features]
 default = []
-x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
+x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64", "all_device"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 raspi = []
 spinlock = ["awkernel_lib/spinlock"]
+std = ["awkernel_lib/std"]
+
+# Devices
+all_device = ["igb"]
+igb = []

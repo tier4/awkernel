@@ -139,7 +139,7 @@
 #define CR4_PGE         0x00000080  /* page global enable */
 #define CR4_PCE         0x00000100  /* enable RDPMC instruction for all cpls */
 #define CR4_OSFXSR      0x00000200  /* enable fxsave/fxrestor and SSE */
-#define CR4_OSXMMEXCPT    0x00000400    /* enable unmasked SSE exceptions */
+#define CR4_OSXMMEXCPT  0x00000400  /* enable unmasked SSE exceptions */
 #define CR4_UMIP        0x00000800  /* user mode instruction prevention */
 #define CR4_VMXE        0x00002000  /* enable virtual machine operation */
 #define CR4_SMXE        0x00004000  /* enable safe mode operation */
@@ -154,7 +154,7 @@
 #define CR4_PKS         0x01000000  /* supervisor-mode protection keys */
 #define CR4_UINTR       0x02000000  /* user interrupts enable bit */
 
-#define CPUID_NXE   0x00100000  /* No-Execute Extension */
+#define CPUID_NXE       0x00100000  /* No-Execute Extension */
 
 // EFER
 #define MSR_EFER    0xc0000080  /* Extended feature enable */
@@ -191,9 +191,9 @@ _start_cpu:
 
     addr32 lgdtl (gdtdesc32)
 
-    movl    %cr0, %eax             # get cr0
-    orl     $CR0_PE, %eax         # enable protected mode
-    movl    %eax, %cr0             # doit
+    movl    %cr0, %eax           # get cr0
+    orl     $CR0_PE, %eax        # enable protected mode
+    movl    %eax, %cr0           # doit
     ljmpl   $0x8, $start32
 
 .code32  # Tell assembler to generate 32-bit code now.

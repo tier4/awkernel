@@ -29,7 +29,11 @@ mod registers {
     }
 }
 
-pub struct MboxChannel {
+#[repr(C)]
+#[repr(align(16))]
+pub(crate) struct Mbox<T>(pub T);
+
+pub(crate) struct MboxChannel {
     base: usize,
     channel: u32,
 }
@@ -40,40 +44,34 @@ impl MboxChannel {
         Self { base, channel }
     }
 
-    pub fn send(&self, message: u32) {
-        while registers::STATUS
-            .read(self.base)
-            .contains(registers::Status::FULL)
-        {}
-        registers::WRITE.write(message | self.channel, self.base);
-    }
-
-    pub fn receive(&self) -> u32 {
-        while registers::STATUS
-            .read(self.base)
-            .contains(registers::Status::EMPTY)
-        {}
-        registers::READ.read(self.base)
-    }
-
-    pub fn mbox_call(&self, buffer: &[u32]) -> bool {
-        let r = (buffer.as_ptr() as u32 & 0xFFFFFFF) | (self.channel & 0xF);
+    pub fn mbox_call<T>(&self, buffer: &mut Mbox<T>) -> bool {
+        let ptr = buffer as *mut Mbox<T> as usize;
+        let r = ((ptr & !0xF) | (self.channel & 0xF) as usize) as u32;
+        let ptr1 = (ptr + 4) as *mut u32;
 
         while registers::STATUS
             .read(self.base)
             .contains(registers::Status::FULL)
-        {}
+        {
+            unsafe { core::arch::asm!("nop") };
+        }
 
         registers::WRITE.write(r, self.base);
 
         loop {
+            unsafe { core::arch::asm!("nop") };
             while registers::STATUS
                 .read(self.base)
                 .contains(registers::Status::EMPTY)
-            {}
+            {
+                unsafe { core::arch::asm!("nop") };
+            }
 
-            if r == registers::READ.read(self.base) {
-                return buffer[1] == 0x80000000;
+            let rd = registers::READ.read(self.base);
+
+            if r == rd {
+                let result = unsafe { read_volatile(ptr1) };
+                return result == 0x80000000;
             }
         }
     }

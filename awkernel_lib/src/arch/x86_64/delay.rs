@@ -1,4 +1,4 @@
-use super::{acpi::AcpiMapper, page_allocator::PageAllocator};
+use super::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     delay::{uptime, wait_forever, Delay},
@@ -7,7 +7,6 @@ use crate::{
 };
 use acpi::AcpiTables;
 use core::ptr::{read_volatile, write_volatile};
-use x86_64::structures::paging::PhysFrame;
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
 mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
@@ -62,13 +61,11 @@ impl Delay for super::X86 {
     }
 }
 
-pub(super) fn init<T>(
+pub(super) fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut super::page_table::PageTable,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+    page_allocator: &mut VecPageAllocator,
+) {
     let hpet_info = acpi::hpet::HpetInfo::new(acpi).unwrap();
 
     if !hpet_info.main_counter_is_64bits() {

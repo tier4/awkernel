@@ -1,13 +1,13 @@
 use alloc::boxed::Box;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-    arch::x86_64::page_allocator::PageAllocator,
+    arch::x86_64::page_allocator::VecPageAllocator,
     delay::wait_forever,
     interrupt::InterruptController,
     paging::{Flags, PageTable},
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug};
-use x86_64::{registers::model_specific::Msr, structures::paging::PhysFrame};
+use x86_64::registers::model_specific::Msr;
 
 pub mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -106,13 +106,10 @@ pub trait Apic {
     }
 }
 
-pub fn new<T>(
+pub fn new(
     page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
-    page_allocator: &mut PageAllocator<T>,
-) -> TypeApic
-where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+    page_allocator: &mut VecPageAllocator,
+) -> TypeApic {
     let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
 
     let cpuid = unsafe { __cpuid(1) };
@@ -323,6 +320,14 @@ impl InterruptController for Xapic {
     fn eoi(&mut self) {
         registers::XAPIC_EOI.write(0, self.apic_base);
     }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (32, 255) // IRQ255 is used for preemption
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (64, 255)
+    }
 }
 
 impl InterruptController for X2Apic {
@@ -393,6 +398,14 @@ impl InterruptController for X2Apic {
                 vector,
             )
         }
+    }
+
+    fn irq_range(&self) -> (u16, u16) {
+        (32, 255) // IRQ255 is used for preemption
+    }
+
+    fn irq_range_for_pnp(&self) -> (u16, u16) {
+        (64, 255)
     }
 
     fn init_non_primary(&mut self) {

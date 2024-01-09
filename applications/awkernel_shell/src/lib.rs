@@ -22,8 +22,12 @@ pub fn init() {
     );
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
-        if awkernel_lib::interrupt::register_handler(irq, Box::new(move || task::wake(task_id)))
-            .is_err()
+        if awkernel_lib::interrupt::register_handler(
+            irq,
+            "serial port (awkernel_shell)",
+            Box::new(move |_irq| task::wake(task_id)),
+        )
+        .is_err()
         {
             log::warn!("Failed to initialize UART's interrupt handler.");
         }
@@ -33,7 +37,13 @@ pub fn init() {
 async fn console_handler() -> TaskResult {
     let exprs = blisp::init(
         CODE,
-        vec![Box::new(HelpFfi), Box::new(TaskFfi), Box::new(UdptestFfi)],
+        vec![
+            Box::new(HelpFfi),
+            Box::new(TaskFfi),
+            Box::new(UdptestFfi),
+            Box::new(InterruptFfi),
+            Box::new(IfconfigFfi),
+        ],
     )
     .unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
@@ -137,6 +147,12 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 (export task () (IO (-> () []))
     (task_ffi))
 
+(export interrupt () (IO (-> () []))
+    (interrupt_ffi))
+
+(export ifconfig () (IO (-> () []))
+    (ifconfig_ffi))
+
 (export udptest () (IO (-> () []))
     (udptest_ffi))
 ";
@@ -172,6 +188,26 @@ fn task_ffi() {
         } else {
             format!("  cpu: {:>3}, task:\r\n", task.cpu_id)
         };
+        console::print(&msg);
+    }
+}
+
+#[embedded]
+fn interrupt_ffi() {
+    let handlers = awkernel_lib::interrupt::get_handlers();
+
+    console::print("IRQ Name\r\n");
+    for (k, v) in handlers.iter() {
+        let msg = format!("{:>3} name: {}\r\n", k, v);
+        console::print(&msg);
+    }
+}
+
+#[embedded]
+fn ifconfig_ffi() {
+    let ifs = awkernel_lib::net::get_interfaces();
+    for (i, netif) in ifs.iter().enumerate() {
+        let msg = format!("{i}.{netif}\r\n\r\n");
         console::print(&msg);
     }
 }

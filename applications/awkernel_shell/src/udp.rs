@@ -11,7 +11,7 @@ pub(crate) fn udp_test() {
     let port = 26099;
 
     // Create interface
-    let (mut device, mut iface) = NetManager::get_iface().unwrap();
+    let (mut device, mut iface) = NetManager::get_netif().unwrap();
 
     // register the ip address
     iface.update_ip_addrs(|ip_addrs| {
@@ -54,7 +54,13 @@ pub(crate) fn udp_test() {
                 .send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port))
                 .unwrap();
         }
-        console::print(".");
-        delay::wait_sec(1);
+
+        if socket.recv().is_ok() {
+            console::print("+");
+        } else {
+            console::print(".");
+        }
+
+        delay::wait_millisec(1);
     }
 }

@@ -172,14 +172,6 @@ pub enum UartError {
     InUse,
 }
 
-impl embedded_io::Error for UartError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        match self {
-            UartError::InUse => embedded_io::ErrorKind::AddrInUse,
-        }
-    }
-}
-
 impl Uart {
     pub fn new(uarts: Uarts, baudrate: usize) -> Result<Self, UartError> {
         let mut node = MCSNode::new();
@@ -243,34 +235,33 @@ impl Drop for Uart {
     }
 }
 
-impl embedded_io::ErrorType for Uart {
+impl embedded_hal_nb::serial::Error for UartError {
+    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
+        match self {
+            UartError::InUse => embedded_hal_nb::serial::ErrorKind::Other,
+        }
+    }
+}
+
+impl embedded_hal_nb::serial::ErrorType for Uart {
     type Error = UartError;
 }
 
-impl embedded_io::Read for Uart {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        for (i, ref_buf) in buf.iter_mut().enumerate() {
-            if let Some(c) = self.pl011.get() {
-                *ref_buf = c;
-            } else {
-                return Ok(i + 1);
-            }
-        }
-
-        Ok(buf.len())
+impl embedded_hal_nb::serial::Read for Uart {
+    fn read(&mut self) -> embedded_hal_nb::nb::Result<u8, Self::Error> {
+        self.pl011
+            .get()
+            .ok_or(embedded_hal_nb::nb::Error::WouldBlock)
     }
 }
 
-impl embedded_io::Write for Uart {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        for &c in buf.iter() {
-            self.pl011.put(c);
-        }
-
-        Ok(buf.len())
+impl embedded_hal_nb::serial::Write for Uart {
+    fn write(&mut self, word: u8) -> embedded_hal_nb::nb::Result<(), Self::Error> {
+        self.pl011.put(word);
+        Ok(())
     }
 
-    fn flush(&mut self) -> Result<(), Self::Error> {
+    fn flush(&mut self) -> embedded_hal_nb::nb::Result<(), Self::Error> {
         Ok(())
     }
 }

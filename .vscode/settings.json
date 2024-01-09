@@ -16,7 +16,7 @@
     //     "--target=targets/aarch64-kernel.json",
     // ],
     // "rust-analyzer.cargo.features": [
-    //     "aarch64_virt"
+    //     "raspi"
     // ],
     // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [

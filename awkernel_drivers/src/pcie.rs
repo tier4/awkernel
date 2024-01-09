@@ -1,10 +1,5 @@
-use alloc::sync::Arc;
 use array_macro::array;
-use awkernel_lib::{
-    net::NET_MANAGER,
-    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
@@ -16,6 +11,9 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
+mod capability;
+pub mod net;
+pub mod pcie_class;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
@@ -40,6 +38,82 @@ impl BaseAddress {
             }
         )
     }
+
+    pub fn read16(&self, offset: usize) -> Option<u16> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let mut val;
+                let port = *addr + offset as u32;
+                core::arch::asm!("in eax, dx",
+                        out("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                Some(val)
+            },
+            BaseAddress::MMIO { addr, size, .. } => {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                unsafe { Some(read_volatile((*addr + offset) as *const u16)) }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn read32(&self, offset: usize) -> Option<u32> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let mut val;
+                let port = *addr + offset as u32;
+                core::arch::asm!("in eax, dx",
+                        out("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+                Some(val)
+            },
+            BaseAddress::MMIO { addr, size, .. } => {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                unsafe { Some(read_volatile((*addr + offset) as *const u32)) }
+            }
+            _ => None,
+        }
+    }
+
+    pub fn write16(&mut self, offset: usize, val: u16) {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, ax",
+                        in("ax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+            },
+            BaseAddress::MMIO { addr, size, .. } => unsafe {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                write_volatile((*addr + offset) as *mut u16, val);
+            },
+            _ => (),
+        }
+    }
+
+    pub fn write32(&mut self, offset: usize, val: u32) {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, eax",
+                        in("eax") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+            },
+            BaseAddress::MMIO { addr, size, .. } => unsafe {
+                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
+                write_volatile((*addr + offset) as *mut u32, val);
+            },
+            _ => (),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,11 +122,14 @@ pub enum AddressType {
     T64B, // 64 bit address space
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PCIeDeviceErr {
     InitFailure,
+    ReadFailure,
     PageTableFailure,
     UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
+    InvalidClass,
+    NotImplemented,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -73,6 +150,15 @@ impl fmt::Display for PCIeDeviceErr {
                     f,
                     "Unregistered PCIe device: bus = {bus}, device = {device}, vendor = {vendor}"
                 )
+            }
+            Self::InvalidClass => {
+                write!(f, "Invalid PCIe class.")
+            }
+            Self::NotImplemented => {
+                write!(f, "Not implemented.")
+            }
+            Self::ReadFailure => {
+                write!(f, "Failed to read the device register.")
             }
         }
     }
@@ -120,13 +206,24 @@ pub(crate) mod registers {
     pub const HEADER_TYPE_PCI_TO_PCI_BRIDGE: u8 = 1;
     pub const HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE: u8 = 2;
 
+    // Type 0 and 1
     mmio_r!(offset 0x00 => pub DEVICE_VENDOR_ID<u32>);
     mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
     mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
     mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
+    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>);
+
+    // Type 1 (PCI-to-PCI bridge)
+    mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
+
+    // Capability
+    mmio_r!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
 
     pub const BAR0: usize = 0x10;
 }
+
+#[cfg(feature = "x86")]
+use alloc::collections::BTreeMap;
 
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
@@ -134,7 +231,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
     dma_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
-    page_allocator: &mut FA,
+    page_allocators: &mut BTreeMap<u32, FA>,
 ) where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -149,7 +246,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
     let pcie_info = PciConfigRegions::new(acpi).unwrap();
-    for segment in pcie_info.list_all() {
+    for segment in pcie_info.iter() {
         let flags = Flags {
             write: true,
             execute: false,
@@ -158,8 +255,12 @@ pub fn init_with_acpi<F, FA, PT, E>(
             device: true,
         };
 
-        let mut config_start = segment.base_address() as usize;
+        let mut config_start = segment.physical_address;
         let config_end = config_start + CONFIG_SPACE_SIZE;
+
+        let Some(page_allocator) = page_allocators.get_mut(&(segment.segment_group as u32)) else {
+            continue;
+        };
 
         while config_start < config_end {
             let phy_addr = PhyAddr::new(config_start);
@@ -177,12 +278,14 @@ pub fn init_with_acpi<F, FA, PT, E>(
             config_start += PAGESIZE;
         }
 
-        let base_address = segment.base_address();
-        for bus in segment.buses() {
+        let base_address = segment.physical_address;
+
+        for bus in segment.bus_range {
             scan_devices(
                 dma_offset,
+                segment.segment_group,
                 bus,
-                base_address as usize,
+                base_address,
                 page_table,
                 page_allocator,
             );
@@ -192,6 +295,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
 pub fn init_with_addr<F, FA, PT, E>(
     dma_offset: usize,
+    segment_group: u16,
     base_address: usize,
     page_table: &mut PT,
     page_allocator: &mut FA,
@@ -205,6 +309,7 @@ pub fn init_with_addr<F, FA, PT, E>(
     for bus in (starting_bus as u32)..256 {
         scan_devices(
             dma_offset,
+            segment_group,
             bus as u8,
             base_address,
             page_table,
@@ -216,6 +321,7 @@ pub fn init_with_addr<F, FA, PT, E>(
 /// Scan and initialize the PICe devices
 fn scan_devices<F, FA, PT, E>(
     dma_offset: usize,
+    segment_group: u16,
     bus: u8,
     base_address: usize,
     page_table: &mut PT,
@@ -230,39 +336,51 @@ fn scan_devices<F, FA, PT, E>(
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
-            if let Ok(device) = DeviceInfo::from_addr(bus, addr) {
-                let _ = device.init(dma_offset, page_table, page_allocator);
+            if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, addr) {
+                let multiple_functions = device.multiple_functions;
+
+                let _ = device.attach(dma_offset, page_table, page_allocator);
+
+                if func == 0 && !multiple_functions {
+                    break;
+                }
             }
         }
     }
 }
 
 /// Information necessary for initializing the device
-#[derive(Debug, Clone)]
-pub struct DeviceInfo {
+#[derive(Debug)]
+pub struct PCIeInfo {
     pub(crate) addr: usize,
+    segment_group: u16,
     bus: u8,
     id: u16,
     vendor: u16,
+    revision_id: u8,
+    pcie_class: pcie_class::PCIeClass,
     device_name: Option<pcie_id::PCIeID>,
-    _multiple_functions: bool,
+    multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
+    msi: Option<capability::msi::Msi>,
+    msix: Option<capability::msix::Msix>,
+    pcie_cap: Option<capability::pcie_cap::PCIeCap>,
 }
 
-impl fmt::Display for DeviceInfo {
+impl fmt::Display for PCIeInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "id: {:#x}, vendor: {:#x}, header type: {:#x}",
-            self.id, self.vendor, self.header_type
+            "bus: {:#x}, vendor: {:#x}, device: {:#x}, header type: {:#x}",
+            self.bus, self.vendor, self.id, self.header_type
         )
     }
 }
 
-impl DeviceInfo {
+impl PCIeInfo {
     /// Get the information for PCIe device
-    fn from_addr(bus: u8, addr: usize) -> Result<DeviceInfo, PCIeDeviceErr> {
+    fn from_addr(segment_group: u16, bus: u8, addr: usize) -> Result<PCIeInfo, PCIeDeviceErr> {
         let ids = registers::DEVICE_VENDOR_ID.read(addr);
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -270,73 +388,82 @@ impl DeviceInfo {
         let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
 
+        let cls_rev_id = registers::CLASS_CODE_REVISION_ID.read(addr);
+        let revision_id = (cls_rev_id & 0xff) as u8;
+
+        let pcie_class = pcie_class::PCIeClass::from_u8(
+            (cls_rev_id >> 24) as u8,
+            ((cls_rev_id >> 16) & 0xff) as u8,
+        )
+        .ok_or(PCIeDeviceErr::InvalidClass)?;
+
         if id == !0 || vendor == !0 {
             Err(PCIeDeviceErr::InitFailure)
         } else {
-            Ok(DeviceInfo {
+            Ok(PCIeInfo {
                 addr,
+                segment_group,
                 bus,
                 id,
                 vendor,
+                revision_id,
+                pcie_class,
                 device_name: None,
-                _multiple_functions: multiple_functions,
+                multiple_functions,
                 header_type,
                 base_addresses: array![_ => BaseAddress::None; 6],
+                msi: None,
+                msix: None,
+                pcie_cap: None,
             })
         }
+    }
+
+    pub fn get_id(&self) -> u16 {
+        self.id
+    }
+
+    pub fn get_revision_id(&self) -> u8 {
+        self.revision_id
+    }
+
+    pub fn set_revision_id(&mut self, revision_id: u8) {
+        self.revision_id = revision_id;
+    }
+
+    pub fn get_msi_mut(&mut self) -> Option<&mut capability::msi::Msi> {
+        self.msi.as_mut()
+    }
+
+    pub fn get_msix_mut(&mut self) -> Option<&mut capability::msix::Msix> {
+        self.msix.as_mut()
+    }
+
+    pub fn get_pcie_cap_mut(&mut self) -> Option<&mut capability::pcie_cap::PCIeCap> {
+        self.pcie_cap.as_mut()
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {
         registers::STATUS_COMMAND.read(self.addr)
     }
 
-    pub fn write_status_command(&self, csr: registers::StatusCommand) {
+    pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
         registers::STATUS_COMMAND.write(csr, self.addr);
     }
 
-    pub fn read_bar(&self, i: usize, offset: usize) -> Option<u32> {
-        let bar = self.base_addresses.get(i)?;
-
-        match bar {
-            #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-                Some(val)
-            },
-            BaseAddress::MMIO { addr, .. } => unsafe {
-                Some(read_volatile((*addr + offset) as *const u32))
-            },
-            _ => None,
-        }
+    pub fn read_config_space(&self, offset: usize) -> u32 {
+        unsafe { read_volatile((self.addr + offset) as *const u32) }
     }
 
-    pub fn write_bar(&mut self, i: usize, offset: usize, val: u32) {
-        let Some(bar) = self.base_addresses.get(i) else {
-            return;
-        };
-
-        match bar {
-            #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, eax",
-                        in("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-            },
-            BaseAddress::MMIO { addr, .. } => unsafe {
-                write_volatile((*addr + offset) as *mut u32, val);
-            },
-            _ => (),
-        }
+    pub fn get_segment_group(&self) -> u16 {
+        self.segment_group
     }
 
-    fn map_bar<F, FA, PT, E>(
+    pub(crate) fn read_capability(&mut self) {
+        capability::read(self);
+    }
+
+    pub(crate) fn map_bar<F, FA, PT, E>(
         &mut self,
         page_table: &mut PT,
         page_allocator: &mut FA,
@@ -345,6 +472,7 @@ impl DeviceInfo {
         F: Frame,
         FA: FrameAllocator<F, E>,
         PT: PageTable<F, FA, E>,
+        E: Debug,
     {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
@@ -421,9 +549,14 @@ impl DeviceInfo {
         Ok(())
     }
 
+    pub fn get_bar(&self, i: usize) -> Option<BaseAddress> {
+        self.base_addresses.get(i).cloned()
+    }
+
     /// Initialize the PCIe device based on the information
-    fn init<F, FA, PT, E>(
-        mut self,
+    #[allow(unused_variables)]
+    fn attach<F, FA, PT, E>(
+        self,
         dma_offset: usize,
         page_table: &mut PT,
         page_allocator: &mut FA,
@@ -434,40 +567,32 @@ impl DeviceInfo {
         PT: PageTable<F, FA, E>,
         E: Debug,
     {
-        if let Err(e) = self.map_bar(page_table, page_allocator) {
-            log::warn!("Failed to map the memory regions of MMIO: {e:?}");
-            return Err(PCIeDeviceErr::PageTableFailure);
-        }
-
-        match (self.id, self.vendor) {
-            // Intel 82574 GbE Controller
-            (pcie_id::INTEL_82574GBE_DEVICE_ID, pcie_id::INTEL_VENDOR_ID) => {
-                self.device_name = Some(pcie_id::PCIeID::Intel82574GbE);
-
-                let e1000e =
-                    super::net::e1000e::create(self, dma_offset, page_table, page_allocator)?;
-
-                let node = &mut MCSNode::new();
-                let mut net_master = NET_MANAGER.lock(node);
-                net_master.add_driver(Arc::new(Mutex::new(e1000e)));
-
-                Ok(())
+        #[allow(clippy::single_match)] // TODO: To be removed
+        match self.vendor {
+            pcie_id::INTEL_VENDOR_ID =>
+            {
+                #[cfg(feature = "igb")]
+                if net::igb::match_device(self.vendor, self.id) {
+                    return net::igb::attach(self, dma_offset, page_table, page_allocator);
+                }
             }
-            (device, vendor) => Err(PCIeDeviceErr::UnRecognizedDevice {
-                bus: self.bus,
-                device,
-                vendor,
-            }),
+            _ => (),
         }
+
+        Err(PCIeDeviceErr::UnRecognizedDevice {
+            bus: self.bus,
+            device: self.id,
+            vendor: self.vendor,
+        })
+    }
+
+    pub fn disable_legacy_interrupt(&mut self) {
+        registers::STATUS_COMMAND.setbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
     }
 }
 
 pub trait PCIeDevice {
-    /// Each PCIe device has a register space,
-    const REG_SPACE_SIZE: u64;
-
-    /// Initialize the device hardware.
-    fn init(&mut self) -> Result<(), PCIeDeviceErr>;
+    fn device_name(&self) -> &'static str;
 }
 
 /// Read the base address of `addr`.

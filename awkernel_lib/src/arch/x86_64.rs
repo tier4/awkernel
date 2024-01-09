@@ -1,6 +1,5 @@
-use self::{acpi::AcpiMapper, page_allocator::PageAllocator};
+use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use ::acpi::AcpiTables;
-use x86_64::structures::paging::PhysFrame;
 
 pub mod acpi;
 pub(super) mod cpu;
@@ -14,13 +13,11 @@ pub struct X86;
 
 impl super::Arch for X86 {}
 
-pub fn init<T>(
+pub fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut page_table::PageTable,
-    page_allocator: &mut PageAllocator<T>,
-) where
-    T: Iterator<Item = PhysFrame> + Send,
-{
+    page_allocator: &mut VecPageAllocator,
+) {
     // Initialize timer.
     acpi::init(acpi);
     delay::init(acpi, page_table, page_allocator);

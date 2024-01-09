@@ -26,10 +26,10 @@ pub mod unwind;
 pub mod heap;
 
 #[cfg(not(feature = "std"))]
-pub mod context;
+pub mod dma_pool;
 
 #[cfg(not(feature = "std"))]
-pub mod memory;
+pub mod context;
 
 pub mod paging;
 

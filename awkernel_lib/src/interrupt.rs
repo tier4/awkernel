@@ -1,5 +1,8 @@
 use crate::arch::ArchImpl;
-use alloc::{boxed::Box, collections::BTreeMap};
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::Entry, BTreeMap},
+};
 use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
 
 #[cfg(loom)]
@@ -35,34 +38,130 @@ pub trait InterruptController: Sync + Send {
     /// End of interrupt.
     /// This will be used by only x86_64.
     fn eoi(&mut self) {}
+
+    /// Return the range of IRQs, which can be registered.
+    /// The range is [start, end).
+    fn irq_range(&self) -> (u16, u16);
+
+    /// Return the range of IRQs, which can be used for PnP devices.
+    /// The range is [start, end).
+    fn irq_range_for_pnp(&self) -> (u16, u16);
 }
 
-const MAX_IRQS: u16 = 1024;
+type NameAndCallback = (&'static str, Box<dyn Fn(u16) + Send>);
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
-static IRQ_HANDLERS: RwLock<BTreeMap<u16, Box<dyn Fn() + Send>>> = RwLock::new(BTreeMap::new());
+static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
 
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
 fn empty() {}
 
+pub fn get_handlers() -> BTreeMap<u16, &'static str> {
+    let handlers = IRQ_HANDLERS.read();
+    let mut map = BTreeMap::new();
+
+    for (irq, (name, _)) in handlers.iter() {
+        map.insert(*irq, *name);
+    }
+
+    map.insert(PREEMPT_IRQ.load(Ordering::Relaxed), "preemption");
+
+    map
+}
+
 pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     let mut ctrl = INTERRUPT_CONTROLLER.write();
     *ctrl = Some(controller);
 }
 
-pub fn register_handler<F>(irq: u16, func: Box<F>) -> Result<(), &'static str>
-where
-    F: Fn() + Send + 'static,
-{
-    if irq >= MAX_IRQS {
-        return Err("The IRQ# is greater than MAX_IRQS.");
+#[derive(Debug)]
+pub struct IRQ(u16);
+
+impl IRQ {
+    pub fn get_irq(&self) -> u16 {
+        self.0
     }
 
-    IRQ_HANDLERS.write().insert(irq, func);
+    pub fn enable(&mut self) {
+        enable_irq(self.0);
+    }
 
-    Ok(())
+    pub fn disable(&mut self) {
+        disable_irq(self.0);
+    }
+}
+
+impl Drop for IRQ {
+    fn drop(&mut self) {
+        self.disable();
+
+        let mut handlers = IRQ_HANDLERS.write();
+        handlers.remove(&self.0);
+    }
+}
+
+/// Register an interrupt handler for PnP devices.
+/// This function will return an IRQ number, which is assigned to the handler.
+pub fn register_handler_for_pnp<F>(name: &'static str, func: Box<F>) -> Result<IRQ, &'static str>
+where
+    F: Fn(u16) + Send + 'static,
+{
+    let controller = INTERRUPT_CONTROLLER.read();
+    let (min, max) = if let Some(ctrl) = controller.as_ref() {
+        ctrl.irq_range_for_pnp()
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+        return Err("Interrupt controller is not yet enabled.");
+    };
+
+    let mut handlers = IRQ_HANDLERS.write();
+    for i in min..max {
+        let entry = handlers.entry(i);
+
+        if let Entry::Vacant(ve) = entry {
+            ve.insert((name, func));
+            return Ok(IRQ(i));
+        }
+    }
+
+    log::warn!("There is no vacant IRQ for PnP devices.");
+    Err("There is no vacant IRQ for PnP devices.")
+}
+
+/// Register an interrupt handler.
+pub fn register_handler<F>(irq: u16, name: &'static str, func: Box<F>) -> Result<(), &'static str>
+where
+    F: Fn(u16) + Send + 'static,
+{
+    let controller = INTERRUPT_CONTROLLER.read();
+    let (min, max) = if let Some(ctrl) = controller.as_ref() {
+        ctrl.irq_range()
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+        return Err("Interrupt controller is not yet enabled.");
+    };
+
+    if min <= irq && irq < max {
+        let mut handlers = IRQ_HANDLERS.write();
+        let entry = handlers.entry(irq);
+
+        match entry {
+            Entry::Occupied(_) => {
+                log::warn!("IRQ #{irq} is already registered.");
+                return Err("IRQ is already registered.");
+            }
+            Entry::Vacant(ve) => {
+                ve.insert((name, func));
+            }
+        }
+
+        Ok(())
+    } else {
+        log::warn!("IRQ #{irq} is out of range.");
+        Err("IRQ is out of range.")
+    }
 }
 
 pub fn enable_irq(irq: u16) {
@@ -113,10 +212,33 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
     }
 }
 
+#[cfg(feature = "x86")]
+pub fn handle_irq(irq: u16) {
+    use crate::{heap, unwind::catch_unwind};
+
+    let handlers = IRQ_HANDLERS.read();
+    if let Some((name, handler)) = handlers.get(&irq) {
+        // Use the primary allocator.
+        #[cfg(not(feature = "std"))]
+        let _guard = {
+            let g = heap::TALLOC.save();
+            unsafe { heap::TALLOC.use_primary() };
+            g
+        };
+
+        let f = || {
+            handler(irq);
+        };
+
+        if catch_unwind(f).is_err() {
+            log::warn!("an interrupt handler has been panicked: name = {name}, irq = {irq}");
+        }
+    }
+}
+
 #[cfg(feature = "aarch64")]
 pub fn handle_irqs() {
-    use crate::heap;
-    use crate::unwind::catch_unwind;
+    use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;
 
     let handlers = IRQ_HANDLERS.read();
@@ -138,11 +260,12 @@ pub fn handle_irqs() {
         for irq in iter {
             if irq == PREEMPT_IRQ.load(Ordering::Relaxed) {
                 need_preemption = true;
+                continue;
             }
 
-            if let Some(handler) = handlers.get(&irq) {
+            if let Some((_, handler)) = handlers.get(&irq) {
                 if let Err(err) = catch_unwind(|| {
-                    handler();
+                    handler(irq);
                 }) {
                     log::warn!("an interrupt handler has been panicked\n{err:?}");
                 }
