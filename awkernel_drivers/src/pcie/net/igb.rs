@@ -353,7 +353,7 @@ impl Igb {
         self.flags.remove(NetFlags::RUNNING);
 
         if !softonly {
-            // TODO: em_disable_intr()
+            self.disable_intr()?;
         }
 
         if self.hw.get_mac_type() as u32 >= MacType::EmPchSpt as u32 {
@@ -370,14 +370,24 @@ impl Igb {
         todo!()
     }
 
-    fn disalbe_intr(&self) -> Result<(), IgbDriverErr> {
-        // em_disable_intr()
-        todo!()
+    fn disable_intr(&self) -> Result<(), IgbDriverErr> {
+        match self.pcie_int {
+            PCIeInt::MSI(ref irq) => {
+                if self.hw.get_mac_type() == MacType::Em82542Rev2_0 {
+                    igb_hw::write_reg(&self.info, IMC, 0xffffffff & !IMS_RXSEQ)
+                } else {
+                    igb_hw::write_reg(&self.info, IMC, 0xffffffff)
+                }
+            }
+            PCIeInt::MSIX => todo!(), // em_disable_intr()
+        }
     }
 
-    fn enalbe_intr(&self) -> Result<(), IgbDriverErr> {
-        // em_enable_intr()
-        todo!()
+    fn enable_intr(&self) -> Result<(), IgbDriverErr> {
+        match self.pcie_int {
+            PCIeInt::MSI(ref irq) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
+            PCIeInt::MSIX => todo!(), // em_enable_intr()
+        }
     }
 }
 

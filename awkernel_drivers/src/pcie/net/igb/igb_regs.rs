@@ -151,11 +151,12 @@ pub const HICR_C: u32 = 0x00000002; // Driver sets this bit when done to put com
 // Interrupt Mask Set/Read Register
 pub const IMS: usize = 0x000D0;
 pub const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
-pub const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
 pub const IMS_TXDW: u32 = 0x00000001; // Transmit Descriptor Written Back
-pub const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
-pub const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
 pub const IMS_LSC: u32 = 0x00000004; // Link Status Change
+pub const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
+pub const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
+pub const IMS_RX0: u32 = 0x00000040; // Rx overrun
+pub const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
 
 // Transmit Registers
 pub const TCTL: usize = 0x00400; // Transmit Control Register
