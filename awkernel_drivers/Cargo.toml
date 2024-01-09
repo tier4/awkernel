@@ -51,3 +51,6 @@ aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 raspi = []
 spinlock = ["awkernel_lib/spinlock"]
 std = ["awkernel_lib/std"]
+
+# Devices
+igb = []

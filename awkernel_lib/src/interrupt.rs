@@ -75,9 +75,35 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     *ctrl = Some(controller);
 }
 
+#[derive(Debug)]
+pub struct IRQ(u16);
+
+impl IRQ {
+    pub fn get_irq(&self) -> u16 {
+        self.0
+    }
+
+    pub fn enable(&mut self) {
+        enable_irq(self.0);
+    }
+
+    pub fn disable(&mut self) {
+        disable_irq(self.0);
+    }
+}
+
+impl Drop for IRQ {
+    fn drop(&mut self) {
+        self.disable();
+
+        let mut handlers = IRQ_HANDLERS.write();
+        handlers.remove(&self.0);
+    }
+}
+
 /// Register an interrupt handler for PnP devices.
 /// This function will return an IRQ number, which is assigned to the handler.
-pub fn register_handler_for_pnp<F>(name: &'static str, func: Box<F>) -> Result<u16, &'static str>
+pub fn register_handler_for_pnp<F>(name: &'static str, func: Box<F>) -> Result<IRQ, &'static str>
 where
     F: Fn(u16) + Send + 'static,
 {
@@ -95,7 +121,7 @@ where
 
         if let Entry::Vacant(ve) = entry {
             ve.insert((name, func));
-            return Ok(i);
+            return Ok(IRQ(i));
         }
     }
 

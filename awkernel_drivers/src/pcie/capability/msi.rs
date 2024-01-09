@@ -167,7 +167,8 @@ impl MSI {
 
         if self.bit64_address_capable {
             registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.cap_ptr);
-            registers::MESSAGE_ADDRESS_64_HIGH.write((message_address >> 32) as u32, self.cap_ptr);
+            registers::MESSAGE_ADDRESS_64_HIGH
+                .write((message_address as u64 >> 32) as u32, self.cap_ptr);
 
             let data = registers::MESSAGE_DATA_64.read(self.cap_ptr);
             registers::MESSAGE_DATA_64.write(

@@ -7,6 +7,7 @@ use crate::pcie::{
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     dma_pool::DMAPool,
+    interrupt::IRQ,
     net::{NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
@@ -82,6 +83,7 @@ pub struct Igb {
     link_speed: igb_hw::Speed,
     link_duplex: igb_hw::Duplex,
     smart_speed: u32,
+    pcie_int: PCIeInt,
 }
 
 pub fn attach<F, FA, E>(
@@ -115,7 +117,7 @@ where
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum IgbDriverErr {
     MemoryMapFailure,
     InitializeInterrupt,
@@ -140,6 +142,12 @@ pub enum IgbDriverErr {
     DMAPool,
     HostInterfaceCommand,
     NotImplemented,
+}
+
+#[derive(Debug)]
+pub enum PCIeInt {
+    MSI(IRQ),
+    MSIX,
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -197,14 +205,22 @@ impl Igb {
         F: Frame,
         FA: FrameAllocator<F, E>,
     {
-        // TODO: em_allocate_pci_resources()
-        //
-        // 1757         sc->msix = 0;
-        // 1758         sc->legacy_irq = 0;
-        // 1759         if (em_allocate_msix(sc) && em_allocate_legacy(sc))
-        // 1760                 return (ENXIO);
-
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
+
+        let pcie_int = if let Ok(pcie_int) = allocate_msix(&mut info) {
+            pcie_int
+        } else {
+            if let Ok(pcie_int) = allocate_msi(&mut info) {
+                pcie_int
+            } else {
+                return Err(IgbDriverErr::InitializeInterrupt.into());
+            }
+        };
+
+        if matches!(
+            hw.get_mac_type(),
+            MacType::Em82576 | MacType::Em82580 | MacType::EmI210 | MacType::EmI350
+        ) {}
 
         let que = [allocate_desc_rings(&info)?];
 
@@ -283,6 +299,7 @@ impl Igb {
             link_speed: igb_hw::Speed::None,
             link_duplex: igb_hw::Duplex::None,
             smart_speed: 0,
+            pcie_int,
         };
 
         igb.new2()
@@ -336,42 +353,6 @@ impl Igb {
         Ok(())
     }
 
-    fn init_pcie_msi(&mut self) -> Result<u16, IgbDriverErr> {
-        self.info.disable_legacy_interrupt();
-
-        if let Some(msix) = self.info.get_msix_mut() {
-            msix.disalbe();
-        }
-
-        if let Some(msi) = self.info.get_msi_mut() {
-            msi.disable();
-
-            if let Ok(irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-                "igb",
-                Box::new(|_irq| {
-                    log::debug!("igb interrupt.");
-                }),
-            ) {
-                msi.set_multiple_message_enable(MultipleMessage::One)
-                    .unwrap();
-
-                #[cfg(feature = "x86")]
-                msi.set_x86_interrupt(0, irq, false, false);
-
-                self.irq = Some(irq);
-                awkernel_lib::interrupt::enable_irq(irq);
-
-                msi.enable();
-
-                Ok(irq)
-            } else {
-                Err(IgbDriverErr::InitializeInterrupt)
-            }
-        } else {
-            Err(IgbDriverErr::InitializeInterrupt)
-        }
-    }
-
     fn init(&mut self) -> Result<(), IgbDriverErr> {
         // em_init()
         todo!()
@@ -398,6 +379,58 @@ impl Igb {
         // TODO: em_free_receive_structures()
 
         todo!()
+    }
+
+    fn disalbe_intr(&self) -> Result<(), IgbDriverErr> {
+        // em_disable_intr()
+        todo!()
+    }
+
+    fn enalbe_intr(&self) -> Result<(), IgbDriverErr> {
+        // em_enable_intr()
+        todo!()
+    }
+}
+
+fn allocate_msix(info: &PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
+    // TODO
+    Err(IgbDriverErr::InitializeInterrupt)
+}
+
+fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
+    info.disable_legacy_interrupt();
+
+    if let Some(msix) = info.get_msix_mut() {
+        msix.disalbe();
+    }
+
+    let segment_group = info.get_segment_group();
+
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+
+        if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
+            DEVICE_SHORT_NAME,
+            Box::new(|_irq| {
+                log::debug!("igb interrupt.");
+            }),
+        ) {
+            msi.set_multiple_message_enable(MultipleMessage::One)
+                .unwrap();
+
+            #[cfg(feature = "x86")]
+            msi.set_x86_interrupt(0, irq.get_irq(), false, false);
+
+            irq.enable();
+
+            msi.enable();
+
+            Ok(PCIeInt::MSI(irq))
+        } else {
+            Err(IgbDriverErr::InitializeInterrupt)
+        }
+    } else {
+        Err(IgbDriverErr::InitializeInterrupt)
     }
 }
 

@@ -455,6 +455,10 @@ impl PCIeInfo {
         unsafe { read_volatile((self.addr + offset) as *const u32) }
     }
 
+    pub fn get_segment_group(&self) -> u16 {
+        self.segment_group
+    }
+
     pub(crate) fn read_capability(&mut self) {
         capability::read(self);
     }
@@ -563,7 +567,9 @@ impl PCIeInfo {
         E: Debug,
     {
         match self.vendor {
-            pcie_id::INTEL_VENDOR_ID => {
+            pcie_id::INTEL_VENDOR_ID =>
+            {
+                #[cfg(feature = "igb")]
                 if net::igb::match_device(self.vendor, self.id) {
                     return net::igb::attach(self, dma_offset, page_table, page_allocator);
                 }
