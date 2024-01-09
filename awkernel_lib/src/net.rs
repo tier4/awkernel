@@ -141,7 +141,7 @@ impl phy::TxToken for NTxToken {
         // send the buffer
         let node = &mut MCSNode::new();
         let mut inner = self.device.lock(node);
-        inner.send(&mut buffer);
+        inner.send(&buffer);
         result
     }
 }
@@ -267,7 +267,7 @@ impl NetManager {
 
         for netif in self.drivers.iter() {
             let mut node = MCSNode::new();
-            let mut inner = netif.driver.inner.lock(&mut node);
+            let inner = netif.driver.inner.lock(&mut node);
             let mac_address = inner.mac_address();
             let link_up = inner.link_up();
             let link_speed_mbs = inner.link_speed();

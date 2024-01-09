@@ -5,7 +5,7 @@ use crate::pcie::PCIeInfo;
 #[derive(Debug)]
 pub enum DeviceInfo {
     PCIe(PCIeInfo),
-    USB,
+    // USB,
 }
 
 pub trait Device<F, FA, E>

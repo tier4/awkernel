@@ -142,7 +142,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     let mut page_allocators = BTreeMap::new();
 
-    let numas: Vec<_> = numa_to_mem.keys().map(|n| *n).collect();
+    let numas: Vec<_> = numa_to_mem.keys().copied().collect();
     for numa_id in numas.iter() {
         let page_allocator = init_dma(*numa_id, &mut numa_to_mem, &mut page_table);
         page_allocators.insert(*numa_id, page_allocator);
@@ -440,7 +440,7 @@ fn map_page0(
     let mut page0 = None;
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable && region.start == 0 {
-            page0 = Some(region.clone());
+            page0 = Some(*region);
             break;
         }
     }
@@ -483,7 +483,7 @@ fn init_backup_heap(
         if region.kind == MemoryRegionKind::Usable
             && region.end - region.start >= BACKUP_HEAP_SIZE as u64 * 2
         {
-            backup_heap_region = Some(region.clone());
+            backup_heap_region = Some(*region);
             break;
         }
     }
@@ -543,7 +543,7 @@ fn get_numa_info(
 
                     numa_id_to_memory
                         .entry(affinity.domain)
-                        .or_insert_with(|| Vec::new())
+                        .or_insert_with(Vec::new)
                         .push((start, length));
                 }
                 awkernel_lib::arch::x86_64::acpi::srat::SratEntry::LocalApic(srat_apic) => {
@@ -578,8 +578,7 @@ fn get_numa_info(
     let mut usable_regions: VecDeque<MemoryRegion> = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable)
-        .map(|m| m.clone())
+        .filter(|m| m.kind == MemoryRegionKind::Usable).copied()
         .collect();
 
     loop {
@@ -624,7 +623,7 @@ fn get_numa_info(
                     if (*start..=end).contains(&(usable_end as usize)) {
                         memory_regions
                             .entry(*numa_id)
-                            .or_insert_with(|| Vec::new())
+                            .or_insert_with(Vec::new)
                             .push(usable_region);
 
                         break 'outer;
@@ -637,7 +636,7 @@ fn get_numa_info(
 
                         memory_regions
                             .entry(*numa_id)
-                            .or_insert_with(|| Vec::new())
+                            .or_insert_with(Vec::new)
                             .push(usable_region);
 
                         usable_regions.push_front(remain);
@@ -698,7 +697,7 @@ fn init_dma(
         .enumerate()
     {
         let virt_frame =
-            Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE as usize) as u64));
+            Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE) as u64));
 
         unsafe {
             page_table

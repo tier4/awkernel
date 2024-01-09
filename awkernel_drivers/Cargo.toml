@@ -45,7 +45,7 @@ features = [
 
 [features]
 default = []
-x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
+x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64", "all_device"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 raspi = []
@@ -53,4 +53,5 @@ spinlock = ["awkernel_lib/spinlock"]
 std = ["awkernel_lib/std"]
 
 # Devices
+all_device = ["igb"]
 igb = []

@@ -15,8 +15,6 @@ use awkernel_lib::{
 use core::fmt::{self, Debug};
 
 mod igb_hw;
-
-#[allow(dead_code)]
 mod igb_regs;
 
 use igb_regs::*;
@@ -207,20 +205,13 @@ impl Igb {
     {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let pcie_int = if let Ok(pcie_int) = allocate_msix(&mut info) {
+        let pcie_int = if let Ok(pcie_int) = allocate_msix(&info) {
+            pcie_int
+        } else if let Ok(pcie_int) = allocate_msi(&mut info) {
             pcie_int
         } else {
-            if let Ok(pcie_int) = allocate_msi(&mut info) {
-                pcie_int
-            } else {
-                return Err(IgbDriverErr::InitializeInterrupt.into());
-            }
+            return Err(IgbDriverErr::InitializeInterrupt.into());
         };
-
-        if matches!(
-            hw.get_mac_type(),
-            MacType::Em82576 | MacType::Em82580 | MacType::EmI210 | MacType::EmI350
-        ) {}
 
         let que = [allocate_desc_rings(&info)?];
 
@@ -232,7 +223,7 @@ impl Igb {
                 let offset = txdctl(q.me);
                 let mut reg_txdctl = igb_hw::read_reg(&info, offset)?;
                 reg_txdctl |= TXDCTL_COUNT_DESC;
-                igb_hw::write_reg(&mut info, offset, reg_txdctl)?;
+                igb_hw::write_reg(&info, offset, reg_txdctl)?;
             }
         }
 
@@ -243,7 +234,7 @@ impl Igb {
             for q in que.iter() {
                 let ctrl = igb_hw::read_reg(&info, txdctl(q.me))?;
                 let ctrl = (ctrl & !TXDCTL_WTHRESH) | TXDCTL_FULL_TX_DESC_WB;
-                igb_hw::write_reg(&mut info, txdctl(q.me), ctrl)?;
+                igb_hw::write_reg(&info, txdctl(q.me), ctrl)?;
             }
         }
 
@@ -334,7 +325,7 @@ impl Igb {
                     const SPEED_MODE_BIT: u32 = 1 << 21; // On PCI-E MACs only
 
                     let tarc0 = igb_hw::read_reg(&self.info, TARC0)?;
-                    igb_hw::write_reg(&mut self.info, TARC0, tarc0 | SPEED_MODE_BIT)?;
+                    igb_hw::write_reg(&self.info, TARC0, tarc0 | SPEED_MODE_BIT)?;
                 }
 
                 self.link_speed = link_speed;
@@ -342,12 +333,10 @@ impl Igb {
                 self.link_active = true;
                 self.smart_speed = 0;
             }
-        } else {
-            if self.link_active {
-                self.link_speed = igb_hw::Speed::None;
-                self.link_duplex = igb_hw::Duplex::None;
-                self.link_active = false;
-            }
+        } else if self.link_active {
+            self.link_speed = igb_hw::Speed::None;
+            self.link_duplex = igb_hw::Duplex::None;
+            self.link_active = false;
         }
 
         Ok(())
@@ -393,7 +382,7 @@ impl Igb {
 }
 
 fn allocate_msix(info: &PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
-    // TODO
+    // TODO: em_allocate_msix()
     Err(IgbDriverErr::InitializeInterrupt)
 }
 

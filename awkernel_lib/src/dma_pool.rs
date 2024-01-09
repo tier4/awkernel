@@ -30,6 +30,9 @@ pub struct DMAPool {
     numa_id: usize,
 }
 
+/// # Safety
+///
+/// `start` must be a valid address.
 pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
     assert!(numa_id < NUMA_NUM_MAX);
 
@@ -93,6 +96,9 @@ impl DMAPool {
         self.numa_id
     }
 
+    /// # Safety
+    ///
+    /// The size of the slice must be a multiple of the size of T.
     #[inline(always)]
     pub unsafe fn get_slice<'a, T: Sized>(&'a self) -> &'a [T] {
         debug_assert!(self.size % core::mem::size_of::<T>() == 0);
@@ -102,6 +108,9 @@ impl DMAPool {
         )
     }
 
+    /// # Safety
+    ///
+    /// The size of the slice must be a multiple of the size of T.
     #[inline(always)]
     pub unsafe fn get_slice_mut<'a, T: Sized>(&'a mut self) -> &'a mut [T] {
         debug_assert!(self.size % core::mem::size_of::<T>() == 0);

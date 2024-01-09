@@ -64,10 +64,7 @@ pub struct VecPageAllocator {
 unsafe impl FrameAllocator<Size4KiB> for VecPageAllocator {
     fn allocate_frame(&mut self) -> Option<PhysFrame<Size4KiB>> {
         loop {
-            let Some(range) = self.range.get(self.index) else {
-                return None;
-            };
-
+            let range = self.range.get(self.index)?;
             let result = self.addr as u64;
 
             if (range.start..range.end).contains(&result) {
@@ -85,12 +82,12 @@ unsafe impl FrameAllocator<Size4KiB> for VecPageAllocator {
 
 impl VecPageAllocator {
     pub fn new(range: Vec<MemoryRegion>) -> Self {
-        if let Some(addr) = range.get(0) {
-            return Self {
+        if let Some(addr) = range.first() {
+            Self {
                 addr: addr.start as usize,
                 range,
                 index: 0,
-            };
+            }
         } else {
             Self {
                 range,

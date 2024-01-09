@@ -21,7 +21,7 @@ mod registers {
 }
 
 #[derive(Debug)]
-pub struct MSI {
+pub struct Msi {
     cap_ptr: usize,
     multiple_message_capable: MultipleMessage,
     per_vector_mask_capable: bool,
@@ -79,7 +79,7 @@ pub enum MultipleMessage {
 /// 5. Extended Capability for More Events
 ///     - If eight messages had been allocated, the lower three bits of the message data could be modified to represent one of the eight different events.
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
-impl MSI {
+impl Msi {
     pub fn new(cap_ptr: usize) -> Self {
         let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr);
 
@@ -171,18 +171,14 @@ impl MSI {
                 .write((message_address as u64 >> 32) as u32, self.cap_ptr);
 
             let data = registers::MESSAGE_DATA_64.read(self.cap_ptr);
-            registers::MESSAGE_DATA_64.write(
-                (data & 0xffff_0000) | (message_data & 0xffff) as u32,
-                self.cap_ptr,
-            );
+            registers::MESSAGE_DATA_64
+                .write((data & 0xffff_0000) | message_data as u32, self.cap_ptr);
         } else {
             registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.cap_ptr);
 
             let data = registers::MESSAGE_DATA_32.read(self.cap_ptr);
-            registers::MESSAGE_DATA_32.write(
-                (data & 0xffff_0000) | (message_data & 0xffff) as u32,
-                self.cap_ptr,
-            );
+            registers::MESSAGE_DATA_32
+                .write((data & 0xffff_0000) | message_data as u32, self.cap_ptr);
         }
     }
 

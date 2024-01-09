@@ -48,9 +48,10 @@ pub trait InterruptController: Sync + Send {
     fn irq_range_for_pnp(&self) -> (u16, u16);
 }
 
+type NameAndCallback = (&'static str, Box<dyn Fn(u16) + Send>);
+
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
-static IRQ_HANDLERS: RwLock<BTreeMap<u16, (&'static str, Box<dyn Fn(u16) + Send>)>> =
-    RwLock::new(BTreeMap::new());
+static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
 
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
@@ -216,7 +217,7 @@ pub fn handle_irq(irq: u16) {
     use crate::{heap, unwind::catch_unwind};
 
     let handlers = IRQ_HANDLERS.read();
-    if let Some((_, handler)) = handlers.get(&irq) {
+    if let Some((name, handler)) = handlers.get(&irq) {
         // Use the primary allocator.
         #[cfg(not(feature = "std"))]
         let _guard = {
@@ -225,10 +226,12 @@ pub fn handle_irq(irq: u16) {
             g
         };
 
-        if let Err(_) = catch_unwind(|| {
+        let f = || {
             handler(irq);
-        }) {
-            log::warn!("an interrupt handler has been panicked: irq = {irq}");
+        };
+
+        if catch_unwind(f).is_err() {
+            log::warn!("an interrupt handler has been panicked: name = {name}, irq = {irq}");
         }
     }
 }

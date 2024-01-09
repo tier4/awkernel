@@ -447,10 +447,10 @@ pub enum PCIBusSpeed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PCIBusType {
     Unknown,
-    PCI,
-    PCIX,
-    PCIExpress,
-    CPP,
+    Pci,
+    PciX,
+    PciExpress,
+    Cpp,
     _Reserved,
 }
 
@@ -482,7 +482,7 @@ pub enum MediaType {
     Copper,
     Fiber,
     InternalSerdes,
-    OEM,
+    Oem,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -583,7 +583,7 @@ pub struct IgbHw {
     flash_memory: Option<FlashMemory>,
     flash_bank_size: Option<usize>,
     flash_base_address: Option<usize>,
-    eeprom: EEPROM,
+    eeprom: Eeprom,
     tbi_compatibility_on: bool,
     tbi_compatibility_en: bool,
     media_type: MediaType,
@@ -1008,7 +1008,7 @@ impl IgbHw {
         };
 
         let (eeprom, flash_base_address, flash_bank_size) =
-            EEPROM::new(&mac_type, &flash_memory, info)?;
+            Eeprom::new(&mac_type, &flash_memory, info)?;
 
         let (tbi_compatibility_en, media_type, sgmii_active) = set_media_type(&mac_type, info)?;
 
@@ -1145,7 +1145,7 @@ impl IgbHw {
     }
 
     pub fn get_mac_type(&self) -> MacType {
-        self.mac_type.clone()
+        self.mac_type
     }
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
@@ -1479,7 +1479,7 @@ impl IgbHw {
             self.get_bus_info(info)?;
         }
 
-        if self.bus_type != PCIBusType::PCIExpress {
+        if self.bus_type != PCIBusType::PciExpress {
             return Ok(());
         }
 
@@ -1509,34 +1509,34 @@ impl IgbHw {
                 self.bus_speed = PCIBusSpeed::Unknown;
             }
             EmICPxxxx => {
-                self.bus_type = PCIBusType::CPP;
+                self.bus_type = PCIBusType::Cpp;
                 self.bus_speed = PCIBusSpeed::Unknown;
             }
             Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
             | EmI210 | EmI350 => {
-                self.bus_type = PCIBusType::PCIExpress;
+                self.bus_type = PCIBusType::PciExpress;
                 self.bus_speed = PCIBusSpeed::S2500;
             }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
-                self.bus_type = PCIBusType::PCIExpress;
+                self.bus_type = PCIBusType::PciExpress;
                 self.bus_speed = PCIBusSpeed::S2500;
             }
             _ => {
                 let status = read_reg(info, STATUS)?;
                 self.bus_type = if status & STATUS_PCIX_MODE != 0 {
-                    PCIBusType::PCIX
+                    PCIBusType::PciX
                 } else {
-                    PCIBusType::PCI
+                    PCIBusType::Pci
                 };
 
                 if info.id == E1000_DEV_ID_82546EB_QUAD_COPPER {
-                    self.bus_speed = if self.bus_type == PCIBusType::PCI {
+                    self.bus_speed = if self.bus_type == PCIBusType::Pci {
                         PCIBusSpeed::S66
                     } else {
                         PCIBusSpeed::S120
                     };
-                } else if self.bus_type == PCIBusType::PCI {
+                } else if self.bus_type == PCIBusType::Pci {
                     self.bus_speed = if status & STATUS_PCI66 != 0 {
                         PCIBusSpeed::S66
                     } else {
@@ -1561,24 +1561,22 @@ impl IgbHw {
         let mut tx_filter = false;
 
         // called in init as well as watchdog timer functions
-        if self.check_mng_mode(info)? {
-            if self.mng_enable_host_if(info).is_ok() {
-                if self.host_if_read_cookie(info).is_ok() {
-                    let checksum = self.mng_cookie.checksum;
-                    self.mng_cookie.checksum = 0;
+        if self.check_mng_mode(info)? && self.mng_enable_host_if(info).is_ok() {
+            if self.host_if_read_cookie(info).is_ok() {
+                let checksum = self.mng_cookie.checksum;
+                self.mng_cookie.checksum = 0;
 
-                    if self.mng_cookie.signature == IAMT_SIGNATURE
-                        && checksum == calculate_mng_checksum(&self.mng_cookie)
-                    {
-                        if self.mng_cookie.status & MNG_DHCP_COOKIE_STATUS_PARSING_SUPPORT != 0 {
-                            tx_filter = true;
-                        }
-                    } else {
+                if self.mng_cookie.signature == IAMT_SIGNATURE
+                    && checksum == calculate_mng_checksum(&self.mng_cookie)
+                {
+                    if self.mng_cookie.status & MNG_DHCP_COOKIE_STATUS_PARSING_SUPPORT != 0 {
                         tx_filter = true;
                     }
                 } else {
                     tx_filter = true;
                 }
+            } else {
+                tx_filter = true;
             }
         }
 
@@ -1715,7 +1713,7 @@ impl IgbHw {
 
         // Call the necessary subroutine to configure the link.
         match self.media_type {
-            MediaType::Copper | MediaType::OEM => {
+            MediaType::Copper | MediaType::Oem => {
                 self.setup_copper_link(info)?;
             }
             _ => {
@@ -1952,10 +1950,11 @@ impl IgbHw {
         // Check for the case where we have fiber media and auto-neg failed
         // so we had to force link.  In this case, we need to force the
         // configuration of the MAC to match the "fc" parameter.
-        if (self.media_type == MediaType::Fiber && self.autoneg_failed)
-            || (self.media_type == MediaType::InternalSerdes && self.autoneg_failed)
-            || (self.media_type == MediaType::Copper && !self.autoneg)
-            || (self.media_type == MediaType::OEM && !self.autoneg)
+        if (matches!(
+            self.media_type,
+            MediaType::InternalSerdes | MediaType::Fiber
+        ) && self.autoneg_failed)
+            || (matches!(self.media_type, MediaType::Copper | MediaType::Oem) && !self.autoneg)
         {
             self.force_mac_fc(info)?;
         }
@@ -1964,7 +1963,7 @@ impl IgbHw {
         // enabled.  In this case, we need to check and see if Auto-Neg has
         // completed, and if so, how the PHY and link partner has flow
         // control configured.
-        if matches!(self.media_type, MediaType::Copper | MediaType::OEM) && self.autoneg {
+        if matches!(self.media_type, MediaType::Copper | MediaType::Oem) && self.autoneg {
             // Read the MII Status Register and check to see if AutoNeg
             // has completed.  We read this twice because this reg has
             // some "sticky" (latched) bits.
@@ -2032,12 +2031,6 @@ impl IgbHw {
                     && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
                 {
                     self.fc = FC_TX_PAUSE;
-                } else if (mii_nway_adv_reg & NWAY_AR_PAUSE != 0)
-                    && (mii_nway_adv_reg & NWAY_AR_ASM_DIR != 0)
-                    && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE == 0)
-                    && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
-                {
-                    self.fc = FC_RX_PAUSE;
                 } else {
                     self.fc = FC_RX_PAUSE;
                 }
@@ -3795,10 +3788,9 @@ impl IgbHw {
         if matches!(
             self.mac_type,
             EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp | EmPch2lan
-        ) {
-            if self.phy_no_cable_workaround(info).is_err() {
-                log::warn!(" ...failed to apply em_phy_no_cable_workaround.");
-            }
+        ) && self.phy_no_cable_workaround(info).is_err()
+        {
+            log::warn!(" ...failed to apply em_phy_no_cable_workaround.");
         }
 
         // Setup the receive address.
@@ -4337,7 +4329,7 @@ impl IgbHw {
         // receive a Link Status Change interrupt or we have Rx Sequence
         // Errors.
 
-        if matches!(self.media_type, MediaType::Copper | MediaType::OEM) && self.get_link_status {
+        if matches!(self.media_type, MediaType::Copper | MediaType::Oem) && self.get_link_status {
             // First we want to see if the MII Status Register reports
             // link.  If so, then we want to get the current speed/duplex
             // of the PHY. Read the register twice since the link bit is
@@ -5140,13 +5132,13 @@ impl IgbHw {
         if matches!(
             self.media_type,
             MediaType::InternalSerdes | MediaType::Fiber
-        ) && self.mac_type.clone() as u32 >= Em82575 as u32
+        ) && self.mac_type as u32 >= Em82575 as u32
         {
             self.phy_type = PhyType::Undefined;
             return Ok(());
         }
 
-        if self.mac_type.clone() as u32 <= Em82543 as u32 {
+        if self.mac_type as u32 <= Em82543 as u32 {
             self.phy_hw_reset(info)?;
         }
 
@@ -5406,7 +5398,7 @@ impl IgbHw {
             self.lv_phy_workarounds_ich8lan(info)?;
         }
 
-        if self.mac_type.clone() as u32 >= EmPchlan as u32 {
+        if self.mac_type as u32 >= EmPchlan as u32 {
             self.oem_bits_config_pchlan(info, true)?;
         }
 
@@ -5460,7 +5452,7 @@ impl IgbHw {
         // Now enable the transmitter
         self.write_phy_reg(info, 0x2F5B, phy_saved_data)?;
 
-        if self.mac_type.clone() as u32 > MacType::Em82547 as u32 {
+        if self.mac_type as u32 > MacType::Em82547 as u32 {
             // Move to analog registers page
             let fused = self.read_phy_reg(info, IGP01E1000_ANALOG_SPARE_FUSE_STATUS)?;
 
@@ -5470,15 +5462,13 @@ impl IgbHw {
                 let fine = fused & IGP01E1000_ANALOG_FUSE_FINE_MASK;
                 let coarse = fused & IGP01E1000_ANALOG_FUSE_COARSE_MASK;
 
-                let (coarse, fine) = if coarse > IGP01E1000_ANALOG_FUSE_COARSE_THRESH {
-                    (
+                let (coarse, fine) = match coarse.cmp(&IGP01E1000_ANALOG_FUSE_COARSE_THRESH) {
+                    core::cmp::Ordering::Greater => (
                         coarse - IGP01E1000_ANALOG_FUSE_COARSE_10,
                         fine - IGP01E1000_ANALOG_FUSE_FINE_1,
-                    )
-                } else if coarse == IGP01E1000_ANALOG_FUSE_COARSE_THRESH {
-                    (coarse, fine - IGP01E1000_ANALOG_FUSE_FINE_10)
-                } else {
-                    (coarse, fine)
+                    ),
+                    core::cmp::Ordering::Equal => (coarse, fine - IGP01E1000_ANALOG_FUSE_FINE_10),
+                    core::cmp::Ordering::Less => (coarse, fine),
                 };
 
                 let fused = (fused & IGP01E1000_ANALOG_FUSE_POLY_MASK)
@@ -5507,7 +5497,7 @@ impl IgbHw {
         info: &PCIeInfo,
         d0_state: bool,
     ) -> Result<(), IgbDriverErr> {
-        if (self.mac_type.clone() as u32) < (MacType::EmPchlan as u32) {
+        if (self.mac_type as u32) < (MacType::EmPchlan as u32) {
             return Ok(());
         }
 
@@ -5552,7 +5542,7 @@ impl IgbHw {
                 }
             }
 
-            hw.write_phy_reg(info, HV_OEM_BITS, oem_reg as u16)?;
+            hw.write_phy_reg(info, HV_OEM_BITS, oem_reg)?;
 
             Ok(())
         })
@@ -5564,7 +5554,7 @@ impl IgbHw {
 
         self.check_phy_reset_block(info)?;
 
-        if self.mac_type.clone() as u32 >= Em82543 as u32 && !matches!(self.mac_type, EmICPxxxx) {
+        if self.mac_type as u32 >= Em82543 as u32 && !matches!(self.mac_type, EmICPxxxx) {
             self.swfw_sync_mut(info, self.swfw, |hw| {
                 // Read the device control register and assert the
                 // E1000_CTRL_PHY_RST bit. Then, take it out of reset. For
@@ -5576,7 +5566,7 @@ impl IgbHw {
                 write_reg(info, CTRL, ctrl | CTRL_PHY_RST)?;
                 write_flush(info)?;
 
-                if (hw.mac_type.clone() as u32) < Em82571 as u32 {
+                if (hw.mac_type as u32) < Em82571 as u32 {
                     awkernel_lib::delay::wait_millisec(10);
                 } else {
                     awkernel_lib::delay::wait_microsec(100);
@@ -5585,7 +5575,7 @@ impl IgbHw {
                 write_reg(info, CTRL, ctrl)?;
                 write_flush(info)?;
 
-                if (hw.mac_type.clone() as u32) >= Em82571 as u32 {
+                if (hw.mac_type as u32) >= Em82571 as u32 {
                     awkernel_lib::delay::wait_millisec(10);
                 }
 
@@ -5806,7 +5796,7 @@ impl IgbHw {
             // Set up the SPI or Microwire EEPROM for bit-bang reading.  We have
             // acquired the EEPROM at this point, so any returns should release it
             match &hw.eeprom.eeprom_type {
-                EEPROMType::SPI => {
+                EEPROMType::Spi => {
                     hw.spi_eeprom_ready(info)?;
                     hw.standby_eeprom(info)?;
 
@@ -6133,7 +6123,7 @@ impl IgbHw {
         // flash_bank.  So it cannot be trusted and needs to be updated with
         // each read.
 
-        if (self.mac_type.clone() as u32) >= (MacType::EmPchSpt as u32) {
+        if (self.mac_type as u32) >= (MacType::EmPchSpt as u32) {
             return self.read_eeprom_spt(info, offset, data);
         }
 
@@ -6169,7 +6159,7 @@ impl IgbHw {
         // flash_bank.  So it cannot be trusted and needs to be updated with
         // each read.
 
-        if (self.mac_type.clone() as u32) < (MacType::EmPchSpt as u32) {
+        if (self.mac_type as u32) < (MacType::EmPchSpt as u32) {
             return Err(IgbDriverErr::EEPROM);
         }
 
@@ -6251,8 +6241,6 @@ impl IgbHw {
                         return Ok(0);
                     }
                 }
-
-                ()
             }
             _ => (),
         }
@@ -6294,7 +6282,7 @@ impl IgbHw {
 
     /// Reads a single byte from the NVM using the ICH8 flash access registers.
     fn read_ich8_byte(&mut self, index: u32) -> Result<u8, IgbDriverErr> {
-        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+        if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
         }
 
@@ -6318,7 +6306,7 @@ impl IgbHw {
             return Err(IgbDriverErr::EEPROM);
         }
 
-        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & index as u32)
+        let flash_linear_address = (ICH_FLASH_LINEAR_ADDR_MASK & index)
             + self.flash_base_address.ok_or(IgbDriverErr::EEPROM)? as u32;
 
         for _ in 0..ICH_FLASH_CYCLE_REPEAT_COUNT {
@@ -6372,7 +6360,7 @@ impl IgbHw {
     }
 
     fn read_ich8_data32(&mut self, offset: u32) -> Result<u32, IgbDriverErr> {
-        if (self.mac_type.clone() as u32) < MacType::EmPchSpt as u32 {
+        if (self.mac_type as u32) < MacType::EmPchSpt as u32 {
             return Err(IgbDriverErr::EEPROM);
         }
 
@@ -6408,7 +6396,7 @@ impl IgbHw {
             // in) the Flash Data0, the order is least significant byte
             // first msb to lsb
             if self.ich8_flash_cycle(ICH_FLASH_COMMAND_TIMEOUT).is_ok() {
-                return Ok(self.read_ich_flash_reg32(ICH_FLASH_FDATA0)?);
+                return self.read_ich_flash_reg32(ICH_FLASH_FDATA0);
             } else {
                 // If we've gotten here, then things are probably
                 // completely hosed, but if the error condition is
@@ -6432,7 +6420,7 @@ impl IgbHw {
     /// This function starts a flash cycle and waits for its completion.
     fn ich8_flash_cycle(&mut self, timeout: u32) -> Result<(), IgbDriverErr> {
         // Start a cycle by writing 1 in Flash Cycle Go in Hw Flash Control
-        let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+        let regval = if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
             (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? >> 16) as u16
         } else {
             self.read_ich_flash_reg16(ICH_FLASH_HSFCTL)?
@@ -6440,7 +6428,7 @@ impl IgbHw {
 
         let hsf_ctrl = regval | 1;
 
-        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+        if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
             self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, (hsf_ctrl as u32) << 16)?;
         } else {
             self.write_ich_flash_reg16(ICH_FLASH_HSFCTL, hsf_ctrl)?;
@@ -6448,7 +6436,7 @@ impl IgbHw {
 
         // wait till FDONE bit is set to 1
         for _ in 0..timeout {
-            let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            let regval = if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
                 (self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? & 0xFFFF) as u16
             } else {
                 self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
@@ -6471,7 +6459,7 @@ impl IgbHw {
 
     // This function does initial flash setup so that a new read/write/erase cycle can be started.
     fn ich8_cycle_init(&mut self) -> Result<(), IgbDriverErr> {
-        let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+        let regval = if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
             self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? as u16
         } else {
             self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
@@ -6488,10 +6476,10 @@ impl IgbHw {
         // Clear FCERR in Hw status by writing 1
         // Clear DAEL in Hw status by writing a 1
         let stat = stat | Ich8HwsFlashStatus::FLCERR | Ich8HwsFlashStatus::DAEL;
-        if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+        if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
             self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
         } else {
-            self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits() as u16)?;
+            self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits())?;
         }
 
         // Either we should have a hardware SPI cycle in progress bit to
@@ -6508,7 +6496,7 @@ impl IgbHw {
             // There is no cycle running at present, so we can start a cycle
             // Begin by setting Flash Cycle Done.
             let stat = stat | Ich8HwsFlashStatus::FLCDONE;
-            if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+            if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
                 self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
             } else {
                 self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits())?;
@@ -6519,7 +6507,7 @@ impl IgbHw {
             // otherwise poll for sometime so the current cycle has a
             // chance to end before giving up.
             for _ in 0..ICH_FLASH_COMMAND_TIMEOUT {
-                let regval = if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                let regval = if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
                     self.read_ich_flash_reg32(ICH_FLASH_HSFSTS)? as u16
                 } else {
                     self.read_ich_flash_reg16(ICH_FLASH_HSFSTS)?
@@ -6530,7 +6518,7 @@ impl IgbHw {
                     // Successful in waiting for previous cycle to
                     // timeout, now set the Flash Cycle Done.
                     let stat = stat | Ich8HwsFlashStatus::FLCDONE;
-                    if self.mac_type.clone() as u32 >= MacType::EmPchSpt as u32 {
+                    if self.mac_type as u32 >= MacType::EmPchSpt as u32 {
                         self.write_ich_flash_reg32(ICH_FLASH_HSFSTS, stat.bits() as u32)?;
                     } else {
                         self.write_ich_flash_reg16(ICH_FLASH_HSFSTS, stat.bits())?;
@@ -6715,7 +6703,7 @@ impl IgbHw {
 
                 Ok(())
             }
-            EEPROMType::SPI => {
+            EEPROMType::Spi => {
                 // Toggle CS to flush commands
                 eecd |= EECD_CS;
                 write_reg(info, EECD, eecd)?;
@@ -6749,7 +6737,7 @@ impl IgbHw {
             EEPROMType::Microwire => {
                 eecd &= !EECD_DO;
             }
-            EEPROMType::SPI => {
+            EEPROMType::Spi => {
                 eecd |= EECD_DO;
             }
             _ => (),
@@ -6910,7 +6898,7 @@ impl IgbHw {
 
             if !matches!(hw.mac_type, Em82573 | Em82574) {
                 // Request EEPROM Access
-                if hw.mac_type.clone() as u32 > Em82544 as u32 {
+                if hw.mac_type as u32 > Em82544 as u32 {
                     write_reg(info, EECD, eecd | EECD_REQ)?;
                     let mut eecd = read_reg(info, EECD)?;
                     let mut i = 0;
@@ -6941,7 +6929,7 @@ impl IgbHw {
                     let eecd = eecd | EECD_CS;
                     write_reg(info, EECD, eecd)?;
                 }
-                EEPROMType::SPI => {
+                EEPROMType::Spi => {
                     // Clear SK and CS
                     let eecd = read_reg(info, EECD)?;
                     let eecd = eecd & !(EECD_CS | EECD_SK);
@@ -6957,7 +6945,7 @@ impl IgbHw {
             let eecd = read_reg(info, EECD)?;
 
             match hw.eeprom.eeprom_type {
-                EEPROMType::SPI => {
+                EEPROMType::Spi => {
                     let eecd = eecd | EECD_CS; // Pull CS high
                     let eecd = eecd & !EECD_SK; // Lower SCK
                     write_reg(info, EECD, eecd)?;
@@ -6985,7 +6973,7 @@ impl IgbHw {
             }
 
             // Stop requesting EEPROM access
-            if hw.mac_type.clone() as u32 > Em82544 as u32 {
+            if hw.mac_type as u32 > Em82544 as u32 {
                 let eecd = read_reg(info, EECD)?;
                 let eecd = eecd & !EECD_REQ;
                 write_reg(info, EECD, eecd)?;
@@ -7259,14 +7247,15 @@ impl IgbHw {
                         )?;
                     }
                 }
-            } else if matches!(hw.phy_type, Bm) && hw.phy_revision == Some(1) {
-                if reg_addr > MAX_PHY_MULTI_PAGE_REG {
-                    hw.write_phy_reg_ex(
-                        info,
-                        BM_PHY_PAGE_SELECT,
-                        (reg_addr >> PHY_PAGE_SHIFT) as u16,
-                    )?;
-                }
+            } else if matches!(hw.phy_type, Bm)
+                && hw.phy_revision == Some(1)
+                && reg_addr > MAX_PHY_MULTI_PAGE_REG
+            {
+                hw.write_phy_reg_ex(
+                    info,
+                    BM_PHY_PAGE_SELECT,
+                    (reg_addr >> PHY_PAGE_SHIFT) as u16,
+                )?;
             }
 
             hw.read_phy_reg_ex(info, MAX_PHY_REG_ADDRESS & reg_addr)
@@ -7483,16 +7472,16 @@ impl IgbHw {
             return Err(IgbDriverErr::NotSupported);
         }
 
-        if self.mac_type.clone() as usize > MacType::Em82543 as usize {
+        if self.mac_type as usize > MacType::Em82543 as usize {
             // Set up Op-code, Phy Address, register address, and data
             // intended for the PHY register in the MDI Control register.
             // The MAC will take care of interfacing with the PHY to send
             // the desired data.
 
-            let mdic = ((phy_data as u32)
+            let mdic = (phy_data as u32)
                 | (reg_addr << MDIC_REG_SHIFT)
                 | (self.phy_addr << MDIC_PHY_SHIFT)
-                | (MDIC_OP_WRITE)) as u32;
+                | MDIC_OP_WRITE;
 
             write_reg(info, MDIC, mdic)?;
 
@@ -7652,12 +7641,11 @@ impl IgbHw {
             return Err(IgbDriverErr::NotSupported);
         }
 
-        if self.mac_type.clone() as usize > MacType::Em82543 as usize {
+        if self.mac_type as usize > MacType::Em82543 as usize {
             // Set up Op-code, Phy Address, and register address in the MDI Control register.
             // The MAC will take care of interfacing with the PHY to retrieve the desired data.
-            let mdic = ((reg_addr << MDIC_REG_SHIFT)
-                | (self.phy_addr << MDIC_PHY_SHIFT)
-                | (MDIC_OP_READ)) as u32;
+            let mdic =
+                (reg_addr << MDIC_REG_SHIFT) | (self.phy_addr << MDIC_PHY_SHIFT) | (MDIC_OP_READ);
 
             write_reg(info, MDIC, mdic)?;
 
@@ -7802,7 +7790,7 @@ impl IgbHw {
             // Release semaphores
             self.put_hw_eeprom_semaphore(info)?;
             log::warn!("igb: Driver can't access the Eeprom - SWESMBI bit is set.");
-            return Err(IgbDriverErr::Reset);
+            Err(IgbDriverErr::Reset)
         } else {
             Ok(())
         }
@@ -7961,7 +7949,7 @@ impl IgbHw {
             }
         }
 
-        let manc = if self.mac_type.clone() as u32 > MacType::Em82547Rev2 as u32 {
+        let manc = if self.mac_type as u32 > MacType::Em82547Rev2 as u32 {
             read_reg(info, MANC)?
         } else {
             0
@@ -8266,14 +8254,14 @@ fn set_pcie_express_master_disable(info: &PCIeInfo) -> Result<(), IgbDriverErr> 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EEPROMType {
     Microwire,
-    SPI,
+    Spi,
     Flash,
     Ich8,
     Invm,
 }
 
 #[derive(Debug)]
-struct EEPROM {
+struct Eeprom {
     eeprom_type: EEPROMType,
     page_size: Option<u16>,
     word_size: u16,
@@ -8284,7 +8272,7 @@ struct EEPROM {
     use_eewr: bool,
 }
 
-impl EEPROM {
+impl Eeprom {
     /// Return `(EEPROM, flash_base_address, flash_bank_size)`.
     ///
     /// https://github.com/openbsd/src/blob/8e9ff1e61e136829a715052f888f67d3617fc787/sys/dev/pci/if_em_hw.c#L6280
@@ -8345,7 +8333,7 @@ impl EEPROM {
 
                     (
                         Self {
-                            eeprom_type: EEPROMType::SPI,
+                            eeprom_type: EEPROMType::Spi,
                             opcode_bits: 8,
                             delay_usec: 1,
                             page_size: Some(page_size),
@@ -8389,7 +8377,7 @@ impl EEPROM {
 
                 (
                     Self {
-                        eeprom_type: EEPROMType::SPI,
+                        eeprom_type: EEPROMType::Spi,
                         opcode_bits: 8,
                         delay_usec: 1,
                         word_size: 0, // SPI's word size will be set later.
@@ -8419,7 +8407,7 @@ impl EEPROM {
                         (EEPROMType::Flash, 2048, true, true)
                     } else {
                         // SPI's word size will be set later.
-                        (EEPROMType::SPI, 0, true, true)
+                        (EEPROMType::Spi, 0, true, true)
                     };
 
                 (
@@ -8446,7 +8434,7 @@ impl EEPROM {
 
                 (
                     Self {
-                        eeprom_type: EEPROMType::SPI,
+                        eeprom_type: EEPROMType::Spi,
                         opcode_bits: 8,
                         delay_usec: 1,
                         page_size: Some(page_size),
@@ -8520,8 +8508,8 @@ impl EEPROM {
             }
         };
 
-        if matches!(result.0.eeprom_type, EEPROMType::SPI) {
-            if mac_type.clone() as u32 <= Em82547Rev2 as u32 {
+        if matches!(result.0.eeprom_type, EEPROMType::Spi) {
+            if *mac_type as u32 <= Em82547Rev2 as u32 {
                 return Err(IgbDriverErr::NotSupported);
             }
 
@@ -8820,15 +8808,14 @@ pub fn write_reg_array(
 #[inline(always)]
 pub fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    Ok(bar0.read32(offset).ok_or(IgbDriverErr::ReadFailure)?)
+    bar0.read32(offset).ok_or(IgbDriverErr::ReadFailure)
 }
 
 #[inline(always)]
 pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u32, IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
-    Ok(bar0
-        .read32(offset + (index << 2))
-        .ok_or(IgbDriverErr::ReadFailure)?)
+    bar0.read32(offset + (index << 2))
+        .ok_or(IgbDriverErr::ReadFailure)
 }
 
 #[inline(always)]

@@ -1,6 +1,5 @@
 use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use ::acpi::AcpiTables;
-use x86_64::structures::paging::PhysFrame;
 
 pub mod acpi;
 pub(super) mod cpu;

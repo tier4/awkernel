@@ -83,5 +83,5 @@ aarch64 = [
     "awkernel_drivers/aarch64",
 ]
 raspi = ["aarch64", "awkernel_drivers/raspi", "userland/raspi"]
-aarch64_virt = ["aarch64"]
+aarch64_virt = ["aarch64", "awkernel_drivers/all_device"]
 spinlock = ["awkernel_lib/spinlock"]

@@ -5,11 +5,11 @@ use awkernel_async_lib::{
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
     sleep, spawn,
-    task::perf::{add_context_restore_end, calc_context_switch_overhead},
+    task::perf::add_context_restore_end,
     uptime,
 };
 use core::{
-    ptr::{read_volatile, write_volatile},
+    ptr::write_volatile,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };

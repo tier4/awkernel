@@ -39,6 +39,10 @@ impl FramebufferInfo {
 }
 
 /// Initializes the linear framebuffer
+///
+/// # Safety
+///
+/// This function must be called at initialization.
 pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
     let channel = MboxChannel::new(8);
 
@@ -118,22 +122,16 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
 
 pub fn get_frame_buffer_region() -> Option<(usize, usize)> {
     unsafe {
-        if let Some(info) = &FRMAME_BUFFER_INFO {
-            Some((info.framebuffer.as_ptr() as usize, info.framebuffer_size))
-        } else {
-            None
-        }
+        let info = FRMAME_BUFFER_INFO.as_ref()?;
+        Some((info.framebuffer.as_ptr() as usize, info.framebuffer_size))
     }
 }
 
 /// Returns the width and height of the framebuffer.
 pub fn get_frame_buffer_size() -> Option<(u32, u32)> {
     unsafe {
-        if let Some(info) = &FRMAME_BUFFER_INFO {
-            Some((info.width, info.height))
-        } else {
-            None
-        }
+        let info = FRMAME_BUFFER_INFO.as_ref()?;
+        Some((info.width, info.height))
     }
 }
 

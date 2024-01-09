@@ -255,7 +255,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
             device: true,
         };
 
-        let mut config_start = segment.physical_address as usize;
+        let mut config_start = segment.physical_address;
         let config_end = config_start + CONFIG_SPACE_SIZE;
 
         let Some(page_allocator) = page_allocators.get_mut(&(segment.segment_group as u32)) else {
@@ -285,7 +285,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
                 dma_offset,
                 segment.segment_group,
                 bus,
-                base_address as usize,
+                base_address,
                 page_table,
                 page_allocator,
             );
@@ -363,8 +363,8 @@ pub struct PCIeInfo {
     multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
-    msi: Option<capability::msi::MSI>,
-    msix: Option<capability::msix::MSIX>,
+    msi: Option<capability::msi::Msi>,
+    msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
 }
 
@@ -431,11 +431,11 @@ impl PCIeInfo {
         self.revision_id = revision_id;
     }
 
-    pub fn get_msi_mut(&mut self) -> Option<&mut capability::msi::MSI> {
+    pub fn get_msi_mut(&mut self) -> Option<&mut capability::msi::Msi> {
         self.msi.as_mut()
     }
 
-    pub fn get_msix_mut(&mut self) -> Option<&mut capability::msix::MSIX> {
+    pub fn get_msix_mut(&mut self) -> Option<&mut capability::msix::Msix> {
         self.msix.as_mut()
     }
 
@@ -554,6 +554,7 @@ impl PCIeInfo {
     }
 
     /// Initialize the PCIe device based on the information
+    #[allow(unused_variables)]
     fn attach<F, FA, PT, E>(
         self,
         dma_offset: usize,
@@ -566,6 +567,7 @@ impl PCIeInfo {
         PT: PageTable<F, FA, E>,
         E: Debug,
     {
+        #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID =>
             {

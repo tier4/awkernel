@@ -47,9 +47,9 @@ pub fn read(info: &mut PCIeInfo) {
         cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
-            MSI => info.msix = msix::MSIX::new(info, cap_ptr),
+            MSI => info.msix = msix::Msix::new(info, cap_ptr),
             MSIX => {
-                let msi = msi::MSI::new(cap_ptr);
+                let msi = msi::Msi::new(cap_ptr);
                 info.msi = Some(msi);
             }
             PCI_EXPRESS => {
