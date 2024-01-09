@@ -20,7 +20,7 @@ mod igb_regs;
 
 use igb_regs::*;
 
-const DEVICE_NAME: &str = "Intel Gigabit Ethernet Controller";
+const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 struct Rx {
@@ -78,6 +78,10 @@ pub struct Igb {
     flags: NetFlags,
     capabilities: NetCapabilities,
     icp_xxxx_is_link_up: bool,
+    link_active: bool,
+    link_speed: igb_hw::Speed,
+    link_duplex: igb_hw::Duplex,
+    smart_speed: u32,
 }
 
 pub fn attach<F, FA, E>(
@@ -248,13 +252,12 @@ impl Igb {
         let perm_mac_addr = hw.get_perm_mac_addr();
 
         log::info!(
-            "{:02x}:{:02x}:{:04x}:{:04x}: {} ({}), MAC = {:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+            "{:02x}:{:02x}:{:04x}:{:04x}: {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             info.segment_group,
             info.bus,
             info.vendor,
             info.id,
             DEVICE_NAME,
-            DEVICE_SHORT_NAME,
             perm_mac_addr[0],
             perm_mac_addr[1],
             perm_mac_addr[2],
@@ -276,6 +279,10 @@ impl Igb {
             flags,
             capabilities,
             icp_xxxx_is_link_up: false,
+            link_active: false,
+            link_speed: igb_hw::Speed::None,
+            link_duplex: igb_hw::Duplex::None,
+            smart_speed: 0,
         };
 
         igb.new2()
@@ -293,7 +300,39 @@ impl Igb {
     }
 
     fn update_link_status(&mut self) -> Result<(), IgbDriverErr> {
-        // TODO: em_update_link_status()
+        if igb_hw::read_reg(&self.info, STATUS)? & STATUS_LU != 0 {
+            if !self.link_active {
+                let (link_speed, link_duplex) = self.hw.get_speed_and_duplex(&self.info)?;
+                // Check if we may set SPEED_MODE bit on PCI-E
+                if link_speed == igb_hw::Speed::S1000Mbps
+                    && matches!(
+                        self.hw.get_mac_type(),
+                        MacType::Em82571
+                            | MacType::Em82572
+                            | MacType::Em82575
+                            | MacType::Em82576
+                            | MacType::Em82580
+                    )
+                {
+                    const SPEED_MODE_BIT: u32 = 1 << 21; // On PCI-E MACs only
+
+                    let tarc0 = igb_hw::read_reg(&self.info, TARC0)?;
+                    igb_hw::write_reg(&mut self.info, TARC0, tarc0 | SPEED_MODE_BIT)?;
+                }
+
+                self.link_speed = link_speed;
+                self.link_duplex = link_duplex;
+                self.link_active = true;
+                self.smart_speed = 0;
+            }
+        } else {
+            if self.link_active {
+                self.link_speed = igb_hw::Speed::None;
+                self.link_duplex = igb_hw::Duplex::None;
+                self.link_active = false;
+            }
+        }
+
         Ok(())
     }
 
@@ -492,19 +531,24 @@ impl NetDevice for Igb {
     }
 
     fn link_up(&self) -> bool {
-        todo!()
+        self.link_active
     }
 
     fn link_speed(&self) -> u64 {
-        todo!()
+        match self.link_speed {
+            igb_hw::Speed::S10Mbps => 10,
+            igb_hw::Speed::S100Mbps => 100,
+            igb_hw::Speed::S1000Mbps => 1000,
+            igb_hw::Speed::None => 0,
+        }
     }
 
     fn full_duplex(&self) -> bool {
-        todo!()
+        self.link_duplex == igb_hw::Duplex::Full
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        todo!()
+        self.hw.get_mac_addr()
     }
 
     fn can_send(&self) -> bool {

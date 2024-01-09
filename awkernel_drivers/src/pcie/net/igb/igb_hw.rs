@@ -464,6 +464,7 @@ pub enum SpeedDuplex {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Speed {
+    None,
     S10Mbps = 10,
     S100Mbps = 100,
     S1000Mbps = 1000,
@@ -471,6 +472,7 @@ pub enum Speed {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Duplex {
+    None,
     Half,
     Full,
 }
@@ -2113,7 +2115,10 @@ impl IgbHw {
     }
 
     /// Detects the current speed and duplex settings of the hardware.
-    fn get_speed_and_duplex(&mut self, info: &PCIeInfo) -> Result<(Speed, Duplex), IgbDriverErr> {
+    pub fn get_speed_and_duplex(
+        &mut self,
+        info: &PCIeInfo,
+    ) -> Result<(Speed, Duplex), IgbDriverErr> {
         use MacType::*;
 
         if (self.mac_type as u32) >= Em82575 as u32 && self.media_type != MediaType::Copper {
@@ -8198,6 +8203,10 @@ impl IgbHw {
 
     pub fn get_perm_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
         self.perm_mac_addr
+    }
+
+    pub fn get_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
+        self.mac_addr
     }
 }
 

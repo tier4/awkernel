@@ -54,7 +54,10 @@ pub trait NetDevice {
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
+
+    /// Link speed in Mbps.
     fn link_speed(&self) -> u64;
+
     fn can_send(&self) -> bool;
     fn mac_address(&self) -> [u8; 6];
     fn link_up(&self) -> bool;
