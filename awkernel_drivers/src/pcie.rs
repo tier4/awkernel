@@ -451,8 +451,12 @@ impl PCIeInfo {
         registers::STATUS_COMMAND.write(csr, self.addr);
     }
 
-    pub fn read_config_space(&self, offset: usize) -> u32 {
+    pub fn read_config_space_u32(&self, offset: usize) -> u32 {
         unsafe { read_volatile((self.addr + offset) as *const u32) }
+    }
+
+    pub fn read_config_space_u16(&self, offset: usize) -> u16 {
+        unsafe { read_volatile((self.addr + offset) as *const u16) }
     }
 
     pub fn get_segment_group(&self) -> u16 {

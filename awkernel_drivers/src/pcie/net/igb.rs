@@ -370,6 +370,51 @@ impl Igb {
         todo!()
     }
 
+    /// Remove all descriptors from the descriptor rings.
+    ///
+    /// In i219, the descriptor rings must be emptied before resetting the HW
+    /// or before changing the device state to D3 during runtime (runtime PM).
+    ///
+    /// Failure to do this will cause the HW to enter a unit hang state which can
+    /// only be released by PCI reset on the device.
+    fn flush_desc_rings(&mut self) -> Result<(), IgbDriverErr> {
+        const PCICFG_DESC_RING_STATUS: usize = 0xe4;
+        const FLUSH_DESC_REQUIRED: u16 = 0x100;
+
+        // First, disable MULR fix in FEXTNVM11
+        let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
+        fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
+        igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
+
+        // do nothing if we're not in faulty state, or if the queue is empty
+        let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(self.que[0].me))?;
+        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+        if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
+            return Ok(());
+        }
+
+        self.flush_tx_ring()?;
+
+        // recheck, maybe the fault is caused by the rx ring
+        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+        if hang_state & FLUSH_DESC_REQUIRED != 0 {
+            self.flush_rx_ring()?;
+        }
+
+        // em_flush_desc_rings()
+        todo!()
+    }
+
+    fn flush_tx_ring(&mut self) -> Result<(), IgbDriverErr> {
+        // em_flush_tx_ring()
+        todo!()
+    }
+
+    fn flush_rx_ring(&mut self) -> Result<(), IgbDriverErr> {
+        // em_flush_tx_ring()
+        todo!()
+    }
+
     fn disable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
             PCIeInt::MSI(ref irq) => {
@@ -417,6 +462,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             msi.set_multiple_message_enable(MultipleMessage::One)
                 .unwrap();
 
+            // TODO: support other architectures
             #[cfg(feature = "x86")]
             msi.set_x86_interrupt(0, irq.get_irq(), false, false);
 
@@ -612,7 +658,7 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let tdlen = bar0
         .read32(tdlen_offset(0))
         .ok_or(IgbDriverErr::ReadFailure)?;
-    let hang_state = info.read_config_space(PCICFG_DESC_RING_STATUS);
+    let hang_state = info.read_config_space_u32(PCICFG_DESC_RING_STATUS);
     if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
         return Ok(());
     }
