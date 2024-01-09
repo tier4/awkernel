@@ -1,3 +1,22 @@
+//! UART's device driver for Raspberry Pi.
+//!
+//! # Example
+//!
+//! ```
+//! use awkernel_drivers::hal::rpi::uart::{Uart, Uarts};
+//! use embedded_io::{Read, Write};
+//!
+//! let mut uart2 = Uart::new(Uarts::Uart2, 115200).unwrap();
+//!
+//! let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
+//!
+//! let write_buf = b"Hello, world!\r\n";
+//! let mut read_buf = [0; 32];
+//!
+//! uart2.write(write_buf).unwrap();
+//! uart2.read(&mut read_buf).unwrap();
+//! ```
+
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use awkernel_lib::{
