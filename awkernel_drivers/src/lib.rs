@@ -8,7 +8,6 @@ pub mod framebuffer;
 pub mod hal;
 pub mod interrupt_controller;
 pub mod net;
-#[allow(dead_code)] // TODO: remove this.
 pub mod pcie;
 pub mod uart;
 

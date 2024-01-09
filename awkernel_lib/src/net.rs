@@ -64,6 +64,9 @@ pub trait NetDevice {
     fn full_duplex(&self) -> bool;
 
     fn device_short_name(&self) -> &'static str;
+
+    fn up(&mut self);
+    fn down(&mut self);
 }
 
 #[derive(Clone)]

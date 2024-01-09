@@ -448,8 +448,6 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
         msix.disalbe();
     }
 
-    let segment_group = info.get_segment_group();
-
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
@@ -640,6 +638,14 @@ impl NetDevice for Igb {
     fn send(&mut self, data: &[u8]) -> Option<()> {
         // em_start()
         todo!()
+    }
+
+    fn up(&mut self) {
+        self.init().unwrap();
+    }
+
+    fn down(&mut self) {
+        self.stop(false).unwrap();
     }
 }
 
