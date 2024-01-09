@@ -8715,8 +8715,7 @@ fn set_sfp_media_type_82575(info: &PCIeInfo) -> Result<(MediaType, bool), IgbDri
         return Err(IgbDriverErr::Phy);
     }
 
-    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(SFF_ETH_FLAGS_OFFSET))
-    else {
+    let Ok(eth_flags) = read_sfp_data_byte(info, i2ccd_sfp_data_addr(SFF_ETH_FLAGS_OFFSET)) else {
         write_reg(info, CTRL_EXT, ctrl_ext)?;
         return Err(IgbDriverErr::Phy);
     };

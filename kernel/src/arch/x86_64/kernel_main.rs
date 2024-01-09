@@ -578,7 +578,8 @@ fn get_numa_info(
     let mut usable_regions: VecDeque<MemoryRegion> = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable).copied()
+        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .copied()
         .collect();
 
     loop {
@@ -696,8 +697,7 @@ fn init_dma(
         .map(|addr| PhysFrame::<Size4KiB>::containing_address(PhysAddr::new(addr)))
         .enumerate()
     {
-        let virt_frame =
-            Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE) as u64));
+        let virt_frame = Page::containing_address(VirtAddr::new((dma_start + i * PAGESIZE) as u64));
 
         unsafe {
             page_table
