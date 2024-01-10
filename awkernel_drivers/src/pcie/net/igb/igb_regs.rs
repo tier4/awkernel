@@ -322,14 +322,14 @@ pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 pub const FEXTNVM_SW_CONFIG: u32 = 1;
 pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
 
-pub const _TX_CMD_EOP: u8 = 1 << 0; // End of Packet
-pub const TX_CMD_IFCS: u8 = 1 << 1; // Insert FCS
-pub const _TX_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
-pub const _TX_CMD_RS: u8 = 1 << 3; // Report Status
-pub const _TX_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
-pub const _TX_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
-pub const _TX_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
-pub const _TX_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+pub const _TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
+pub const TXD_CMD_IFCS: u8 = 1 << 1; // Insert FCS
+pub const _TXD_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
+pub const _TXD_CMD_RS: u8 = 1 << 3; // Report Status
+pub const _TXD_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
+pub const _TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
+pub const _TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
+pub const _TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
 pub const PCICFG_DESC_RING_STATUS: usize = 0xe4;
 pub const FLUSH_DESC_REQUIRED: u32 = 0x100;

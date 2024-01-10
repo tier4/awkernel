@@ -6,7 +6,8 @@ use crate::pcie::{
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
-    dma_pool::DMAPool,
+    addr::Addr,
+    dma_pool::{self, DMAPool},
     interrupt::IRQ,
     net::{NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
@@ -23,18 +24,18 @@ const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 struct Rx {
-    dma_alloc: DMAPool,
     rx_desc_head: usize,
     rx_desc_tail: usize,
+    rx_desc_ring: DMAPool,
 
     // Statistics
     dropped_pkts: u64,
 }
 
 struct Tx {
-    dma_alloc: DMAPool,
     tx_desc_head: usize,
     tx_desc_tail: usize,
+    tx_desc_ring: DMAPool,
 }
 
 struct Queue {
@@ -357,7 +358,7 @@ impl Igb {
         }
 
         if self.hw.get_mac_type() as u32 >= MacType::EmPchSpt as u32 {
-            // TODO: em_flush_desc_rings()
+            self.flush_desc_rings()?;
         }
 
         if !softonly {
@@ -367,7 +368,7 @@ impl Igb {
         // TODO: em_free_transmit_structures()
         // TODO: em_free_receive_structures()
 
-        todo!()
+        Ok(())
     }
 
     /// Remove all descriptors from the descriptor rings.
@@ -393,24 +394,52 @@ impl Igb {
             return Ok(());
         }
 
-        self.flush_tx_ring()?;
+        self.flush_tx_ring(0)?;
 
         // recheck, maybe the fault is caused by the rx ring
         let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
         if hang_state & FLUSH_DESC_REQUIRED != 0 {
-            self.flush_rx_ring()?;
+            self.flush_rx_ring(0)?;
         }
 
-        // em_flush_desc_rings()
-        todo!()
+        Ok(())
     }
 
-    fn flush_tx_ring(&mut self) -> Result<(), IgbDriverErr> {
-        // em_flush_tx_ring()
-        todo!()
+    /// We want to clear all pending descriptors from the TX ring.
+    /// zeroing happens when the HW reads the regs. We assign the ring itself as
+    /// the data of the next descriptor. We don't care about the data we are about
+    /// to reset the HW.
+    fn flush_tx_ring(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let tctl = igb_hw::read_reg(&self.info, TCTL)?;
+        igb_hw::write_reg(&self.info, TCTL, tctl | TCTL_EN)?;
+
+        let que = &mut self.que[que_id];
+
+        let tx_desc_ring = &mut que.tx.tx_desc_ring;
+        let buf = tx_desc_ring.get_phy_addr().as_usize() as u64;
+        let tx_ring = unsafe { tx_desc_ring.get_slice_mut::<TxDescriptor>() };
+        let txd = &mut tx_ring[que.tx.tx_desc_head];
+
+        txd.buf = buf;
+        txd.length = 512;
+        txd.cso = 0;
+        txd.cmd = TXD_CMD_IFCS;
+        txd.status = 0;
+        txd.css = 0;
+        txd.vtags = 0;
+
+        que.tx.tx_desc_head += 1;
+        if que.tx.tx_desc_head == tx_ring.len() {
+            que.tx.tx_desc_head = 0;
+        }
+
+        igb_hw::write_reg(&self.info, tdt_offset(que.me), que.tx.tx_desc_head as u32)?;
+        awkernel_lib::delay::wait_microsec(250);
+
+        Ok(())
     }
 
-    fn flush_rx_ring(&mut self) -> Result<(), IgbDriverErr> {
+    fn flush_rx_ring(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         // em_flush_tx_ring()
         todo!()
     }
@@ -484,21 +513,21 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
     let rx_size = core::mem::size_of::<RxDescriptor>() * MAX_RXD;
     assert_eq!(rx_size & (PAGESIZE - 1), 0);
 
-    let tx_dma_pool = DMAPool::new(info.segment_group as usize, tx_size / PAGESIZE)
+    let tx_desc_ring = DMAPool::new(info.segment_group as usize, tx_size / PAGESIZE)
         .ok_or(IgbDriverErr::DMAPool)?;
-    let rx_dma_pool = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
+    let rx_desc_ring = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
         .ok_or(IgbDriverErr::DMAPool)?;
 
     let tx = Tx {
         tx_desc_head: 0,
         tx_desc_tail: 0,
-        dma_alloc: tx_dma_pool,
+        tx_desc_ring,
     };
 
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
-        dma_alloc: rx_dma_pool,
+        rx_desc_ring,
         dropped_pkts: 0,
     };
 
@@ -677,5 +706,13 @@ fn tdlen_offset(n: usize) -> usize {
         0x03808 + (n * 0x100)
     } else {
         0x0E008 + (n * 0x40)
+    }
+}
+
+fn tdt_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03818 + (n * 0x100)
+    } else {
+        0x0E018 + (n * 0x40)
     }
 }
