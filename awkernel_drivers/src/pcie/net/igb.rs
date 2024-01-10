@@ -54,6 +54,7 @@ struct Queue {
     tx: Tx,
     rx: Rx,
     me: usize,
+    eims: u32,
 }
 
 #[repr(C)]
@@ -120,7 +121,8 @@ where
     info.read_capability();
 
     let mut igb = Igb::new(info, dma_offset, page_table, page_allocator)?;
-    igb.up();
+
+    igb.up(); // TODO: to be removed
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
@@ -157,9 +159,16 @@ pub enum IgbDriverErr {
 }
 
 #[derive(Debug)]
+pub struct MsiX {
+    link_vec: u32,
+    link_mask: u32,
+    queues_mask: u32,
+}
+
+#[derive(Debug)]
 pub enum PCIeInt {
-    MSI(IRQ),
-    MSIX,
+    Msi(IRQ),
+    MsiX(MsiX),
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -219,7 +228,9 @@ impl Igb {
     {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let pcie_int = if let Ok(pcie_int) = allocate_msix(&info) {
+        let mut que = [allocate_desc_rings(&info)?];
+
+        let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
             pcie_int
         } else if let Ok(pcie_int) = allocate_msi(&mut info) {
             pcie_int
@@ -227,8 +238,6 @@ impl Igb {
             log::error!("igb: Failed to allocate interrupt.");
             return Err(IgbDriverErr::InitializeInterrupt.into());
         };
-
-        let que = [allocate_desc_rings(&info)?];
 
         // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
         if (hw.get_mac_type() as u32) >= MacType::Em82571 as u32
@@ -757,28 +766,63 @@ impl Igb {
 
     fn disable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::MSI(_) => {
+            PCIeInt::Msi(_) => {
                 if self.hw.get_mac_type() == MacType::Em82542Rev2_0 {
                     igb_hw::write_reg(&self.info, IMC, 0xffffffff & !IMS_RXSEQ)
                 } else {
                     igb_hw::write_reg(&self.info, IMC, 0xffffffff)
                 }
             }
-            PCIeInt::MSIX => todo!(), // em_disable_intr()
+            PCIeInt::MsiX(_) => {
+                igb_hw::write_reg(&self.info, EIMC, !0)?;
+                igb_hw::write_reg(&self.info, EIAC, 0)
+            }
         }
     }
 
     fn enable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::MSI(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
-            PCIeInt::MSIX => todo!(), // em_enable_intr()
+            PCIeInt::Msi(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
+            PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
         }
     }
 }
 
-fn allocate_msix(info: &PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
-    // TODO: em_allocate_msix()
-    Err(IgbDriverErr::InitializeInterrupt)
+fn allocate_msix(
+    hw: &igb_hw::IgbHw,
+    info: &mut PCIeInfo,
+    que: &mut Queue,
+) -> Result<PCIeInt, IgbDriverErr> {
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+    }
+
+    if info.get_msix_mut().is_none() {
+        return Err(IgbDriverErr::InitializeInterrupt);
+    }
+
+    if !matches!(
+        hw.get_mac_type(),
+        MacType::Em82576 | MacType::Em82580 | MacType::EmI350 | MacType::EmI210
+    ) {
+        return Err(IgbDriverErr::InitializeInterrupt);
+    }
+
+    let vec = 0;
+    que.me = vec;
+    que.eims = 1 << vec;
+
+    // Setup linkvector, use last queue vector + 1
+    let vec = vec + 1;
+    let link_vec = vec as u32;
+
+    // TODO: register interrupt handler
+
+    Ok(PCIeInt::MsiX(MsiX {
+        link_vec,
+        link_mask: 1 << link_vec,
+        queues_mask: 0,
+    }))
 }
 
 fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
@@ -808,7 +852,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
 
             msi.enable();
 
-            Ok(PCIeInt::MSI(irq))
+            Ok(PCIeInt::Msi(irq))
         } else {
             Err(IgbDriverErr::InitializeInterrupt)
         }
@@ -844,7 +888,12 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         dropped_pkts: 0,
     };
 
-    let que = Queue { tx, rx, me: 0 };
+    let que = Queue {
+        tx,
+        rx,
+        me: 0,
+        eims: 1,
+    };
 
     Ok(que)
 }

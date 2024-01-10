@@ -72,4 +72,8 @@ impl Msix {
     pub fn disalbe(&mut self) {
         registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.cap_ptr);
     }
+
+    pub fn enable(&mut self) {
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.cap_ptr);
+    }
 }
