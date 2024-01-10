@@ -7,7 +7,7 @@ use crate::pcie::{
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
     addr::Addr,
-    dma_pool::{self, DMAPool},
+    dma_pool::DMAPool,
     interrupt::IRQ,
     net::{ethertypes::EtherTypes, NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
@@ -33,6 +33,8 @@ struct Rx {
     rx_desc_head: usize,
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool,
+
+    read_buf: Option<DMAPool>,
 
     // Statistics
     dropped_pkts: u64,
@@ -402,6 +404,8 @@ impl Igb {
             self.enable_hw_vlans()?;
         }
 
+        self.setup_receive_structures()?;
+
         // TODO
 
         Ok(())
@@ -561,6 +565,37 @@ impl Igb {
         let mut ctrl = igb_hw::read_reg(&self.info, CTRL)?;
         ctrl |= CTRL_VME;
         igb_hw::write_reg(&self.info, CTRL, ctrl)?;
+
+        Ok(())
+    }
+
+    fn setup_receive_structures(&mut self) -> Result<(), IgbDriverErr> {
+        for que in self.que.iter_mut() {
+            let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+
+            que.rx.rx_desc_tail = 0;
+            que.rx.rx_desc_head = rx_desc_ring.len() - 1;
+
+            let rx_buffer_size = RXBUFFER_2048 as usize * rx_desc_ring.len();
+            let read_buf = DMAPool::new(
+                self.info.get_segment_group() as usize,
+                rx_buffer_size / PAGESIZE,
+            )
+            .ok_or(IgbDriverErr::DMAPool)?;
+
+            let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+
+            for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+                desc.buf = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
+                desc.len = RXBUFFER_2048 as u16;
+                desc.checksum = 0;
+                desc.status = 0;
+                desc.error = 0;
+                desc.vtags = 0;
+            }
+
+            que.rx.read_buf = Some(read_buf);
+        }
 
         Ok(())
     }
@@ -766,6 +801,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         rx_desc_head: 0,
         rx_desc_tail: 0,
         rx_desc_ring,
+        read_buf: None,
         dropped_pkts: 0,
     };
 
