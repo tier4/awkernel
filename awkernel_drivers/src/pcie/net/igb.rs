@@ -29,6 +29,8 @@ pub const RXBUFFER_4096: u32 = 4096;
 pub const RXBUFFER_8192: u32 = 8192;
 pub const RXBUFFER_16384: u32 = 16384;
 
+pub const TXBUFFER_16384: u32 = 16384;
+
 struct Rx {
     rx_desc_head: usize,
     rx_desc_tail: usize,
@@ -44,6 +46,8 @@ struct Tx {
     tx_desc_head: usize,
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool,
+
+    write_buf: Option<DMAPool>,
 }
 
 struct Queue {
@@ -404,6 +408,8 @@ impl Igb {
             self.enable_hw_vlans()?;
         }
 
+        self.setup_transmit_structures()?;
+
         self.setup_receive_structures()?;
 
         // TODO
@@ -565,6 +571,38 @@ impl Igb {
         let mut ctrl = igb_hw::read_reg(&self.info, CTRL)?;
         ctrl |= CTRL_VME;
         igb_hw::write_reg(&self.info, CTRL, ctrl)?;
+
+        Ok(())
+    }
+
+    fn setup_transmit_structures(&mut self) -> Result<(), IgbDriverErr> {
+        for que in self.que.iter_mut() {
+            let tx_desc_ring = unsafe { que.tx.tx_desc_ring.get_slice_mut::<TxDescriptor>() };
+
+            que.tx.tx_desc_tail = 0;
+            que.tx.tx_desc_head = 0;
+
+            let tx_buffer_size = TXBUFFER_16384 as usize * tx_desc_ring.len();
+            let write_buf = DMAPool::new(
+                self.info.get_segment_group() as usize,
+                tx_buffer_size / PAGESIZE,
+            )
+            .ok_or(IgbDriverErr::DMAPool)?;
+
+            let buf_phy_addr = write_buf.get_phy_addr().as_usize();
+
+            for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
+                desc.buf = (buf_phy_addr + i * TXBUFFER_16384 as usize) as u64;
+                desc.length = 0;
+                desc.cso = 0;
+                desc.cmd = 0;
+                desc.status = 0;
+                desc.css = 0;
+                desc.vtags = 0;
+            }
+
+            que.tx.write_buf = Some(write_buf);
+        }
 
         Ok(())
     }
@@ -795,6 +833,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
+        write_buf: None,
     };
 
     let rx = Rx {
