@@ -253,6 +253,7 @@ pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
 pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
 pub const CTRL_RFCE: u32 = 0x08000000; // Receive Flow Control enable
 pub const CTRL_TFCE: u32 = 0x10000000; // Transmit flow control enable
+pub const CTRL_VME: u32 = 0x40000000; // IEEE VLAN mode enable
 
 pub const CTRL_SWDPIN0: u32 = 0x00040000; // SWDPIN 0 value
 pub const CTRL_SWDPIN1: u32 = 0x00080000; // SWDPIN 1 value
@@ -553,20 +554,20 @@ pub const PHY_CTRL_LOOPBACK: u16 = 0x00004000;
 
 // PBA constants
 pub const PBA_8K: u32 = 0x0008; // 8KB, default Rx allocation
-pub const _PBA_10K: u32 = 0x000A;
-pub const _PBA_12K: u32 = 0x000C; // 12KB, default Rx allocation
-pub const _PBA_14K: u32 = 0x000E; // 14KB
+pub const PBA_10K: u32 = 0x000A;
+pub const PBA_12K: u32 = 0x000C; // 12KB, default Rx allocation
+pub const PBA_14K: u32 = 0x000E; // 14KB
 pub const PBA_16K: u32 = 0x0010; // 16KB, default TX allocation
-pub const _PBA_20K: u32 = 0x0014;
-pub const _PBA_22K: u32 = 0x0016;
+pub const PBA_20K: u32 = 0x0014;
+pub const PBA_22K: u32 = 0x0016;
 pub const _PBA_24K: u32 = 0x0018;
-pub const _PBA_26K: u32 = 0x001A;
-pub const _PBA_30K: u32 = 0x001E;
-pub const _PBA_32K: u32 = 0x0020;
-pub const _PBA_34K: u32 = 0x0022;
+pub const PBA_26K: u32 = 0x001A;
+pub const PBA_30K: u32 = 0x001E;
+pub const PBA_32K: u32 = 0x0020;
+pub const PBA_34K: u32 = 0x0022;
 pub const _PBA_38K: u32 = 0x0026;
-pub const _PBA_40K: u32 = 0x0028;
-pub const _PBA_48K: u32 = 0x0030; // 48KB, default RX allocation
+pub const PBA_40K: u32 = 0x0028;
+pub const PBA_48K: u32 = 0x0030; // 48KB, default RX allocation
 
 pub const PBS_16K: u32 = PBA_16K;
 

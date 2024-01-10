@@ -9,7 +9,7 @@ use awkernel_lib::{
     addr::Addr,
     dma_pool::{self, DMAPool},
     interrupt::IRQ,
-    net::{NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
+    net::{ethertypes::EtherTypes, NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
@@ -22,6 +22,12 @@ use igb_regs::*;
 
 const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
+
+// Supported RX Buffer Sizes
+pub const RXBUFFER_2048: u32 = 2048;
+pub const RXBUFFER_4096: u32 = 4096;
+pub const RXBUFFER_8192: u32 = 8192;
+pub const RXBUFFER_16384: u32 = 16384;
 
 struct Rx {
     rx_desc_head: usize,
@@ -107,7 +113,8 @@ where
     // Read the capability of PCIe device.
     info.read_capability();
 
-    let igb = Igb::new(info, dma_offset, page_table, page_allocator)?;
+    let mut igb = Igb::new(info, dma_offset, page_table, page_allocator)?;
+    igb.up();
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
@@ -211,6 +218,7 @@ impl Igb {
         } else if let Ok(pcie_int) = allocate_msi(&mut info) {
             pcie_int
         } else {
+            log::error!("igb: Failed to allocate interrupt.");
             return Err(IgbDriverErr::InitializeInterrupt.into());
         };
 
@@ -344,8 +352,217 @@ impl Igb {
     }
 
     fn init(&mut self) -> Result<(), IgbDriverErr> {
-        // em_init()
-        todo!()
+        self.stop(false)?;
+
+        // Packet Buffer Allocation (PBA)
+        // Writing PBA sets the receive portion of the buffer
+        // the remainder is used for the transmit buffer.
+        //
+        // Devices before the 82547 had a Packet Buffer of 64K.
+        //   Default allocation: PBA=48K for Rx, leaving 16K for Tx.
+        // After the 82547 the buffer was reduced to 40K.
+        //   Default allocation: PBA=30K for Rx, leaving 10K for Tx.
+        //   Note: default does not leave enough room for Jumbo Frame >10k.
+
+        use igb_hw::MacType::*;
+        let pba = match self.hw.get_mac_type() {
+            Em82547 | Em82547Rev2 => {
+                return Err(IgbDriverErr::NotSupported);
+            }
+            Em82571 | Em82572 | Em82575 | Em82576 | Em82580 | Em80003es2lan | EmI350 => PBA_32K,
+            EmI210 => PBA_34K,
+            Em82573 => PBA_12K,
+            Em82574 => PBA_20K,
+            EmIch8lan => PBA_8K,
+            EmIch9lan | EmIch10lan => {
+                if self.hw.get_max_frame_size() > RXBUFFER_4096 {
+                    PBA_14K
+                } else {
+                    PBA_10K
+                }
+            }
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => PBA_26K,
+            _ => {
+                if self.hw.get_max_frame_size() > RXBUFFER_8192 {
+                    PBA_40K
+                } else {
+                    PBA_48K
+                }
+            }
+        };
+        igb_hw::write_reg(&self.info, PBA, pba)?;
+
+        // Initialize the hardware
+        hardware_init(&mut self.hw, &mut self.info)?;
+
+        self.update_link_status()?;
+
+        igb_hw::write_reg(&self.info, VET, EtherTypes::Vlan as u32)?;
+        if self.capabilities.contains(NetCapabilities::VLAN_HWTAGGING) {
+            self.enable_hw_vlans()?;
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    // 846 void
+    // 847 em_init(void *arg)
+    //     /* [previous][next][first][last][top][bottom][index][help]  */
+    // 848 {
+    // 849         struct em_softc *sc = arg;
+    // 850         struct ifnet   *ifp = &sc->sc_ac.ac_if;
+    // 851         uint32_t        pba;
+    // 852         int s;
+    // 853
+    // 854         s = splnet();
+    // 855
+    // 856         INIT_DEBUGOUT("em_init: begin");
+    // 857
+    // 858         em_stop(sc, 0);
+    // 859
+    // 860         /*
+    // 861          * Packet Buffer Allocation (PBA)
+    // 862          * Writing PBA sets the receive portion of the buffer
+    // 863          * the remainder is used for the transmit buffer.
+    // 864          *
+    // 865          * Devices before the 82547 had a Packet Buffer of 64K.
+    // 866          *   Default allocation: PBA=48K for Rx, leaving 16K for Tx.
+    // 867          * After the 82547 the buffer was reduced to 40K.
+    // 868          *   Default allocation: PBA=30K for Rx, leaving 10K for Tx.
+    // 869          *   Note: default does not leave enough room for Jumbo Frame >10k.
+    // 870          */
+    // 871         switch (sc->hw.mac_type) {
+    // 872         case em_82547:
+    // 873         case em_82547_rev_2: /* 82547: Total Packet Buffer is 40K */
+    // 874                 if (sc->hw.max_frame_size > EM_RXBUFFER_8192)
+    // 875                         pba = E1000_PBA_22K; /* 22K for Rx, 18K for Tx */
+    // 876                 else
+    // 877                         pba = E1000_PBA_30K; /* 30K for Rx, 10K for Tx */
+    // 878                 sc->tx_fifo_head = 0;
+    // 879                 sc->tx_head_addr = pba << EM_TX_HEAD_ADDR_SHIFT;
+    // 880                 sc->tx_fifo_size = (E1000_PBA_40K - pba) << EM_PBA_BYTES_SHIFT;
+    // 881                 break;
+    // 882         case em_82571:
+    // 883         case em_82572: /* Total Packet Buffer on these is 48k */
+    // 884         case em_82575:
+    // 885         case em_82576:
+    // 886         case em_82580:
+    // 887         case em_80003es2lan:
+    // 888         case em_i350:
+    // 889                 pba = E1000_PBA_32K; /* 32K for Rx, 16K for Tx */
+    // 890                 break;
+    // 891         case em_i210:
+    // 892                 pba = E1000_PBA_34K;
+    // 893                 break;
+    // 894         case em_82573: /* 82573: Total Packet Buffer is 32K */
+    // 895                 /* Jumbo frames not supported */
+    // 896                 pba = E1000_PBA_12K; /* 12K for Rx, 20K for Tx */
+    // 897                 break;
+    // 898         case em_82574: /* Total Packet Buffer is 40k */
+    // 899                 pba = E1000_PBA_20K; /* 20K for Rx, 20K for Tx */
+    // 900                 break;
+    // 901         case em_ich8lan:
+    // 902                 pba = E1000_PBA_8K;
+    // 903                 break;
+    // 904         case em_ich9lan:
+    // 905         case em_ich10lan:
+    // 906                 /* Boost Receive side for jumbo frames */
+    // 907                 if (sc->hw.max_frame_size > EM_RXBUFFER_4096)
+    // 908                         pba = E1000_PBA_14K;
+    // 909                 else
+    // 910                         pba = E1000_PBA_10K;
+    // 911                 break;
+    // 912         case em_pchlan:
+    // 913         case em_pch2lan:
+    // 914         case em_pch_lpt:
+    // 915         case em_pch_spt:
+    // 916         case em_pch_cnp:
+    // 917         case em_pch_tgp:
+    // 918         case em_pch_adp:
+    // 919                 pba = E1000_PBA_26K;
+    // 920                 break;
+    // 921         default:
+    // 922                 /* Devices before 82547 had a Packet Buffer of 64K.   */
+    // 923                 if (sc->hw.max_frame_size > EM_RXBUFFER_8192)
+    // 924                         pba = E1000_PBA_40K; /* 40K for Rx, 24K for Tx */
+    // 925                 else
+    // 926                         pba = E1000_PBA_48K; /* 48K for Rx, 16K for Tx */
+    // 927         }
+    // 928         INIT_DEBUGOUT1("em_init: pba=%dK",pba);
+    // 929         E1000_WRITE_REG(&sc->hw, PBA, pba);
+    // 930
+    // 931         /* Get the latest mac address, User can use a LAA */
+    // 932         bcopy(sc->sc_ac.ac_enaddr, sc->hw.mac_addr, ETHER_ADDR_LEN);
+    // 933
+    // 934         /* Initialize the hardware */
+    // 935         if (em_hardware_init(sc)) {
+    // 936                 printf("%s: Unable to initialize the hardware\n",
+    // 937                        DEVNAME(sc));
+    // 938                 splx(s);
+    // 939                 return;
+    // 940         }
+    // 941         em_update_link_status(sc);
+    // 942
+    // 943         E1000_WRITE_REG(&sc->hw, VET, ETHERTYPE_VLAN);
+    // 944         if (ifp->if_capabilities & IFCAP_VLAN_HWTAGGING)
+    // 945                 em_enable_hw_vlans(sc);
+    // 946
+    // 947         /* Prepare transmit descriptors and buffers */
+    // 948         if (em_setup_transmit_structures(sc)) {
+    // 949                 printf("%s: Could not setup transmit structures\n",
+    // 950                        DEVNAME(sc));
+    // 951                 em_stop(sc, 0);
+    // 952                 splx(s);
+    // 953                 return;
+    // 954         }
+    // 955         em_initialize_transmit_unit(sc);
+    // 956
+    // 957         /* Prepare receive descriptors and buffers */
+    // 958         if (em_setup_receive_structures(sc)) {
+    // 959                 printf("%s: Could not setup receive structures\n",
+    // 960                        DEVNAME(sc));
+    // 961                 em_stop(sc, 0);
+    // 962                 splx(s);
+    // 963                 return;
+    // 964         }
+    // 965         em_initialize_receive_unit(sc);
+    // 966
+    // 967 #ifndef SMALL_KERNEL
+    // 968         if (sc->msix) {
+    // 969                 if (em_setup_queues_msix(sc)) {
+    // 970                         printf("%s: Can't setup msix queues\n", DEVNAME(sc));
+    // 971                         splx(s);
+    // 972                         return;
+    // 973                 }
+    // 974         }
+    // 975 #endif
+    // 976
+    // 977         /* Program promiscuous mode and multicast filters. */
+    // 978         em_iff(sc);
+    // 979
+    // 980         ifp->if_flags |= IFF_RUNNING;
+    // 981         ifq_clr_oactive(&ifp->if_snd);
+    // 982
+    // 983         timeout_add_sec(&sc->timer_handle, 1);
+    // 984         em_clear_hw_cntrs(&sc->hw);
+    // 985         em_enable_intr(sc);
+    // 986
+    // 987         /* Don't reset the phy next time init gets called */
+    // 988         sc->hw.phy_reset_disable = TRUE;
+    // 989
+    // 990         splx(s);
+    // 991 }
+
+    /// This turns on the hardware offload of the VLAN
+    /// tag stripping and insertion.
+    fn enable_hw_vlans(&self) -> Result<(), IgbDriverErr> {
+        let mut ctrl = igb_hw::read_reg(&self.info, CTRL)?;
+        ctrl |= CTRL_VME;
+        igb_hw::write_reg(&self.info, CTRL, ctrl)?;
+
+        Ok(())
     }
 
     fn stop(&mut self, softonly: bool) -> Result<(), IgbDriverErr> {
@@ -467,7 +684,7 @@ impl Igb {
 
     fn disable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::MSI(ref irq) => {
+            PCIeInt::MSI(_) => {
                 if self.hw.get_mac_type() == MacType::Em82542Rev2_0 {
                     igb_hw::write_reg(&self.info, IMC, 0xffffffff & !IMS_RXSEQ)
                 } else {
@@ -480,7 +697,7 @@ impl Igb {
 
     fn enable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::MSI(ref irq) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
+            PCIeInt::MSI(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
             PCIeInt::MSIX => todo!(), // em_enable_intr()
         }
     }

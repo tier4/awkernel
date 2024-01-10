@@ -1148,6 +1148,10 @@ impl IgbHw {
         self.mac_type
     }
 
+    pub fn get_max_frame_size(&self) -> u32 {
+        self.max_frame_size
+    }
+
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
     pub fn init_hw(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;

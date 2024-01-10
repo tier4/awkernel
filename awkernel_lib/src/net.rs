@@ -10,6 +10,8 @@ use smoltcp::{
 
 use bitflags::bitflags;
 
+pub mod ethertypes;
+
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct NetFlags: u16 {
