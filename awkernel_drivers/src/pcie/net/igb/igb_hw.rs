@@ -8818,7 +8818,7 @@ pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u3
 }
 
 #[inline(always)]
-fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+pub fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     bar0.read32(STATUS).ok_or(IgbDriverErr::ReadFailure)?;
     Ok(())

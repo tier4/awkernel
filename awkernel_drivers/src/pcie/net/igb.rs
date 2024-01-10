@@ -440,8 +440,29 @@ impl Igb {
     }
 
     fn flush_rx_ring(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
-        // em_flush_tx_ring()
-        todo!()
+        let rctl = igb_hw::read_reg(&self.info, RCTL)?;
+        igb_hw::write_reg(&self.info, RCTL, rctl & !RCTL_EN)?;
+        igb_hw::write_flush(&self.info)?;
+        awkernel_lib::delay::wait_microsec(150);
+
+        let que = &mut self.que[que_id];
+
+        let mut rxdctl = igb_hw::read_reg(&self.info, rxdctl_offset(que.me))?;
+        // zero the lower 14 bits (prefetch and host thresholds)
+        rxdctl &= 0xffffc000;
+
+        // update thresholds: prefetch threshold to 31, host threshold to 1
+        // and make sure the granularity is "descriptors" and not "cache lines"
+        rxdctl |= 0x1F | (1 << 8) | RXDCTL_THRESH_UNIT_DESC;
+        igb_hw::write_reg(&self.info, rxdctl_offset(que.me), rxdctl)?;
+
+        // momentarily enable the RX ring for the changes to take effect
+        igb_hw::write_reg(&self.info, RCTL, rctl | RCTL_EN)?;
+        igb_hw::write_flush(&self.info)?;
+        awkernel_lib::delay::wait_microsec(150);
+        igb_hw::write_reg(&self.info, RCTL, rctl & !RCTL_EN)?;
+
+        Ok(())
     }
 
     fn disable_intr(&self) -> Result<(), IgbDriverErr> {
@@ -670,11 +691,17 @@ impl NetDevice for Igb {
     }
 
     fn up(&mut self) {
-        self.init().unwrap();
+        if !self.flags.contains(NetFlags::UP) {
+            self.flags.insert(NetFlags::UP);
+            self.init().unwrap();
+        }
     }
 
     fn down(&mut self) {
-        self.stop(false).unwrap();
+        if self.flags.contains(NetFlags::UP) {
+            self.flags.remove(NetFlags::UP);
+            self.stop(true).unwrap();
+        }
     }
 }
 
@@ -714,5 +741,13 @@ fn tdt_offset(n: usize) -> usize {
         0x03818 + (n * 0x100)
     } else {
         0x0E018 + (n * 0x40)
+    }
+}
+
+fn rxdctl_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02828 + (n * 0x100)
+    } else {
+        0x0C028 + (n * 0x40)
     }
 }

@@ -331,6 +331,13 @@ pub const _TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
 pub const _TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
 pub const _TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
+// Receive Descriptor Control
+pub const RXDCTL_PTHRESH: u32 = 0x0000003F; // RXDCTL Prefetch Threshold
+pub const RXDCTL_HTHRESH: u32 = 0x00003F00; // RXDCTL Host Threshold
+pub const RXDCTL_WTHRESH: u32 = 0x003F0000; // RXDCTL Writeback Threshold
+pub const RXDCTL_THRESH_UNIT_DESC: u32 = 0x1000000;
+pub const RXDCTL_QUEUE_ENABLE: u32 = 0x2000000;
+
 pub const PCICFG_DESC_RING_STATUS: usize = 0xe4;
 pub const FLUSH_DESC_REQUIRED: u32 = 0x100;
 
