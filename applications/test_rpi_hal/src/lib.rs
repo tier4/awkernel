@@ -7,6 +7,7 @@ use awkernel_drivers::hal::{
         gpio::{GpioPin, PullMode},
         i2c::I2cBus,
         pwm,
+        uart::{Uart, Uarts},
     },
 };
 use core::time::Duration;
@@ -15,6 +16,7 @@ use embedded_hal::{
     i2c::I2c,
     pwm::SetDutyCycle,
 };
+use embedded_hal_nb::serial::{Read, Write};
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -30,7 +32,40 @@ pub async fn run_rpi_hal() {
 
     awkernel_async_lib::spawn("test PWM".into(), test_pwm(), SchedulerType::FIFO).await;
 
+    awkernel_async_lib::spawn("test UART2".into(), test_uart2(), SchedulerType::FIFO).await;
+
     scan_i2c_devices().await;
+}
+
+pub async fn test_uart2() {
+    let mut uart2 = Uart::new(Uarts::Uart2, 230400).unwrap();
+    let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
+
+    log::debug!("UART2: tx = {tx2}, rx = {rx2}");
+
+    let write_buf = b"Hello, world!\r\n";
+
+    for data in write_buf.iter() {
+        uart2.write(*data).unwrap();
+    }
+
+    loop {
+        if let Ok(data) = uart2.read() {
+            loop {
+                match uart2.write(data) {
+                    Ok(_) => break,
+                    Err(embedded_hal_nb::nb::Error::WouldBlock) => {
+                        awkernel_async_lib::r#yield().await;
+                    }
+                    Err(_) => {
+                        // Some error occurred.
+                        break;
+                    }
+                }
+            }
+        }
+        awkernel_async_lib::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 pub async fn _blink_led() {
