@@ -16,7 +16,6 @@ use awkernel_lib::{
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
-use bitflags::iter;
 use core::fmt::{self, Debug};
 
 mod igb_hw;
@@ -146,8 +145,6 @@ pub struct Igb {
     hw: igb_hw::IgbHw,
     que: [Queue; 1],
 
-    irq: Option<u16>,
-
     flags: NetFlags,
     capabilities: NetCapabilities,
     icp_xxxx_is_link_up: bool,
@@ -181,7 +178,7 @@ where
 
     let mut igb = Igb::new(info)?;
 
-    igb.up(); // TODO: to be removed
+    let _ = igb.up(); // TODO: to be removed
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
@@ -356,7 +353,6 @@ impl Igb {
             info,
             hw,
             que,
-            irq: None,
             flags,
             capabilities,
             icp_xxxx_is_link_up: false,
