@@ -477,6 +477,7 @@ pub enum Duplex {
     Full,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
     Copper,
@@ -529,7 +530,7 @@ pub enum MSType {
 pub enum FfeConfig {
     Enabled,
     Active,
-    Blocked,
+    _Blocked,
 }
 
 #[derive(Debug)]
@@ -575,7 +576,6 @@ pub struct IgbHw {
     eee_enable: bool,
     icp_intel_vendor_idx_port_num: u8,
     swfwhw_semaphore_present: bool,
-    asf_firmware_present: bool,
     swfw_sync_present: bool,
     swfw: u16,
     eeprom_semaphore_present: bool,
@@ -898,11 +898,10 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
 }
 
 /// Return (swfwhw_semaphore_present, asf_firmware_present, swfw_sync_present, eeprom_semaphore_present).
-fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
+fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool) {
     use MacType::*;
 
     let mut swfwhw_semaphore_present = false;
-    let mut asf_firmware_present = false;
     let mut swfw_sync_present = false;
     let mut eeprom_semaphore_present = false;
 
@@ -910,7 +909,6 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
         EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
         | EmPchCnp | EmPchTgp | EmPchAdp => {
             swfwhw_semaphore_present = true;
-            asf_firmware_present = true;
         }
         Em80003es2lan | Em82575 | Em82576 | Em82580 | EmI350 | EmI210 => {
             swfw_sync_present = true;
@@ -918,15 +916,11 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
         Em82571 | Em82572 | Em82573 | Em82574 => {
             eeprom_semaphore_present = true;
         }
-        Em82547 | Em82542Rev2_1 | Em82547Rev2 => {
-            asf_firmware_present = true;
-        }
         _ => (),
     }
 
     (
         swfwhw_semaphore_present,
-        asf_firmware_present,
         swfw_sync_present,
         eeprom_semaphore_present,
     )
@@ -976,12 +970,8 @@ impl IgbHw {
 
         check_pci_express(&mac_type)?;
 
-        let (
-            swfwhw_semaphore_present,
-            asf_firmware_present,
-            swfw_sync_present,
-            eeprom_semaphore_present,
-        ) = get_hw_info(&mac_type);
+        let (swfwhw_semaphore_present, swfw_sync_present, eeprom_semaphore_present) =
+            get_hw_info(&mac_type);
 
         if matches!(mac_type, MacType::EmPchlan) {
             info.set_revision_id((info.get_id() & 0x0f) as u8);
@@ -1079,7 +1069,6 @@ impl IgbHw {
             eee_enable,
             icp_intel_vendor_idx_port_num,
             swfwhw_semaphore_present,
-            asf_firmware_present,
             swfw,
             swfw_sync_present,
             eeprom_semaphore_present,

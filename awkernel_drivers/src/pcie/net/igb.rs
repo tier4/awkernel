@@ -19,6 +19,8 @@ use awkernel_lib::{
 use core::fmt::{self, Debug};
 
 mod igb_hw;
+
+#[allow(dead_code)]
 mod igb_regs;
 
 use igb_regs::*;
@@ -30,7 +32,7 @@ const DEVICE_SHORT_NAME: &str = "igb";
 const RXBUFFER_2048: u32 = 2048;
 const RXBUFFER_4096: u32 = 4096;
 const RXBUFFER_8192: u32 = 8192;
-const RXBUFFER_16384: u32 = 16384;
+const _RXBUFFER_16384: u32 = 16384;
 
 const TXBUFFER_16384: u32 = 16384;
 
@@ -895,7 +897,7 @@ impl Igb {
         match self.pcie_int {
             PCIeInt::Msi(_) => {
                 if self.hw.get_mac_type() == MacType::Em82542Rev2_0 {
-                    igb_hw::write_reg(&self.info, IMC, 0xffffffff & !IMS_RXSEQ)
+                    igb_hw::write_reg(&self.info, IMC, !IMS_RXSEQ)
                 } else {
                     igb_hw::write_reg(&self.info, IMC, 0xffffffff)
                 }
