@@ -16,6 +16,7 @@ use awkernel_lib::{
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
+use bitflags::iter;
 use core::fmt::{self, Debug};
 
 mod igb_hw;
@@ -767,8 +768,6 @@ impl Igb {
     }
 
     fn stop(&mut self, softonly: bool) -> Result<(), IgbDriverErr> {
-        // em_stop()
-
         self.flags.remove(NetFlags::RUNNING);
 
         if !softonly {
@@ -783,8 +782,10 @@ impl Igb {
             self.hw.reset_hw(&self.info)?;
         }
 
-        // TODO: em_free_transmit_structures()
-        // TODO: em_free_receive_structures()
+        for que in self.que.iter_mut() {
+            que.rx.read_buf = None;
+            que.tx.write_buf = None;
+        }
 
         Ok(())
     }
