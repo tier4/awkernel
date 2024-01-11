@@ -8204,6 +8204,14 @@ impl IgbHw {
     pub fn get_media_type(&self) -> MediaType {
         self.media_type
     }
+
+    pub fn get_tbi_compatibility_on(&self) -> bool {
+        self.tbi_compatibility_on
+    }
+
+    pub fn set_phy_reset_disable(&mut self, flag: bool) {
+        self.phy_reset_disable = flag;
+    }
 }
 
 fn nvm_82580_lan_func_offset(a: u8) -> u16 {

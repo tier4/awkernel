@@ -103,6 +103,7 @@ pub const ICRXOC: usize = 0x04124; // Interrupt Cause Receiver Overrun Count
 pub const PCS_CFG0: usize = 0x04200; // PCS Configuration 0 - RW
 pub const PCS_LCTL: usize = 0x04208; // PCS Link Control - RW
 pub const PCS_LSTAT: usize = 0x0420C; // PCS Link Status - RO
+pub const RXCSUM: usize = 0x05000; // RX Checksum Control - RW
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 pub const HICR: usize = 0x08F00; // Host Interface Control
@@ -153,6 +154,13 @@ pub const E1000_REVISION_1: u32 = 1;
 pub const E1000_REVISION_2: u32 = 2;
 pub const E1000_REVISION_3: u32 = 3;
 
+// Receive Checksum Control
+pub const RXCSUM_PCSS_MASK: u32 = 0x000000FF; // Packet Checksum Start
+pub const RXCSUM_IPOFL: u32 = 0x00000100; // IPv4 checksum offload
+pub const RXCSUM_TUOFL: u32 = 0x00000200; // TCP / UDP checksum offload
+
+pub const SRRCTL_DROP_EN: u32 = 0x80000000;
+
 // Host Interface Control Register
 pub const HICR_EN: u32 = 0x00000001; // Enable Bit - RO
 pub const HICR_C: u32 = 0x00000002; // Driver sets this bit when done to put command in RAM
@@ -189,6 +197,9 @@ pub const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
 pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
+
+// Receive Descriptor
+pub const RDT_FPDB: u32 = 0x80000000; // Flush descriptor block
 
 // Receive Configuration Word
 pub const RXCW_CW: u32 = 0x0000ffff; // RxConfigWord mask
@@ -295,6 +306,11 @@ pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
 pub const RCTL_RDMTS_HEX: u32 = 0x00010000;
+pub const RCTL_LPE: u32 = 0x00000020; // long packet enable
+pub const RCTL_LBM_NO: u32 = 0x00000000; // no loopback mode
+pub const RCTL_RDMTS_HALF: u32 = 0x00000000; // rx desc min threshold size
+
+pub const RCTL_SZ_2048: u32 = 0x00000000; // rx buffer size 2048
 
 // Transmit Configuration Word
 pub const TXCW_FD: u32 = 0x00000020; // TXCW full duplex

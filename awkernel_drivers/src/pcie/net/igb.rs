@@ -1,8 +1,11 @@
 //! # Intel Gigabit Ethernet Controller
 
-use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
-    PCIeInfo,
+use crate::{
+    net::ether::ETHER_MAX_LEN,
+    pcie::{
+        capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
+        PCIeInfo,
+    },
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::{
@@ -24,12 +27,12 @@ const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 // Supported RX Buffer Sizes
-pub const RXBUFFER_2048: u32 = 2048;
-pub const RXBUFFER_4096: u32 = 4096;
-pub const RXBUFFER_8192: u32 = 8192;
-pub const RXBUFFER_16384: u32 = 16384;
+const RXBUFFER_2048: u32 = 2048;
+const RXBUFFER_4096: u32 = 4096;
+const RXBUFFER_8192: u32 = 8192;
+const RXBUFFER_16384: u32 = 16384;
 
-pub const TXBUFFER_16384: u32 = 16384;
+const TXBUFFER_16384: u32 = 16384;
 
 /// Transmit Interrupt Delay Value.
 ///
@@ -40,7 +43,7 @@ pub const TXBUFFER_16384: u32 = 16384;
 ///   efficiency if properly tuned for specific network traffic. If the
 ///   system is reporting dropped transmits, this value may be set too high
 ///   causing the driver to run out of available transmit descriptors.
-pub const DEFAULT_TIDV: u32 = 64;
+const DEFAULT_TIDV: u32 = 64;
 
 /// Transmit Absolute Interrupt Delay Value.
 ///
@@ -53,10 +56,38 @@ pub const DEFAULT_TIDV: u32 = 64;
 ///   packet is sent on the wire within the set amount of time.  Proper tuning,
 ///   along with EM_TIDV, may improve traffic throughput in specific
 ///   network conditions.
-pub const DEFAULT_TADV: u32 = 64;
+const DEFAULT_TADV: u32 = 64;
+
+/// Receive Interrupt Delay Timer (Packet Timer).
+///
+/// Valid Range: 0-65535 (0=off)
+/// Default Value: 0
+///   This value delays the generation of receive interrupts in units of 1.024
+///   microseconds.  Receive interrupt reduction can improve CPU efficiency if
+///   properly tuned for specific network traffic. Increasing this value adds
+///   extra latency to frame reception and can end up decreasing the throughput
+///   of TCP traffic. If the system is reporting dropped receives, this value
+///   may be set too high, causing the driver to run out of available receive
+///   descriptors.
+///
+///   CAUTION: When setting EM_RDTR to a value other than 0, adapters
+///            may hang (stop transmitting) under certain network conditions.
+///            If this occurs a WATCHDOG message is logged in the system
+///            event log. In addition, the controller is automatically reset,
+///            restoring the network connection. To eliminate the potential
+///            for the hang ensure that EM_RDTR is set to 0.
+const DEFAULT_RDTR: u32 = 0;
+
+/// MAX_INTS_PER_SEC (ITR - Interrupt Throttle Register).
+///
+/// The Interrupt Throttle Register (ITR) limits the delivery of interrupts
+/// to a reasonable rate by providing a guaranteed inter-interrupt delay
+/// between interrupts asserted by the Ethernet controller.
+const MAX_INTS_PER_SEC: u32 = 8000;
+const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
 struct Rx {
-    rx_desc_head: usize,
+    rx_desc_head: u32,
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool,
 
@@ -185,14 +216,14 @@ pub enum IgbDriverErr {
 }
 
 #[derive(Debug)]
-pub struct MsiX {
+struct MsiX {
     link_vec: u32,
     link_mask: u32,
     queues_mask: u32,
 }
 
 #[derive(Debug)]
-pub enum PCIeInt {
+enum PCIeInt {
     Msi(IRQ),
     MsiX(MsiX),
 }
@@ -393,6 +424,8 @@ impl Igb {
     }
 
     fn init(&mut self) -> Result<(), IgbDriverErr> {
+        use igb_hw::MacType::*;
+
         self.stop(false)?;
 
         // Packet Buffer Allocation (PBA)
@@ -404,8 +437,6 @@ impl Igb {
         // After the 82547 the buffer was reduced to 40K.
         //   Default allocation: PBA=30K for Rx, leaving 10K for Tx.
         //   Note: default does not leave enough room for Jumbo Frame >10k.
-
-        use igb_hw::MacType::*;
         let pba = match self.hw.get_mac_type() {
             Em82547 | Em82547Rev2 => {
                 return Err(IgbDriverErr::NotSupported);
@@ -443,163 +474,26 @@ impl Igb {
             self.enable_hw_vlans()?;
         }
 
+        // Prepare transmit descriptors and buffers
         self.setup_transmit_structures()?;
         self.initialize_transmit_unit()?;
 
+        // Prepare receive descriptors and buffers
         self.setup_receive_structures()?;
+        self.initialize_receive_unit()?;
 
-        // TODO
+        self.setup_queues_msix()?;
+
+        self.flags |= NetFlags::RUNNING;
+        self.hw.clear_hw_cntrs(&self.info)?;
+
+        // self.enable_intr()?; TODO
+
+        // Don't reset the phy next time init gets called
+        self.hw.set_phy_reset_disable(true);
 
         Ok(())
     }
-
-    // 846 void
-    // 847 em_init(void *arg)
-    //     /* [previous][next][first][last][top][bottom][index][help]  */
-    // 848 {
-    // 849         struct em_softc *sc = arg;
-    // 850         struct ifnet   *ifp = &sc->sc_ac.ac_if;
-    // 851         uint32_t        pba;
-    // 852         int s;
-    // 853
-    // 854         s = splnet();
-    // 855
-    // 856         INIT_DEBUGOUT("em_init: begin");
-    // 857
-    // 858         em_stop(sc, 0);
-    // 859
-    // 860         /*
-    // 861          * Packet Buffer Allocation (PBA)
-    // 862          * Writing PBA sets the receive portion of the buffer
-    // 863          * the remainder is used for the transmit buffer.
-    // 864          *
-    // 865          * Devices before the 82547 had a Packet Buffer of 64K.
-    // 866          *   Default allocation: PBA=48K for Rx, leaving 16K for Tx.
-    // 867          * After the 82547 the buffer was reduced to 40K.
-    // 868          *   Default allocation: PBA=30K for Rx, leaving 10K for Tx.
-    // 869          *   Note: default does not leave enough room for Jumbo Frame >10k.
-    // 870          */
-    // 871         switch (sc->hw.mac_type) {
-    // 872         case em_82547:
-    // 873         case em_82547_rev_2: /* 82547: Total Packet Buffer is 40K */
-    // 874                 if (sc->hw.max_frame_size > EM_RXBUFFER_8192)
-    // 875                         pba = E1000_PBA_22K; /* 22K for Rx, 18K for Tx */
-    // 876                 else
-    // 877                         pba = E1000_PBA_30K; /* 30K for Rx, 10K for Tx */
-    // 878                 sc->tx_fifo_head = 0;
-    // 879                 sc->tx_head_addr = pba << EM_TX_HEAD_ADDR_SHIFT;
-    // 880                 sc->tx_fifo_size = (E1000_PBA_40K - pba) << EM_PBA_BYTES_SHIFT;
-    // 881                 break;
-    // 882         case em_82571:
-    // 883         case em_82572: /* Total Packet Buffer on these is 48k */
-    // 884         case em_82575:
-    // 885         case em_82576:
-    // 886         case em_82580:
-    // 887         case em_80003es2lan:
-    // 888         case em_i350:
-    // 889                 pba = E1000_PBA_32K; /* 32K for Rx, 16K for Tx */
-    // 890                 break;
-    // 891         case em_i210:
-    // 892                 pba = E1000_PBA_34K;
-    // 893                 break;
-    // 894         case em_82573: /* 82573: Total Packet Buffer is 32K */
-    // 895                 /* Jumbo frames not supported */
-    // 896                 pba = E1000_PBA_12K; /* 12K for Rx, 20K for Tx */
-    // 897                 break;
-    // 898         case em_82574: /* Total Packet Buffer is 40k */
-    // 899                 pba = E1000_PBA_20K; /* 20K for Rx, 20K for Tx */
-    // 900                 break;
-    // 901         case em_ich8lan:
-    // 902                 pba = E1000_PBA_8K;
-    // 903                 break;
-    // 904         case em_ich9lan:
-    // 905         case em_ich10lan:
-    // 906                 /* Boost Receive side for jumbo frames */
-    // 907                 if (sc->hw.max_frame_size > EM_RXBUFFER_4096)
-    // 908                         pba = E1000_PBA_14K;
-    // 909                 else
-    // 910                         pba = E1000_PBA_10K;
-    // 911                 break;
-    // 912         case em_pchlan:
-    // 913         case em_pch2lan:
-    // 914         case em_pch_lpt:
-    // 915         case em_pch_spt:
-    // 916         case em_pch_cnp:
-    // 917         case em_pch_tgp:
-    // 918         case em_pch_adp:
-    // 919                 pba = E1000_PBA_26K;
-    // 920                 break;
-    // 921         default:
-    // 922                 /* Devices before 82547 had a Packet Buffer of 64K.   */
-    // 923                 if (sc->hw.max_frame_size > EM_RXBUFFER_8192)
-    // 924                         pba = E1000_PBA_40K; /* 40K for Rx, 24K for Tx */
-    // 925                 else
-    // 926                         pba = E1000_PBA_48K; /* 48K for Rx, 16K for Tx */
-    // 927         }
-    // 928         INIT_DEBUGOUT1("em_init: pba=%dK",pba);
-    // 929         E1000_WRITE_REG(&sc->hw, PBA, pba);
-    // 930
-    // 931         /* Get the latest mac address, User can use a LAA */
-    // 932         bcopy(sc->sc_ac.ac_enaddr, sc->hw.mac_addr, ETHER_ADDR_LEN);
-    // 933
-    // 934         /* Initialize the hardware */
-    // 935         if (em_hardware_init(sc)) {
-    // 936                 printf("%s: Unable to initialize the hardware\n",
-    // 937                        DEVNAME(sc));
-    // 938                 splx(s);
-    // 939                 return;
-    // 940         }
-    // 941         em_update_link_status(sc);
-    // 942
-    // 943         E1000_WRITE_REG(&sc->hw, VET, ETHERTYPE_VLAN);
-    // 944         if (ifp->if_capabilities & IFCAP_VLAN_HWTAGGING)
-    // 945                 em_enable_hw_vlans(sc);
-    // 946
-    // 947         /* Prepare transmit descriptors and buffers */
-    // 948         if (em_setup_transmit_structures(sc)) {
-    // 949                 printf("%s: Could not setup transmit structures\n",
-    // 950                        DEVNAME(sc));
-    // 951                 em_stop(sc, 0);
-    // 952                 splx(s);
-    // 953                 return;
-    // 954         }
-    // 955         em_initialize_transmit_unit(sc);
-    // 956
-    // 957         /* Prepare receive descriptors and buffers */
-    // 958         if (em_setup_receive_structures(sc)) {
-    // 959                 printf("%s: Could not setup receive structures\n",
-    // 960                        DEVNAME(sc));
-    // 961                 em_stop(sc, 0);
-    // 962                 splx(s);
-    // 963                 return;
-    // 964         }
-    // 965         em_initialize_receive_unit(sc);
-    // 966
-    // 967 #ifndef SMALL_KERNEL
-    // 968         if (sc->msix) {
-    // 969                 if (em_setup_queues_msix(sc)) {
-    // 970                         printf("%s: Can't setup msix queues\n", DEVNAME(sc));
-    // 971                         splx(s);
-    // 972                         return;
-    // 973                 }
-    // 974         }
-    // 975 #endif
-    // 976
-    // 977         /* Program promiscuous mode and multicast filters. */
-    // 978         em_iff(sc);
-    // 979
-    // 980         ifp->if_flags |= IFF_RUNNING;
-    // 981         ifq_clr_oactive(&ifp->if_snd);
-    // 982
-    // 983         timeout_add_sec(&sc->timer_handle, 1);
-    // 984         em_clear_hw_cntrs(&sc->hw);
-    // 985         em_enable_intr(sc);
-    // 986
-    // 987         /* Don't reset the phy next time init gets called */
-    // 988         sc->hw.phy_reset_disable = TRUE;
-    // 989
-    // 990         splx(s);
-    // 991 }
 
     fn initialize_transmit_unit(&mut self) -> Result<(), IgbDriverErr> {
         use igb_hw::MacType::*;
@@ -702,6 +596,111 @@ impl Igb {
         Ok(())
     }
 
+    fn initialize_receive_unit(&mut self) -> Result<(), IgbDriverErr> {
+        use igb_hw::MacType::*;
+
+        // Make sure receives are disabled while setting up the descriptor ring
+        igb_hw::write_reg(&self.info, RCTL, 0)?;
+
+        // Set the Receive Delay Timer Register
+        igb_hw::write_reg(&self.info, RDTR, DEFAULT_RDTR | RDT_FPDB)?;
+
+        if self.hw.get_mac_type() as u32 >= MacType::Em82540 as u32 {
+            // Set the interrupt throttling rate.  Value is calculated
+            // as DEFAULT_ITR = 1/(MAX_INTS_PER_SEC * 256ns)
+            igb_hw::write_reg(&self.info, ITR, DEFAULT_ITR)?;
+        }
+
+        // Setup the Receive Control Register
+        let mut reg_rctl = RCTL_EN | RCTL_BAM | RCTL_LBM_NO | RCTL_RDMTS_HALF;
+
+        if self.hw.get_tbi_compatibility_on() {
+            reg_rctl |= RCTL_SBP;
+        }
+
+        // The i350 has a bug where it always strips the CRC whether
+        // asked to or not.  So ask for stripped CRC here and
+        // cope in rxeof
+        if matches!(self.hw.get_mac_type(), EmI210 | EmI350) {
+            reg_rctl |= RCTL_SECRC;
+        }
+
+        reg_rctl |= RCTL_SZ_2048;
+
+        if self.hw.get_max_frame_size() as usize != ETHER_MAX_LEN {
+            reg_rctl |= RCTL_LPE;
+        }
+
+        // Enable 82543 Receive Checksum Offload for TCP and UDP
+        if self.hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
+            let mut reg_rxcsum = igb_hw::read_reg(&self.info, RXCSUM)?;
+            reg_rxcsum |= RXCSUM_IPOFL | RXCSUM_TUOFL;
+            igb_hw::write_reg(&self.info, RXCSUM, reg_rxcsum)?;
+        }
+
+        // XXX TEMPORARY WORKAROUND: on some systems with 82573
+        // long latencies are observed, like Lenovo X60.
+        if self.hw.get_mac_type() == MacType::Em82573 {
+            igb_hw::write_reg(&self.info, RDTR, 0x20)?;
+        }
+
+        let que_len = self.que.len();
+        for que in self.que.iter_mut() {
+            if que_len > 1 {
+                // Disable Drop Enable for every queue, default has
+                // it enabled for queues > 0
+                let mut reg_srrctl = igb_hw::read_reg(&self.info, srrctl_offset(que.me))?;
+                reg_srrctl &= !SRRCTL_DROP_EN;
+                igb_hw::write_reg(&self.info, srrctl_offset(que.me), reg_srrctl)?;
+            }
+
+            // Setup the Base and Length of the Rx Descriptor Ring
+            igb_hw::write_reg(
+                &self.info,
+                rdlen_offset(que.me),
+                que.rx.rx_desc_ring.get_size() as u32,
+            )?;
+            igb_hw::write_reg(
+                &self.info,
+                rdbah_offset(que.me),
+                (que.rx.rx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
+            )?;
+            igb_hw::write_reg(
+                &self.info,
+                rdbal_offset(que.me),
+                que.rx.rx_desc_ring.get_phy_addr().as_usize() as u32,
+            )?;
+
+            if matches!(
+                self.hw.get_mac_type(),
+                Em82575 | Em82576 | Em82580 | EmI210 | EmI350
+            ) {
+                // 82575/6 need to enable the RX queue
+                let mut reg = igb_hw::read_reg(&self.info, rxdctl_offset(que.me))?;
+                reg |= RXDCTL_QUEUE_ENABLE;
+                igb_hw::write_reg(&self.info, rxdctl_offset(que.me), reg)?;
+            }
+        }
+
+        // Enable Receives
+        igb_hw::write_reg(&self.info, RCTL, reg_rctl)?;
+
+        // Setup the HW Rx Head and Tail Descriptor Pointers
+        for que in self.que.iter() {
+            igb_hw::write_reg(&self.info, rdh_offset(que.me), 0)?;
+            igb_hw::write_reg(&self.info, rdt_offset(que.me), que.rx.rx_desc_head)?;
+        }
+
+        Ok(())
+    }
+
+    fn setup_queues_msix(&mut self) -> Result<(), IgbDriverErr> {
+        let PCIeInt::MsiX(msix) = &mut self.pcie_int else {return Ok(())};
+
+        // TODO
+        Ok(())
+    }
+
     /// This turns on the hardware offload of the VLAN
     /// tag stripping and insertion.
     fn enable_hw_vlans(&self) -> Result<(), IgbDriverErr> {
@@ -749,7 +748,7 @@ impl Igb {
             let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
 
             que.rx.rx_desc_tail = 0;
-            que.rx.rx_desc_head = rx_desc_ring.len() - 1;
+            que.rx.rx_desc_head = rx_desc_ring.len() as u32 - 1;
 
             let rx_buffer_size = RXBUFFER_2048 as usize * rx_desc_ring.len();
             let read_buf = DMAPool::new(
@@ -1162,15 +1161,22 @@ impl NetDevice for Igb {
 
     fn up(&mut self) {
         if !self.flags.contains(NetFlags::UP) {
-            self.flags.insert(NetFlags::UP);
-            self.init().unwrap();
+            if self.init().is_ok() {
+                self.flags.insert(NetFlags::UP);
+            } else {
+                if let Err(e) = self.stop(true) {
+                    log::error!("igb: stop failed: {:?}", e)
+                }
+            }
         }
     }
 
     fn down(&mut self) {
         if self.flags.contains(NetFlags::UP) {
+            if let Err(e) = self.stop(true) {
+                log::error!("igb: stop failed: {:?}", e)
+            }
             self.flags.remove(NetFlags::UP);
-            self.stop(true).unwrap();
         }
     }
 }
@@ -1198,6 +1204,7 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     Err(IgbDriverErr::FailedFlashDescriptor)
 }
 
+#[inline(always)]
 fn tdbal_offset(n: usize) -> usize {
     if n < 4 {
         0x03800 + (n * 0x100)
@@ -1206,6 +1213,7 @@ fn tdbal_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn tdbah_offset(n: usize) -> usize {
     if n < 4 {
         0x03804 + (n * 0x100)
@@ -1214,6 +1222,7 @@ fn tdbah_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn tdlen_offset(n: usize) -> usize {
     if n < 4 {
         0x03808 + (n * 0x100)
@@ -1222,6 +1231,7 @@ fn tdlen_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn tdh_offset(n: usize) -> usize {
     if n < 4 {
         0x03810 + (n * 0x100)
@@ -1230,6 +1240,7 @@ fn tdh_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn tdt_offset(n: usize) -> usize {
     if n < 4 {
         0x03818 + (n * 0x100)
@@ -1238,6 +1249,7 @@ fn tdt_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn rxdctl_offset(n: usize) -> usize {
     if n < 4 {
         0x02828 + (n * 0x100)
@@ -1246,10 +1258,65 @@ fn rxdctl_offset(n: usize) -> usize {
     }
 }
 
+#[inline(always)]
 fn txdctl_offset(n: usize) -> usize {
     if n < 4 {
         0x03828 + (n * 0x100)
     } else {
         0x0E028 + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn srrctl_offset(n: usize) -> usize {
+    if n < 4 {
+        0x0280C + (n * 0x100)
+    } else {
+        0x0C00C + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn rdbal_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02800 + (n * 0x100)
+    } else {
+        0x0C000 + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn rdbah_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02804 + (n * 0x100)
+    } else {
+        0x0C004 + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn rdlen_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02808 + (n * 0x100)
+    } else {
+        0x0C008 + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn rdh_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02810 + (n * 0x100)
+    } else {
+        0x0C010 + (n * 0x40)
+    }
+}
+
+#[inline(always)]
+fn rdt_offset(n: usize) -> usize {
+    if n < 4 {
+        0x02818 + (n * 0x100)
+    } else {
+        0x0C018 + (n * 0x40)
     }
 }
