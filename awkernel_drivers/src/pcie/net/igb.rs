@@ -12,7 +12,7 @@ use awkernel_lib::{
     addr::Addr,
     dma_pool::DMAPool,
     interrupt::IRQ,
-    net::{ethertypes::EtherTypes, NetCapabilities, NetDevice, NetFlags, NET_MANAGER},
+    net::{ethertypes::EtherTypes, NetCapabilities, NetDevError, NetDevice, NetFlags, NET_MANAGER},
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
@@ -906,6 +906,11 @@ impl Igb {
             PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
         }
     }
+
+    // em_rxeof()
+    fn recv(&mut self) -> Result<Vec<Vec<u8>>, IgbDriverErr> {
+        todo!()
+    }
 }
 
 fn allocate_msix(
@@ -1152,22 +1157,35 @@ impl NetDevice for Igb {
         todo!()
     }
 
-    fn up(&mut self) {
+    fn up(&mut self) -> Result<(), NetDevError> {
         if !self.flags.contains(NetFlags::UP) {
-            if self.init().is_ok() {
+            if let Err(err_init) = self.init() {
+                if let Err(err_stop) = self.stop(true) {
+                    log::error!("igb: stop failed: {:?}", err_stop);
+                }
+
+                log::error!("igb: init failed: {:?}", err_init);
+                Err(NetDevError::DeviceError)
+            } else {
                 self.flags.insert(NetFlags::UP);
-            } else if let Err(e) = self.stop(true) {
-                log::error!("igb: stop failed: {:?}", e)
+                Ok(())
             }
+        } else {
+            Err(NetDevError::AlreadyUp)
         }
     }
 
-    fn down(&mut self) {
+    fn down(&mut self) -> Result<(), NetDevError> {
         if self.flags.contains(NetFlags::UP) {
             if let Err(e) = self.stop(true) {
-                log::error!("igb: stop failed: {:?}", e)
+                log::error!("igb: stop failed: {:?}", e);
+                Err(NetDevError::DeviceError)
+            } else {
+                self.flags.remove(NetFlags::UP);
+                Ok(())
             }
-            self.flags.remove(NetFlags::UP);
+        } else {
+            Err(NetDevError::AlreadyDown)
         }
     }
 }

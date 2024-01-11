@@ -50,6 +50,13 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetDevError {
+    AlreadyUp,
+    AlreadyDown,
+    DeviceError,
+}
+
 pub trait NetDevice {
     fn recv(&mut self) -> Option<Vec<u8>>;
     fn send(&mut self, data: &[u8]) -> Option<()>;
@@ -67,8 +74,8 @@ pub trait NetDevice {
 
     fn device_short_name(&self) -> &'static str;
 
-    fn up(&mut self);
-    fn down(&mut self);
+    fn up(&mut self) -> Result<(), NetDevError>;
+    fn down(&mut self) -> Result<(), NetDevError>;
 }
 
 #[derive(Clone)]
