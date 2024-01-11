@@ -574,7 +574,7 @@ pub struct IgbHw {
     mac_type: MacType,
     initialize_hw_bits_disable: bool,
     eee_enable: bool,
-    icp_intel_vendor_idx_port_num: u8,
+    icp_xxxx_port_num: u32,
     swfwhw_semaphore_present: bool,
     swfw_sync_present: bool,
     swfw: u16,
@@ -663,15 +663,15 @@ pub enum MacType {
     EmPchAdp,
 }
 
-/// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num)`.
+/// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_xxxx_port_num)`.
 ///
 /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L403
-fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8), IgbDriverErr> {
+fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u32), IgbDriverErr> {
     use MacType::*;
 
     let mut initialize_hw_bits_disable = false;
     let mut eee_enable = false;
-    let mut icp_intel_vendor_idx_port_num = 0;
+    let mut icp_xxxx_port_num = 0;
 
     let result = match device {
         E1000_DEV_ID_82542 => match info.get_revision_id() {
@@ -871,19 +871,19 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
         | E1000_DEV_ID_PCH_MTP_I219_LM19
         | E1000_DEV_ID_PCH_MTP_I219_V19 => EmPchAdp,
         E1000_DEV_ID_EP80579_LAN_1 => {
-            icp_intel_vendor_idx_port_num = 0;
+            icp_xxxx_port_num = 0;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_2 | E1000_DEV_ID_EP80579_LAN_4 => {
-            icp_intel_vendor_idx_port_num = 1;
+            icp_xxxx_port_num = 1;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_3 | E1000_DEV_ID_EP80579_LAN_5 => {
-            icp_intel_vendor_idx_port_num = 2;
+            icp_xxxx_port_num = 2;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_6 => {
-            icp_intel_vendor_idx_port_num = 3;
+            icp_xxxx_port_num = 3;
             EmICPxxxx
         }
         _ => return Err(IgbDriverErr::UnknownDeviceID),
@@ -893,7 +893,7 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
         result,
         initialize_hw_bits_disable,
         eee_enable,
-        icp_intel_vendor_idx_port_num,
+        icp_xxxx_port_num,
     ))
 }
 
@@ -965,7 +965,7 @@ impl IgbHw {
     pub fn new(info: &mut PCIeInfo) -> Result<Self, IgbDriverErr> {
         use MacType::*;
 
-        let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
+        let (mac_type, initialize_hw_bits_disable, eee_enable, icp_xxxx_port_num) =
             get_mac_type(info.get_id(), info)?;
 
         check_pci_express(&mac_type)?;
@@ -1067,7 +1067,7 @@ impl IgbHw {
             mac_type,
             initialize_hw_bits_disable,
             eee_enable,
-            icp_intel_vendor_idx_port_num,
+            icp_xxxx_port_num,
             swfwhw_semaphore_present,
             swfw,
             swfw_sync_present,
@@ -1682,6 +1682,43 @@ impl IgbHw {
         // link. We do not have to set it up again.
         if self.check_phy_reset_block(info).is_err() {
             return Ok(());
+        }
+
+        let eeprom_control2_reg_offset = if self.mac_type == EmICPxxxx {
+            EEPROM_INIT_CONTROL2_REG
+        } else {
+            eeprom_init_control3_icp_xxx(self.icp_xxxx_port_num)
+        };
+
+        if self.fc == FC_DEFAULT {
+            if matches!(
+                self.mac_type,
+                EmIch8lan
+                    | EmIch9lan
+                    | EmIch10lan
+                    | EmPch2lan
+                    | EmPchlan
+                    | EmPchLpt
+                    | EmPchSpt
+                    | EmPchCnp
+                    | EmPchTgp
+                    | EmPchAdp
+                    | Em82573
+                    | Em82574
+            ) {
+                self.fc = FC_FULL;
+            } else {
+                let mut eeprom_data = [0; 1];
+                self.read_eeprom(info, eeprom_control2_reg_offset, &mut eeprom_data)?;
+
+                if eeprom_data[0] & EEPROM_WORD0F_PAUSE_MASK == 0 {
+                    self.fc = FC_NONE;
+                } else if eeprom_data[0] & EEPROM_WORD0F_PAUSE_MASK == EEPROM_WORD0F_ASM_DIR {
+                    self.fc = FC_TX_PAUSE;
+                } else {
+                    self.fc = FC_FULL;
+                }
+            }
         }
 
         // We want to save off the original Flow Control configuration just

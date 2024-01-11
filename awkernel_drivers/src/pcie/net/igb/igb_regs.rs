@@ -1255,6 +1255,20 @@ pub const EEPROM_CFG: u32 = 0x0012;
 pub const EEPROM_FLASH_VERSION: u32 = 0x0032;
 pub const EEPROM_CHECKSUM_REG: u32 = 0x003F;
 
+// EEPROM_INIT_CONTROL3_ICP_xxxx(device_num) ((((device_num) + 1) << 4) + 1)
+
+pub fn eeprom_init_control3_icp_xxx(device_num: u32) -> u32 {
+    ((device_num + 1) << 4) + 1
+}
+
+// Mask bits for fields in Word 0x0f of the EEPROM
+pub const EEPROM_WORD0F_PAUSE_MASK: u16 = 0x3000;
+pub const EEPROM_WORD0F_PAUSE: u16 = 0x1000;
+pub const EEPROM_WORD0F_ASM_DIR: u16 = 0x2000;
+pub const EEPROM_WORD0F_ANE: u16 = 0x0800;
+pub const EEPROM_WORD0F_SWPDIO_EXT: u16 = 0x00F0;
+pub const EEPROM_WORD0F_LPLU: u16 = 0x0001;
+
 // Mask bits for SERDES amplitude adjustment in Word 6 of the EEPROM
 pub const EEPROM_SERDES_AMPLITUDE_MASK: u16 = 0x000F;
 
@@ -1609,6 +1623,7 @@ pub const FC_NONE: u8 = 0;
 pub const FC_RX_PAUSE: u8 = 1;
 pub const FC_TX_PAUSE: u8 = 2;
 pub const FC_FULL: u8 = 3;
+pub const FC_DEFAULT: u8 = 0xFF;
 
 // I82577 Specific Registers
 pub const I82577_PHY_ADDR_REG: u32 = 16;
