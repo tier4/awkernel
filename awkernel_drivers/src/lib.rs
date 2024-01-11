@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-pub mod clock;
 pub mod device;
 pub mod framebuffer;
 pub mod hal;

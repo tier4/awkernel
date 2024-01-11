@@ -1,11 +1,11 @@
+use super::clock::{self, CLOCK_FREQUENCY};
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
-use crate::clock::{self, CLOCK_FREQUENCY};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use embedded_hal::pwm::{Error, ErrorKind, ErrorType, SetDutyCycle};
 
 /// Base address for the PWM module
-pub static mut PWM_BASE: usize = 0;
+pub static PWM_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Set the base address for the PWM module
 ///
@@ -13,7 +13,7 @@ pub static mut PWM_BASE: usize = 0;
 ///
 /// This function is unsafe because it modifies a static mutable variable
 pub unsafe fn set_pwm_base(base: usize) {
-    write_volatile(&mut PWM_BASE, base);
+    PWM_BASE.store(base, Ordering::Relaxed);
 }
 
 /// Registers associated with the PWM module
@@ -130,7 +130,7 @@ impl Pwm {
         let pin = GpioPin::new(pin)?;
         let pin = pin.into_alt(GpioFunction::ALTF0, PullMode::None)?;
 
-        let base = unsafe { read_volatile(&PWM_BASE) };
+        let base = PWM_BASE.load(Ordering::Relaxed);
 
         let mut pwm = Pwm {
             base,
@@ -158,7 +158,7 @@ impl Pwm {
 
             registers::CTL.write(Control::empty(), self.base);
             awkernel_lib::delay::wait_microsec(10);
-            let osc_freq: usize = unsafe { read_volatile(&CLOCK_FREQUENCY) };
+            let osc_freq: usize = CLOCK_FREQUENCY.load(Ordering::Relaxed);
 
             let desired_pwm_freq = FREQUENCY;
 

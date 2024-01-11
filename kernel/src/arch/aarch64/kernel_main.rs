@@ -19,7 +19,7 @@ use awkernel_lib::{
 };
 use core::{
     arch::asm,
-    ptr::{read_volatile, write_volatile},
+    ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
     } else {
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
-        while read_volatile(&CPU_READY) != cpu_id {}
+        while read_volatile(addr_of!(CPU_READY)) != cpu_id {}
         non_primary_cpu();
     }
 
@@ -90,7 +90,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         wait_forever();
     };
 
-    write_volatile(&mut TTBR0_EL1, ttbr0);
+    write_volatile(addr_of_mut!(TTBR0_EL1), ttbr0);
 
     dsb_sy();
 
@@ -104,8 +104,8 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     super::vm::enable(ttbr0);
 
     // 4. Start non-primary CPUs.
-    let cpu_ready = read_volatile(&CPU_READY);
-    write_volatile(&mut CPU_READY, cpu_ready + 1);
+    let cpu_ready = read_volatile(addr_of!(CPU_READY));
+    write_volatile(addr_of_mut!(CPU_READY), cpu_ready + 1);
     super::vm::flush_cache();
 
     unsafe_puts("The virtual memory has been successfully enabled.\r\n");
@@ -207,13 +207,13 @@ unsafe fn non_primary_cpu() {
         isb
         ",
         ttbr0 = out(reg) ttbr0,
-        ttbr0_addr = in(reg) &TTBR0_EL1,
+        ttbr0_addr = in(reg) addr_of!(TTBR0_EL1),
     );
 
-    let cpu_ready = read_volatile(&CPU_READY);
+    let cpu_ready = read_volatile(addr_of!(CPU_READY));
 
     super::vm::enable(ttbr0);
-    write_volatile(&mut CPU_READY, cpu_ready + 1);
+    write_volatile(addr_of_mut!(CPU_READY), cpu_ready + 1);
     super::vm::flush_cache();
 
     // 2. Wait until the primary CPU is enabled.

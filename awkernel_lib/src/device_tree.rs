@@ -42,6 +42,7 @@ use core::{
     cell::{OnceCell, RefCell},
     fmt::{Display, Formatter},
     mem::MaybeUninit,
+    ptr::addr_of_mut,
 };
 use utils::safe_index;
 
@@ -101,7 +102,7 @@ fn get_tlsf() -> Result<&'static RefCell<TLSF<'static>>> {
         return Ok(local_tlsf);
     }
 
-    let local_tlsf = TLSF::new(unsafe { &mut MEMORY_POOL });
+    let local_tlsf = TLSF::new(unsafe { &mut *addr_of_mut!(MEMORY_POOL) });
 
     Ok(unsafe { LOCAL_TLSF.get_or_init(|| RefCell::new(local_tlsf)) })
 }

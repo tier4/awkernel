@@ -1,8 +1,8 @@
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use embedded_hal::i2c::{self, Operation};
 
-pub static mut I2C_BASE: usize = 0;
+pub static I2C_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Sets the base address for I2C communication
 ///
@@ -10,7 +10,7 @@ pub static mut I2C_BASE: usize = 0;
 ///
 /// `base` must be the base address of I2C.
 pub unsafe fn set_i2c_base(base: usize) {
-    write_volatile(&mut I2C_BASE, base);
+    I2C_BASE.store(base, Ordering::Relaxed);
 }
 
 mod registers {
@@ -78,7 +78,7 @@ impl I2cBus {
         let pin1 = GpioPin::new(3)?;
         let pin1 = pin1.into_alt(GpioFunction::ALTF0, PullMode::Up)?;
 
-        let base = unsafe { read_volatile(&I2C_BASE) };
+        let base = I2C_BASE.load(Ordering::Relaxed);
 
         let clock_divisor = if fast_mode {
             core_speed / 400_000
