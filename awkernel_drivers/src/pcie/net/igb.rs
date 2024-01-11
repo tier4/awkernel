@@ -1155,10 +1155,8 @@ impl NetDevice for Igb {
         if !self.flags.contains(NetFlags::UP) {
             if self.init().is_ok() {
                 self.flags.insert(NetFlags::UP);
-            } else {
-                if let Err(e) = self.stop(true) {
-                    log::error!("igb: stop failed: {:?}", e)
-                }
+            } else if let Err(e) = self.stop(true) {
+                log::error!("igb: stop failed: {:?}", e)
             }
         }
     }
