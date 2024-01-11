@@ -20,6 +20,7 @@ pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
 pub const RXCW: usize = 0x00180; // RX Configuration Word - RO
 pub const TCTL_EXT: usize = 0x00404; // Extended TX Control - RW
+pub const IOSFPC: usize = 0x00F28; // TX corrupted data
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
@@ -30,6 +31,8 @@ pub const EIAC: usize = 0x0152C; // Ext. Interrupt Auto Clear - RW
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const TIDV: usize = 0x03820; // TX Interrupt Delay Value - RW
+pub const TADV: usize = 0x0382C; // TX Interrupt Absolute Delay Val - RW
 pub const CRCERRS: usize = 0x04000; // CRC Error Count - R/clr
 pub const ALGNERRC: usize = 0x04004; // Alignment Error Count - R/clr
 pub const SYMERRS: usize = 0x04008; // Symbol Error Count - R/clr
@@ -111,6 +114,10 @@ pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 pub const RA: usize = 0x05400; // Receive Address - RW Array
 pub const FCRTV_PCH: usize = 0x05F40; // PCH Flow Control Refresh Timer Value
 pub const HOST_IF: usize = 0x08800; // Host Interface
+
+// TRAC0 bits
+pub const TARC0_CB_MULTIQ_2_REQ: u32 = 1 << 29;
+pub const TARC0_CB_MULTIQ_3_REQ: u32 = 1 << 28 | 1 << 29;
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -287,6 +294,7 @@ pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
 pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
+pub const RCTL_RDMTS_HEX: u32 = 0x00010000;
 
 // Transmit Configuration Word
 pub const TXCW_FD: u32 = 0x00000020; // TXCW full duplex
@@ -332,7 +340,7 @@ pub const _TXD_CMD_RS: u8 = 1 << 3; // Report Status
 pub const _TXD_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
 pub const _TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
 pub const _TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
-pub const _TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+pub const TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
 // Receive Descriptor Control
 pub const RXDCTL_PTHRESH: u32 = 0x0000003F; // RXDCTL Prefetch Threshold
@@ -1398,6 +1406,20 @@ pub const EEER: usize = 0x0E30; // Energy Efficient Ethernet "EEE"
 pub const EEE_SU: usize = 0x0E34; // EEE Setup
 pub const TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
 pub const RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
+
+// Default values for the transmit IPG register
+pub const DEFAULT_82542_TIPG_IPGT: u32 = 10;
+pub const DEFAULT_82543_TIPG_IPGT_FIBER: u32 = 9;
+pub const DEFAULT_82543_TIPG_IPGT_COPPER: u32 = 8;
+
+pub const DEFAULT_82542_TIPG_IPGR1: u32 = 2;
+pub const DEFAULT_82543_TIPG_IPGR1: u32 = 8;
+pub const E1000_TIPG_IPGR1_SHIFT: u32 = 10;
+
+pub const DEFAULT_82542_TIPG_IPGR2: u32 = 10;
+pub const DEFAULT_82543_TIPG_IPGR2: u32 = 6;
+pub const DEFAULT_80003ES2LAN_TIPG_IPGR2: u32 = 7;
+pub const E1000_TIPG_IPGR2_SHIFT: u32 = 20;
 
 // I350 EEE defines
 pub const IPCNFG_EEE_1G_AN: u32 = 0x00000008; // IPCNFG EEE Ena 1G AN

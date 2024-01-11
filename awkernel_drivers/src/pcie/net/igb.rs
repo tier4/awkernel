@@ -31,6 +31,30 @@ pub const RXBUFFER_16384: u32 = 16384;
 
 pub const TXBUFFER_16384: u32 = 16384;
 
+/// Transmit Interrupt Delay Value.
+///
+/// Valid Range: 0-65535 (0=off)
+/// Default Value: 64
+///   This value delays the generation of transmit interrupts in units of
+///   1.024 microseconds. Transmit interrupt reduction can improve CPU
+///   efficiency if properly tuned for specific network traffic. If the
+///   system is reporting dropped transmits, this value may be set too high
+///   causing the driver to run out of available transmit descriptors.
+pub const DEFAULT_TIDV: u32 = 64;
+
+/// Transmit Absolute Interrupt Delay Value.
+///
+/// (Not valid for 82542/82543/82544)
+/// Valid Range: 0-65535 (0=off)
+/// Default Value: 64
+///   This value, in units of 1.024 microseconds, limits the delay in which a
+///   transmit interrupt is generated. Useful only if EM_TIDV is non-zero,
+///   this value ensures that an interrupt is generated after the initial
+///   packet is sent on the wire within the set amount of time.  Proper tuning,
+///   along with EM_TIDV, may improve traffic throughput in specific
+///   network conditions.
+pub const DEFAULT_TADV: u32 = 64;
+
 struct Rx {
     rx_desc_head: usize,
     rx_desc_tail: usize,
@@ -46,6 +70,8 @@ struct Tx {
     tx_desc_head: usize,
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool,
+
+    txd_cmd: u8,
 
     write_buf: Option<DMAPool>,
 }
@@ -418,6 +444,7 @@ impl Igb {
         }
 
         self.setup_transmit_structures()?;
+        self.initialize_transmit_unit()?;
 
         self.setup_receive_structures()?;
 
@@ -573,6 +600,107 @@ impl Igb {
     // 989
     // 990         splx(s);
     // 991 }
+
+    fn initialize_transmit_unit(&mut self) -> Result<(), IgbDriverErr> {
+        use igb_hw::MacType::*;
+
+        for que in self.que.iter_mut() {
+            // Setup the Base and Length of the Tx Descriptor Ring
+            igb_hw::write_reg(
+                &self.info,
+                tdlen_offset(que.me),
+                que.tx.tx_desc_ring.get_size() as u32,
+            )?;
+            igb_hw::write_reg(
+                &self.info,
+                tdbah_offset(que.me),
+                (que.tx.tx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
+            )?;
+            igb_hw::write_reg(
+                &self.info,
+                tdbal_offset(que.me),
+                que.tx.tx_desc_ring.get_phy_addr().as_usize() as u32,
+            )?;
+
+            // Setup the HW Tx Head and Tail descriptor pointers
+            igb_hw::write_reg(&self.info, tdt_offset(que.me), 0)?;
+            igb_hw::write_reg(&self.info, tdh_offset(que.me), 0)?;
+
+            // Set the default values for the Tx Inter Packet Gap timer
+            let reg_tipg = match self.hw.get_mac_type() {
+                Em82542Rev2_0 | Em82542Rev2_1 => {
+                    DEFAULT_82542_TIPG_IPGT
+                        | (DEFAULT_82542_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT)
+                        | (DEFAULT_82542_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT)
+                }
+                Em80003es2lan => {
+                    DEFAULT_82543_TIPG_IPGR1
+                        | (DEFAULT_80003ES2LAN_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT)
+                }
+                _ => {
+                    let reg_tipg = if matches!(
+                        self.hw.get_media_type(),
+                        igb_hw::MediaType::Fiber | igb_hw::MediaType::InternalSerdes
+                    ) {
+                        DEFAULT_82543_TIPG_IPGT_FIBER
+                    } else {
+                        DEFAULT_82543_TIPG_IPGT_COPPER
+                    };
+
+                    reg_tipg
+                        | (DEFAULT_82543_TIPG_IPGR1 << E1000_TIPG_IPGR1_SHIFT)
+                        | (DEFAULT_82543_TIPG_IPGR2 << E1000_TIPG_IPGR2_SHIFT)
+                }
+            };
+
+            igb_hw::write_reg(&self.info, TIPG, reg_tipg)?;
+            igb_hw::write_reg(&self.info, TIDV, DEFAULT_TIDV)?;
+            if self.hw.get_mac_type() as u32 >= MacType::Em82540 as u32 {
+                igb_hw::write_reg(&self.info, TADV, DEFAULT_TADV)?;
+            }
+
+            // Setup Transmit Descriptor Base Settings
+            que.tx.txd_cmd = TXD_CMD_IFCS | TXD_CMD_IDE;
+
+            if matches!(
+                self.hw.get_mac_type(),
+                Em82575 | Em82580 | Em82576 | EmI210 | EmI350
+            ) {
+                // 82575/6 need to enable the TX queue and lack the IDE bit
+                let mut reg_tctl = igb_hw::read_reg(&self.info, txdctl_offset(que.me))?;
+                reg_tctl |= TXDCTL_QUEUE_ENABLE;
+                igb_hw::write_reg(&self.info, txdctl_offset(que.me), reg_tctl)?;
+            }
+        }
+
+        // Program the Transmit Control Register
+        let mut reg_tctl = TCTL_PSP | TCTL_EN | (COLLISION_THRESHOLD << CT_SHIFT);
+        if self.hw.get_mac_type() as u32 >= MacType::Em82571 as u32 {
+            reg_tctl |= TCTL_MULR;
+        }
+        if self.link_duplex == igb_hw::Duplex::Full {
+            reg_tctl |= FDX_COLLISION_DISTANCE << COLD_SHIFT;
+        } else {
+            reg_tctl |= HDX_COLLISION_DISTANCE << COLD_SHIFT;
+        }
+        // This write will effectively turn on the transmit unit
+        igb_hw::write_reg(&self.info, TCTL, reg_tctl)?;
+
+        // SPT Si errata workaround to avoid data corruption
+        if self.hw.get_mac_type() == MacType::EmPchSpt {
+            let mut reg_val = igb_hw::read_reg(&self.info, IOSFPC)?;
+            reg_val |= RCTL_RDMTS_HEX;
+            igb_hw::write_reg(&self.info, IOSFPC, reg_val)?;
+
+            let mut reg_val = igb_hw::read_reg(&self.info, TARC0)?;
+            // i218-i219 Specification Update 1.5.4.5
+            reg_val &= !TARC0_CB_MULTIQ_3_REQ;
+            reg_val |= TARC0_CB_MULTIQ_2_REQ;
+            igb_hw::write_reg(&self.info, TARC0, reg_val)?;
+        }
+
+        Ok(())
+    }
 
     /// This turns on the hardware offload of the VLAN
     /// tag stripping and insertion.
@@ -877,6 +1005,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
+        txd_cmd: TXD_CMD_IFCS,
         write_buf: None,
     };
 
@@ -1069,11 +1198,35 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     Err(IgbDriverErr::FailedFlashDescriptor)
 }
 
+fn tdbal_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03800 + (n * 0x100)
+    } else {
+        0x0E000 + (n * 0x40)
+    }
+}
+
+fn tdbah_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03804 + (n * 0x100)
+    } else {
+        0x0E004 + (n * 0x40)
+    }
+}
+
 fn tdlen_offset(n: usize) -> usize {
     if n < 4 {
         0x03808 + (n * 0x100)
     } else {
         0x0E008 + (n * 0x40)
+    }
+}
+
+fn tdh_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03810 + (n * 0x100)
+    } else {
+        0x0E010 + (n * 0x40)
     }
 }
 
@@ -1090,5 +1243,13 @@ fn rxdctl_offset(n: usize) -> usize {
         0x02828 + (n * 0x100)
     } else {
         0x0C028 + (n * 0x40)
+    }
+}
+
+fn txdctl_offset(n: usize) -> usize {
+    if n < 4 {
+        0x03828 + (n * 0x100)
+    } else {
+        0x0E028 + (n * 0x40)
     }
 }

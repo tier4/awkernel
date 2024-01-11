@@ -8200,6 +8200,10 @@ impl IgbHw {
     pub fn get_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
         self.mac_addr
     }
+
+    pub fn get_media_type(&self) -> MediaType {
+        self.media_type
+    }
 }
 
 fn nvm_82580_lan_func_offset(a: u8) -> u16 {
