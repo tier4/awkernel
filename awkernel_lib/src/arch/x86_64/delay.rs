@@ -6,15 +6,15 @@ use crate::{
     paging::{Flags, PageTable},
 };
 use acpi::AcpiTables;
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
 mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
 mmio_r!(offset 0xf0 => HPET_MAIN_COUNTER<u64>);
 
-static mut HPET_BASE: usize = 0;
-static mut HPET_COUNTER_HZ: u64 = 0;
-static mut HPET_COUNTER_START: u64 = 0;
+static HPET_BASE: AtomicUsize = AtomicUsize::new(0);
+static HPET_COUNTER_HZ: AtomicU64 = AtomicU64::new(0);
+static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -36,15 +36,9 @@ impl Delay for super::X86 {
     }
 
     fn uptime() -> u64 {
-        let base;
-        let hz;
-        let start;
-
-        unsafe {
-            base = read_volatile(&HPET_BASE);
-            hz = read_volatile(&HPET_COUNTER_HZ);
-            start = read_volatile(&HPET_COUNTER_START);
-        }
+        let base = HPET_BASE.load(Ordering::Relaxed);
+        let hz = HPET_COUNTER_HZ.load(Ordering::Relaxed);
+        let start = HPET_COUNTER_START.load(Ordering::Relaxed);
 
         if hz == 0 {
             0
@@ -96,22 +90,20 @@ pub(super) fn init(
         wait_forever();
     }
 
-    unsafe {
-        // Store the base address.
-        write_volatile(&mut HPET_BASE, base);
+    // Store the base address.
+    HPET_BASE.store(base, Ordering::Relaxed);
 
-        // Calculate the frequency.
-        let capabilities = HPET_GENERAL_CAP.read(base);
-        let hz = 1_000_000_000_000_000 / (capabilities >> 32);
-        log::info!("HPET frequency = {hz}[Hz]");
-        write_volatile(&mut HPET_COUNTER_HZ, hz);
+    // Calculate the frequency.
+    let capabilities = HPET_GENERAL_CAP.read(base);
+    let hz = 1_000_000_000_000_000 / (capabilities >> 32);
+    log::info!("HPET frequency = {hz}[Hz]");
+    HPET_COUNTER_HZ.store(hz, Ordering::Relaxed);
 
-        // Enable HPET.
-        let conf = HPET_GENERAL_CONF.read(base);
-        HPET_GENERAL_CONF.write(conf | HPET_GENERAL_CONF_ENABLE, base);
+    // Enable HPET.
+    let conf = HPET_GENERAL_CONF.read(base);
+    HPET_GENERAL_CONF.write(conf | HPET_GENERAL_CONF_ENABLE, base);
 
-        // Get and store the initial counter.
-        let counter = HPET_MAIN_COUNTER.read(base);
-        write_volatile(&mut HPET_COUNTER_START, counter);
-    }
+    // Get and store the initial counter.
+    let counter = HPET_MAIN_COUNTER.read(base);
+    HPET_COUNTER_START.store(counter, Ordering::Relaxed);
 }

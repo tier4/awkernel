@@ -1,6 +1,9 @@
-use core::ptr::{read_volatile, write_volatile};
+use core::{
+    ptr::read_volatile,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-static mut MBOXBASE: usize = 0;
+static MBOXBASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Sets the base address of the mailbox.
 ///
@@ -10,7 +13,7 @@ static mut MBOXBASE: usize = 0;
 /// The caller must ensure that the passed `base` address is valid and that writing to this
 /// address will not cause undefined behavior.
 pub unsafe fn set_mbox_base(base: usize) {
-    write_volatile(&mut MBOXBASE, base);
+    MBOXBASE.store(base, Ordering::Relaxed);
 }
 
 mod registers {
@@ -40,7 +43,7 @@ pub(crate) struct MboxChannel {
 
 impl MboxChannel {
     pub fn new(channel: u32) -> Self {
-        let base = unsafe { read_volatile(&MBOXBASE) };
+        let base = MBOXBASE.load(Ordering::Relaxed);
         Self { base, channel }
     }
 

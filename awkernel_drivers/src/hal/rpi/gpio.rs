@@ -2,6 +2,7 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
     convert::{From, Into},
     ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use embedded_hal::digital::{ErrorType, InputPin, OutputPin};
 
@@ -55,7 +56,7 @@ static GPIO_PINS: Mutex<[bool; 46]> = Mutex::new([
 ]);
 
 /// The base address for the GPIO.
-static mut GPBASE: usize = 0;
+static GPBASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Set the base address of GPIO.
 ///
@@ -63,7 +64,7 @@ static mut GPBASE: usize = 0;
 ///
 /// The base address must be Raspberry Pi's GPIO's base.
 pub unsafe fn set_gpio_base(base: usize) {
-    write_volatile(&mut GPBASE, base);
+    GPBASE.store(base, Ordering::Relaxed);
 }
 
 // Define the addresses for the different GPIO operations
@@ -177,7 +178,7 @@ impl GpioPin {
 
         Ok(Self {
             pin: Some(pin),
-            base: unsafe { read_volatile(&GPBASE) },
+            base: GPBASE.load(Ordering::Relaxed),
         })
     }
 

@@ -1,29 +1,29 @@
 use core::{
     hint,
-    ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 /// Base address for the CLK module
-pub static mut CLK_BASE: usize = 0;
+pub static CLK_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Set the base address for the CLK module
 ///
 /// # Safety
 ///
-/// This function is unsafe because it modifies a static mutable variable.
+/// This function is unsafe because it modifies a static variable.
 pub unsafe fn set_clk_base(base: usize) {
-    write_volatile(&mut CLK_BASE, base);
+    CLK_BASE.store(base, Ordering::Relaxed);
 }
 
-pub static mut CLOCK_FREQUENCY: usize = 0;
+pub static CLOCK_FREQUENCY: AtomicUsize = AtomicUsize::new(0);
 
-/// Get the clock frequency
+/// Set the clock frequency
 ///
 /// # Safety
 ///
-/// This function is unsafe because it modifies a static mutable variable.
-pub unsafe fn get_clock_frequency(base: usize) {
-    write_volatile(&mut CLOCK_FREQUENCY, base);
+/// This function is unsafe because it modifies a static variable.
+pub unsafe fn set_clock_frequency(val: usize) {
+    CLOCK_FREQUENCY.store(val, Ordering::Relaxed);
 }
 
 /// Registers associated with the CLK module
@@ -84,7 +84,7 @@ pub struct Clock {
 impl Clock {
     /// Creates a new instance of the CLK module
     pub fn new() -> Self {
-        let base = unsafe { read_volatile(&CLK_BASE) };
+        let base = CLK_BASE.load(Ordering::Relaxed);
         Self { base }
     }
 

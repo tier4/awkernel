@@ -1,6 +1,10 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::boxed::Box;
-use core::{fmt::Write, ptr::write_volatile, str::from_utf8_unchecked};
+use core::{
+    fmt::Write,
+    ptr::{addr_of_mut, write_volatile},
+    str::from_utf8_unchecked,
+};
 use log::Log;
 
 pub trait Console: Write + Send {
@@ -32,7 +36,7 @@ pub trait Console: Write + Send {
 static mut UNSAFE_PUTS: Option<unsafe fn(&str)> = None;
 
 pub fn register_unsafe_puts(console: unsafe fn(&str)) {
-    unsafe { write_volatile(&mut UNSAFE_PUTS, Some(console)) }
+    unsafe { write_volatile(addr_of_mut!(UNSAFE_PUTS), Some(console)) }
 }
 
 /// # Safety

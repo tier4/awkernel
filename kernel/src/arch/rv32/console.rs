@@ -1,8 +1,11 @@
 use alloc::boxed::Box;
-use core::{fmt::Write, ptr::write_volatile};
+use core::{
+    fmt::Write,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use ns16550a::Uart;
 
-static mut DEVADDR: usize = 0;
+static DEVADDR: AtomicUsize = AtomicUsize::new(0);
 
 pub struct Console {
     port: Uart,
@@ -17,7 +20,7 @@ impl Console {
 }
 
 unsafe fn unsafe_puts(data: &str) {
-    let mut port = Uart::new(DEVADDR);
+    let mut port = Uart::new(DEVADDR.load(Ordering::Relaxed));
     let _ = port.write_str(data);
 }
 
@@ -34,7 +37,7 @@ pub fn init_port(devaddr: usize) {
         ns16550a::Divisor::BAUD115200,
     );
 
-    unsafe { write_volatile(&mut DEVADDR, devaddr) };
+    DEVADDR.store(devaddr, Ordering::Relaxed);
 
     awkernel_lib::console::register_unsafe_puts(unsafe_puts);
 }
