@@ -210,12 +210,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // 15. Initialize PCIe devices.
-    awkernel_drivers::pcie::init_with_acpi(
-        DMA_START,
-        &acpi,
-        &mut awkernel_page_table,
-        &mut page_allocators,
-    );
+    awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators);
 
     // 16. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);

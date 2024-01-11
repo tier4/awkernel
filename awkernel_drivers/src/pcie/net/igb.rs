@@ -159,7 +159,6 @@ pub struct Igb {
 
 pub fn attach<F, FA, E>(
     mut info: PCIeInfo,
-    dma_offset: usize,
     page_table: &mut impl PageTable<F, FA, E>,
     page_allocator: &mut FA,
 ) -> Result<(), PCIeDeviceErr>
@@ -179,7 +178,7 @@ where
     // Read the capability of PCIe device.
     info.read_capability();
 
-    let mut igb = Igb::new(info, dma_offset, page_table, page_allocator)?;
+    let mut igb = Igb::new(info)?;
 
     igb.up(); // TODO: to be removed
 
@@ -275,16 +274,7 @@ impl fmt::Display for IgbDriverErr {
 }
 
 impl Igb {
-    fn new<F, FA, E>(
-        mut info: PCIeInfo,
-        dma_offset: usize,
-        page_table: &mut impl PageTable<F, FA, E>,
-        page_allocator: &mut FA,
-    ) -> Result<Self, PCIeDeviceErr>
-    where
-        F: Frame,
-        FA: FrameAllocator<F, E>,
-    {
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
         let mut que = [allocate_desc_rings(&info)?];

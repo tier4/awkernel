@@ -228,7 +228,6 @@ use alloc::collections::BTreeMap;
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT, E>(
-    dma_offset: usize,
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocators: &mut BTreeMap<u32, FA>,
@@ -282,7 +281,6 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
         for bus in segment.bus_range {
             scan_devices(
-                dma_offset,
                 segment.segment_group,
                 bus,
                 base_address,
@@ -294,7 +292,6 @@ pub fn init_with_acpi<F, FA, PT, E>(
 }
 
 pub fn init_with_addr<F, FA, PT, E>(
-    dma_offset: usize,
     segment_group: u16,
     base_address: usize,
     page_table: &mut PT,
@@ -308,7 +305,6 @@ pub fn init_with_addr<F, FA, PT, E>(
 {
     for bus in (starting_bus as u32)..256 {
         scan_devices(
-            dma_offset,
             segment_group,
             bus as u8,
             base_address,
@@ -320,7 +316,6 @@ pub fn init_with_addr<F, FA, PT, E>(
 
 /// Scan and initialize the PICe devices
 fn scan_devices<F, FA, PT, E>(
-    dma_offset: usize,
     segment_group: u16,
     bus: u8,
     base_address: usize,
@@ -339,7 +334,7 @@ fn scan_devices<F, FA, PT, E>(
             if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, addr) {
                 let multiple_functions = device.multiple_functions;
 
-                let _ = device.attach(dma_offset, page_table, page_allocator);
+                let _ = device.attach(page_table, page_allocator);
 
                 if func == 0 && !multiple_functions {
                     break;
@@ -561,7 +556,6 @@ impl PCIeInfo {
     #[allow(unused_variables)]
     fn attach<F, FA, PT, E>(
         self,
-        dma_offset: usize,
         page_table: &mut PT,
         page_allocator: &mut FA,
     ) -> Result<(), PCIeDeviceErr>
@@ -577,7 +571,7 @@ impl PCIeInfo {
             {
                 #[cfg(feature = "igb")]
                 if net::igb::match_device(self.vendor, self.id) {
-                    return net::igb::attach(self, dma_offset, page_table, page_allocator);
+                    return net::igb::attach(self, page_table, page_allocator);
                 }
             }
             _ => (),
