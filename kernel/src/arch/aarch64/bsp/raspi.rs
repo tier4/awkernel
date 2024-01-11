@@ -5,7 +5,10 @@ use crate::arch::aarch64::{
 };
 use alloc::{boxed::Box, format};
 use awkernel_drivers::{
-    hal::{self, rpi::uart::PinUart},
+    hal::{
+        self,
+        rpi::{self, uart::PinUart},
+    },
     uart::pl011::PL011,
 };
 use awkernel_lib::{
@@ -522,9 +525,9 @@ impl Raspi {
                 return Err("'clock-frequency' property has an invalid type");
             }
         };
-        unsafe { awkernel_drivers::clock::get_clock_frequency(clock_freq as usize) };
+        unsafe { rpi::clock::set_clock_frequency(clock_freq as usize) };
 
-        unsafe { awkernel_drivers::clock::set_clk_base(base_addr as usize) };
+        unsafe { rpi::clock::set_clk_base(base_addr as usize) };
 
         Ok(())
     }

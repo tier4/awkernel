@@ -21,17 +21,25 @@
 //!
 //! ```
 //! use awkernel_drivers::hal::rpi::uart::{Uart, Uarts};
-//! use embedded_io::{Read, Write};
+//! use embedded_hal_nb::serial::{Read, Write};
 //!
-//! let mut uart2 = Uart::new(Uarts::Uart2, 115200).unwrap();
+//! pub async fn test_uart2() {
+//!     let mut uart2 = Uart::new(Uarts::Uart2, 230400).unwrap();
+//!     let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
 //!
-//! let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
+//!     let write_buf = b"Hello, world!\r\n";
 //!
-//! let write_buf = b"Hello, world!\r\n";
-//! let mut read_buf = [0; 32];
+//!     for data in write_buf.iter() {
+//!         uart2.write(*data).unwrap();
+//!     }
 //!
-//! let write_size = uart2.write(write_buf).unwrap();
-//! let read_size = uart2.read(&mut read_buf).unwrap();
+//!     loop {
+//!         if let Ok(data) = uart2.read() {
+//!             let _ = uart2.write(data);
+//!         }
+//!         awkernel_async_lib::sleep(Duration::from_millis(5)).await;
+//!     }
+//! }
 //! ```
 
 use core::sync::atomic::{AtomicUsize, Ordering};

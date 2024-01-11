@@ -1,16 +1,16 @@
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::cpu::CPU;
 
 #[thread_local]
-pub static mut CPU_ID: usize = 0;
+pub static CPU_ID: AtomicUsize = AtomicUsize::new(0);
 
 impl CPU for super::StdCommon {
     fn cpu_id() -> usize {
-        unsafe { read_volatile(&CPU_ID) }
+        CPU_ID.load(Ordering::Relaxed)
     }
 }
 
 pub(super) fn init(cpu_id: usize) {
-    unsafe { write_volatile(&mut CPU_ID, cpu_id) };
+    CPU_ID.store(cpu_id, Ordering::Relaxed);
 }

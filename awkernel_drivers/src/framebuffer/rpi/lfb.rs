@@ -1,4 +1,7 @@
-use core::{ptr::write_volatile, slice};
+use core::{
+    ptr::{addr_of_mut, write_volatile},
+    slice,
+};
 
 use super::mbox::{Mbox, MboxChannel};
 use awkernel_lib::paging::PAGESIZE;
@@ -136,7 +139,7 @@ pub fn get_frame_buffer_size() -> Option<(u32, u32)> {
 }
 
 pub fn get_framebuffer_info() -> &'static mut Option<FramebufferInfo> {
-    unsafe { &mut FRMAME_BUFFER_INFO }
+    unsafe { &mut *addr_of_mut!(FRMAME_BUFFER_INFO) }
 }
 
 pub enum FramebufferError {}

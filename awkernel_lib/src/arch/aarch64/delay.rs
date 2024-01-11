@@ -1,5 +1,5 @@
 use crate::delay::Delay;
-use core::ptr::{read_volatile, write_volatile};
+use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
 static mut COUNT_START: u64 = 0;
 
@@ -20,7 +20,7 @@ impl Delay for super::AArch64 {
     }
 
     fn uptime() -> u64 {
-        let start = unsafe { read_volatile(&COUNT_START) };
+        let start = unsafe { read_volatile(addr_of!(COUNT_START)) };
 
         let frq = awkernel_aarch64::cntfrq_el0::get();
         let now = awkernel_aarch64::cntvct_el0::get();
@@ -39,7 +39,7 @@ pub(super) unsafe fn init_primary() {
     init_pmc();
 
     let count = awkernel_aarch64::cntvct_el0::get();
-    write_volatile(&mut COUNT_START, count);
+    write_volatile(addr_of_mut!(COUNT_START), count);
 }
 
 /// Initialize performance monitor counter.

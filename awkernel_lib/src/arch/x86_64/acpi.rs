@@ -1,11 +1,9 @@
-use acpi::{platform::PmTimer, AcpiHandler, AcpiTables};
+use acpi::{AcpiHandler, AcpiTables};
 use bootloader_api::BootInfo;
-use core::ptr::{write_volatile, NonNull};
+use core::ptr::NonNull;
 use x86_64::VirtAddr;
 
 pub mod srat;
-
-static mut PM_TIMER: Option<PmTimer> = None;
 
 #[derive(Debug, Clone)]
 pub struct AcpiMapper {
@@ -50,20 +48,4 @@ pub fn create_acpi(boot_info: &BootInfo, phy_offset: u64) -> Option<AcpiTables<A
     } else {
         None
     }
-}
-
-pub const ACPI_TMR_HZ: u32 = 3579545;
-
-pub(super) fn init(acpi: &AcpiTables<AcpiMapper>) {
-    let Ok(platfomr_info) = acpi.platform_info() else {
-        log::error!("Not found platform information.");
-        return;
-    };
-
-    let Some(pm_timer) = platfomr_info.pm_timer else {
-        log::error!("Not found PM Timer.");
-        return;
-    };
-
-    unsafe { write_volatile(&mut PM_TIMER, Some(pm_timer)) };
 }

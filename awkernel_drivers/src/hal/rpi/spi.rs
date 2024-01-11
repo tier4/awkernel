@@ -1,10 +1,10 @@
 /// Raspberry Pi SPI module
 use super::gpio::{GpioFunction, GpioPin, GpioPinAlt, PullMode};
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use embedded_hal::spi::{Error, ErrorKind, ErrorType, SpiBus};
 
 /// The base address of the SPI device
-pub static mut SPI_BASE: usize = 0;
+pub static SPI_BASE: AtomicUsize = AtomicUsize::new(0);
 
 /// Sets the base address of the SPI device
 ///
@@ -12,7 +12,7 @@ pub static mut SPI_BASE: usize = 0;
 ///
 /// This function is unsafe because it writes to a mutable static
 pub unsafe fn set_spi_base(base: usize) {
-    write_volatile(&mut SPI_BASE, base);
+    SPI_BASE.store(base, Ordering::Relaxed);
 }
 
 /// SPI registers offset definitions
@@ -138,7 +138,7 @@ impl Spi {
         let pin_ce0 = GpioPin::new(8)?;
         let pin_ce0 = pin_ce0.into_alt(GpioFunction::ALTF0, PullMode::Up)?;
 
-        let base = unsafe { read_volatile(&SPI_BASE) };
+        let base = SPI_BASE.load(Ordering::Relaxed);
 
         let spi = Self {
             base,

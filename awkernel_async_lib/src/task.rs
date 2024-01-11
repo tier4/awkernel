@@ -280,7 +280,7 @@ fn get_next_task() -> Option<Arc<Task>> {
 
 pub mod perf {
     use awkernel_lib::cpu::NUM_MAX_CPU;
-    use core::ptr::{read_volatile, write_volatile};
+    use core::ptr::{addr_of, read_volatile, write_volatile};
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
@@ -356,8 +356,9 @@ pub mod perf {
     }
 
     pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
-        let (avg_save, worst_save) = calc_overheads(unsafe { &CONTEXT_SAVE_OVERHEADS });
-        let (avg_restore, worst_restore) = calc_overheads(unsafe { &CONTEXT_RESTORE_OVERHEADS });
+        let (avg_save, worst_save) = calc_overheads(unsafe { &*addr_of!(CONTEXT_SAVE_OVERHEADS) });
+        let (avg_restore, worst_restore) =
+            calc_overheads(unsafe { &*addr_of!(CONTEXT_RESTORE_OVERHEADS) });
         (avg_save, worst_save, avg_restore, worst_restore)
     }
 }

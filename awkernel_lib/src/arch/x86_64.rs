@@ -19,6 +19,5 @@ pub fn init(
     page_allocator: &mut VecPageAllocator,
 ) {
     // Initialize timer.
-    acpi::init(acpi);
     delay::init(acpi, page_table, page_allocator);
 }

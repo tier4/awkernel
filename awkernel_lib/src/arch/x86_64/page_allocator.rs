@@ -5,25 +5,25 @@ use crate::{
 };
 use alloc::vec::Vec;
 use bootloader_api::{info::MemoryRegion, BootInfo};
-use core::ptr::{read_volatile, write_volatile};
+use core::sync::atomic::{AtomicUsize, Ordering};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 
-static mut PHYSICAL_MEORY_OFFSET: usize = 0;
+static PHYSICAL_MEORY_OFFSET: AtomicUsize = AtomicUsize::new(0);
 
 /// # Safety
 ///
 /// Must be initialized at once when booting.
 pub unsafe fn init(boot_info: &BootInfo) {
     let addr = boot_info.physical_memory_offset.as_ref().unwrap();
-    write_volatile(&mut PHYSICAL_MEORY_OFFSET, (*addr) as usize);
+    PHYSICAL_MEORY_OFFSET.store((*addr) as usize, Ordering::Relaxed);
 }
 
 fn physical_memory_offset() -> usize {
-    unsafe { read_volatile(&PHYSICAL_MEORY_OFFSET) }
+    PHYSICAL_MEORY_OFFSET.load(Ordering::Relaxed)
 }
 
 pub struct PageAllocator<'a, T>
