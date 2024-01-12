@@ -195,7 +195,7 @@ where
         log::debug!("igb: {:?}", igb.hw);
         loop {
             if let Some(pkt) = igb.recv() {
-                log::info!("igb: recv: {:?}", pkt);
+                log::info!("igb: recv: {:x?}", pkt);
             }
             awkernel_lib::delay::wait_sec(1);
         }

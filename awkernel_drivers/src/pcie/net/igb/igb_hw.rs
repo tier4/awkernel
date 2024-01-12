@@ -7851,11 +7851,17 @@ impl IgbHw {
     pub fn legacy_irq_quirk_spt(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 
-        if !matches!(self.mac_type, EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp) {
+        if self.mac_type != EmPchSpt
+            && self.mac_type != EmPchCnp
+            && self.mac_type != EmPchTgp
+            && self.mac_type != EmPchAdp
+        {
             return Ok(());
         }
 
-        if !self.legacy_irq {}
+        if !self.legacy_irq {
+            return Ok(());
+        }
 
         let mut reg = read_reg(info, FEXTNVM7)?;
         reg |= FEXTNVM7_SIDE_CLK_UNGATE;
