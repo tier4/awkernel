@@ -1,9 +1,11 @@
 use awkernel_lib::paging::{Frame, FrameAllocator};
 
+#[cfg(feature = "pcie")]
 use crate::pcie::PCIeInfo;
 
 #[derive(Debug)]
 pub enum DeviceInfo {
+    #[cfg(feature = "pcie")]
     PCIe(PCIeInfo),
     // USB,
 }

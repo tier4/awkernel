@@ -68,6 +68,8 @@ x86 = [
     "dep:bootloader_api",
     "dep:acpi",
     "awkernel_drivers/x86",
+    "awkernel_drivers/all_pcie",
+    "awkernel_drivers/uart_16550",
 ]
 rv32 = [
     "no_std_unwinding",
@@ -82,6 +84,15 @@ aarch64 = [
     "awkernel_lib/aarch64",
     "awkernel_drivers/aarch64",
 ]
-raspi = ["aarch64", "awkernel_drivers/raspi", "userland/raspi"]
-aarch64_virt = ["aarch64", "awkernel_drivers/all_device"]
+raspi = [
+    "aarch64",
+    "awkernel_drivers/raspi",
+    "awkernel_drivers/pl011",
+    "userland/raspi",
+]
+aarch64_virt = [
+    "aarch64",
+    "awkernel_drivers/all_pcie",
+    "awkernel_drivers/pl011",
+]
 spinlock = ["awkernel_lib/spinlock"]

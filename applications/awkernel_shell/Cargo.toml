@@ -20,16 +20,15 @@ default-features = false
 
 
 [dependencies.smoltcp]
-version = "0.10.0"
+version = "0.11.0"
 default-features = false
 features = [
-    "alloc", 
-    "log", 
-    "socket-udp", 
-    "socket-tcp", 
-    "proto-ipv4", 
+    "alloc",
+    "log",
+    "socket-udp",
+    "socket-tcp",
+    "proto-ipv4",
     "proto-ipv6",
     "socket-icmp",
-    "medium-ethernet", 
+    "medium-ethernet",
 ]
-
