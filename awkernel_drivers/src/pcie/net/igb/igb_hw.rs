@@ -1685,7 +1685,7 @@ impl IgbHw {
             return Ok(());
         }
 
-        let eeprom_control2_reg_offset = if self.mac_type == EmICPxxxx {
+        let eeprom_control2_reg_offset = if self.mac_type != EmICPxxxx {
             EEPROM_INIT_CONTROL2_REG
         } else {
             eeprom_init_control3_icp_xxx(self.icp_xxxx_port_num)
@@ -1728,6 +1728,8 @@ impl IgbHw {
         if self.mac_type == Em82542Rev2_0 || (self.mac_type as u32) < Em82543 as u32 {
             return Err(IgbDriverErr::NotSupported);
         }
+
+        self.original_fc = self.fc;
 
         // Take the 4 bits from EEPROM word 0x0F that determine the initial
         // polarity value for the SW controlled pins, and setup the Extended
@@ -1786,6 +1788,7 @@ impl IgbHw {
             // XON frames.
             if self.fc_send_xon {
                 write_reg(info, FCRTL, self.fc_low_water as u32 | FCRTL_XONE)?;
+                write_reg(info, FCRTH, self.fc_high_water as u32)?;
             } else {
                 write_reg(info, FCRTL, self.fc_low_water as u32)?;
                 write_reg(info, FCRTH, self.fc_high_water as u32)?;

@@ -189,7 +189,17 @@ where
 
     let mut igb = Igb::new(info)?;
 
-    let _ = igb.up(); // TODO: to be removed
+    if let Err(e) = igb.up() {
+        log::debug!("igb: up: {:?}", e);
+    } else {
+        log::debug!("igb: {:?}", igb.hw);
+        loop {
+            if let Some(pkt) = igb.recv() {
+                log::info!("igb: recv: {:?}", pkt);
+            }
+            awkernel_lib::delay::wait_sec(1);
+        }
+    }
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
@@ -234,6 +244,7 @@ struct MsiX {
 
 #[derive(Debug)]
 enum PCIeInt {
+    None,
     Msi(IRQ),
     MsiX(MsiX),
 }
@@ -294,7 +305,7 @@ impl Igb {
             pcie_int
         } else {
             log::error!("igb: Failed to allocate interrupt.");
-            return Err(IgbDriverErr::InitializeInterrupt.into());
+            PCIeInt::None
         };
 
         // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
@@ -389,6 +400,7 @@ impl Igb {
     }
 
     fn update_link_status(&mut self) -> Result<(), IgbDriverErr> {
+        log::debug!("igb: update_link_status");
         if igb_hw::read_reg(&self.info, STATUS)? & STATUS_LU != 0 {
             if !self.link_active {
                 let (link_speed, link_duplex) = self.hw.get_speed_and_duplex(&self.info)?;
@@ -414,6 +426,8 @@ impl Igb {
                 self.link_active = true;
                 self.smart_speed = 0;
             }
+
+            log::debug!("igb: link up");
         } else if self.link_active {
             self.link_speed = igb_hw::Speed::None;
             self.link_duplex = igb_hw::Duplex::None;
@@ -760,12 +774,9 @@ impl Igb {
             let buf_phy_addr = read_buf.get_phy_addr().as_usize();
 
             for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+                desc.data = [0; 2];
                 desc.desc.buf = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
                 desc.desc.len = RXBUFFER_2048 as u16;
-                desc.desc.checksum = 0;
-                desc.desc.status = 0;
-                desc.desc.error = 0;
-                desc.desc.vtags = 0;
             }
 
             que.rx.read_buf = Some(read_buf);
@@ -904,6 +915,7 @@ impl Igb {
                 igb_hw::write_reg(&self.info, EIMC, !0)?;
                 igb_hw::write_reg(&self.info, EIAC, 0)
             }
+            _ => Ok(()),
         }
     }
 
@@ -911,15 +923,18 @@ impl Igb {
         match self.pcie_int {
             PCIeInt::Msi(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
             PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
+            _ => Ok(()),
         }
     }
 
     fn rx_fill(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
         let mut i = que.rx.rx_desc_head as usize;
+        let mut prev;
         let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
 
         loop {
+            prev = i;
             i += 1;
             if i == rx_desc_ring.len() {
                 i = 0;
@@ -930,11 +945,13 @@ impl Igb {
             }
 
             let desc = &mut rx_desc_ring[i];
-            desc.data = [0; 2];
+            desc.desc.status = 0;
+            desc.desc.error = 0;
+            desc.desc.len = RXBUFFER_2048 as u16;
         }
 
-        que.rx.rx_desc_head = i as u32;
-        igb_hw::write_reg(&self.info, rdt_offset(que.me), i as u32)?;
+        que.rx.rx_desc_head = prev as u32;
+        igb_hw::write_reg(&self.info, rdt_offset(que.me), que.rx.rx_desc_head)?;
 
         Ok(())
     }
@@ -944,7 +961,11 @@ impl Igb {
         let mut i = que.rx.rx_desc_tail as usize;
 
         loop {
-            if i == que.rx.rx_desc_head as usize || que.rx.read_queue.is_full() {
+            if i == que.rx.rx_desc_head as usize {
+                break;
+            }
+
+            if que.rx.read_queue.is_full() {
                 break;
             }
 
@@ -1257,7 +1278,7 @@ impl NetDevice for Igb {
             return data;
         }
 
-        self.rx_recv(0).unwrap();
+        self.rx_recv(0).ok()?;
         self.que[0].rx.read_queue.pop()
     }
 
