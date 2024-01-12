@@ -624,6 +624,7 @@ pub struct IgbHw {
     forced_speed_duplex: SpeedDuplex,
     bus_type: PCIBusType,
     bus_speed: PCIBusSpeed,
+    legacy_irq: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1126,6 +1127,7 @@ impl IgbHw {
             forced_speed_duplex: SpeedDuplex::S10Half,
             bus_type: PCIBusType::Unknown,
             bus_speed: PCIBusSpeed::Unknown,
+            legacy_irq: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1155,7 +1157,7 @@ impl IgbHw {
 
         if matches!(
             self.mac_type,
-            EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
         ) {
             // The MAC-PHY interconnect may still be in SMBus mode
             // after Sx->S0.  Toggle the LANPHYPC Value bit to force
@@ -7844,6 +7846,30 @@ impl IgbHw {
         };
 
         Ok(())
+    }
+
+    pub fn legacy_irq_quirk_spt(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if !matches!(self.mac_type, EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp) {
+            return Ok(());
+        }
+
+        if !self.legacy_irq {}
+
+        let mut reg = read_reg(info, FEXTNVM7)?;
+        reg |= FEXTNVM7_SIDE_CLK_UNGATE;
+        write_reg(info, FEXTNVM7, reg)?;
+
+        let mut reg = read_reg(info, FEXTNVM9)?;
+        reg |= FEXTNVM9_IOSFSB_CLKGATE_DIS | FEXTNVM9_IOSFSB_CLKREQ_DIS;
+        write_reg(info, FEXTNVM9, reg)?;
+
+        Ok(())
+    }
+
+    pub fn set_fc_high_water(&mut self, fc_high_water: u16) {
+        self.fc_high_water = fc_high_water;
     }
 
     /// Release semaphore bit (SMBI).

@@ -1189,6 +1189,8 @@ fn hardware_init(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<(), IgbD
         hw.write_phy_reg(info, IGP02E1000_PHY_POWER_MGMT, phy_tmp)?;
     }
 
+    hw.legacy_irq_quirk_spt(info)?;
+
     // Disable PCIe Active State Power Management (ASPM)
     disable_aspm(hw, info);
 

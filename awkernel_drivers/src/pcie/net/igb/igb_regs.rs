@@ -338,11 +338,11 @@ pub const COLD_SHIFT: u32 = 12;
 
 // FEXTNVM registers
 pub const FEXTNVM7: usize = 0xe;
-pub const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
+pub const FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
 pub const FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
-pub const _FEXTNVM9: usize = 0x5bb4;
-pub const _FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
-pub const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
+pub const FEXTNVM9: usize = 0x5bb4;
+pub const FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
+pub const FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
 pub const FEXTNVM11: usize = 0x05bbc;
 pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 
