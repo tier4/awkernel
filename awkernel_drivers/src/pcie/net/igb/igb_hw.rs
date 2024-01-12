@@ -2960,7 +2960,7 @@ impl IgbHw {
         // what the PHY speed and duplex configuration is. In addition, we
         // need to perform a hardware reset on the PHY to take it out of
         // reset.
-        if self.mac_type == Em82543 {
+        if self.mac_type as u32 > Em82543 as u32 {
             let mut ctrl = ctrl | CTRL_SLU;
             ctrl &= !(CTRL_FRCSPD | CTRL_FRCDPX);
             write_reg(info, CTRL, ctrl)?;
