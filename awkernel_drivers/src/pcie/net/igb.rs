@@ -8,8 +8,9 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
-    addr::Addr,
+    addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{ethertypes::EtherTypes, NetCapabilities, NetDevError, NetDevice, NetFlags, NET_MANAGER},
@@ -27,6 +28,8 @@ use igb_regs::*;
 
 const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
+
+const RECV_QUEUE_SIZE: usize = 32;
 
 // Supported RX Buffer Sizes
 const RXBUFFER_2048: u32 = 2048;
@@ -94,6 +97,8 @@ struct Rx {
     rx_desc_ring: DMAPool,
 
     read_buf: Option<DMAPool>,
+
+    read_queue: RingQ<Vec<u8>>,
 
     // Statistics
     dropped_pkts: u64,
@@ -934,65 +939,76 @@ impl Igb {
         Ok(())
     }
 
-    fn rx_recv(&mut self, que_id: usize) -> Result<Option<Vec<u8>>, IgbDriverErr> {
+    fn rx_recv(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
         let mut i = que.rx.rx_desc_tail as usize;
 
-        if i == que.rx.rx_desc_head as usize {
-            return Ok(None);
-        }
-
-        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
-
-        let desc = unsafe { rx_desc_ring[i].desc };
-        let status = desc.status;
-
-        if status & RXD_STAT_DD == 0 {
-            return Ok(None);
-        }
-
-        if status & RXD_STAT_EOP == 0 {
-            return self.recv_jumbo(que_id, i);
-        }
-
-        let is_accept = if desc.error & RXD_ERR_FRAME_ERR_MASK != 0 {
-            que.rx.dropped_pkts += 1;
-            false
-        } else {
-            true
-        };
-
-        let result = if is_accept {
-            let len = desc.len as usize;
-            let mut buf = Vec::with_capacity(len);
-            unsafe {
-                buf.set_len(len);
-
-                core::ptr::copy_nonoverlapping(
-                    (que.rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
-                        + i * RXBUFFER_2048 as usize) as *const u8,
-                    buf.as_mut_ptr(),
-                    len,
-                );
+        loop {
+            if i == que.rx.rx_desc_head as usize || que.rx.read_queue.is_full() {
+                break;
             }
-            Some(buf)
-        } else {
-            None
-        };
 
-        i += 1;
-        if i == rx_desc_ring.len() {
-            i = 0;
+            let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+
+            let desc = unsafe { rx_desc_ring[i].desc };
+            let status = desc.status;
+            let errors = desc.error;
+
+            if status & RXD_STAT_DD == 0 {
+                break;
+            }
+
+            if status & RXD_STAT_EOP == 0 {
+                return self.recv_jumbo(que_id);
+            }
+
+            let mut len = desc.len as usize;
+
+            let is_accept = if errors & RXD_ERR_FRAME_ERR_MASK != 0 {
+                if self
+                    .hw
+                    .tbi_accept(status, errors, len as u16, VirtAddr::new(desc.buf as usize))
+                {
+                    len -= 1;
+                    true
+                } else {
+                    que.rx.dropped_pkts += 1;
+                    false
+                }
+            } else {
+                true
+            };
+
+            if is_accept {
+                let mut buf = Vec::with_capacity(len);
+                unsafe {
+                    buf.set_len(len);
+
+                    core::ptr::copy_nonoverlapping(
+                        (que.rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
+                            + i * RXBUFFER_2048 as usize) as *const u8,
+                        buf.as_mut_ptr(),
+                        len,
+                    );
+                }
+
+                que.rx.read_queue.push(buf).unwrap();
+            };
+
+            i += 1;
+            if i == rx_desc_ring.len() {
+                i = 0;
+            }
         }
 
         que.rx.rx_desc_tail = i as usize;
 
         self.rx_fill(que_id)?;
 
-        Ok(result)
+        Ok(())
     }
 
-    fn recv_jumbo(&mut self, que_id: usize, mut i: usize) -> Result<Option<Vec<u8>>, IgbDriverErr> {
+    fn recv_jumbo(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
         let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
         todo!()
@@ -1097,6 +1113,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         rx_desc_tail: 0,
         rx_desc_ring,
         read_buf: None,
+        read_queue: RingQ::new(RECV_QUEUE_SIZE),
         dropped_pkts: 0,
     };
 
@@ -1235,7 +1252,13 @@ impl NetDevice for Igb {
     }
 
     fn recv(&mut self) -> Option<Vec<u8>> {
-        self.rx_recv(0).unwrap()
+        let data = self.que[0].rx.read_queue.pop();
+        if data.is_some() {
+            return data;
+        }
+
+        self.rx_recv(0).unwrap();
+        self.que[0].rx.read_queue.pop()
     }
 
     fn send(&mut self, data: &[u8]) -> Option<()> {

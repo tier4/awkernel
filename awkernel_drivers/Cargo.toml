@@ -26,6 +26,9 @@ optional = true
 path = "../awkernel_lib"
 default-features = false
 
+[dependencies.awkernel_async_lib_verified]
+path = "../awkernel_async_lib_verified"
+
 [dependencies.awkernel_aarch64]
 path = "../awkernel_aarch64"
 optional = true

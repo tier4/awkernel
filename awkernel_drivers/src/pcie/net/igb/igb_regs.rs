@@ -474,6 +474,12 @@ pub const _MANC_SMB_CLK_OUT: u32 = 0x20000000; // SMBus Clock Out
 pub const _MANC_SMB_DATA_OUT_SHIFT: u32 = 28; // SMBus Data Out Shift
 pub const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; // SMBus Clock Out Shift
 
+// The carrier extension symbol, as received by the NIC.
+pub const CARRIER_EXTENSION: u8 = 0x0F;
+
+// 802.1q VLAN Packet Sizes
+pub const VLAN_TAG_SIZE: u32 = 4; // 802.3ac tag (not DMAed)
+
 // SW Semaphore Register
 pub const SWSM: usize = 0x05B50;
 pub const SWSM_SMBI: u32 = 0x00000001; // Driver Semaphore bit

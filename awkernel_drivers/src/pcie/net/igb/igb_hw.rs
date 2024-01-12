@@ -1,3 +1,4 @@
+use awkernel_lib::addr::{virt_addr::VirtAddr, Addr};
 use bitflags::bitflags;
 
 use crate::{
@@ -8237,6 +8238,24 @@ impl IgbHw {
 
     pub fn set_phy_reset_disable(&mut self, flag: bool) {
         self.phy_reset_disable = flag;
+    }
+
+    #[inline]
+    pub fn tbi_accept(&self, status: u8, errors: u8, length: u16, addr: VirtAddr) -> bool {
+        let ptr = addr.as_ptr::<u8>();
+        let buf = unsafe { &*core::ptr::slice_from_raw_parts(ptr, length as usize) };
+        let last_byte = buf[length as usize - 1];
+
+        self.tbi_compatibility_on
+            && errors & RXD_ERR_FRAME_ERR_MASK == RXD_ERR_CE
+            && last_byte == CARRIER_EXTENSION
+            && if status & RXD_STAT_VP != 0 {
+                length as u32 > self.min_frame_size - VLAN_TAG_SIZE
+                    && length as u32 <= self.max_frame_size + 1
+            } else {
+                length as u32 > self.min_frame_size
+                    && length as u32 <= self.max_frame_size + VLAN_TAG_SIZE + 1
+            }
     }
 }
 
