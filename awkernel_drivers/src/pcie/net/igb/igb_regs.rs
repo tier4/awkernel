@@ -358,6 +358,27 @@ pub const _TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
 pub const _TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
 pub const TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
+// Receive Descriptor bit definitions
+pub const RXD_STAT_DD: u8 = 0x01; // Descriptor Done
+pub const RXD_STAT_EOP: u8 = 0x02; // End of Packet
+pub const RXD_STAT_IXSM: u8 = 0x04; // Ignore checksum
+pub const RXD_STAT_VP: u8 = 0x08; // IEEE VLAN Packet
+pub const RXD_STAT_UDPCS: u8 = 0x10; // UDP xsum calculated
+pub const RXD_STAT_TCPCS: u8 = 0x20; // TCP xsum calculated
+pub const RXD_STAT_IPCS: u8 = 0x40; // IP xsum calculated
+pub const RXD_STAT_PIF: u8 = 0x80; // passed in-exact filter
+pub const RXD_ERR_CE: u8 = 0x01; // CRC Error
+pub const RXD_ERR_SE: u8 = 0x02; // Symbol Error
+pub const RXD_ERR_SEQ: u8 = 0x04; // Sequence Error
+pub const RXD_ERR_CXE: u8 = 0x10; // Carrier Extension Error
+pub const RXD_ERR_TCPE: u8 = 0x20; // TCP/UDP Checksum Error
+pub const RXD_ERR_IPE: u8 = 0x40; // IP Checksum Error
+pub const RXD_ERR_RXE: u8 = 0x80; // Rx Data Error
+
+// mask to determine if packets should be dropped due to frame errors
+pub const RXD_ERR_FRAME_ERR_MASK: u8 =
+    RXD_ERR_CE | RXD_ERR_SE | RXD_ERR_SEQ | RXD_ERR_CXE | RXD_ERR_RXE;
+
 // Receive Descriptor Control
 pub const RXDCTL_PTHRESH: u32 = 0x0000003F; // RXDCTL Prefetch Threshold
 pub const RXDCTL_HTHRESH: u32 = 0x00003F00; // RXDCTL Host Threshold

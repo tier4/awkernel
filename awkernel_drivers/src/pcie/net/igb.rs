@@ -128,9 +128,15 @@ struct TxDescriptor {
     vtags: u16,
 }
 
+union RxDescriptor {
+    data: [u64; 2],
+    desc: RxDescriptorInner,
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(C)]
 /// Legacy Receive Descriptor Format (16B)
-struct RxDescriptor {
+struct RxDescriptorInner {
     buf: u64,
     len: u16,
     checksum: u16,
@@ -749,12 +755,12 @@ impl Igb {
             let buf_phy_addr = read_buf.get_phy_addr().as_usize();
 
             for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
-                desc.buf = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
-                desc.len = RXBUFFER_2048 as u16;
-                desc.checksum = 0;
-                desc.status = 0;
-                desc.error = 0;
-                desc.vtags = 0;
+                desc.desc.buf = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
+                desc.desc.len = RXBUFFER_2048 as u16;
+                desc.desc.checksum = 0;
+                desc.desc.status = 0;
+                desc.desc.error = 0;
+                desc.desc.vtags = 0;
             }
 
             que.rx.read_buf = Some(read_buf);
@@ -903,8 +909,92 @@ impl Igb {
         }
     }
 
-    // em_rxeof()
-    fn recv(&mut self) -> Result<Vec<Vec<u8>>, IgbDriverErr> {
+    fn rx_fill(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let que = &mut self.que[que_id];
+        let mut i = que.rx.rx_desc_head as usize;
+        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+
+        loop {
+            i += 1;
+            if i == rx_desc_ring.len() {
+                i = 0;
+            }
+
+            if i == que.rx.rx_desc_tail as usize {
+                break;
+            }
+
+            let desc = &mut rx_desc_ring[i];
+            desc.data = [0; 2];
+        }
+
+        que.rx.rx_desc_head = i as u32;
+        igb_hw::write_reg(&self.info, rdt_offset(que.me), i as u32)?;
+
+        Ok(())
+    }
+
+    fn rx_recv(&mut self, que_id: usize) -> Result<Option<Vec<u8>>, IgbDriverErr> {
+        let que = &mut self.que[que_id];
+        let mut i = que.rx.rx_desc_tail as usize;
+
+        if i == que.rx.rx_desc_head as usize {
+            return Ok(None);
+        }
+
+        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+
+        let desc = unsafe { rx_desc_ring[i].desc };
+        let status = desc.status;
+
+        if status & RXD_STAT_DD == 0 {
+            return Ok(None);
+        }
+
+        if status & RXD_STAT_EOP == 0 {
+            return self.recv_jumbo(que_id, i);
+        }
+
+        let is_accept = if desc.error & RXD_ERR_FRAME_ERR_MASK != 0 {
+            que.rx.dropped_pkts += 1;
+            false
+        } else {
+            true
+        };
+
+        let result = if is_accept {
+            let len = desc.len as usize;
+            let mut buf = Vec::with_capacity(len);
+            unsafe {
+                buf.set_len(len);
+
+                core::ptr::copy_nonoverlapping(
+                    (que.rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
+                        + i * RXBUFFER_2048 as usize) as *const u8,
+                    buf.as_mut_ptr(),
+                    len,
+                );
+            }
+            Some(buf)
+        } else {
+            None
+        };
+
+        i += 1;
+        if i == rx_desc_ring.len() {
+            i = 0;
+        }
+
+        que.rx.rx_desc_tail = i as usize;
+
+        self.rx_fill(que_id)?;
+
+        Ok(result)
+    }
+
+    fn recv_jumbo(&mut self, que_id: usize, mut i: usize) -> Result<Option<Vec<u8>>, IgbDriverErr> {
+        let que = &mut self.que[que_id];
+        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
         todo!()
     }
 }
@@ -1145,7 +1235,7 @@ impl NetDevice for Igb {
     }
 
     fn recv(&mut self) -> Option<Vec<u8>> {
-        todo!()
+        self.rx_recv(0).unwrap()
     }
 
     fn send(&mut self, data: &[u8]) -> Option<()> {
