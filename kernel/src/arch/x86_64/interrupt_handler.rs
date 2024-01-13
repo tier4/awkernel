@@ -31,7 +31,7 @@ pub unsafe fn init() {
         .set_handler_fn(vmm_communication_exception);
     IDT.x87_floating_point.set_handler_fn(x87_floating_point);
 
-    IDT[11].set_handler_fn(irq11);
+    IDT[0].set_handler_fn(irq11);
 
     IDT[32].set_handler_fn(irq32);
     IDT[33].set_handler_fn(irq33);
@@ -275,6 +275,7 @@ macro_rules! irq_handler {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
+            log::debug!("IRQ{}", $id);
         }
     };
 }
