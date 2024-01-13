@@ -14,7 +14,7 @@ pub const FCT: usize = 0x00030; // Flow Control Type - RW
 pub const CONNSW: usize = 0x00034; // Copper/Fiber switch control - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
-pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
+pub const ICS: usize = 0x000C8; // Interrupt Cause Set Register
 pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
@@ -153,6 +153,38 @@ pub const E1000_REVISION_0: u32 = 0;
 pub const E1000_REVISION_1: u32 = 1;
 pub const E1000_REVISION_2: u32 = 2;
 pub const E1000_REVISION_3: u32 = 3;
+
+// Interrupt Cause Read
+pub const ICR_TXDW: u32 = 0x00000001; // Transmit desc written back
+pub const ICR_TXQE: u32 = 0x00000002; // Transmit Queue empty
+pub const ICR_LSC: u32 = 0x00000004; // Link Status Change
+pub const ICR_RXSEQ: u32 = 0x00000008; // rx sequence error
+pub const ICR_RXDMT0: u32 = 0x00000010; // rx desc min. threshold (0)
+pub const ICR_RXO: u32 = 0x00000040; // rx overrun
+pub const ICR_RXT0: u32 = 0x00000080; // rx timer intr (ring 0)
+pub const ICR_MDAC: u32 = 0x00000200; // MDIO access complete
+pub const ICR_RXCFG: u32 = 0x00000400; // RX /c/ ordered set
+pub const ICR_GPI_EN0: u32 = 0x00000800; // GP Int 0
+pub const ICR_GPI_EN1: u32 = 0x00001000; // GP Int 1
+pub const ICR_GPI_EN2: u32 = 0x00002000; // GP Int 2
+pub const ICR_GPI_EN3: u32 = 0x00004000; // GP Int 3
+pub const ICR_TXD_LOW: u32 = 0x00008000;
+pub const ICR_SRPD: u32 = 0x00010000;
+pub const ICR_ACK: u32 = 0x00020000; // Receive Ack frame
+pub const ICR_MNG: u32 = 0x00040000; // Manageability event
+pub const ICR_DOCK: u32 = 0x00080000; // Dock/Undock
+pub const ICR_INT_ASSERTED: u32 = 0x80000000; // If this bit asserted, the driver should claim the interrupt
+pub const ICR_RXD_FIFO_PAR0: u32 = 0x00100000; // queue 0 Rx descriptor FIFO parity error
+pub const ICR_TXD_FIFO_PAR0: u32 = 0x00200000; // queue 0 Tx descriptor FIFO parity error
+pub const ICR_HOST_ARB_PAR: u32 = 0x00400000; // host arb read buffer parity error
+pub const ICR_PB_PAR: u32 = 0x00800000; // packet buffer parity error
+pub const ICR_RXD_FIFO_PAR1: u32 = 0x01000000; // queue 1 Rx descriptor FIFO parity error
+pub const ICR_TXD_FIFO_PAR1: u32 = 0x02000000; // queue 1 Tx descriptor FIFO parity error
+pub const ICR_ALL_PARITY: u32 = 0x03F00000; // all parity error bits
+pub const ICR_DSW: u32 = 0x00000020; // FW changed the status of DISSW bit in the FWSM
+pub const ICR_PHYINT: u32 = 0x00001000; // LAN connected device generates an interrupt
+pub const ICR_EPRST: u32 = 0x00100000; // ME hardware reset occurs
+pub const ICR_DRSTA: u32 = 0x40000000; // Device Reset Asserted
 
 // Receive Checksum Control
 pub const RXCSUM_PCSS_MASK: u32 = 0x000000FF; // Packet Checksum Start

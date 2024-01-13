@@ -7848,6 +7848,10 @@ impl IgbHw {
         Ok(())
     }
 
+    pub fn set_legacy_irq(&mut self, legacy_irq: bool) {
+        self.legacy_irq = legacy_irq;
+    }
+
     pub fn legacy_irq_quirk_spt(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         use MacType::*;
 

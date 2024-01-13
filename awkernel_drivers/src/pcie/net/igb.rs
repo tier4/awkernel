@@ -3,8 +3,8 @@
 use crate::{
     net::ether::ETHER_MAX_LEN,
     pcie::{
-        capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
-        PCIeInfo,
+        capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
+        PCIeDeviceErr, PCIeInfo,
     },
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
@@ -192,12 +192,45 @@ where
     if let Err(e) = igb.up() {
         log::debug!("igb: up: {:?}", e);
     } else {
+        awkernel_lib::interrupt::eoi();
+        awkernel_lib::interrupt::enable();
+
+        igb_hw::write_reg(&igb.info, IMC, !0)?;
+        igb_hw::read_reg(&igb.info, ICR)?;
+        igb_hw::write_reg(&igb.info, IMS, IMS_ENABLE_MASK)?;
+
+        // igb_hw::write_reg(&igb.info, ICR, 0)?;
+        let icr = igb_hw::read_reg(&igb.info, ICR)?;
+        log::info!("igb: ICR: {:b}", icr);
+
+        igb_hw::write_reg(&igb.info, ICS, 1 << 2)?;
+
+        let icr = igb_hw::read_reg(&igb.info, ICR)?;
+        log::info!("igb: ICR: {:b}", icr);
+
         log::debug!("igb: {:?}", igb.hw);
         loop {
             if let Some(pkt) = igb.recv() {
                 log::info!("igb: recv: {:x?}", pkt);
             }
             awkernel_lib::delay::wait_sec(1);
+
+            igb_hw::write_reg(&igb.info, ICR, 0)?;
+
+            let icr = igb_hw::read_reg(&igb.info, ICR)?;
+            if icr != 0 {
+                log::info!("igb: ICR: {:b}", icr);
+            }
+
+            let icr = igb_hw::read_reg(&igb.info, ICR)?;
+            if icr != 0 {
+                log::info!("igb: ICR: {:b}", icr);
+            }
+
+            if icr & ICR_LSC != 0 {
+                igb.hw.check_for_link(&igb.info)?;
+                // igb.hw.update_link_status(&igb.info)?;
+            }
         }
     }
 
@@ -247,6 +280,7 @@ enum PCIeInt {
     None,
     Msi(IRQ),
     MsiX(MsiX),
+    Legacy(LegacyInterrupt),
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -299,14 +333,19 @@ impl Igb {
 
         let mut que = [allocate_desc_rings(&info)?];
 
-        let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
-            pcie_int
-        } else if let Ok(pcie_int) = allocate_msi(&mut info) {
-            pcie_int
-        } else {
-            log::error!("igb: Failed to allocate interrupt.");
-            PCIeInt::None
-        };
+        // let pcie_int = allocate_legacy(&mut hw, &mut info)?;
+        let pcie_int = allocate_msi(&mut info)?;
+
+        // let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
+        //     pcie_int
+        // } else if let Ok(pcie_int) = allocate_msi(&mut info) {
+        //     pcie_int
+        // } else if let Ok(pcie_int) = allocate_legacy(&mut hw, &mut info) {
+        //     pcie_int
+        // } else {
+        //     log::error!("igb: Failed to allocate interrupt.");
+        //     PCIeInt::None
+        // };
 
         // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
         if (hw.get_mac_type() as u32) >= MacType::Em82571 as u32
@@ -352,7 +391,7 @@ impl Igb {
         let perm_mac_addr = hw.get_perm_mac_addr();
 
         log::info!(
-            "{:02x}:{:02x}:{:04x}:{:04x}: {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            "{:02x}:{:02x}:({:04x}:{:04x}): {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             info.segment_group,
             info.bus,
             info.vendor,
@@ -501,7 +540,7 @@ impl Igb {
         self.flags |= NetFlags::RUNNING;
         self.hw.clear_hw_cntrs(&self.info)?;
 
-        // self.enable_intr()?; TODO
+        self.enable_intr()?; // TODO
 
         // Don't reset the phy next time init gets called
         self.hw.set_phy_reset_disable(true);
@@ -921,7 +960,9 @@ impl Igb {
 
     fn enable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::Msi(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
+            PCIeInt::Msi(_) | PCIeInt::Legacy(_) => {
+                igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK)
+            }
             PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
             _ => Ok(()),
         }
@@ -1036,15 +1077,44 @@ impl Igb {
     }
 }
 
+fn allocate_legacy(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
+    let legacy_interrupt = crate::pcie::register_legacy_interrupt(|| {
+        log::debug!("igb interrupt.");
+    });
+
+    awkernel_lib::interrupt::register_handler(
+        11 + 32,
+        "igb",
+        Box::new(|irq| {
+            log::debug!("igb interrupt. irq = {irq}");
+        }),
+    )
+    .or(Err(IgbDriverErr::InitializeInterrupt))?;
+
+    let line = info.get_interrupt_line();
+    log::debug!("igb: interrupt line {}", line);
+    info.enable_legacy_interrupt();
+
+    awkernel_lib::interrupt::enable_irq(11 + 32);
+
+    hw.set_legacy_irq(true);
+
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+    }
+
+    if let Some(msix) = info.get_msix_mut() {
+        msix.disalbe();
+    }
+
+    Ok(PCIeInt::Legacy(legacy_interrupt))
+}
+
 fn allocate_msix(
     hw: &igb_hw::IgbHw,
     info: &mut PCIeInfo,
     que: &mut Queue,
 ) -> Result<PCIeInt, IgbDriverErr> {
-    if let Some(msi) = info.get_msi_mut() {
-        msi.disable();
-    }
-
     if info.get_msix_mut().is_none() {
         return Err(IgbDriverErr::InitializeInterrupt);
     }
@@ -1066,6 +1136,11 @@ fn allocate_msix(
 
     // TODO: register interrupt handler
 
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+    }
+    info.disable_legacy_interrupt();
+
     Ok(PCIeInt::MsiX(MsiX {
         link_vec,
         link_mask: 1 << link_vec,
@@ -1074,12 +1149,6 @@ fn allocate_msix(
 }
 
 fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
-    info.disable_legacy_interrupt();
-
-    if let Some(msix) = info.get_msix_mut() {
-        msix.disalbe();
-    }
-
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
@@ -1099,6 +1168,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             irq.enable();
 
             msi.enable();
+
+            if let Some(msix) = info.get_msix_mut() {
+                msix.disalbe();
+            }
+            info.disable_legacy_interrupt();
 
             Ok(PCIeInt::Msi(irq))
         } else {

@@ -1,8 +1,16 @@
+use alloc::{
+    boxed::Box,
+    collections::{btree_map::Entry, BTreeMap},
+};
 use array_macro::array;
-use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
+use awkernel_lib::{
+    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
+    sync::atomic::{AtomicU16, Ordering},
 };
 
 #[cfg(feature = "x86")]
@@ -15,6 +23,77 @@ mod capability;
 pub mod net;
 pub mod pcie_class;
 pub mod pcie_id;
+
+#[cfg(feature = "x86")]
+const LEGARCY_INTERRUPT_IRQ: u16 = 42;
+
+#[cfg(not(feature = "x86"))]
+const LEGARCY_INTERRUPT_IRQ: u16 = 0; // TODO: must be set for other architectures
+
+static LEGACY_INTERRUPTS: Mutex<BTreeMap<u16, Box<dyn FnMut() + Sync + Send>>> =
+    Mutex::new(BTreeMap::new());
+
+static LEGACY_INTERRUPT_ID: AtomicU16 = AtomicU16::new(0);
+
+#[derive(Debug, Clone, Copy)]
+pub struct LegacyInterrupt {
+    irq: u16,
+    handler_id: u16,
+}
+
+impl LegacyInterrupt {
+    pub fn get_irq(&self) -> u16 {
+        self.irq
+    }
+}
+
+/// Register a legacy interrupt handler,
+/// and return the ID of the handler.
+/// The ID is not the IRQ number.
+pub fn register_legacy_interrupt<F>(f: F) -> LegacyInterrupt
+where
+    F: FnMut() + Sync + Send + 'static,
+{
+    let f = Box::new(f);
+
+    let id = loop {
+        let id = LEGACY_INTERRUPT_ID.fetch_add(1, Ordering::Relaxed);
+        let mut node = MCSNode::new();
+        let mut guard = LEGACY_INTERRUPTS.lock(&mut node);
+        if let Entry::Vacant(e) = guard.entry(id) {
+            e.insert(f);
+            break id;
+        }
+    };
+
+    let _ = awkernel_lib::interrupt::register_handler(
+        LEGARCY_INTERRUPT_IRQ,
+        "PCIe Legacy Interrupt",
+        Box::new(|_irq| {
+            let mut node = MCSNode::new();
+            for (_, f) in LEGACY_INTERRUPTS.lock(&mut node).iter_mut() {
+                f();
+            }
+        }),
+    );
+
+    if id == 0 {
+        awkernel_lib::interrupt::enable_irq(LEGARCY_INTERRUPT_IRQ);
+    }
+
+    LegacyInterrupt {
+        irq: LEGARCY_INTERRUPT_IRQ,
+        handler_id: id,
+    }
+}
+
+/// Unregister a legacy interrupt handler.
+pub fn unregister_legacy_interrupt(legacy_interrupt: LegacyInterrupt) {
+    let mut node = MCSNode::new();
+    LEGACY_INTERRUPTS
+        .lock(&mut node)
+        .remove(&legacy_interrupt.handler_id);
+}
 
 #[derive(Debug, Clone)]
 pub enum BaseAddress {
@@ -52,8 +131,9 @@ impl BaseAddress {
                 Some(val)
             },
             BaseAddress::MMIO { addr, size, .. } => {
-                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
-                unsafe { Some(read_volatile((*addr + offset) as *const u16)) }
+                let dst = *addr + offset;
+                assert!(dst + 2 < *addr + *size);
+                unsafe { Some(read_volatile(dst as *const u16)) }
             }
             _ => None,
         }
@@ -72,10 +152,30 @@ impl BaseAddress {
                 Some(val)
             },
             BaseAddress::MMIO { addr, size, .. } => {
-                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
-                unsafe { Some(read_volatile((*addr + offset) as *const u32)) }
+                let dst = *addr + offset;
+                assert!(dst + 4 < *addr + *size);
+                unsafe { Some(read_volatile(dst as *const u32)) }
             }
             _ => None,
+        }
+    }
+
+    pub fn write8(&mut self, offset: usize, val: u8) {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO(addr) => unsafe {
+                let port = *addr + offset as u32;
+                core::arch::asm!("out dx, al",
+                        in("al") val,
+                        in("dx") port,
+                        options(nomem, nostack, preserves_flags));
+            },
+            BaseAddress::MMIO { addr, size, .. } => unsafe {
+                let dst = *addr + offset;
+                assert!(dst + 4 < *addr + *size);
+                write_volatile(dst as *mut u8, val);
+            },
+            _ => (),
         }
     }
 
@@ -90,8 +190,9 @@ impl BaseAddress {
                         options(nomem, nostack, preserves_flags));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
-                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
-                write_volatile((*addr + offset) as *mut u16, val);
+                let dst = *addr + offset;
+                assert!(dst + 2 < *addr + *size);
+                write_volatile(dst as *mut u16, val);
             },
             _ => (),
         }
@@ -108,8 +209,9 @@ impl BaseAddress {
                         options(nomem, nostack, preserves_flags));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
-                assert!(*addr & 0b11 == 0 && offset + 4 < *size);
-                write_volatile((*addr + offset) as *mut u32, val);
+                let dst = *addr + offset;
+                assert!(dst + 4 < *addr + *size);
+                write_volatile(dst as *mut u32, val);
             },
             _ => (),
         }
@@ -212,6 +314,7 @@ pub(crate) mod registers {
     mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
     mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
     mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>);
+    mmio_rw!(offset 0x3c => pub INTERRUPT_LINE<u8>);
 
     // Type 1 (PCI-to-PCI bridge)
     mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
@@ -221,9 +324,6 @@ pub(crate) mod registers {
 
     pub const BAR0: usize = 0x10;
 }
-
-#[cfg(feature = "x86")]
-use alloc::collections::BTreeMap;
 
 /// Initialize the PCIe for ACPI
 #[cfg(feature = "x86")]
@@ -458,6 +558,14 @@ impl PCIeInfo {
         self.segment_group
     }
 
+    pub fn get_interrupt_line(&mut self) -> u8 {
+        registers::INTERRUPT_LINE.read(self.addr)
+    }
+
+    pub fn set_interrupt_line(&mut self, irq: u8) {
+        registers::INTERRUPT_LINE.write(irq, self.addr);
+    }
+
     pub(crate) fn read_capability(&mut self) {
         capability::read(self);
     }
@@ -586,6 +694,10 @@ impl PCIeInfo {
 
     pub fn disable_legacy_interrupt(&mut self) {
         registers::STATUS_COMMAND.setbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
+    }
+
+    pub fn enable_legacy_interrupt(&mut self) {
+        registers::STATUS_COMMAND.clrbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
     }
 }
 
