@@ -81,8 +81,6 @@ pub enum MultipleMessage {
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
 impl Msi {
     pub fn new(cap_ptr: usize) -> Self {
-        log::debug!("MSI: (cap_ptr = {:#x})", cap_ptr);
-
         let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr);
 
         let multiple_message_capable = {

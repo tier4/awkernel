@@ -43,17 +43,12 @@ pub fn read(info: &mut PCIeInfo) {
         let base = info.config_base + cap_ptr;
         let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base);
 
-        log::debug!(
-            "PCIe Capability: info.addr = {:#x}, base = {base:#x}",
-            info.config_base
-        );
-
         let cap_id = msg_ctl_next_id & 0xff;
         cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
-            MSI => info.msix = msix::Msix::new(info, base),
-            MSIX => {
+            MSIX => info.msix = msix::Msix::new(info, base),
+            MSI => {
                 let msi = msi::Msi::new(base);
                 info.msi = Some(msi);
             }

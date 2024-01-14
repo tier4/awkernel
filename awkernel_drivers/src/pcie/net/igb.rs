@@ -188,46 +188,9 @@ where
     info.read_capability();
 
     let mut igb = Igb::new(info)?;
-    // let _ = igb.up();
-
-    igb_hw::write_reg(&igb.info, ICR, !0)?;
-    igb_hw::write_reg(&igb.info, IMS, IMS_ENABLE_MASK)?;
+    let _ = igb.up();
 
     igb_hw::write_reg(&igb.info, ICS, 1 << 2)?;
-
-    if let Err(e) = igb.up() {
-        log::debug!("igb: up: {:?}", e);
-    } else {
-        // awkernel_lib::interrupt::eoi();
-        awkernel_lib::interrupt::enable();
-
-        let icr = igb_hw::read_reg(&igb.info, ICR)?;
-        log::info!("igb: ICR: {:b}", icr);
-
-        igb_hw::write_reg(&igb.info, ICS, 1 << 2)?;
-
-        log::debug!("igb: {:?}", igb.hw);
-        loop {
-            if let Some(pkt) = igb.recv() {
-                log::info!("igb: recv: {:x?}", pkt);
-            }
-            awkernel_lib::delay::wait_sec(1);
-
-            igb_hw::write_reg(&igb.info, ICR, 0)?;
-
-            let icr = igb_hw::read_reg(&igb.info, ICR)?;
-            if icr != 0 {
-                log::info!("igb: ICR: {:b}", icr);
-            }
-
-            if icr & ICR_LSC != 0 {
-                igb.hw.check_for_link(&igb.info)?;
-                // igb.hw.update_link_status(&igb.info)?;
-            }
-
-            igb_hw::write_reg(&igb.info, ICR, !0)?; // clear interrupt
-        }
-    }
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
@@ -435,7 +398,6 @@ impl Igb {
     }
 
     fn update_link_status(&mut self) -> Result<(), IgbDriverErr> {
-        log::debug!("igb: update_link_status");
         if igb_hw::read_reg(&self.info, STATUS)? & STATUS_LU != 0 {
             if !self.link_active {
                 let (link_speed, link_duplex) = self.hw.get_speed_and_duplex(&self.info)?;
@@ -1177,8 +1139,6 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             irq.enable();
 
             msi.enable();
-
-            log::debug!("enable MSI");
 
             Ok(PCIeInt::Msi(irq))
         } else {
