@@ -447,7 +447,7 @@ fn scan_devices<F, FA, PT, E>(
 /// Information necessary for initializing the device
 #[derive(Debug)]
 pub struct PCIeInfo {
-    pub(crate) addr: usize,
+    pub(crate) config_base: usize,
     segment_group: u16,
     bus: u8,
     id: u16,
@@ -496,7 +496,7 @@ impl PCIeInfo {
             Err(PCIeDeviceErr::InitFailure)
         } else {
             Ok(PCIeInfo {
-                addr,
+                config_base: addr,
                 segment_group,
                 bus,
                 id,
@@ -539,19 +539,19 @@ impl PCIeInfo {
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {
-        registers::STATUS_COMMAND.read(self.addr)
+        registers::STATUS_COMMAND.read(self.config_base)
     }
 
     pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
-        registers::STATUS_COMMAND.write(csr, self.addr);
+        registers::STATUS_COMMAND.write(csr, self.config_base);
     }
 
     pub fn read_config_space_u32(&self, offset: usize) -> u32 {
-        unsafe { read_volatile((self.addr + offset) as *const u32) }
+        unsafe { read_volatile((self.config_base + offset) as *const u32) }
     }
 
     pub fn read_config_space_u16(&self, offset: usize) -> u16 {
-        unsafe { read_volatile((self.addr + offset) as *const u16) }
+        unsafe { read_volatile((self.config_base + offset) as *const u16) }
     }
 
     pub fn get_segment_group(&self) -> u16 {
@@ -559,11 +559,11 @@ impl PCIeInfo {
     }
 
     pub fn get_interrupt_line(&mut self) -> u8 {
-        registers::INTERRUPT_LINE.read(self.addr)
+        registers::INTERRUPT_LINE.read(self.config_base)
     }
 
     pub fn set_interrupt_line(&mut self, irq: u8) {
-        registers::INTERRUPT_LINE.write(irq, self.addr);
+        registers::INTERRUPT_LINE.write(irq, self.config_base);
     }
 
     pub(crate) fn read_capability(&mut self) {
@@ -588,18 +588,18 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        let mut csr = registers::STATUS_COMMAND.read(self.addr);
+        let mut csr = registers::STATUS_COMMAND.read(self.config_base);
 
         // Disable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, false);
         csr.set(registers::StatusCommand::IO_SPACE, false);
-        registers::STATUS_COMMAND.write(csr, self.addr);
+        registers::STATUS_COMMAND.write(csr, self.config_base);
 
         if self.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
         } else {
             let mut i = 0;
             while i < num_reg {
-                let bar = read_bar(self.addr + registers::BAR0 + i * 4);
+                let bar = read_bar(self.config_base + registers::BAR0 + i * 4);
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -615,7 +615,7 @@ impl PCIeInfo {
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
         csr.set(registers::StatusCommand::IO_SPACE, true);
-        registers::STATUS_COMMAND.write(csr, self.addr);
+        registers::STATUS_COMMAND.write(csr, self.config_base);
 
         // map MMIO regions
         for bar in self.base_addresses.iter() {
@@ -693,11 +693,17 @@ impl PCIeInfo {
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.setbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
+        registers::STATUS_COMMAND.setbits(
+            registers::StatusCommand::INTERRUPT_DISABLE,
+            self.config_base,
+        );
     }
 
     pub fn enable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.clrbits(registers::StatusCommand::INTERRUPT_DISABLE, self.addr);
+        registers::STATUS_COMMAND.clrbits(
+            registers::StatusCommand::INTERRUPT_DISABLE,
+            self.config_base,
+        );
     }
 }
 

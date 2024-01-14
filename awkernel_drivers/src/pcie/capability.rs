@@ -38,22 +38,27 @@ pub fn read(info: &mut PCIeInfo) {
         return;
     }
 
-    let mut cap_ptr = (registers::CAPABILITY_POINTER.read(info.addr) & 0b1111_1100) as usize;
+    let mut cap_ptr = (registers::CAPABILITY_POINTER.read(info.config_base) & 0b1111_1100) as usize;
     while cap_ptr != 0 {
-        let cap_addr = info.addr + cap_ptr;
-        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_addr);
+        let base = info.config_base + cap_ptr;
+        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base);
+
+        log::debug!(
+            "PCIe Capability: info.addr = {:#x}, base = {base:#x}",
+            info.config_base
+        );
 
         let cap_id = msg_ctl_next_id & 0xff;
         cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
-            MSI => info.msix = msix::Msix::new(info, cap_ptr),
+            MSI => info.msix = msix::Msix::new(info, base),
             MSIX => {
-                let msi = msi::Msi::new(cap_ptr);
+                let msi = msi::Msi::new(base);
                 info.msi = Some(msi);
             }
             PCI_EXPRESS => {
-                let pcie_cap = pcie_cap::PCIeCap::new(cap_ptr);
+                let pcie_cap = pcie_cap::PCIeCap::new(base);
                 info.pcie_cap = Some(pcie_cap);
             }
             _ => (),

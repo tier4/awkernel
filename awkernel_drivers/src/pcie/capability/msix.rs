@@ -15,7 +15,7 @@ mod registers {
 
 #[derive(Debug)]
 pub struct Msix {
-    cap_ptr: usize,
+    base: usize,
     table_size: u16, // N - 1
 
     table_offset: u32, // Table offset
@@ -60,7 +60,7 @@ impl Msix {
         let pba_bar = info.get_bar(pba_bir as usize)?;
 
         Some(Self {
-            cap_ptr,
+            base: cap_ptr,
             table_size,
             table_offset,
             table_bar,
@@ -69,11 +69,11 @@ impl Msix {
         })
     }
 
-    pub fn disalbe(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.cap_ptr);
+    pub fn disable(&mut self) {
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.base);
     }
 
     pub fn enable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.cap_ptr);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.base);
     }
 }

@@ -4994,6 +4994,7 @@ impl IgbHw {
 
         // Clear any pending interrupt events.
         let _icr = read_reg(info, ICR)?;
+        write_reg(info, ICR, !0)?;
 
         // If MWI was previously enabled, reenable it.
         if self.mac_type == Em82542Rev2_0 {

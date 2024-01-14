@@ -22,7 +22,7 @@ mod registers {
 
 #[derive(Debug)]
 pub struct Msi {
-    cap_ptr: usize,
+    base: usize,
     multiple_message_capable: MultipleMessage,
     per_vector_mask_capable: bool,
     bit64_address_capable: bool,
@@ -81,6 +81,8 @@ pub enum MultipleMessage {
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
 impl Msi {
     pub fn new(cap_ptr: usize) -> Self {
+        log::debug!("MSI: (cap_ptr = {:#x})", cap_ptr);
+
         let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr);
 
         let multiple_message_capable = {
@@ -101,7 +103,7 @@ impl Msi {
         let bit64_address_capable = ctrl_cap & registers::CTRL_BIT64_ADDRESS_CAPABLE != 0;
 
         Self {
-            cap_ptr,
+            base: cap_ptr,
             multiple_message_capable,
             per_vector_mask_capable,
             bit64_address_capable,
@@ -110,16 +112,16 @@ impl Msi {
 
     /// Enable MSI.
     pub fn enable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.cap_ptr);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.base);
     }
 
     /// Disable MSI.
     pub fn disable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.cap_ptr);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.base);
     }
 
     pub fn is_enabled(&self) -> bool {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr) & registers::CTRL_ENABLE != 0
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.base) & registers::CTRL_ENABLE != 0
     }
 
     pub fn get_multiple_message_capable(&self) -> MultipleMessage {
@@ -143,11 +145,9 @@ impl Msi {
             MultipleMessage::ThirtyTwo => 0b101,
         };
 
-        let reg = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.cap_ptr);
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.write(
-            (reg & !(0b111 << (16 + 4))) | (mme << (16 + 4)),
-            self.cap_ptr,
-        );
+        let reg = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.base);
+        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID
+            .write((reg & !(0b111 << (16 + 4))) | (mme << (16 + 4)), self.base);
 
         Ok(())
     }
@@ -166,19 +166,17 @@ impl Msi {
         }
 
         if self.bit64_address_capable {
-            registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.cap_ptr);
+            registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.base);
             registers::MESSAGE_ADDRESS_64_HIGH
-                .write((message_address as u64 >> 32) as u32, self.cap_ptr);
+                .write((message_address as u64 >> 32) as u32, self.base);
 
-            let data = registers::MESSAGE_DATA_64.read(self.cap_ptr);
-            registers::MESSAGE_DATA_64
-                .write((data & 0xffff_0000) | message_data as u32, self.cap_ptr);
+            let data = registers::MESSAGE_DATA_64.read(self.base);
+            registers::MESSAGE_DATA_64.write((data & 0xffff_0000) | message_data as u32, self.base);
         } else {
-            registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.cap_ptr);
+            registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.base);
 
-            let data = registers::MESSAGE_DATA_32.read(self.cap_ptr);
-            registers::MESSAGE_DATA_32
-                .write((data & 0xffff_0000) | message_data as u32, self.cap_ptr);
+            let data = registers::MESSAGE_DATA_32.read(self.base);
+            registers::MESSAGE_DATA_32.write((data & 0xffff_0000) | message_data as u32, self.base);
         }
     }
 
@@ -204,45 +202,21 @@ impl Msi {
         }
 
         if self.bit64_address_capable {
-            registers::MASK_BITS_64.write(mask, self.cap_ptr);
+            registers::MASK_BITS_64.write(mask, self.base);
         } else {
-            registers::MASK_BITS_32.write(mask, self.cap_ptr);
+            registers::MASK_BITS_32.write(mask, self.base);
         }
     }
 
-    pub fn read_peiding_bits(&self) -> Option<u32> {
+    pub fn read_pending_bits(&self) -> Option<u32> {
         if !self.per_vector_mask_capable {
             return None;
         }
 
         if self.bit64_address_capable {
-            Some(registers::PENDING_BITS_64.read(self.cap_ptr))
+            Some(registers::PENDING_BITS_64.read(self.base))
         } else {
-            Some(registers::PENDING_BITS_32.read(self.cap_ptr))
+            Some(registers::PENDING_BITS_32.read(self.base))
         }
     }
 }
-
-/*
-memo
-
-https://qiita.com/v1471/items/47f275e530bec624795f
-
-intc@8000000 {
-    phandle = <0x8011>;
-    reg = <0x0000000008000000 0x0000000000010000 0x00000000080a0000 0x0000000000f60000>;
-    #redistributor-regions = <0x1>;
-    compatible = "arm,gic-v3";
-    ranges;
-    #size-cells = <0x2>;
-    #address-cells = <0x2>;
-    interrupt-controller;
-    #interrupt-cells = <0x3>;
-    its@8080000 {
-            phandle = <0x8012>;
-            reg = <0x0000000008080000 0x0000000000020000>;
-            msi-controller;
-            compatible = "arm,gic-v3-its";
-    };
-};
-*/

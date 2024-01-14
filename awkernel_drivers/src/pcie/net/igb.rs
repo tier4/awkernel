@@ -188,6 +188,12 @@ where
     info.read_capability();
 
     let mut igb = Igb::new(info)?;
+    // let _ = igb.up();
+
+    igb_hw::write_reg(&igb.info, ICR, !0)?;
+    igb_hw::write_reg(&igb.info, IMS, IMS_ENABLE_MASK)?;
+
+    igb_hw::write_reg(&igb.info, ICS, 1 << 2)?;
 
     if let Err(e) = igb.up() {
         log::debug!("igb: up: {:?}", e);
@@ -318,12 +324,13 @@ impl fmt::Display for IgbDriverErr {
 
 impl Igb {
     fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let mut hw = igb_hw::IgbHw::new(&mut info)?;
-
         let mut que = [allocate_desc_rings(&info)?];
 
-        // let pcie_int = allocate_legacy(&mut hw, &mut info)?;
+        let mut hw = igb_hw::IgbHw::new(&mut info)?;
+
         let pcie_int = allocate_msi(&mut info)?;
+
+        // let pcie_int = allocate_legacy(&mut hw, &mut info)?;
 
         // let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
         //     pcie_int
@@ -526,6 +533,8 @@ impl Igb {
 
         self.setup_queues_msix()?;
 
+        // TODO: em_iff()
+
         self.flags |= NetFlags::RUNNING;
         self.hw.clear_hw_cntrs(&self.info)?;
 
@@ -533,6 +542,8 @@ impl Igb {
 
         // Don't reset the phy next time init gets called
         self.hw.set_phy_reset_disable(true);
+
+        self.hw.check_for_link(&self.info)?;
 
         Ok(())
     }
@@ -1094,7 +1105,7 @@ fn allocate_legacy(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<PCIeIn
     }
 
     if let Some(msix) = info.get_msix_mut() {
-        msix.disalbe();
+        msix.disable();
     }
 
     Ok(PCIeInt::Legacy(legacy_interrupt))
@@ -1131,6 +1142,9 @@ fn allocate_msix(
     }
     info.disable_legacy_interrupt();
 
+    let msix = info.get_msix_mut().unwrap();
+    msix.enable();
+
     Ok(PCIeInt::MsiX(MsiX {
         link_vec,
         link_mask: 1 << link_vec,
@@ -1139,10 +1153,10 @@ fn allocate_msix(
 }
 
 fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
-    if let Some(msix) = info.get_msix_mut() {
-        msix.disalbe();
-    }
     info.disable_legacy_interrupt();
+    if let Some(msix) = info.get_msix_mut() {
+        msix.disable();
+    }
 
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
@@ -1160,13 +1174,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             #[cfg(feature = "x86")]
             msi.set_x86_interrupt(0, irq.get_irq(), false, false);
 
-            for i in 1..255 {
-                awkernel_lib::interrupt::enable_irq(i);
-            }
-
             irq.enable();
 
             msi.enable();
+
+            log::debug!("enable MSI");
 
             Ok(PCIeInt::Msi(irq))
         } else {

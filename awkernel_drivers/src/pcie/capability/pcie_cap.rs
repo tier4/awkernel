@@ -48,19 +48,19 @@ pub mod registers {
 
 #[derive(Debug)]
 pub struct PCIeCap {
-    cap_ptr: usize,
+    base: usize,
 }
 
 impl PCIeCap {
     pub fn new(cap_ptr: usize) -> PCIeCap {
-        PCIeCap { cap_ptr }
+        PCIeCap { base: cap_ptr }
     }
 
     pub fn get_link_status_control(&self) -> registers::LinkStatusControl {
-        registers::LINK_STATUS_CONTROL.read(self.cap_ptr)
+        registers::LINK_STATUS_CONTROL.read(self.base)
     }
 
     pub fn set_link_status_control(&mut self, val: registers::LinkStatusControl) {
-        registers::LINK_STATUS_CONTROL.write(val, self.cap_ptr);
+        registers::LINK_STATUS_CONTROL.write(val, self.base);
     }
 }
