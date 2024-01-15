@@ -1,7 +1,7 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::{
-    net::ether::ETHER_MAX_LEN,
+    net::ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN},
     pcie::{
         capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
         PCIeDeviceErr, PCIeInfo,
@@ -13,11 +13,18 @@ use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
     interrupt::IRQ,
-    net::{ethertypes::EtherTypes, NetCapabilities, NetDevError, NetDevice, NetFlags, NET_MANAGER},
+    net::{
+        ethertypes::EtherTypes, multicast::MulticastIPv4, NetCapabilities, NetDevError, NetDevice,
+        NetFlags, NET_MANAGER,
+    },
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
-use core::fmt::{self, Debug};
+use core::{
+    fmt::{self, Debug},
+    net::Ipv4Addr,
+    ops::Mul,
+};
 
 mod igb_hw;
 
@@ -30,6 +37,8 @@ const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 const RECV_QUEUE_SIZE: usize = 32;
+
+pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
 // Supported RX Buffer Sizes
 const RXBUFFER_2048: u32 = 2048;
@@ -164,6 +173,8 @@ pub struct Igb {
     link_duplex: igb_hw::Duplex,
     smart_speed: u32,
     pcie_int: PCIeInt,
+
+    multicast_ipv4: MulticastIPv4,
 }
 
 pub fn attach<F, FA, E>(
@@ -379,6 +390,7 @@ impl Igb {
             link_duplex: igb_hw::Duplex::None,
             smart_speed: 0,
             pcie_int,
+            multicast_ipv4: MulticastIPv4::new(),
         };
 
         igb.new2()
@@ -507,6 +519,99 @@ impl Igb {
 
         Ok(())
     }
+
+    fn iff(&mut self) -> Result<(), IgbDriverErr> {
+        let mta = [0u8; MAX_NUM_MULTICAST_ADDRESSES * ETHER_ADDR_LEN];
+
+        if self.hw.get_mac_type() == MacType::Em82542Rev2_0 {
+            return Err(IgbDriverErr::NotSupported);
+        }
+
+        let mut reg_ctrl = igb_hw::read_reg(&self.info, RCTL)?;
+        reg_ctrl &= !(RCTL_MPE | RCTL_UPE);
+        self.flags &= !NetFlags::ALLMULTI;
+
+        if self.flags.contains(NetFlags::PROMISC)
+            || self.multicast_ipv4.ranges_len() > 0
+            || self.multicast_ipv4.addrs_len() > MAX_NUM_MULTICAST_ADDRESSES
+        {
+            self.flags |= NetFlags::ALLMULTI;
+            reg_ctrl |= RCTL_MPE;
+            if self.flags.contains(NetFlags::PROMISC) {
+                reg_ctrl |= RCTL_UPE;
+            }
+        } else {
+            // TODO
+
+            // let mut enm = self.info.multilist.iter();
+            // while let Some(enm) = enm.next() {
+            //     let mut mta = mta;
+            //     mta[..ETHER_ADDR_LEN].copy_from_slice(&enm.enm_addrlo[..ETHER_ADDR_LEN]);
+            //     self.mc_addr_list_update(&mta, self.info.multicnt, 0)?;
+            // }
+        }
+
+        // TODO
+
+        Ok(())
+    }
+
+    //     1446 void
+    // 1447 em_iff(struct em_softc *sc)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 1448 {
+    // 1449         struct ifnet *ifp = &sc->sc_ac.ac_if;
+    // 1450         struct arpcom *ac = &sc->sc_ac;
+    // 1451         u_int32_t reg_rctl = 0;
+    // 1452         u_int8_t  mta[MAX_NUM_MULTICAST_ADDRESSES * ETH_LENGTH_OF_ADDRESS];
+    // 1453         struct ether_multi *enm;
+    // 1454         struct ether_multistep step;
+    // 1455         int i = 0;
+    // 1456
+    // 1457         IOCTL_DEBUGOUT("em_iff: begin");
+    // 1458
+    // 1459         if (sc->hw.mac_type == em_82542_rev2_0) {
+    // 1460                 reg_rctl = E1000_READ_REG(&sc->hw, RCTL);
+    // 1461                 if (sc->hw.pci_cmd_word & CMD_MEM_WRT_INVALIDATE)
+    // 1462                         em_pci_clear_mwi(&sc->hw);
+    // 1463                 reg_rctl |= E1000_RCTL_RST;
+    // 1464                 E1000_WRITE_REG(&sc->hw, RCTL, reg_rctl);
+    // 1465                 msec_delay(5);
+    // 1466         }
+    // 1467
+    // 1468         reg_rctl = E1000_READ_REG(&sc->hw, RCTL);
+    // 1469         reg_rctl &= ~(E1000_RCTL_MPE | E1000_RCTL_UPE);
+    // 1470         ifp->if_flags &= ~IFF_ALLMULTI;
+    // 1471
+    // 1472         if (ifp->if_flags & IFF_PROMISC || ac->ac_multirangecnt > 0 ||
+    // 1473             ac->ac_multicnt > MAX_NUM_MULTICAST_ADDRESSES) {
+    // 1474                 ifp->if_flags |= IFF_ALLMULTI;
+    // 1475                 reg_rctl |= E1000_RCTL_MPE;
+    // 1476                 if (ifp->if_flags & IFF_PROMISC)
+    // 1477                         reg_rctl |= E1000_RCTL_UPE;
+    // 1478         } else {
+    // 1479                 ETHER_FIRST_MULTI(step, ac, enm);
+    // 1480                 while (enm != NULL) {
+    // 1481                         bcopy(enm->enm_addrlo, mta + i, ETH_LENGTH_OF_ADDRESS);
+    // 1482                         i += ETH_LENGTH_OF_ADDRESS;
+    // 1483
+    // 1484                         ETHER_NEXT_MULTI(step, enm);
+    // 1485                 }
+    // 1486
+    // 1487                 em_mc_addr_list_update(&sc->hw, mta, ac->ac_multicnt, 0);
+    // 1488         }
+    // 1489
+    // 1490         E1000_WRITE_REG(&sc->hw, RCTL, reg_rctl);
+    // 1491
+    // 1492         if (sc->hw.mac_type == em_82542_rev2_0) {
+    // 1493                 reg_rctl = E1000_READ_REG(&sc->hw, RCTL);
+    // 1494                 reg_rctl &= ~E1000_RCTL_RST;
+    // 1495                 E1000_WRITE_REG(&sc->hw, RCTL, reg_rctl);
+    // 1496                 msec_delay(5);
+    // 1497                 if (sc->hw.pci_cmd_word & CMD_MEM_WRT_INVALIDATE)
+    // 1498                         em_pci_set_mwi(&sc->hw);
+    // 1499         }
+    // 1500 }
 
     fn initialize_transmit_unit(&mut self) -> Result<(), IgbDriverErr> {
         use igb_hw::MacType::*;
@@ -708,7 +813,9 @@ impl Igb {
     }
 
     fn setup_queues_msix(&mut self) -> Result<(), IgbDriverErr> {
-        let PCIeInt::MsiX(msix) = &mut self.pcie_int else {return Ok(())};
+        let PCIeInt::MsiX(msix) = &mut self.pcie_int else {
+            return Ok(());
+        };
 
         // TODO
         Ok(())
@@ -1319,6 +1426,26 @@ impl NetDevice for Igb {
             }
         } else {
             Err(NetDevError::AlreadyDown)
+        }
+    }
+
+    fn add_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError> {
+        if self.multicast_ipv4.add_addr(addr) {
+            Ok(())
+        } else {
+            Err(NetDevError::MulticastAddrError)
+        }
+    }
+
+    fn add_multicast_range_ipv4(
+        &mut self,
+        start: Ipv4Addr,
+        end: Ipv4Addr,
+    ) -> Result<(), NetDevError> {
+        if self.multicast_ipv4.add_range(start, end) {
+            Ok(())
+        } else {
+            Err(NetDevError::MulticastAddrError)
         }
     }
 }

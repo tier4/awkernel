@@ -1,16 +1,16 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
-use core::fmt::Display;
+use bitflags::bitflags;
+use core::{fmt::Display, net::Ipv4Addr};
 use smoltcp::{
     iface::{Config, Interface},
     phy::{self, DeviceCapabilities},
     time::Instant,
-    wire::{EthernetAddress, HardwareAddress, Ipv4Address},
+    wire::{EthernetAddress, HardwareAddress},
 };
 
-use bitflags::bitflags;
-
 pub mod ethertypes;
+pub mod multicast;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +55,7 @@ pub enum NetDevError {
     AlreadyUp,
     AlreadyDown,
     DeviceError,
+    MulticastAddrError,
 }
 
 pub trait NetDevice {
@@ -76,6 +77,13 @@ pub trait NetDevice {
 
     fn up(&mut self) -> Result<(), NetDevError>;
     fn down(&mut self) -> Result<(), NetDevError>;
+
+    fn add_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError>;
+    fn add_multicast_range_ipv4(
+        &mut self,
+        start: Ipv4Addr,
+        end: Ipv4Addr,
+    ) -> Result<(), NetDevError>;
 }
 
 #[derive(Clone)]
@@ -165,8 +173,8 @@ pub struct NTxToken {
 #[derive(Clone)]
 pub struct NetIf {
     driver: NetDriver,
-    ipv4_addr: Vec<(Ipv4Address, u8)>, // (address, prefix length)
-    ipv4_gateway: Option<Ipv4Address>,
+    ipv4_addr: Vec<(Ipv4Addr, u8)>, // (address, prefix length)
+    ipv4_gateway: Option<Ipv4Addr>,
 }
 
 #[derive(Debug)]
@@ -177,8 +185,8 @@ pub enum NetManagerError {
 #[derive(Debug)]
 pub struct IfStatus {
     pub device_name: &'static str,
-    pub ipv4_addr: Vec<(Ipv4Address, u8)>,
-    pub ipv4_gateway: Option<Ipv4Address>,
+    pub ipv4_addr: Vec<(Ipv4Addr, u8)>,
+    pub ipv4_gateway: Option<Ipv4Addr>,
     pub link_up: bool,
     pub link_speed_mbs: u64,
     pub full_duplex: bool,
@@ -242,7 +250,7 @@ impl NetManager {
     pub fn add_ipv4_addr(
         &mut self,
         mac: &[u8; 6],
-        addr: Ipv4Address,
+        addr: Ipv4Addr,
         plen: u8,
     ) -> Result<(), NetManagerError> {
         let netif = self
@@ -260,7 +268,7 @@ impl NetManager {
         Ok(())
     }
 
-    pub fn set_ipv4_gateway(&mut self, mac: &[u8; 6], addr: Ipv4Address) {
+    pub fn set_ipv4_gateway(&mut self, mac: &[u8; 6], addr: Ipv4Addr) {
         let netif = self
             .drivers
             .iter_mut()
