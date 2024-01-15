@@ -8316,6 +8316,87 @@ impl IgbHw {
 
         hash_value
     }
+
+    /// Sets the bit in the multicast table corresponding to the hash value.
+    ///
+    /// hw - Struct containing variables accessed by shared code
+    /// hash_value - Multicast address hash value
+    pub fn mta_set(&self, info: &PCIeInfo, hash_value: u32) -> Result<(), IgbDriverErr> {
+        // The MTA is a register array of 128 32-bit registers. It is treated
+        // like an array of 4096 bits.  We want to set bit
+        // BitArray[hash_value]. So we figure out what register the bit is
+        // in, read it, OR in the new bit, then write back the new value.
+        // The register is determined by the upper 7 bits of the hash value
+        // and the bit within that register are determined by the lower 5
+        // bits of the value.
+        let mut hash_reg = (hash_value >> 5) & 0x7F;
+        if is_ich8(&self.mac_type) {
+            hash_reg &= 0x1F;
+        }
+
+        let hash_bit = hash_value & 0x1F;
+
+        let mut mta = read_reg_array(info, MTA, hash_reg as usize)?;
+        mta |= 1 << hash_bit;
+
+        // If we are on an 82544 and we are trying to write an odd offset in
+        // the MTA, save off the previous entry before writing and restore
+        // the old value after writing.
+        if self.mac_type == MacType::Em82544 && (hash_reg & 0x1) == 1 {
+            let temp = read_reg_array(info, MTA, (hash_reg - 1) as usize)?;
+            write_reg_array(info, MTA, hash_reg as usize, mta)?;
+            write_flush(info)?;
+            write_reg_array(info, MTA, (hash_reg - 1) as usize, temp)?;
+            write_flush(info)?;
+        } else {
+            write_reg_array(info, MTA, hash_reg as usize, mta)?;
+            write_flush(info)?;
+        }
+
+        Ok(())
+    }
+
+    //     8026 void
+    // 8027 em_mta_set(struct em_hw *hw, uint32_t hash_value)
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 8028 {
+    // 8029         uint32_t hash_bit, hash_reg;
+    // 8030         uint32_t mta;
+    // 8031         uint32_t temp;
+    // 8032         /*
+    // 8033          * The MTA is a register array of 128 32-bit registers. It is treated
+    // 8034          * like an array of 4096 bits.  We want to set bit
+    // 8035          * BitArray[hash_value]. So we figure out what register the bit is
+    // 8036          * in, read it, OR in the new bit, then write back the new value.
+    // 8037          * The register is determined by the upper 7 bits of the hash value
+    // 8038          * and the bit within that register are determined by the lower 5
+    // 8039          * bits of the value.
+    // 8040          */
+    // 8041         hash_reg = (hash_value >> 5) & 0x7F;
+    // 8042         if (IS_ICH8(hw->mac_type))
+    // 8043                 hash_reg &= 0x1F;
+    // 8044
+    // 8045         hash_bit = hash_value & 0x1F;
+    // 8046
+    // 8047         mta = E1000_READ_REG_ARRAY(hw, MTA, hash_reg);
+    // 8048
+    // 8049         mta |= (1 << hash_bit);
+    // 8050         /*
+    // 8051          * If we are on an 82544 and we are trying to write an odd offset in
+    // 8052          * the MTA, save off the previous entry before writing and restore
+    // 8053          * the old value after writing.
+    // 8054          */
+    // 8055         if ((hw->mac_type == em_82544) && ((hash_reg & 0x1) == 1)) {
+    // 8056                 temp = E1000_READ_REG_ARRAY(hw, MTA, (hash_reg - 1));
+    // 8057                 E1000_WRITE_REG_ARRAY(hw, MTA, hash_reg, mta);
+    // 8058                 E1000_WRITE_FLUSH(hw);
+    // 8059                 E1000_WRITE_REG_ARRAY(hw, MTA, (hash_reg - 1), temp);
+    // 8060                 E1000_WRITE_FLUSH(hw);
+    // 8061         } else {
+    // 8062                 E1000_WRITE_REG_ARRAY(hw, MTA, hash_reg, mta);
+    // 8063                 E1000_WRITE_FLUSH(hw);
+    // 8064         }
+    // 8065 }
 }
 
 fn nvm_82580_lan_func_offset(a: u8) -> u16 {
