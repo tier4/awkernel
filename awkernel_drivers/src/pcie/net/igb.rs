@@ -125,8 +125,8 @@ struct Tx {
 }
 
 struct Queue {
-    tx: Tx,
-    rx: Rx,
+    tx: Mutex<Tx>,
+    rx: Mutex<Rx>,
     me: usize,
     eims: u32,
 }
@@ -558,21 +558,24 @@ impl Igb {
         use igb_hw::MacType::*;
 
         for que in self.que.iter_mut() {
+            let mut node = MCSNode::new();
+            let mut tx = que.tx.lock(&mut node);
+
             // Setup the Base and Length of the Tx Descriptor Ring
             igb_hw::write_reg(
                 &self.info,
                 tdlen_offset(que.me),
-                que.tx.tx_desc_ring.get_size() as u32,
+                tx.tx_desc_ring.get_size() as u32,
             )?;
             igb_hw::write_reg(
                 &self.info,
                 tdbah_offset(que.me),
-                (que.tx.tx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
+                (tx.tx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
             )?;
             igb_hw::write_reg(
                 &self.info,
                 tdbal_offset(que.me),
-                que.tx.tx_desc_ring.get_phy_addr().as_usize() as u32,
+                tx.tx_desc_ring.get_phy_addr().as_usize() as u32,
             )?;
 
             // Setup the HW Tx Head and Tail descriptor pointers
@@ -613,7 +616,7 @@ impl Igb {
             }
 
             // Setup Transmit Descriptor Base Settings
-            que.tx.txd_cmd = TXD_CMD_IFCS | TXD_CMD_IDE;
+            tx.txd_cmd = TXD_CMD_IFCS | TXD_CMD_IDE;
 
             if matches!(
                 self.hw.get_mac_type(),
@@ -705,6 +708,9 @@ impl Igb {
 
         let que_len = self.que.len();
         for que in self.que.iter_mut() {
+            let mut node = MCSNode::new();
+            let rx = que.rx.lock(&mut node);
+
             if que_len > 1 {
                 // Disable Drop Enable for every queue, default has
                 // it enabled for queues > 0
@@ -717,17 +723,17 @@ impl Igb {
             igb_hw::write_reg(
                 &self.info,
                 rdlen_offset(que.me),
-                que.rx.rx_desc_ring.get_size() as u32,
+                rx.rx_desc_ring.get_size() as u32,
             )?;
             igb_hw::write_reg(
                 &self.info,
                 rdbah_offset(que.me),
-                (que.rx.rx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
+                (rx.rx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
             )?;
             igb_hw::write_reg(
                 &self.info,
                 rdbal_offset(que.me),
-                que.rx.rx_desc_ring.get_phy_addr().as_usize() as u32,
+                rx.rx_desc_ring.get_phy_addr().as_usize() as u32,
             )?;
 
             if matches!(
@@ -746,8 +752,11 @@ impl Igb {
 
         // Setup the HW Rx Head and Tail Descriptor Pointers
         for que in self.que.iter() {
+            let mut node = MCSNode::new();
+            let rx = que.rx.lock(&mut node);
+
             igb_hw::write_reg(&self.info, rdh_offset(que.me), 0)?;
-            igb_hw::write_reg(&self.info, rdt_offset(que.me), que.rx.rx_desc_head)?;
+            igb_hw::write_reg(&self.info, rdt_offset(que.me), rx.rx_desc_head)?;
         }
 
         Ok(())
@@ -774,10 +783,12 @@ impl Igb {
 
     fn setup_transmit_structures(&mut self) -> Result<(), IgbDriverErr> {
         for que in self.que.iter_mut() {
-            let tx_desc_ring = unsafe { que.tx.tx_desc_ring.get_slice_mut::<TxDescriptor>() };
+            let mut node = MCSNode::new();
+            let mut tx = que.tx.lock(&mut node);
+            tx.tx_desc_tail = 0;
+            tx.tx_desc_head = 0;
 
-            que.tx.tx_desc_tail = 0;
-            que.tx.tx_desc_head = 0;
+            let tx_desc_ring = unsafe { tx.tx_desc_ring.get_slice_mut::<TxDescriptor>() };
 
             let tx_buffer_size = TXBUFFER_16384 as usize * tx_desc_ring.len();
             let write_buf = DMAPool::new(
@@ -798,7 +809,7 @@ impl Igb {
                 desc.vtags = 0;
             }
 
-            que.tx.write_buf = Some(write_buf);
+            tx.write_buf = Some(write_buf);
         }
 
         Ok(())
@@ -806,10 +817,14 @@ impl Igb {
 
     fn setup_receive_structures(&mut self) -> Result<(), IgbDriverErr> {
         for que in self.que.iter_mut() {
-            let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+            let mut node = MCSNode::new();
+            let mut rx = que.rx.lock(&mut node);
 
-            que.rx.rx_desc_tail = 0;
-            que.rx.rx_desc_head = rx_desc_ring.len() as u32 - 1;
+            rx.rx_desc_tail = 0;
+            rx.rx_desc_head =
+                unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>().len() } as u32 - 1;
+
+            let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
 
             let rx_buffer_size = RXBUFFER_2048 as usize * rx_desc_ring.len();
             let read_buf = DMAPool::new(
@@ -826,7 +841,7 @@ impl Igb {
                 desc.desc.len = RXBUFFER_2048 as u16;
             }
 
-            que.rx.read_buf = Some(read_buf);
+            rx.read_buf = Some(read_buf);
         }
 
         Ok(())
@@ -848,8 +863,13 @@ impl Igb {
         }
 
         for que in self.que.iter_mut() {
-            que.rx.read_buf = None;
-            que.tx.write_buf = None;
+            let mut node = MCSNode::new();
+            let mut tx = que.tx.lock(&mut node);
+            tx.write_buf = None;
+
+            let mut node = MCSNode::new();
+            let mut rx = que.rx.lock(&mut node);
+            rx.read_buf = None;
         }
 
         Ok(())
@@ -899,10 +919,18 @@ impl Igb {
 
         let que = &mut self.que[que_id];
 
-        let tx_desc_ring = &mut que.tx.tx_desc_ring;
-        let buf = tx_desc_ring.get_phy_addr().as_usize() as u64;
-        let tx_ring = unsafe { tx_desc_ring.get_slice_mut::<TxDescriptor>() };
-        let txd = &mut tx_ring[que.tx.tx_desc_head];
+        let mut node = MCSNode::new();
+        let mut tx = que.tx.lock(&mut node);
+
+        let buf = tx.tx_desc_ring.get_phy_addr().as_usize() as u64;
+
+        let (len, txd) = unsafe {
+            let desc_head = tx.tx_desc_head;
+            (
+                tx.tx_desc_ring.get_slice_mut::<TxDescriptor>().len(),
+                &mut tx.tx_desc_ring.get_slice_mut::<TxDescriptor>()[desc_head],
+            )
+        };
 
         txd.buf = buf;
         txd.length = 512;
@@ -912,12 +940,12 @@ impl Igb {
         txd.css = 0;
         txd.vtags = 0;
 
-        que.tx.tx_desc_head += 1;
-        if que.tx.tx_desc_head == tx_ring.len() {
-            que.tx.tx_desc_head = 0;
+        tx.tx_desc_head += 1;
+        if tx.tx_desc_head == len {
+            tx.tx_desc_head = 0;
         }
 
-        igb_hw::write_reg(&self.info, tdt_offset(que.me), que.tx.tx_desc_head as u32)?;
+        igb_hw::write_reg(&self.info, tdt_offset(que.me), tx.tx_desc_head as u32)?;
         awkernel_lib::delay::wait_microsec(250);
 
         Ok(())
@@ -978,9 +1006,14 @@ impl Igb {
 
     fn rx_fill(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
-        let mut i = que.rx.rx_desc_head as usize;
+
+        let mut node = MCSNode::new();
+        let mut rx = que.rx.lock(&mut node);
+
+        let mut i = rx.rx_desc_head as usize;
         let mut prev;
-        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+        let rx_desc_tail = rx.rx_desc_tail as usize;
+        let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
 
         loop {
             prev = i;
@@ -989,7 +1022,7 @@ impl Igb {
                 i = 0;
             }
 
-            if i == que.rx.rx_desc_tail as usize {
+            if i == rx_desc_tail {
                 break;
             }
 
@@ -999,79 +1032,91 @@ impl Igb {
             desc.desc.len = RXBUFFER_2048 as u16;
         }
 
-        que.rx.rx_desc_head = prev as u32;
-        igb_hw::write_reg(&self.info, rdt_offset(que.me), que.rx.rx_desc_head)?;
+        rx.rx_desc_head = prev as u32;
+        igb_hw::write_reg(&self.info, rdt_offset(que.me), rx.rx_desc_head)?;
 
         Ok(())
     }
 
     fn rx_recv(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
-        let mut i = que.rx.rx_desc_tail as usize;
 
-        loop {
-            if i == que.rx.rx_desc_head as usize {
-                break;
-            }
+        {
+            let mut node = MCSNode::new();
+            let mut rx = que.rx.lock(&mut node);
 
-            if que.rx.read_queue.is_full() {
-                break;
-            }
+            let mut i = rx.rx_desc_tail as usize;
+            let rx_desc_ring_len = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>().len() };
 
-            let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+            loop {
+                if i == rx.rx_desc_head as usize {
+                    break;
+                }
 
-            let desc = unsafe { rx_desc_ring[i].desc };
-            let status = desc.status;
-            let errors = desc.error;
+                if rx.read_queue.is_full() {
+                    break;
+                }
 
-            if status & RXD_STAT_DD == 0 {
-                break;
-            }
+                let desc = {
+                    let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+                    unsafe { rx_desc_ring[i].desc }
+                };
+                let status = desc.status;
+                let errors = desc.error;
 
-            if status & RXD_STAT_EOP == 0 {
-                return self.recv_jumbo(que_id);
-            }
+                if status & RXD_STAT_DD == 0 {
+                    break;
+                }
 
-            let mut len = desc.len as usize;
+                if status & RXD_STAT_EOP == 0 {
+                    drop(rx);
+                    return self.recv_jumbo(que_id);
+                }
 
-            let is_accept = if errors & RXD_ERR_FRAME_ERR_MASK != 0 {
-                if self
-                    .hw
-                    .tbi_accept(status, errors, len as u16, VirtAddr::new(desc.buf as usize))
-                {
-                    len -= 1;
-                    true
+                let mut len = desc.len as usize;
+
+                let is_accept = if errors & RXD_ERR_FRAME_ERR_MASK != 0 {
+                    if self.hw.tbi_accept(
+                        status,
+                        errors,
+                        len as u16,
+                        VirtAddr::new(desc.buf as usize),
+                    ) {
+                        len -= 1;
+                        true
+                    } else {
+                        rx.dropped_pkts += 1;
+                        false
+                    }
                 } else {
-                    que.rx.dropped_pkts += 1;
-                    false
+                    true
+                };
+
+                if is_accept {
+                    let mut buf = Vec::with_capacity(len);
+                    unsafe {
+                        buf.set_len(len);
+
+                        core::ptr::copy_nonoverlapping(
+                            (rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
+                                + i * RXBUFFER_2048 as usize)
+                                as *const u8,
+                            buf.as_mut_ptr(),
+                            len,
+                        );
+                    }
+
+                    rx.read_queue.push(buf).unwrap();
+                };
+
+                i += 1;
+                if i == rx_desc_ring_len {
+                    i = 0;
                 }
-            } else {
-                true
-            };
-
-            if is_accept {
-                let mut buf = Vec::with_capacity(len);
-                unsafe {
-                    buf.set_len(len);
-
-                    core::ptr::copy_nonoverlapping(
-                        (que.rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
-                            + i * RXBUFFER_2048 as usize) as *const u8,
-                        buf.as_mut_ptr(),
-                        len,
-                    );
-                }
-
-                que.rx.read_queue.push(buf).unwrap();
-            };
-
-            i += 1;
-            if i == rx_desc_ring.len() {
-                i = 0;
             }
-        }
 
-        que.rx.rx_desc_tail = i as usize;
+            rx.rx_desc_tail = i as usize;
+        }
 
         self.rx_fill(que_id)?;
 
@@ -1080,7 +1125,11 @@ impl Igb {
 
     fn recv_jumbo(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
         let que = &mut self.que[que_id];
-        let rx_desc_ring = unsafe { que.rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+
+        let mut node = MCSNode::new();
+        let mut rx = que.rx.lock(&mut node);
+
+        let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>() };
         todo!()
     }
 }
@@ -1188,8 +1237,8 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
     };
 
     let que = Queue {
-        tx,
-        rx,
+        tx: Mutex::new(tx),
+        rx: Mutex::new(rx),
         me: 0,
         eims: 1,
     };
@@ -1324,13 +1373,21 @@ impl NetDevice for Igb {
     }
 
     fn recv(&mut self) -> Option<Vec<u8>> {
-        let data = self.que[0].rx.read_queue.pop();
-        if data.is_some() {
-            return data;
+        {
+            let mut node = MCSNode::new();
+            let mut rx = self.que[0].rx.lock(&mut node);
+
+            let data = rx.read_queue.pop();
+            if data.is_some() {
+                return data;
+            }
         }
 
         self.rx_recv(0).ok()?;
-        self.que[0].rx.read_queue.pop()
+
+        let mut node = MCSNode::new();
+        let mut rx = self.que[0].rx.lock(&mut node);
+        rx.read_queue.pop()
     }
 
     fn send(&mut self, data: &[u8]) -> Option<()> {
