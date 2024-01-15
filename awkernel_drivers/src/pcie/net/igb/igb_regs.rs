@@ -601,6 +601,9 @@ pub const _MDIC_INT_EN: u32 = 0x20000000;
 pub const MDIC_ERROR: u32 = 0x40000000;
 pub const MDIC_DEST: u32 = 0x80000000;
 
+pub const NUM_MTA_REGISTERS: usize = 128;
+pub const NUM_MTA_REGISTERS_ICH8LAN: usize = 32;
+
 // 1000BASE-T Status Register
 pub const SR_1000T_IDLE_ERROR_CNT: u16 = 0x00FF; // Num idle errors since last read
 pub const SR_1000T_ASYM_PAUSE_DIR: u16 = 0x0100; // LP asymmetric pause direction bit

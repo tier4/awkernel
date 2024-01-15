@@ -84,6 +84,13 @@ pub trait NetDevice {
         start: Ipv4Addr,
         end: Ipv4Addr,
     ) -> Result<(), NetDevError>;
+
+    fn remove_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError>;
+    fn remove_multicast_range_ipv4(
+        &mut self,
+        start: Ipv4Addr,
+        end: Ipv4Addr,
+    ) -> Result<(), NetDevError>;
 }
 
 #[derive(Clone)]
