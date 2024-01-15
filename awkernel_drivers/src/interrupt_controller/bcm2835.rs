@@ -125,7 +125,7 @@ impl InterruptController for BCM2835IntCtrl {
         Box::new(self.iter())
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, irq: u16, target: u32) {
         assert!(irq < 32);
 
         registers::MAILBOX0_WRITE_SET
@@ -134,7 +134,7 @@ impl InterruptController for BCM2835IntCtrl {
 
     fn send_ipi_broadcast(&mut self, irq: u16) {
         for i in 0..awkernel_lib::cpu::num_cpu() {
-            self.send_ipi(irq, i as u16);
+            self.send_ipi(irq, i as u32);
         }
     }
 
@@ -143,7 +143,7 @@ impl InterruptController for BCM2835IntCtrl {
 
         for i in 0..awkernel_lib::cpu::num_cpu() {
             if i != cpu_id {
-                self.send_ipi(irq, i as u16);
+                self.send_ipi(irq, i as u32);
             }
         }
     }

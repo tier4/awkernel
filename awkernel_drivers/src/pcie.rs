@@ -231,6 +231,7 @@ pub enum PCIeDeviceErr {
     PageTableFailure,
     UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
     InvalidClass,
+    Interrupt,
     NotImplemented,
 }
 
@@ -261,6 +262,9 @@ impl fmt::Display for PCIeDeviceErr {
             }
             Self::ReadFailure => {
                 write!(f, "Failed to read the device register.")
+            }
+            Self::Interrupt => {
+                write!(f, "Failed to initialize interrupt.")
             }
         }
     }

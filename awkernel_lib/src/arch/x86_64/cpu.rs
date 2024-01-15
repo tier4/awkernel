@@ -18,4 +18,8 @@ impl CPU for super::X86 {
             (cpuid_leaf_1.ebx >> 24 & 0xff) as usize
         }
     }
+
+    fn raw_cpu_id() -> usize {
+        Self::cpu_id()
+    }
 }

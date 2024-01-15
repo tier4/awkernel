@@ -30,6 +30,10 @@ impl CPU for super::AArch64 {
 
         result as usize
     }
+
+    fn raw_cpu_id() -> usize {
+        mpidr_el1::get() as usize
+    }
 }
 
 /// Set the maximum affinity for each affinity level.

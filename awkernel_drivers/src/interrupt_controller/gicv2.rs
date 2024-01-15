@@ -266,7 +266,7 @@ impl InterruptController for GICv2 {
         registers::GICC_CTLR.write(registers::GiccCtlrNonSecure::ENABLE_GRP1, self.gicc_base);
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, irq: u16, target: u32) {
         let value =
             registers::GIDG_SGIR_TARGET_LIST | 1 << ((target & 0xff) + 16) | (irq as u32 & 0x0f);
         registers::GICD_SGIR.write(value, self.gicd_base);

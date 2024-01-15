@@ -293,8 +293,6 @@ impl Igb {
 
         let pcie_int = allocate_msi(&mut info)?;
 
-        // let pcie_int = allocate_legacy(&mut hw, &mut info)?;
-
         // let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
         //     pcie_int
         // } else if let Ok(pcie_int) = allocate_msi(&mut info) {
@@ -1039,40 +1037,6 @@ impl Igb {
     }
 }
 
-fn allocate_legacy(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
-    let legacy_interrupt = crate::pcie::register_legacy_interrupt(|| {
-        log::debug!("igb interrupt.");
-    });
-
-    awkernel_lib::interrupt::register_handler(
-        11 + 32,
-        "igb",
-        Box::new(|irq| {
-            log::debug!("igb interrupt. irq = {irq}");
-        }),
-    )
-    .or(Err(IgbDriverErr::InitializeInterrupt))?;
-
-    let line = info.get_interrupt_line();
-    log::debug!("igb: interrupt line {}", line);
-    info.enable_legacy_interrupt();
-
-    awkernel_lib::interrupt::enable_irq(11);
-    awkernel_lib::interrupt::enable_irq(11 + 32);
-
-    // hw.set_legacy_irq(true);
-
-    if let Some(msi) = info.get_msi_mut() {
-        msi.disable();
-    }
-
-    if let Some(msix) = info.get_msix_mut() {
-        msix.disable();
-    }
-
-    Ok(PCIeInt::Legacy(legacy_interrupt))
-}
-
 fn allocate_msix(
     hw: &igb_hw::IgbHw,
     info: &mut PCIeInfo,
@@ -1130,14 +1094,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             }),
         ) {
             msi.set_multiple_message_enable(MultipleMessage::One)
-                .unwrap();
-
-            // TODO: support other architectures
-            #[cfg(feature = "x86")]
-            msi.set_x86_interrupt(0, irq.get_irq(), false, false);
+                .or(Err(IgbDriverErr::InitializeInterrupt))?;
+            msi.set_message_address(awkernel_lib::cpu::raw_cpu_id() as u32, irq.get_irq())
+                .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
             irq.enable();
-
             msi.enable();
 
             Ok(PCIeInt::Msi(irq))

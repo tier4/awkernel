@@ -356,7 +356,7 @@ impl InterruptController for GICv3 {
         self.init_per_cpu();
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, irq: u16, target: u32) {
         const ICC_CTLR_RSS: u64 = 1 << 18;
         const GICD_TYPER_RSS: u32 = 1 << 26;
 
@@ -387,7 +387,7 @@ impl InterruptController for GICv3 {
     fn send_ipi_broadcast(&mut self, irq: u16) {
         self.send_ipi_broadcast_without_self(irq);
         let id = awkernel_lib::cpu::cpu_id();
-        self.send_ipi(irq, id as u16);
+        self.send_ipi(irq, id as u32);
     }
 
     fn send_ipi_broadcast_without_self(&mut self, irq: u16) {

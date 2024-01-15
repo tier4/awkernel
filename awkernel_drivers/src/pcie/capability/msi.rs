@@ -1,3 +1,5 @@
+use crate::pcie::PCIeDeviceErr;
+
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
 
@@ -8,14 +10,14 @@ mod registers {
     pub const CTRL_BIT64_ADDRESS_CAPABLE: u32 = 1 << (7 + 16);
     pub const CTRL_PER_VECTOR_MASK_CAPABLE: u32 = 1 << (8 + 16);
 
-    mmio_rw!(offset 0x04 => pub MESSAGE_ADDRESS_32<u32>);
-    mmio_rw!(offset 0x08 => pub MESSAGE_DATA_32<u32>);
+    pub const MESSAGE_ADDRESS_32: usize = 0x04;
+    pub const MESSAGE_DATA_32: usize = 0x08;
     mmio_rw!(offset 0x0c => pub MASK_BITS_32<u32>);
     mmio_r!(offset 0x10 => pub PENDING_BITS_32<u32>);
 
-    mmio_rw!(offset 0x04 => pub MESSAGE_ADDRESS_64_LOW<u32>);
-    mmio_rw!(offset 0x08 => pub MESSAGE_ADDRESS_64_HIGH<u32>);
-    mmio_rw!(offset 0x0c => pub MESSAGE_DATA_64<u32>);
+    pub const MESSAGE_ADDRESS_64_LOW: usize = 0x04;
+    pub const MESSAGE_ADDRESS_64_HIGH: usize = 0x08;
+    pub const MESSAGE_DATA_64: usize = 0x0c;
     mmio_rw!(offset 0x10 => pub MASK_BITS_64<u32>);
     mmio_r!(offset 0x14 => pub PENDING_BITS_64<u32>);
 }
@@ -154,44 +156,33 @@ impl Msi {
         self.per_vector_mask_capable
     }
 
-    /// # Safety
-    ///
-    /// The address must be of an interrupt controller.
-    pub unsafe fn set_message_address(&mut self, message_address: usize, message_data: u16) {
-        if message_address > u32::MAX as usize {
-            log::warn!("PCIe: Interrupt is not enabled because the address is too large.");
-            return;
-        }
-
-        if self.bit64_address_capable {
-            registers::MESSAGE_ADDRESS_64_LOW.write(message_address as u32, self.base);
-            registers::MESSAGE_ADDRESS_64_HIGH
-                .write((message_address as u64 >> 32) as u32, self.base);
-
-            let data = registers::MESSAGE_DATA_64.read(self.base);
-            registers::MESSAGE_DATA_64.write((data & 0xffff_0000) | message_data as u32, self.base);
+    pub fn set_message_address(&mut self, target: u32, irq: u16) -> Result<(), PCIeDeviceErr> {
+        let (message_address, message_address_upper, message_data) = if self.bit64_address_capable {
+            (
+                (registers::MESSAGE_ADDRESS_64_LOW + self.base) as *mut () as *mut u32,
+                Some(unsafe {
+                    &mut *((registers::MESSAGE_ADDRESS_64_HIGH + self.base) as *mut () as *mut u32)
+                }),
+                (registers::MESSAGE_DATA_64 + self.base) as *mut () as *mut u16,
+            )
         } else {
-            registers::MESSAGE_ADDRESS_32.write(message_address as u32, self.base);
+            (
+                (registers::MESSAGE_ADDRESS_32 + self.base) as *mut () as *mut u32,
+                None,
+                (registers::MESSAGE_DATA_32 + self.base) as *mut () as *mut u16,
+            )
+        };
 
-            let data = registers::MESSAGE_DATA_32.read(self.base);
-            registers::MESSAGE_DATA_32.write((data & 0xffff_0000) | message_data as u32, self.base);
+        unsafe {
+            awkernel_lib::interrupt::set_pcie_msi(
+                target,
+                irq,
+                &mut *message_data,
+                &mut *message_address,
+                message_address_upper,
+            )
+            .or(Err(PCIeDeviceErr::Interrupt))
         }
-    }
-
-    #[cfg(feature = "x86")]
-    pub fn set_x86_interrupt(
-        &mut self,
-        apic_id: u32,
-        vector: u16,
-        edgetrigger: bool,
-        deassert: bool,
-    ) {
-        let message_data = (vector & 0xFF)
-            | if edgetrigger { 0 } else { 1 << 15 }
-            | if deassert { 0 } else { 1 << 14 };
-        let message_address = 0xfee0_0000 | ((apic_id & 0xff) << 12);
-
-        unsafe { self.set_message_address(message_address as usize, message_data) };
     }
 
     pub fn set_mask(&mut self, mask: u32) {
