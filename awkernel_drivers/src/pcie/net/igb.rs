@@ -1,7 +1,7 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::{
-    net::ether::{ETHER_ADDR_LEN, ETHER_MAX_LEN},
+    net::ether::ETHER_MAX_LEN,
     pcie::{
         capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
         PCIeDeviceErr, PCIeInfo,
@@ -24,7 +24,6 @@ use awkernel_lib::{
 use core::{
     fmt::{self, Debug},
     net::Ipv4Addr,
-    ops::Mul,
 };
 
 mod igb_hw;
@@ -101,12 +100,18 @@ const DEFAULT_RDTR: u32 = 0;
 const MAX_INTS_PER_SEC: u32 = 8000;
 const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
+type RxRing = [RxDescriptor; MAX_RXD];
+type RxBuffer = [[u8; RXBUFFER_2048 as usize]; MAX_RXD];
+
+type TxRing = [TxDescriptor; MAX_TXD];
+type TxBuffer = [[u8; TXBUFFER_16384 as usize]; MAX_TXD];
+
 struct Rx {
     rx_desc_head: u32,
     rx_desc_tail: usize,
-    rx_desc_ring: DMAPool,
+    rx_desc_ring: DMAPool<RxRing>,
 
-    read_buf: Option<DMAPool>,
+    read_buf: Option<DMAPool<RxBuffer>>,
 
     read_queue: RingQ<Vec<u8>>,
 
@@ -117,11 +122,11 @@ struct Rx {
 struct Tx {
     tx_desc_head: usize,
     tx_desc_tail: usize,
-    tx_desc_ring: DMAPool,
+    tx_desc_ring: DMAPool<TxRing>,
 
     txd_cmd: u8,
 
-    write_buf: Option<DMAPool>,
+    write_buf: Option<DMAPool<TxBuffer>>,
 }
 
 struct Queue {
@@ -788,9 +793,9 @@ impl Igb {
             tx.tx_desc_tail = 0;
             tx.tx_desc_head = 0;
 
-            let tx_desc_ring = unsafe { tx.tx_desc_ring.get_slice_mut::<TxDescriptor>() };
+            let tx_desc_ring = tx.tx_desc_ring.as_mut();
 
-            let tx_buffer_size = TXBUFFER_16384 as usize * tx_desc_ring.len();
+            let tx_buffer_size = TXBUFFER_16384 as usize * MAX_TXD;
             let write_buf = DMAPool::new(
                 self.info.get_segment_group() as usize,
                 tx_buffer_size / PAGESIZE,
@@ -821,12 +826,11 @@ impl Igb {
             let mut rx = que.rx.lock(&mut node);
 
             rx.rx_desc_tail = 0;
-            rx.rx_desc_head =
-                unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>().len() } as u32 - 1;
+            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
 
-            let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+            let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
-            let rx_buffer_size = RXBUFFER_2048 as usize * rx_desc_ring.len();
+            let rx_buffer_size = RXBUFFER_2048 as usize * MAX_RXD;
             let read_buf = DMAPool::new(
                 self.info.get_segment_group() as usize,
                 rx_buffer_size / PAGESIZE,
@@ -924,13 +928,9 @@ impl Igb {
 
         let buf = tx.tx_desc_ring.get_phy_addr().as_usize() as u64;
 
-        let (len, txd) = unsafe {
-            let desc_head = tx.tx_desc_head;
-            (
-                tx.tx_desc_ring.get_slice_mut::<TxDescriptor>().len(),
-                &mut tx.tx_desc_ring.get_slice_mut::<TxDescriptor>()[desc_head],
-            )
-        };
+        let len = tx.tx_desc_ring.as_ref().len();
+        let tx_desc_head = tx.tx_desc_head as usize;
+        let txd = &mut tx.tx_desc_ring.as_mut()[tx_desc_head];
 
         txd.buf = buf;
         txd.length = 512;
@@ -1013,7 +1013,7 @@ impl Igb {
         let mut i = rx.rx_desc_head as usize;
         let mut prev;
         let rx_desc_tail = rx.rx_desc_tail as usize;
-        let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice_mut::<RxDescriptor>() };
+        let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
         loop {
             prev = i;
@@ -1045,8 +1045,11 @@ impl Igb {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
+            if rx.read_buf.is_none() {
+                return Ok(());
+            }
+
             let mut i = rx.rx_desc_tail as usize;
-            let rx_desc_ring_len = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>().len() };
 
             loop {
                 if i == rx.rx_desc_head as usize {
@@ -1057,10 +1060,10 @@ impl Igb {
                     break;
                 }
 
-                let desc = {
-                    let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>() };
-                    unsafe { rx_desc_ring[i].desc }
-                };
+                let rx_desc_ring = rx.rx_desc_ring.as_ref();
+                let rx_desc_ring_len = rx_desc_ring.len();
+
+                let desc = unsafe { &rx_desc_ring[i].desc };
                 let status = desc.status;
                 let errors = desc.error;
 
@@ -1093,17 +1096,13 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let mut buf = Vec::with_capacity(len);
+                    let mut buf: Vec<u8> = Vec::with_capacity(len);
                     unsafe {
                         buf.set_len(len);
 
-                        core::ptr::copy_nonoverlapping(
-                            (rx.read_buf.as_ref().unwrap().get_virt_addr().as_usize()
-                                + i * RXBUFFER_2048 as usize)
-                                as *const u8,
-                            buf.as_mut_ptr(),
-                            len,
-                        );
+                        let read_buf = rx.read_buf.as_mut().unwrap();
+                        let src = &mut read_buf.as_mut()[i];
+                        core::ptr::copy_nonoverlapping(src.as_ptr(), buf.as_mut_ptr(), len);
                     }
 
                     rx.read_queue.push(buf).unwrap();
@@ -1129,7 +1128,7 @@ impl Igb {
         let mut node = MCSNode::new();
         let mut rx = que.rx.lock(&mut node);
 
-        let rx_desc_ring = unsafe { rx.rx_desc_ring.get_slice::<RxDescriptor>() };
+        let rx_desc_ring = rx.rx_desc_ring.as_ref();
         todo!()
     }
 }

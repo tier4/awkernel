@@ -8299,15 +8299,13 @@ impl IgbHw {
     }
 
     pub fn hash_mc_addr(&self, mac_addr: &[u8; NODE_ADDRESS_SIZE]) -> u32 {
-        let mut hash_value: u32 = 0;
-
-        if is_ich8(&self.mac_type) {
+        let mut hash_value = if is_ich8(&self.mac_type) {
             // [47:38] i.e. 0x158 for above example address
-            hash_value = mac_addr[4] as u32 >> 6 | (mac_addr[5] as u32) << 2;
+            mac_addr[4] as u32 >> 6 | (mac_addr[5] as u32) << 2
         } else {
             // [47:36] i.e. 0x563 for above example address
-            hash_value = mac_addr[4] as u32 >> 4 | (mac_addr[5] as u32) << 4;
-        }
+            mac_addr[4] as u32 >> 4 | (mac_addr[5] as u32) << 4
+        };
 
         hash_value &= 0xFFF;
         if is_ich8(&self.mac_type) {

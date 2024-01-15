@@ -23,12 +23,16 @@ static CONTINUOUS_MEMORY_POOL: [Mutex<TLSFAlloc>; NUMA_NUM_MAX] =
     array_macro::array![_ => Mutex::new(TLSFAlloc::new()); NUMA_NUM_MAX];
 
 #[derive(Debug)]
-pub struct DMAPool {
+pub struct DMAPool<T> {
     virt_addr: VirtAddr,
     phy_addr: PhyAddr,
     size: usize,
     numa_id: usize,
+    ptr: NonNull<T>,
 }
+
+unsafe impl<T: Send> Send for DMAPool<T> {}
+unsafe impl<T: Sync> Sync for DMAPool<T> {}
 
 /// # Safety
 ///
@@ -51,9 +55,10 @@ pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
     }
 }
 
-impl DMAPool {
+impl<T> DMAPool<T> {
     pub fn new(numa_id: usize, pages: usize) -> Option<Self> {
         assert!(numa_id < NUMA_NUM_MAX);
+        assert!(core::mem::size_of::<T>() < pages * PAGESIZE);
 
         let size = pages * PAGESIZE;
         let layout = Layout::from_size_align(size, PAGESIZE).ok()?;
@@ -67,12 +72,14 @@ impl DMAPool {
 
         let virt_addr = VirtAddr::new(pool.as_ptr() as usize);
         let phy_addr = paging::vm_to_phy(virt_addr).unwrap();
+        let ptr = NonNull::new(pool.as_ptr() as *mut T)?;
 
         Some(Self {
             virt_addr,
             phy_addr,
             size,
             numa_id,
+            ptr,
         })
     }
 
@@ -96,32 +103,16 @@ impl DMAPool {
         self.numa_id
     }
 
-    /// # Safety
-    ///
-    /// The size of the slice must be a multiple of the size of T.
-    #[inline(always)]
-    pub unsafe fn get_slice<'a, T: Sized>(&'a self) -> &'a [T] {
-        debug_assert!(self.size % core::mem::size_of::<T>() == 0);
-        core::slice::from_raw_parts::<'a, T>(
-            self.virt_addr.as_ptr(),
-            self.size / core::mem::size_of::<T>(),
-        )
+    pub fn as_ref(&self) -> &T {
+        unsafe { self.ptr.as_ref() }
     }
 
-    /// # Safety
-    ///
-    /// The size of the slice must be a multiple of the size of T.
-    #[inline(always)]
-    pub unsafe fn get_slice_mut<'a, T: Sized>(&'a mut self) -> &'a mut [T] {
-        debug_assert!(self.size % core::mem::size_of::<T>() == 0);
-        core::slice::from_raw_parts_mut::<'a, T>(
-            self.virt_addr.as_mut_ptr(),
-            self.size / core::mem::size_of::<T>(),
-        )
+    pub fn as_mut(&mut self) -> &mut T {
+        unsafe { self.ptr.as_mut() }
     }
 }
 
-impl Drop for DMAPool {
+impl<T> Drop for DMAPool<T> {
     fn drop(&mut self) {
         let ptr = self.virt_addr.as_mut_ptr::<u8>();
         let mut node = MCSNode::new();
