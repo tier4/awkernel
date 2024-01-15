@@ -58,7 +58,7 @@ pub unsafe fn init_dma_pool(numa_id: usize, start: VirtAddr, size: usize) {
 impl<T> DMAPool<T> {
     pub fn new(numa_id: usize, pages: usize) -> Option<Self> {
         assert!(numa_id < NUMA_NUM_MAX);
-        assert!(core::mem::size_of::<T>() < pages * PAGESIZE);
+        assert!(core::mem::size_of::<T>() <= pages * PAGESIZE);
 
         let size = pages * PAGESIZE;
         let layout = Layout::from_size_align(size, PAGESIZE).ok()?;
