@@ -59,8 +59,8 @@ pub enum NetDevError {
 }
 
 pub trait NetDevice {
-    fn recv(&mut self) -> Option<Vec<u8>>;
-    fn send(&mut self, data: &[u8]) -> Option<()>;
+    fn recv(&self) -> Option<Vec<u8>>;
+    fn send(&self, data: &[u8]) -> Option<()>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
@@ -75,19 +75,15 @@ pub trait NetDevice {
 
     fn device_short_name(&self) -> &'static str;
 
-    fn up(&mut self) -> Result<(), NetDevError>;
-    fn down(&mut self) -> Result<(), NetDevError>;
+    fn up(&self) -> Result<(), NetDevError>;
+    fn down(&self) -> Result<(), NetDevError>;
 
-    fn add_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError>;
-    fn add_multicast_range_ipv4(
-        &mut self,
-        start: Ipv4Addr,
-        end: Ipv4Addr,
-    ) -> Result<(), NetDevError>;
+    fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError>;
+    fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError>;
 
-    fn remove_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError>;
+    fn remove_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError>;
     fn remove_multicast_range_ipv4(
-        &mut self,
+        &self,
         start: Ipv4Addr,
         end: Ipv4Addr,
     ) -> Result<(), NetDevError>;

@@ -1029,10 +1029,10 @@ impl Igb {
         Ok(igb)
     }
 
-    fn rx_fill(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
+    fn rx_fill(&self, que_id: usize) -> Result<(), IgbDriverErr> {
         let inner = self.inner.read();
 
-        let que = &mut self.que[que_id];
+        let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
         let mut rx = que.rx.lock(&mut node);
@@ -1065,8 +1065,8 @@ impl Igb {
         Ok(())
     }
 
-    fn rx_recv(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
-        let que = &mut self.que[que_id];
+    fn rx_recv(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let que = &self.que[que_id];
 
         {
             let inner = self.inner.read();
@@ -1152,8 +1152,8 @@ impl Igb {
         Ok(())
     }
 
-    fn recv_jumbo(&mut self, que_id: usize) -> Result<(), IgbDriverErr> {
-        let que = &mut self.que[que_id];
+    fn recv_jumbo(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
         let mut rx = que.rx.lock(&mut node);
@@ -1410,7 +1410,7 @@ impl NetDevice for Igb {
         todo!()
     }
 
-    fn recv(&mut self) -> Option<Vec<u8>> {
+    fn recv(&self) -> Option<Vec<u8>> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[0].rx.lock(&mut node);
@@ -1428,12 +1428,12 @@ impl NetDevice for Igb {
         rx.read_queue.pop()
     }
 
-    fn send(&mut self, data: &[u8]) -> Option<()> {
+    fn send(&self, data: &[u8]) -> Option<()> {
         // em_start()
         todo!()
     }
 
-    fn up(&mut self) -> Result<(), NetDevError> {
+    fn up(&self) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if !inner.flags.contains(NetFlags::UP) {
@@ -1453,11 +1453,11 @@ impl NetDevice for Igb {
         }
     }
 
-    fn down(&mut self) -> Result<(), NetDevError> {
+    fn down(&self) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if inner.flags.contains(NetFlags::UP) {
-            if let Err(e) = inner.stop(true, &mut self.que) {
+            if let Err(e) = inner.stop(true, &self.que) {
                 log::error!("igb: stop failed: {:?}", e);
                 Err(NetDevError::DeviceError)
             } else {
@@ -1469,7 +1469,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn add_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError> {
+    fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if inner.multicast_ipv4.add_addr(addr) {
@@ -1480,11 +1480,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn add_multicast_range_ipv4(
-        &mut self,
-        start: Ipv4Addr,
-        end: Ipv4Addr,
-    ) -> Result<(), NetDevError> {
+    fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if inner.multicast_ipv4.add_range(start, end) {
@@ -1495,7 +1491,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn remove_multicast_addr_ipv4(&mut self, addr: Ipv4Addr) -> Result<(), NetDevError> {
+    fn remove_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
         let mut inner = self.inner.write();
 
         if inner.multicast_ipv4.remove_addr(addr) {
@@ -1507,7 +1503,7 @@ impl NetDevice for Igb {
     }
 
     fn remove_multicast_range_ipv4(
-        &mut self,
+        &self,
         start: Ipv4Addr,
         end: Ipv4Addr,
     ) -> Result<(), NetDevError> {
