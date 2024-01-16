@@ -1,12 +1,12 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
-use alloc::{collections::BTreeMap, format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec, vec::Vec};
 use bitflags::bitflags;
-use core::{fmt::Display, future::Future, net::Ipv4Addr};
+use core::{fmt::Display, net::Ipv4Addr};
 use smoltcp::{
-    iface::{Config, Interface},
+    iface::{Config, Interface, SocketSet},
     phy::{self, DeviceCapabilities},
     time::Instant,
-    wire::{EthernetAddress, HardwareAddress},
+    wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv4Address},
 };
 
 pub mod ether;
@@ -222,6 +222,7 @@ pub struct NTxToken {
 
 pub struct NetIf {
     driver: NetDriver,
+    interface: Mutex<Interface>,
     ipv4_addr: Mutex<Vec<(Ipv4Addr, u8)>>, // (address, prefix length)
     ipv4_gateway: Mutex<Option<Ipv4Addr>>, // default gateway
 }
@@ -274,26 +275,33 @@ impl Display for IfStatus {
 }
 
 pub struct NetManager {
-    drivers: Vec<Arc<NetIf>>,
-    irq_to_drivers: BTreeMap<u16, Arc<NetIf>>,
+    interfaces: Vec<Arc<NetIf>>,
+    irq_to_interfaces: BTreeMap<u16, Arc<NetIf>>,
 }
 
 impl NetManager {
     const fn new() -> Self {
         Self {
-            drivers: Vec::new(),
-            irq_to_drivers: BTreeMap::new(),
+            interfaces: Vec::new(),
+            irq_to_interfaces: BTreeMap::new(),
         }
     }
 
     pub fn add_interface(&mut self, inner: Arc<dyn NetDevice + Sync + Send>) {
+        let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(inner.mac_address()));
+        let config = Config::new(hardware_addr);
+        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+        let mut driver = NetDriver { inner };
+        let interface = Mutex::new(Interface::new(config, &mut driver, timestamp));
+
         let value = NetIf {
-            driver: NetDriver { inner },
+            driver,
+            interface,
             ipv4_addr: Mutex::new(Vec::new()),
             ipv4_gateway: Mutex::new(None),
         };
 
-        self.drivers.push(Arc::new(value));
+        self.interfaces.push(Arc::new(value));
     }
 
     pub fn add_ipv4_addr(
@@ -303,11 +311,25 @@ impl NetManager {
         plen: u8,
     ) -> Result<(), NetManagerError> {
         let netif = self
-            .drivers
+            .interfaces
             .iter_mut()
             .find(|d| d.driver.inner.mac_address() == *mac)
             .ok_or(NetManagerError::InvalidInterfaceID)?;
 
+        let mut node = MCSNode::new();
+        let mut interface = netif.interface.lock(&mut node);
+        interface.update_ip_addrs(|ip_addrs| {
+            let octets = addr.octets();
+
+            ip_addrs
+                .push(IpCidr::new(
+                    IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
+                    plen,
+                ))
+                .unwrap();
+        });
+
+        // TODO: remove this
         let mut node = MCSNode::new();
         let mut ipv4_addr = netif.ipv4_addr.lock(&mut node);
         ipv4_addr.push((addr, plen));
@@ -315,26 +337,37 @@ impl NetManager {
         Ok(())
     }
 
-    pub fn set_ipv4_gateway(&mut self, mac: &[u8; 6], addr: Ipv4Addr) {
+    pub fn set_ipv4_gateway(
+        &mut self,
+        mac: &[u8; 6],
+        addr: Ipv4Addr,
+    ) -> Result<(), NetManagerError> {
         let netif = self
-            .drivers
+            .interfaces
             .iter_mut()
-            .find(|d| {
-                // let mut node = MCSNode::new();
-                // let result = d.driver.inner.lock(&mut node).mac_address() == *mac;
-                d.driver.inner.mac_address() == *mac
-            })
+            .find(|d| d.driver.inner.mac_address() == *mac)
+            .ok_or(NetManagerError::InvalidInterfaceID)?;
+
+        let mut node = MCSNode::new();
+        let mut interface = netif.interface.lock(&mut node);
+
+        interface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
             .unwrap();
 
+        // TODO: remove this
         let mut node = MCSNode::new();
         let mut ipv4_gateway = netif.ipv4_gateway.lock(&mut node);
         *ipv4_gateway = Some(addr);
+
+        Ok(())
     }
 
     pub fn get_interfaces(&self) -> Vec<IfStatus> {
         let mut result = Vec::new();
 
-        for netif in self.drivers.iter() {
+        for netif in self.interfaces.iter() {
             let inner = &netif.driver.inner;
             let mac_address = inner.mac_address();
             let link_up = inner.link_up();
@@ -365,13 +398,13 @@ impl NetManager {
 
     // TODO: fix
     fn create_netif(&mut self) -> Option<(NetDriver, Interface)> {
-        if self.drivers.is_empty() {
+        if self.interfaces.is_empty() {
             return None;
         }
 
         // TODO: decide how to choose the driver
         let mut device = NetDriver {
-            inner: self.drivers[0].driver.inner.clone(),
+            inner: self.interfaces[0].driver.inner.clone(),
         };
 
         let addr = device.inner.mac_address();
@@ -393,6 +426,7 @@ impl NetManager {
 pub static NET_MANAGER: Mutex<NetManager> = Mutex::new(NetManager::new());
 pub static IRQS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
 pub static WAKER: Mutex<Option<core::task::Waker>> = Mutex::new(None);
+pub static SOCKET_SET: Mutex<Option<Box<SocketSet>>> = Mutex::new(None);
 
 pub fn get_interfaces() -> Vec<IfStatus> {
     let node = &mut MCSNode::new();
@@ -401,7 +435,14 @@ pub fn get_interfaces() -> Vec<IfStatus> {
 }
 
 /// Service routine for network device interrupt.
+/// This routine should be called by interrupt handlers provided by device drivers.
 pub fn netif_interrupt(irq: u16) {
+    {
+        let mut node = &mut MCSNode::new();
+        let mut irqs = IRQS.lock(&mut node);
+        irqs.push(irq);
+    }
+
     let mut node = &mut MCSNode::new();
     if let Some(waker) = WAKER.lock(&mut node).take() {
         waker.wake();
@@ -410,39 +451,45 @@ pub fn netif_interrupt(irq: u16) {
     log::debug!("netif interrupt: {}", irq);
 }
 
-/// Handle network device interrupt actually.
-pub async fn network_interrupt_service() {
-    loop {
-        let srv = NetworkInterruptService;
-        srv.await;
-
-        let mut node = &mut MCSNode::new();
-        let net_manager = NET_MANAGER.lock(&mut node);
-
-        let mut node = &mut MCSNode::new();
-        for irq in IRQS.lock(&mut node).iter() {
-            if let Some(driver) = net_manager.irq_to_drivers.get(irq) {
-                driver.driver.inner.interrupt(*irq).unwrap();
-            }
-        }
-    }
+/// Register a waker for a network device interrupt service.
+///
+/// The old waker will be replaced.
+/// The waker will be called when the network device interrupt occurs once
+/// and it will be removed after it is called.
+pub fn register_network_interrupt_service_waker(waker: core::task::Waker) {
+    let mut node = &mut MCSNode::new();
+    let mut w = WAKER.lock(&mut node);
+    *w = Some(waker);
 }
 
-struct NetworkInterruptService;
+/// Handle network device interrupt actually.
+pub fn network_interrupt_service() {
+    let mut node = &mut MCSNode::new();
+    let net_manager = NET_MANAGER.lock(&mut node);
 
-impl Future for NetworkInterruptService {
-    type Output = ();
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let waker = cx.waker().clone();
+    {
+        let mut node = &mut MCSNode::new();
+        let mut irqs = IRQS.lock(&mut node);
 
         let mut node = &mut MCSNode::new();
-        let mut w = WAKER.lock(&mut node);
-        *w = Some(waker);
+        let mut socket_set = SOCKET_SET.lock(&mut node);
 
-        core::task::Poll::Pending
+        for irq in irqs.iter() {
+            if let Some(interface) = net_manager.irq_to_interfaces.get(irq) {
+                if let Err(e) = interface.driver.inner.interrupt(*irq) {
+                    log::error!(
+                        "{}: netif interrupt error, {:?}",
+                        interface.driver.inner.device_short_name(),
+                        e
+                    );
+                } else {
+                    // TODO: poll
+                }
+            }
+        }
+
+        drop(socket_set);
+
+        irqs.clear();
     }
 }

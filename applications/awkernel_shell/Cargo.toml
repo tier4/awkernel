@@ -18,7 +18,6 @@ default-features = false
 path = "../../awkernel_lib"
 default-features = false
 
-
 [dependencies.smoltcp]
 version = "0.11.0"
 default-features = false
