@@ -6,7 +6,6 @@ pub mod device;
 pub mod framebuffer;
 pub mod hal;
 pub mod interrupt_controller;
-pub mod net;
 pub mod uart;
 
 #[cfg(feature = "aarch64")]

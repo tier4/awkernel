@@ -1,10 +1,10 @@
-use awkernel_lib::addr::{virt_addr::VirtAddr, Addr};
+use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
+    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
+};
 use bitflags::bitflags;
 
-use crate::{
-    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
-    pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
-};
+use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::{igb_regs::*, IgbDriverErr};
 

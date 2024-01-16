@@ -1,19 +1,17 @@
 //! # Intel Gigabit Ethernet Controller
 
-use crate::{
-    net::ether::ETHER_MAX_LEN,
-    pcie::{
-        capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
-        PCIeDeviceErr, PCIeInfo,
-    },
+use crate::pcie::{
+    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
+    PCIeDeviceErr, PCIeInfo,
 };
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
+        ether::ETHER_MAX_LEN,
         ethertypes::EtherTypes,
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
         NetCapabilities, NetDevError, NetDevice, NetFlags, NET_MANAGER,
@@ -224,7 +222,7 @@ where
 
     let node = &mut MCSNode::new();
     let mut net_master = NET_MANAGER.lock(node);
-    net_master.add_interface(Arc::new(Mutex::new(Box::new(igb))));
+    net_master.add_interface(Arc::new(igb));
 
     Ok(())
 }
@@ -1215,8 +1213,8 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
 
         if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
             DEVICE_SHORT_NAME,
-            Box::new(|_irq| {
-                log::debug!("igb interrupt.");
+            Box::new(|irq| {
+                awkernel_lib::net::netif_interrupt(irq);
             }),
         ) {
             msi.set_multiple_message_enable(MultipleMessage::One)
@@ -1466,6 +1464,21 @@ impl NetDevice for Igb {
             }
         } else {
             Err(NetDevError::AlreadyDown)
+        }
+    }
+
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
+        log::debug!("igb: interrupt: {}", irq);
+        Ok(())
+    }
+
+    fn irqs(&self) -> Vec<u16> {
+        let inner = self.inner.read();
+
+        match &inner.pcie_int {
+            PCIeInt::MsiX(msix) => todo!(),
+            PCIeInt::Msi(msi) => vec![msi.get_irq()],
+            _ => vec![],
         }
     }
 
