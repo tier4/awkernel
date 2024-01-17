@@ -11,7 +11,11 @@ use smoltcp::{
 
 pub mod ether;
 pub mod ethertypes;
+pub mod ip;
+pub mod ipv6;
 pub mod multicast;
+pub mod tcp;
+pub mod udp;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

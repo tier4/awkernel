@@ -313,18 +313,11 @@ impl IgbInner {
     fn new(mut info: PCIeInfo, que: &[Queue]) -> Result<Self, PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let pcie_int = allocate_msi(&mut info)?;
-
-        // let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que[0]) {
-        //     pcie_int
-        // } else if let Ok(pcie_int) = allocate_msi(&mut info) {
-        //     pcie_int
-        // } else if let Ok(pcie_int) = allocate_legacy(&mut hw, &mut info) {
-        //     pcie_int
-        // } else {
-        //     log::error!("igb: Failed to allocate interrupt.");
-        //     PCIeInt::None
-        // };
+        let pcie_int = if let Ok(pcie_int) = allocate_msi(&mut info) {
+            pcie_int
+        } else {
+            PCIeInt::None
+        };
 
         // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
         if (hw.get_mac_type() as u32) >= MacType::Em82571 as u32
