@@ -1,4 +1,3 @@
-use alloc::collections::BTreeMap;
 use array_macro::array;
 use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
@@ -256,7 +255,7 @@ pub(crate) mod registers {
 pub fn init_with_acpi<F, FA, PT, E>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
-    page_allocators: &mut BTreeMap<u32, FA>,
+    page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
 ) where
     F: Frame,
     FA: FrameAllocator<F, E>,
@@ -438,6 +437,14 @@ impl PCIeInfo {
                 pcie_cap: None,
             })
         }
+    }
+
+    pub fn get_device_name(&self) -> Option<pcie_id::PCIeID> {
+        self.device_name
+    }
+
+    pub fn get_class(&self) -> pcie_class::PCIeClass {
+        self.pcie_class
     }
 
     pub fn get_id(&self) -> u16 {

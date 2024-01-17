@@ -55,6 +55,18 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct EtherFrameBuf {
+    pub data: Vec<u8>,
+    pub vlan: Option<u16>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EtherFrameRef<'a> {
+    pub data: &'a [u8],
+    pub vlan: Option<u16>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetDevError {
     AlreadyUp,
@@ -115,8 +127,8 @@ pub enum NetDevError {
 /// }
 /// ```
 pub trait NetDevice {
-    fn recv(&self) -> Option<Vec<u8>>;
-    fn send(&self, data: &[u8]) -> Option<()>;
+    fn recv(&self) -> Option<EtherFrameBuf>;
+    fn send(&self, data: EtherFrameRef) -> Option<()>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
@@ -134,6 +146,7 @@ pub trait NetDevice {
     fn up(&self) -> Result<(), NetDevError>;
     fn down(&self) -> Result<(), NetDevError>;
 
+    /// Interrupt handler for network device.
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError>;
     fn irqs(&self) -> Vec<u16>;
 
@@ -150,6 +163,7 @@ pub trait NetDevice {
 
 pub struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
+    vlan: Option<u16>,
 }
 
 pub struct NetDriverRef<'a> {
@@ -172,11 +186,12 @@ impl<'a> phy::Device for NetDriverRef<'a> {
         &mut self,
         _timestamp: smoltcp::time::Instant,
     ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let data = self.ref_net_driver.inner.recv()?;
+        let data = self.ref_net_driver.inner.recv()?.data;
         Some((
             NRxToken { data },
             NTxToken {
                 device: self.ref_net_driver.inner.clone(),
+                vlan: self.ref_net_driver.vlan,
             },
         ))
     }
@@ -189,6 +204,7 @@ impl<'a> phy::Device for NetDriverRef<'a> {
 
         Some(NTxToken {
             device: self.ref_net_driver.inner.clone(),
+            vlan: self.ref_net_driver.vlan,
         })
     }
 }
@@ -219,13 +235,17 @@ impl phy::TxToken for NTxToken {
         // construct packet in buffer
         let result = f(&mut buffer[0..len]);
         // send the buffer
-        self.device.send(&buffer);
+        self.device.send(EtherFrameRef {
+            data: &buffer,
+            vlan: self.vlan,
+        });
         result
     }
 }
 
 pub struct NTxToken {
     device: Arc<dyn NetDevice + Send>,
+    vlan: Option<u16>,
 }
 
 pub struct NetIf {
@@ -295,11 +315,11 @@ impl NetManager {
         }
     }
 
-    pub fn add_interface(&mut self, inner: Arc<dyn NetDevice + Sync + Send>) {
+    pub fn add_interface(&mut self, inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
         let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(inner.mac_address()));
         let config = Config::new(hardware_addr);
         let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let driver = NetDriver { inner };
+        let driver = NetDriver { inner, vlan };
         let mut device_ref = NetDriverRef {
             ref_net_driver: &driver,
         };
@@ -434,9 +454,9 @@ pub fn get_interfaces() -> Vec<IfStatus> {
     net_manager.get_interfaces()
 }
 
-pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>) {
+pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
     let mut net_manager = NET_MANAGER.write();
-    net_manager.add_interface(inner);
+    net_manager.add_interface(inner, vlan);
 }
 
 /// Service routine for network device interrupt.

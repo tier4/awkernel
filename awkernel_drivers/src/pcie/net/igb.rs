@@ -13,7 +13,7 @@ use awkernel_lib::{
     net::{
         ether::{ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
-        NetCapabilities, NetDevError, NetDevice, NetFlags,
+        EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::{
@@ -113,7 +113,7 @@ struct Rx {
 
     read_buf: Option<DMAPool<RxBuffer>>,
 
-    read_queue: RingQ<Vec<u8>>,
+    read_queue: RingQ<EtherFrameBuf>,
 
     // Statistics
     dropped_pkts: u64,
@@ -180,7 +180,7 @@ struct RxDescriptorInner {
     checksum: u16,
     status: u8,
     error: u8,
-    vtags: u16,
+    special: u16,
 }
 
 struct IgbInner {
@@ -236,7 +236,7 @@ where
     let igb = Igb::new(info)?;
     let _ = igb.up();
 
-    awkernel_lib::net::add_interface(Arc::new(igb));
+    awkernel_lib::net::add_interface(Arc::new(igb), None);
 
     Ok(())
 }
@@ -363,7 +363,7 @@ impl IgbInner {
 
         // setup interface
         let flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
-        let mut capabilities = NetCapabilities::VLAN_MTU;
+        let mut capabilities = NetCapabilities::VLAN_MTU | NetCapabilities::VLAN_HWTAGGING;
 
         if hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
             capabilities |= NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_UDPv4;
@@ -1114,6 +1114,11 @@ impl Igb {
                 }
 
                 let mut len = desc.len as usize;
+                let vlan = if status & RXD_STAT_VP != 0 {
+                    Some(u16::from_le(desc.special))
+                } else {
+                    None
+                };
 
                 let is_accept = if errors & RXD_ERR_FRAME_ERR_MASK != 0 {
                     if inner.hw.tbi_accept(
@@ -1133,18 +1138,18 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let mut buf: Vec<u8> = Vec::with_capacity(len);
+                    let mut data: Vec<u8> = Vec::with_capacity(len);
 
                     #[allow(clippy::uninit_vec)]
                     unsafe {
-                        buf.set_len(len);
+                        data.set_len(len);
 
                         let read_buf = rx.read_buf.as_mut().unwrap();
                         let src = &mut read_buf.as_mut()[i];
-                        core::ptr::copy_nonoverlapping(src.as_ptr(), buf.as_mut_ptr(), len);
+                        core::ptr::copy_nonoverlapping(src.as_ptr(), data.as_mut_ptr(), len);
                     }
 
-                    rx.read_queue.push(buf).unwrap();
+                    rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 };
 
                 i += 1;
@@ -1454,7 +1459,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn recv(&self) -> Option<Vec<u8>> {
+    fn recv(&self) -> Option<EtherFrameBuf> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[0].rx.lock(&mut node);
@@ -1472,7 +1477,7 @@ impl NetDevice for Igb {
         rx.read_queue.pop()
     }
 
-    fn send(&self, data: &[u8]) -> Option<()> {
+    fn send(&self, data: EtherFrameRef) -> Option<()> {
         // em_start()
         todo!()
     }
