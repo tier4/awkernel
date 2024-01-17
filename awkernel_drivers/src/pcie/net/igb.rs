@@ -11,8 +11,7 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::ETHER_MAX_LEN,
-        ethertypes::EtherTypes,
+        ether::{ETHER_MAX_LEN, ETHER_TYPE_VLAN},
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
         NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
@@ -137,9 +136,10 @@ struct Queue {
     eims: u32,
 }
 
-#[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
-struct TxDescriptor {
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct LegacyTxDescriptor {
     buf: u64,
     length: u16,
     cso: u8,
@@ -147,6 +147,23 @@ struct TxDescriptor {
     status: u8,
     css: u8,
     vtags: u16,
+}
+
+/// Advanced Transmit Context Descriptor Format (16B)
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct AdvTxContextDescriptor {
+    vlan_macip_lens: u32,
+    launch_time_or_seqnum_seed: u32,
+    type_tucmd_mlhl: u32,
+    mss_l4len_idx: u32,
+}
+
+#[repr(C)]
+/// Legacy Transmit Descriptor Format (16B)
+union TxDescriptor {
+    legacy: LegacyTxDescriptor,
+    adv_ctx: AdvTxContextDescriptor,
 }
 
 union RxDescriptor {
@@ -492,7 +509,7 @@ impl IgbInner {
 
         self.update_link_status()?;
 
-        igb_hw::write_reg(&self.info, VET, EtherTypes::Vlan as u32)?;
+        igb_hw::write_reg(&self.info, VET, ETHER_TYPE_VLAN as u32)?;
         if self.capabilities.contains(NetCapabilities::VLAN_HWTAGGING) {
             self.enable_hw_vlans()?;
         }
@@ -801,13 +818,13 @@ impl IgbInner {
             let buf_phy_addr = write_buf.get_phy_addr().as_usize();
 
             for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.buf = (buf_phy_addr + i * TXBUFFER_16384 as usize) as u64;
-                desc.length = 0;
-                desc.cso = 0;
-                desc.cmd = 0;
-                desc.status = 0;
-                desc.css = 0;
-                desc.vtags = 0;
+                desc.legacy.buf = (buf_phy_addr + i * TXBUFFER_16384 as usize) as u64;
+                desc.legacy.length = 0;
+                desc.legacy.cso = 0;
+                desc.legacy.cmd = 0;
+                desc.legacy.status = 0;
+                desc.legacy.css = 0;
+                desc.legacy.vtags = 0;
             }
 
             tx.write_buf = Some(write_buf);
@@ -928,13 +945,13 @@ impl IgbInner {
         let tx_desc_head = tx.tx_desc_head;
         let txd = &mut tx.tx_desc_ring.as_mut()[tx_desc_head];
 
-        txd.buf = buf;
-        txd.length = 512;
-        txd.cso = 0;
-        txd.cmd = TXD_CMD_IFCS;
-        txd.status = 0;
-        txd.css = 0;
-        txd.vtags = 0;
+        txd.legacy.buf = buf;
+        txd.legacy.length = 512;
+        txd.legacy.cso = 0;
+        txd.legacy.cmd = TXD_CMD_IFCS;
+        txd.legacy.status = 0;
+        txd.legacy.css = 0;
+        txd.legacy.vtags = 0;
 
         tx.tx_desc_head += 1;
         if tx.tx_desc_head == len {
