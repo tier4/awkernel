@@ -74,6 +74,12 @@ impl MulticastIPv4 {
     }
 
     pub fn ranges_iter(&self) -> impl Iterator<Item = MulticastRangeIPv4> + '_ {
-        self.ranges.iter().map(|range| *range)
+        self.ranges.iter().copied()
+    }
+}
+
+impl Default for MulticastIPv4 {
+    fn default() -> Self {
+        Self::new()
     }
 }

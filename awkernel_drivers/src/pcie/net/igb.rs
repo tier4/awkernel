@@ -1,8 +1,8 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, LegacyInterrupt, PCIeDevice,
-    PCIeDeviceErr, PCIeInfo,
+    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
+    PCIeInfo,
 };
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
@@ -172,7 +172,6 @@ struct IgbInner {
 
     flags: NetFlags,
     capabilities: NetCapabilities,
-    icp_xxxx_is_link_up: bool,
     link_active: bool,
     link_speed: igb_hw::Speed,
     link_duplex: igb_hw::Duplex,
@@ -264,7 +263,6 @@ enum PCIeInt {
     None,
     Msi(IRQ),
     MsiX(MsiX),
-    Legacy(LegacyInterrupt),
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -396,7 +394,6 @@ impl IgbInner {
             hw,
             flags,
             capabilities,
-            icp_xxxx_is_link_up: false,
             link_active: false,
             link_speed: igb_hw::Speed::None,
             link_duplex: igb_hw::Duplex::None,
@@ -935,7 +932,7 @@ impl IgbInner {
         let buf = tx.tx_desc_ring.get_phy_addr().as_usize() as u64;
 
         let len = tx.tx_desc_ring.as_ref().len();
-        let tx_desc_head = tx.tx_desc_head as usize;
+        let tx_desc_head = tx.tx_desc_head;
         let txd = &mut tx.tx_desc_ring.as_mut()[tx_desc_head];
 
         txd.buf = buf;
@@ -1002,9 +999,7 @@ impl IgbInner {
 
     fn enable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
-            PCIeInt::Msi(_) | PCIeInt::Legacy(_) => {
-                igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK)
-            }
+            PCIeInt::Msi(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
             PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
             _ => Ok(()),
         }
@@ -1041,7 +1036,7 @@ impl Igb {
 
         let mut i = rx.rx_desc_head as usize;
         let mut prev;
-        let rx_desc_tail = rx.rx_desc_tail as usize;
+        let rx_desc_tail = rx.rx_desc_tail;
         let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
         loop {
@@ -1080,7 +1075,7 @@ impl Igb {
                 return Ok(());
             }
 
-            let mut i = rx.rx_desc_tail as usize;
+            let mut i = rx.rx_desc_tail;
 
             loop {
                 if i == rx.rx_desc_head as usize {
@@ -1148,7 +1143,7 @@ impl Igb {
                 }
             }
 
-            rx.rx_desc_tail = i as usize;
+            rx.rx_desc_tail = i;
         }
 
         self.rx_fill(que_id)?;
@@ -1160,7 +1155,7 @@ impl Igb {
         let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
-        let mut rx = que.rx.lock(&mut node);
+        let rx = que.rx.lock(&mut node);
 
         let rx_desc_ring = rx.rx_desc_ring.as_ref();
         todo!()

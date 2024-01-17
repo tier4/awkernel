@@ -1,16 +1,9 @@
-use alloc::{
-    boxed::Box,
-    collections::{btree_map::Entry, BTreeMap},
-};
+use alloc::collections::BTreeMap;
 use array_macro::array;
-use awkernel_lib::{
-    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
-    sync::atomic::{AtomicU16, Ordering},
 };
 
 #[cfg(feature = "x86")]
@@ -23,77 +16,6 @@ mod capability;
 pub mod net;
 pub mod pcie_class;
 pub mod pcie_id;
-
-#[cfg(feature = "x86")]
-const LEGARCY_INTERRUPT_IRQ: u16 = 42;
-
-#[cfg(not(feature = "x86"))]
-const LEGARCY_INTERRUPT_IRQ: u16 = 0; // TODO: must be set for other architectures
-
-static LEGACY_INTERRUPTS: Mutex<BTreeMap<u16, Box<dyn FnMut() + Sync + Send>>> =
-    Mutex::new(BTreeMap::new());
-
-static LEGACY_INTERRUPT_ID: AtomicU16 = AtomicU16::new(0);
-
-#[derive(Debug, Clone, Copy)]
-pub struct LegacyInterrupt {
-    irq: u16,
-    handler_id: u16,
-}
-
-impl LegacyInterrupt {
-    pub fn get_irq(&self) -> u16 {
-        self.irq
-    }
-}
-
-/// Register a legacy interrupt handler,
-/// and return the ID of the handler.
-/// The ID is not the IRQ number.
-pub fn register_legacy_interrupt<F>(f: F) -> LegacyInterrupt
-where
-    F: FnMut() + Sync + Send + 'static,
-{
-    let f = Box::new(f);
-
-    let id = loop {
-        let id = LEGACY_INTERRUPT_ID.fetch_add(1, Ordering::Relaxed);
-        let mut node = MCSNode::new();
-        let mut guard = LEGACY_INTERRUPTS.lock(&mut node);
-        if let Entry::Vacant(e) = guard.entry(id) {
-            e.insert(f);
-            break id;
-        }
-    };
-
-    let _ = awkernel_lib::interrupt::register_handler(
-        LEGARCY_INTERRUPT_IRQ,
-        "PCIe Legacy Interrupt",
-        Box::new(|_irq| {
-            let mut node = MCSNode::new();
-            for (_, f) in LEGACY_INTERRUPTS.lock(&mut node).iter_mut() {
-                f();
-            }
-        }),
-    );
-
-    if id == 0 {
-        awkernel_lib::interrupt::enable_irq(LEGARCY_INTERRUPT_IRQ);
-    }
-
-    LegacyInterrupt {
-        irq: LEGARCY_INTERRUPT_IRQ,
-        handler_id: id,
-    }
-}
-
-/// Unregister a legacy interrupt handler.
-pub fn unregister_legacy_interrupt(legacy_interrupt: LegacyInterrupt) {
-    let mut node = MCSNode::new();
-    LEGACY_INTERRUPTS
-        .lock(&mut node)
-        .remove(&legacy_interrupt.handler_id);
-}
 
 #[derive(Debug, Clone)]
 pub enum BaseAddress {

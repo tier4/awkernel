@@ -360,11 +360,12 @@ impl NetManager {
             let mut node = MCSNode::new();
             let mut interface = netif.interface.lock(&mut node);
 
-            if let Err(_) = interface
+            if interface
                 .routes_mut()
                 .add_default_ipv4_route(Ipv4Address::new(
                     octets[0], octets[1], octets[2], octets[3],
                 ))
+                .is_err()
             {
                 log::error!("set default IPv4 route error, MAC = {:x?}", mac);
             }
@@ -401,7 +402,7 @@ impl NetManager {
             }
 
             let mut node = MCSNode::new();
-            let ipv4_gateway = netif.ipv4_gateway.lock(&mut node).clone();
+            let ipv4_gateway = *netif.ipv4_gateway.lock(&mut node);
 
             let device_name = inner.device_short_name();
 
@@ -417,37 +418,6 @@ impl NetManager {
         }
 
         result
-    }
-
-    // TODO: fix
-    fn create_netif(&mut self) -> Option<(NetDriver, Interface)> {
-        if self.interfaces.is_empty() {
-            return None;
-        }
-
-        // TODO: decide how to choose the driver
-        let mut device = NetDriver {
-            inner: self.interfaces[0].driver.inner.clone(),
-        };
-
-        let addr = device.inner.mac_address();
-        let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(addr));
-        let config = Config::new(hardware_addr);
-        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let mut device_ref = NetDriverRef {
-            ref_net_driver: &device,
-        };
-
-        let iface = Interface::new(config, &mut device_ref, timestamp);
-        Some((device, iface))
-    }
-
-    // TODO: fix
-    pub fn get_netif() -> Option<(NetDriver, Interface)> {
-        // let node = &mut MCSNode::new();
-        // let mut net_manager = NET_MANAGER.lock(node);
-        // net_manager.create_netif()
-        todo!()
     }
 }
 
@@ -469,7 +439,7 @@ pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>) {
 /// This routine should be called by interrupt handlers provided by device drivers.
 pub fn netif_interrupt(irq: u16) {
     {
-        let mut node = &mut MCSNode::new();
+        let mut node = MCSNode::new();
         let mut irqs = IRQS.lock(&mut node);
         irqs.push(irq);
     }
@@ -487,21 +457,21 @@ pub fn netif_interrupt(irq: u16) {
 /// The waker will be called when the network device interrupt occurs once
 /// and it will be removed after it is called.
 pub fn register_network_interrupt_service_waker(waker: core::task::Waker) {
-    let mut node = &mut MCSNode::new();
+    let mut node = MCSNode::new();
     let mut w = WAKER.lock(&mut node);
     *w = Some(waker);
 }
 
 pub fn has_pending_irqs() -> bool {
-    let node = &mut MCSNode::new();
-    let irqs = IRQS.lock(node);
+    let mut node = MCSNode::new();
+    let irqs = IRQS.lock(&mut node);
     !irqs.is_empty()
 }
 
 /// Handle network device interrupt actually.
 pub fn network_interrupt_service() {
     let irqs = {
-        let mut node = &mut MCSNode::new();
+        let mut node = MCSNode::new();
         let mut irqs = IRQS.lock(&mut node);
         let mut new_irqs = Vec::new();
         core::mem::swap(irqs.as_mut(), &mut new_irqs);
@@ -525,10 +495,10 @@ pub fn network_interrupt_service() {
                         ref_net_driver: &interface.driver,
                     };
 
-                    let mut node = &mut MCSNode::new();
+                    let mut node = MCSNode::new();
                     let mut iface = interface.interface.lock(&mut node);
 
-                    let mut node = &mut MCSNode::new();
+                    let mut node = MCSNode::new();
                     let mut socket_set = interface.socket_set.lock(&mut node);
 
                     iface.poll(timestamp, &mut device_ref, &mut socket_set);

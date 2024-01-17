@@ -102,13 +102,17 @@ impl<T> DMAPool<T> {
     pub fn get_numa_id(&self) -> usize {
         self.numa_id
     }
+}
 
-    pub fn as_ref(&self) -> &T {
-        unsafe { self.ptr.as_ref() }
-    }
-
-    pub fn as_mut(&mut self) -> &mut T {
+impl<T> AsMut<T> for DMAPool<T> {
+    fn as_mut(&mut self) -> &mut T {
         unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<T> AsRef<T> for DMAPool<T> {
+    fn as_ref(&self) -> &T {
+        unsafe { self.ptr.as_ref() }
     }
 }
 
