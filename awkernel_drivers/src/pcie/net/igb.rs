@@ -14,7 +14,7 @@ use awkernel_lib::{
         ether::ETHER_MAX_LEN,
         ethertypes::EtherTypes,
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
-        NetCapabilities, NetDevError, NetDevice, NetFlags, NET_MANAGER,
+        NetCapabilities, NetDevError, NetDevice, NetFlags,
     },
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::{
@@ -1009,6 +1009,12 @@ impl IgbInner {
             _ => Ok(()),
         }
     }
+
+    #[inline]
+    fn check_for_link(&mut self) -> Result<(), IgbDriverErr> {
+        self.hw.check_for_link(&self.info)?;
+        Ok(())
+    }
 }
 
 impl Igb {
@@ -1123,6 +1129,8 @@ impl Igb {
 
                 if is_accept {
                     let mut buf: Vec<u8> = Vec::with_capacity(len);
+
+                    #[allow(clippy::uninit_vec)]
                     unsafe {
                         buf.set_len(len);
 
@@ -1156,6 +1164,35 @@ impl Igb {
 
         let rx_desc_ring = rx.rx_desc_ring.as_ref();
         todo!()
+    }
+
+    fn intr(&self) -> Result<(), IgbDriverErr> {
+        let reg_icr = {
+            let inner = self.inner.read();
+            let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+
+            if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
+                && reg_icr & ICR_INT_ASSERTED == 0
+            {
+                return Ok(());
+            }
+
+            if inner.flags.contains(NetFlags::RUNNING) {
+                drop(inner);
+                self.rx_recv(0)?;
+            }
+
+            reg_icr
+        };
+
+        if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+            let mut inner = self.inner.write();
+            inner.hw.set_get_link_status(true);
+            inner.check_for_link()?;
+            inner.update_link_status()?;
+        }
+
+        Ok(())
     }
 }
 
@@ -1403,7 +1440,13 @@ impl NetDevice for Igb {
     }
 
     fn can_send(&self) -> bool {
-        todo!()
+        let inner = self.inner.read();
+        if inner.flags.contains(NetFlags::RUNNING) {
+            // TODO
+            false
+        } else {
+            false
+        }
     }
 
     fn recv(&self) -> Option<Vec<u8>> {
@@ -1465,8 +1508,8 @@ impl NetDevice for Igb {
         }
     }
 
-    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        log::debug!("igb: interrupt: {}", irq);
+    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
+        self.intr().or(Err(NetDevError::DeviceError))?;
         Ok(())
     }
 
