@@ -27,7 +27,7 @@ fn add_rtt(rtt: u64) {
 }
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    awkernel_shell::init();
+    awkernel_services::run().await;
 
     spawn(
         "panic".into(),

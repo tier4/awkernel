@@ -1,5 +1,5 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
-use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec, vec::Vec};
+use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use alloc::{collections::BTreeMap, format, string::String, sync::Arc, vec, vec::Vec};
 use bitflags::bitflags;
 use core::{fmt::Display, net::Ipv4Addr};
 use smoltcp::{
@@ -148,9 +148,13 @@ pub struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
 }
 
-impl phy::Device for NetDriver {
-    type RxToken<'a> = NRxToken where Self : 'a;
-    type TxToken<'a> = NTxToken where Self: 'a;
+pub struct NetDriverRef<'a> {
+    ref_net_driver: &'a NetDriver,
+}
+
+impl<'a> phy::Device for NetDriverRef<'a> {
+    type RxToken<'b> = NRxToken where Self : 'b;
+    type TxToken<'b> = NTxToken where Self: 'b;
     fn capabilities(&self) -> phy::DeviceCapabilities {
         let mut cap = DeviceCapabilities::default();
         cap.max_transmission_unit = 1500;
@@ -164,23 +168,23 @@ impl phy::Device for NetDriver {
         &mut self,
         _timestamp: smoltcp::time::Instant,
     ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let data = self.inner.recv()?;
+        let data = self.ref_net_driver.inner.recv()?;
         Some((
             NRxToken { data },
             NTxToken {
-                device: self.inner.clone(),
+                device: self.ref_net_driver.inner.clone(),
             },
         ))
     }
 
     //  The real  packet transmission occurrs when the token is consumed.
     fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
-        if !self.inner.can_send() {
+        if !self.ref_net_driver.inner.can_send() {
             return None;
         }
 
         Some(NTxToken {
-            device: self.inner.clone(),
+            device: self.ref_net_driver.inner.clone(),
         })
     }
 }
@@ -223,8 +227,8 @@ pub struct NTxToken {
 pub struct NetIf {
     driver: NetDriver,
     interface: Mutex<Interface>,
-    ipv4_addr: Mutex<Vec<(Ipv4Addr, u8)>>, // (address, prefix length)
     ipv4_gateway: Mutex<Option<Ipv4Addr>>, // default gateway
+    socket_set: Mutex<SocketSet<'static>>,
 }
 
 #[derive(Debug)]
@@ -235,7 +239,7 @@ pub enum NetManagerError {
 #[derive(Debug)]
 pub struct IfStatus {
     pub device_name: &'static str,
-    pub ipv4_addr: Vec<(Ipv4Addr, u8)>,
+    pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
     pub ipv4_gateway: Option<Ipv4Addr>,
     pub link_up: bool,
     pub link_speed_mbs: u64,
@@ -246,7 +250,7 @@ pub struct IfStatus {
 impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
-        for (addr, plen) in self.ipv4_addr.iter() {
+        for (addr, plen) in self.ipv4_addrs.iter() {
             ipv4_addr.push_str(&format!("{}/{}\r\n", addr, plen));
         }
 
@@ -291,17 +295,25 @@ impl NetManager {
         let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(inner.mac_address()));
         let config = Config::new(hardware_addr);
         let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let mut driver = NetDriver { inner };
-        let interface = Mutex::new(Interface::new(config, &mut driver, timestamp));
-
-        let value = NetIf {
-            driver,
-            interface,
-            ipv4_addr: Mutex::new(Vec::new()),
-            ipv4_gateway: Mutex::new(None),
+        let driver = NetDriver { inner };
+        let mut device_ref = NetDriverRef {
+            ref_net_driver: &driver,
         };
 
-        self.interfaces.push(Arc::new(value));
+        let interface = Mutex::new(Interface::new(config, &mut device_ref, timestamp));
+
+        let value = Arc::new(NetIf {
+            driver,
+            interface,
+            ipv4_gateway: Mutex::new(None),
+            socket_set: Mutex::new(SocketSet::new(vec![])),
+        });
+
+        for irq in value.driver.inner.irqs() {
+            self.irq_to_interfaces.insert(irq, value.clone());
+        }
+
+        self.interfaces.push(value);
     }
 
     pub fn add_ipv4_addr(
@@ -329,11 +341,6 @@ impl NetManager {
                 .unwrap();
         });
 
-        // TODO: remove this
-        let mut node = MCSNode::new();
-        let mut ipv4_addr = netif.ipv4_addr.lock(&mut node);
-        ipv4_addr.push((addr, plen));
-
         Ok(())
     }
 
@@ -348,15 +355,21 @@ impl NetManager {
             .find(|d| d.driver.inner.mac_address() == *mac)
             .ok_or(NetManagerError::InvalidInterfaceID)?;
 
-        let mut node = MCSNode::new();
-        let mut interface = netif.interface.lock(&mut node);
+        let octets = addr.octets();
+        {
+            let mut node = MCSNode::new();
+            let mut interface = netif.interface.lock(&mut node);
 
-        interface
-            .routes_mut()
-            .add_default_ipv4_route(Ipv4Address::new(10, 0, 2, 2))
-            .unwrap();
+            if let Err(_) = interface
+                .routes_mut()
+                .add_default_ipv4_route(Ipv4Address::new(
+                    octets[0], octets[1], octets[2], octets[3],
+                ))
+            {
+                log::error!("set default IPv4 route error, MAC = {:x?}", mac);
+            }
+        }
 
-        // TODO: remove this
         let mut node = MCSNode::new();
         let mut ipv4_gateway = netif.ipv4_gateway.lock(&mut node);
         *ipv4_gateway = Some(addr);
@@ -374,8 +387,18 @@ impl NetManager {
             let link_speed_mbs = inner.link_speed();
             let full_duplex = inner.full_duplex();
 
-            let mut node = MCSNode::new();
-            let ipv4_addr = netif.ipv4_addr.lock(&mut node).clone();
+            let mut ipv4_addrs = Vec::new();
+
+            {
+                let mut node = MCSNode::new();
+                let interface = netif.interface.lock(&mut node);
+                for cidr in interface.ip_addrs().iter() {
+                    if let IpAddress::Ipv4(addr) = cidr.address() {
+                        let addr = Ipv4Addr::new(addr.0[0], addr.0[1], addr.0[2], addr.0[3]);
+                        ipv4_addrs.push((addr, cidr.prefix_len()));
+                    }
+                }
+            }
 
             let mut node = MCSNode::new();
             let ipv4_gateway = netif.ipv4_gateway.lock(&mut node).clone();
@@ -384,7 +407,7 @@ impl NetManager {
 
             result.push(IfStatus {
                 device_name,
-                ipv4_addr,
+                ipv4_addrs,
                 ipv4_gateway,
                 link_up,
                 link_speed_mbs,
@@ -411,27 +434,35 @@ impl NetManager {
         let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(addr));
         let config = Config::new(hardware_addr);
         let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let iface = Interface::new(config, &mut device, timestamp);
+        let mut device_ref = NetDriverRef {
+            ref_net_driver: &device,
+        };
+
+        let iface = Interface::new(config, &mut device_ref, timestamp);
         Some((device, iface))
     }
 
     // TODO: fix
     pub fn get_netif() -> Option<(NetDriver, Interface)> {
-        let node = &mut MCSNode::new();
-        let mut net_manager = NET_MANAGER.lock(node);
-        net_manager.create_netif()
+        // let node = &mut MCSNode::new();
+        // let mut net_manager = NET_MANAGER.lock(node);
+        // net_manager.create_netif()
+        todo!()
     }
 }
 
-pub static NET_MANAGER: Mutex<NetManager> = Mutex::new(NetManager::new());
+pub static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager::new());
 pub static IRQS: Mutex<Vec<u16>> = Mutex::new(Vec::new());
 pub static WAKER: Mutex<Option<core::task::Waker>> = Mutex::new(None);
-pub static SOCKET_SET: Mutex<Option<Box<SocketSet>>> = Mutex::new(None);
 
 pub fn get_interfaces() -> Vec<IfStatus> {
-    let node = &mut MCSNode::new();
-    let net_manager = NET_MANAGER.lock(node);
+    let net_manager = NET_MANAGER.read();
     net_manager.get_interfaces()
+}
+
+pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>) {
+    let mut net_manager = NET_MANAGER.write();
+    net_manager.add_interface(inner);
 }
 
 /// Service routine for network device interrupt.
@@ -443,12 +474,11 @@ pub fn netif_interrupt(irq: u16) {
         irqs.push(irq);
     }
 
-    let mut node = &mut MCSNode::new();
-    if let Some(waker) = WAKER.lock(&mut node).take() {
+    let mut node = MCSNode::new();
+    let mut waker = WAKER.lock(&mut node);
+    if let Some(waker) = waker.take() {
         waker.wake();
     }
-
-    log::debug!("netif interrupt: {}", irq);
 }
 
 /// Register a waker for a network device interrupt service.
@@ -462,18 +492,25 @@ pub fn register_network_interrupt_service_waker(waker: core::task::Waker) {
     *w = Some(waker);
 }
 
+pub fn has_pending_irqs() -> bool {
+    let node = &mut MCSNode::new();
+    let irqs = IRQS.lock(node);
+    !irqs.is_empty()
+}
+
 /// Handle network device interrupt actually.
 pub fn network_interrupt_service() {
-    let mut node = &mut MCSNode::new();
-    let net_manager = NET_MANAGER.lock(&mut node);
-
-    {
+    let irqs = {
         let mut node = &mut MCSNode::new();
         let mut irqs = IRQS.lock(&mut node);
+        let mut new_irqs = Vec::new();
+        core::mem::swap(irqs.as_mut(), &mut new_irqs);
+        new_irqs
+    };
 
-        let mut node = &mut MCSNode::new();
-        let mut socket_set = SOCKET_SET.lock(&mut node);
+    let net_manager = NET_MANAGER.read();
 
+    {
         for irq in irqs.iter() {
             if let Some(interface) = net_manager.irq_to_interfaces.get(irq) {
                 if let Err(e) = interface.driver.inner.interrupt(*irq) {
@@ -483,13 +520,20 @@ pub fn network_interrupt_service() {
                         e
                     );
                 } else {
-                    // TODO: poll
+                    let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+                    let mut device_ref = NetDriverRef {
+                        ref_net_driver: &interface.driver,
+                    };
+
+                    let mut node = &mut MCSNode::new();
+                    let mut iface = interface.interface.lock(&mut node);
+
+                    let mut node = &mut MCSNode::new();
+                    let mut socket_set = interface.socket_set.lock(&mut node);
+
+                    iface.poll(timestamp, &mut device_ref, &mut socket_set);
                 }
             }
         }
-
-        drop(socket_set);
-
-        irqs.clear();
     }
 }

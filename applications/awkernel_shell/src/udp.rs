@@ -43,24 +43,24 @@ pub(crate) fn udp_test() {
     let socket = sockets.get_mut::<udp::Socket>(udp_handle);
     socket.bind(2000).unwrap();
 
-    loop {
-        let timestamp = Instant::from_micros(uptime() as i64);
+    // loop {
+    //     let timestamp = Instant::from_micros(uptime() as i64);
 
-        iface.poll(timestamp, &mut device, &mut sockets);
-        let socket = sockets.get_mut::<udp::Socket>(udp_handle);
+    //     iface.poll(timestamp, &mut device, &mut sockets);
+    //     let socket = sockets.get_mut::<udp::Socket>(udp_handle);
 
-        if socket.can_send() {
-            socket
-                .send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port))
-                .unwrap();
-        }
+    //     if socket.can_send() {
+    //         socket
+    //             .send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port))
+    //             .unwrap();
+    //     }
 
-        if socket.recv().is_ok() {
-            console::print("+");
-        } else {
-            console::print(".");
-        }
+    //     if socket.recv().is_ok() {
+    //         console::print("+");
+    //     } else {
+    //         console::print(".");
+    //     }
 
-        delay::wait_millisec(1);
-    }
+    //     delay::wait_millisec(1);
+    // }
 }

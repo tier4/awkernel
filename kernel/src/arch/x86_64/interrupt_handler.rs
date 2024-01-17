@@ -275,7 +275,6 @@ macro_rules! irq_handler {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
-            log::debug!("IRQ{}", $id);
         }
     };
 }

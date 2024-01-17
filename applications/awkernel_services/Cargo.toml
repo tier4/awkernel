@@ -1,0 +1,21 @@
+[package]
+name = "awkernel_services"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+
+[dependencies.awkernel_async_lib]
+path = "../../awkernel_async_lib"
+default-features = false
+
+[dependencies.awkernel_lib]
+path = "../../awkernel_lib"
+default-features = false
+
+[dependencies.awkernel_shell]
+path = "../awkernel_shell"
+default-features = false

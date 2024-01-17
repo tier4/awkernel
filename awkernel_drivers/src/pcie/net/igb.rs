@@ -217,12 +217,10 @@ where
     // Read the capability of PCIe device.
     info.read_capability();
 
-    let mut igb = Igb::new(info)?;
+    let igb = Igb::new(info)?;
     let _ = igb.up();
 
-    let node = &mut MCSNode::new();
-    let mut net_master = NET_MANAGER.lock(node);
-    net_master.add_interface(Arc::new(igb));
+    awkernel_lib::net::add_interface(Arc::new(igb));
 
     Ok(())
 }
