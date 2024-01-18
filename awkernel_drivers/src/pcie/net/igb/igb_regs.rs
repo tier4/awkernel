@@ -383,9 +383,6 @@ pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 pub const FEXTNVM_SW_CONFIG: u32 = 1;
 pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
 
-pub const TXD_POPTS_IXSM: u8 = 0x01; // Insert IP checksum
-pub const TXD_POPTS_TXSM: u8 = 0x02; // Insert TCP/UDP checksum
-
 pub const _TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
 pub const TXD_CMD_IFCS: u8 = 1 << 1; // Insert FCS
 pub const _TXD_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
@@ -1602,6 +1599,21 @@ pub fn txdctl(n: usize) -> usize {
         0x0E028 + n * 0x40
     }
 }
+
+// Transmit Descriptor bit definitions
+pub const TXD32_DTYP_D: u32 = 0x00100000; // Data Descriptor
+pub const TXD32_DTYP_C: u32 = 0x00000000; // Context Descriptor
+pub const TXD32_POPTS_IXSM: u32 = 0x01; // Insert IP checksum
+pub const TXD32_POPTS_TXSM: u32 = 0x02; // Insert TCP/UDP checksum
+pub const TXD32_CMD_EOP: u32 = 0x01000000; // End of Packet
+pub const TXD32_CMD_IFCS: u32 = 0x02000000; // Insert FCS (Ethernet CRC)
+pub const TXD32_CMD_IC: u32 = 0x04000000; // Insert Checksum
+pub const TXD32_CMD_RS: u32 = 0x08000000; // Report Status
+pub const TXD32_CMD_RPS: u32 = 0x10000000; // Report Packet Sent
+pub const TXD32_CMD_DEXT: u32 = 0x20000000; // Descriptor extension (0 = legacy)
+pub const TXD32_CMD_VLE: u32 = 0x40000000; // Add VLAN tag
+pub const TXD32_CMD_IDE: u32 = 0x80000000; // Enable Tidv register
+pub const TXD32_STAT_DD: u32 = 0x00000001; // Descriptor Done
 
 // Adv Transmit Descriptor Config Masks
 pub const ADVTXD_DTYP_CTXT: u32 = 0x00200000; // Advanced Context Descriptor
