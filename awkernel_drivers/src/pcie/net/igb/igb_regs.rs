@@ -383,13 +383,16 @@ pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 pub const FEXTNVM_SW_CONFIG: u32 = 1;
 pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
 
+pub const TXD_POPTS_IXSM: u8 = 0x01; // Insert IP checksum
+pub const TXD_POPTS_TXSM: u8 = 0x02; // Insert TCP/UDP checksum
+
 pub const _TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
 pub const TXD_CMD_IFCS: u8 = 1 << 1; // Insert FCS
 pub const _TXD_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
 pub const _TXD_CMD_RS: u8 = 1 << 3; // Report Status
 pub const _TXD_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
-pub const _TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
-pub const _TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
+pub const TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
+pub const TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
 pub const TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
 
 // Receive Descriptor bit definitions
@@ -1599,6 +1602,22 @@ pub fn txdctl(n: usize) -> usize {
         0x0E028 + n * 0x40
     }
 }
+
+// Adv Transmit Descriptor Config Masks
+pub const ADVTXD_DTYP_CTXT: u32 = 0x00200000; // Advanced Context Descriptor
+pub const ADVTXD_DTYP_DATA: u32 = 0x00300000; // Advanced Data Descriptor
+pub const ADVTXD_DCMD_IFCS: u32 = 0x02000000; // Insert FCS (Ethernet CRC)
+pub const ADVTXD_DCMD_DEXT: u32 = 0x20000000; // Descriptor extension (1=Adv)
+pub const ADVTXD_DCMD_VLE: u32 = 0x40000000; // VLAN pkt enable
+pub const ADVTXD_PAYLEN_SHIFT: u32 = 14; // Adv desc PAYLEN shift
+
+// Adv Transmit Descriptor Config Masks
+pub const ADVTXD_MACLEN_SHIFT: u32 = 9; // Adv ctxt desc mac len shift
+pub const ADVTXD_VLAN_SHIFT: u32 = 16; // Adv ctxt vlan tag shift
+pub const ADVTXD_TUCMD_IPV4: u32 = 0x00000400; // IP Packet Type: 1=IPv4
+pub const ADVTXD_TUCMD_IPV6: u32 = 0x00000000; // IP Packet Type: 0=IPv6
+pub const ADVTXD_TUCMD_L4T_UDP: u32 = 0x00000000; // L4 Packet TYPE of UDP
+pub const ADVTXD_TUCMD_L4T_TCP: u32 = 0x00000800; // L4 Packet TYPE of TCP
 
 // Transmit Control
 pub const TCTL_RST: u32 = 0x00000001; // software reset

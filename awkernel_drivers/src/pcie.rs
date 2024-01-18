@@ -150,6 +150,7 @@ pub enum PCIeDeviceErr {
     InitFailure,
     ReadFailure,
     PageTableFailure,
+    CommandFailure,
     UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
     InvalidClass,
     Interrupt,

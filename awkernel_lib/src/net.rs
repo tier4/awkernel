@@ -61,10 +61,33 @@ pub struct EtherFrameBuf {
     pub vlan: Option<u16>,
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct PacketHeaderFlags: u16 {
+        const IPV4_CSUM_OUT = 0x0001; // IPv4 checksum needed
+        const TCP_CSUM_OUT = 0x0002; // TCP checksum needed
+        const UDP_CSUM_OUT = 0x0004; // UDP checksum needed
+        const IPV4_CSUM_IN_OK = 0x0008; // IPv4 checksum verified
+        const IPV4_CSUM_IN_BAD = 0x0010; // IPv4 checksum bad
+        const TCP_CSUM_IN_OK = 0x0020; // TCP checksum verified
+        const TCP_CSUM_IN_BAD = 0x0040; // TCP checksum bad
+        const UDP_CSUM_IN_OK = 0x0080; // UDP checksum verified
+        const UDP_CSUM_IN_BAD = 0x0100; // UDP checksum bad
+        const ICMP_CSUM_OUT = 0x0200; // ICMP/ICMPv6 checksum needed
+        const ICMP_CSUM_IN_OK = 0x0400; // ICMP/ICMPv6 checksum verified
+        const ICMP_CSUM_IN_BAD = 0x0800; // ICMP/ICMPv6 checksum bad
+        const IPV6_DF_OUT = 0x1000; // don't fragment outgoing IPv6
+        const TIMESTAMP = 0x2000; // ph_timestamp is set
+        const FLOWID = 0x4000; // ph_flowid is set
+        const TCP_TSO = 0x8000; // TCP Segmentation Offload needed
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EtherFrameRef<'a> {
     pub data: &'a [u8],
     pub vlan: Option<u16>,
+    pub csum_flags: PacketHeaderFlags,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -238,6 +261,7 @@ impl phy::TxToken for NTxToken {
         self.device.send(EtherFrameRef {
             data: &buffer,
             vlan: self.vlan,
+            csum_flags: PacketHeaderFlags::empty(),
         });
         result
     }

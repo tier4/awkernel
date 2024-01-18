@@ -11,9 +11,11 @@ use awkernel_lib::{
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
-        ether::{ETHER_MAX_LEN, ETHER_TYPE_VLAN},
+        ether::{extract_headers, EtherHeader, NetworkHdr, ETHER_MAX_LEN, ETHER_TYPE_VLAN},
+        ipv6::Ip6Hdr,
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
         EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
+        PacketHeaderFlags,
     },
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::{
@@ -138,7 +140,7 @@ struct Queue {
 
 /// Legacy Transmit Descriptor Format (16B)
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
+#[repr(C, packed)]
 struct LegacyTxDescriptor {
     buf: u64,
     length: u16,
@@ -151,7 +153,7 @@ struct LegacyTxDescriptor {
 
 /// Advanced Transmit Context Descriptor Format (16B)
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
+#[repr(C, packed)]
 struct AdvTxContextDescriptor {
     vlan_macip_lens: u32,
     launch_time_or_seqnum_seed: u32,
@@ -172,7 +174,7 @@ union RxDescriptor {
 }
 
 #[derive(Debug, Clone, Copy)]
-#[repr(C)]
+#[repr(C, packed)]
 /// Legacy Receive Descriptor Format (16B)
 struct RxDescriptorInner {
     buf: u64,
@@ -266,6 +268,7 @@ pub enum IgbDriverErr {
     DMAPool,
     HostInterfaceCommand,
     NotImplemented,
+    InvalidPacket,
 }
 
 #[derive(Debug)]
@@ -289,6 +292,7 @@ impl From<IgbDriverErr> for PCIeDeviceErr {
         match value {
             IgbDriverErr::NotImplemented => PCIeDeviceErr::NotImplemented,
             IgbDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
+            IgbDriverErr::InvalidPacket => PCIeDeviceErr::CommandFailure,
             _ => PCIeDeviceErr::InitFailure,
         }
     }
@@ -322,6 +326,7 @@ impl fmt::Display for IgbDriverErr {
             Self::DMAPool => write!(f, "DMA pool failure."),
             Self::HostInterfaceCommand => write!(f, "Host interface command failure."),
             Self::NotImplemented => write!(f, "Not implemented."),
+            Self::InvalidPacket => write!(f, "Invalid packet."),
         }
     }
 }
@@ -1175,6 +1180,142 @@ impl Igb {
         let rx_desc_ring = rx.rx_desc_ring.as_ref();
         todo!()
     }
+
+    fn tx_ctx_setup(
+        &self,
+        que_id: usize,
+        ether_frame: EtherFrameRef,
+        head: usize,
+    ) -> Result<(), IgbDriverErr> {
+        let mut vlan_macip_lens: u32 = 0;
+        let mut off = false;
+
+        // LegacyTxDescriptor
+        // #[derive(Debug, Clone, Copy)]
+        // #[repr(C)]
+        // struct LegacyTxDescriptor {
+        //     buf: u64,
+        //     length: u16, // cmd_type_len
+        //     cso: u8,
+        //     cmd: u8,
+        //     status: u8, // olinfo_status
+        //     css: u8,
+        //     vtags: u16,
+        // }
+        let length = ether_frame.data.len() as u16;
+        let mut cso = 0;
+        let mut cmd: u8 = TXD_CMD_DEXT | TXD_CMD_IFCS;
+        let mut css = 0;
+
+        if let Some(vlan) = ether_frame.vlan {
+            vlan_macip_lens |= (vlan as u32) << ADVTXD_VLAN_SHIFT;
+            cmd |= TXD_CMD_VLE;
+            off = true;
+        }
+
+        let csum_flags = ether_frame.csum_flags;
+
+        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+
+        vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << ADVTXD_MACLEN_SHIFT;
+
+        let (iphlen, type_tucmd_mlhl) = match ext.network {
+            NetworkHdr::Ipv4(ip4) => {
+                if csum_flags.contains(PacketHeaderFlags::IPV4_CSUM_OUT) {
+                    css |= TXD_POPTS_IXSM;
+                    off = true;
+                }
+                (ip4.header_len() as u8, ADVTXD_TUCMD_IPV4)
+            }
+            NetworkHdr::Ipv6(ip6) => (core::mem::size_of::<Ip6Hdr>() as u8, ADVTXD_TUCMD_IPV6),
+            _ => (0, 0),
+        };
+
+        // TODO
+
+        Ok(())
+    }
+
+    // 2397 u_int
+    // 2398 em_tx_ctx_setup(struct em_queue *que, struct mbuf *mp, u_int head,
+    //      /* [previous][next][first][last][top][bottom][index][help]  */
+    // 2399     u_int32_t *olinfo_status, u_int32_t *cmd_type_len)
+    // 2400 {
+    // 2401         struct ether_extracted ext;
+    // 2402         struct e1000_adv_tx_context_desc *TD;
+    // 2403         uint32_t vlan_macip_lens = 0, type_tucmd_mlhl = 0, mss_l4len_idx = 0;
+    // 2404         int off = 0;
+    // 2405         uint8_t iphlen;
+    // 2406
+    // 2407         *olinfo_status = 0;
+    // 2408         *cmd_type_len = 0;
+    // 2409         TD = (struct e1000_adv_tx_context_desc *)&que->tx.sc_tx_desc_ring[head];
+    // 2410
+    // 2411 #if NVLAN > 0
+    // 2412         if (ISSET(mp->m_flags, M_VLANTAG)) {
+    // 2413                 uint32_t vtag = mp->m_pkthdr.ether_vtag;
+    // 2414                 vlan_macip_lens |= vtag << E1000_ADVTXD_VLAN_SHIFT;
+    // 2415                 *cmd_type_len |= E1000_ADVTXD_DCMD_VLE;
+    // 2416                 off = 1;
+    // 2417         }
+    // 2418 #endif
+    // 2419
+    // 2420         ether_extract_headers(mp, &ext);
+    // 2421
+    // 2422         vlan_macip_lens |= (sizeof(*ext.eh) << E1000_ADVTXD_MACLEN_SHIFT);
+    // 2423
+    // 2424         if (ext.ip4) {
+    // 2425                 iphlen = ext.ip4->ip_hl << 2;
+    // 2426
+    // 2427                 type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_IPV4;
+    // 2428                 if (ISSET(mp->m_pkthdr.csum_flags, M_IPV4_CSUM_OUT)) {
+    // 2429                         *olinfo_status |= E1000_TXD_POPTS_IXSM << 8;
+    // 2430                         off = 1;
+    // 2431                 }
+    // 2432 #ifdef INET6
+    // 2433         } else if (ext.ip6) {
+    // 2434                 iphlen = sizeof(*ext.ip6);
+    // 2435
+    // 2436                 type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_IPV6;
+    // 2437 #endif
+    // 2438         } else {
+    // 2439                 iphlen = 0;
+    // 2440         }
+    // 2441
+    // 2442         *cmd_type_len |= E1000_ADVTXD_DTYP_DATA | E1000_ADVTXD_DCMD_IFCS;
+    // 2443         *cmd_type_len |= E1000_ADVTXD_DCMD_DEXT;
+    // 2444         *olinfo_status |= mp->m_pkthdr.len << E1000_ADVTXD_PAYLEN_SHIFT;
+    // 2445         vlan_macip_lens |= iphlen;
+    // 2446         type_tucmd_mlhl |= E1000_ADVTXD_DCMD_DEXT | E1000_ADVTXD_DTYP_CTXT;
+    // 2447
+    // 2448         if (ext.tcp) {
+    // 2449                 type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_L4T_TCP;
+    // 2450                 if (ISSET(mp->m_pkthdr.csum_flags, M_TCP_CSUM_OUT)) {
+    // 2451                         *olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
+    // 2452                         off = 1;
+    // 2453                 }
+    // 2454         } else if (ext.udp) {
+    // 2455                 type_tucmd_mlhl |= E1000_ADVTXD_TUCMD_L4T_UDP;
+    // 2456                 if (ISSET(mp->m_pkthdr.csum_flags, M_UDP_CSUM_OUT)) {
+    // 2457                         *olinfo_status |= E1000_TXD_POPTS_TXSM << 8;
+    // 2458                         off = 1;
+    // 2459                 }
+    // 2460         }
+    // 2461
+    // 2462         if (!off)
+    // 2463                 return (0);
+    // 2464
+    // 2465         /* 82575 needs the queue index added */
+    // 2466         if (que->sc->hw.mac_type == em_82575)
+    // 2467                 mss_l4len_idx |= (que->me & 0xff) << 4;
+    // 2468
+    // 2469         htolem32(&TD->vlan_macip_lens, vlan_macip_lens);
+    // 2470         htolem32(&TD->type_tucmd_mlhl, type_tucmd_mlhl);
+    // 2471         htolem32(&TD->u.seqnum_seed, 0);
+    // 2472         htolem32(&TD->mss_l4len_idx, mss_l4len_idx);
+    // 2473
+    // 2474         return (1);
+    // 2475 }
 
     fn intr(&self) -> Result<(), IgbDriverErr> {
         let reg_icr = {
