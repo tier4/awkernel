@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 /// Ring queue.
 pub struct RingQ<T> {
     queue: Vec<Option<T>>,
-    size: usize,
+    len: usize,
     head: usize,
     tail: usize,
 }
@@ -18,19 +18,30 @@ impl<T> RingQ<T> {
 
         Self {
             queue,
-            size: 0,
+            len: 0,
             head: 0,
             tail: 0,
         }
     }
 
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[inline(always)]
+    pub fn queue_size(&self) -> usize {
+        self.queue.len()
+    }
+
+    #[inline(always)]
     pub fn is_full(&self) -> bool {
-        self.size >= self.queue.len()
+        self.len >= self.queue.len()
     }
 
     /// Push `data` to the queue.
     pub fn push(&mut self, data: T) -> Result<(), T> {
-        if self.queue.len() == self.size {
+        if self.queue.len() == self.len {
             return Err(data);
         }
 
@@ -40,14 +51,14 @@ impl<T> RingQ<T> {
             self.tail = 0;
         }
 
-        self.size += 1;
+        self.len += 1;
 
         Ok(())
     }
 
     /// Pop data from the queue.
     pub fn pop(&mut self) -> Option<T> {
-        if self.size == 0 {
+        if self.len == 0 {
             None
         } else {
             let result = self.queue[self.head].take();
@@ -57,18 +68,20 @@ impl<T> RingQ<T> {
                 self.head = 0;
             }
 
-            self.size -= 1;
+            self.len -= 1;
 
             result
         }
     }
 
     /// Get the immutable reference of the head.
+    #[inline(always)]
     pub fn head(&self) -> &Option<T> {
         &self.queue[self.head]
     }
 
     /// Get a iterator.
+    #[inline(always)]
     pub fn iter(&self) -> IterRingQ<T> {
         IterRingQ {
             ringq: self,
