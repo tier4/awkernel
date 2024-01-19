@@ -1136,6 +1136,7 @@ impl IgbHw {
         Ok(hw)
     }
 
+    #[inline(always)]
     pub fn get_mac_type(&self) -> MacType {
         self.mac_type
     }

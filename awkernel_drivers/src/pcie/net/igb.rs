@@ -1,8 +1,9 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
-    PCIeInfo,
+    capability::msi::MultipleMessage,
+    net::igb::igb_hw::{Duplex, MacType},
+    PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
@@ -56,6 +57,8 @@ const RXBUFFER_8192: u32 = 8192;
 const _RXBUFFER_16384: u32 = 16384;
 
 const TXBUFFER_16384: u32 = 16384;
+
+const MAX_SCATTER: usize = 64;
 
 /// Transmit Interrupt Delay Value.
 ///
@@ -1303,7 +1306,7 @@ impl Igb {
         let mut off = false;
 
         if let Some(vlan) = ether_frame.vlan {
-            vlan_macip_lens |= (vlan << ADVTXD_VLAN_SHIFT) as u32;
+            vlan_macip_lens |= (vlan as u32) << ADVTXD_VLAN_SHIFT;
             cmd_type_len |= ADVTXD_DCMD_VLE;
             off = true;
         }
@@ -1475,6 +1478,49 @@ impl Igb {
         unsafe { desc.legacy.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
 
         Ok(used)
+    }
+
+    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
+        let inner = self.inner.read();
+
+        if !inner.link_active {
+            return Ok(());
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = self.que[que_id].tx.lock(&mut node);
+
+        let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
+
+        // calculate free space
+        let head = tx.tx_desc_head;
+        let mut free = tx.tx_desc_tail;
+        if free <= head {
+            free += sc_tx_slots;
+        }
+        free -= head;
+
+        let mut post = false;
+        for ether_frame in ether_frames.iter() {
+            // use 2 because cksum setup can use an extra slot
+            if MAX_SCATTER + 2 > free {
+                break;
+            }
+
+            let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+
+            free -= used;
+
+            post = true;
+        }
+
+        if inner.hw.get_mac_type() != MacType::Em82547 {
+            if post {
+                igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
+            }
+        }
+
+        todo!()
     }
 }
 
@@ -1732,27 +1778,31 @@ impl NetDevice for Igb {
         }
     }
 
-    fn recv(&self) -> Option<EtherFrameBuf> {
+    fn recv(&self) -> Result<Option<EtherFrameBuf>, NetDevError> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[0].rx.lock(&mut node);
 
             let data = rx.read_queue.pop();
             if data.is_some() {
-                return data;
+                return Ok(data);
             }
         }
 
-        self.rx_recv(0).ok()?;
+        self.rx_recv(0).or(Err(NetDevError::DeviceError))?;
 
         let mut node = MCSNode::new();
         let mut rx = self.que[0].rx.lock(&mut node);
-        rx.read_queue.pop()
+        if let Some(data) = rx.read_queue.pop() {
+            Ok(Some(data))
+        } else {
+            Ok(None)
+        }
     }
 
-    fn send(&self, data: EtherFrameRef) -> Option<()> {
-        // em_start()
-        todo!()
+    fn send(&self, data: EtherFrameRef) -> Result<(), NetDevError> {
+        let frames = [data];
+        self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {

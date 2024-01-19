@@ -188,6 +188,9 @@ impl fmt::Display for PCIeDeviceErr {
             Self::Interrupt => {
                 write!(f, "Failed to initialize interrupt.")
             }
+            Self::CommandFailure => {
+                write!(f, "Failed to execute the command.")
+            }
         }
     }
 }

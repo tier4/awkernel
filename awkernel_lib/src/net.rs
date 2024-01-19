@@ -118,13 +118,15 @@ pub enum NetDevError {
 /// }
 ///
 /// impl NetDevice for MyNetDevice {
-///      fn recv(&self) -> Option<Vec<u8>> {
+///      fn recv(&self) -> Result<Option<EtherFrameBuf>, NetDevError> {
 ///           let inner = self.inner.read(); // Read-lock
 ///
 ///           let mut node = MCSNode::new();
 ///           let mut que = self.queue[0].lock(); // Lock
 ///
 ///           // do receive
+///
+///           Ok(None)
 ///      }
 ///
 ///     fn up(&self) -> Result<(), NetDevError> {
@@ -134,7 +136,7 @@ pub enum NetDevError {
 ///     }
 ///
 ///     fn down(&self) -> Result<(), NetDevError> { todo!() }
-///     fn send(&self, data: &[u8]) -> Option<()> { todo!() }
+///     fn send(&self, data: &[u8]) -> Result<(), NetDevError> { todo!() }
 ///     fn flags(&self) -> NetFlags { todo!() }
 ///     fn capabilities(&self) -> NetCapabilities { todo!() }
 ///     fn link_speed(&self) -> u64 { todo!() }
@@ -150,8 +152,8 @@ pub enum NetDevError {
 /// }
 /// ```
 pub trait NetDevice {
-    fn recv(&self) -> Option<EtherFrameBuf>;
-    fn send(&self, data: EtherFrameRef) -> Option<()>;
+    fn recv(&self) -> Result<Option<EtherFrameBuf>, NetDevError>;
+    fn send(&self, data: EtherFrameRef) -> Result<(), NetDevError>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
@@ -209,7 +211,10 @@ impl<'a> phy::Device for NetDriverRef<'a> {
         &mut self,
         _timestamp: smoltcp::time::Instant,
     ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let data = self.ref_net_driver.inner.recv()?.data;
+        let Ok(Some(data)) = self.ref_net_driver.inner.recv() else {
+            return None;
+        };
+
         Some((
             NRxToken { data },
             NTxToken {
@@ -233,7 +238,7 @@ impl<'a> phy::Device for NetDriverRef<'a> {
 }
 
 pub struct NRxToken {
-    data: Vec<u8>,
+    data: EtherFrameBuf,
 }
 
 impl phy::RxToken for NRxToken {
@@ -244,7 +249,7 @@ impl phy::RxToken for NRxToken {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut self.data)
+        f(&mut self.data.data)
     }
 }
 
@@ -258,7 +263,7 @@ impl phy::TxToken for NTxToken {
         // construct packet in buffer
         let result = f(&mut buffer[0..len]);
         // send the buffer
-        self.device.send(EtherFrameRef {
+        let _ = self.device.send(EtherFrameRef {
             data: &buffer,
             vlan: self.vlan,
             csum_flags: PacketHeaderFlags::empty(),
