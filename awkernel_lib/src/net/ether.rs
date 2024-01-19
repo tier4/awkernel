@@ -13,6 +13,8 @@ pub const ETHER_MAX_LEN: usize = 1518; // Maximum frame length, CRC included
 pub const MAX_JUMBO_FRAME_SIZE: usize = 0x3F00;
 
 pub const ETHER_ADDR_LEN: usize = 6;
+pub const ETHER_TYPE_LEN: usize = 2;
+pub const ETHER_HDR_LEN: usize = ETHER_ADDR_LEN * 2 + ETHER_TYPE_LEN;
 
 pub const ETHER_TYPE_IP: u16 = 0x0800;
 pub const ETHER_TYPE_VLAN: u16 = 0x8100;

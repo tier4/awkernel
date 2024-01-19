@@ -12,10 +12,14 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_HDR_LEN, ETHER_MAX_LEN,
+            ETHER_TYPE_VLAN,
         },
+        ip::Ip,
         ipv6::Ip6Hdr,
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
+        tcp::TCPHdr,
+        udp::UDPHdr,
         EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
         PacketHeaderFlags,
     },
@@ -29,6 +33,7 @@ use core::{
     fmt::{self, Debug},
     net::Ipv4Addr,
 };
+use memoffset::offset_of;
 
 mod igb_hw;
 
@@ -123,12 +128,21 @@ struct Rx {
     dropped_pkts: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveChecksumContext {
+    None,
+    TcpIP,
+    UdpIP,
+}
+
 struct Tx {
     tx_desc_head: usize,
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool<TxRing>,
 
-    txd_cmd: u8,
+    txd_cmd: u32,
+
+    active_checksum_context: ActiveChecksumContext,
 
     write_buf: Option<DMAPool<TxBuffer>>,
 }
@@ -172,10 +186,26 @@ struct AdvTxContextDescriptor {
     mss_l4len_idx: u32,
 }
 
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+struct ContextDesc {
+    ipcss: u8,  // IP checksum start
+    ipcso: u8,  // IP checksum offset
+    ipcse: u16, // IP checksum end
+    tucss: u8,  // TCP/UDP checksum start
+    tucso: u8,  // TCP/UDP checksum offset
+    tucse: u16, // TCP/UDP checksum end
+    cmd_and_length: u32,
+    status: u8,  // Descriptor status
+    hdr_len: u8, // Header length
+    mss: u16,    // Maximum segment size
+}
+
 #[repr(C)]
 /// Legacy Transmit Descriptor Format (16B)
 union TxDescriptor {
     legacy: LegacyTxDescriptor,
+    context_desc: ContextDesc,
     adv_tx: AdvTxDescriptor,
     adv_ctx: AdvTxContextDescriptor,
 }
@@ -651,7 +681,7 @@ impl IgbInner {
             }
 
             // Setup Transmit Descriptor Base Settings
-            tx.txd_cmd = TXD_CMD_IFCS | TXD_CMD_IDE;
+            tx.txd_cmd = TXD32_CMD_IFCS | TXD32_CMD_IDE;
 
             if matches!(
                 self.hw.get_mac_type(),
@@ -1193,7 +1223,72 @@ impl Igb {
         todo!()
     }
 
-    /// Return `(lower, upper)`.
+    /// Return `(used, lower, upper)`.
+    fn transmit_checksum_setup(
+        &self,
+        tx: &mut Tx,
+        ether_frame: EtherFrameRef,
+        head: usize,
+    ) -> Result<(usize, u32, u32), IgbDriverErr> {
+        let txd_upper;
+        let txd_lower;
+
+        if ether_frame
+            .csum_flags
+            .contains(PacketHeaderFlags::TCP_CSUM_OUT)
+        {
+            txd_upper = TXD32_POPTS_TXSM << 8;
+            txd_lower = TXD32_CMD_DEXT | TXD32_DTYP_D;
+            if tx.active_checksum_context == ActiveChecksumContext::TcpIP {
+                return Ok((0, txd_lower, txd_upper));
+            } else {
+                tx.active_checksum_context = ActiveChecksumContext::TcpIP;
+            }
+        } else if ether_frame
+            .csum_flags
+            .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+        {
+            txd_upper = TXD32_POPTS_TXSM << 8;
+            txd_lower = TXD32_CMD_DEXT | TXD32_DTYP_D;
+            if tx.active_checksum_context == ActiveChecksumContext::UdpIP {
+                return Ok((0, txd_lower, txd_upper));
+            } else {
+                tx.active_checksum_context = ActiveChecksumContext::UdpIP;
+            }
+        } else {
+            return Ok((0, 0, 0));
+        }
+
+        let txd = &mut tx.tx_desc_ring.as_mut()[head];
+
+        txd.context_desc.ipcss = ETHER_HDR_LEN as u8;
+        txd.context_desc.ipcso = ETHER_HDR_LEN as u8 + offset_of!(Ip, ip_sum) as u8;
+        txd.context_desc.ipcse =
+            u16::to_le(ETHER_HDR_LEN as u16 + core::mem::size_of::<Ip>() as u16 - 1);
+
+        txd.context_desc.tucss = ETHER_HDR_LEN as u8 + core::mem::size_of::<Ip>() as u8;
+        txd.context_desc.tucse = 0;
+
+        if tx.active_checksum_context == ActiveChecksumContext::TcpIP {
+            txd.context_desc.tucso = ETHER_HDR_LEN as u8
+                + core::mem::size_of::<Ip>() as u8
+                + offset_of!(TCPHdr, th_sum) as u8;
+        } else if tx.active_checksum_context == ActiveChecksumContext::UdpIP {
+            txd.context_desc.tucso = ETHER_HDR_LEN as u8
+                + core::mem::size_of::<Ip>() as u8
+                + offset_of!(UDPHdr, uh_sum) as u8;
+        }
+
+        txd.context_desc.status = 0;
+        txd.context_desc.hdr_len = 0;
+        txd.context_desc.mss = 0;
+
+        txd.context_desc.cmd_and_length = u32::to_le(tx.txd_cmd | TXD32_CMD_DEXT);
+
+        Ok((1, txd_lower, txd_upper))
+    }
+
+    /// Return `(used, lower, upper)`.
     fn tx_ctx_setup(
         &self,
         mac_type: MacType,
@@ -1201,7 +1296,7 @@ impl Igb {
         tx: &mut Tx,
         ether_frame: EtherFrameRef,
         head: usize,
-    ) -> Result<(u32, u32), IgbDriverErr> {
+    ) -> Result<(usize, u32, u32), IgbDriverErr> {
         let mut olinfo_status = 0;
         let mut cmd_type_len = 0;
         let mut vlan_macip_lens = 0;
@@ -1263,7 +1358,7 @@ impl Igb {
         }
 
         if !off {
-            return Ok((cmd_type_len, olinfo_status));
+            return Ok((0, cmd_type_len, olinfo_status));
         }
 
         let mss_l4len_idx = if mac_type == MacType::Em82575 {
@@ -1279,7 +1374,7 @@ impl Igb {
         desc.adv_ctx.mss_l4len_idx = u32::to_le(mss_l4len_idx);
         desc.adv_ctx.launch_time_or_seqnum_seed = 0;
 
-        Ok((cmd_type_len, olinfo_status))
+        Ok((1, cmd_type_len, olinfo_status))
     }
 
     fn intr(&self) -> Result<(), IgbDriverErr> {
@@ -1401,7 +1496,8 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
-        txd_cmd: TXD_CMD_IFCS,
+        txd_cmd: TXD32_CMD_IFCS,
+        active_checksum_context: ActiveChecksumContext::None,
         write_buf: None,
     };
 

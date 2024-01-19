@@ -12,6 +12,7 @@ embedded-hal = "1.0"
 embedded-hal-nb = "1.0"
 embedded-graphics-core = "0.4.0"
 array-macro = "2.1"
+memoffset = "0.9"
 
 [dependencies.x86_64]
 version = "0.14"
