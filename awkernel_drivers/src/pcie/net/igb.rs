@@ -1191,8 +1191,8 @@ impl Igb {
                     unsafe {
                         data.set_len(len);
 
-                        let read_buf = rx.read_buf.as_mut().unwrap();
-                        let src = &mut read_buf.as_mut()[i];
+                        let read_buf = rx.read_buf.as_ref().unwrap();
+                        let src = &read_buf.as_ref()[i];
                         core::ptr::copy_nonoverlapping(src.as_ptr(), data.as_mut_ptr(), len);
                     }
 
@@ -1227,7 +1227,7 @@ impl Igb {
     fn transmit_checksum_setup(
         &self,
         tx: &mut Tx,
-        ether_frame: EtherFrameRef,
+        ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
         let txd_upper;
@@ -1294,7 +1294,7 @@ impl Igb {
         mac_type: MacType,
         me: usize,
         tx: &mut Tx,
-        ether_frame: EtherFrameRef,
+        ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
         let mut olinfo_status = 0;
@@ -1404,6 +1404,77 @@ impl Igb {
         }
 
         Ok(())
+    }
+
+    fn encap(
+        &self,
+        mac_type: MacType,
+        me: usize,
+        tx: &mut Tx,
+        ether_frame: &EtherFrameRef,
+    ) -> Result<usize, IgbDriverErr> {
+        let len = ether_frame.data.len();
+        if len > TXBUFFER_16384 as usize {
+            return Err(IgbDriverErr::InvalidPacket);
+        }
+
+        let mut head = tx.tx_desc_head as usize;
+
+        let (mut used, txd_lower, txd_upper) = if mac_type as u32 >= MacType::Em82575 as u32
+            && mac_type as u32 <= MacType::EmI210 as u32
+        {
+            self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
+        } else if mac_type as u32 >= MacType::Em82543 as u32 {
+            self.transmit_checksum_setup(tx, ether_frame, head)?
+        } else {
+            (0, 0, 0)
+        };
+
+        let tx_slots = tx.tx_desc_ring.as_ref().len();
+
+        head += used;
+        if head >= tx_slots {
+            head -= tx_slots;
+        }
+
+        let addr = unsafe {
+            let write_buf = tx.write_buf.as_mut().unwrap();
+            let dst = &mut write_buf.as_mut()[head];
+            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            dst.as_ptr() as u64
+        };
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+
+        desc.legacy.buf = u64::to_le(addr);
+        desc.adv_tx.lower = u32::to_le(tx.txd_cmd | txd_lower | len as u32);
+        desc.adv_tx.upper = u32::to_le(txd_upper);
+
+        head += 1;
+        if head == tx_slots {
+            head = 0;
+        }
+
+        used += 1;
+
+        // Find out if we are in VLAN mode
+        if let Some(vlan) = ether_frame.vlan {
+            if (mac_type as u32) < MacType::Em82575 as u32
+                || (mac_type as u32) > MacType::EmI210 as u32
+            {
+                // Set the VLAN id
+                desc.legacy.vtags = u16::to_le(vlan);
+
+                // Tell hardware to add tag
+                unsafe { desc.legacy.cmd |= TXD_CMD_VLE };
+            }
+        }
+
+        tx.tx_desc_head = head;
+
+        unsafe { desc.legacy.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
+
+        Ok(used)
     }
 }
 

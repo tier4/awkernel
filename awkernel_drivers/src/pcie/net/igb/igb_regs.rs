@@ -383,10 +383,10 @@ pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 pub const FEXTNVM_SW_CONFIG: u32 = 1;
 pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
 
-pub const _TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
+pub const TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
 pub const TXD_CMD_IFCS: u8 = 1 << 1; // Insert FCS
 pub const _TXD_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
-pub const _TXD_CMD_RS: u8 = 1 << 3; // Report Status
+pub const TXD_CMD_RS: u8 = 1 << 3; // Report Status
 pub const _TXD_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
 pub const TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
 pub const TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
