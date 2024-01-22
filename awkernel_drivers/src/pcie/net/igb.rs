@@ -1579,7 +1579,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
         if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
             DEVICE_SHORT_NAME,
             Box::new(|irq| {
-                awkernel_lib::net::if_net_interrupt(irq);
+                awkernel_lib::net::net_interrupt(irq);
             }),
         ) {
             msi.set_multiple_message_enable(MultipleMessage::One)

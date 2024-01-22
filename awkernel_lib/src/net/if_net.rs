@@ -1,9 +1,10 @@
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
-    iface::{Interface, SocketSet},
+    iface::{Config, Interface, SocketSet},
     phy::{self, Checksum, Device, DeviceCapabilities},
     time::Instant,
+    wire::HardwareAddress,
 };
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
@@ -108,12 +109,13 @@ impl<'a> Device for NetDriverRef<'a> {
 
 pub(super) struct IfNet {
     vlan: Option<u16>,
-    inner: Mutex<IfNetInner>,
+    pub(super) inner: Mutex<IfNetInner>,
     rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
+    pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
 }
 
-struct IfNetInner {
-    interface: Interface,
+pub(super) struct IfNetInner {
+    pub(super) interface: Interface,
     socket_set: SocketSet<'static>,
 }
 
@@ -125,6 +127,73 @@ impl IfNetInner {
 }
 
 impl IfNet {
+    pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
+        // Create Interface.
+        let tx_ringq = RingQ::new(0);
+        let rx_ringq = RingQ::new(0);
+
+        // Dummy NetDriver.
+        // Interface::new() requires a NetDriver.
+        let net_driver = NetDriver {
+            inner: net_device.clone(),
+            que_id: 0,
+            rx_ringq: Mutex::new(rx_ringq),
+            tx_ringq: Mutex::new(tx_ringq),
+        };
+
+        let interface = {
+            let mut node = MCSNode::new();
+            let mut rx_ringq = net_driver.rx_ringq.lock(&mut node);
+            let mut node = MCSNode::new();
+            let mut tx_ringq = net_driver.tx_ringq.lock(&mut node);
+
+            let mut net_driver_ref = NetDriverRef {
+                ref_net_driver: &net_driver,
+                rx_ringq: &mut rx_ringq,
+                tx_ringq: &mut tx_ringq,
+            };
+
+            let instant = Instant::from_micros(crate::delay::uptime() as i64);
+            let hardware_address =
+                HardwareAddress::Ethernet(smoltcp::wire::EthernetAddress(net_device.mac_address()));
+            let mut config = Config::new(hardware_address);
+            config.random_seed = crate::delay::uptime() as u64;
+
+            Interface::new(config, &mut net_driver_ref, instant)
+        };
+
+        // Create NetDrivers.
+        let mut rx_irq_to_drvier = BTreeMap::new();
+
+        for (que_id, irq) in net_device.irqs().into_iter().enumerate() {
+            let tx_ringq = RingQ::new(512);
+            let rx_ringq = RingQ::new(512);
+
+            rx_irq_to_drvier.insert(
+                irq,
+                NetDriver {
+                    inner: net_device.clone(),
+                    que_id,
+                    rx_ringq: Mutex::new(rx_ringq),
+                    tx_ringq: Mutex::new(tx_ringq),
+                },
+            );
+        }
+
+        // Create a SocketSet.
+        let socket_set = SocketSet::new(vec![]);
+
+        IfNet {
+            vlan,
+            inner: Mutex::new(IfNetInner {
+                interface,
+                socket_set,
+            }),
+            rx_irq_to_drvier,
+            net_device,
+        }
+    }
+
     /// If some packets are processed, return true.
     /// If poll returns true, the caller should call poll again.
     pub fn poll(&self, irq: u16) -> bool {

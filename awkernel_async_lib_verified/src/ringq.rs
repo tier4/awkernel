@@ -12,9 +12,9 @@ pub struct RingQ<T> {
 
 impl<T> RingQ<T> {
     /// Create a ring queue.
-    pub fn new(queue_size: usize) -> Self {
+    pub fn new(queue_len: usize) -> Self {
         let mut queue = Vec::new();
-        queue.resize_with(queue_size, || None);
+        queue.resize_with(queue_len, || None);
 
         Self {
             queue,

@@ -71,20 +71,79 @@ impl Display for IfStatus {
     }
 }
 
+static NET_MANAGER: Mutex<NetManager> = Mutex::new(NetManager {
+    interfaces: BTreeMap::new(),
+    interface_id: 0,
+});
+
+static WAKERS: Mutex<BTreeMap<u16, core::task::Waker>> = Mutex::new(BTreeMap::new());
+
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
     interface_id: u64,
 }
 
 pub fn get_interfaces() -> Vec<IfStatus> {
-    vec![]
+    let mut node = MCSNode::new();
+    let net_manager = NET_MANAGER.lock(&mut node);
+
+    let mut result = Vec::new();
+
+    for (id, if_net) in net_manager.interfaces.iter() {
+        let inner = &if_net.net_device;
+        let mac_address = inner.mac_address();
+        let link_up = inner.link_up();
+        let link_speed_mbs = inner.link_speed();
+        let full_duplex = inner.full_duplex();
+
+        let mut ipv4_addrs = Vec::new();
+
+        {
+            let mut node = MCSNode::new();
+            let interface = if_net.inner.lock(&mut node);
+
+            for cidr in interface.interface.ip_addrs().iter() {
+                if let IpAddress::Ipv4(addr) = cidr.address() {
+                    let addr = Ipv4Addr::new(addr.0[0], addr.0[1], addr.0[2], addr.0[3]);
+                    ipv4_addrs.push((addr, cidr.prefix_len()));
+                }
+            }
+        }
+
+        let if_status = IfStatus {
+            interface_id: *id,
+            device_name: inner.device_short_name(),
+            ipv4_addrs,
+            ipv4_gateway: None,
+            link_up,
+            link_speed_mbs,
+            full_duplex,
+            mac_address,
+        };
+
+        result.push(if_status);
+    }
+
+    result
 }
 
 pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
-    // TODO
+    let mut node = MCSNode::new();
+    let mut net_manager = NET_MANAGER.lock(&mut node);
+
+    if net_manager.interface_id == u64::MAX {
+        panic!("interface id overflow");
+    }
+
+    let id = net_manager.interface_id;
+    net_manager.interface_id += 1;
+
+    let if_net = Arc::new(IfNet::new(inner, vlan));
+
+    net_manager.interfaces.insert(id, if_net);
 }
 
-pub fn if_net_interrupt(irq: u16) {
+pub fn net_interrupt(irq: u16) {
     // TODO
 }
 
