@@ -150,8 +150,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
     #[cfg(feature = "raspi")]
     spawn(
-        "test_rpi_hal".into(),
-        test_rpi_hal::run_rpi_hal(),
+        "awkernel_ydlidar_driver".into(),
+        awkernel_ydlidar_driver::run_ydlidar_driver(),
         SchedulerType::FIFO,
     )
     .await;

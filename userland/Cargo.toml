@@ -14,9 +14,9 @@ path = "../awkernel_async_lib"
 [dependencies.awkernel_shell]
 path = "../applications/awkernel_shell"
 
-[dependencies.test_rpi_hal]
-path = "../applications/test_rpi_hal"
+[dependencies.awkernel_ydlidar_driver]
+path = "../applications/awkernel_ydlidar_driver"
 optional = true
 
 [features]
-raspi = ["dep:test_rpi_hal"]
+raspi = ["dep:awkernel_ydlidar_driver"]
