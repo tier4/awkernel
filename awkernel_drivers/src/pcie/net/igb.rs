@@ -19,10 +19,12 @@ use awkernel_lib::{
         ip::Ip,
         ipv6::Ip6Hdr,
         multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
+        net_device::{
+            EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
+            PacketHeaderFlags,
+        },
         tcp::TCPHdr,
         udp::UDPHdr,
-        EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
-        PacketHeaderFlags,
     },
     paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
     sync::{
@@ -1577,7 +1579,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
         if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
             DEVICE_SHORT_NAME,
             Box::new(|irq| {
-                awkernel_lib::net::netif_interrupt(irq);
+                awkernel_lib::net::if_net_interrupt(irq);
             }),
         ) {
             msi.set_multiple_message_enable(MultipleMessage::One)
@@ -1778,7 +1780,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn recv(&self) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[0].rx.lock(&mut node);
@@ -1800,7 +1802,7 @@ impl NetDevice for Igb {
         }
     }
 
-    fn send(&self, data: EtherFrameRef) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }

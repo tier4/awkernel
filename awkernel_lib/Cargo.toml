@@ -11,6 +11,9 @@ rlsf = "0.2"
 bitflags = "2.3"
 array-macro = "2.1"
 
+[dependencies.awkernel_async_lib_verified]
+path = "../awkernel_async_lib_verified"
+
 [dependencies.libc]
 version = "0.2"
 optional = true

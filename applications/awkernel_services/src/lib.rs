@@ -1,5 +1,7 @@
 #![no_std]
 
+extern crate alloc;
+
 mod network_service;
 
 use core::{convert::Into, time::Duration};
