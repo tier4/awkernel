@@ -104,12 +104,9 @@ impl Future for NetworkInterrupt {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        log::debug!("call register_waker_for_network_interrupt");
         if awkernel_lib::net::register_waker_for_network_interrupt(self.irq, cx.waker().clone()) {
-            log::debug!("pending");
             Poll::Pending
         } else {
-            log::debug!("ready");
             Poll::Ready(())
         }
     }
@@ -128,7 +125,6 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
                 return;
             },
             _ = future => {
-                log::debug!("interrupt_handler");
                 awkernel_lib::net::handle_interrupt(interface_id, irq);
             },
         }

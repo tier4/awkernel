@@ -13,18 +13,17 @@ use super::net_device::{
     EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags,
 };
 
-pub(super) struct NetDriver {
-    pub inner: Arc<dyn NetDevice + Sync + Send>,
-    pub que_id: usize,
+struct NetDriver {
+    inner: Arc<dyn NetDevice + Sync + Send>,
+    rx_que_id: usize,
 
     rx_ringq: Mutex<RingQ<EtherFrameBuf>>,
-    tx_ringq: Mutex<RingQ<Vec<u8>>>,
 }
 
-pub(super) struct NetDriverRef<'a> {
-    pub ref_net_driver: &'a NetDriver,
+struct NetDriverRef<'a> {
+    inner: &'a Arc<dyn NetDevice + Sync + Send>,
 
-    rx_ringq: &'a mut RingQ<EtherFrameBuf>,
+    rx_ringq: Option<&'a mut RingQ<EtherFrameBuf>>,
     tx_ringq: &'a mut RingQ<Vec<u8>>,
 }
 
@@ -58,7 +57,7 @@ impl<'a> Device for NetDriverRef<'a> {
         cap.max_transmission_unit = 1500;
         cap.max_burst_size = Some(64);
 
-        let capabilities = self.ref_net_driver.inner.capabilities();
+        let capabilities = self.inner.capabilities();
 
         if capabilities.contains(NetCapabilities::CSUM_IPv4) {
             cap.checksum.ipv4 = Checksum::Rx;
@@ -81,19 +80,23 @@ impl<'a> Device for NetDriverRef<'a> {
         &mut self,
         _timestamp: smoltcp::time::Instant,
     ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let data = self.rx_ringq.pop()?;
+        if let Some(que) = self.rx_ringq.as_mut() {
+            if let Some(data) = que.pop() {
+                return Some((
+                    NRxToken { data },
+                    NTxToken {
+                        tx_ring: self.tx_ringq,
+                    },
+                ));
+            }
+        }
 
-        Some((
-            NRxToken { data },
-            NTxToken {
-                tx_ring: self.tx_ringq,
-            },
-        ))
+        None
     }
 
     /// The real packet transmission is performed when the token is consumed.
     fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
-        if !self.ref_net_driver.inner.can_send() {
+        if !self.inner.can_send() {
             return None;
         }
 
@@ -111,12 +114,13 @@ pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
     rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
+    tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
 }
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
-    socket_set: SocketSet<'static>,
+    pub(super) socket_set: SocketSet<'static>,
 }
 
 impl IfNetInner {
@@ -128,28 +132,11 @@ impl IfNetInner {
 
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
-        // Create Interface.
-        let tx_ringq = RingQ::new(0);
-        let rx_ringq = RingQ::new(0);
-
-        // Dummy NetDriver.
-        // Interface::new() requires a NetDriver.
-        let net_driver = NetDriver {
-            inner: net_device.clone(),
-            que_id: 0,
-            rx_ringq: Mutex::new(rx_ringq),
-            tx_ringq: Mutex::new(tx_ringq),
-        };
-
         let interface = {
-            let mut node = MCSNode::new();
-            let mut rx_ringq = net_driver.rx_ringq.lock(&mut node);
-            let mut node = MCSNode::new();
-            let mut tx_ringq = net_driver.tx_ringq.lock(&mut node);
-
+            let mut tx_ringq = RingQ::new(0);
             let mut net_driver_ref = NetDriverRef {
-                ref_net_driver: &net_driver,
-                rx_ringq: &mut rx_ringq,
+                inner: &net_device,
+                rx_ringq: None,
                 tx_ringq: &mut tx_ringq,
             };
 
@@ -164,9 +151,9 @@ impl IfNet {
 
         // Create NetDrivers.
         let mut rx_irq_to_drvier = BTreeMap::new();
+        let mut tx_only_ringq = Vec::new();
 
         for irq in net_device.irqs().into_iter() {
-            let tx_ringq = RingQ::new(512);
             let rx_ringq = RingQ::new(512);
 
             let que_id = net_device.rx_irq_to_que_id(irq);
@@ -175,11 +162,13 @@ impl IfNet {
                 irq,
                 NetDriver {
                     inner: net_device.clone(),
-                    que_id,
+                    rx_que_id: que_id,
                     rx_ringq: Mutex::new(rx_ringq),
-                    tx_ringq: Mutex::new(tx_ringq),
                 },
             );
+
+            let tx_ringq = Mutex::new(RingQ::new(512));
+            tx_only_ringq.push(tx_ringq);
         }
 
         // Create a SocketSet.
@@ -193,7 +182,59 @@ impl IfNet {
             }),
             rx_irq_to_drvier,
             net_device,
+            tx_only_ringq,
         }
+    }
+
+    pub fn poll_tx_only(&self, que_id: usize) -> bool {
+        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
+            return false;
+        };
+
+        log::debug!("poll_tx_only: que_id = {}", que_id);
+
+        let mut node = MCSNode::new();
+        let mut tx_ringq = tx_ringq.lock(&mut node);
+
+        let mut device_ref = NetDriverRef {
+            inner: &self.net_device,
+            rx_ringq: None,
+            tx_ringq: &mut tx_ringq,
+        };
+
+        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+
+        let (tx_packet_header_flags, result) = {
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
+
+            let (interface, socket_set) = inner.split();
+
+            (
+                device_ref.tx_packet_header_flags(),
+                interface.poll(timestamp, &mut device_ref, socket_set),
+            )
+        };
+
+        log::debug!("poll_tx_only 2");
+
+        // send packets from the queue.
+        while !tx_ringq.is_empty() {
+            log::debug!("poll_tx_only 3");
+            if let Some(data) = tx_ringq.pop() {
+                let data = EtherFrameRef {
+                    data: &data,
+                    vlan: self.vlan,
+                    csum_flags: tx_packet_header_flags,
+                };
+
+                let _ = self.net_device.send(data, que_id);
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 
     /// If some packets are processed, return true.
@@ -203,25 +244,30 @@ impl IfNet {
             return false;
         };
 
+        let que_id = ref_net_driver.rx_que_id; // TODO: fix
+        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
+            return false;
+        };
+
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
 
-        let mut node = MCSNode::new();
-        let mut tx_ringq = ref_net_driver.tx_ringq.lock(&mut node);
-
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
-            if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.que_id) {
+            if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
                 let _ = rx_ringq.push(data);
             } else {
                 break;
             }
         }
 
+        let mut node = MCSNode::new();
+        let mut tx_ringq = tx_ringq.lock(&mut node);
+
         let (tx_packet_header_flags, result) = {
             let mut device_ref = NetDriverRef {
-                ref_net_driver,
-                rx_ringq: &mut rx_ringq,
+                inner: &ref_net_driver.inner,
+                rx_ringq: Some(&mut rx_ringq),
                 tx_ringq: &mut tx_ringq,
             };
 
@@ -247,7 +293,7 @@ impl IfNet {
                     csum_flags: tx_packet_header_flags,
                 };
 
-                let _ = ref_net_driver.inner.send(data, ref_net_driver.que_id);
+                let _ = self.net_device.send(data, ref_net_driver.rx_que_id);
             } else {
                 break;
             }
@@ -282,6 +328,8 @@ impl<'a> phy::TxToken for NTxToken<'a> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
+        log::debug!("NTxToken::consume: len = {}", len);
+
         let mut buf = Vec::with_capacity(len);
         unsafe {
             buf.set_len(len);

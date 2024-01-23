@@ -186,12 +186,10 @@ pub fn net_interrupt(irq: u16) {
                     return;
                 };
 
-                log::debug!("net_interrupt: irq = {}", irq);
                 w.wake();
             }
         }
         Entry::Vacant(e) => {
-            log::debug!("insert interrupted");
             e.insert(IRQWaker::Interrupted);
         }
     }
@@ -244,7 +242,7 @@ pub fn handle_interrupt(interface_id: u64, irq: u16) {
 }
 
 pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
-    let net_manager = NET_MANAGER.write();
+    let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
         return Err(NetManagerError::InvalidInterfaceID);
@@ -256,7 +254,7 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
 }
 
 pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
-    let net_manager = NET_MANAGER.write();
+    let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
         return Err(NetManagerError::InvalidInterfaceID);
@@ -265,4 +263,58 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let _ = if_net.net_device.down();
 
     Ok(())
+}
+
+pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
+    use alloc::vec;
+    use smoltcp::socket::udp;
+
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let udp_rx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
+    let udp_tx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+    let udp_handle = inner.socket_set.add(udp_socket);
+
+    let address = IpAddress::v4(10, 0, 2, 2);
+    let port = 26099;
+
+    drop(inner);
+
+    loop {
+        {
+            let mut node = MCSNode::new();
+            let mut inner = if_net.inner.lock(&mut node);
+
+            let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
+
+            if socket.can_send() {
+                log::debug!("udp_test 0");
+                let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
+            }
+
+            if socket.recv().is_ok() {
+                crate::console::print("+");
+            } else {
+                crate::console::print(".");
+            }
+        }
+
+        if_net.poll_tx_only(0);
+
+        crate::delay::wait_millisec(1);
+    }
 }

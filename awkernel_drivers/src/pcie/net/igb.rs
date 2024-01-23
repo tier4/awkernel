@@ -1483,11 +1483,24 @@ impl Igb {
     }
 
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
+        log::debug!("send 0");
         let inner = self.inner.read();
 
-        if !inner.link_active {
-            return Ok(());
-        }
+        let inner = if !inner.link_active {
+            drop(inner);
+            let _ = self.update();
+
+            let inner = self.inner.read();
+            if !inner.link_active {
+                return Ok(());
+            } else {
+                inner
+            }
+        } else {
+            inner
+        };
+
+        log::debug!("send 1");
 
         let mut node = MCSNode::new();
         let mut tx = self.que[que_id].tx.lock(&mut node);
@@ -1515,6 +1528,8 @@ impl Igb {
 
             post = true;
         }
+
+        log::debug!("send 2");
 
         if inner.hw.get_mac_type() != MacType::Em82547 {
             if post {
@@ -1781,16 +1796,6 @@ impl NetDevice for Igb {
         inner.hw.get_mac_addr()
     }
 
-    fn can_send(&self) -> bool {
-        let inner = self.inner.read();
-        if inner.flags.contains(NetFlags::RUNNING) {
-            // TODO
-            false
-        } else {
-            false
-        }
-    }
-
     fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
         {
             let mut node = MCSNode::new();
@@ -1813,7 +1818,14 @@ impl NetDevice for Igb {
         }
     }
 
+    fn can_send(&self) -> bool {
+        let inner = self.inner.read();
+        inner.flags.contains(NetFlags::RUNNING)
+    }
+
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+        log::debug!("send");
+
         let frames = [data];
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
