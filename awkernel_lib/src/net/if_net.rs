@@ -165,9 +165,11 @@ impl IfNet {
         // Create NetDrivers.
         let mut rx_irq_to_drvier = BTreeMap::new();
 
-        for (que_id, irq) in net_device.irqs().into_iter().enumerate() {
+        for irq in net_device.irqs().into_iter() {
             let tx_ringq = RingQ::new(512);
             let rx_ringq = RingQ::new(512);
+
+            let que_id = net_device.rx_irq_to_que_id(irq);
 
             rx_irq_to_drvier.insert(
                 irq,

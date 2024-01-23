@@ -205,7 +205,7 @@ fn interrupt_ffi() {
 
 #[embedded]
 fn ifconfig_ffi() {
-    let ifs = awkernel_lib::net::get_interfaces();
+    let ifs = awkernel_lib::net::get_all_interface();
     for netif in ifs.iter() {
         let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);

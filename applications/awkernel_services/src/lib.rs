@@ -6,11 +6,11 @@ mod network_service;
 
 use core::{convert::Into, time::Duration};
 
-const NETWORK_SERIVICE_NAME: &str = "network service";
+const NETWORK_SERVICE_NAME: &str = "network service";
 
 pub async fn run() {
     awkernel_async_lib::task::spawn(
-        NETWORK_SERIVICE_NAME.into(),
+        NETWORK_SERVICE_NAME.into(),
         network_service::run(),
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     );

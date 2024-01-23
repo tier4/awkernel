@@ -104,9 +104,13 @@ pub trait NetDevice {
     fn up(&self) -> Result<(), NetDevError>;
     fn down(&self) -> Result<(), NetDevError>;
 
+    /// Update network device status.
+    fn update(&self) -> Result<(), NetDevError>;
+
     /// Interrupt handler for network device.
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError>;
     fn irqs(&self) -> Vec<u16>;
+    fn rx_irq_to_que_id(&self, irq: u16) -> usize;
 
     fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError>;
     fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError>;

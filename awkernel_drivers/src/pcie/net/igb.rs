@@ -1,9 +1,8 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage,
-    net::igb::igb_hw::{Duplex, MacType},
-    PCIeDevice, PCIeDeviceErr, PCIeInfo,
+    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
+    PCIeInfo,
 };
 use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
@@ -283,7 +282,6 @@ where
     info.read_capability();
 
     let igb = Igb::new(info)?;
-    let _ = igb.up();
 
     awkernel_lib::net::add_interface(Arc::new(igb), None);
 
@@ -519,6 +517,8 @@ impl IgbInner {
         use igb_hw::MacType::*;
 
         self.stop(false, que)?;
+
+        log::debug!("igb: init");
 
         // Packet Buffer Allocation (PBA)
         // Writing PBA sets the receive portion of the buffer
@@ -1728,6 +1728,17 @@ impl PCIeDevice for Igb {
 }
 
 impl NetDevice for Igb {
+    fn update(&self) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        inner.hw.set_get_link_status(true);
+        inner.check_for_link().or(Err(NetDevError::DeviceError))?;
+        inner
+            .update_link_status()
+            .or(Err(NetDevError::DeviceError))?;
+
+        Ok(())
+    }
+
     fn flags(&self) -> NetFlags {
         let inner = self.inner.read();
         inner.flags
@@ -1856,6 +1867,10 @@ impl NetDevice for Igb {
             PCIeInt::Msi(msi) => vec![msi.get_irq()],
             _ => vec![],
         }
+    }
+
+    fn rx_irq_to_que_id(&self, _irq: u16) -> usize {
+        0 // Use only one queue
     }
 
     fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
