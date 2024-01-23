@@ -1235,6 +1235,14 @@ impl Igb {
         ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
+        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+
+        if !(matches!(ext.network, NetworkHdr::Ipv4(_))
+            && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
+        {
+            return Ok((0, 0, 0));
+        }
+
         let txd_upper;
         let txd_lower;
 
@@ -1329,7 +1337,7 @@ impl Igb {
 
                 ((ip.header_len() as u32) << 2, ADVTXD_TUCMD_IPV4)
             }
-            NetworkHdr::Ipv6(ip) => (core::mem::size_of::<Ip6Hdr>() as u32, ADVTXD_TUCMD_IPV6),
+            NetworkHdr::Ipv6(_) => (core::mem::size_of::<Ip6Hdr>() as u32, ADVTXD_TUCMD_IPV6),
             _ => (0, 0),
         };
 
@@ -1363,6 +1371,7 @@ impl Igb {
         }
 
         if !off {
+            log::debug!("tx_ctx_setup: off = false");
             return Ok((0, cmd_type_len, olinfo_status));
         }
 
@@ -1446,8 +1455,13 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            dst.as_ptr() as u64
+
+            log::debug!("encap: data = {:x?}, len = {len:x}", dst[0..len].as_ref());
+
+            write_buf.get_phy_addr().as_usize() as u64 + head as u64 * TXBUFFER_16384 as u64
         };
+
+        log::debug!("encap: addr = {:x?}", addr);
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
 
@@ -1479,11 +1493,12 @@ impl Igb {
 
         unsafe { desc.legacy.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
 
+        unsafe { log::debug!("desc = {:x?}", desc.legacy) };
+
         Ok(used)
     }
 
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
-        log::debug!("send 0");
         let inner = self.inner.read();
 
         let inner = if !inner.link_active {
@@ -1517,6 +1532,8 @@ impl Igb {
 
         let mut post = false;
         for ether_frame in ether_frames.iter() {
+            log::debug!("send 2: data = {:x?}", ether_frames[0].data);
+
             // use 2 because cksum setup can use an extra slot
             if MAX_SCATTER + 2 > free {
                 break;
@@ -1529,10 +1546,11 @@ impl Igb {
             post = true;
         }
 
-        log::debug!("send 2");
+        log::debug!("send 3");
 
         if inner.hw.get_mac_type() != MacType::Em82547 {
             if post {
+                log::debug!("send 4: tx_desc_head = {}", tx.tx_desc_head,);
                 igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
             }
         }

@@ -7,7 +7,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{fmt::Display, net::Ipv4Addr};
-use smoltcp::wire::IpAddress;
+use smoltcp::wire::{IpAddress, IpCidr};
 
 use self::{if_net::IfNet, net_device::NetDevice};
 
@@ -173,6 +173,35 @@ pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>)
     net_manager.interfaces.insert(id, if_net);
 }
 
+pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+
+    let octets = addr.octets();
+
+    inner
+        .interface
+        .routes_mut()
+        .add_default_ipv4_route(smoltcp::wire::Ipv4Address::new(
+            octets[0], octets[1], octets[2], octets[3],
+        ));
+
+    inner.interface.update_ip_addrs(|ip_addrs| {
+        if let Err(e) = ip_addrs.push(IpCidr::new(
+            IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
+            prefix_len,
+        )) {
+            log::error!("add_ipv4_addr: {}", e);
+        }
+    });
+}
+
 /// Service routine for network device interrupt.
 /// This routine should be called by interrupt handlers provided by device drivers.
 pub fn net_interrupt(irq: u16) {
@@ -269,6 +298,8 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
     use alloc::vec;
     use smoltcp::socket::udp;
 
+    add_ipv4_addr(interface_id, Ipv4Addr::new(10, 0, 2, 15), 24);
+
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
@@ -291,6 +322,9 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
 
     let address = IpAddress::v4(10, 0, 2, 2);
     let port = 26099;
+
+    let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
+    socket.bind(20000).unwrap();
 
     drop(inner);
 

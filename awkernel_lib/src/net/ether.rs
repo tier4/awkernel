@@ -60,7 +60,7 @@ pub struct EtherExtracted<'a> {
 pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
     let mut remain = buf.len();
 
-    if core::mem::size_of::<EtherHeader>() < remain {
+    if core::mem::size_of::<EtherHeader>() > remain {
         return Err("too short ether header");
     }
 
@@ -68,8 +68,13 @@ pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
     let mut ether_type = u16::from_be(ether.ether_type);
 
     let ether_vlan = if ether_type == ETHER_TYPE_VLAN {
-        if core::mem::size_of::<EtherVlanHeader>() < remain {
-            return Err("too short ether vlan header");
+        if core::mem::size_of::<EtherVlanHeader>() > remain {
+            return Ok(EtherExtracted {
+                ether,
+                ether_vlan: None,
+                network: NetworkHdr::None,
+                transport: TransportHdr::None,
+            });
         }
 
         remain -= core::mem::size_of::<EtherVlanHeader>();
@@ -88,7 +93,7 @@ pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
 
     match ether_type {
         ETHER_TYPE_IP => {
-            if core::mem::size_of::<Ip>() < remain {
+            if core::mem::size_of::<Ip>() > remain {
                 return Err("too short ip header");
             }
 
@@ -101,7 +106,7 @@ pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
             network = NetworkHdr::Ipv4(ip);
         }
         ETHER_TYPE_IPV6 => {
-            if core::mem::size_of::<Ip6Hdr>() < remain {
+            if core::mem::size_of::<Ip6Hdr>() > remain {
                 return Err("too short ipv6 header");
             }
 
@@ -125,7 +130,7 @@ pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
 
     let transport = match ipproto {
         IPPROTO_TCP => {
-            if core::mem::size_of::<TCPHdr>() < remain {
+            if core::mem::size_of::<TCPHdr>() > remain {
                 return Err("too short TCP header");
             }
 
@@ -133,7 +138,7 @@ pub fn extract_headers(buf: &[u8]) -> Result<EtherExtracted, &'static str> {
             TransportHdr::Tcp(tcp)
         }
         IPPROTO_UDP => {
-            if core::mem::size_of::<UDPHdr>() < remain {
+            if core::mem::size_of::<UDPHdr>() > remain {
                 return Err("too short UDP header");
             }
 
