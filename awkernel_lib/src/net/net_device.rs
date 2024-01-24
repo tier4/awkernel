@@ -1,6 +1,6 @@
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use bitflags::bitflags;
-use core::net::Ipv4Addr;
+use core::{fmt::Display, net::Ipv4Addr};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +57,58 @@ bitflags! {
         const TSOv6 = 1 << 13; // IPv6/TCP segment offload
         const LRO = 1 << 14; // TCP large recv offload
         const WOL = 1 << 15; // can do wake on lan
+    }
+}
+
+impl Display for NetCapabilities {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut s = String::new();
+
+        if self.contains(NetCapabilities::CSUM_IPv4) {
+            s.push_str("CSUM_IPv4 ");
+        }
+
+        if self.contains(NetCapabilities::CSUM_TCPv4) {
+            s.push_str("CSUM_TCPv4 ");
+        }
+
+        if self.contains(NetCapabilities::CSUM_UDPv4) {
+            s.push_str("CSUM_UDPv4 ");
+        }
+
+        if self.contains(NetCapabilities::VLAN_MTU) {
+            s.push_str("VLAN_MTU ");
+        }
+
+        if self.contains(NetCapabilities::VLAN_HWTAGGING) {
+            s.push_str("VLAN_HWTAGGING ");
+        }
+
+        if self.contains(NetCapabilities::CSUM_TCPv6) {
+            s.push_str("CSUM_TCPv6 ");
+        }
+
+        if self.contains(NetCapabilities::CSUM_UDPv6) {
+            s.push_str("CSUM_UDPv6 ");
+        }
+
+        if self.contains(NetCapabilities::TSOv4) {
+            s.push_str("TSOv4 ");
+        }
+
+        if self.contains(NetCapabilities::TSOv6) {
+            s.push_str("TSOv6 ");
+        }
+
+        if self.contains(NetCapabilities::LRO) {
+            s.push_str("LRO ");
+        }
+
+        if self.contains(NetCapabilities::WOL) {
+            s.push_str("WOL ");
+        }
+
+        write!(f, "{}", s)
     }
 }
 

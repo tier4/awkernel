@@ -1458,7 +1458,7 @@ impl Igb {
 
             log::debug!("encap: data = {:x?}, len = {len:x}", dst[0..len].as_ref());
 
-            write_buf.get_phy_addr().as_usize() as u64 + head as u64 * TXBUFFER_16384 as u64
+            (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_16384 as usize) as u64
         };
 
         log::debug!("encap: addr = {:x?}", addr);

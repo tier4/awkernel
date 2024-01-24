@@ -95,6 +95,7 @@ async fn spawn_interrupt_handler(
 
 struct NetworkInterrupt {
     irq: u16,
+    wait: bool,
 }
 
 impl Future for NetworkInterrupt {
@@ -104,7 +105,15 @@ impl Future for NetworkInterrupt {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        if awkernel_lib::net::register_waker_for_network_interrupt(self.irq, cx.waker().clone()) {
+        let m = self.get_mut();
+
+        if !m.wait {
+            return Poll::Ready(());
+        }
+
+        m.wait = false;
+
+        if awkernel_lib::net::register_waker_for_network_interrupt(m.irq, cx.waker().clone()) {
             Poll::Pending
         } else {
             Poll::Ready(())
@@ -116,7 +125,7 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
     let mut ch = ch.recv().boxed().fuse();
 
     loop {
-        let mut future = NetworkInterrupt { irq }.fuse();
+        let mut future = NetworkInterrupt { irq, wait: true }.fuse();
 
         select_biased! {
             (ch, _) = ch => {

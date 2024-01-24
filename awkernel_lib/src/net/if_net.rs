@@ -71,6 +71,8 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.udp = Checksum::Rx;
         }
 
+        log::debug!("capabilities: {capabilities}, {:?}", cap);
+
         cap
     }
 
