@@ -1235,14 +1235,6 @@ impl Igb {
         ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
-        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
-
-        if !(matches!(ext.network, NetworkHdr::Ipv4(_))
-            && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
-        {
-            return Ok((0, 0, 0));
-        }
-
         let txd_upper;
         let txd_lower;
 

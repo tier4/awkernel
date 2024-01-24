@@ -193,13 +193,6 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
 
     let octets = addr.octets();
 
-    inner
-        .interface
-        .routes_mut()
-        .add_default_ipv4_route(smoltcp::wire::Ipv4Address::new(
-            octets[0], octets[1], octets[2], octets[3],
-        ));
-
     inner.interface.update_ip_addrs(|ip_addrs| {
         if let Err(e) = ip_addrs.push(IpCidr::new(
             IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),

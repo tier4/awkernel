@@ -9,8 +9,9 @@ use smoltcp::{
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
-use super::net_device::{
-    EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags,
+use super::{
+    ether::{extract_headers, NetworkHdr, TransportHdr},
+    net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
 };
 
 struct NetDriver {
@@ -28,21 +29,33 @@ struct NetDriverRef<'a> {
 }
 
 impl<'a> NetDriverRef<'a> {
-    fn tx_packet_header_flags(&self) -> PacketHeaderFlags {
+    fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
         let mut flags = PacketHeaderFlags::empty();
+
+        let Ok(ext) = extract_headers(data) else {
+            return flags;
+        };
 
         let capabilities = self.capabilities();
 
-        if capabilities.checksum.ipv4.tx() {
-            flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT);
+        if matches!(ext.network, NetworkHdr::Ipv4(_)) {
+            if !capabilities.checksum.ipv4.tx() {
+                flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT);
+            }
         }
 
-        if capabilities.checksum.tcp.tx() {
-            flags.insert(PacketHeaderFlags::TCP_CSUM_OUT);
-        }
-
-        if capabilities.checksum.udp.tx() {
-            flags.insert(PacketHeaderFlags::UDP_CSUM_OUT);
+        match ext.transport {
+            TransportHdr::Tcp(_) => {
+                if !capabilities.checksum.tcp.tx() {
+                    flags.insert(PacketHeaderFlags::TCP_CSUM_OUT);
+                }
+            }
+            TransportHdr::Udp(_) => {
+                if !capabilities.checksum.udp.tx() {
+                    flags.insert(PacketHeaderFlags::UDP_CSUM_OUT);
+                }
+            }
+            _ => {}
         }
 
         flags
@@ -63,16 +76,12 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        if capabilities.contains(NetCapabilities::CSUM_TCPv4)
-            | capabilities.contains(NetCapabilities::CSUM_TCPv6)
-        {
+        if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
             cap.checksum.tcp = Checksum::Rx;
         }
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4)
-            | capabilities.contains(NetCapabilities::CSUM_UDPv6)
-        {
-            cap.checksum.udp = Checksum::None;
+        if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
+            cap.checksum.udp = Checksum::Rx;
         }
 
         log::debug!("capabilities: {capabilities}, {:?}", cap);
@@ -210,24 +219,24 @@ impl IfNet {
 
         let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
 
-        let (tx_packet_header_flags, result) = {
+        let result = {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
             let (interface, socket_set) = inner.split();
 
-            (
-                device_ref.tx_packet_header_flags(),
-                interface.poll(timestamp, &mut device_ref, socket_set),
-            )
+            // device_ref.tx_packet_header_flags(),
+            interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
         log::debug!("poll_tx_only 2");
 
         // send packets from the queue.
-        while !tx_ringq.is_empty() {
+        while !device_ref.tx_ringq.is_empty() {
             log::debug!("poll_tx_only 3");
-            if let Some(data) = tx_ringq.pop() {
+            if let Some(data) = device_ref.tx_ringq.pop() {
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+
                 let data = EtherFrameRef {
                     data: &data,
                     vlan: self.vlan,
@@ -270,13 +279,13 @@ impl IfNet {
         let mut node = MCSNode::new();
         let mut tx_ringq = tx_ringq.lock(&mut node);
 
-        let (tx_packet_header_flags, result) = {
-            let mut device_ref = NetDriverRef {
-                inner: &ref_net_driver.inner,
-                rx_ringq: Some(&mut rx_ringq),
-                tx_ringq: &mut tx_ringq,
-            };
+        let mut device_ref = NetDriverRef {
+            inner: &ref_net_driver.inner,
+            rx_ringq: Some(&mut rx_ringq),
+            tx_ringq: &mut tx_ringq,
+        };
 
+        let result = {
             let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
 
             let mut node = MCSNode::new();
@@ -284,15 +293,14 @@ impl IfNet {
 
             let (interface, socket_set) = inner.split();
 
-            (
-                device_ref.tx_packet_header_flags(),
-                interface.poll(timestamp, &mut device_ref, socket_set),
-            )
+            interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
         // send packets from the queue.
-        while !tx_ringq.is_empty() {
-            if let Some(data) = tx_ringq.pop() {
+        while !device_ref.tx_ringq.is_empty() {
+            if let Some(data) = device_ref.tx_ringq.pop() {
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+
                 let data = EtherFrameRef {
                     data: &data,
                     vlan: self.vlan,
