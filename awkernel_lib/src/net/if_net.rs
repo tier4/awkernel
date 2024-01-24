@@ -63,12 +63,16 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
+        if capabilities.contains(NetCapabilities::CSUM_TCPv4)
+            | capabilities.contains(NetCapabilities::CSUM_TCPv6)
+        {
             cap.checksum.tcp = Checksum::Rx;
         }
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
-            cap.checksum.udp = Checksum::Rx;
+        if capabilities.contains(NetCapabilities::CSUM_UDPv4)
+            | capabilities.contains(NetCapabilities::CSUM_UDPv6)
+        {
+            cap.checksum.udp = Checksum::None;
         }
 
         log::debug!("capabilities: {capabilities}, {:?}", cap);
