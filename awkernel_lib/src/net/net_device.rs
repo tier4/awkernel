@@ -156,9 +156,6 @@ pub trait NetDevice {
     fn up(&self) -> Result<(), NetDevError>;
     fn down(&self) -> Result<(), NetDevError>;
 
-    /// Update network device status.
-    fn update(&self) -> Result<(), NetDevError>;
-
     /// Interrupt handler for network device.
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError>;
     fn irqs(&self) -> Vec<u16>;

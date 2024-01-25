@@ -1493,18 +1493,8 @@ impl Igb {
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
         let inner = self.inner.read();
 
-        let inner = if !inner.link_active {
-            drop(inner);
-            let _ = self.update();
-
-            let inner = self.inner.read();
-            if !inner.link_active {
-                return Ok(());
-            } else {
-                inner
-            }
-        } else {
-            inner
+        if !inner.link_active {
+            return Ok(());
         };
 
         log::debug!("send 1");
@@ -1753,17 +1743,6 @@ impl PCIeDevice for Igb {
 }
 
 impl NetDevice for Igb {
-    fn update(&self) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-        inner.hw.set_get_link_status(true);
-        inner.check_for_link().or(Err(NetDevError::DeviceError))?;
-        inner
-            .update_link_status()
-            .or(Err(NetDevError::DeviceError))?;
-
-        Ok(())
-    }
-
     fn flags(&self) -> NetFlags {
         let inner = self.inner.read();
         inner.flags

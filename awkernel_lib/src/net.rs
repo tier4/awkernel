@@ -100,8 +100,6 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let inner = &if_net.net_device;
 
-    let _ = inner.update();
-
     let mac_address = inner.mac_address();
     let link_up = inner.link_up();
     let link_speed_mbs = inner.link_speed();
