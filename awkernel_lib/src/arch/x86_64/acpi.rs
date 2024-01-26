@@ -3,6 +3,7 @@ use bootloader_api::BootInfo;
 use core::ptr::NonNull;
 use x86_64::VirtAddr;
 
+pub mod dmar;
 pub mod srat;
 
 #[derive(Debug, Clone)]

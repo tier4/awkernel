@@ -27,12 +27,12 @@ impl<'a> Iterator for SratEntryIter<'a> {
     type Item = SratEntry<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while self.remaining_length > 0 {
+        while self.remaining_length >= mem::size_of::<EntryHeader>() as u32 {
             let entry_pointer = self.pointer;
-            let header = unsafe { *(self.pointer as *const EntryHeader) };
+            let header = unsafe { &*(self.pointer as *const EntryHeader) };
 
             self.pointer = unsafe { self.pointer.offset(header.length as isize) };
-            self.remaining_length -= header.length as u32;
+            self.remaining_length = self.remaining_length.saturating_sub(header.length as u32);
 
             macro_rules! construct_entry {
                 ($entry_type:expr,
@@ -146,7 +146,10 @@ impl Srat {
     pub fn entries(&self) -> SratEntryIter {
         SratEntryIter {
             pointer: unsafe { (self as *const Srat as *const u8).add(mem::size_of::<Srat>()) },
-            remaining_length: self.header.length - mem::size_of::<Srat>() as u32,
+            remaining_length: self
+                .header
+                .length
+                .saturating_sub(mem::size_of::<Srat>() as u32),
             _phantom: PhantomData,
         }
     }

@@ -23,7 +23,7 @@ use awkernel_drivers::interrupt_controller::apic::{
 };
 use awkernel_lib::{
     arch::x86_64::{
-        acpi::AcpiMapper,
+        acpi::{dmar::DmarEntry, AcpiMapper},
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
@@ -207,6 +207,18 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
         wait_forever();
+    }
+
+    if let Ok(dmar) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::dmar::Dmar>() {
+        dmar.entries().for_each(|entry| {
+            log::info!("{:?}", entry);
+
+            if let DmarEntry::Drhd(drhd) = entry {
+                drhd.device_scopes().for_each(|scope| {
+                    log::info!("{:?}", scope);
+                });
+            }
+        });
     }
 
     // 15. Initialize PCIe devices.
