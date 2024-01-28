@@ -1,5 +1,18 @@
 //! Interrupt remapping of Vt-d.
 
+use core::fmt::Debug;
+
+use acpi::AcpiTables;
+
+use crate::{
+    addr::virt_addr::VirtAddr,
+    arch::x86_64::acpi::dmar::{Dmar, DmarEntry},
+    dma_pool::DMAPool,
+    paging::{self, Frame, FrameAllocator, PageTable, PAGESIZE},
+};
+
+use super::acpi::AcpiMapper;
+
 const PRESENT: u32 = 1;
 const FPD: u32 = 1 << 1; // Fault Processing Disable, 0: enable, 1: disable
 const DM: u32 = 1 << 2; // Destination Mode, 0: Physical, 1: Logical
@@ -47,4 +60,76 @@ impl IRTEntry {
     fn enable(&mut self, irq: u8, level_trigger: bool, lowest_priority: bool) {
         let mut flags = PRESENT;
     }
+}
+
+pub unsafe fn init_interrupt_remap<F, FA, PT, E>(
+    page_table_base: VirtAddr,
+    acpi: &AcpiTables<AcpiMapper>,
+    page_table: &mut PT,
+    page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
+) -> Result<(), &'static str>
+where
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
+    E: Debug,
+{
+    const TABLE_SIZE: usize = 256 * 4096; // 1MiB
+
+    let mut remap_table = [None; 32];
+
+    if let Ok(dmar) = acpi.find_table::<Dmar>() {
+        dmar.entries().for_each(|entry| {
+            log::info!("{:x?}", entry);
+
+            if let DmarEntry::Drhd(drhd) = entry {
+                drhd.device_scopes()
+                    .find(|(scope, _path)| scope.entry_type == 1);
+
+                drhd.segment_number;
+
+                if let Some(addr) = &remap_table[drhd.segment_number as usize] {
+                    // TODO: Set Interrupt Remapping Table Address Register
+                } else {
+                    let pool = DMAPool::<[u8; TABLE_SIZE]>::new(
+                        drhd.segment_number as usize,
+                        TABLE_SIZE / PAGESIZE,
+                    )
+                    .expect("DMAPool::new() failed.");
+
+                    let phy_addr = pool.get_phy_addr();
+                    pool.leak();
+
+                    remap_table[drhd.segment_number as usize] = Some(phy_addr);
+
+                    // TODO: Set Interrupt Remapping Table Address Register
+                }
+            }
+        });
+    }
+
+    let page_allocator = page_allocators.get_mut(&0).unwrap();
+    let flags = paging::Flags {
+        execute: false,
+        write: true,
+        cache: false,
+        device: true,
+        write_through: false,
+    };
+
+    for (i, table) in remap_table.into_iter().enumerate() {
+        let Some(phy_addr) = table else {
+            continue;
+        };
+
+        let virt_addr = VirtAddr::new(i * TABLE_SIZE) + page_table_base;
+
+        unsafe {
+            page_table
+                .map_to(virt_addr, phy_addr, flags, page_allocator)
+                .unwrap()
+        };
+    }
+
+    Ok(())
 }

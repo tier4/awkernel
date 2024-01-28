@@ -3,6 +3,7 @@
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
 use super::{
+    config::INTERRUPT_REMAPPING_TABLE_START,
     heap::{map_backup_heap, map_primary_heap},
     interrupt_handler,
 };
@@ -23,7 +24,8 @@ use awkernel_drivers::interrupt_controller::apic::{
 };
 use awkernel_lib::{
     arch::x86_64::{
-        acpi::{dmar::DmarEntry, AcpiMapper},
+        acpi::AcpiMapper,
+        interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
@@ -193,6 +195,19 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
         TypeApic::X2Apic(x2apic) => {
             let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
 
+            // Initialize the interrupt remapping table.
+            if let Err(e) = unsafe {
+                init_interrupt_remap(
+                    awkernel_lib::addr::virt_addr::VirtAddr::new(INTERRUPT_REMAPPING_TABLE_START),
+                    &acpi,
+                    &mut awkernel_page_table,
+                    &mut page_allocators,
+                )
+            } {
+                log::error!("Failed to initialize interrupt remapping table. {}", e);
+                wait_forever();
+            }
+
             // Register interrupt controller.
             register_interrupt_controller(Box::new(x2apic));
 
@@ -207,18 +222,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
         wait_forever();
-    }
-
-    if let Ok(dmar) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::dmar::Dmar>() {
-        dmar.entries().for_each(|entry| {
-            log::info!("{:?}", entry);
-
-            if let DmarEntry::Drhd(drhd) = entry {
-                drhd.device_scopes().for_each(|scope| {
-                    log::info!("{:?}", scope);
-                });
-            }
-        });
     }
 
     // 15. Initialize PCIe devices.

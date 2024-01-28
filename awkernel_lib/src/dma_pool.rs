@@ -83,6 +83,12 @@ impl<T> DMAPool<T> {
         })
     }
 
+    pub fn leak(self) -> NonNull<T> {
+        let ptr = self.ptr;
+        core::mem::forget(self);
+        ptr
+    }
+
     #[inline(always)]
     pub fn get_virt_addr(&self) -> VirtAddr {
         self.virt_addr
