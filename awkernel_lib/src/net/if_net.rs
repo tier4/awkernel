@@ -38,10 +38,8 @@ impl<'a> NetDriverRef<'a> {
 
         let capabilities = self.capabilities();
 
-        if matches!(ext.network, NetworkHdr::Ipv4(_)) {
-            if !capabilities.checksum.ipv4.tx() {
-                flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT);
-            }
+        if matches!(ext.network, NetworkHdr::Ipv4(_)) && !capabilities.checksum.ipv4.tx() {
+            flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT);
         }
 
         match ext.transport {
@@ -83,8 +81,6 @@ impl<'a> Device for NetDriverRef<'a> {
         if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
             cap.checksum.udp = Checksum::Rx;
         }
-
-        log::debug!("capabilities: {capabilities}, {:?}", cap);
 
         cap
     }
@@ -159,7 +155,7 @@ impl IfNet {
             let hardware_address =
                 HardwareAddress::Ethernet(smoltcp::wire::EthernetAddress(net_device.mac_address()));
             let mut config = Config::new(hardware_address);
-            config.random_seed = crate::delay::uptime() as u64;
+            config.random_seed = crate::delay::uptime();
 
             Interface::new(config, &mut net_driver_ref, instant)
         };
@@ -206,8 +202,6 @@ impl IfNet {
             return false;
         };
 
-        log::debug!("poll_tx_only: que_id = {}", que_id);
-
         let mut node = MCSNode::new();
         let mut tx_ringq = tx_ringq.lock(&mut node);
 
@@ -229,11 +223,8 @@ impl IfNet {
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
-        log::debug!("poll_tx_only 2");
-
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
-            log::debug!("poll_tx_only 3");
             if let Some(data) = device_ref.tx_ringq.pop() {
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
 
@@ -342,9 +333,9 @@ impl<'a> phy::TxToken for NTxToken<'a> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        log::debug!("NTxToken::consume: len = {}", len);
-
         let mut buf = Vec::with_capacity(len);
+
+        #[allow(clippy::uninit_vec)]
         unsafe {
             buf.set_len(len);
         };

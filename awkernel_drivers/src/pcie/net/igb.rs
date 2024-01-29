@@ -502,8 +502,6 @@ impl IgbInner {
                 self.link_active = true;
                 self.smart_speed = 0;
             }
-
-            log::debug!("igb: link up");
         } else if self.link_active {
             self.link_speed = igb_hw::Speed::None;
             self.link_duplex = igb_hw::Duplex::None;
@@ -517,8 +515,6 @@ impl IgbInner {
         use igb_hw::MacType::*;
 
         self.stop(false, que)?;
-
-        log::debug!("igb: init");
 
         // Packet Buffer Allocation (PBA)
         // Writing PBA sets the receive portion of the buffer
@@ -833,7 +829,7 @@ impl IgbInner {
     }
 
     fn setup_queues_msix(&mut self) -> Result<(), IgbDriverErr> {
-        let PCIeInt::MsiX(msix) = &mut self.pcie_int else {
+        let PCIeInt::MsiX(_msix) = &mut self.pcie_int else {
             return Ok(());
         };
 
@@ -1224,7 +1220,7 @@ impl Igb {
         let mut node = MCSNode::new();
         let rx = que.rx.lock(&mut node);
 
-        let rx_desc_ring = rx.rx_desc_ring.as_ref();
+        let _rx_desc_ring = rx.rx_desc_ring.as_ref();
         todo!()
     }
 
@@ -1335,7 +1331,7 @@ impl Igb {
 
         cmd_type_len |= ADVTXD_DTYP_DATA | ADVTXD_DCMD_IFCS;
         cmd_type_len |= ADVTXD_DCMD_DEXT;
-        vlan_macip_lens |= iphlen as u32;
+        vlan_macip_lens |= iphlen;
         type_tucmd_mlhl |= ADVTXD_DCMD_DEXT | ADVTXD_DTYP_CTXT;
 
         match ext.transport {
@@ -1363,7 +1359,6 @@ impl Igb {
         }
 
         if !off {
-            log::debug!("tx_ctx_setup: off = false");
             return Ok((0, cmd_type_len, olinfo_status));
         }
 
@@ -1424,7 +1419,7 @@ impl Igb {
             return Err(IgbDriverErr::InvalidPacket);
         }
 
-        let mut head = tx.tx_desc_head as usize;
+        let mut head = tx.tx_desc_head;
 
         let (mut used, txd_lower, txd_upper) = if mac_type as u32 >= MacType::Em82575 as u32
             && mac_type as u32 <= MacType::EmI210 as u32
@@ -1447,13 +1442,8 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-
-            log::debug!("encap: data = {:x?}, len = {len:x}", dst[0..len].as_ref());
-
             (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_16384 as usize) as u64
         };
-
-        log::debug!("encap: addr = {:x?}", addr);
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
 
@@ -1485,8 +1475,6 @@ impl Igb {
 
         unsafe { desc.legacy.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
 
-        unsafe { log::debug!("desc = {:x?}", desc.legacy) };
-
         Ok(used)
     }
 
@@ -1496,8 +1484,6 @@ impl Igb {
         if !inner.link_active {
             return Ok(());
         };
-
-        log::debug!("send 1");
 
         let mut node = MCSNode::new();
         let mut tx = self.que[que_id].tx.lock(&mut node);
@@ -1514,8 +1500,6 @@ impl Igb {
 
         let mut post = false;
         for ether_frame in ether_frames.iter() {
-            log::debug!("send 2: data = {:x?}", ether_frames[0].data);
-
             // use 2 because cksum setup can use an extra slot
             if MAX_SCATTER + 2 > free {
                 break;
@@ -1528,13 +1512,8 @@ impl Igb {
             post = true;
         }
 
-        log::debug!("send 3");
-
-        if inner.hw.get_mac_type() != MacType::Em82547 {
-            if post {
-                log::debug!("send 4: tx_desc_head = {}", tx.tx_desc_head,);
-                igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
-            }
+        if inner.hw.get_mac_type() != MacType::Em82547 && post {
+            igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
         }
 
         Ok(())
@@ -1813,8 +1792,6 @@ impl NetDevice for Igb {
     }
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
-        log::debug!("send");
-
         let frames = [data];
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
@@ -1864,7 +1841,7 @@ impl NetDevice for Igb {
         let inner = self.inner.read();
 
         match &inner.pcie_int {
-            PCIeInt::MsiX(msix) => todo!(),
+            PCIeInt::MsiX(_msix) => todo!(),
             PCIeInt::Msi(msi) => vec![msi.get_irq()],
             _ => vec![],
         }

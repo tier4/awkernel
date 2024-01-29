@@ -344,7 +344,7 @@ impl InterruptController for Xapic {
         unsafe {
             write_volatile(
                 message_data,
-                irq as u16 & 0xFF | if IS_EDGE_TRIGGER { 0 } else { 1 << 15 },
+                irq & 0xFF | if IS_EDGE_TRIGGER { 0 } else { 1 << 15 },
             );
 
             write_volatile(message_address, 0xfee0_0000 | ((target & 0xFF) << 12));

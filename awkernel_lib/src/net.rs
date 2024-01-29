@@ -204,26 +204,20 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
 /// Service routine for network device interrupt.
 /// This routine should be called by interrupt handlers provided by device drivers.
 pub fn net_interrupt(irq: u16) {
-    log::debug!("net_interrupt: irq={}", irq);
-
     let mut node = MCSNode::new();
     let mut w = WAKERS.lock(&mut node);
-    log::debug!("net_interrupt: 2");
 
     match w.entry(irq) {
         Entry::Occupied(e) => {
             if matches!(e.get(), IRQWaker::Waker(_)) {
                 let IRQWaker::Waker(w) = e.remove() else {
-                    log::debug!("net_interrupt: invalid");
                     return;
                 };
 
-                log::debug!("net_interrupt: wake");
                 w.wake();
             }
         }
         Entry::Vacant(e) => {
-            log::debug!("net_interrupt: interrupted");
             e.insert(IRQWaker::Interrupted);
         }
     }
@@ -246,17 +240,14 @@ pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) 
     match entry {
         Entry::Occupied(mut e) => {
             if matches!(e.get(), IRQWaker::Interrupted) {
-                log::debug!("register_waker_for_network_interrupt: interrupted");
                 e.remove();
                 false
             } else {
-                log::debug!("register_waker_for_network_interrupt: waker 1");
                 e.insert(IRQWaker::Waker(waker));
                 true
             }
         }
         Entry::Vacant(e) => {
-            log::debug!("register_waker_for_network_interrupt: waker 2");
             e.insert(IRQWaker::Waker(waker));
             true
         }
@@ -344,7 +335,6 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
             let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
 
             if socket.can_send() {
-                log::debug!("udp_test 0");
                 let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
             }
 

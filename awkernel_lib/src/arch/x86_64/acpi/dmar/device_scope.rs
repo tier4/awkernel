@@ -15,7 +15,7 @@ impl<'a> Iterator for DeviceScopeIter<'a> {
             let device_scope = unsafe { &*(self.pointer as *const DeviceScope) };
 
             let size_of_device_scope = mem::size_of::<DeviceScope>();
-            let ptr_path = self.pointer.wrapping_add(size_of_device_scope) as *const u8;
+            let ptr_path = self.pointer.wrapping_add(size_of_device_scope);
 
             let path = unsafe {
                 core::slice::from_raw_parts(
@@ -25,9 +25,7 @@ impl<'a> Iterator for DeviceScopeIter<'a> {
             };
 
             self.pointer = unsafe { self.pointer.offset(device_scope.length as isize) };
-            self.remaining_length = self
-                .remaining_length
-                .saturating_sub(device_scope.length as u8);
+            self.remaining_length = self.remaining_length.saturating_sub(device_scope.length);
 
             Some((&device_scope, path))
         } else {

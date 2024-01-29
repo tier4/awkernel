@@ -58,10 +58,14 @@ impl IRTEntry {
     }
 
     fn enable(&mut self, irq: u8, level_trigger: bool, lowest_priority: bool) {
-        let mut flags = PRESENT;
+        let flags = PRESENT;
+        // TODO
     }
 }
 
+/// # Safety
+///
+/// This function must be called only once.
 pub unsafe fn init_interrupt_remap<F, FA, PT, E>(
     page_table_base: VirtAddr,
     acpi: &AcpiTables<AcpiMapper>,
@@ -86,9 +90,7 @@ where
                 drhd.device_scopes()
                     .find(|(scope, _path)| scope.entry_type == 1);
 
-                drhd.segment_number;
-
-                if let Some(addr) = &remap_table[drhd.segment_number as usize] {
+                if let Some(_addr) = &remap_table[drhd.segment_number as usize] {
                     // TODO: Set Interrupt Remapping Table Address Register
                 } else {
                     let pool = DMAPool::<[u8; TABLE_SIZE]>::new(
