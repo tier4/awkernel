@@ -1,5 +1,4 @@
 pub mod msi;
-#[allow(dead_code)] // TODO: remove this
 pub mod msix;
 pub mod pcie_cap;
 

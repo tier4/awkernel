@@ -67,7 +67,8 @@ impl IRTEntry {
 ///
 /// This function must be called only once.
 pub unsafe fn init_interrupt_remap<F, FA, PT, E>(
-    page_table_base: VirtAddr,
+    phy_offset: VirtAddr,
+    page_table_base: VirtAddr, // Location to map Interrupt Remapping Table
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
@@ -84,7 +85,7 @@ where
 
     if let Ok(dmar) = acpi.find_table::<Dmar>() {
         dmar.entries().for_each(|entry| {
-            log::info!("{:x?}", entry);
+            log::debug!("{:x?}", entry);
 
             if let DmarEntry::Drhd(drhd) = entry {
                 drhd.device_scopes()

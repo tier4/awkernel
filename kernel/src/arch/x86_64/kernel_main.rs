@@ -198,6 +198,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
                 init_interrupt_remap(
+                    awkernel_lib::addr::virt_addr::VirtAddr::new(offset as usize),
                     awkernel_lib::addr::virt_addr::VirtAddr::new(INTERRUPT_REMAPPING_TABLE_START),
                     &acpi,
                     &mut awkernel_page_table,
