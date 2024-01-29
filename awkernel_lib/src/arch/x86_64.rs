@@ -5,6 +5,9 @@ pub mod acpi;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod interrupt;
+#[allow(dead_code)] // TODO: remove this
+#[allow(unused_variables)] // TODO: remove this
+pub mod interrupt_remap;
 pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;

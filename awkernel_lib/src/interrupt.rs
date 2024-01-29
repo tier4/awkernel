@@ -24,7 +24,7 @@ pub trait InterruptController: Sync + Send {
     fn pending_irqs(&self) -> Box<dyn Iterator<Item = u16>>;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: u16, target: u16);
+    fn send_ipi(&mut self, irq: u16, target: u32);
 
     /// Send an inter-process interrupt to all CPUs.
     fn send_ipi_broadcast(&mut self, irq: u16);
@@ -46,6 +46,18 @@ pub trait InterruptController: Sync + Send {
     /// Return the range of IRQs, which can be used for PnP devices.
     /// The range is [start, end).
     fn irq_range_for_pnp(&self) -> (u16, u16);
+
+    /// Set the PCIe MSI interrupt
+    fn set_pcie_msi(
+        &self,
+        _target: u32,
+        _irq: u16,
+        _message_data: &mut u16,
+        _message_address: &mut u32,
+        _message_address_upper: Option<&mut u32>,
+    ) -> Result<(), &'static str> {
+        Err("Interrupt controller does not support PCIe MSI.")
+    }
 }
 
 type NameAndCallback = (&'static str, Box<dyn Fn(u16) + Send>);
@@ -183,7 +195,7 @@ pub fn disable_irq(irq: u16) {
 }
 
 /// Send an inter-process interrupt to `target` CPU.
-pub fn send_ipi(irq: u16, target: u16) {
+pub fn send_ipi(irq: u16, target: u32) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.send_ipi(irq, target);
@@ -209,6 +221,29 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
         ctrl.send_ipi_broadcast_without_self(irq);
     } else {
         log::warn!("Interrupt controller is not yet enabled.");
+    }
+}
+
+/// Set PCIe MSI interrupt.
+pub fn set_pcie_msi(
+    target: u32,
+    irq: u16,
+    message_data: &mut u16,
+    message_address: &mut u32,
+    message_address_upper: Option<&mut u32>,
+) -> Result<(), &'static str> {
+    let mut controller = INTERRUPT_CONTROLLER.write();
+    if let Some(ctrl) = controller.as_mut() {
+        ctrl.set_pcie_msi(
+            target,
+            irq,
+            message_data,
+            message_address,
+            message_address_upper,
+        )
+    } else {
+        log::warn!("Interrupt controller is not yet enabled.");
+        Err("Interrupt controller is not yet enabled.")
     }
 }
 

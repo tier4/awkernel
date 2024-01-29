@@ -14,20 +14,25 @@ pub const FCT: usize = 0x00030; // Flow Control Type - RW
 pub const CONNSW: usize = 0x00034; // Copper/Fiber switch control - RW
 pub const ICR: usize = 0x000C0; // Interrupt Cause Read Register
 pub const ITR: usize = 0x000C4; // Interrupt Throttling Rate Register
-pub const _ICS: usize = 0x000C8; // Interrupt Cause Set Register
+pub const ICS: usize = 0x000C8; // Interrupt Cause Set Register
 pub const IMC: usize = 0x000D8; // Interrupt Mask Clear Register
 pub const FCTTV: usize = 0x00170; // Flow Control Transmit Timer Value - RW
 pub const TXCW: usize = 0x00178; // TX Configuration Word - RW
 pub const RXCW: usize = 0x00180; // RX Configuration Word - RO
 pub const TCTL_EXT: usize = 0x00404; // Extended TX Control - RW
+pub const IOSFPC: usize = 0x00F28; // TX corrupted data
 pub const PBA: usize = 0x01000; // Packet Buffer Allocation Register
 pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
 pub const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
 pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
+pub const EIMC: usize = 0x01528; // Ext. Interrupt Mask Clear - WO
+pub const EIAC: usize = 0x0152C; // Ext. Interrupt Auto Clear - RW
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
+pub const TIDV: usize = 0x03820; // TX Interrupt Delay Value - RW
+pub const TADV: usize = 0x0382C; // TX Interrupt Absolute Delay Val - RW
 pub const CRCERRS: usize = 0x04000; // CRC Error Count - R/clr
 pub const ALGNERRC: usize = 0x04004; // Alignment Error Count - R/clr
 pub const SYMERRS: usize = 0x04008; // Symbol Error Count - R/clr
@@ -98,6 +103,7 @@ pub const ICRXOC: usize = 0x04124; // Interrupt Cause Receiver Overrun Count
 pub const PCS_CFG0: usize = 0x04200; // PCS Configuration 0 - RW
 pub const PCS_LCTL: usize = 0x04208; // PCS Link Control - RW
 pub const PCS_LSTAT: usize = 0x0420C; // PCS Link Status - RO
+pub const RXCSUM: usize = 0x05000; // RX Checksum Control - RW
 pub const SW_FW_SYNC: usize = 0x05B5C; // Software-Firmware Synchronization - RW
 pub const CRC_OFFSET: usize = 0x05F50; // CRC Offset Register
 pub const HICR: usize = 0x08F00; // Host Interface Control
@@ -109,6 +115,10 @@ pub const FFLT_DBG: usize = 0x05F04; // Debug Register
 pub const RA: usize = 0x05400; // Receive Address - RW Array
 pub const FCRTV_PCH: usize = 0x05F40; // PCH Flow Control Refresh Timer Value
 pub const HOST_IF: usize = 0x08800; // Host Interface
+
+// TRAC0 bits
+pub const TARC0_CB_MULTIQ_2_REQ: u32 = 1 << 29;
+pub const TARC0_CB_MULTIQ_3_REQ: u32 = 1 << 28 | 1 << 29;
 
 // Status Register
 pub const STATUS: usize = 0x00008; // Device Status register
@@ -144,6 +154,45 @@ pub const E1000_REVISION_1: u32 = 1;
 pub const E1000_REVISION_2: u32 = 2;
 pub const E1000_REVISION_3: u32 = 3;
 
+// Interrupt Cause Read
+pub const ICR_TXDW: u32 = 0x00000001; // Transmit desc written back
+pub const ICR_TXQE: u32 = 0x00000002; // Transmit Queue empty
+pub const ICR_LSC: u32 = 0x00000004; // Link Status Change
+pub const ICR_RXSEQ: u32 = 0x00000008; // rx sequence error
+pub const ICR_RXDMT0: u32 = 0x00000010; // rx desc min. threshold (0)
+pub const ICR_RXO: u32 = 0x00000040; // rx overrun
+pub const ICR_RXT0: u32 = 0x00000080; // rx timer intr (ring 0)
+pub const ICR_MDAC: u32 = 0x00000200; // MDIO access complete
+pub const ICR_RXCFG: u32 = 0x00000400; // RX /c/ ordered set
+pub const ICR_GPI_EN0: u32 = 0x00000800; // GP Int 0
+pub const ICR_GPI_EN1: u32 = 0x00001000; // GP Int 1
+pub const ICR_GPI_EN2: u32 = 0x00002000; // GP Int 2
+pub const ICR_GPI_EN3: u32 = 0x00004000; // GP Int 3
+pub const ICR_TXD_LOW: u32 = 0x00008000;
+pub const ICR_SRPD: u32 = 0x00010000;
+pub const ICR_ACK: u32 = 0x00020000; // Receive Ack frame
+pub const ICR_MNG: u32 = 0x00040000; // Manageability event
+pub const ICR_DOCK: u32 = 0x00080000; // Dock/Undock
+pub const ICR_INT_ASSERTED: u32 = 0x80000000; // If this bit asserted, the driver should claim the interrupt
+pub const ICR_RXD_FIFO_PAR0: u32 = 0x00100000; // queue 0 Rx descriptor FIFO parity error
+pub const ICR_TXD_FIFO_PAR0: u32 = 0x00200000; // queue 0 Tx descriptor FIFO parity error
+pub const ICR_HOST_ARB_PAR: u32 = 0x00400000; // host arb read buffer parity error
+pub const ICR_PB_PAR: u32 = 0x00800000; // packet buffer parity error
+pub const ICR_RXD_FIFO_PAR1: u32 = 0x01000000; // queue 1 Rx descriptor FIFO parity error
+pub const ICR_TXD_FIFO_PAR1: u32 = 0x02000000; // queue 1 Tx descriptor FIFO parity error
+pub const ICR_ALL_PARITY: u32 = 0x03F00000; // all parity error bits
+pub const ICR_DSW: u32 = 0x00000020; // FW changed the status of DISSW bit in the FWSM
+pub const ICR_PHYINT: u32 = 0x00001000; // LAN connected device generates an interrupt
+pub const ICR_EPRST: u32 = 0x00100000; // ME hardware reset occurs
+pub const ICR_DRSTA: u32 = 0x40000000; // Device Reset Asserted
+
+// Receive Checksum Control
+pub const RXCSUM_PCSS_MASK: u32 = 0x000000FF; // Packet Checksum Start
+pub const RXCSUM_IPOFL: u32 = 0x00000100; // IPv4 checksum offload
+pub const RXCSUM_TUOFL: u32 = 0x00000200; // TCP / UDP checksum offload
+
+pub const SRRCTL_DROP_EN: u32 = 0x80000000;
+
 // Host Interface Control Register
 pub const HICR_EN: u32 = 0x00000001; // Enable Bit - RO
 pub const HICR_C: u32 = 0x00000002; // Driver sets this bit when done to put command in RAM
@@ -151,11 +200,12 @@ pub const HICR_C: u32 = 0x00000002; // Driver sets this bit when done to put com
 // Interrupt Mask Set/Read Register
 pub const IMS: usize = 0x000D0;
 pub const IMS_ENABLE_MASK: u32 = IMS_RXT0 | IMS_TXDW | IMS_RXDMT0 | IMS_RXSEQ | IMS_LSC;
-pub const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
 pub const IMS_TXDW: u32 = 0x00000001; // Transmit Descriptor Written Back
-pub const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
-pub const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
 pub const IMS_LSC: u32 = 0x00000004; // Link Status Change
+pub const IMS_RXSEQ: u32 = 0x00000008; //  Receive Sequence Error
+pub const IMS_RXDMT0: u32 = 0x00000010; // Receive Descriptor Minimum Threshold hit (ring 0)
+pub const IMS_RX0: u32 = 0x00000040; // Rx overrun
+pub const IMS_RXT0: u32 = 0x00000080; // Rx timer intr (ring 0)
 
 // Transmit Registers
 pub const TCTL: usize = 0x00400; // Transmit Control Register
@@ -179,6 +229,9 @@ pub const RADV: usize = 0x282C; // RX Interrupt Absolute Delay Timer
 pub const MTA: usize = 0x05200; // Multicast Table Array
 pub const RAL: usize = 0x05400; // Receive Address Low
 pub const RAH: usize = 0x05404; // Receive Address High
+
+// Receive Descriptor
+pub const RDT_FPDB: u32 = 0x80000000; // Flush descriptor block
 
 // Receive Configuration Word
 pub const RXCW_CW: u32 = 0x0000ffff; // RxConfigWord mask
@@ -252,6 +305,7 @@ pub const CTRL_LANPHYPC_OVERRIDE: u32 = 0x00010000;
 pub const CTRL_LANPHYPC_VALUE: u32 = 0x00020000;
 pub const CTRL_RFCE: u32 = 0x08000000; // Receive Flow Control enable
 pub const CTRL_TFCE: u32 = 0x10000000; // Transmit flow control enable
+pub const CTRL_VME: u32 = 0x40000000; // IEEE VLAN mode enable
 
 pub const CTRL_SWDPIN0: u32 = 0x00040000; // SWDPIN 0 value
 pub const CTRL_SWDPIN1: u32 = 0x00080000; // SWDPIN 1 value
@@ -283,6 +337,14 @@ pub const RCTL_BAM: u32 = 1 << 15; // Broadcast Accept Mode
 pub const RCTL_BSIZE: u32 = 11 << 16; // Receive Buffer Size (4096 Bytes)
 pub const RCTL_BSEX: u32 = 1 << 25; // Buffer Size Extension
 pub const RCTL_SECRC: u32 = 1 << 26; // Strip CRC from packet
+pub const RCTL_RDMTS_HEX: u32 = 0x00010000;
+pub const RCTL_UPE: u32 = 0x00000008; // unicast promiscuous enable
+pub const RCTL_MPE: u32 = 0x00000010; // multicast promiscuous enab
+pub const RCTL_LPE: u32 = 0x00000020; // long packet enable
+pub const RCTL_LBM_NO: u32 = 0x00000000; // no loopback mode
+pub const RCTL_RDMTS_HALF: u32 = 0x00000000; // rx desc min threshold size
+
+pub const RCTL_SZ_2048: u32 = 0x00000000; // rx buffer size 2048
 
 // Transmit Configuration Word
 pub const TXCW_FD: u32 = 0x00000020; // TXCW full duplex
@@ -310,25 +372,53 @@ pub const COLD_SHIFT: u32 = 12;
 
 // FEXTNVM registers
 pub const FEXTNVM7: usize = 0xe;
-pub const _FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
+pub const FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
 pub const FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
-pub const _FEXTNVM9: usize = 0x5bb4;
-pub const _FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
-pub const _FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
+pub const FEXTNVM9: usize = 0x5bb4;
+pub const FEXTNVM9_IOSFSB_CLKGATE_DIS: u32 = 0x0800;
+pub const FEXTNVM9_IOSFSB_CLKREQ_DIS: u32 = 0x1000;
 pub const FEXTNVM11: usize = 0x05bbc;
 pub const FEXTNVM11_DISABLE_MULR_FIX: u32 = 0x00002000;
 
 pub const FEXTNVM_SW_CONFIG: u32 = 1;
 pub const FEXTNVM_SW_CONFIG_ICH8M: u32 = 1 << 27; // Bit redefined for ICH8M :/
 
-pub const _TX_CMD_EOP: u8 = 1 << 0; // End of Packet
-pub const TX_CMD_IFCS: u8 = 1 << 1; // Insert FCS
-pub const _TX_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
-pub const _TX_CMD_RS: u8 = 1 << 3; // Report Status
-pub const _TX_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
-pub const _TX_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
-pub const _TX_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
-pub const _TX_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+pub const TXD_CMD_EOP: u8 = 1 << 0; // End of Packet
+pub const TXD_CMD_IFCS: u8 = 1 << 1; // Insert FCS
+pub const _TXD_CMD_TSE: u8 = 1 << 2; // TCP Segmentation Enable
+pub const TXD_CMD_RS: u8 = 1 << 3; // Report Status
+pub const _TXD_CMD_RPS_RSV: u8 = 1 << 4; // Report Packet Sent
+pub const TXD_CMD_DEXT: u8 = 1 << 5; // Descriptor extension (0 = legacy)
+pub const TXD_CMD_VLE: u8 = 1 << 6; // VLAN Packet Enable
+pub const TXD_CMD_IDE: u8 = 1 << 7; // Interrupt Delay Enable
+
+// Receive Descriptor bit definitions
+pub const RXD_STAT_DD: u8 = 0x01; // Descriptor Done
+pub const RXD_STAT_EOP: u8 = 0x02; // End of Packet
+pub const RXD_STAT_IXSM: u8 = 0x04; // Ignore checksum
+pub const RXD_STAT_VP: u8 = 0x08; // IEEE VLAN Packet
+pub const RXD_STAT_UDPCS: u8 = 0x10; // UDP xsum calculated
+pub const RXD_STAT_TCPCS: u8 = 0x20; // TCP xsum calculated
+pub const RXD_STAT_IPCS: u8 = 0x40; // IP xsum calculated
+pub const RXD_STAT_PIF: u8 = 0x80; // passed in-exact filter
+pub const RXD_ERR_CE: u8 = 0x01; // CRC Error
+pub const RXD_ERR_SE: u8 = 0x02; // Symbol Error
+pub const RXD_ERR_SEQ: u8 = 0x04; // Sequence Error
+pub const RXD_ERR_CXE: u8 = 0x10; // Carrier Extension Error
+pub const RXD_ERR_TCPE: u8 = 0x20; // TCP/UDP Checksum Error
+pub const RXD_ERR_IPE: u8 = 0x40; // IP Checksum Error
+pub const RXD_ERR_RXE: u8 = 0x80; // Rx Data Error
+
+// mask to determine if packets should be dropped due to frame errors
+pub const RXD_ERR_FRAME_ERR_MASK: u8 =
+    RXD_ERR_CE | RXD_ERR_SE | RXD_ERR_SEQ | RXD_ERR_CXE | RXD_ERR_RXE;
+
+// Receive Descriptor Control
+pub const RXDCTL_PTHRESH: u32 = 0x0000003F; // RXDCTL Prefetch Threshold
+pub const RXDCTL_HTHRESH: u32 = 0x00003F00; // RXDCTL Host Threshold
+pub const RXDCTL_WTHRESH: u32 = 0x003F0000; // RXDCTL Writeback Threshold
+pub const RXDCTL_THRESH_UNIT_DESC: u32 = 0x1000000;
+pub const RXDCTL_QUEUE_ENABLE: u32 = 0x2000000;
 
 pub const PCICFG_DESC_RING_STATUS: usize = 0xe4;
 pub const FLUSH_DESC_REQUIRED: u32 = 0x100;
@@ -418,6 +508,12 @@ pub const _MANC_SMB_CLK_OUT: u32 = 0x20000000; // SMBus Clock Out
 pub const _MANC_SMB_DATA_OUT_SHIFT: u32 = 28; // SMBus Data Out Shift
 pub const _MANC_SMB_CLK_OUT_SHIFT: u32 = 29; // SMBus Clock Out Shift
 
+// The carrier extension symbol, as received by the NIC.
+pub const CARRIER_EXTENSION: u8 = 0x0F;
+
+// 802.1q VLAN Packet Sizes
+pub const VLAN_TAG_SIZE: u32 = 4; // 802.3ac tag (not DMAed)
+
 // SW Semaphore Register
 pub const SWSM: usize = 0x05B50;
 pub const SWSM_SMBI: u32 = 0x00000001; // Driver Semaphore bit
@@ -505,6 +601,9 @@ pub const _MDIC_INT_EN: u32 = 0x20000000;
 pub const MDIC_ERROR: u32 = 0x40000000;
 pub const MDIC_DEST: u32 = 0x80000000;
 
+pub const NUM_MTA_REGISTERS: usize = 128;
+pub const NUM_MTA_REGISTERS_ICH8LAN: usize = 32;
+
 // 1000BASE-T Status Register
 pub const SR_1000T_IDLE_ERROR_CNT: u16 = 0x00FF; // Num idle errors since last read
 pub const SR_1000T_ASYM_PAUSE_DIR: u16 = 0x0100; // LP asymmetric pause direction bit
@@ -545,20 +644,20 @@ pub const PHY_CTRL_LOOPBACK: u16 = 0x00004000;
 
 // PBA constants
 pub const PBA_8K: u32 = 0x0008; // 8KB, default Rx allocation
-pub const _PBA_10K: u32 = 0x000A;
-pub const _PBA_12K: u32 = 0x000C; // 12KB, default Rx allocation
-pub const _PBA_14K: u32 = 0x000E; // 14KB
+pub const PBA_10K: u32 = 0x000A;
+pub const PBA_12K: u32 = 0x000C; // 12KB, default Rx allocation
+pub const PBA_14K: u32 = 0x000E; // 14KB
 pub const PBA_16K: u32 = 0x0010; // 16KB, default TX allocation
-pub const _PBA_20K: u32 = 0x0014;
-pub const _PBA_22K: u32 = 0x0016;
+pub const PBA_20K: u32 = 0x0014;
+pub const PBA_22K: u32 = 0x0016;
 pub const _PBA_24K: u32 = 0x0018;
-pub const _PBA_26K: u32 = 0x001A;
-pub const _PBA_30K: u32 = 0x001E;
-pub const _PBA_32K: u32 = 0x0020;
-pub const _PBA_34K: u32 = 0x0022;
+pub const PBA_26K: u32 = 0x001A;
+pub const PBA_30K: u32 = 0x001E;
+pub const PBA_32K: u32 = 0x0020;
+pub const PBA_34K: u32 = 0x0022;
 pub const _PBA_38K: u32 = 0x0026;
-pub const _PBA_40K: u32 = 0x0028;
-pub const _PBA_48K: u32 = 0x0030; // 48KB, default RX allocation
+pub const PBA_40K: u32 = 0x0028;
+pub const PBA_48K: u32 = 0x0030; // 48KB, default RX allocation
 
 pub const PBS_16K: u32 = PBA_16K;
 
@@ -1220,6 +1319,20 @@ pub const EEPROM_CFG: u32 = 0x0012;
 pub const EEPROM_FLASH_VERSION: u32 = 0x0032;
 pub const EEPROM_CHECKSUM_REG: u32 = 0x003F;
 
+// EEPROM_INIT_CONTROL3_ICP_xxxx(device_num) ((((device_num) + 1) << 4) + 1)
+
+pub fn eeprom_init_control3_icp_xxx(device_num: u32) -> u32 {
+    ((device_num + 1) << 4) + 1
+}
+
+// Mask bits for fields in Word 0x0f of the EEPROM
+pub const EEPROM_WORD0F_PAUSE_MASK: u16 = 0x3000;
+pub const EEPROM_WORD0F_PAUSE: u16 = 0x1000;
+pub const EEPROM_WORD0F_ASM_DIR: u16 = 0x2000;
+pub const EEPROM_WORD0F_ANE: u16 = 0x0800;
+pub const EEPROM_WORD0F_SWPDIO_EXT: u16 = 0x00F0;
+pub const EEPROM_WORD0F_LPLU: u16 = 0x0001;
+
 // Mask bits for SERDES amplitude adjustment in Word 6 of the EEPROM
 pub const EEPROM_SERDES_AMPLITUDE_MASK: u16 = 0x000F;
 
@@ -1388,6 +1501,20 @@ pub const EEE_SU: usize = 0x0E34; // EEE Setup
 pub const TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
 pub const RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
 
+// Default values for the transmit IPG register
+pub const DEFAULT_82542_TIPG_IPGT: u32 = 10;
+pub const DEFAULT_82543_TIPG_IPGT_FIBER: u32 = 9;
+pub const DEFAULT_82543_TIPG_IPGT_COPPER: u32 = 8;
+
+pub const DEFAULT_82542_TIPG_IPGR1: u32 = 2;
+pub const DEFAULT_82543_TIPG_IPGR1: u32 = 8;
+pub const E1000_TIPG_IPGR1_SHIFT: u32 = 10;
+
+pub const DEFAULT_82542_TIPG_IPGR2: u32 = 10;
+pub const DEFAULT_82543_TIPG_IPGR2: u32 = 6;
+pub const DEFAULT_80003ES2LAN_TIPG_IPGR2: u32 = 7;
+pub const E1000_TIPG_IPGR2_SHIFT: u32 = 20;
+
 // I350 EEE defines
 pub const IPCNFG_EEE_1G_AN: u32 = 0x00000008; // IPCNFG EEE Ena 1G AN
 pub const IPCNFG_EEE_100M_AN: u32 = 0x00000004; // IPCNFG EEE Ena 100M AN
@@ -1472,6 +1599,37 @@ pub fn txdctl(n: usize) -> usize {
         0x0E028 + n * 0x40
     }
 }
+
+// Transmit Descriptor bit definitions
+pub const TXD32_DTYP_D: u32 = 0x00100000; // Data Descriptor
+pub const TXD32_DTYP_C: u32 = 0x00000000; // Context Descriptor
+pub const TXD32_POPTS_IXSM: u32 = 0x01; // Insert IP checksum
+pub const TXD32_POPTS_TXSM: u32 = 0x02; // Insert TCP/UDP checksum
+pub const TXD32_CMD_EOP: u32 = 0x01000000; // End of Packet
+pub const TXD32_CMD_IFCS: u32 = 0x02000000; // Insert FCS (Ethernet CRC)
+pub const TXD32_CMD_IC: u32 = 0x04000000; // Insert Checksum
+pub const TXD32_CMD_RS: u32 = 0x08000000; // Report Status
+pub const TXD32_CMD_RPS: u32 = 0x10000000; // Report Packet Sent
+pub const TXD32_CMD_DEXT: u32 = 0x20000000; // Descriptor extension (0 = legacy)
+pub const TXD32_CMD_VLE: u32 = 0x40000000; // Add VLAN tag
+pub const TXD32_CMD_IDE: u32 = 0x80000000; // Enable Tidv register
+pub const TXD32_STAT_DD: u32 = 0x00000001; // Descriptor Done
+
+// Adv Transmit Descriptor Config Masks
+pub const ADVTXD_DTYP_CTXT: u32 = 0x00200000; // Advanced Context Descriptor
+pub const ADVTXD_DTYP_DATA: u32 = 0x00300000; // Advanced Data Descriptor
+pub const ADVTXD_DCMD_IFCS: u32 = 0x02000000; // Insert FCS (Ethernet CRC)
+pub const ADVTXD_DCMD_DEXT: u32 = 0x20000000; // Descriptor extension (1=Adv)
+pub const ADVTXD_DCMD_VLE: u32 = 0x40000000; // VLAN pkt enable
+pub const ADVTXD_PAYLEN_SHIFT: u32 = 14; // Adv desc PAYLEN shift
+
+// Adv Transmit Descriptor Config Masks
+pub const ADVTXD_MACLEN_SHIFT: u32 = 9; // Adv ctxt desc mac len shift
+pub const ADVTXD_VLAN_SHIFT: u32 = 16; // Adv ctxt vlan tag shift
+pub const ADVTXD_TUCMD_IPV4: u32 = 0x00000400; // IP Packet Type: 1=IPv4
+pub const ADVTXD_TUCMD_IPV6: u32 = 0x00000000; // IP Packet Type: 0=IPv6
+pub const ADVTXD_TUCMD_L4T_UDP: u32 = 0x00000000; // L4 Packet TYPE of UDP
+pub const ADVTXD_TUCMD_L4T_TCP: u32 = 0x00000800; // L4 Packet TYPE of TCP
 
 // Transmit Control
 pub const TCTL_RST: u32 = 0x00000001; // software reset
@@ -1560,6 +1718,7 @@ pub const FC_NONE: u8 = 0;
 pub const FC_RX_PAUSE: u8 = 1;
 pub const FC_TX_PAUSE: u8 = 2;
 pub const FC_FULL: u8 = 3;
+pub const FC_DEFAULT: u8 = 0xFF;
 
 // I82577 Specific Registers
 pub const I82577_PHY_ADDR_REG: u32 = 16;

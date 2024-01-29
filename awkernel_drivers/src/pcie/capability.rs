@@ -1,31 +1,32 @@
 pub mod msi;
+#[allow(dead_code)] // TODO: remove this
 pub mod msix;
 pub mod pcie_cap;
 
 use super::PCIeInfo;
 
-pub const NULL: u8 = 0x00;
-pub const PCI_POWER_MANAGEMENT_INTERFACE: u8 = 0x01;
-pub const AGP: u8 = 0x02;
-pub const VPD: u8 = 0x03;
-pub const SLOT_IDENTIFICATION: u8 = 0x04;
+pub const _NULL: u8 = 0x00;
+pub const _PCI_POWER_MANAGEMENT_INTERFACE: u8 = 0x01;
+pub const _AGP: u8 = 0x02;
+pub const _VPD: u8 = 0x03;
+pub const _SLOT_IDENTIFICATION: u8 = 0x04;
 pub const MSI: u8 = 0x05;
-pub const HOT_SWAP: u8 = 0x06;
-pub const PCIX: u8 = 0x07;
-pub const HYPER_TRANSPORT: u8 = 0x08;
-pub const VENDOR_SPECIFIC: u8 = 0x09;
-pub const DEBUG_PORT: u8 = 0x0a;
-pub const COMPACT_PCI: u8 = 0x0b;
-pub const PCI_HOT_PLUG: u8 = 0x0c;
-pub const PCI_BRIDGE_SUBSYSTEM_VENDOR_ID: u8 = 0x0d;
-pub const AGP_8X: u8 = 0x0e;
-pub const SECURE_DEVICE: u8 = 0x0f;
+pub const _HOT_SWAP: u8 = 0x06;
+pub const _PCIX: u8 = 0x07;
+pub const _HYPER_TRANSPORT: u8 = 0x08;
+pub const _VENDOR_SPECIFIC: u8 = 0x09;
+pub const _DEBUG_PORT: u8 = 0x0a;
+pub const _COMPACT_PCI: u8 = 0x0b;
+pub const _PCI_HOT_PLUG: u8 = 0x0c;
+pub const _PCI_BRIDGE_SUBSYSTEM_VENDOR_ID: u8 = 0x0d;
+pub const _AGP_8X: u8 = 0x0e;
+pub const _SECURE_DEVICE: u8 = 0x0f;
 pub const PCI_EXPRESS: u8 = 0x10;
 pub const MSIX: u8 = 0x11;
-pub const SATA_DATA_INDEX_CONF: u8 = 0x12;
-pub const ADVANCED_FEATURES: u8 = 0x13;
-pub const ENHANCED_ALLOCATION: u8 = 0x14;
-pub const FLATTENING_PORTAL_BRIDGE: u8 = 0x15;
+pub const _SATA_DATA_INDEX_CONF: u8 = 0x12;
+pub const _ADVANCED_FEATURES: u8 = 0x13;
+pub const _ENHANCED_ALLOCATION: u8 = 0x14;
+pub const _FLATTENING_PORTAL_BRIDGE: u8 = 0x15;
 
 pub fn read(info: &mut PCIeInfo) {
     use super::registers;
@@ -38,22 +39,22 @@ pub fn read(info: &mut PCIeInfo) {
         return;
     }
 
-    let mut cap_ptr = (registers::CAPABILITY_POINTER.read(info.addr) & 0b1111_1100) as usize;
+    let mut cap_ptr = (registers::CAPABILITY_POINTER.read(info.config_base) & 0b1111_1100) as usize;
     while cap_ptr != 0 {
-        let cap_addr = info.addr + cap_ptr;
-        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_addr);
+        let base = info.config_base + cap_ptr;
+        let msg_ctl_next_id = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base);
 
         let cap_id = msg_ctl_next_id & 0xff;
         cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
-            MSI => info.msix = msix::Msix::new(info, cap_ptr),
-            MSIX => {
-                let msi = msi::Msi::new(cap_ptr);
+            MSIX => info.msix = msix::Msix::new(info, base),
+            MSI => {
+                let msi = msi::Msi::new(base);
                 info.msi = Some(msi);
             }
             PCI_EXPRESS => {
-                let pcie_cap = pcie_cap::PCIeCap::new(cap_ptr);
+                let pcie_cap = pcie_cap::PCIeCap::new(base);
                 info.pcie_cap = Some(pcie_cap);
             }
             _ => (),

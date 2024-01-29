@@ -1,161 +1,28 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
-use alloc::{boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
-use core::fmt::Display;
-use smoltcp::{
-    iface::{Config, Interface},
-    phy::{self, DeviceCapabilities},
-    time::Instant,
-    wire::{EthernetAddress, HardwareAddress, Ipv4Address},
+use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use alloc::{
+    collections::{btree_map::Entry, BTreeMap},
+    format,
+    string::String,
+    sync::Arc,
+    vec::Vec,
+};
+use core::{fmt::Display, net::Ipv4Addr};
+use smoltcp::wire::{IpAddress, IpCidr};
+
+use self::{
+    if_net::IfNet,
+    net_device::{NetCapabilities, NetDevice},
 };
 
-use bitflags::bitflags;
-
-bitflags! {
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct NetFlags: u16 {
-        const UP = 1 << 0; // interface is up
-        const BROADCAST = 1 << 1; // broadcast address valid
-        const DEBUG = 1 << 2; // turn on debugging
-        const LOOPBACK = 1 << 3; // is a loopback net
-        const POINTOPOINT = 1 << 4; // is point-to-point link
-        const STATICARP = 1 << 5; // only static ARP
-        const RUNNING = 1 << 6; // resources allocated
-        const NOARP = 1 << 7; // no address resolution protocol
-        const PROMISC = 1 << 8; // receive all packets
-        const ALLMULTI = 1 << 9; // receive all multicast packets
-        const OACTIVE = 1 << 10; // transmission in progress
-        const SIMPLEX = 1 << 11; // can't hear own transmissions
-        const LINK0 = 1 << 12; // per link layer defined bit
-        const LINK1 = 1 << 13; // per link layer defined bit
-        const LINK2 = 1 << 14; // per link layer defined bit
-        const MULTICAST = 1 << 15; // supports multicast
-    }
-
-    /// Capabilities that interfaces can advertise.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct NetCapabilities: u32 {
-        const CSUM_IPv4 = 1 << 0; // can do IPv4 header csum
-        const CSUM_TCPv4 = 1 << 1; // can do IPv4/TCP csum
-        const CSUM_UDPv4 = 1 << 2; // can do IPv4/UDP csum
-        const VLAN_MTU = 1 << 4; // VLAN-compatible MTU
-        const VLAN_HWTAGGING = 1 << 5; // hardware VLAN tag support
-        const CSUM_TCPv6 = 1 << 7; // can do IPv6/TCP checksums
-        const CSUM_UDPv6 = 1 << 8; // can do IPv6/UDP checksums
-        const TSOv4 = 1 << 12; // IPv4/TCP segment offload
-        const TSOv6 = 1 << 13; // IPv6/TCP segment offload
-        const LRO = 1 << 14; // TCP large recv offload
-        const WOL = 1 << 15; // can do wake on lan
-    }
-}
-
-pub trait NetDevice {
-    fn recv(&mut self) -> Option<Vec<u8>>;
-    fn send(&mut self, data: &[u8]) -> Option<()>;
-
-    fn flags(&self) -> NetFlags;
-    fn capabilities(&self) -> NetCapabilities;
-
-    /// Link speed in Mbps.
-    fn link_speed(&self) -> u64;
-
-    fn can_send(&self) -> bool;
-    fn mac_address(&self) -> [u8; 6];
-    fn link_up(&self) -> bool;
-    fn full_duplex(&self) -> bool;
-
-    fn device_short_name(&self) -> &'static str;
-}
-
-#[derive(Clone)]
-pub struct NetDriver {
-    inner: Arc<Mutex<Box<dyn NetDevice + Send>>>,
-}
-
-impl phy::Device for NetDriver {
-    type RxToken<'a> = NRxToken where Self : 'a;
-    type TxToken<'a> = NTxToken where Self: 'a;
-    fn capabilities(&self) -> phy::DeviceCapabilities {
-        let mut cap = DeviceCapabilities::default();
-        cap.max_transmission_unit = 1500;
-        cap.max_burst_size = Some(64);
-        cap
-    }
-
-    //  The additional transmit token makes it possible to generate a reply packet
-    //  based on the contents of the received packet, without heap allocation.
-    fn receive(
-        &mut self,
-        _timestamp: smoltcp::time::Instant,
-    ) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let node = &mut MCSNode::new();
-        let mut inner = self.inner.lock(node);
-        let data = inner.recv()?;
-        Some((
-            NRxToken { data },
-            NTxToken {
-                device: self.inner.clone(),
-            },
-        ))
-    }
-
-    //  The real  packet transmission occurrs when the token is consumed.
-    fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
-        let node = &mut MCSNode::new();
-        let inner = self.inner.lock(node);
-
-        if !inner.can_send() {
-            return None;
-        }
-
-        Some(NTxToken {
-            device: self.inner.clone(),
-        })
-    }
-}
-
-pub struct NRxToken {
-    data: Vec<u8>,
-}
-
-impl phy::RxToken for NRxToken {
-    /// Store packet data into the buffer.
-    /// Closure f will map the raw bytes to the form that
-    /// could be used in the higher layer of `smoltcp`.
-    fn consume<R, F>(mut self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(&mut self.data)
-    }
-}
-
-impl phy::TxToken for NTxToken {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        // allocate a buffer for raw data
-        let mut buffer = vec![0; len];
-        // construct packet in buffer
-        let result = f(&mut buffer[0..len]);
-        // send the buffer
-        let node = &mut MCSNode::new();
-        let mut inner = self.device.lock(node);
-        inner.send(&buffer);
-        result
-    }
-}
-
-pub struct NTxToken {
-    device: Arc<Mutex<Box<dyn NetDevice + Send>>>,
-}
-
-#[derive(Clone)]
-pub struct NetIf {
-    driver: NetDriver,
-    ipv4_addr: Vec<(Ipv4Address, u8)>, // (address, prefix length)
-    ipv4_gateway: Option<Ipv4Address>,
-}
+pub mod ether;
+pub mod ethertypes;
+mod if_net;
+pub mod ip;
+pub mod ipv6;
+pub mod multicast;
+pub mod net_device;
+pub mod tcp;
+pub mod udp;
 
 #[derive(Debug)]
 pub enum NetManagerError {
@@ -164,19 +31,23 @@ pub enum NetManagerError {
 
 #[derive(Debug)]
 pub struct IfStatus {
+    pub interface_id: u64,
     pub device_name: &'static str,
-    pub ipv4_addr: Vec<(Ipv4Address, u8)>,
-    pub ipv4_gateway: Option<Ipv4Address>,
+    pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
+    pub ipv4_gateway: Option<Ipv4Addr>,
     pub link_up: bool,
     pub link_speed_mbs: u64,
     pub full_duplex: bool,
     pub mac_address: [u8; 6],
+    pub irqs: Vec<u16>,
+    pub rx_irq_to_que_id: BTreeMap<u16, usize>,
+    pub capabilities: NetCapabilities,
 }
 
 impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
-        for (addr, plen) in self.ipv4_addr.iter() {
+        for (addr, plen) in self.ipv4_addrs.iter() {
             ipv4_addr.push_str(&format!("{}/{}\r\n", addr, plen));
         }
 
@@ -187,7 +58,8 @@ impl Display for IfStatus {
 
         write!(
             f,
-            "{}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}",
+            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}",
+            self.interface_id,
             self.device_name,
             ipv4_addr,
             ipv4_gateway,
@@ -200,129 +72,281 @@ impl Display for IfStatus {
             self.link_up,
             self.link_speed_mbs,
             self.full_duplex,
+            self.capabilities,
+            self.irqs,
         )
     }
 }
 
+static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
+    interfaces: BTreeMap::new(),
+    interface_id: 0,
+});
+
+static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
+
 pub struct NetManager {
-    drivers: Vec<NetIf>,
+    interfaces: BTreeMap<u64, Arc<IfNet>>,
+    interface_id: u64,
 }
 
-impl NetManager {
-    const fn new() -> Self {
-        Self {
-            drivers: Vec::new(),
+pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let if_net = net_manager
+        .interfaces
+        .get(&interface_id)
+        .ok_or(NetManagerError::InvalidInterfaceID)?;
+
+    let inner = &if_net.net_device;
+
+    let mac_address = inner.mac_address();
+    let link_up = inner.link_up();
+    let link_speed_mbs = inner.link_speed();
+    let full_duplex = inner.full_duplex();
+
+    let mut ipv4_addrs = Vec::new();
+
+    {
+        let mut node = MCSNode::new();
+        let interface = if_net.inner.lock(&mut node);
+
+        for cidr in interface.interface.ip_addrs().iter() {
+            if let IpAddress::Ipv4(addr) = cidr.address() {
+                let addr = Ipv4Addr::new(addr.0[0], addr.0[1], addr.0[2], addr.0[3]);
+                ipv4_addrs.push((addr, cidr.prefix_len()));
+            }
         }
     }
 
-    pub fn add_interface(&mut self, inner: Arc<Mutex<Box<dyn NetDevice + Send>>>) {
-        let value = NetIf {
-            driver: NetDriver {
-                inner: inner.clone(),
-            },
-            ipv4_addr: Vec::new(),
-            ipv4_gateway: None,
+    let irqs = inner.irqs();
+
+    let mut rx_irq_to_que_id = BTreeMap::new();
+    for irq in irqs.iter() {
+        rx_irq_to_que_id.insert(*irq, inner.rx_irq_to_que_id(*irq));
+    }
+
+    let capabilities = inner.capabilities();
+
+    let if_status = IfStatus {
+        interface_id,
+        device_name: inner.device_short_name(),
+        ipv4_addrs,
+        ipv4_gateway: None,
+        link_up,
+        link_speed_mbs,
+        full_duplex,
+        mac_address,
+        irqs,
+        rx_irq_to_que_id,
+        capabilities,
+    };
+
+    Ok(if_status)
+}
+
+pub fn get_all_interface() -> Vec<IfStatus> {
+    let net_manager = NET_MANAGER.read();
+
+    let mut result = Vec::new();
+
+    for id in net_manager.interfaces.keys() {
+        if let Ok(if_status) = get_interface(*id) {
+            result.push(if_status);
+        }
+    }
+
+    result
+}
+
+enum IRQWaker {
+    Waker(core::task::Waker),
+    Interrupted,
+}
+
+pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
+    let mut net_manager = NET_MANAGER.write();
+
+    if net_manager.interface_id == u64::MAX {
+        panic!("interface id overflow");
+    }
+
+    let id = net_manager.interface_id;
+    net_manager.interface_id += 1;
+
+    let if_net = Arc::new(IfNet::new(inner, vlan));
+
+    net_manager.interfaces.insert(id, if_net);
+}
+
+pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+
+    let octets = addr.octets();
+
+    inner.interface.update_ip_addrs(|ip_addrs| {
+        if let Err(e) = ip_addrs.push(IpCidr::new(
+            IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
+            prefix_len,
+        )) {
+            log::error!("add_ipv4_addr: {}", e);
+        }
+    });
+}
+
+/// Service routine for network device interrupt.
+/// This routine should be called by interrupt handlers provided by device drivers.
+pub fn net_interrupt(irq: u16) {
+    let mut node = MCSNode::new();
+    let mut w = WAKERS.lock(&mut node);
+
+    match w.entry(irq) {
+        Entry::Occupied(e) => {
+            if matches!(e.get(), IRQWaker::Waker(_)) {
+                let IRQWaker::Waker(w) = e.remove() else {
+                    return;
+                };
+
+                w.wake();
+            }
+        }
+        Entry::Vacant(e) => {
+            e.insert(IRQWaker::Interrupted);
+        }
+    }
+}
+
+/// Register a waker for a network device interrupt service.
+///
+/// The old waker will be replaced.
+/// The waker will be called when the network device interrupt occurs once
+/// and it will be removed after it is called.
+///
+/// Returns true if the waker is registered successfully.
+/// Returns false if the interrupt occurred before.
+pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) -> bool {
+    let mut node = MCSNode::new();
+    let mut w = WAKERS.lock(&mut node);
+
+    let entry = w.entry(irq);
+
+    match entry {
+        Entry::Occupied(mut e) => {
+            if matches!(e.get(), IRQWaker::Interrupted) {
+                e.remove();
+                false
+            } else {
+                e.insert(IRQWaker::Waker(waker));
+                true
+            }
+        }
+        Entry::Vacant(e) => {
+            e.insert(IRQWaker::Waker(waker));
+            true
+        }
+    }
+}
+
+pub fn handle_interrupt(interface_id: u64, irq: u16) {
+    let interface = {
+        let net_manager = NET_MANAGER.read();
+
+        let Some(interface) = net_manager.interfaces.get(&interface_id) else {
+            return;
         };
 
-        self.drivers.push(value);
-    }
+        interface.clone()
+    };
 
-    pub fn add_ipv4_addr(
-        &mut self,
-        mac: &[u8; 6],
-        addr: Ipv4Address,
-        plen: u8,
-    ) -> Result<(), NetManagerError> {
-        let netif = self
-            .drivers
-            .iter_mut()
-            .find(|d| {
-                let mut node = MCSNode::new();
-                let result = d.driver.inner.lock(&mut node).mac_address() == *mac;
-                result
-            })
-            .ok_or(NetManagerError::InvalidInterfaceID)?;
+    let _ = interface.net_device.interrupt(irq);
+    interface.poll(irq);
+}
 
-        netif.ipv4_addr.push((addr, plen));
+pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
 
-        Ok(())
-    }
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
 
-    pub fn set_ipv4_gateway(&mut self, mac: &[u8; 6], addr: Ipv4Address) {
-        let netif = self
-            .drivers
-            .iter_mut()
-            .find(|d| {
-                let mut node = MCSNode::new();
-                let result = d.driver.inner.lock(&mut node).mac_address() == *mac;
-                result
-            })
-            .unwrap();
+    let _ = if_net.net_device.up();
 
-        netif.ipv4_gateway = Some(addr);
-    }
+    Ok(())
+}
 
-    pub fn get_interfaces(&self) -> Vec<IfStatus> {
-        let mut result = Vec::new();
+pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
 
-        for netif in self.drivers.iter() {
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let _ = if_net.net_device.down();
+
+    Ok(())
+}
+
+pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
+    use alloc::vec;
+    use smoltcp::socket::udp;
+
+    add_ipv4_addr(interface_id, Ipv4Addr::new(10, 0, 2, 15), 24);
+
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let udp_rx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
+    let udp_tx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; 65535],
+    );
+    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+    let udp_handle = inner.socket_set.add(udp_socket);
+
+    let address = IpAddress::v4(10, 0, 2, 2);
+    let port = 26099;
+
+    let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
+    socket.bind(20000).unwrap();
+
+    drop(inner);
+
+    loop {
+        {
             let mut node = MCSNode::new();
-            let inner = netif.driver.inner.lock(&mut node);
-            let mac_address = inner.mac_address();
-            let link_up = inner.link_up();
-            let link_speed_mbs = inner.link_speed();
-            let full_duplex = inner.full_duplex();
+            let mut inner = if_net.inner.lock(&mut node);
 
-            let ipv4_addr = netif.ipv4_addr.clone();
-            let ipv4_gateway = netif.ipv4_gateway;
-            let device_name = inner.device_short_name();
+            let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
 
-            result.push(IfStatus {
-                device_name,
-                ipv4_addr,
-                ipv4_gateway,
-                link_up,
-                link_speed_mbs,
-                full_duplex,
-                mac_address,
-            });
+            if socket.can_send() {
+                let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
+            }
+
+            if socket.recv().is_ok() {
+                crate::console::print("+");
+            } else {
+                crate::console::print(".");
+            }
         }
 
-        result
+        if_net.poll_tx_only(0);
+
+        crate::delay::wait_millisec(1000);
     }
-
-    // TODO: fix
-    fn create_netif(&mut self) -> Option<(NetDriver, Interface)> {
-        if self.drivers.is_empty() {
-            return None;
-        }
-
-        // TODO: decide how to choose the driver
-        let mut device = NetDriver {
-            inner: self.drivers[0].driver.inner.clone(),
-        };
-
-        let node = &mut MCSNode::new();
-        let addr = device.inner.lock(node).mac_address();
-        let hardware_addr = HardwareAddress::Ethernet(EthernetAddress(addr));
-        let config = Config::new(hardware_addr);
-        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let iface = Interface::new(config, &mut device, timestamp);
-        Some((device, iface))
-    }
-
-    // TODO: fix
-    pub fn get_netif() -> Option<(NetDriver, Interface)> {
-        let node = &mut MCSNode::new();
-        let mut net_manager = NET_MANAGER.lock(node);
-        net_manager.create_netif()
-    }
-}
-
-pub static NET_MANAGER: Mutex<NetManager> = Mutex::new(NetManager::new());
-
-pub fn get_interfaces() -> Vec<IfStatus> {
-    let node = &mut MCSNode::new();
-    let net_manager = NET_MANAGER.lock(node);
-    net_manager.get_interfaces()
 }

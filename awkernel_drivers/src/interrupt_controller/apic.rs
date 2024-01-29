@@ -1,3 +1,5 @@
+//! # XAPIC and x2APIC driver for x86_64 architecture.
+
 use alloc::boxed::Box;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
@@ -6,7 +8,7 @@ use awkernel_lib::{
     interrupt::InterruptController,
     paging::{Flags, PageTable},
 };
-use core::{arch::x86_64::__cpuid, fmt::Debug};
+use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile};
 use x86_64::registers::model_specific::Msr;
 
 pub mod registers {
@@ -274,10 +276,10 @@ impl InterruptController for Xapic {
     }
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, irq: u16, target: u32) {
         if let Some(vector) = self.validate_and_convert_irq(irq) {
             self.interrupt(
-                target as u32,
+                target,
                 registers::DestinationShorthand::NoShorthand,
                 registers::IcrFlags::empty(),
                 registers::DeliveryMode::Fixed,
@@ -328,6 +330,32 @@ impl InterruptController for Xapic {
     fn irq_range_for_pnp(&self) -> (u16, u16) {
         (64, 255)
     }
+
+    fn set_pcie_msi(
+        &self,
+        target: u32,
+        irq: u16,
+        message_data: &mut u16,
+        message_address: &mut u32,
+        message_address_upper: Option<&mut u32>,
+    ) -> Result<(), &'static str> {
+        const IS_EDGE_TRIGGER: bool = false;
+
+        unsafe {
+            write_volatile(
+                message_data,
+                irq & 0xFF | if IS_EDGE_TRIGGER { 0 } else { 1 << 15 },
+            );
+
+            write_volatile(message_address, 0xfee0_0000 | ((target & 0xFF) << 12));
+
+            if let Some(message_address_upper) = message_address_upper {
+                write_volatile(message_address_upper, 0);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl InterruptController for X2Apic {
@@ -364,10 +392,10 @@ impl InterruptController for X2Apic {
         unimplemented!("`pending_irqs` is not yet implemented in x2APIC.");
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u16) {
+    fn send_ipi(&mut self, irq: u16, target: u32) {
         if let Some(vector) = self.validate_and_convert_irq(irq) {
             self.interrupt(
-                target as u32,
+                target,
                 registers::DestinationShorthand::NoShorthand,
                 registers::IcrFlags::empty(),
                 registers::DeliveryMode::Fixed,

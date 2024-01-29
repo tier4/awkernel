@@ -109,7 +109,6 @@ pub fn new<T: Send>(attribute: Attribute) -> (Sender<T>, Receiver<T>) {
 
 impl<T: Send> Sender<T> {
     /// Send data.
-    /// A task will yield automatically after sending data.
     ///
     /// # Example
     ///
@@ -131,9 +130,16 @@ impl<T: Send> Sender<T> {
             data: Some(data),
         };
 
-        let result = sender.await;
-        r#yield().await;
-        result
+        match sender.await {
+            Ok(need_yield) => {
+                if need_yield {
+                    r#yield().await;
+                }
+
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Try to send data.
@@ -195,7 +201,7 @@ struct AsyncSender<'a, T: Send> {
 }
 
 impl<'a, T: Send> Future for AsyncSender<'a, T> {
-    type Output = Result<(), SendErr>;
+    type Output = Result<bool, SendErr>;
 
     fn poll(
         self: core::pin::Pin<&mut Self>,
@@ -228,7 +234,9 @@ impl<'a, T: Send> Future for AsyncSender<'a, T> {
         let data = this.data.take().unwrap();
         assert!(matches!(chan.queue.push(data), Ok(())));
 
-        Poll::Ready(Ok(()))
+        let need_yield = (chan.queue.queue_size() >> 2) < chan.queue.len();
+
+        Poll::Ready(Ok(need_yield))
     }
 }
 

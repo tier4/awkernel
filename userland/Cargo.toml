@@ -11,8 +11,8 @@ log = "0.4"
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
 
-[dependencies.awkernel_shell]
-path = "../applications/awkernel_shell"
+[dependencies.awkernel_services]
+path = "../applications/awkernel_services"
 
 [dependencies.test_rpi_hal]
 path = "../applications/test_rpi_hal"

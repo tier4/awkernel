@@ -31,6 +31,8 @@ pub unsafe fn init() {
         .set_handler_fn(vmm_communication_exception);
     IDT.x87_floating_point.set_handler_fn(x87_floating_point);
 
+    IDT[0].set_handler_fn(irq11);
+
     IDT[32].set_handler_fn(irq32);
     IDT[33].set_handler_fn(irq33);
     IDT[34].set_handler_fn(irq34);
@@ -262,6 +264,10 @@ pub unsafe fn init() {
 
 pub unsafe fn load() {
     IDT.load();
+}
+
+extern "x86-interrupt" fn irq11(_stack_frame: InterruptStackFrame) {
+    log::debug!("IRQ11");
 }
 
 macro_rules! irq_handler {

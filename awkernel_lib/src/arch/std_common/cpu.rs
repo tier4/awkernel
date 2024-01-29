@@ -9,6 +9,10 @@ impl CPU for super::StdCommon {
     fn cpu_id() -> usize {
         CPU_ID.load(Ordering::Relaxed)
     }
+
+    fn raw_cpu_id() -> usize {
+        CPU_ID.load(Ordering::Relaxed)
+    }
 }
 
 pub(super) fn init(cpu_id: usize) {

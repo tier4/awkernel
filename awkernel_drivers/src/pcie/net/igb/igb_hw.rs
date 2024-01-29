@@ -1,9 +1,10 @@
+use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
+    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
+};
 use bitflags::bitflags;
 
-use crate::{
-    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
-    pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo},
-};
+use crate::pcie::{pcie_id::INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 
 use super::{igb_regs::*, IgbDriverErr};
 
@@ -477,6 +478,7 @@ pub enum Duplex {
     Full,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MediaType {
     Copper,
@@ -529,7 +531,7 @@ pub enum MSType {
 pub enum FfeConfig {
     Enabled,
     Active,
-    Blocked,
+    _Blocked,
 }
 
 #[derive(Debug)]
@@ -573,9 +575,8 @@ pub struct IgbHw {
     mac_type: MacType,
     initialize_hw_bits_disable: bool,
     eee_enable: bool,
-    icp_intel_vendor_idx_port_num: u8,
+    icp_xxxx_port_num: u32,
     swfwhw_semaphore_present: bool,
-    asf_firmware_present: bool,
     swfw_sync_present: bool,
     swfw: u16,
     eeprom_semaphore_present: bool,
@@ -623,6 +624,7 @@ pub struct IgbHw {
     forced_speed_duplex: SpeedDuplex,
     bus_type: PCIBusType,
     bus_speed: PCIBusSpeed,
+    legacy_irq: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -663,15 +665,15 @@ pub enum MacType {
     EmPchAdp,
 }
 
-/// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num)`.
+/// Return `(MacType, initialize_hw_bits_disable, eee_enable, icp_xxxx_port_num)`.
 ///
 /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L403
-fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8), IgbDriverErr> {
+fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u32), IgbDriverErr> {
     use MacType::*;
 
     let mut initialize_hw_bits_disable = false;
     let mut eee_enable = false;
-    let mut icp_intel_vendor_idx_port_num = 0;
+    let mut icp_xxxx_port_num = 0;
 
     let result = match device {
         E1000_DEV_ID_82542 => match info.get_revision_id() {
@@ -871,19 +873,19 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
         | E1000_DEV_ID_PCH_MTP_I219_LM19
         | E1000_DEV_ID_PCH_MTP_I219_V19 => EmPchAdp,
         E1000_DEV_ID_EP80579_LAN_1 => {
-            icp_intel_vendor_idx_port_num = 0;
+            icp_xxxx_port_num = 0;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_2 | E1000_DEV_ID_EP80579_LAN_4 => {
-            icp_intel_vendor_idx_port_num = 1;
+            icp_xxxx_port_num = 1;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_3 | E1000_DEV_ID_EP80579_LAN_5 => {
-            icp_intel_vendor_idx_port_num = 2;
+            icp_xxxx_port_num = 2;
             EmICPxxxx
         }
         E1000_DEV_ID_EP80579_LAN_6 => {
-            icp_intel_vendor_idx_port_num = 3;
+            icp_xxxx_port_num = 3;
             EmICPxxxx
         }
         _ => return Err(IgbDriverErr::UnknownDeviceID),
@@ -893,16 +895,15 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u8
         result,
         initialize_hw_bits_disable,
         eee_enable,
-        icp_intel_vendor_idx_port_num,
+        icp_xxxx_port_num,
     ))
 }
 
 /// Return (swfwhw_semaphore_present, asf_firmware_present, swfw_sync_present, eeprom_semaphore_present).
-fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
+fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool) {
     use MacType::*;
 
     let mut swfwhw_semaphore_present = false;
-    let mut asf_firmware_present = false;
     let mut swfw_sync_present = false;
     let mut eeprom_semaphore_present = false;
 
@@ -910,7 +911,6 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
         EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
         | EmPchCnp | EmPchTgp | EmPchAdp => {
             swfwhw_semaphore_present = true;
-            asf_firmware_present = true;
         }
         Em80003es2lan | Em82575 | Em82576 | Em82580 | EmI350 | EmI210 => {
             swfw_sync_present = true;
@@ -918,15 +918,11 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool, bool) {
         Em82571 | Em82572 | Em82573 | Em82574 => {
             eeprom_semaphore_present = true;
         }
-        Em82547 | Em82542Rev2_1 | Em82547Rev2 => {
-            asf_firmware_present = true;
-        }
         _ => (),
     }
 
     (
         swfwhw_semaphore_present,
-        asf_firmware_present,
         swfw_sync_present,
         eeprom_semaphore_present,
     )
@@ -971,17 +967,13 @@ impl IgbHw {
     pub fn new(info: &mut PCIeInfo) -> Result<Self, IgbDriverErr> {
         use MacType::*;
 
-        let (mac_type, initialize_hw_bits_disable, eee_enable, icp_intel_vendor_idx_port_num) =
+        let (mac_type, initialize_hw_bits_disable, eee_enable, icp_xxxx_port_num) =
             get_mac_type(info.get_id(), info)?;
 
         check_pci_express(&mac_type)?;
 
-        let (
-            swfwhw_semaphore_present,
-            asf_firmware_present,
-            swfw_sync_present,
-            eeprom_semaphore_present,
-        ) = get_hw_info(&mac_type);
+        let (swfwhw_semaphore_present, swfw_sync_present, eeprom_semaphore_present) =
+            get_hw_info(&mac_type);
 
         if matches!(mac_type, MacType::EmPchlan) {
             info.set_revision_id((info.get_id() & 0x0f) as u8);
@@ -1077,9 +1069,8 @@ impl IgbHw {
             mac_type,
             initialize_hw_bits_disable,
             eee_enable,
-            icp_intel_vendor_idx_port_num,
+            icp_xxxx_port_num,
             swfwhw_semaphore_present,
-            asf_firmware_present,
             swfw,
             swfw_sync_present,
             eeprom_semaphore_present,
@@ -1136,6 +1127,7 @@ impl IgbHw {
             forced_speed_duplex: SpeedDuplex::S10Half,
             bus_type: PCIBusType::Unknown,
             bus_speed: PCIBusSpeed::Unknown,
+            legacy_irq: false,
         };
 
         // Initialize phy_addr, phy_revision, phy_type, and phy_id
@@ -1144,8 +1136,13 @@ impl IgbHw {
         Ok(hw)
     }
 
+    #[inline(always)]
     pub fn get_mac_type(&self) -> MacType {
         self.mac_type
+    }
+
+    pub fn get_max_frame_size(&self) -> u32 {
+        self.max_frame_size
     }
 
     /// https://github.com/openbsd/src/blob/f058c8dbc8e3b2524b639ac291b898c7cc708996/sys/dev/pci/if_em_hw.c#L1559
@@ -1161,7 +1158,7 @@ impl IgbHw {
 
         if matches!(
             self.mac_type,
-            EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
+            EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp
         ) {
             // The MAC-PHY interconnect may still be in SMBus mode
             // after Sx->S0.  Toggle the LANPHYPC Value bit to force
@@ -1691,12 +1688,51 @@ impl IgbHw {
             return Ok(());
         }
 
+        let eeprom_control2_reg_offset = if self.mac_type != EmICPxxxx {
+            EEPROM_INIT_CONTROL2_REG
+        } else {
+            eeprom_init_control3_icp_xxx(self.icp_xxxx_port_num)
+        };
+
+        if self.fc == FC_DEFAULT {
+            if matches!(
+                self.mac_type,
+                EmIch8lan
+                    | EmIch9lan
+                    | EmIch10lan
+                    | EmPch2lan
+                    | EmPchlan
+                    | EmPchLpt
+                    | EmPchSpt
+                    | EmPchCnp
+                    | EmPchTgp
+                    | EmPchAdp
+                    | Em82573
+                    | Em82574
+            ) {
+                self.fc = FC_FULL;
+            } else {
+                let mut eeprom_data = [0; 1];
+                self.read_eeprom(info, eeprom_control2_reg_offset, &mut eeprom_data)?;
+
+                if eeprom_data[0] & EEPROM_WORD0F_PAUSE_MASK == 0 {
+                    self.fc = FC_NONE;
+                } else if eeprom_data[0] & EEPROM_WORD0F_PAUSE_MASK == EEPROM_WORD0F_ASM_DIR {
+                    self.fc = FC_TX_PAUSE;
+                } else {
+                    self.fc = FC_FULL;
+                }
+            }
+        }
+
         // We want to save off the original Flow Control configuration just
         // in case we get disconnected and then reconnected into a different
         // hub or switch with different Flow Control capabilities.
         if self.mac_type == Em82542Rev2_0 || (self.mac_type as u32) < Em82543 as u32 {
             return Err(IgbDriverErr::NotSupported);
         }
+
+        self.original_fc = self.fc;
 
         // Take the 4 bits from EEPROM word 0x0F that determine the initial
         // polarity value for the SW controlled pins, and setup the Extended
@@ -1755,6 +1791,7 @@ impl IgbHw {
             // XON frames.
             if self.fc_send_xon {
                 write_reg(info, FCRTL, self.fc_low_water as u32 | FCRTL_XONE)?;
+                write_reg(info, FCRTH, self.fc_high_water as u32)?;
             } else {
                 write_reg(info, FCRTL, self.fc_low_water as u32)?;
                 write_reg(info, FCRTH, self.fc_high_water as u32)?;
@@ -2926,7 +2963,7 @@ impl IgbHw {
         // what the PHY speed and duplex configuration is. In addition, we
         // need to perform a hardware reset on the PHY to take it out of
         // reset.
-        if self.mac_type == Em82543 {
+        if self.mac_type as u32 > Em82543 as u32 {
             let mut ctrl = ctrl | CTRL_SLU;
             ctrl &= !(CTRL_FRCSPD | CTRL_FRCDPX);
             write_reg(info, CTRL, ctrl)?;
@@ -4958,6 +4995,7 @@ impl IgbHw {
 
         // Clear any pending interrupt events.
         let _icr = read_reg(info, ICR)?;
+        write_reg(info, ICR, !0)?;
 
         // If MWI was previously enabled, reenable it.
         if self.mac_type == Em82542Rev2_0 {
@@ -7812,6 +7850,32 @@ impl IgbHw {
         Ok(())
     }
 
+    pub fn legacy_irq_quirk_spt(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        use MacType::*;
+
+        if self.mac_type != EmPchSpt
+            && self.mac_type != EmPchCnp
+            && self.mac_type != EmPchTgp
+            && self.mac_type != EmPchAdp
+        {
+            return Ok(());
+        }
+
+        if !self.legacy_irq {
+            return Ok(());
+        }
+
+        let mut reg = read_reg(info, FEXTNVM7)?;
+        reg |= FEXTNVM7_SIDE_CLK_UNGATE;
+        write_reg(info, FEXTNVM7, reg)?;
+
+        let mut reg = read_reg(info, FEXTNVM9)?;
+        reg |= FEXTNVM9_IOSFSB_CLKGATE_DIS | FEXTNVM9_IOSFSB_CLKREQ_DIS;
+        write_reg(info, FEXTNVM9, reg)?;
+
+        Ok(())
+    }
+
     /// Release semaphore bit (SMBI).
     fn release_software_semaphore(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         if !matches!(self.mac_type, MacType::Em80003es2lan) {
@@ -8195,6 +8259,107 @@ impl IgbHw {
 
     pub fn get_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
         self.mac_addr
+    }
+
+    pub fn get_media_type(&self) -> MediaType {
+        self.media_type
+    }
+
+    pub fn get_tbi_compatibility_on(&self) -> bool {
+        self.tbi_compatibility_on
+    }
+
+    pub fn set_phy_reset_disable(&mut self, flag: bool) {
+        self.phy_reset_disable = flag;
+    }
+
+    #[inline]
+    pub fn tbi_accept(&self, status: u8, errors: u8, length: u16, addr: VirtAddr) -> bool {
+        let ptr = addr.as_ptr::<u8>();
+        let buf = unsafe { &*core::ptr::slice_from_raw_parts(ptr, length as usize) };
+        let last_byte = buf[length as usize - 1];
+
+        self.tbi_compatibility_on
+            && errors & RXD_ERR_FRAME_ERR_MASK == RXD_ERR_CE
+            && last_byte == CARRIER_EXTENSION
+            && if status & RXD_STAT_VP != 0 {
+                length as u32 > self.min_frame_size - VLAN_TAG_SIZE
+                    && length as u32 <= self.max_frame_size + 1
+            } else {
+                length as u32 > self.min_frame_size
+                    && length as u32 <= self.max_frame_size + VLAN_TAG_SIZE + 1
+            }
+    }
+
+    pub fn hash_mc_addr(&self, mac_addr: &[u8; NODE_ADDRESS_SIZE]) -> u32 {
+        let mut hash_value = if is_ich8(&self.mac_type) {
+            // [47:38] i.e. 0x158 for above example address
+            mac_addr[4] as u32 >> 6 | (mac_addr[5] as u32) << 2
+        } else {
+            // [47:36] i.e. 0x563 for above example address
+            mac_addr[4] as u32 >> 4 | (mac_addr[5] as u32) << 4
+        };
+
+        hash_value &= 0xFFF;
+        if is_ich8(&self.mac_type) {
+            hash_value &= 0x3FF;
+        }
+
+        hash_value
+    }
+
+    /// Sets the bit in the multicast table corresponding to the hash value.
+    ///
+    /// hw - Struct containing variables accessed by shared code
+    /// hash_value - Multicast address hash value
+    pub fn mta_set(&self, info: &PCIeInfo, hash_value: u32) -> Result<(), IgbDriverErr> {
+        // The MTA is a register array of 128 32-bit registers. It is treated
+        // like an array of 4096 bits.  We want to set bit
+        // BitArray[hash_value]. So we figure out what register the bit is
+        // in, read it, OR in the new bit, then write back the new value.
+        // The register is determined by the upper 7 bits of the hash value
+        // and the bit within that register are determined by the lower 5
+        // bits of the value.
+        let mut hash_reg = (hash_value >> 5) & 0x7F;
+        if is_ich8(&self.mac_type) {
+            hash_reg &= 0x1F;
+        }
+
+        let hash_bit = hash_value & 0x1F;
+
+        let mut mta = read_reg_array(info, MTA, hash_reg as usize)?;
+        mta |= 1 << hash_bit;
+
+        // If we are on an 82544 and we are trying to write an odd offset in
+        // the MTA, save off the previous entry before writing and restore
+        // the old value after writing.
+        if self.mac_type == MacType::Em82544 && (hash_reg & 0x1) == 1 {
+            let temp = read_reg_array(info, MTA, (hash_reg - 1) as usize)?;
+            write_reg_array(info, MTA, hash_reg as usize, mta)?;
+            write_flush(info)?;
+            write_reg_array(info, MTA, (hash_reg - 1) as usize, temp)?;
+            write_flush(info)?;
+        } else {
+            write_reg_array(info, MTA, hash_reg as usize, mta)?;
+            write_flush(info)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn clear_mta(&self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+        let num_mta_entry = if is_ich8(&self.mac_type) {
+            NUM_MTA_REGISTERS_ICH8LAN
+        } else {
+            NUM_MTA_REGISTERS
+        };
+
+        for i in 0..num_mta_entry {
+            write_reg_array(info, MTA, i, 0)?;
+            write_flush(info)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -8818,7 +8983,7 @@ pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u3
 }
 
 #[inline(always)]
-fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
+pub fn write_flush(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgbDriverErr::NoBar0)?;
     bar0.read32(STATUS).ok_or(IgbDriverErr::ReadFailure)?;
     Ok(())

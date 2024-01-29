@@ -14,12 +14,10 @@ use blisp::embedded;
 use core::time::Duration;
 mod udp;
 
+const SERVICE_NAME: &str = "awkernel shell";
+
 pub fn init() {
-    let task_id = task::spawn(
-        "awkernel_shell".into(),
-        console_handler(),
-        SchedulerType::FIFO,
-    );
+    let task_id = task::spawn(SERVICE_NAME.into(), console_handler(), SchedulerType::FIFO);
 
     if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(
@@ -35,6 +33,8 @@ pub fn init() {
 }
 
 async fn console_handler() -> TaskResult {
+    log::info!("Start {SERVICE_NAME}.");
+
     let exprs = blisp::init(
         CODE,
         vec![
@@ -205,9 +205,9 @@ fn interrupt_ffi() {
 
 #[embedded]
 fn ifconfig_ffi() {
-    let ifs = awkernel_lib::net::get_interfaces();
-    for (i, netif) in ifs.iter().enumerate() {
-        let msg = format!("{i}.{netif}\r\n\r\n");
+    let ifs = awkernel_lib::net::get_all_interface();
+    for netif in ifs.iter() {
+        let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);
     }
 }

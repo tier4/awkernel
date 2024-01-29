@@ -1,5 +1,5 @@
-#[cfg(feature = "aarch64")]
+#[cfg(feature = "pl011")]
 pub mod pl011;
 
-#[cfg(feature = "x86")]
+#[cfg(feature = "uart_16550")]
 pub mod uart_16550;

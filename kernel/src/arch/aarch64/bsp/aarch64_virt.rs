@@ -308,7 +308,6 @@ impl AArch64Virt {
                         .or(Err(err_msg!("invalid core number")))?;
 
                     aff0_max = aff0_max.max(aff0);
-                    log::debug!("aff0 = {aff0}");
 
                     match (aff0, aff1, aff2) {
                         (0, 0, 0) => (),

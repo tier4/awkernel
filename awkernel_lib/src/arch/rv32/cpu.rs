@@ -8,4 +8,8 @@ impl CPU for super::RV32 {
         }
         hartid
     }
+
+    fn raw_cpu_id() -> usize {
+        Self::cpu_id()
+    }
 }

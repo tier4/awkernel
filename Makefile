@@ -144,7 +144,7 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 
-QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img -d int
+QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img -d int # --trace "e1000e_irq_*" --trace "pci_cfg_*"
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 QEMU_X86_ARGS+= -m 4G -smp cpus=16
