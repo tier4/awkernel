@@ -1,34 +1,40 @@
 //! Interrupt remapping of Vt-d.
 
-use core::fmt::Debug;
+use core::ptr::{read_volatile, write_volatile};
 
 use acpi::AcpiTables;
 
 use crate::{
-    addr::virt_addr::VirtAddr,
-    arch::x86_64::acpi::dmar::{Dmar, DmarEntry},
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
+    arch::x86_64::acpi::dmar::{dhrd::DmarDrhd, Dmar, DmarEntry},
     dma_pool::DMAPool,
-    paging::{self, Frame, FrameAllocator, PageTable, PAGESIZE},
+    paging::PAGESIZE,
+    sync::{mcs::MCSNode, mutex::Mutex},
 };
+
+use array_macro::array;
 
 use super::acpi::AcpiMapper;
 
-const PRESENT: u32 = 1;
-const FPD: u32 = 1 << 1; // Fault Processing Disable, 0: enable, 1: disable
-const DM: u32 = 1 << 2; // Destination Mode, 0: Physical, 1: Logical
-const RH: u32 = 1 << 3; // Redirection Hint, 0: directed to the processor listed in the Destination ID field, 1: directed to 1 of N processors specified in the Destination ID field
-const TM: u32 = 1 << 4; // Trigger Mode, 0: Edge, 1: Level
+const TABLE_SIZE: usize = 256 * 4096; // 1MiB
+const TABLE_ENTRY_NUM: usize = TABLE_SIZE / 16;
 
-const DLM_FIXED: u32 = 0b000 << 5; // Fixed, the destination ID is a fixed value
-const DLM_LOWEST: u32 = 0b001 << 5; // Lowest Priority
-const DLM_SMI: u32 = 0b010 << 5; // System Management Interrupt (SMI)
-const DLM_NMI: u32 = 0b100 << 5; // Non-Maskable Interrupt (NMI)
-const DLM_INIT: u32 = 0b101 << 5; // INIT
-const DLM_EXT_INIT: u32 = 0b111 << 5;
+// `IRTEntry::flags`
+const PRESENT: u16 = 1;
+const FPD: u16 = 1 << 1; // Fault Processing Disable, 0: enable, 1: disable
+const DM: u16 = 1 << 2; // Destination Mode, 0: Physical, 1: Logical
+const RH: u16 = 1 << 3; // Redirection Hint, 0: directed to the processor listed in the Destination ID field, 1: directed to 1 of N processors specified in the Destination ID field
+const TM: u16 = 1 << 4; // Trigger Mode, 0: Edge, 1: Level
 
-const IM: u32 = 1 << 15; // IRTE Mode, 0: interrupt requests processed through this IRTE are remapped, 1: interrupt requests processed through this IRTE are remapped
+// DLM in `IRTEntry::flags`
+const DLM_FIXED: u16 = 0b000 << 5; // Fixed, the destination ID is a fixed value
+const DLM_LOWEST: u16 = 0b001 << 5; // Lowest Priority
+const DLM_SMI: u16 = 0b010 << 5; // System Management Interrupt (SMI)
+const DLM_NMI: u16 = 0b100 << 5; // Non-Maskable Interrupt (NMI)
+const DLM_INIT: u16 = 0b101 << 5; // INIT
+const DLM_EXT_INIT: u16 = 0b111 << 5;
 
-const V_SHIFT: u32 = 16; // Vector shift
+const IM: u16 = 1 << 15; // IRTE Mode, 0: interrupt requests processed through this IRTE are remapped, 1: interrupt requests processed through this IRTE are remapped
 
 /// Source Validation Type
 /// 0b00: No source validation
@@ -39,21 +45,25 @@ const SVT_SHIFT: u32 = 2;
 
 #[repr(C, packed)]
 struct IRTEntry {
-    flags: u32,
+    flags: u16,
+    vector: u8,
+    _reserved1: u8,
     dest: u32,
     sid: u16,
     svt_sq: u16,
-    reserved: u32,
+    _reserved2: u32,
 }
 
 impl IRTEntry {
     const fn new() -> Self {
         IRTEntry {
             flags: 0,
+            vector: 0,
+            _reserved1: 0,
             dest: 0,
             sid: 0,
             svt_sq: 0,
-            reserved: 0,
+            _reserved2: 0,
         }
     }
 
@@ -63,76 +73,100 @@ impl IRTEntry {
     }
 }
 
+static INTERRUPT_REMAPPING: [Mutex<Option<InterruptRemapping>>; 32] =
+    array![_ => Mutex::new(None); 32];
+
+#[derive(Debug)]
+struct InterruptRemapping {
+    table_base: VirtAddr,
+    segment_number: usize,
+}
+
+impl InterruptRemapping {
+    fn disable_all(&mut self) {
+        let entries = unsafe { &mut *self.table_base.as_mut_ptr::<[IRTEntry; TABLE_ENTRY_NUM]>() };
+
+        for entry in entries.iter_mut() {
+            entry.flags = 0;
+        }
+    }
+}
+
+/// Initialize Interrupt Remapping.
+///
 /// # Safety
 ///
 /// This function must be called only once.
-pub unsafe fn init_interrupt_remap<F, FA, PT, E>(
+pub unsafe fn init_interrupt_remap(
     phy_offset: VirtAddr,
-    page_table_base: VirtAddr, // Location to map Interrupt Remapping Table
     acpi: &AcpiTables<AcpiMapper>,
-    page_table: &mut PT,
-    page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
-) -> Result<(), &'static str>
-where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    PT: PageTable<F, FA, E>,
-    E: Debug,
-{
-    const TABLE_SIZE: usize = 256 * 4096; // 1MiB
-
+) -> Result<(), &'static str> {
     let mut remap_table = [None; 32];
 
     if let Ok(dmar) = acpi.find_table::<Dmar>() {
         dmar.entries().for_each(|entry| {
-            log::debug!("{:x?}", entry);
-
             if let DmarEntry::Drhd(drhd) = entry {
                 drhd.device_scopes()
                     .find(|(scope, _path)| scope.entry_type == 1);
 
-                if let Some(_addr) = &remap_table[drhd.segment_number as usize] {
-                    // TODO: Set Interrupt Remapping Table Address Register
+                if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
+                    // Set Interrupt Remapping Table Address Register
+                    set_irta(phy_offset, drhd, *phy_addr);
                 } else {
-                    let pool = DMAPool::<[u8; TABLE_SIZE]>::new(
-                        drhd.segment_number as usize,
-                        TABLE_SIZE / PAGESIZE,
-                    )
-                    .expect("DMAPool::new() failed.");
+                    let segment_number = drhd.segment_number as usize;
 
+                    let pool =
+                        DMAPool::<[u8; TABLE_SIZE]>::new(segment_number, TABLE_SIZE / PAGESIZE)
+                            .expect("DMAPool::new() failed.");
+
+                    let virt_addr = pool.get_virt_addr();
                     let phy_addr = pool.get_phy_addr();
                     pool.leak();
 
-                    remap_table[drhd.segment_number as usize] = Some(phy_addr);
+                    remap_table[segment_number] = Some((phy_addr, virt_addr));
 
-                    // TODO: Set Interrupt Remapping Table Address Register
+                    // Set Interrupt Remapping Table Address Register
+                    set_irta(phy_offset, drhd, phy_addr);
+
+                    log::info!(
+                        "Vt-d Interrupt Remapping Table: Segment = {}, PhyAddr = 0x{:x}, VirtAddr = 0x{:x}",
+                        segment_number,
+                        phy_addr.as_usize(),
+                        virt_addr.as_usize()
+                    )
                 }
             }
         });
     }
 
-    let page_allocator = page_allocators.get_mut(&0).unwrap();
-    let flags = paging::Flags {
-        execute: false,
-        write: true,
-        cache: false,
-        device: true,
-        write_through: false,
-    };
+    // Set INTERRUPT_REMAPPING
+    for (i, entry) in remap_table.iter().enumerate() {
+        if let Some((_phy_addr, virt_addr)) = entry {
+            let mut table = InterruptRemapping {
+                table_base: *virt_addr,
+                segment_number: i,
+            };
 
-    for (i, table) in remap_table.into_iter().enumerate() {
-        let Some(phy_addr) = table else {
-            continue;
-        };
+            table.disable_all();
 
-        let virt_addr = VirtAddr::new(i * TABLE_SIZE) + page_table_base;
-
-        unsafe {
-            page_table
-                .map_to(virt_addr, phy_addr, flags, page_allocator)
-                .unwrap()
-        };
+            let mut node = MCSNode::new();
+            INTERRUPT_REMAPPING[i].lock(&mut node).replace(table);
+        }
     }
 
     Ok(())
+}
+
+/// Set Interrupt Remapping Table Address Register
+fn set_irta(phy_offset: VirtAddr, drhd: &DmarDrhd, phy_addr: PhyAddr) {
+    let irta_reg = phy_offset + drhd.register_base_address as usize + 0xb8;
+    let ptr = irta_reg.as_mut_ptr::<u64>();
+    unsafe {
+        let val = read_volatile(ptr);
+        let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1))
+                        | (val & (1 << 11)) // Extended Interrupt Mode Enable
+                        | 0b1111; // Size
+
+        write_volatile(ptr, val);
+    }
 }
