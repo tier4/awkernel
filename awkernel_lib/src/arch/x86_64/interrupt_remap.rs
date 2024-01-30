@@ -76,6 +76,19 @@ impl IRTEntry {
 static INTERRUPT_REMAPPING: [Mutex<Option<InterruptRemapping>>; 32] =
     array![_ => Mutex::new(None); 32];
 
+pub struct RemappingInfo {
+    entry_id: usize,
+    segment_number: usize,
+}
+
+impl Drop for RemappingInfo {
+    fn drop(&mut self) {
+        let mut node = MCSNode::new();
+        let mut table = INTERRUPT_REMAPPING[self.segment_number].lock(&mut node);
+        table.as_mut().unwrap().deallocate_entry(self.entry_id);
+    }
+}
+
 #[derive(Debug)]
 struct InterruptRemapping {
     table_base: VirtAddr,
@@ -89,6 +102,48 @@ impl InterruptRemapping {
         for entry in entries.iter_mut() {
             entry.flags = 0;
         }
+    }
+
+    /// Allocate an entry in the Interrupt Remapping Table.
+    /// It enables the remapping of the interrupt specified by `irq`.
+    fn allocate_entry(
+        &mut self,
+        irq: u8,
+        level_trigger: bool,
+        lowest_priority: bool,
+    ) -> Option<RemappingInfo> {
+        let entries = unsafe { &mut *self.table_base.as_mut_ptr::<[IRTEntry; TABLE_ENTRY_NUM]>() };
+
+        let mut result = None;
+
+        for (i, entry) in entries.iter_mut().enumerate() {
+            if entry.flags == 0 {
+                entry.flags = PRESENT;
+                result = Some(i);
+            }
+        }
+
+        if result.is_none() {
+            return None;
+        }
+
+        let entry_id = result.unwrap();
+
+        entries[entry_id].enable(irq, level_trigger, lowest_priority);
+
+        Some(RemappingInfo {
+            entry_id,
+            segment_number: self.segment_number,
+        })
+    }
+
+    /// Deallocate an entry in the Interrupt Remapping Table.
+    /// It disables the remapping of the interrupt specified by `entry_id`.
+    fn deallocate_entry(&mut self, entry_id: usize) {
+        assert!(entry_id < TABLE_ENTRY_NUM);
+
+        let entries = unsafe { &mut *self.table_base.as_mut_ptr::<[IRTEntry; TABLE_ENTRY_NUM]>() };
+        entries[entry_id].flags = 0;
     }
 }
 
