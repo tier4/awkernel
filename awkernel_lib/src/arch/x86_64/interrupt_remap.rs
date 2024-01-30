@@ -1,6 +1,6 @@
 //! Interrupt remapping of Vt-d.
 
-use core::ptr::{read_volatile, write_volatile};
+use core::ptr::write_volatile;
 
 use acpi::AcpiTables;
 
@@ -67,9 +67,45 @@ impl IRTEntry {
         }
     }
 
-    fn enable(&mut self, irq: u8, level_trigger: bool, lowest_priority: bool) {
-        let flags = PRESENT;
-        // TODO
+    fn enable(
+        &mut self,
+        dest_apic_id: u32,
+        irq: u8,
+        level_trigger: bool,
+        lowest_priority: bool,
+        is_x2apic: bool,
+    ) {
+        let mut flags = PRESENT | FPD;
+
+        if level_trigger {
+            flags |= TM;
+        }
+
+        if lowest_priority {
+            flags |= DLM_LOWEST;
+        } else {
+            flags |= DLM_FIXED;
+        }
+        self.flags = flags;
+
+        self.vector = irq;
+
+        if is_x2apic {
+            self.dest = dest_apic_id;
+        } else {
+            self.dest = (dest_apic_id & 0xff) << 8;
+        }
+
+        // TODO: check the source PCIe device
+        self.sid = 0;
+        self.svt_sq = 0;
+
+        self._reserved1 = 0;
+        self._reserved2 = 0;
+    }
+
+    fn disable(&mut self) {
+        self.flags = 0;
     }
 }
 
@@ -93,6 +129,7 @@ impl Drop for RemappingInfo {
 struct InterruptRemapping {
     table_base: VirtAddr,
     segment_number: usize,
+    is_x2apic: bool,
 }
 
 impl InterruptRemapping {
@@ -100,7 +137,7 @@ impl InterruptRemapping {
         let entries = unsafe { &mut *self.table_base.as_mut_ptr::<[IRTEntry; TABLE_ENTRY_NUM]>() };
 
         for entry in entries.iter_mut() {
-            entry.flags = 0;
+            entry.disable();
         }
     }
 
@@ -108,6 +145,7 @@ impl InterruptRemapping {
     /// It enables the remapping of the interrupt specified by `irq`.
     fn allocate_entry(
         &mut self,
+        dest_apic_id: u32,
         irq: u8,
         level_trigger: bool,
         lowest_priority: bool,
@@ -129,7 +167,13 @@ impl InterruptRemapping {
 
         let entry_id = result.unwrap();
 
-        entries[entry_id].enable(irq, level_trigger, lowest_priority);
+        entries[entry_id].enable(
+            dest_apic_id,
+            irq,
+            level_trigger,
+            lowest_priority,
+            self.is_x2apic,
+        );
 
         Some(RemappingInfo {
             entry_id,
@@ -155,6 +199,7 @@ impl InterruptRemapping {
 pub unsafe fn init_interrupt_remap(
     phy_offset: VirtAddr,
     acpi: &AcpiTables<AcpiMapper>,
+    is_x2apic: bool,
 ) -> Result<(), &'static str> {
     let mut remap_table = [None; 32];
 
@@ -166,7 +211,7 @@ pub unsafe fn init_interrupt_remap(
 
                 if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(phy_offset, drhd, *phy_addr);
+                    set_irta(phy_offset, drhd, *phy_addr, is_x2apic);
                 } else {
                     let segment_number = drhd.segment_number as usize;
 
@@ -178,16 +223,17 @@ pub unsafe fn init_interrupt_remap(
                     let phy_addr = pool.get_phy_addr();
                     pool.leak();
 
+                    // Set Interrupt Remapping Table Address Register
+                    set_irta(phy_offset, drhd, phy_addr, is_x2apic);
+
                     remap_table[segment_number] = Some((phy_addr, virt_addr));
 
-                    // Set Interrupt Remapping Table Address Register
-                    set_irta(phy_offset, drhd, phy_addr);
-
                     log::info!(
-                        "Vt-d Interrupt Remapping Table: Segment = {}, PhyAddr = 0x{:x}, VirtAddr = 0x{:x}",
+                        "Vt-d Interrupt Remapping Table: Segment = {}, PhyAddr = 0x{:x}, VirtAddr = 0x{:x}, {}",
                         segment_number,
                         phy_addr.as_usize(),
-                        virt_addr.as_usize()
+                        virt_addr.as_usize(),
+                        if is_x2apic { "x2APIC" } else { "APIC" }
                     )
                 }
             }
@@ -200,6 +246,7 @@ pub unsafe fn init_interrupt_remap(
             let mut table = InterruptRemapping {
                 table_base: *virt_addr,
                 segment_number: i,
+                is_x2apic,
             };
 
             table.disable_all();
@@ -213,14 +260,16 @@ pub unsafe fn init_interrupt_remap(
 }
 
 /// Set Interrupt Remapping Table Address Register
-fn set_irta(phy_offset: VirtAddr, drhd: &DmarDrhd, phy_addr: PhyAddr) {
+///
+/// Returns `true` if the current interrupt remapping hardware supports x2APIC mode.
+fn set_irta(phy_offset: VirtAddr, drhd: &DmarDrhd, phy_addr: PhyAddr, is_x2apic: bool) {
     let irta_reg = phy_offset + drhd.register_base_address as usize + 0xb8;
     let ptr = irta_reg.as_mut_ptr::<u64>();
+
     unsafe {
-        let val = read_volatile(ptr);
-        let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1))
-                        | (val & (1 << 11)) // Extended Interrupt Mode Enable
-                        | 0b1111; // Size
+        // Extended Interrupt Mode (x2APIC) Enable
+        let eime = if is_x2apic { 1 << 11 } else { 0 };
+        let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1)) | eime | 0b1111; // Size
 
         write_volatile(ptr, val);
     }

@@ -199,6 +199,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
                 init_interrupt_remap(
                     awkernel_lib::addr::virt_addr::VirtAddr::new(offset as usize),
                     &acpi,
+                    true,
                 )
             } {
                 log::error!("Failed to initialize interrupt remapping table. {}", e);
