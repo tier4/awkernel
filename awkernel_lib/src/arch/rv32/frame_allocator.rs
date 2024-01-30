@@ -2,26 +2,34 @@ use super::address::{
     PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, MEMORY_END, PAGE_SIZE, PA_WIDTH, PPN_WIDTH,
     VA_WIDTH, VPN_WIDTH,
 };
-use crate::sync::safe_arc::SafeArc;
-use lazy_static::lazy_static;
+use core::cell::OnceCell;
 
 type FrameAllocatorImpl = PageAllocator;
 
-#[global_allocator]
-lazy_static! {
-    pub static ref FRAME_ALLOCATOR: SafeArc<FrameAllocatorImpl> =
-        unsafe { SafeArc::new(FrameAllocatorImpl::new()) };
-}
+/// Use `OnceCell` to get `lazy_static!` + `Arc` like effect
+///
+/// SAFETY
+///
+/// May not be thread_safe, Seems that `OnceLock`is better.
+pub static FRAME_ALLOCATOR: OnceCell<FrameAllocatorImpl> = {
+    let mut cell_allocator = OnceCell::new();
+    cell_allocator.get_or_init(FrameAllocatorImpl::new());
+    cell_allocator
+};
 
 pub fn init_page_allocator() {
     extern "C" {
         fn ekernel();
     }
 
-    FRAME_ALLOCATOR.exclusive_access().init(
-        PhysAddr::from(ekernel as usize).ceil(),
-        PhysAddr::from(MEMORY_END).floor(),
-    );
+    if let Some(ALLOCATOR_REF) = FRAME_ALLOCATOR.get_mut() {
+        ALLOCATOR_REF.init(
+            PhysAddr::from(ekernel as usize).ceil(),
+            PhysAddr::from(MEMORY_END).floor(),
+        )
+    } else {
+        panic!("[Error] FrameAllocator is not initialized at all! May be triggered by Race condition of multicore!")
+    }
 }
 
 pub trait FrameAllocator {
@@ -29,6 +37,16 @@ pub trait FrameAllocator {
     fn alloc(&mut self) -> Option<PhysPageNum>;
     fn alloc_more(&mut self, pages: usize) -> Option<Vec<PhysPageNum>>;
     fn dealloc(&mut self, ppn: PhysPageNum);
+}
+
+pub struct FrameTracker {
+    pub ppn: PhysPageNum,
+}
+
+impl FrameTracker {
+    pub fn new(ppn: PhysPageNum) -> Self {
+        let
+    }
 }
 
 /// Frame range: [current, end)

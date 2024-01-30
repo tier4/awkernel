@@ -1,5 +1,8 @@
 use super::PageTableEntry;
-use core::fmt::{self, Debug, Formatter};
+use core::{
+    self,
+    fmt::{self, Debug, Formatter},
+};
 pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
 pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 
@@ -127,5 +130,20 @@ impl VirtAddr {
 
     pub fn aligned(&self) -> bool {
         self.page_offset() == 0
+    }
+}
+
+impl PhysPageNum {
+    pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
+        let pa: PhysAddr = (*self).into();
+        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut PageTableEntry, 512) }
+    }
+    pub fn get_bytes_array(&self) -> &'static mut [u8] {
+        let pa: PhysAddr = (*self).into();
+        unsafe { core::slice::from_raw_parts_mut(pa.0 as *mut u8, 4096) }
+    }
+    pub fn get_mut<T>(&self) -> &'static mut T {
+        let pa: PhysAddr = (*self).into();
+        pa.get_mut()
     }
 }
