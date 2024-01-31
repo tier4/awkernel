@@ -1391,6 +1391,7 @@ impl Igb {
             if inner.flags.contains(NetFlags::RUNNING) {
                 drop(inner);
                 self.rx_recv(0)?;
+                // TODO: em_txeof()
             }
 
             reg_icr
@@ -1503,6 +1504,13 @@ impl Igb {
             if MAX_SCATTER + 2 > free {
                 break;
             }
+
+            // log::debug!(
+            //     "len = {}, csum_flags = {:?}. data = {:x?}",
+            //     ether_frame.data.len(),
+            //     ether_frame.csum_flags,
+            //     ether_frame.data
+            // );
 
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
 
@@ -1797,6 +1805,8 @@ impl NetDevice for Igb {
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
+
+        awkernel_lib::console::put(b'2');
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
 
