@@ -53,6 +53,7 @@ pub trait InterruptController: Sync + Send {
     /// Set the PCIe MSI or MSI-X interrupt
     fn set_pcie_msi(
         &self,
+        _segment_number: usize,
         _target: u32,
         _irq: u16,
         _message_data: &mut u16,
@@ -238,6 +239,7 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
 pub fn register_handler_pcie_msi<F>(
     name: &'static str,
     func: Box<F>,
+    segment_number: usize,
     target: u32,
     message_data: &mut u16,
     message_address: &mut u32,
@@ -274,13 +276,20 @@ where
         return Err("Interrupt controller is not yet enabled.");
     };
 
-    ctrl.set_pcie_msi(
+    let result = ctrl.set_pcie_msi(
+        segment_number,
         target,
         irq,
         message_data,
         message_address,
         message_address_upper,
-    )
+    );
+
+    if result.is_err() {
+        handlers.remove(&irq);
+    }
+
+    result
 }
 
 #[cfg(feature = "x86")]

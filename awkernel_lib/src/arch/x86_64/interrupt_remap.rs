@@ -172,9 +172,9 @@ impl InterruptRemapping {
         let mut result = None;
 
         for (i, entry) in entries.iter_mut().enumerate() {
-            if entry.flags == 0 {
-                entry.flags = registers::PRESENT;
+            if entry.flags & registers::PRESENT == 0 {
                 result = Some(i);
+                break;
             }
         }
 

@@ -160,39 +160,11 @@ impl Msi {
         self.per_vector_mask_capable
     }
 
-    // pub fn set_message_address(&mut self, target: u32, irq: u16) -> Result<(), PCIeDeviceErr> {
-    //     let (message_address, message_address_upper, message_data) = if self.bit64_address_capable {
-    //         (
-    //             (registers::MESSAGE_ADDRESS_64_LOW + self.base) as *mut () as *mut u32,
-    //             Some(unsafe {
-    //                 &mut *((registers::MESSAGE_ADDRESS_64_HIGH + self.base) as *mut () as *mut u32)
-    //             }),
-    //             (registers::MESSAGE_DATA_64 + self.base) as *mut () as *mut u16,
-    //         )
-    //     } else {
-    //         (
-    //             (registers::MESSAGE_ADDRESS_32 + self.base) as *mut () as *mut u32,
-    //             None,
-    //             (registers::MESSAGE_DATA_32 + self.base) as *mut () as *mut u16,
-    //         )
-    //     };
-
-    //     unsafe {
-    //         awkernel_lib::interrupt::set_pcie_msi(
-    //             target,
-    //             irq,
-    //             &mut *message_data,
-    //             &mut *message_address,
-    //             message_address_upper,
-    //         )
-    //         .or(Err(PCIeDeviceErr::Interrupt))
-    //     }
-    // }
-
     pub fn register_handler<F>(
         &mut self,
         name: &'static str,
         func: Box<F>,
+        segment_number: usize,
         target: u32,
     ) -> Result<IRQ, PCIeDeviceErr>
     where
@@ -218,6 +190,7 @@ impl Msi {
             awkernel_lib::interrupt::register_handler_pcie_msi(
                 name,
                 func,
+                segment_number,
                 target,
                 &mut *message_data,
                 &mut *message_address,

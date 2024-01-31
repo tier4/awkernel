@@ -3,7 +3,7 @@
 use alloc::boxed::Box;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-    arch::x86_64::page_allocator::VecPageAllocator,
+    arch::x86_64::{interrupt_remap, page_allocator::VecPageAllocator},
     delay::wait_forever,
     interrupt::{InterruptController, IRQ},
     paging::{Flags, PageTable},
@@ -333,6 +333,7 @@ impl InterruptController for Xapic {
 
     fn set_pcie_msi(
         &self,
+        _segment_number: usize,
         target: u32,
         irq: u16,
         message_data: &mut u16,
@@ -442,5 +443,44 @@ impl InterruptController for X2Apic {
 
     fn eoi(&mut self) {
         unsafe { registers::X2APIC_EOI.write(0) };
+    }
+
+    fn set_pcie_msi(
+        &self,
+        segment_number: usize,
+        target: u32,
+        irq: u16,
+        message_data: &mut u16,
+        message_address: &mut u32,
+        message_address_upper: Option<&mut u32>,
+    ) -> Result<IRQ, &'static str> {
+        assert!(irq < 256);
+
+        log::debug!("set_pcie_msi: irq = {}", irq);
+
+        let remap_info = interrupt_remap::allocate_remapping_entry(
+            segment_number,
+            target,
+            irq as u8,
+            false,
+            false,
+        )
+        .ok_or("Failed to allocate an Interrupt Remapping Table Entry.")?;
+
+        log::debug!("set_pcie_msi 1");
+
+        // Intel® Virtualization Technology for Directed I/O Architecture Specification, Rev. 4.1
+        // Figure 5-6. Remapping Hardware Interrupt Programming in Intel® 64 x2APIC Mode
+
+        let val_lower = 0xfee << 20 | (target & 0xff) << 12;
+        let val_upper = target & !0xff;
+
+        unsafe {
+            write_volatile(message_data, irq & 0xFF);
+            write_volatile(message_address, val_lower);
+            message_address_upper.map(|addr_upper| write_volatile(addr_upper, val_upper));
+        }
+
+        Ok(IRQ::X86InterruptRemap { irq, remap_info })
     }
 }

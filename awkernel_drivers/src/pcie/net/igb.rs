@@ -1567,8 +1567,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
         msix.disable();
     }
 
+    let segment_number = info.get_segment_group() as usize;
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
+
+        log::debug!("igb: allocate_msi 0");
 
         let mut irq = msi
             .register_handler(
@@ -1576,15 +1579,22 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
                 Box::new(|irq| {
                     awkernel_lib::net::net_interrupt(irq);
                 }),
+                segment_number,
                 awkernel_lib::cpu::raw_cpu_id() as u32,
             )
             .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
+        log::debug!("igb: allocate_msi 1");
+
         msi.set_multiple_message_enable(MultipleMessage::One)
             .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
+        log::debug!("igb: allocate_msi 2");
+
         irq.enable();
         msi.enable();
+
+        log::debug!("igb: allocate_msi finished");
 
         Ok(PCIeInt::Msi(irq))
     } else {
