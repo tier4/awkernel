@@ -17,6 +17,7 @@ use super::acpi::AcpiMapper;
 const TABLE_SIZE: usize = 256 * 4096; // 1MiB
 const TABLE_ENTRY_NUM: usize = TABLE_SIZE / 16;
 
+#[allow(dead_code)]
 mod registers {
     use bitflags::bitflags;
 
@@ -76,18 +77,6 @@ struct IRTEntry {
 }
 
 impl IRTEntry {
-    const fn new() -> Self {
-        IRTEntry {
-            flags: 0,
-            vector: 0,
-            _reserved1: 0,
-            dest: 0,
-            sid: 0,
-            svt_sq: 0,
-            _reserved2: 0,
-        }
-    }
-
     fn enable(
         &mut self,
         dest_apic_id: u32,
@@ -133,9 +122,16 @@ impl IRTEntry {
 static INTERRUPT_REMAPPING: [Mutex<Option<InterruptRemapping>>; 32] =
     array![_ => Mutex::new(None); 32];
 
+#[derive(Debug)]
 pub struct RemappingInfo {
     entry_id: usize,
     segment_number: usize,
+}
+
+impl RemappingInfo {
+    pub fn get_entry_id(&self) -> usize {
+        self.entry_id
+    }
 }
 
 impl Drop for RemappingInfo {
@@ -163,7 +159,7 @@ impl InterruptRemapping {
     }
 
     /// Allocate an entry in the Interrupt Remapping Table.
-    /// It enables the remapping of the interrupt specified by `irq`.
+    /// This enables the remapping of the interrupt specified by `irq`.
     fn allocate_entry(
         &mut self,
         dest_apic_id: u32,
@@ -294,10 +290,25 @@ fn set_irta(
     registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
 
     log::info!(
-        "Vt-d Interrupt Remapping: Segment = {}, PhyAddr = 0x{:x}, enabled = {}, mode = {}",
+        "Vt-d Interrupt Remapping: Segment = {}, Vt-d Base = 0x{:x}, Table PhyAddr = 0x{:x}, enabled = {}, mode = {}",
         segment_number,
+        drhd.register_base_address as usize,
         phy_addr.as_usize(),
         stat.contains(registers::GlobalCommandStatus::IRE | registers::GlobalCommandStatus::IRTP),
         if is_x2apic { "x2APIC" } else { "xAPIC" },
     )
+}
+
+pub fn allocate_remapping_entry(
+    segment_number: usize,
+    dest_apic_id: u32,
+    irq: u8,
+    level_trigger: bool,
+    lowest_priority: bool,
+) -> Option<RemappingInfo> {
+    let mut node = MCSNode::new();
+    let mut table = INTERRUPT_REMAPPING[segment_number].lock(&mut node);
+    table
+        .as_mut()?
+        .allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)
 }
