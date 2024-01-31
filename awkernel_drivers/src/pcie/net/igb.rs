@@ -4,7 +4,7 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -430,12 +430,9 @@ impl IgbInner {
         let perm_mac_addr = hw.get_perm_mac_addr();
 
         log::info!(
-            "{:02x}:{:02x}:({:04x}:{:04x}): {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            info.segment_group,
-            info.bus,
-            info.vendor,
-            info.id,
+            "{}: {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
             DEVICE_NAME,
+            info.get_bfd(),
             perm_mac_addr[0],
             perm_mac_addr[1],
             perm_mac_addr[2],
@@ -1568,6 +1565,8 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
     }
 
     let segment_number = info.get_segment_group() as usize;
+    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bfd());
+
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
@@ -1575,7 +1574,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
 
         let mut irq = msi
             .register_handler(
-                DEVICE_SHORT_NAME,
+                irq_name.into(),
                 Box::new(|irq| {
                     awkernel_lib::net::net_interrupt(irq);
                 }),

@@ -1,5 +1,6 @@
 use crate::arch::ArchImpl;
 use alloc::{
+    borrow::Cow,
     boxed::Box,
     collections::{btree_map::Entry, BTreeMap},
 };
@@ -64,7 +65,7 @@ pub trait InterruptController: Sync + Send {
     }
 }
 
-type NameAndCallback = (&'static str, Box<dyn Fn(u16) + Send>);
+type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
@@ -74,15 +75,15 @@ static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
 fn empty() {}
 
-pub fn get_handlers() -> BTreeMap<u16, &'static str> {
+pub fn get_handlers() -> BTreeMap<u16, Cow<'static, str>> {
     let handlers = IRQ_HANDLERS.read();
     let mut map = BTreeMap::new();
 
     for (irq, (name, _)) in handlers.iter() {
-        map.insert(*irq, *name);
+        map.insert(*irq, name.clone());
     }
 
-    map.insert(PREEMPT_IRQ.load(Ordering::Relaxed), "preemption");
+    map.insert(PREEMPT_IRQ.load(Ordering::Relaxed), "preemption".into());
 
     map
 }
@@ -152,7 +153,11 @@ impl Drop for IRQ {
 }
 
 /// Register an interrupt handler.
-pub fn register_handler<F>(irq: u16, name: &'static str, func: Box<F>) -> Result<(), &'static str>
+pub fn register_handler<F>(
+    irq: u16,
+    name: Cow<'static, str>,
+    func: Box<F>,
+) -> Result<(), &'static str>
 where
     F: Fn(u16) + Send + 'static,
 {
@@ -237,7 +242,7 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
 /// This returns an IRQ object, which can be used to enable or disable the interrupt.
 /// When dropping the IRQ object, the interrupt will be disabled and the handler will be removed.
 pub fn register_handler_pcie_msi<F>(
-    name: &'static str,
+    name: Cow<'static, str>,
     func: Box<F>,
     segment_number: usize,
     target: u32,

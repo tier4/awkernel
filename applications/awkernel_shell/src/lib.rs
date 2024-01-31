@@ -22,7 +22,7 @@ pub fn init() {
     if let Some(irq) = awkernel_lib::console::irq_id() {
         if awkernel_lib::interrupt::register_handler(
             irq,
-            "serial port (awkernel_shell)",
+            "serial port (awkernel_shell)".into(),
             Box::new(move |_irq| task::wake(task_id)),
         )
         .is_err()

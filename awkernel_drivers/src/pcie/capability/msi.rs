@@ -1,6 +1,6 @@
 use awkernel_lib::interrupt::IRQ;
 
-use alloc::boxed::Box;
+use alloc::{borrow::Cow, boxed::Box};
 
 use crate::pcie::PCIeDeviceErr;
 
@@ -162,7 +162,7 @@ impl Msi {
 
     pub fn register_handler<F>(
         &mut self,
-        name: &'static str,
+        name: Cow<'static, str>,
         func: Box<F>,
         segment_number: usize,
         target: u32,
