@@ -1,7 +1,5 @@
 //! Interrupt remapping of Vt-d.
 
-use core::ptr::write_volatile;
-
 use acpi::AcpiTables;
 
 use crate::{
@@ -19,29 +17,52 @@ use super::acpi::AcpiMapper;
 const TABLE_SIZE: usize = 256 * 4096; // 1MiB
 const TABLE_ENTRY_NUM: usize = TABLE_SIZE / 16;
 
-// `IRTEntry::flags`
-const PRESENT: u16 = 1;
-const FPD: u16 = 1 << 1; // Fault Processing Disable, 0: enable, 1: disable
-const DM: u16 = 1 << 2; // Destination Mode, 0: Physical, 1: Logical
-const RH: u16 = 1 << 3; // Redirection Hint, 0: directed to the processor listed in the Destination ID field, 1: directed to 1 of N processors specified in the Destination ID field
-const TM: u16 = 1 << 4; // Trigger Mode, 0: Edge, 1: Level
+mod registers {
+    use bitflags::bitflags;
 
-// DLM in `IRTEntry::flags`
-const DLM_FIXED: u16 = 0b000 << 5; // Fixed, the destination ID is a fixed value
-const DLM_LOWEST: u16 = 0b001 << 5; // Lowest Priority
-const DLM_SMI: u16 = 0b010 << 5; // System Management Interrupt (SMI)
-const DLM_NMI: u16 = 0b100 << 5; // Non-Maskable Interrupt (NMI)
-const DLM_INIT: u16 = 0b101 << 5; // INIT
-const DLM_EXT_INIT: u16 = 0b111 << 5;
+    use crate::{mmio_r, mmio_rw, mmio_w};
 
-const IM: u16 = 1 << 15; // IRTE Mode, 0: interrupt requests processed through this IRTE are remapped, 1: interrupt requests processed through this IRTE are remapped
+    // `IRTEntry::flags`
+    pub const PRESENT: u16 = 1;
+    pub const FPD: u16 = 1 << 1; // Fault Processing Disable, 0: enable, 1: disable
+    pub const DM: u16 = 1 << 2; // Destination Mode, 0: Physical, 1: Logical
+    pub const RH: u16 = 1 << 3; // Redirection Hint, 0: directed to the processor listed in the Destination ID field, 1: directed to 1 of N processors specified in the Destination ID field
+    pub const TM: u16 = 1 << 4; // Trigger Mode, 0: Edge, 1: Level
 
-/// Source Validation Type
-/// 0b00: No source validation
-/// 0b01: Source validation by SID and SQ
-/// 0b10: Verify the most significant 8-bits of the requester-id
-/// 0b11: Reserved
-const SVT_SHIFT: u32 = 2;
+    // DLM in `IRTEntry::flags`
+    pub const DLM_FIXED: u16 = 0b000 << 5; // Fixed, the destination ID is a fixed value
+    pub const DLM_LOWEST: u16 = 0b001 << 5; // Lowest Priority
+    pub const DLM_SMI: u16 = 0b010 << 5; // System Management Interrupt (SMI)
+    pub const DLM_NMI: u16 = 0b100 << 5; // Non-Maskable Interrupt (NMI)
+    pub const DLM_INIT: u16 = 0b101 << 5; // INIT
+    pub const DLM_EXT_INIT: u16 = 0b111 << 5;
+
+    pub const IM: u16 = 1 << 15; // IRTE Mode, 0: interrupt requests processed through this IRTE are remapped, 1: interrupt requests processed through this IRTE are remapped
+
+    /// Source Validation Type
+    /// 0b00: No source validation
+    /// 0b01: Source validation by SID and SQ
+    /// 0b10: Verify the most significant 8-bits of the requester-id
+    /// 0b11: Reserved
+    pub const SVT_SHIFT: u32 = 2;
+
+    bitflags! {
+        #[derive(Debug, Clone, Copy)]
+        pub struct GlobalCommandStatus: u32 {
+            const TE = 1 << 31;   // Translation Enable
+            const RTP = 1 << 30;  // Root Table Pointer
+            const WBF = 1 << 27;  // Write Buffer Flush
+            const QIE = 1 << 26;  // Queued Invalidation Enable
+            const IRE = 1 << 25;  // Interrupt Remapping Enable
+            const IRTP = 1 << 24; // Interrupt Remapping Table Pointer
+            const CFI = 1 << 23;  // Compatibility Format Interrupt
+        }
+    }
+
+    mmio_w!(offset 0x18 => pub GLOBAL_COMMAND<GlobalCommandStatus>);
+    mmio_r!(offset 0x1c => pub GLOBAL_STATUS<GlobalCommandStatus>);
+    mmio_rw!(offset 0xb8 => pub IRTA<u64>);
+}
 
 #[repr(C, packed)]
 struct IRTEntry {
@@ -75,16 +96,16 @@ impl IRTEntry {
         lowest_priority: bool,
         is_x2apic: bool,
     ) {
-        let mut flags = PRESENT | FPD;
+        let mut flags = registers::PRESENT | registers::FPD;
 
         if level_trigger {
-            flags |= TM;
+            flags |= registers::TM;
         }
 
         if lowest_priority {
-            flags |= DLM_LOWEST;
+            flags |= registers::DLM_LOWEST;
         } else {
-            flags |= DLM_FIXED;
+            flags |= registers::DLM_FIXED;
         }
         self.flags = flags;
 
@@ -156,7 +177,7 @@ impl InterruptRemapping {
 
         for (i, entry) in entries.iter_mut().enumerate() {
             if entry.flags == 0 {
-                entry.flags = PRESENT;
+                entry.flags = registers::PRESENT;
                 result = Some(i);
             }
         }
@@ -210,8 +231,9 @@ pub unsafe fn init_interrupt_remap(
                     .find(|(scope, _path)| scope.entry_type == 1);
 
                 if let Some((phy_addr, _virt_addr)) = &remap_table[drhd.segment_number as usize] {
+                    let segment_number = drhd.segment_number as usize;
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(phy_offset, drhd, *phy_addr, is_x2apic);
+                    set_irta(segment_number, phy_offset, drhd, *phy_addr, is_x2apic);
                 } else {
                     let segment_number = drhd.segment_number as usize;
 
@@ -224,17 +246,9 @@ pub unsafe fn init_interrupt_remap(
                     pool.leak();
 
                     // Set Interrupt Remapping Table Address Register
-                    set_irta(phy_offset, drhd, phy_addr, is_x2apic);
+                    set_irta(segment_number, phy_offset, drhd, phy_addr, is_x2apic);
 
                     remap_table[segment_number] = Some((phy_addr, virt_addr));
-
-                    log::info!(
-                        "Vt-d Interrupt Remapping Table: Segment = {}, PhyAddr = 0x{:x}, VirtAddr = 0x{:x}, {}",
-                        segment_number,
-                        phy_addr.as_usize(),
-                        virt_addr.as_usize(),
-                        if is_x2apic { "x2APIC" } else { "APIC" }
-                    )
                 }
             }
         });
@@ -259,18 +273,31 @@ pub unsafe fn init_interrupt_remap(
     Ok(())
 }
 
-/// Set Interrupt Remapping Table Address Register
-///
-/// Returns `true` if the current interrupt remapping hardware supports x2APIC mode.
-fn set_irta(phy_offset: VirtAddr, drhd: &DmarDrhd, phy_addr: PhyAddr, is_x2apic: bool) {
-    let irta_reg = phy_offset + drhd.register_base_address as usize + 0xb8;
-    let ptr = irta_reg.as_mut_ptr::<u64>();
+/// Set Interrupt Remapping Table Address Register.
+fn set_irta(
+    segment_number: usize,
+    phy_offset: VirtAddr,
+    drhd: &DmarDrhd,
+    phy_addr: PhyAddr,
+    is_x2apic: bool,
+) {
+    let vt_d_base = phy_offset + drhd.register_base_address as usize;
 
-    unsafe {
-        // Extended Interrupt Mode (x2APIC) Enable
-        let eime = if is_x2apic { 1 << 11 } else { 0 };
-        let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1)) | eime | 0b1111; // Size
+    // Extended Interrupt Mode (x2APIC) Enable
+    let eime = if is_x2apic { 1 << 11 } else { 0 };
+    let val = (phy_addr.as_usize() as u64 & !((1 << 12) - 1)) | eime | 0b1111; // Size
 
-        write_volatile(ptr, val);
-    }
+    registers::IRTA.write(val, vt_d_base.as_usize());
+
+    let mut stat = registers::GLOBAL_STATUS.read(vt_d_base.as_usize());
+    stat |= registers::GlobalCommandStatus::IRTP | registers::GlobalCommandStatus::IRE;
+    registers::GLOBAL_COMMAND.write(stat, vt_d_base.as_usize());
+
+    log::info!(
+        "Vt-d Interrupt Remapping: Segment = {}, PhyAddr = 0x{:x}, enabled = {}, mode = {}",
+        segment_number,
+        phy_addr.as_usize(),
+        stat.contains(registers::GlobalCommandStatus::IRE | registers::GlobalCommandStatus::IRTP),
+        if is_x2apic { "x2APIC" } else { "xAPIC" },
+    )
 }
