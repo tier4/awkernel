@@ -123,18 +123,18 @@ static INTERRUPT_REMAPPING: [Mutex<Option<InterruptRemapping>>; 32] =
     array![_ => Mutex::new(None); 32];
 
 #[derive(Debug)]
-pub struct RemappingInfo {
+pub struct RemapInfo {
     entry_id: usize,
     segment_number: usize,
 }
 
-impl RemappingInfo {
+impl RemapInfo {
     pub fn get_entry_id(&self) -> usize {
         self.entry_id
     }
 }
 
-impl Drop for RemappingInfo {
+impl Drop for RemapInfo {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut table = INTERRUPT_REMAPPING[self.segment_number].lock(&mut node);
@@ -166,7 +166,7 @@ impl InterruptRemapping {
         irq: u8,
         level_trigger: bool,
         lowest_priority: bool,
-    ) -> Option<RemappingInfo> {
+    ) -> Option<RemapInfo> {
         let entries = unsafe { &mut *self.table_base.as_mut_ptr::<[IRTEntry; TABLE_ENTRY_NUM]>() };
 
         let mut result = None;
@@ -192,7 +192,7 @@ impl InterruptRemapping {
             self.is_x2apic,
         );
 
-        Some(RemappingInfo {
+        Some(RemapInfo {
             entry_id,
             segment_number: self.segment_number,
         })
@@ -305,7 +305,7 @@ pub fn allocate_remapping_entry(
     irq: u8,
     level_trigger: bool,
     lowest_priority: bool,
-) -> Option<RemappingInfo> {
+) -> Option<RemapInfo> {
     let mut node = MCSNode::new();
     let mut table = INTERRUPT_REMAPPING[segment_number].lock(&mut node);
     table

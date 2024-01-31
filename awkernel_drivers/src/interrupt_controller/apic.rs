@@ -5,7 +5,7 @@ use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     arch::x86_64::page_allocator::VecPageAllocator,
     delay::wait_forever,
-    interrupt::InterruptController,
+    interrupt::{InterruptController, IRQ},
     paging::{Flags, PageTable},
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile};
@@ -338,7 +338,7 @@ impl InterruptController for Xapic {
         message_data: &mut u16,
         message_address: &mut u32,
         message_address_upper: Option<&mut u32>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<IRQ, &'static str> {
         const IS_EDGE_TRIGGER: bool = false;
 
         unsafe {
@@ -354,7 +354,7 @@ impl InterruptController for Xapic {
             }
         }
 
-        Ok(())
+        Ok(IRQ::Basic(irq))
     }
 }
 

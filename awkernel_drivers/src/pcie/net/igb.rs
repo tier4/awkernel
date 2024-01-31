@@ -1570,24 +1570,23 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
-        if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-            DEVICE_SHORT_NAME,
-            Box::new(|irq| {
-                awkernel_lib::net::net_interrupt(irq);
-            }),
-        ) {
-            msi.set_multiple_message_enable(MultipleMessage::One)
-                .or(Err(IgbDriverErr::InitializeInterrupt))?;
-            msi.set_message_address(awkernel_lib::cpu::raw_cpu_id() as u32, irq.get_irq())
-                .or(Err(IgbDriverErr::InitializeInterrupt))?;
+        let mut irq = msi
+            .register_handler(
+                DEVICE_SHORT_NAME,
+                Box::new(|irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+            )
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-            irq.enable();
-            msi.enable();
+        msi.set_multiple_message_enable(MultipleMessage::One)
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-            Ok(PCIeInt::Msi(irq))
-        } else {
-            Err(IgbDriverErr::InitializeInterrupt)
-        }
+        irq.enable();
+        msi.enable();
+
+        Ok(PCIeInt::Msi(irq))
     } else {
         Err(IgbDriverErr::InitializeInterrupt)
     }
