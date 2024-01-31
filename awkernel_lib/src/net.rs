@@ -1,5 +1,6 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use alloc::{
+    borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
     format,
     string::String,
@@ -32,7 +33,7 @@ pub enum NetManagerError {
 #[derive(Debug)]
 pub struct IfStatus {
     pub interface_id: u64,
-    pub device_name: &'static str,
+    pub device_name: Cow<'static, str>,
     pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
     pub ipv4_gateway: Option<Ipv4Addr>,
     pub link_up: bool,

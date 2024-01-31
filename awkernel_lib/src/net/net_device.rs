@@ -1,4 +1,4 @@
-use alloc::{string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 use bitflags::bitflags;
 use core::{fmt::Display, net::Ipv4Addr};
 
@@ -151,7 +151,7 @@ pub trait NetDevice {
     fn link_up(&self) -> bool;
     fn full_duplex(&self) -> bool;
 
-    fn device_short_name(&self) -> &'static str;
+    fn device_short_name(&self) -> Cow<'static, str>;
 
     fn up(&self) -> Result<(), NetDevError>;
     fn down(&self) -> Result<(), NetDevError>;

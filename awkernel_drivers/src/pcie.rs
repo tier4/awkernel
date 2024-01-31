@@ -1,4 +1,4 @@
-use alloc::{format, string::String};
+use alloc::{borrow::Cow, format, string::String};
 use array_macro::array;
 use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
@@ -669,7 +669,7 @@ impl PCIeInfo {
 }
 
 pub trait PCIeDevice {
-    fn device_name(&self) -> &'static str;
+    fn device_name(&self) -> Cow<'static, str>;
 }
 
 /// Read the base address of `addr`.

@@ -4,7 +4,7 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{boxed::Box, format, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -44,7 +44,7 @@ mod igb_regs;
 
 use igb_regs::*;
 
-const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
+const DEVICE_NAME: &str = "Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 const RECV_QUEUE_SIZE: usize = 32;
@@ -428,18 +428,6 @@ impl IgbInner {
         }
 
         let perm_mac_addr = hw.get_perm_mac_addr();
-
-        log::info!(
-            "{}: {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            DEVICE_NAME,
-            info.get_bfd(),
-            perm_mac_addr[0],
-            perm_mac_addr[1],
-            perm_mac_addr[2],
-            perm_mac_addr[3],
-            perm_mac_addr[4],
-            perm_mac_addr[5]
-        );
 
         // Initialize statistics
         hw.clear_hw_cntrs(&info)?;
@@ -1078,6 +1066,20 @@ impl Igb {
             que,
         };
 
+        let mac_addr = igb.mac_address();
+
+        log::info!(
+            "{}:{}: MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            igb.device_short_name(),
+            igb.device_name(),
+            mac_addr[0],
+            mac_addr[1],
+            mac_addr[2],
+            mac_addr[3],
+            mac_addr[4],
+            mac_addr[5]
+        );
+
         Ok(igb)
     }
 
@@ -1570,8 +1572,6 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
-        log::debug!("igb: allocate_msi 0");
-
         let mut irq = msi
             .register_handler(
                 irq_name.into(),
@@ -1583,17 +1583,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             )
             .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-        log::debug!("igb: allocate_msi 1");
-
         msi.set_multiple_message_enable(MultipleMessage::One)
             .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-        log::debug!("igb: allocate_msi 2");
-
         irq.enable();
         msi.enable();
-
-        log::debug!("igb: allocate_msi finished");
 
         Ok(PCIeInt::Msi(irq))
     } else {
@@ -1724,8 +1718,8 @@ fn disable_aspm(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) {
 
 //===========================================================================
 impl PCIeDevice for Igb {
-    fn device_name(&self) -> &'static str {
-        DEVICE_NAME
+    fn device_name(&self) -> Cow<'static, str> {
+        DEVICE_NAME.into()
     }
 }
 
@@ -1735,8 +1729,10 @@ impl NetDevice for Igb {
         inner.flags
     }
 
-    fn device_short_name(&self) -> &'static str {
-        DEVICE_SHORT_NAME
+    fn device_short_name(&self) -> Cow<'static, str> {
+        let bfd = self.inner.read().info.get_bfd();
+        let name = format!("{DEVICE_SHORT_NAME}-{bfd}");
+        name.into()
     }
 
     fn capabilities(&self) -> NetCapabilities {
