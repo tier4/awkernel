@@ -124,7 +124,9 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let mut rx_irq_to_que_id = BTreeMap::new();
     for irq in irqs.iter() {
-        rx_irq_to_que_id.insert(*irq, inner.rx_irq_to_que_id(*irq));
+        inner.rx_irq_to_que_id(*irq).map(|que_id| {
+            rx_irq_to_que_id.insert(*irq, que_id);
+        });
     }
 
     let capabilities = inner.capabilities();

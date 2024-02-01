@@ -1054,7 +1054,7 @@ impl IgbHw {
         //   by 1500.
         // - The pause time is fairly large at 1000 x 512ns = 512 usec.
 
-        let rx_buffer_size = read_reg(info, PBA)? & 0xffff << 10;
+        let rx_buffer_size = (read_reg(info, PBA)? & 0xffff) << 10;
         let fc_high_water = rx_buffer_size as u16 - round_up(max_frame_size, 1024) as u16;
         let fc_low_water = fc_high_water - 1500;
         let fc_send_xon = true;
@@ -8129,7 +8129,7 @@ impl IgbHw {
         for i in 0..=checksum_reg {
             let mut eeprom_data = [0; 1];
             self.read_eeprom(info, i, &mut eeprom_data)?;
-            checksum += eeprom_data[0];
+            checksum = checksum.wrapping_add(eeprom_data[0]);
         }
 
         if checksum == EEPROM_SUM {

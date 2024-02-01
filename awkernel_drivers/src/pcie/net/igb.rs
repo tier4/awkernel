@@ -1861,8 +1861,8 @@ impl NetDevice for Igb {
         }
     }
 
-    fn rx_irq_to_que_id(&self, _irq: u16) -> usize {
-        0 // Use only one queue
+    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
+        Some(0) // Use only one queue
     }
 
     fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {

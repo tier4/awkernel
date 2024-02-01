@@ -167,16 +167,16 @@ impl IfNet {
         for irq in net_device.irqs().into_iter() {
             let rx_ringq = RingQ::new(512);
 
-            let que_id = net_device.rx_irq_to_que_id(irq);
-
-            rx_irq_to_drvier.insert(
-                irq,
-                NetDriver {
-                    inner: net_device.clone(),
-                    rx_que_id: que_id,
-                    rx_ringq: Mutex::new(rx_ringq),
-                },
-            );
+            if let Some(que_id) = net_device.rx_irq_to_que_id(irq) {
+                rx_irq_to_drvier.insert(
+                    irq,
+                    NetDriver {
+                        inner: net_device.clone(),
+                        rx_que_id: que_id,
+                        rx_ringq: Mutex::new(rx_ringq),
+                    },
+                );
+            }
 
             let tx_ringq = Mutex::new(RingQ::new(512));
             tx_only_ringq.push(tx_ringq);
