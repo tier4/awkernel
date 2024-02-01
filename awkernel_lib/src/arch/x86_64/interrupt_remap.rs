@@ -178,11 +178,7 @@ impl InterruptRemapping {
             }
         }
 
-        if result.is_none() {
-            return None;
-        }
-
-        let entry_id = result.unwrap();
+        let entry_id = result?;
 
         entries[entry_id].enable(
             dest_apic_id,

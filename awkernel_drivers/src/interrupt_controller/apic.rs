@@ -479,7 +479,9 @@ impl InterruptController for X2Apic {
         unsafe {
             write_volatile(message_data, 0);
             write_volatile(message_address, val_lower);
-            message_address_upper.map(|addr_upper| write_volatile(addr_upper, 0));
+            if let Some(addr_upper) = message_address_upper {
+                write_volatile(addr_upper, 0);
+            }
         }
 
         Ok(IRQ::X86InterruptRemap { irq, remap_info })
