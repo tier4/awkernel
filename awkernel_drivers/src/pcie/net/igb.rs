@@ -1391,7 +1391,7 @@ impl Igb {
             if inner.flags.contains(NetFlags::RUNNING) {
                 drop(inner);
                 self.rx_recv(0)?;
-                // TODO: em_txeof()
+                self.txeof(0)?;
             }
 
             reg_icr
@@ -1403,6 +1403,39 @@ impl Igb {
             inner.check_for_link()?;
             inner.update_link_status()?;
         }
+
+        Ok(())
+    }
+
+    fn txeof(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let que = &self.que[que_id];
+
+        let mut node = MCSNode::new();
+        let mut tx = que.tx.lock(&mut node);
+
+        let tx_desc_ring = tx.tx_desc_ring.as_ref();
+        let mut tx_desc_tail = tx.tx_desc_tail;
+        let tx_desc_head = tx.tx_desc_head;
+
+        loop {
+            if tx_desc_tail == tx_desc_head {
+                break;
+            }
+
+            let desc = &tx_desc_ring[tx_desc_tail];
+            unsafe {
+                if desc.legacy.status & TXD_STAT_DD == 0 {
+                    break;
+                }
+            }
+
+            tx_desc_tail += 1;
+            if tx_desc_tail == tx_desc_ring.len() {
+                tx_desc_tail = 0;
+            }
+        }
+
+        tx.tx_desc_tail = tx_desc_tail;
 
         Ok(())
     }
@@ -1805,8 +1838,6 @@ impl NetDevice for Igb {
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-
-        awkernel_lib::console::put(b'2');
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
 

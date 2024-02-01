@@ -226,7 +226,6 @@ impl IfNet {
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some(data) = device_ref.tx_ringq.pop() {
-                crate::console::put(b'1');
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
 
                 let data = EtherFrameRef {
@@ -236,7 +235,7 @@ impl IfNet {
                 };
 
                 if self.net_device.send(data, que_id).is_err() {
-                    crate::console::put(b'3');
+                    log::error!("Failed to send a packet.");
                 }
             } else {
                 break;

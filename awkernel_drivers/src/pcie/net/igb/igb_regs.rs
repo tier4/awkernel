@@ -1600,6 +1600,8 @@ pub fn txdctl(n: usize) -> usize {
     }
 }
 
+pub const TXD_STAT_DD: u8 = 0x01; // Descriptor Done
+
 // Transmit Descriptor bit definitions
 pub const TXD32_DTYP_D: u32 = 0x00100000; // Data Descriptor
 pub const TXD32_DTYP_C: u32 = 0x00000000; // Context Descriptor
