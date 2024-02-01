@@ -1,3 +1,7 @@
+use awkernel_lib::interrupt::IRQ;
+
+use alloc::{borrow::Cow, boxed::Box};
+
 use crate::pcie::PCIeDeviceErr;
 
 mod registers {
@@ -156,7 +160,16 @@ impl Msi {
         self.per_vector_mask_capable
     }
 
-    pub fn set_message_address(&mut self, target: u32, irq: u16) -> Result<(), PCIeDeviceErr> {
+    pub fn register_handler<F>(
+        &mut self,
+        name: Cow<'static, str>,
+        func: Box<F>,
+        segment_number: usize,
+        target: u32,
+    ) -> Result<IRQ, PCIeDeviceErr>
+    where
+        F: Fn(u16) + Send + 'static,
+    {
         let (message_address, message_address_upper, message_data) = if self.bit64_address_capable {
             (
                 (registers::MESSAGE_ADDRESS_64_LOW + self.base) as *mut () as *mut u32,
@@ -174,9 +187,11 @@ impl Msi {
         };
 
         unsafe {
-            awkernel_lib::interrupt::set_pcie_msi(
+            awkernel_lib::interrupt::register_handler_pcie_msi(
+                name,
+                func,
+                segment_number,
                 target,
-                irq,
                 &mut *message_data,
                 &mut *message_address,
                 message_address_upper,

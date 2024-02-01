@@ -4,7 +4,7 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{boxed::Box, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -44,7 +44,7 @@ mod igb_regs;
 
 use igb_regs::*;
 
-const DEVICE_NAME: &str = "igb: Intel Gigabit Ethernet Controller";
+const DEVICE_NAME: &str = "Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
 
 const RECV_QUEUE_SIZE: usize = 32;
@@ -428,21 +428,6 @@ impl IgbInner {
         }
 
         let perm_mac_addr = hw.get_perm_mac_addr();
-
-        log::info!(
-            "{:02x}:{:02x}:({:04x}:{:04x}): {}, MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-            info.segment_group,
-            info.bus,
-            info.vendor,
-            info.id,
-            DEVICE_NAME,
-            perm_mac_addr[0],
-            perm_mac_addr[1],
-            perm_mac_addr[2],
-            perm_mac_addr[3],
-            perm_mac_addr[4],
-            perm_mac_addr[5]
-        );
 
         // Initialize statistics
         hw.clear_hw_cntrs(&info)?;
@@ -1081,6 +1066,20 @@ impl Igb {
             que,
         };
 
+        let mac_addr = igb.mac_address();
+
+        log::info!(
+            "{}:{}: MAC = {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            igb.device_short_name(),
+            igb.device_name(),
+            mac_addr[0],
+            mac_addr[1],
+            mac_addr[2],
+            mac_addr[3],
+            mac_addr[4],
+            mac_addr[5]
+        );
+
         Ok(igb)
     }
 
@@ -1392,6 +1391,7 @@ impl Igb {
             if inner.flags.contains(NetFlags::RUNNING) {
                 drop(inner);
                 self.rx_recv(0)?;
+                // TODO: em_txeof()
             }
 
             reg_icr
@@ -1505,6 +1505,13 @@ impl Igb {
                 break;
             }
 
+            // log::debug!(
+            //     "len = {}, csum_flags = {:?}. data = {:x?}",
+            //     ether_frame.data.len(),
+            //     ether_frame.csum_flags,
+            //     ether_frame.data
+            // );
+
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
 
             free -= used;
@@ -1567,27 +1574,30 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
         msix.disable();
     }
 
+    let segment_number = info.get_segment_group() as usize;
+    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bfd());
+
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
 
-        if let Ok(mut irq) = awkernel_lib::interrupt::register_handler_for_pnp(
-            DEVICE_SHORT_NAME,
-            Box::new(|irq| {
-                awkernel_lib::net::net_interrupt(irq);
-            }),
-        ) {
-            msi.set_multiple_message_enable(MultipleMessage::One)
-                .or(Err(IgbDriverErr::InitializeInterrupt))?;
-            msi.set_message_address(awkernel_lib::cpu::raw_cpu_id() as u32, irq.get_irq())
-                .or(Err(IgbDriverErr::InitializeInterrupt))?;
+        let mut irq = msi
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+            )
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-            irq.enable();
-            msi.enable();
+        msi.set_multiple_message_enable(MultipleMessage::One)
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
 
-            Ok(PCIeInt::Msi(irq))
-        } else {
-            Err(IgbDriverErr::InitializeInterrupt)
-        }
+        irq.enable();
+        msi.enable();
+
+        Ok(PCIeInt::Msi(irq))
     } else {
         Err(IgbDriverErr::InitializeInterrupt)
     }
@@ -1716,8 +1726,8 @@ fn disable_aspm(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) {
 
 //===========================================================================
 impl PCIeDevice for Igb {
-    fn device_name(&self) -> &'static str {
-        DEVICE_NAME
+    fn device_name(&self) -> Cow<'static, str> {
+        DEVICE_NAME.into()
     }
 }
 
@@ -1727,8 +1737,10 @@ impl NetDevice for Igb {
         inner.flags
     }
 
-    fn device_short_name(&self) -> &'static str {
-        DEVICE_SHORT_NAME
+    fn device_short_name(&self) -> Cow<'static, str> {
+        let bfd = self.inner.read().info.get_bfd();
+        let name = format!("{DEVICE_SHORT_NAME}-{bfd}");
+        name.into()
     }
 
     fn capabilities(&self) -> NetCapabilities {
@@ -1793,6 +1805,8 @@ impl NetDevice for Igb {
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
+
+        awkernel_lib::console::put(b'2');
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
 
@@ -1847,8 +1861,8 @@ impl NetDevice for Igb {
         }
     }
 
-    fn rx_irq_to_que_id(&self, _irq: u16) -> usize {
-        0 // Use only one queue
+    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
+        Some(0) // Use only one queue
     }
 
     fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {

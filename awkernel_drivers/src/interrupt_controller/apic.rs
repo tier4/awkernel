@@ -3,9 +3,9 @@
 use alloc::boxed::Box;
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-    arch::x86_64::page_allocator::VecPageAllocator,
+    arch::x86_64::{interrupt_remap, page_allocator::VecPageAllocator},
     delay::wait_forever,
-    interrupt::InterruptController,
+    interrupt::{InterruptController, IRQ},
     paging::{Flags, PageTable},
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile};
@@ -333,12 +333,13 @@ impl InterruptController for Xapic {
 
     fn set_pcie_msi(
         &self,
+        _segment_number: usize,
         target: u32,
         irq: u16,
         message_data: &mut u16,
         message_address: &mut u32,
         message_address_upper: Option<&mut u32>,
-    ) -> Result<(), &'static str> {
+    ) -> Result<IRQ, &'static str> {
         const IS_EDGE_TRIGGER: bool = false;
 
         unsafe {
@@ -354,7 +355,7 @@ impl InterruptController for Xapic {
             }
         }
 
-        Ok(())
+        Ok(IRQ::Basic(irq))
     }
 }
 
@@ -442,5 +443,47 @@ impl InterruptController for X2Apic {
 
     fn eoi(&mut self) {
         unsafe { registers::X2APIC_EOI.write(0) };
+    }
+
+    fn set_pcie_msi(
+        &self,
+        segment_number: usize,
+        target: u32,
+        irq: u16,
+        message_data: &mut u16,
+        message_address: &mut u32,
+        message_address_upper: Option<&mut u32>,
+    ) -> Result<IRQ, &'static str> {
+        assert!(irq < 256);
+
+        let remap_info = interrupt_remap::allocate_remapping_entry(
+            segment_number,
+            target,
+            irq as u8,
+            false,
+            false,
+        )
+        .ok_or("Failed to allocate an Interrupt Remapping Table Entry.")?;
+
+        // See
+        // Intel® Virtualization Technology for Directed I/O Architecture Specification, Rev. 4.1
+        // Figure 5-4. MSI-X Programming
+
+        let interrupt_index = remap_info.get_entry_id() as u32;
+
+        let val_lower = 0xfee << 20
+            | 1 << 4 // Interrupt Remappable Format
+            | (interrupt_index & 0b0111_1111_1111_1111) << 5
+            | (interrupt_index & 0b1000_0000_0000_0000) << 2;
+
+        unsafe {
+            write_volatile(message_data, 0);
+            write_volatile(message_address, val_lower);
+            if let Some(addr_upper) = message_address_upper {
+                write_volatile(addr_upper, 0);
+            }
+        }
+
+        Ok(IRQ::X86InterruptRemap { irq, remap_info })
     }
 }

@@ -1,3 +1,4 @@
+use alloc::{borrow::Cow, format, string::String};
 use array_macro::array;
 use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
 use core::{
@@ -360,7 +361,8 @@ fn scan_devices<F, FA, PT, E>(
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
-            if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, addr) {
+            if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, dev as u8, func as u8, addr)
+            {
                 let multiple_functions = device.multiple_functions;
 
                 let _ = device.attach(page_table, page_allocator);
@@ -378,7 +380,9 @@ fn scan_devices<F, FA, PT, E>(
 pub struct PCIeInfo {
     pub(crate) config_base: usize,
     segment_group: u16,
-    bus: u8,
+    bus_number: u8,
+    device_number: u8,
+    function_number: u8,
     id: u16,
     vendor: u16,
     revision_id: u8,
@@ -396,15 +400,26 @@ impl fmt::Display for PCIeInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "bus: {:#x}, vendor: {:#x}, device: {:#x}, header type: {:#x}",
-            self.bus, self.vendor, self.id, self.header_type
+            "{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.segment_group,
+            self.bus_number,
+            self.device_number,
+            self.function_number,
+            self.id,
+            self.pcie_class,
         )
     }
 }
 
 impl PCIeInfo {
     /// Get the information for PCIe device
-    fn from_addr(segment_group: u16, bus: u8, addr: usize) -> Result<PCIeInfo, PCIeDeviceErr> {
+    fn from_addr(
+        segment_group: u16,
+        bus_number: u8,
+        device_number: u8,
+        function_number: u8,
+        addr: usize,
+    ) -> Result<PCIeInfo, PCIeDeviceErr> {
         let ids = registers::DEVICE_VENDOR_ID.read(addr);
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -427,7 +442,9 @@ impl PCIeInfo {
             Ok(PCIeInfo {
                 config_base: addr,
                 segment_group,
-                bus,
+                bus_number,
+                device_number,
+                function_number,
                 id,
                 vendor,
                 revision_id,
@@ -441,6 +458,14 @@ impl PCIeInfo {
                 pcie_cap: None,
             })
         }
+    }
+
+    /// Get the information for PCIe device as BFD format.
+    pub fn get_bfd(&self) -> String {
+        format!(
+            "{:04x}:{:02x}:{:02x}.{:01x}",
+            self.segment_group, self.bus_number, self.device_number, self.function_number
+        )
     }
 
     pub fn get_device_name(&self) -> Option<pcie_id::PCIeID> {
@@ -598,7 +623,6 @@ impl PCIeInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    #[allow(unused_variables)]
     fn attach<F, FA, PT, E>(
         self,
         page_table: &mut PT,
@@ -623,7 +647,7 @@ impl PCIeInfo {
         }
 
         Err(PCIeDeviceErr::UnRecognizedDevice {
-            bus: self.bus,
+            bus: self.bus_number,
             device: self.id,
             vendor: self.vendor,
         })
@@ -645,7 +669,7 @@ impl PCIeInfo {
 }
 
 pub trait PCIeDevice {
-    fn device_name(&self) -> &'static str;
+    fn device_name(&self) -> Cow<'static, str>;
 }
 
 /// Read the base address of `addr`.

@@ -1,5 +1,6 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use alloc::{
+    borrow::Cow,
     collections::{btree_map::Entry, BTreeMap},
     format,
     string::String,
@@ -32,7 +33,7 @@ pub enum NetManagerError {
 #[derive(Debug)]
 pub struct IfStatus {
     pub interface_id: u64,
-    pub device_name: &'static str,
+    pub device_name: Cow<'static, str>,
     pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
     pub ipv4_gateway: Option<Ipv4Addr>,
     pub link_up: bool,
@@ -123,7 +124,9 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let mut rx_irq_to_que_id = BTreeMap::new();
     for irq in irqs.iter() {
-        rx_irq_to_que_id.insert(*irq, inner.rx_irq_to_que_id(*irq));
+        if let Some(que_id) = inner.rx_irq_to_que_id(*irq) {
+            rx_irq_to_que_id.insert(*irq, que_id);
+        };
     }
 
     let capabilities = inner.capabilities();
@@ -266,7 +269,7 @@ pub fn handle_interrupt(interface_id: u64, irq: u16) {
     };
 
     let _ = interface.net_device.interrupt(irq);
-    interface.poll(irq);
+    interface.poll_rx_irq(irq);
 }
 
 pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
@@ -297,7 +300,7 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
     use alloc::vec;
     use smoltcp::socket::udp;
 
-    add_ipv4_addr(interface_id, Ipv4Addr::new(10, 0, 2, 15), 24);
+    add_ipv4_addr(interface_id, Ipv4Addr::new(192, 168, 100, 15), 24);
 
     let net_manager = NET_MANAGER.read();
 
@@ -319,7 +322,7 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
     let mut inner = if_net.inner.lock(&mut node);
     let udp_handle = inner.socket_set.add(udp_socket);
 
-    let address = IpAddress::v4(10, 0, 2, 2);
+    let address = IpAddress::v4(192, 168, 100, 1);
     let port = 26099;
 
     let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
@@ -347,6 +350,6 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
 
         if_net.poll_tx_only(0);
 
-        crate::delay::wait_millisec(1000);
+        crate::delay::wait_millisec(100);
     }
 }

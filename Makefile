@@ -163,7 +163,7 @@ QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 
 tcp-dump:
-	tcpdump -XXnr packets.pcap
+	tcpdump -vvv -XXnr packets.pcap
 
 server:
 	python3 scripts/udp.py

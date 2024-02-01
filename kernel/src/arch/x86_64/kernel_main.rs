@@ -3,7 +3,6 @@
 //! `kernel_main()` function is the entry point and called by `bootloader` crate.
 
 use super::{
-    config::INTERRUPT_REMAPPING_TABLE_START,
     heap::{map_backup_heap, map_primary_heap},
     interrupt_handler,
 };
@@ -198,10 +197,9 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
                 init_interrupt_remap(
-                    awkernel_lib::addr::virt_addr::VirtAddr::new(INTERRUPT_REMAPPING_TABLE_START),
+                    awkernel_lib::addr::virt_addr::VirtAddr::new(offset as usize),
                     &acpi,
-                    &mut awkernel_page_table,
-                    &mut page_allocators,
+                    true,
                 )
             } {
                 log::error!("Failed to initialize interrupt remapping table. {}", e);

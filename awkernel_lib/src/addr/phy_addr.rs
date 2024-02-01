@@ -1,7 +1,13 @@
-use core::ops::AddAssign;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PhyAddr(usize);
+
+impl core::ops::Add<usize> for PhyAddr {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 + rhs)
+    }
+}
 
 impl core::ops::Add for PhyAddr {
     type Output = Self;
@@ -11,9 +17,23 @@ impl core::ops::Add for PhyAddr {
     }
 }
 
-impl AddAssign for PhyAddr {
+impl core::ops::AddAssign<usize> for PhyAddr {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
+    }
+}
+
+impl core::ops::AddAssign for PhyAddr {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
+    }
+}
+
+impl core::ops::Mul<usize> for PhyAddr {
+    type Output = Self;
+
+    fn mul(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 * rhs)
     }
 }
 
@@ -25,9 +45,23 @@ impl core::ops::Mul for PhyAddr {
     }
 }
 
+impl core::ops::MulAssign<usize> for PhyAddr {
+    fn mul_assign(&mut self, rhs: usize) {
+        self.0 *= rhs;
+    }
+}
+
 impl core::ops::MulAssign for PhyAddr {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
+    }
+}
+
+impl core::ops::Sub<usize> for PhyAddr {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 - rhs)
     }
 }
 
@@ -39,9 +73,23 @@ impl core::ops::Sub for PhyAddr {
     }
 }
 
+impl core::ops::SubAssign<usize> for PhyAddr {
+    fn sub_assign(&mut self, rhs: usize) {
+        self.0 -= rhs
+    }
+}
+
 impl core::ops::SubAssign for PhyAddr {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0
+    }
+}
+
+impl core::ops::Div<usize> for PhyAddr {
+    type Output = Self;
+
+    fn div(self, rhs: usize) -> Self::Output {
+        PhyAddr(self.0 / rhs)
     }
 }
 
@@ -50,6 +98,12 @@ impl core::ops::Div for PhyAddr {
 
     fn div(self, rhs: Self) -> Self::Output {
         PhyAddr(self.0 / rhs.0)
+    }
+}
+
+impl core::ops::DivAssign<usize> for PhyAddr {
+    fn div_assign(&mut self, rhs: usize) {
+        self.0 /= rhs
     }
 }
 

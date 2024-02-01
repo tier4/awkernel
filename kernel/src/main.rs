@@ -57,7 +57,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 awkernel_lib::timer::reset();
             });
 
-            if awkernel_lib::interrupt::register_handler(irq, "local timer", timer_callback).is_ok()
+            if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
+                .is_ok()
             {
                 log::info!("A local timer has been initialized.");
             }

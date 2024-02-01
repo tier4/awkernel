@@ -6,5 +6,3 @@ pub const DMA_START: usize = 0x40000000000;
 pub const HEAP_START: usize = 0x41000000000;
 
 pub const PREEMPT_IRQ: u16 = 255;
-
-pub const INTERRUPT_REMAPPING_TABLE_START: usize = 128 * 1024 * 1024; // 128MiB;

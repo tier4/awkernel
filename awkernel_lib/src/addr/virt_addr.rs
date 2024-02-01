@@ -1,7 +1,13 @@
-use core::ops::AddAssign;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VirtAddr(usize);
+
+impl core::ops::Add<usize> for VirtAddr {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 + rhs)
+    }
+}
 
 impl core::ops::Add for VirtAddr {
     type Output = Self;
@@ -11,9 +17,23 @@ impl core::ops::Add for VirtAddr {
     }
 }
 
-impl AddAssign for VirtAddr {
+impl core::ops::AddAssign<usize> for VirtAddr {
+    fn add_assign(&mut self, rhs: usize) {
+        self.0 += rhs;
+    }
+}
+
+impl core::ops::AddAssign for VirtAddr {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0;
+    }
+}
+
+impl core::ops::Mul<usize> for VirtAddr {
+    type Output = Self;
+
+    fn mul(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 * rhs)
     }
 }
 
@@ -25,9 +45,23 @@ impl core::ops::Mul for VirtAddr {
     }
 }
 
+impl core::ops::MulAssign<usize> for VirtAddr {
+    fn mul_assign(&mut self, rhs: usize) {
+        self.0 *= rhs;
+    }
+}
+
 impl core::ops::MulAssign for VirtAddr {
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
+    }
+}
+
+impl core::ops::Sub<usize> for VirtAddr {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 - rhs)
     }
 }
 
@@ -39,9 +73,23 @@ impl core::ops::Sub for VirtAddr {
     }
 }
 
+impl core::ops::SubAssign<usize> for VirtAddr {
+    fn sub_assign(&mut self, rhs: usize) {
+        self.0 -= rhs
+    }
+}
+
 impl core::ops::SubAssign for VirtAddr {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0
+    }
+}
+
+impl core::ops::Div<usize> for VirtAddr {
+    type Output = Self;
+
+    fn div(self, rhs: usize) -> Self::Output {
+        VirtAddr(self.0 / rhs)
     }
 }
 
@@ -50,6 +98,12 @@ impl core::ops::Div for VirtAddr {
 
     fn div(self, rhs: Self) -> Self::Output {
         VirtAddr(self.0 / rhs.0)
+    }
+}
+
+impl core::ops::DivAssign<usize> for VirtAddr {
+    fn div_assign(&mut self, rhs: usize) {
+        self.0 /= rhs
     }
 }
 

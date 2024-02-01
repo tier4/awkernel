@@ -1,4 +1,4 @@
-use alloc::{string::String, vec::Vec};
+use alloc::{borrow::Cow, string::String, vec::Vec};
 use bitflags::bitflags;
 use core::{fmt::Display, net::Ipv4Addr};
 
@@ -151,7 +151,7 @@ pub trait NetDevice {
     fn link_up(&self) -> bool;
     fn full_duplex(&self) -> bool;
 
-    fn device_short_name(&self) -> &'static str;
+    fn device_short_name(&self) -> Cow<'static, str>;
 
     fn up(&self) -> Result<(), NetDevError>;
     fn down(&self) -> Result<(), NetDevError>;
@@ -159,7 +159,7 @@ pub trait NetDevice {
     /// Interrupt handler for network device.
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError>;
     fn irqs(&self) -> Vec<u16>;
-    fn rx_irq_to_que_id(&self, irq: u16) -> usize;
+    fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize>;
 
     fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError>;
     fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError>;

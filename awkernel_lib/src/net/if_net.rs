@@ -167,16 +167,16 @@ impl IfNet {
         for irq in net_device.irqs().into_iter() {
             let rx_ringq = RingQ::new(512);
 
-            let que_id = net_device.rx_irq_to_que_id(irq);
-
-            rx_irq_to_drvier.insert(
-                irq,
-                NetDriver {
-                    inner: net_device.clone(),
-                    rx_que_id: que_id,
-                    rx_ringq: Mutex::new(rx_ringq),
-                },
-            );
+            if let Some(que_id) = net_device.rx_irq_to_que_id(irq) {
+                rx_irq_to_drvier.insert(
+                    irq,
+                    NetDriver {
+                        inner: net_device.clone(),
+                        rx_que_id: que_id,
+                        rx_ringq: Mutex::new(rx_ringq),
+                    },
+                );
+            }
 
             let tx_ringq = Mutex::new(RingQ::new(512));
             tx_only_ringq.push(tx_ringq);
@@ -226,6 +226,7 @@ impl IfNet {
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some(data) = device_ref.tx_ringq.pop() {
+                crate::console::put(b'1');
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
 
                 let data = EtherFrameRef {
@@ -234,7 +235,9 @@ impl IfNet {
                     csum_flags: tx_packet_header_flags,
                 };
 
-                let _ = self.net_device.send(data, que_id);
+                if self.net_device.send(data, que_id).is_err() {
+                    crate::console::put(b'3');
+                }
             } else {
                 break;
             }
@@ -245,7 +248,7 @@ impl IfNet {
 
     /// If some packets are processed, return true.
     /// If poll returns true, the caller should call poll again.
-    pub fn poll(&self, irq: u16) -> bool {
+    pub fn poll_rx_irq(&self, irq: u16) -> bool {
         let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
             return false;
         };

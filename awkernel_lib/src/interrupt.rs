@@ -1,9 +1,13 @@
 use crate::arch::ArchImpl;
 use alloc::{
+    borrow::Cow,
     boxed::Box,
     collections::{btree_map::Entry, BTreeMap},
 };
 use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
+
+#[cfg(feature = "x86")]
+use crate::arch::x86_64::interrupt_remap;
 
 #[cfg(loom)]
 use crate::sync::rwlock_dummy::RwLock;
@@ -47,20 +51,21 @@ pub trait InterruptController: Sync + Send {
     /// The range is [start, end).
     fn irq_range_for_pnp(&self) -> (u16, u16);
 
-    /// Set the PCIe MSI interrupt
+    /// Set the PCIe MSI or MSI-X interrupt
     fn set_pcie_msi(
         &self,
+        _segment_number: usize,
         _target: u32,
         _irq: u16,
         _message_data: &mut u16,
         _message_address: &mut u32,
         _message_address_upper: Option<&mut u32>,
-    ) -> Result<(), &'static str> {
-        Err("Interrupt controller does not support PCIe MSI.")
+    ) -> Result<IRQ, &'static str> {
+        Err("Interrupt controller does not support PCIe MSI or MSI-X.")
     }
 }
 
-type NameAndCallback = (&'static str, Box<dyn Fn(u16) + Send>);
+type NameAndCallback = (Cow<'static, str>, Box<dyn Fn(u16) + Send>);
 
 static INTERRUPT_CONTROLLER: RwLock<Option<Box<dyn InterruptController>>> = RwLock::new(None);
 static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeMap::new());
@@ -70,15 +75,15 @@ static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
 fn empty() {}
 
-pub fn get_handlers() -> BTreeMap<u16, &'static str> {
+pub fn get_handlers() -> BTreeMap<u16, Cow<'static, str>> {
     let handlers = IRQ_HANDLERS.read();
     let mut map = BTreeMap::new();
 
     for (irq, (name, _)) in handlers.iter() {
-        map.insert(*irq, *name);
+        map.insert(*irq, name.clone());
     }
 
-    map.insert(PREEMPT_IRQ.load(Ordering::Relaxed), "preemption");
+    map.insert(PREEMPT_IRQ.load(Ordering::Relaxed), "preemption".into());
 
     map
 }
@@ -89,19 +94,42 @@ pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
 }
 
 #[derive(Debug)]
-pub struct IRQ(u16);
+pub enum IRQ {
+    Basic(u16),
+
+    #[cfg(feature = "x86")]
+    X86InterruptRemap {
+        irq: u16,
+        remap_info: interrupt_remap::RemapInfo,
+    },
+}
 
 impl IRQ {
     pub fn get_irq(&self) -> u16 {
-        self.0
+        match self {
+            IRQ::Basic(irq) => *irq,
+
+            #[cfg(feature = "x86")]
+            IRQ::X86InterruptRemap { irq, .. } => *irq,
+        }
     }
 
     pub fn enable(&mut self) {
-        enable_irq(self.0);
+        match self {
+            IRQ::Basic(irq) => enable_irq(*irq),
+
+            #[cfg(feature = "x86")]
+            IRQ::X86InterruptRemap { irq, .. } => enable_irq(*irq),
+        }
     }
 
     pub fn disable(&mut self) {
-        disable_irq(self.0);
+        match self {
+            IRQ::Basic(irq) => disable_irq(*irq),
+
+            #[cfg(feature = "x86")]
+            IRQ::X86InterruptRemap { irq, .. } => disable_irq(*irq),
+        }
     }
 }
 
@@ -110,40 +138,26 @@ impl Drop for IRQ {
         self.disable();
 
         let mut handlers = IRQ_HANDLERS.write();
-        handlers.remove(&self.0);
-    }
-}
 
-/// Register an interrupt handler for PnP devices.
-/// This function will return an IRQ number, which is assigned to the handler.
-pub fn register_handler_for_pnp<F>(name: &'static str, func: Box<F>) -> Result<IRQ, &'static str>
-where
-    F: Fn(u16) + Send + 'static,
-{
-    let controller = INTERRUPT_CONTROLLER.read();
-    let (min, max) = if let Some(ctrl) = controller.as_ref() {
-        ctrl.irq_range_for_pnp()
-    } else {
-        log::warn!("Interrupt controller is not yet enabled.");
-        return Err("Interrupt controller is not yet enabled.");
-    };
+        match self {
+            IRQ::Basic(irq) => {
+                handlers.remove(irq);
+            }
 
-    let mut handlers = IRQ_HANDLERS.write();
-    for i in min..max {
-        let entry = handlers.entry(i);
-
-        if let Entry::Vacant(ve) = entry {
-            ve.insert((name, func));
-            return Ok(IRQ(i));
+            #[cfg(feature = "x86")]
+            IRQ::X86InterruptRemap { irq, .. } => {
+                handlers.remove(irq);
+            }
         }
     }
-
-    log::warn!("There is no vacant IRQ for PnP devices.");
-    Err("There is no vacant IRQ for PnP devices.")
 }
 
 /// Register an interrupt handler.
-pub fn register_handler<F>(irq: u16, name: &'static str, func: Box<F>) -> Result<(), &'static str>
+pub fn register_handler<F>(
+    irq: u16,
+    name: Cow<'static, str>,
+    func: Box<F>,
+) -> Result<(), &'static str>
 where
     F: Fn(u16) + Send + 'static,
 {
@@ -224,27 +238,63 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
     }
 }
 
-/// Set PCIe MSI interrupt.
-pub fn set_pcie_msi(
+/// Register an interrupt handler for PCIe MSI or MSI-X  interrupt.
+/// This returns an IRQ object, which can be used to enable or disable the interrupt.
+/// When dropping the IRQ object, the interrupt will be disabled and the handler will be removed.
+pub fn register_handler_pcie_msi<F>(
+    name: Cow<'static, str>,
+    func: Box<F>,
+    segment_number: usize,
     target: u32,
-    irq: u16,
     message_data: &mut u16,
     message_address: &mut u32,
     message_address_upper: Option<&mut u32>,
-) -> Result<(), &'static str> {
+) -> Result<IRQ, &'static str>
+where
+    F: Fn(u16) + Send + 'static,
+{
     let mut controller = INTERRUPT_CONTROLLER.write();
-    if let Some(ctrl) = controller.as_mut() {
-        ctrl.set_pcie_msi(
-            target,
-            irq,
-            message_data,
-            message_address,
-            message_address_upper,
-        )
+
+    let (min, max) = if let Some(ctrl) = controller.as_ref() {
+        ctrl.irq_range()
     } else {
         log::warn!("Interrupt controller is not yet enabled.");
-        Err("Interrupt controller is not yet enabled.")
+        return Err("Interrupt controller is not yet enabled.");
+    };
+
+    let mut handlers = IRQ_HANDLERS.write();
+    let mut irq = None;
+    for i in min..max {
+        let entry = handlers.entry(i);
+
+        if let Entry::Vacant(ve) = entry {
+            ve.insert((name, func));
+            irq = Some(i);
+            break;
+        }
     }
+
+    let irq = irq.ok_or("There is no vacant IRQ.")?;
+
+    let Some(ctrl) = controller.as_mut() else {
+        log::warn!("Interrupt controller is not yet enabled.");
+        return Err("Interrupt controller is not yet enabled.");
+    };
+
+    let result = ctrl.set_pcie_msi(
+        segment_number,
+        target,
+        irq,
+        message_data,
+        message_address,
+        message_address_upper,
+    );
+
+    if result.is_err() {
+        handlers.remove(&irq);
+    }
+
+    result
 }
 
 #[cfg(feature = "x86")]
