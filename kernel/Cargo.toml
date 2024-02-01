@@ -8,15 +8,19 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 bitflags = "2.3"
+embedded-hal = "1.0.0"
+embedded-graphics-core = "0.4"
+embedded-graphics = "0.8"
 
 [dependencies.unwinding]
-version = "0.1"
+version = "0.2"
 default-features = false
 optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
 
 [dependencies.acpi]
-git = "https://github.com/sun-jacobi/acpi.git"
+# version = "5.0"
+git = "https://github.com/ytakano/acpi.git"
 optional = true
 
 [dependencies.libc]
@@ -51,16 +55,44 @@ version = "0.11"
 optional = true
 
 [dependencies.ns16550a]
-version = "0.2.0"
+version = "0.3.0"
 optional = true
 
 [features]
-default = ["raspi4"]
+default = ["x86"]
 no_std_unwinding = ["dep:unwinding"]
-x86 = ["no_std_unwinding", "awkernel_lib/x86", "dep:x86_64", "dep:bootloader_api", "dep:acpi", "awkernel_drivers/x86"]
-raspi3 = ["raspi", "no_std_unwinding"]
-raspi4 = ["raspi", "no_std_unwinding"]
-rv32 = ["no_std_unwinding", "awkernel_lib/rv32", "dep:ns16550a", "awkernel_drivers/rv32"]
-raspi = ["aarch64"]
-aarch64 = ["dep:awkernel_aarch64", "awkernel_lib/aarch64", "awkernel_drivers/aarch64"]
+x86 = [
+    "no_std_unwinding",
+    "awkernel_lib/x86",
+    "dep:x86_64",
+    "dep:bootloader_api",
+    "dep:acpi",
+    "awkernel_drivers/x86",
+    "awkernel_drivers/all_pcie",
+    "awkernel_drivers/uart_16550",
+]
+rv32 = [
+    "no_std_unwinding",
+    "awkernel_lib/rv32",
+    "dep:ns16550a",
+    "awkernel_drivers/rv32",
+]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
+aarch64 = [
+    "no_std_unwinding",
+    "dep:awkernel_aarch64",
+    "awkernel_lib/aarch64",
+    "awkernel_drivers/aarch64",
+]
+raspi = [
+    "aarch64",
+    "awkernel_drivers/raspi",
+    "awkernel_drivers/pl011",
+    "userland/raspi",
+]
+aarch64_virt = [
+    "aarch64",
+    "awkernel_drivers/all_pcie",
+    "awkernel_drivers/pl011",
+]
+spinlock = ["awkernel_lib/spinlock"]

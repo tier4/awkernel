@@ -101,11 +101,6 @@ ret
 "
 );
 
-extern "C" {
-    pub fn save_context(ptr: *mut Context) -> u64;
-    pub fn restore_context(ptr: *const Context);
-}
-
 impl crate::context::Context for Context {
     unsafe fn set_stack_pointer(&mut self, sp: usize) {
         self.sp = sp as u64;
@@ -128,9 +123,10 @@ extern "C" {
 
 global_asm!(
     "
+.global entry_point
 entry_point:
-   mov     x0, x19
-   blr     x20
+    mov     x0, x19
+    blr     x20
 1:
     wfi
     b       1b

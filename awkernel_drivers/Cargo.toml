@@ -8,17 +8,65 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 bitflags = "2.3"
-
-[dependencies.awkernel_lib]
-path = "../awkernel_lib"
-default-features = false
+embedded-hal = "1.0"
+embedded-hal-nb = "1.0"
+embedded-graphics-core = "0.4.0"
+array-macro = "2.1"
+memoffset = "0.9"
 
 [dependencies.x86_64]
 version = "0.14"
 optional = true
 
+[dependencies.acpi]
+# version = "5.0"
+git = "https://github.com/ytakano/acpi.git"
+optional = true
+
+[dependencies.awkernel_lib]
+path = "../awkernel_lib"
+default-features = false
+
+[dependencies.awkernel_async_lib_verified]
+path = "../awkernel_async_lib_verified"
+
+[dependencies.awkernel_aarch64]
+path = "../awkernel_aarch64"
+optional = true
+
+[dependencies.smoltcp]
+version = "0.11"
+default-features = false
+features = [
+    "alloc",
+    "log",
+    "socket-udp",
+    "socket-tcp",
+    "proto-ipv4",
+    "proto-ipv6",
+    "medium-ethernet",
+]
+
 [features]
 default = []
-x86 = ["awkernel_lib/x86", "x86_64"]
+x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
 rv32 = ["awkernel_lib/rv32"]
-aarch64 = ["awkernel_lib/aarch64"]
+aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
+spinlock = ["awkernel_lib/spinlock"]
+std = ["awkernel_lib/std"]
+
+# Documentation
+doc = ["awkernel_lib/aarch64", "raspi", "all_device"]
+
+# Devices
+all_device = ["all_pcie", "pl011", "uart_16550", "pcie", "raspi"]
+raspi = []
+
+## UART
+pl011 = []
+uart_16550 = []
+
+## PCIe
+pcie = []
+all_pcie = ["pcie", "igb"]
+igb = []

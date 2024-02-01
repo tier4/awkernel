@@ -1,5 +1,7 @@
-use super::driver::uart::unsafe_puts;
-use awkernel_lib::{arch::aarch64::exception_saved_regs::Context, delay::wait_forever, interrupt};
+use awkernel_lib::{
+    arch::aarch64::exception_saved_regs::Context, console::unsafe_puts, delay::wait_forever,
+    interrupt,
+};
 use core::str::from_utf8_unchecked;
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
@@ -12,22 +14,22 @@ const _ESR_LE1_EC_DATA_KERN: u64 = 0b100101 << 26;
 
 #[no_mangle]
 pub extern "C" fn handle_data_abort() {
-    unsafe { unsafe_puts("data abort\n") };
+    unsafe { unsafe_puts("data abort\r\n") };
 
     let sp = awkernel_aarch64::get_sp();
-    unsafe { unsafe_puts("SP = 0x") };
+    unsafe { unsafe_puts("SP  = 0x") };
     print_hex(sp);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 
     let elr = awkernel_aarch64::elr_el1::get();
     unsafe { unsafe_puts("ELR = 0x") };
     print_hex(elr);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 
     let far = awkernel_aarch64::far_el1::get();
     unsafe { unsafe_puts("FAR = 0x") };
     print_hex(far);
-    unsafe { unsafe_puts("\n") };
+    unsafe { unsafe_puts("\r\n") };
 }
 
 fn print_hex(num: u64) {

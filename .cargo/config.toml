@@ -1,24 +1,27 @@
 [alias]
-x86 = "build --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi3 = "build --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-raspi4 = "build --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+x86 = "build --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+aarch64 = "build --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 rv32 = "build --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 std = "build --package awkernel --no-default-features --features std"
 
 test_awkernel_lib = "test --package awkernel_lib --no-default-features --features std"
 test_awkernel_async_lib = "test --package awkernel_async_lib --no-default-features --features std"
-test_awkernel_drivers = "test --package awkernel_drivers"
+test_awkernel_drivers = "test --package awkernel_drivers --no-default-features --features std"
 
-check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
-check_std = "check --package awkernel --quiet --message-format=json"
-
-clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi3 = "clippy --package awkernel --no-default-features --features raspi3 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_raspi4 = "clippy --package awkernel --no-default-features --features raspi4 --target aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_raspi = "clippy --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_aarch64_virt = "clippy --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_std = "clippy --package awkernel --no-default-features --features std"
+clippy_rv32 = "clippy --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+
+check_aarch64 = "check --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_x86 = "check --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_rv32 = "check --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
+check_std = "check --package awkernel --no-default-features --features std"
 
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
 [target.riscv32imac-unknown-none-elf]
-rustflags = [ "-C", "link-arg=-Trv32-link.lds" ]
+rustflags = ["-C", "link-arg=-Tkernel/ld/rv32-link.lds"]

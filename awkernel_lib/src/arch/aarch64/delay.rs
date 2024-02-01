@@ -1,31 +1,29 @@
 use crate::delay::Delay;
-use core::ptr::{read_volatile, write_volatile};
-
-pub(crate) struct ArchDelay;
+use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
 static mut COUNT_START: u64 = 0;
 
-impl Delay for ArchDelay {
+impl Delay for super::AArch64 {
     fn wait_interrupt() {
         unsafe { core::arch::asm!("wfi") };
     }
 
     fn wait_microsec(usec: u64) {
         let frq = awkernel_aarch64::cntfrq_el0::get();
-        let t = awkernel_aarch64::cntpct_el0::get();
+        let t = awkernel_aarch64::cntvct_el0::get();
 
         let end = t + ((frq / 1000) * usec) / 1000;
 
-        while awkernel_aarch64::cntpct_el0::get() < end {
+        while awkernel_aarch64::cntvct_el0::get() < end {
             awkernel_aarch64::isb();
         }
     }
 
     fn uptime() -> u64 {
-        let start = unsafe { read_volatile(&COUNT_START) };
+        let start = unsafe { read_volatile(addr_of!(COUNT_START)) };
 
         let frq = awkernel_aarch64::cntfrq_el0::get();
-        let now = awkernel_aarch64::cntpct_el0::get();
+        let now = awkernel_aarch64::cntvct_el0::get();
 
         let diff = now - start;
 
@@ -40,8 +38,8 @@ impl Delay for ArchDelay {
 pub(super) unsafe fn init_primary() {
     init_pmc();
 
-    let count = awkernel_aarch64::cntpct_el0::get();
-    write_volatile(&mut COUNT_START, count);
+    let count = awkernel_aarch64::cntvct_el0::get();
+    write_volatile(addr_of_mut!(COUNT_START), count);
 }
 
 /// Initialize performance monitor counter.

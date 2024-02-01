@@ -1,14 +1,15 @@
 use crate::delay::Delay;
-use core::{ffi::c_uint, ptr::read_volatile};
+use core::{
+    ffi::c_uint,
+    ptr::{addr_of, addr_of_mut, read_volatile},
+};
 
 static mut TIME_START: libc::timespec = libc::timespec {
     tv_sec: 0,
     tv_nsec: 0,
 };
 
-pub struct ArchDelay;
-
-impl Delay for ArchDelay {
+impl Delay for super::StdCommon {
     fn wait_interrupt() {}
 
     fn wait_microsec(usec: u64) {
@@ -31,7 +32,7 @@ impl Delay for ArchDelay {
         };
         unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp) };
 
-        let t0 = unsafe { read_volatile(&TIME_START.tv_sec) as u64 } * 1_000_000
+        let t0 = unsafe { read_volatile(&*addr_of!(TIME_START.tv_sec)) as u64 } * 1_000_000
             + unsafe { read_volatile(&TIME_START.tv_nsec) as u64 } / 1000;
         let t1 = tp.tv_sec as u64 * 1_000_000 + tp.tv_nsec as u64 / 1000;
 
@@ -62,7 +63,7 @@ impl Delay for ArchDelay {
 }
 
 pub fn init() {
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut TIME_START) };
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut *addr_of_mut!(TIME_START)) };
 }
 
 fn nanosleep(sec: u64, nsec: u64) {

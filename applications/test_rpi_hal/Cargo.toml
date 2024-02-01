@@ -1,0 +1,20 @@
+[package]
+name = "test_rpi_hal"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+embedded-hal = "1.0"
+embedded-hal-nb = "1.0"
+
+[dependencies.awkernel_async_lib]
+path = "../../awkernel_async_lib"
+default-features = false
+
+[dependencies.awkernel_drivers]
+path = "../../awkernel_drivers"
+default-features = false
+features = ["aarch64", "raspi"]

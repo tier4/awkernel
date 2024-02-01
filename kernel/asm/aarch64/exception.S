@@ -14,9 +14,6 @@
 .endm
 
 .macro CALL_WITH_CONTEXT handler el spsr_reg
-    // disable interrupt
-    msr     DAIFSet, #0x02
-
     // Make room on the stack for the exception context.
     sub     sp, sp, #800
 
@@ -57,12 +54,14 @@
 
 data_abort:
     // set stack before _start
-    ldr     x1, =__stack_data_abort_start
+    ldr     x1, =__stack_memory
     mrs     x2, mpidr_el1 // read cpu id
     and     x2, x2, #0xFF
-    mov     x4, #4096 // stack size
-    mul     x3, x2, x4
-    sub     x1, x1, x3
+    add     x2, x2, #1
+    mov     x3, #(1024 * 1024 * 2)
+    mul     x2, x2, x3
+    add     x1, x1, x2
+
     mov     sp, x1
 
     bl      handle_data_abort
@@ -162,11 +161,8 @@ exception_restore_context:
 
     add     sp, sp, #800 // Restore SP.
 
-    // enable interrupt
-    msr     DAIFClr, #0x02
     eret
 
-#if defined(raspi3) || defined(raspi4)
     .balign 0x800
 exception_vector_el2:
     // from the current EL using SP0
@@ -207,7 +203,6 @@ exception_vector_el2:
     CALL_WITH_CONTEXT lower_el_aarch32_fiq_el2 el2 spsr_el1
     .balign 0x80
     CALL_WITH_CONTEXT lower_el_aarch32_serror_el2 el2 spsr_el1
-#endif // defined(raspi3) || defined(raspi4)
 
     .balign 0x800
 exception_vector_el1:

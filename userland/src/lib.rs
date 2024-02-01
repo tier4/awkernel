@@ -4,10 +4,12 @@ use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn, uptime,
+    sleep, spawn,
+    task::perf::add_context_restore_end,
+    uptime,
 };
 use core::{
-    ptr::{read_volatile, write_volatile},
+    ptr::write_volatile,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -25,7 +27,16 @@ fn add_rtt(rtt: u64) {
 }
 
 pub async fn main() -> Result<(), Cow<'static, str>> {
-    awkernel_shell::init();
+    awkernel_services::run().await;
+
+    spawn(
+        "panic".into(),
+        async move {
+            panic!("panic test");
+        },
+        SchedulerType::FIFO,
+    )
+    .await;
 
     spawn(
         "timer".into(),
@@ -33,26 +44,34 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             loop {
                 awkernel_async_lib::sleep(Duration::from_secs(10)).await;
 
-                let mut total = 0;
-                let mut count = 0;
-                let mut worst = 0;
+                // let mut total = 0;
+                // let mut count = 0;
+                // let mut worst = 0;
 
-                for i in 0..RTT_SIZE {
-                    let rtt = unsafe { read_volatile(&RTT[i]) };
-                    if rtt > 0 {
-                        total += rtt;
-                        count += 1;
-                    }
+                // #[allow(clippy::needless_range_loop)]
+                // for i in 0..RTT_SIZE {
+                //     let rtt = unsafe { read_volatile(&RTT[i]) };
+                //     if rtt > 0 {
+                //         total += rtt;
+                //         count += 1;
+                //     }
 
-                    if rtt > worst {
-                        worst = rtt;
-                    }
-                }
+                //     if rtt > worst {
+                //         worst = rtt;
+                //     }
+                // }
 
-                if count > 0 {
-                    let ave = total as f64 / count as f64;
-                    log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
-                }
+                // if count > 0 {
+                //     let ave = total as f64 / count as f64;
+                //     log::debug!("RTT: ave = {ave:.2} [us], worst = {worst} [us]");
+                // }
+
+                // let (save_ave, save_worst, restore_ave, restore_worst) =
+                //     calc_context_switch_overhead();
+                // log::debug!("Context save: ave = {save_ave:.2} [us], worst = {save_worst} [us]");
+                // log::debug!(
+                //     "Context restore: ave = {restore_ave:.2} [us], worst = {restore_worst} [us]"
+                // );
             }
         },
         SchedulerType::Random,
@@ -71,7 +90,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     tx2.send(()).await.unwrap();
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::FIFO,
         )
         .await;
 
@@ -87,12 +106,12 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     let elapsed = end - start;
                     add_rtt(elapsed);
 
-                    for _ in 0..10000 {
+                    for _ in 0..1_000_000 {
                         unsafe { core::arch::asm!("nop") };
                     }
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::FIFO,
         )
         .await;
     }
@@ -108,9 +127,11 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
             async move {
                 loop {
                     subscriber.recv().await;
+                    // Only the subscriber's cooperative context switch overhead is measured.
+                    add_context_restore_end(awkernel_async_lib::cpu_id(), uptime());
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::FIFO,
         )
         .await;
 
@@ -122,10 +143,18 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
                     publisher.send(()).await;
                 }
             },
-            SchedulerType::RoundRobin,
+            SchedulerType::FIFO,
         )
         .await;
     }
+
+    #[cfg(feature = "raspi")]
+    spawn(
+        "test_rpi_hal".into(),
+        test_rpi_hal::run_rpi_hal(),
+        SchedulerType::FIFO,
+    )
+    .await;
 
     Ok(())
 }

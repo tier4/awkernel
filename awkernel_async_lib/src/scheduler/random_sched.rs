@@ -1,7 +1,7 @@
 //! A random scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task;
+use crate::task::{self, State};
 use alloc::{sync::Arc, vec::Vec};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -100,6 +100,7 @@ impl Scheduler for RandomScheduler {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
             task_info.in_queue = false;
+            task_info.state = State::ReadyToRun;
         }
 
         Some(task)

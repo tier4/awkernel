@@ -47,7 +47,7 @@
 //! ```no_run
 //! # #[cfg(target_arch = "x86_64")]
 //! # fn main() {
-//! use uart_16550::SerialPort;
+//! use awkernel_drivers::uart::uart_16550::SerialPort;
 //!
 //! const SERIAL_IO_PORT: u16 = 0x3F8;
 //!
@@ -71,7 +71,7 @@
 //! type can be used:
 //!
 //! ```no_run
-//! use uart_16550::MmioSerialPort;
+//! use awkernel_drivers::uart::uart_16550::MmioSerialPort;
 //!
 //! const SERIAL_PORT_BASE_ADDRESS: usize = 0x1000_0000;
 //!

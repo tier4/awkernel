@@ -1,8 +1,6 @@
 use crate::interrupt::Interrupt;
 
-pub struct ArchInterrupt;
-
-impl Interrupt for ArchInterrupt {
+impl Interrupt for super::RV32 {
     fn get_flag() -> usize {
         let x: usize;
         unsafe { core::arch::asm!("csrr {}, mstatus", out(reg) x) };

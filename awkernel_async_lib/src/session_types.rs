@@ -30,8 +30,8 @@
 //! let _ = async {
 //!     let (server, client) = session_channel::<Server>();
 //!
-//!     awkernel_async_lib::spawn(async { srv(server).await; }, SchedulerType::RoundRobin).await;
-//!     awkernel_async_lib::spawn(async { cli(client).await; }, SchedulerType::RoundRobin).await;
+//!     awkernel_async_lib::spawn("server".into(), async { srv(server).await; }, SchedulerType::FIFO).await;
+//!     awkernel_async_lib::spawn("client".into(), async { cli(client).await; }, SchedulerType::FIFO).await;
 //! };
 //! ```
 //!

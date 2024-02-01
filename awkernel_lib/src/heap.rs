@@ -48,11 +48,11 @@ type SLBitmap = u64; // must be longer than SLLEN
 use crate::{
     console::unsafe_puts,
     cpu::{self, NUM_MAX_CPU},
+    delay,
     sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     alloc::{GlobalAlloc, Layout},
-    intrinsics::abort,
     mem::transmute,
     ptr::{self, NonNull},
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
@@ -249,9 +249,9 @@ unsafe impl GlobalAlloc for BackUpAllocator {
             return ptr.as_mut();
         } else {
             drop(guard);
-            unsafe_puts("failed to allocate heap memory\n");
-            unsafe_puts("aborting...\n");
-            abort(); // there is no free memory left
+            unsafe_puts("failed to allocate heap memory\r\n");
+            unsafe_puts("aborting...\r\n");
+            delay::wait_forever(); // there is no free memory left
         }
     }
 
@@ -306,6 +306,8 @@ impl BackUpAllocator {
 
 unsafe fn init_heap(allocator: &mut TLSFAlloc, heap_start: usize, heap_size: usize) {
     let heap_mem = core::slice::from_raw_parts_mut(heap_start as *mut u8, heap_size);
-    let Some(heap_mem) = NonNull::new(heap_mem) else { return; };
+    let Some(heap_mem) = NonNull::new(heap_mem) else {
+        return;
+    };
     allocator.insert_free_block_ptr(heap_mem);
 }

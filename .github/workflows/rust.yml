@@ -1,0 +1,54 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    - cron: '0 13 * * 1'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust nightly
+      run: rustup toolchain install nightly
+    - name: Use Rust nightly
+      run: rustup default nightly
+    - name: Add Rust components
+      run: rustup component add rust-src llvm-tools-preview clippy rustfmt
+    - name: Add Rust targets
+      run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
+    - name: Install cargo-binutils
+      run: cargo install cargo-binutils
+
+    - name: Cargo fmt
+      run: cargo fmt && git diff --exit-code
+
+    - name: Build aarch64_virt
+      run: make check_aarch64 BSP=aarch64_virt
+    - name: Build aarch64 raspi4
+      run: make check_aarch64 BSP=raspi4
+    - name: Build aarch64 raspi3
+      run: make check_aarch64 BSP=raspi3
+    - name: Build x86_64
+      run: make check_x86_64
+    - name: Build std
+      run: make check_std
+
+    - name: Clippy aarch64_virt
+      run: cargo clippy_aarch64_virt -- --deny warnings
+    - name: Clippy raspi
+      run: cargo clippy_raspi -- --deny warnings
+    - name: Clippy x86_64
+      run: cargo clippy_x86 -- --deny warnings
+    - name: Clippy std
+      run: cargo clippy_std -- --deny warnings

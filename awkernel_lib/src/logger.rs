@@ -25,12 +25,12 @@ pub fn write_msg(writer: &mut dyn Console, record: &log::Record) {
 
     match record.level() {
         Level::Info => {
-            let msg = alloc::format!("{}\n", record.args());
+            let msg = alloc::format!("{}\r\n", record.args());
             let _ = writer.write_str(msg.as_str());
         }
         _ => {
             if let (Some(file), Some(line)) = (record.file(), record.line()) {
-                let msg = alloc::format!("{file}:{line}: {}\n", record.args());
+                let msg = alloc::format!("{file}:{line}: {}\r\n", record.args());
                 let _ = writer.write_str(msg.as_str());
             }
         }

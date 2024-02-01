@@ -31,13 +31,13 @@ use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
 };
-use awkernel_async_lib_verified::ringq::RingQ;
 use crate::delay::uptime;
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
+use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::sync::{
     mutex::{MCSNode, Mutex},
     rwlock::RwLock,
@@ -555,7 +555,7 @@ impl PubSub {
         }
     }
 
-    fn destroy_subscriber<T: 'static + Clone + Send>(&mut self, subscriber: &mut Subscriber<T>) {
+    fn destroy_subscriber<T: 'static + Clone + Send>(&mut self, subscriber: &Subscriber<T>) {
         {
             let mut guard = subscriber.subscribers.id_to_subscriber.write();
             guard.remove(&subscriber.id());
@@ -642,7 +642,7 @@ fn destroy_publisher<T: 'static + Send>(publisher: &Publisher<T>) {
 }
 
 /// Destroy a subscriber.
-fn destroy_subscriber<T: 'static + Clone + Send>(subscriber: &mut Subscriber<T>) {
+fn destroy_subscriber<T: 'static + Clone + Send>(subscriber: &Subscriber<T>) {
     let mut node = MCSNode::new();
     let mut guard = PUBLISH_SUBSCRIBE.lock(&mut node);
     guard.destroy_subscriber(subscriber);

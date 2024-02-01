@@ -90,8 +90,12 @@ mod tests {
         dict.insert("key1".into(), 10 as u64);
         dict.insert("key2".into(), "Hello".to_string());
 
-        let AnyDictResult::Ok(value1) = dict.get::<u64>("key1".into()) else { panic!() };
-        let AnyDictResult::Ok(value2) = dict.get::<String>("key2".into()) else { panic!() };
+        let AnyDictResult::Ok(value1) = dict.get::<u64>("key1".into()) else {
+            panic!()
+        };
+        let AnyDictResult::Ok(value2) = dict.get::<String>("key2".into()) else {
+            panic!()
+        };
 
         assert_eq!(*value1, 10);
         assert_eq!(*value2, "Hello");

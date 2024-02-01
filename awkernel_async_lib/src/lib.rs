@@ -14,6 +14,7 @@ pub mod action;
 mod anydict;
 pub mod channel;
 mod delay;
+pub mod future;
 mod join_handle;
 mod never_return;
 pub mod pubsub;
@@ -34,6 +35,8 @@ use alloc::borrow::Cow;
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
+
+pub use futures::select_biased;
 
 pub use awkernel_lib::{
     cpu::cpu_id,
@@ -131,7 +134,7 @@ pub async fn forever() -> ! {
 ///     let join_handler = awkernel_async_lib::spawn(
 ///         "name".into(),
 ///         async { /* do something */ },
-///         SchedulerType::RoundRobin, // Scheduler type.
+///         SchedulerType::FIFO, // Scheduler type.
 ///     ).await;
 ///
 ///     // Join the task, but it is not necessary.

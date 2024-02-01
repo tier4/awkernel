@@ -1,8 +1,6 @@
 use crate::interrupt::Interrupt;
 
-pub struct ArchInterrupt;
-
-impl Interrupt for ArchInterrupt {
+impl Interrupt for super::AArch64 {
     fn get_flag() -> usize {
         awkernel_aarch64::daif::get() as usize
     }

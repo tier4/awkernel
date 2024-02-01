@@ -20,6 +20,10 @@ struct Args {
     #[arg(short, long)]
     output: String,
 
+    /// Output.
+    #[arg(short, long, default_value_t = String::new())]
+    pxe: String,
+
     /// uefi or bios.
     #[arg(value_enum, long, default_value_t = BootType::Bios)]
     boot_type: BootType,
@@ -30,12 +34,13 @@ fn main() {
 
     let kernel_path = Path::new(&args.kernel);
     let output_path = Path::new(&args.output);
+    let pxe_path = Path::new(&args.pxe);
 
     match args.boot_type {
         BootType::Uefi => {
-            UefiBoot::new(kernel_path)
-                .create_disk_image(output_path)
-                .unwrap();
+            let uefi = UefiBoot::new(kernel_path);
+            uefi.create_disk_image(output_path).unwrap();
+            uefi.create_pxe_tftp_folder(pxe_path).unwrap();
 
             let ovmf_path = ovmf_prebuilt::ovmf_pure_efi();
 

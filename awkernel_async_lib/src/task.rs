@@ -9,9 +9,11 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
+use self::perf::MAX_MEASURE_SIZE;
 use crate::{
     delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
+    uptime,
 };
 use alloc::{
     borrow::Cow,
@@ -67,10 +69,14 @@ impl ArcWake for Task {
 
     fn wake(self: Arc<Self>) {
         {
+            use State::*;
+
             let mut node = MCSNode::new();
             let mut info = self.info.lock(&mut node);
-            if matches!(info.state, State::Running | State::Preempted) {
+            if matches!(info.state, Running | ReadyToRun | Preempted) {
                 info.need_sched = true;
+                return;
+            } else if matches!(info.state, Terminated | Panicked) {
                 return;
             }
         }
@@ -112,14 +118,6 @@ impl TaskInfo {
         self.scheduler_type
     }
 
-    pub fn is_preempted(&self) -> bool {
-        #[cfg(not(feature = "no_preempt"))]
-        return self.thread.is_some();
-
-        #[allow(unreachable_code)]
-        false
-    }
-
     pub fn update_last_executed(&mut self) {
         self.last_executed_time = awkernel_lib::delay::uptime();
     }
@@ -141,6 +139,7 @@ impl TaskInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
+    ReadyToRun,
     Running,
     Waiting,
     Preempted,
@@ -172,8 +171,8 @@ impl Tasks {
     ) -> u32 {
         let mut id = self.candidate_id;
         loop {
-            if self.candidate_id == 0 {
-                self.candidate_id += 1;
+            if id == 0 {
+                id += 1;
             }
 
             // Find an unused task ID.
@@ -199,7 +198,7 @@ impl Tasks {
                 };
 
                 e.insert(Arc::new(task));
-                self.candidate_id += 1;
+                self.candidate_id = id;
 
                 return id;
             } else {
@@ -233,7 +232,7 @@ impl Tasks {
 ///
 /// ```
 /// use awkernel_async_lib::{scheduler::SchedulerType, task};
-/// let task_id = task::spawn(async { Ok(()) }, SchedulerType::RoundRobin);
+/// let task_id = task::spawn("example task".into(), async { Ok(()) }, SchedulerType::FIFO);
 /// ```
 pub fn spawn(
     name: Cow<'static, str>,
@@ -279,7 +278,96 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
+pub mod perf {
+    use awkernel_lib::cpu::NUM_MAX_CPU;
+    use core::ptr::{addr_of, read_volatile, write_volatile};
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
+    static mut CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static mut CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn add_context_save_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_context_save_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&CONTEXT_SAVE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_save_overhead = time - start;
+            let index = CSO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_save_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], 0) };
+        }
+    }
+
+    pub fn add_context_restore_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_context_restore_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&CONTEXT_RESTORE_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let context_restore_overhead = time - start;
+            let index = CRO_COUNT.fetch_add(1, Ordering::Relaxed);
+            unsafe {
+                write_volatile(
+                    &mut CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                    context_restore_overhead,
+                )
+            };
+
+            unsafe { write_volatile(&mut CONTEXT_RESTORE_STARTS[cpu_id], 0) };
+        }
+    }
+
+    fn calc_overheads(overheads: &[u64; MAX_MEASURE_SIZE]) -> (f64, f64) {
+        let mut total = 0;
+        let mut count = 0;
+        let mut worst = 0;
+
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..MAX_MEASURE_SIZE {
+            let overhead = unsafe { read_volatile(&overheads[i]) };
+            if overhead > 0 {
+                total += overhead;
+                count += 1;
+                if overhead > worst {
+                    worst = overhead;
+                }
+            }
+        }
+
+        if count > 0 {
+            (total as f64 / count as f64, worst as f64)
+        } else {
+            (0.0, 0.0)
+        }
+    }
+
+    pub fn calc_context_switch_overhead() -> (f64, f64, f64, f64) {
+        let (avg_save, worst_save) = calc_overheads(unsafe { &*addr_of!(CONTEXT_SAVE_OVERHEADS) });
+        let (avg_restore, worst_restore) =
+            calc_overheads(unsafe { &*addr_of!(CONTEXT_RESTORE_OVERHEADS) });
+        (avg_save, worst_save, avg_restore, worst_restore)
+    }
+}
+
 pub fn run_main() {
+    let mut task_exec_times = [0; MAX_MEASURE_SIZE];
+    let mut measure_count = 0;
+    let mut measure_duration_start = 0;
+
     loop {
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
@@ -302,55 +390,82 @@ pub fn run_main() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
-            let mut node = MCSNode::new();
-            let Some(mut guard) = task.future.try_lock(&mut node) else {
-                // This task is running on another CPU,
-                // and re-schedule the task to avoid starvation just in case.
-                task.wake();
-                continue;
-            };
-
-            // Can remove this?
-            if guard.is_terminated() {
-                continue;
-            }
-
-            {
+            let result = {
                 let mut node = MCSNode::new();
-                let mut info = task.info.lock(&mut node);
+                let Some(mut guard) = task.future.try_lock(&mut node) else {
+                    // This task is running on another CPU,
+                    // and re-schedule the task to avoid starvation just in case.
+                    task.wake();
+                    continue;
+                };
 
-                if matches!(info.state, State::Terminated | State::Panicked) {
+                // Can remove this?
+                if guard.is_terminated() {
                     continue;
                 }
 
-                info.update_last_executed();
-                info.state = State::Running;
-                info.need_sched = false;
-            }
+                {
+                    let mut node = MCSNode::new();
+                    let mut info = task.info.lock(&mut node);
 
-            // Use the primary memory allocator.
-            #[cfg(not(feature = "std"))]
-            unsafe {
-                awkernel_lib::heap::TALLOC.use_primary()
-            };
+                    if matches!(info.state, State::Terminated | State::Panicked) {
+                        continue;
+                    }
 
-            {
+                    info.update_last_executed();
+                    info.state = State::Running;
+                    info.need_sched = false;
+                }
+
+                // Use the primary memory allocator.
+                #[cfg(not(feature = "std"))]
+                unsafe {
+                    awkernel_lib::heap::TALLOC.use_primary()
+                };
+
                 let cpu_id = awkernel_lib::cpu::cpu_id();
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-            }
 
-            // Invoke a task.
-            let result = {
+                // Invoke a task.
                 catch_unwind(|| {
-                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
                     {
                         awkernel_lib::interrupt::enable();
+                    }
+
+                    let task_start = uptime();
+                    if measure_count == 0 {
+                        measure_duration_start = task_start;
+                    }
+                    // Only the subscriber's cooperative context switch overhead is measured.
+                    if task.name.contains("subscriber") {
+                        perf::add_context_restore_start(cpu_id, task_start);
                     }
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    #[cfg(all(target_arch = "aarch64", not(feature = "std")))]
+                    let task_end = uptime();
+                    task_exec_times[measure_count] = task_end - task_start;
+                    // if measure_count == MAX_MEASURE_SIZE - 1 {
+                    //     log::debug!(
+                    //         "CPU#{:?} utilization = {:.3} [%]",
+                    //         awkernel_lib::cpu::cpu_id(),
+                    //         task_exec_times.iter().sum::<u64>() as f64
+                    //             / ((uptime() - measure_duration_start) as f64)
+                    //             * 100.0,
+                    //     );
+                    // }
+                    perf::add_context_save_end(cpu_id, task_end);
+                    measure_count = (measure_count + 1) % MAX_MEASURE_SIZE;
+
+                    #[cfg(all(
+                        any(target_arch = "aarch64", target_arch = "x86_64"),
+                        not(feature = "std")
+                    ))]
                     {
                         awkernel_lib::interrupt::disable();
                     }
@@ -398,12 +513,10 @@ pub fn run_main() {
                     let mut tasks = TASKS.lock(&mut node);
                     tasks.remove(task.id);
                 }
-                Err(err) => {
+                Err(_) => {
                     // Caught panic.
                     info.state = State::Panicked;
                     drop(info);
-
-                    log::error!("Task has panicked!: {:?}", err);
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
@@ -453,7 +566,13 @@ pub fn get_tasks() -> Vec<Arc<Task>> {
     result
 }
 
-pub fn get_tasks_running() -> Vec<u32> {
+#[derive(Debug)]
+pub struct RunningTask {
+    pub cpu_id: usize,
+    pub task_id: u32,
+}
+
+pub fn get_tasks_running() -> Vec<RunningTask> {
     let mut tasks = Vec::new();
     let num_cpus = awkernel_lib::cpu::num_cpu();
 
@@ -462,7 +581,8 @@ pub fn get_tasks_running() -> Vec<u32> {
             break;
         }
 
-        tasks.push(task.load(Ordering::Relaxed));
+        let task_id = task.load(Ordering::Relaxed);
+        tasks.push(RunningTask { cpu_id, task_id });
     }
 
     tasks
