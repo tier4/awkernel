@@ -1615,6 +1615,7 @@ pub const TXD32_CMD_RPS: u32 = 0x10000000; // Report Packet Sent
 pub const TXD32_CMD_DEXT: u32 = 0x20000000; // Descriptor extension (0 = legacy)
 pub const TXD32_CMD_VLE: u32 = 0x40000000; // Add VLAN tag
 pub const TXD32_CMD_IDE: u32 = 0x80000000; // Enable Tidv register
+pub const TXD32_CMD_TCP: u32 = 0x01000000; // TCP packet
 pub const TXD32_STAT_DD: u32 = 0x00000001; // Descriptor Done
 
 // Adv Transmit Descriptor Config Masks

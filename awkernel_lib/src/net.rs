@@ -302,6 +302,9 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
 
     add_ipv4_addr(interface_id, Ipv4Addr::new(192, 168, 100, 15), 24);
 
+    let if_status = get_interface(interface_id).unwrap();
+    log::debug!("Interface status: {}", if_status);
+
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
