@@ -9045,7 +9045,7 @@ fn calculate_mng_checksum(buffer: &HostMngDhcpCookie) -> u8 {
     z.wrapping_sub(sum)
 }
 
-fn get_num_queues(mac_type: &MacType) -> usize {
+pub fn get_num_queues(mac_type: &MacType) -> usize {
     use MacType::*;
 
     match mac_type {
@@ -9055,18 +9055,3 @@ fn get_num_queues(mac_type: &MacType) -> usize {
         _ => 1,
     }
 }
-
-// awkernel_drivers/src/pcie/net/igb.rs:385: igb: hw = IgbHw { mac_type: EmI350, initial
-//     ize_hw_bits_disable: true, eee_enable: true, icp_xxxx_port_num: 0, swfwhw_semaphore_present: false, swfw_sy
-//     nc_present: true, swfw: 4, eeprom_semaphore_present: false, phy_reset_disable: false, flash_memory: None, f
-//     lash_bank_size: None, flash_base_address: None, eeprom: Eeprom { eeprom_type: Spi, page_size: Some(20), wor
-//     d_size: 4000, address_bits: 10, delay_usec: 1, opcode_bits: 8, use_eerd: true, use_eewr: true }, tbi_compat
-//     ibility_on: false, tbi_compatibility_en: true, media_type: Copper, sgmii_active: false, sw_flag: 0, phy_add
-//     r: 1, phy_revision: Some(1), phy_type: I82580, phy_id: 15403b0, bus_func: 1, fc_high_water: d800, fc_low_wa
-//     ter: d224, fc_pause_time: 3e8, fc_send_xon: true, fc: 3, original_fc: 3, max_frame_size: 2412, min_frame_si
-//     ze: 44, perm_mac_addr: [0, 0, 0, 0, 0, 0], mac_addr: [0, 0, 0, 0, 0, 0], mng_cookie: HostMngDhcpCookie { si
-//     gnature: 0, status: 0, reserved0: 0, vlan_id: 0, reserved1: 0, reserved2: 0, reserved3: 0, checksum: 0 }, a
-//     utoneg: true, icp_xxxx_is_link_up: false, ledctl_default: 0, ledctl_mode1: 0, ledctl_mode2: 0, autoneg_adve
-//     rtised: 2f, dsp_config_state: Disabled, master_slave: Default, original_master_slave: Default, ffe_config_s
-//     tate: Enabled, get_link_status: false, autoneg_failed: false, speed_downgraded: false, serdes_link_down: fa
-//     lse, txcw: 0, forced_speed_duplex: S10Half, bus_type: Unknown, bus_speed: Unknown, legacy_irq: false }

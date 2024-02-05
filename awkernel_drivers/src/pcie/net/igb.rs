@@ -4,7 +4,7 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -270,6 +270,8 @@ struct IgbInner {
     pcie_int: PCIeInt,
 
     multicast_ipv4: MulticastIPv4,
+
+    irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -282,7 +284,7 @@ pub struct Igb {
     // 4. `IgbInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    que: [Queue; 1],
+    que: Vec<Queue>,
     inner: RwLock<IgbInner>,
 }
 
@@ -342,11 +344,20 @@ pub enum IgbDriverErr {
     InvalidPacket,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IRQRxTxLink {
+    Rx(usize),
+    Tx(usize),
+    Link,           // Link status change
+    Unknown(usize), // Rx, Tx or Link
+}
+
 #[derive(Debug)]
 struct MsiX {
     link_vec: u32,
     link_mask: u32,
     queues_mask: u32,
+    irq: u16,
 }
 
 #[derive(Debug)]
@@ -403,14 +414,29 @@ impl fmt::Display for IgbDriverErr {
 }
 
 impl IgbInner {
-    fn new(mut info: PCIeInfo, que: &[Queue]) -> Result<Self, PCIeDeviceErr> {
+    fn new(mut info: PCIeInfo) -> Result<(Self, Vec<Queue>), PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let pcie_int = if let Ok(pcie_int) = allocate_msi(&mut info) {
-            pcie_int
+        let mut irq_to_rx_tx_link = BTreeMap::new();
+
+        let (pcie_int, que_num) = if let Ok(pcie_int) = allocate_msi(&mut info) {
+            match &pcie_int {
+                PCIeInt::Msi(irq) => {
+                    let irq = irq.get_irq();
+                    irq_to_rx_tx_link.insert(irq, IRQRxTxLink::Unknown(0));
+                }
+                _ => unreachable!(),
+            }
+
+            (pcie_int, 1)
         } else {
-            PCIeInt::None
+            (PCIeInt::None, 1)
         };
+
+        let mut que = Vec::new();
+        for i in 0..que_num {
+            que.push(allocate_desc_rings(&info)?);
+        }
 
         // https://github.com/openbsd/src/blob/4d2f7ea336a48b11a249752eb2582887d8d4828b/sys/dev/pci/if_em_hw.c#L1260-L1263
         if (hw.get_mac_type() as u32) >= MacType::Em82571 as u32
@@ -471,9 +497,12 @@ impl IgbInner {
             smart_speed: 0,
             pcie_int,
             multicast_ipv4: MulticastIPv4::new(),
+            irq_to_rx_tx_link,
         };
 
-        igb.new2()
+        let result = igb.new2()?;
+
+        Ok((result, que))
     }
 
     fn new2(mut self) -> Result<Self, PCIeDeviceErr> {
@@ -958,24 +987,26 @@ impl IgbInner {
         const PCICFG_DESC_RING_STATUS: usize = 0xe4;
         const FLUSH_DESC_REQUIRED: u16 = 0x100;
 
-        // First, disable MULR fix in FEXTNVM11
-        let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
-        fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
-        igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
+        for q in que.iter() {
+            // First, disable MULR fix in FEXTNVM11
+            let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
+            fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
+            igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
 
-        // do nothing if we're not in faulty state, or if the queue is empty
-        let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(que[0].me))?;
-        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
-        if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
-            return Ok(());
-        }
+            // do nothing if we're not in faulty state, or if the queue is empty
+            let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(q.me))?;
+            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
+                return Ok(());
+            }
 
-        self.flush_tx_ring(0, que)?;
+            self.flush_tx_ring(q.me, que)?;
 
-        // recheck, maybe the fault is caused by the rx ring
-        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
-        if hang_state & FLUSH_DESC_REQUIRED != 0 {
-            self.flush_rx_ring(0, que)?;
+            // recheck, maybe the fault is caused by the rx ring
+            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            if hang_state & FLUSH_DESC_REQUIRED != 0 {
+                self.flush_rx_ring(q.me, que)?;
+            }
         }
 
         Ok(())
@@ -1077,9 +1108,7 @@ impl IgbInner {
 
 impl Igb {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let que = [allocate_desc_rings(&info)?];
-
-        let inner = IgbInner::new(info, &que)?;
+        let (inner, que) = IgbInner::new(info)?;
 
         let igb = Self {
             inner: RwLock::new(inner),
@@ -1414,31 +1443,59 @@ impl Igb {
         Ok((1, cmd_type_len, olinfo_status))
     }
 
-    fn intr(&self) -> Result<(), IgbDriverErr> {
-        let reg_icr = {
-            let inner = self.inner.read();
-            let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+    fn intr(&self, irq: u16) -> Result<(), IgbDriverErr> {
+        let inner = self.inner.read();
+        let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
 
-            if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
-                && reg_icr & ICR_INT_ASSERTED == 0
-            {
-                return Ok(());
-            }
+        if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
+            && reg_icr & ICR_INT_ASSERTED == 0
+        {
+            return Ok(());
+        }
 
-            if inner.flags.contains(NetFlags::RUNNING) {
-                drop(inner);
-                self.rx_recv(0)?;
-                self.txeof(0)?;
-            }
-
-            reg_icr
+        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
+            *reason
+        } else {
+            return Ok(());
         };
 
-        if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-            let mut inner = self.inner.write();
-            inner.hw.set_get_link_status(true);
-            inner.check_for_link()?;
-            inner.update_link_status()?;
+        match reason {
+            IRQRxTxLink::Unknown(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.rx_recv(que_id)?;
+                    self.txeof(que_id)?;
+                } else {
+                    drop(inner);
+                }
+
+                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+                    let mut inner = self.inner.write();
+                    inner.hw.set_get_link_status(true);
+                    inner.check_for_link()?;
+                    inner.update_link_status()?;
+                }
+            }
+            IRQRxTxLink::Rx(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.rx_recv(que_id)?;
+                }
+            }
+            IRQRxTxLink::Tx(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.txeof(que_id)?;
+                }
+            }
+            IRQRxTxLink::Link => {
+                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+                    let mut inner = self.inner.write();
+                    inner.hw.set_get_link_status(true);
+                    inner.check_for_link()?;
+                    inner.update_link_status()?;
+                }
+            }
         }
 
         Ok(())
@@ -1614,6 +1671,7 @@ fn allocate_msix(
         link_vec,
         link_mask: 1 << link_vec,
         queues_mask: 0,
+        irq: 0,
     }))
 }
 
@@ -1825,10 +1883,10 @@ impl NetDevice for Igb {
         inner.hw.get_mac_addr()
     }
 
-    fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
         {
             let mut node = MCSNode::new();
-            let mut rx = self.que[0].rx.lock(&mut node);
+            let mut rx = self.que[que_id].rx.lock(&mut node);
 
             let data = rx.read_queue.pop();
             if data.is_some() {
@@ -1836,10 +1894,10 @@ impl NetDevice for Igb {
             }
         }
 
-        self.rx_recv(0).or(Err(NetDevError::DeviceError))?;
+        self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
 
         let mut node = MCSNode::new();
-        let mut rx = self.que[0].rx.lock(&mut node);
+        let mut rx = self.que[que_id].rx.lock(&mut node);
         if let Some(data) = rx.read_queue.pop() {
             Ok(Some(data))
         } else {
@@ -1852,9 +1910,9 @@ impl NetDevice for Igb {
         inner.flags.contains(NetFlags::RUNNING)
     }
 
-    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(0, &frames).or(Err(NetDevError::DeviceError))
+        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {
@@ -1893,19 +1951,20 @@ impl NetDevice for Igb {
         }
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
-        self.intr().or(Err(NetDevError::DeviceError))?;
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
+        self.intr(irq).or(Err(NetDevError::DeviceError))?;
         Ok(())
     }
 
     fn irqs(&self) -> Vec<u16> {
         let inner = self.inner.read();
 
-        match &inner.pcie_int {
-            PCIeInt::MsiX(_msix) => todo!(),
-            PCIeInt::Msi(msi) => vec![msi.get_irq()],
-            _ => vec![],
+        let mut result = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            result.push(*irq);
         }
+
+        result
     }
 
     fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
