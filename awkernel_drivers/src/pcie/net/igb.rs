@@ -33,6 +33,7 @@ use awkernel_lib::{
 };
 use core::{
     fmt::{self, Debug},
+    mem,
     net::Ipv4Addr,
 };
 use memoffset::offset_of;
@@ -404,8 +405,6 @@ impl fmt::Display for IgbDriverErr {
 impl IgbInner {
     fn new(mut info: PCIeInfo, que: &[Queue]) -> Result<Self, PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
-
-        log::debug!("igb: hw = {:x?}", hw);
 
         let pcie_int = if let Ok(pcie_int) = allocate_msi(&mut info) {
             pcie_int
@@ -1321,8 +1320,6 @@ impl Igb {
         txd.context_desc.data = 0;
         txd.context_desc.cmd_and_length = u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
 
-        log::debug!("txd.context_desc: {:x?}", unsafe { txd.context_desc });
-
         Ok((1, txd_lower, txd_upper))
     }
 
@@ -1335,7 +1332,7 @@ impl Igb {
         ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
-        let mut olinfo_status = 0;
+        let mut olinfo_status = (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
         let mut cmd_type_len = 0;
         let mut vlan_macip_lens = 0;
         let mut off = false;
@@ -1371,6 +1368,8 @@ impl Igb {
         vlan_macip_lens |= iphlen;
         type_tucmd_mlhl |= ADVTXD_DCMD_DEXT | ADVTXD_DTYP_CTXT;
 
+        let mut mss_l4len_idx = (ETHER_MAX_LEN << 16) as u32;
+
         match ext.transport {
             TransportHdr::Tcp(_tcp) => {
                 type_tucmd_mlhl |= ADVTXD_TUCMD_L4T_TCP;
@@ -1379,6 +1378,7 @@ impl Igb {
                     .contains(PacketHeaderFlags::TCP_CSUM_OUT)
                 {
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
+                    mss_l4len_idx |= (mem::size_of::<TCPHdr>() as u32) << 8;
                     off = true;
                 }
             }
@@ -1389,6 +1389,7 @@ impl Igb {
                     .contains(PacketHeaderFlags::UDP_CSUM_OUT)
                 {
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
+                    mss_l4len_idx |= (mem::size_of::<UDPHdr>() as u32) << 8;
                     off = true;
                 }
             }
@@ -1399,10 +1400,8 @@ impl Igb {
             return Ok((0, cmd_type_len, olinfo_status));
         }
 
-        let mss_l4len_idx = if mac_type == MacType::Em82575 {
-            ((me & 0xff) as u32) << 4
-        } else {
-            0
+        if mac_type == MacType::Em82575 {
+            mss_l4len_idx |= ((me & 0xff) as u32) << 4
         };
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
@@ -1419,8 +1418,6 @@ impl Igb {
         let reg_icr = {
             let inner = self.inner.read();
             let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
-
-            log::debug!("icr = {:b}", reg_icr);
 
             if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
                 && reg_icr & ICR_INT_ASSERTED == 0
@@ -1448,35 +1445,17 @@ impl Igb {
     }
 
     fn txeof(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let reg_tdh = {
+            let inner = self.inner.read();
+            igb_hw::read_reg(&inner.info, tdh_offset(que_id))? as usize
+        };
+
         let que = &self.que[que_id];
 
         let mut node = MCSNode::new();
         let mut tx = que.tx.lock(&mut node);
 
-        let tx_desc_ring = tx.tx_desc_ring.as_ref();
-        let mut tx_desc_tail = tx.tx_desc_tail;
-        let tx_desc_head = tx.tx_desc_head;
-
-        loop {
-            if tx_desc_tail == tx_desc_head {
-                break;
-            }
-
-            let desc = &tx_desc_ring[tx_desc_tail];
-            unsafe {
-                if desc.legacy.upper.data.status & TXD_STAT_DD == 0 {
-                    break;
-                }
-                log::debug!("txeof: status = {:x}", desc.legacy.upper.data.status);
-            }
-
-            tx_desc_tail += 1;
-            if tx_desc_tail == tx_desc_ring.len() {
-                tx_desc_tail = 0;
-            }
-        }
-
-        tx.tx_desc_tail = tx_desc_tail;
+        tx.tx_desc_tail = reg_tdh;
 
         Ok(())
     }
@@ -1493,20 +1472,15 @@ impl Igb {
             return Err(IgbDriverErr::InvalidPacket);
         }
 
-        log::debug!("3-1");
-
         let mut head = tx.tx_desc_head;
 
         let (mut used, txd_lower, txd_upper) = if mac_type as u32 >= MacType::Em82575 as u32
             && mac_type as u32 <= MacType::EmI210 as u32
         {
-            log::debug!("3-2");
-            // self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
-            (0, 0, 0)
+            self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
+            // (0, 0, 0)
         } else if mac_type as u32 >= MacType::Em82543 as u32 {
-            log::debug!("3-3");
-            // self.transmit_checksum_setup(tx, ether_frame, head)?
-            (0, 0, 0)
+            self.transmit_checksum_setup(tx, ether_frame, head)?
         } else {
             (0, 0, 0)
         };
@@ -1527,15 +1501,9 @@ impl Igb {
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
 
-        log::debug!("cmd 1: {:x?}", unsafe { desc.legacy.lower.data.cmd });
-        log::debug!("txd_cmd {:x?}", tx.txd_cmd);
-        log::debug!("txd_lower {:x?}", txd_lower);
-
         desc.legacy.buf = u64::to_le(addr);
         desc.legacy.lower.raw = u32::to_le(tx.txd_cmd | txd_lower | (len & 0xffff) as u32);
         desc.legacy.upper.raw = u32::to_le(txd_upper);
-
-        log::debug!("cmd 2: {:x?}", unsafe { desc.legacy.lower.data.cmd });
 
         head += 1;
         if head == tx_slots {
@@ -1559,35 +1527,9 @@ impl Igb {
 
         tx.tx_desc_head = head;
 
-        unsafe { desc.legacy.lower.data.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
-
-        log::debug!(
-            "3-4: lower = {:x?}, upper = {:x?}",
-            unsafe { desc.legacy.lower.data },
-            unsafe { desc.legacy.upper.data }
-        );
-        // cmd: 10101011,
-        // voloate "DEXT (bit 5) - Descriptor Extension (0 for legacy mode)"
+        unsafe { desc.adv_tx.lower |= TXD32_CMD_EOP | TXD32_CMD_RS };
 
         Ok(used)
-    }
-
-    fn print_regs(&self) -> Result<(), IgbDriverErr> {
-        let inner = self.inner.read();
-
-        log::debug!("CTRL     = {:0b}", igb_hw::read_reg(&inner.info, CTRL)?);
-        log::debug!("CTRL_EXT = {:0b}", igb_hw::read_reg(&inner.info, CTRL_EXT)?);
-        log::debug!("STATUS   = {:0b}", igb_hw::read_reg(&inner.info, STATUS)?);
-        log::debug!("RCTL     = {:0b}", igb_hw::read_reg(&inner.info, RCTL)?);
-        log::debug!("TDBAL    = {:08x}", igb_hw::read_reg(&inner.info, TDBAL)?);
-        log::debug!("TDBAH    = {:08x}", igb_hw::read_reg(&inner.info, TDBAH)?);
-        log::debug!("TDLEN    = {:0x}", igb_hw::read_reg(&inner.info, TDLEN)?);
-        log::debug!("TDH      = {:0x}", igb_hw::read_reg(&inner.info, TDH)?);
-        log::debug!("TDT      = {:0x}", igb_hw::read_reg(&inner.info, TDT)?);
-        log::debug!("TXDCTL   = {:0b}", igb_hw::read_reg(&inner.info, TXDCTL)?);
-        log::debug!("TCTL     = {:0b}", igb_hw::read_reg(&inner.info, TCTL)?);
-
-        Ok(())
     }
 
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
@@ -1610,23 +1552,12 @@ impl Igb {
         }
         free -= head;
 
-        log::debug!("1");
-
         let mut post = false;
         for ether_frame in ether_frames.iter() {
-            log::debug!("2");
             // use 2 because cksum setup can use an extra slot
             if MAX_SCATTER + 2 > free {
                 break;
             }
-
-            // log::debug!(
-            //     "len = {}, csum_flags = {:?}. data = {:x?}",
-            //     ether_frame.data.len(),
-            //     ether_frame.csum_flags,
-            //     ether_frame.data
-            // );
-            log::debug!("3");
 
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
 
@@ -1635,21 +1566,11 @@ impl Igb {
             post = true;
         }
 
-        log::debug!("4");
-
         if inner.hw.get_mac_type() != MacType::Em82547 && post {
-            log::debug!("5: tx.tx_desc_head = {}", tx.tx_desc_head);
             igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
         }
 
         drop(inner);
-        self.print_regs()?;
-
-        // CTRL     = 0101_1000_0001_1100_0000_0010_0100_0001
-        // CTRL_EXT =      0000_0001_0100_0000_0000_1100_0000
-        // STATUS   =             10_1000_0000_0111_1000_0011
-        // TCTL     =    1_0000_0000_0011_1111_0000_1111_1010
-        // TXDCTL   =        10_0000_0000_0000_0000_0000_0000
 
         Ok(())
     }
@@ -1712,7 +1633,6 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
             .register_handler(
                 irq_name.into(),
                 Box::new(|irq| {
-                    log::debug!("MSI interrupt: {}", irq);
                     awkernel_lib::net::net_interrupt(irq);
                 }),
                 segment_number,

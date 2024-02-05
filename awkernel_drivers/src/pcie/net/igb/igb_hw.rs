@@ -4888,8 +4888,6 @@ impl IgbHw {
                     // the external PHY is reset.
                     ctrl |= CTRL_PHY_RST;
 
-                    log::debug!("igb: PHY reset is enabled");
-
                     // Gate automatic PHY configuration by hardware on non-managed 82579
                     if matches!(self.mac_type, EmPch2lan)
                         && read_reg(info, FWSM)? & FWSM_FW_VALID == 0
@@ -5604,7 +5602,6 @@ impl IgbHw {
                 // deassertion.
                 let ctrl = read_reg(info, CTRL)?;
                 write_reg(info, CTRL, ctrl | CTRL_PHY_RST)?;
-                log::debug!("igb: PHY reset");
                 write_flush(info)?;
 
                 if (hw.mac_type as u32) < Em82571 as u32 {

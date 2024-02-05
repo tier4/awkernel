@@ -38,25 +38,19 @@ impl<'a> NetDriverRef<'a> {
 
         let capabilities = self.capabilities();
 
-        log::debug!("Capabilities: {:?}", capabilities.checksum);
-
         if matches!(ext.network, NetworkHdr::Ipv4(_)) && !capabilities.checksum.ipv4.tx() {
             flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT); // IPv4 checksum offload
-
-            log::debug!("Flags: IPV4_CSUM_OUT");
         }
 
         match ext.transport {
             TransportHdr::Tcp(_) => {
                 if !capabilities.checksum.tcp.tx() {
                     flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
-                    log::debug!("Flags: TCP_CSUM_OUT");
                 }
             }
             TransportHdr::Udp(_) => {
                 if !capabilities.checksum.udp.tx() {
                     flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
-                    log::debug!("Flags: UDP_CSUM_OUT");
                 }
             }
             _ => {}
@@ -74,21 +68,20 @@ impl<'a> Device for NetDriverRef<'a> {
         cap.max_transmission_unit = 1500;
         cap.max_burst_size = Some(64);
 
-        // let capabilities = self.inner.capabilities();
+        let capabilities = self.inner.capabilities();
 
-        // if capabilities.contains(NetCapabilities::CSUM_IPv4) {
-        //     cap.checksum.ipv4 = Checksum::Rx;
-        // }
+        if capabilities.contains(NetCapabilities::CSUM_IPv4) {
+            cap.checksum.ipv4 = Checksum::Rx;
+        }
 
-        // if capabilities.contains(NetCapabilities::CSUM_TCPv4)
-        //     || capabilities.contains(NetCapabilities::CSUM_TCPv6)
-        // {
+        // TCP and UDP checksum offload is currently not supported
+        // because of bugs in the current implementation.
+
+        // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
         //     cap.checksum.tcp = Checksum::Rx;
         // }
 
-        // if capabilities.contains(NetCapabilities::CSUM_UDPv4)
-        //     || capabilities.contains(NetCapabilities::CSUM_UDPv6)
-        // {
+        // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
         //     cap.checksum.udp = Checksum::Rx;
         // }
 
@@ -273,7 +266,6 @@ impl IfNet {
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
             if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
-                log::debug!("poll_rx_irq: irq = {irq}, data = {:x?}", data.data);
                 let _ = rx_ringq.push(data);
             } else {
                 break;
@@ -354,8 +346,6 @@ impl<'a> phy::TxToken for NTxToken<'a> {
         };
 
         let result = f(&mut buf[..len]);
-
-        log::debug!("NTxToken::consume: buf = {:x?}", &buf[..len]);
 
         let _ = self.tx_ring.push(buf);
 
