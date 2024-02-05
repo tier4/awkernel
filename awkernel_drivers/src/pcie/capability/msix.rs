@@ -1,4 +1,7 @@
-use crate::pcie::{BaseAddress, PCIeInfo};
+use alloc::{borrow::Cow, boxed::Box};
+use awkernel_lib::interrupt::IRQ;
+
+use crate::pcie::{BaseAddress, PCIeDeviceErr, PCIeInfo};
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw};
@@ -21,26 +24,9 @@ pub struct Msix {
     table_offset: u32, // Table offset
     table_bar: BaseAddress,
 
-    pba_offset: u32, // Pending Bit
-    pba_bar: BaseAddress,
+    _pba_offset: u32, // Pending Bit
+    _pba_bar: BaseAddress,
 }
-
-// Intel e1000e driver has been initialized. IRQ = Some(64),
-// Info = DeviceInfo { addr: 2952855552, bus: 0, id: 4307, vendor: 32902, device_name: Some(Intel82574GbE),
-// _multiple_functions: false, header_type: 0, base_addresses: [MMIO { addr: 3238658048, size: 131072, address_type: T32B, prefetchable: false }, MMIO { addr: 3238526976, size: 131072, address_type: T32B, prefetchable: false }, IO(24672), MMIO { addr: 3238789120, size: 16384, address_type: T32B, prefetchable: false }, None, None],
-// msi: Some(
-//      MSI {
-//          cap_ptr: 2952855760,
-//          multiple_message_capable: One,
-//          per_vector_mask_capable: false,
-//          bit64_address_capable: true }),
-// msix: Some(
-//      MSIX {
-//          cap_ptr: 2952855712,
-//          table_size: 4,
-//          table_offset: 0,
-//          table_bar: MMIO { addr: 3238789120, size: 16384, address_type: T32B, prefetchable: false },
-//          pba_offset: 8192, pba_bar: MMIO { addr: 3238789120, size: 16384, address_type: T32B, prefetchable: false } }) }
 
 impl Msix {
     pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Option<Self> {
@@ -64,8 +50,8 @@ impl Msix {
             table_size,
             table_offset,
             table_bar,
-            pba_offset,
-            pba_bar,
+            _pba_offset: pba_offset,
+            _pba_bar: pba_bar,
         })
     }
 
@@ -75,5 +61,47 @@ impl Msix {
 
     pub fn enable(&mut self) {
         registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.base);
+    }
+
+    pub fn register_handler<F>(
+        &mut self,
+        name: Cow<'static, str>,
+        func: Box<F>,
+        segment_number: usize,
+        target: u32,
+        msi_x_entry: usize,
+    ) -> Result<IRQ, PCIeDeviceErr>
+    where
+        F: Fn(u16) + Send + 'static,
+    {
+        if self.table_size as usize > msi_x_entry {
+            return Err(PCIeDeviceErr::Interrupt);
+        }
+
+        let mut message_address = 0;
+        let mut message_address_upper = 0;
+        let mut message_data = 0;
+
+        self.table_bar.read32(16 * msi_x_entry);
+
+        let irq = awkernel_lib::interrupt::register_handler_pcie_msi(
+            name,
+            func,
+            segment_number,
+            target,
+            &mut message_data,
+            &mut message_address,
+            Some(&mut message_address_upper),
+        )
+        .or(Err(PCIeDeviceErr::Interrupt))?;
+
+        let offset = 16 * msi_x_entry + self.table_offset as usize;
+
+        self.table_bar.write32(offset, message_address);
+        self.table_bar.write32(offset + 4, message_address_upper);
+        self.table_bar.write32(offset + 8, message_data);
+        self.table_bar.write32(offset + 12, 0);
+
+        Ok(irq)
     }
 }

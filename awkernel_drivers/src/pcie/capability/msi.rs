@@ -176,13 +176,13 @@ impl Msi {
                 Some(unsafe {
                     &mut *((registers::MESSAGE_ADDRESS_64_HIGH + self.base) as *mut () as *mut u32)
                 }),
-                (registers::MESSAGE_DATA_64 + self.base) as *mut () as *mut u16,
+                (registers::MESSAGE_DATA_64 + self.base) as *mut () as *mut u32,
             )
         } else {
             (
                 (registers::MESSAGE_ADDRESS_32 + self.base) as *mut () as *mut u32,
                 None,
-                (registers::MESSAGE_DATA_32 + self.base) as *mut () as *mut u16,
+                (registers::MESSAGE_DATA_32 + self.base) as *mut () as *mut u32,
             )
         };
 

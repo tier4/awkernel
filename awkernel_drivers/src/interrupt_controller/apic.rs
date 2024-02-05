@@ -336,7 +336,7 @@ impl InterruptController for Xapic {
         _segment_number: usize,
         target: u32,
         irq: u16,
-        message_data: &mut u16,
+        message_data: &mut u32,
         message_address: &mut u32,
         message_address_upper: Option<&mut u32>,
     ) -> Result<IRQ, &'static str> {
@@ -345,7 +345,7 @@ impl InterruptController for Xapic {
         unsafe {
             write_volatile(
                 message_data,
-                irq & 0xFF | if IS_EDGE_TRIGGER { 0 } else { 1 << 15 },
+                (irq as u32) & 0xFF | if IS_EDGE_TRIGGER { 0 } else { 1 << 15 },
             );
 
             write_volatile(message_address, 0xfee0_0000 | ((target & 0xFF) << 12));
@@ -450,7 +450,7 @@ impl InterruptController for X2Apic {
         segment_number: usize,
         target: u32,
         irq: u16,
-        message_data: &mut u16,
+        message_data: &mut u32,
         message_address: &mut u32,
         message_address_upper: Option<&mut u32>,
     ) -> Result<IRQ, &'static str> {
