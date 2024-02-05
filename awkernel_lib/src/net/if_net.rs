@@ -2,7 +2,7 @@ use alloc::{collections::BTreeMap, sync::Arc, vec, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
     iface::{Config, Interface, SocketSet},
-    phy::{self, Checksum, ChecksumCapabilities, Device, DeviceCapabilities},
+    phy::{self, Checksum, Device, DeviceCapabilities},
     time::Instant,
     wire::HardwareAddress,
 };
