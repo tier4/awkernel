@@ -1,10 +1,11 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
-    PCIeInfo,
+    capability::msi::MultipleMessage,
+    net::igb::{self, igb_hw::MacType},
+    PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -157,6 +158,16 @@ struct Queue {
     rx: Mutex<Rx>,
     me: usize,
     eims: u32,
+}
+
+impl Queue {
+    fn msix_tx_entry(&self) -> usize {
+        self.me * 2
+    }
+
+    fn msix_rx_entry(&self) -> usize {
+        self.me * 2 + 1
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -353,18 +364,10 @@ enum IRQRxTxLink {
 }
 
 #[derive(Debug)]
-struct MsiX {
-    link_vec: u32,
-    link_mask: u32,
-    queues_mask: u32,
-    irq: u16,
-}
-
-#[derive(Debug)]
 enum PCIeInt {
     None,
     Msi(IRQ),
-    MsiX(MsiX),
+    MsiX(Vec<IRQ>),
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -1468,34 +1471,33 @@ impl Igb {
                 } else {
                     drop(inner);
                 }
-
-                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-                    let mut inner = self.inner.write();
-                    inner.hw.set_get_link_status(true);
-                    inner.check_for_link()?;
-                    inner.update_link_status()?;
-                }
             }
             IRQRxTxLink::Rx(que_id) => {
                 if inner.flags.contains(NetFlags::RUNNING) {
                     drop(inner);
                     self.rx_recv(que_id)?;
+                } else {
+                    drop(inner);
                 }
             }
             IRQRxTxLink::Tx(que_id) => {
                 if inner.flags.contains(NetFlags::RUNNING) {
                     drop(inner);
                     self.txeof(que_id)?;
+                } else {
+                    drop(inner);
                 }
             }
             IRQRxTxLink::Link => {
-                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-                    let mut inner = self.inner.write();
-                    inner.hw.set_get_link_status(true);
-                    inner.check_for_link()?;
-                    inner.update_link_status()?;
-                }
+                drop(inner);
             }
+        }
+
+        if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+            let mut inner = self.inner.write();
+            inner.hw.set_get_link_status(true);
+            inner.check_for_link()?;
+            inner.update_link_status()?;
         }
 
         Ok(())
@@ -1633,14 +1635,71 @@ impl Igb {
     }
 }
 
+fn setup_queues_msix(
+    hw: &igb_hw::IgbHw,
+    info: &PCIeInfo,
+    que: &[Queue],
+) -> Result<(), IgbDriverErr> {
+    use igb_hw::MacType::*;
+
+    let mac_type = hw.get_mac_type();
+
+    // First turn on RSS capability
+    if mac_type != Em82575 {
+        igb_hw::write_reg(
+            info,
+            GPIE,
+            GPIE_MSIX_MODE | GPIE_EIAME | GPIE_PBA | GPIE_NSICR,
+        )?;
+    }
+
+    // Turn on MSIX
+    match mac_type {
+        Em82580 | EmI210 | EmI350 => {
+            for q in que.iter() {
+                let index = q.me >> 1;
+                let mut ivar = igb_hw::read_reg_array(info, IVAR0, index)?;
+
+                if q.me & 1 == 0 {
+                    ivar &= 0xffff_0000;
+                    ivar |= (q.msix_rx_entry() as u32) | IVAR_VALID; // Rx
+                    ivar |= ((q.msix_tx_entry() as u32) | IVAR_VALID) << 8; // Tx
+                } else {
+                    ivar &= 0xffff_0000;
+                    ivar |= ((q.msix_rx_entry() as u32) | IVAR_VALID) << 16; // Rx
+                    ivar |= ((q.msix_tx_entry() as u32) | IVAR_VALID) << 24; // Tx
+                }
+
+                igb_hw::write_reg_array(info, IVAR0, index, ivar)?;
+            }
+
+            let ivar = ((que.len() * 2) as u32 | IVAR_VALID) << 8;
+            igb_hw::write_reg(info, IVAR_MISC, ivar)?;
+        }
+        Em82576 => {
+            todo!()
+        }
+        _ => return Err(IgbDriverErr::InitializeInterrupt),
+    }
+
+    // TODO
+
+    Ok(())
+}
+
 fn allocate_msix(
     hw: &igb_hw::IgbHw,
     info: &mut PCIeInfo,
-    que: &mut Queue,
+    que: &[Queue],
 ) -> Result<PCIeInt, IgbDriverErr> {
-    if info.get_msix_mut().is_none() {
-        return Err(IgbDriverErr::InitializeInterrupt);
-    }
+    let segment_number = info.segment_group as usize;
+    let bfd = info.get_bfd();
+
+    let msix = info
+        .get_msix_mut()
+        .ok_or(IgbDriverErr::InitializeInterrupt)?;
+
+    let mut irqs = Vec::new();
 
     if !matches!(
         hw.get_mac_type(),
@@ -1649,15 +1708,49 @@ fn allocate_msix(
         return Err(IgbDriverErr::InitializeInterrupt);
     }
 
-    let vec = 0;
-    que.me = vec;
-    que.eims = 1 << vec;
+    for q in que.iter() {
+        let irq_name_tx = format!("{}-{}-Tx{}", DEVICE_SHORT_NAME, bfd, q.me);
+        let irq_tx = msix
+            .register_handler(
+                irq_name_tx.into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                q.msix_tx_entry(),
+            )
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
+        irqs.push(irq_tx);
 
-    // Setup linkvector, use last queue vector + 1
-    let vec = vec + 1;
-    let link_vec = vec as u32;
+        let irq_name_rx = format!("{}-{}-Rx{}", DEVICE_SHORT_NAME, bfd, q.me);
+        let irq_rx = msix
+            .register_handler(
+                irq_name_rx.into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                q.msix_rx_entry(),
+            )
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
+        irqs.push(irq_rx);
+    }
 
-    // TODO: register interrupt handler
+    let irq_name_tx = format!("{}-{}-Other", DEVICE_SHORT_NAME, bfd);
+    let irq_other = msix
+        .register_handler(
+            irq_name_tx.into(),
+            Box::new(move |irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+            segment_number,
+            awkernel_lib::cpu::raw_cpu_id() as u32,
+            que.len() * 2,
+        )
+        .or(Err(IgbDriverErr::InitializeInterrupt))?;
+    irqs.push(irq_other);
 
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
@@ -1667,12 +1760,7 @@ fn allocate_msix(
     let msix = info.get_msix_mut().unwrap();
     msix.enable();
 
-    Ok(PCIeInt::MsiX(MsiX {
-        link_vec,
-        link_mask: 1 << link_vec,
-        queues_mask: 0,
-        irq: 0,
-    }))
+    Ok(PCIeInt::MsiX(irqs))
 }
 
 fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {

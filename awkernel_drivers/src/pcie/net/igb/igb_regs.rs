@@ -26,8 +26,11 @@ pub const PBS: usize = 0x01008; // Packet Buffer Size
 pub const EEMNGCTL: usize = 0x01010; // MNG EEprom Control
 pub const EEWR: usize = 0x0102C; // EEPROM Write Register - RW
 pub const FLOP: usize = 0x0103C; // FLASH Opcode Register
+pub const GPIE: usize = 0x01514; // General Purpose Interrupt Enable - RW
 pub const EIMC: usize = 0x01528; // Ext. Interrupt Mask Clear - WO
 pub const EIAC: usize = 0x0152C; // Ext. Interrupt Auto Clear - RW
+pub const IVAR0: usize = 0x01700; // Interrupt Vector Allocation (array) - RW
+pub const IVAR_MISC: usize = 0x01740; // IVAR for "other" causes - RW
 pub const FCRTL: usize = 0x02160; // Flow Control Receive Threshold Low - RW
 pub const FCRTH: usize = 0x02168; // Flow Control Receive Threshold High - RW
 pub const KABGTXD: usize = 0x03004; // AFE Band Gap Transmit Ref Data
@@ -153,6 +156,14 @@ pub const E1000_REVISION_0: u32 = 0;
 pub const E1000_REVISION_1: u32 = 1;
 pub const E1000_REVISION_2: u32 = 2;
 pub const E1000_REVISION_3: u32 = 3;
+
+pub const IVAR_VALID: u32 = 1 << 7;
+
+// GPIE bit definitions
+pub const GPIE_NSICR: u32 = 0x00000001;
+pub const GPIE_MSIX_MODE: u32 = 0x00000010;
+pub const GPIE_EIAME: u32 = 0x40000000;
+pub const GPIE_PBA: u32 = 0x80000000;
 
 // Interrupt Cause Read
 pub const ICR_TXDW: u32 = 0x00000001; // Transmit desc written back

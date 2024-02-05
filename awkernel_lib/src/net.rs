@@ -333,6 +333,8 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
 
     drop(inner);
 
+    let mut t0 = None;
+
     loop {
         {
             let mut node = MCSNode::new();
@@ -341,13 +343,15 @@ pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
             let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
 
             if socket.can_send() {
+                t0 = Some(crate::delay::uptime());
                 let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
             }
 
             if socket.recv().is_ok() {
-                crate::console::print("+");
-            } else {
-                crate::console::print(".");
+                if let Some(t0) = t0.take() {
+                    let t1 = crate::delay::uptime();
+                    log::debug!("UDP RTT: {} [us]", t1 - t0);
+                }
             }
         }
 
