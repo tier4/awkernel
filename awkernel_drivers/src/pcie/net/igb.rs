@@ -12,8 +12,8 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_HDR_LEN, ETHER_MAX_LEN,
-            ETHER_TYPE_VLAN,
+            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN, ETHER_HDR_LEN,
+            ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
         ip::Ip,
         ipv6::Ip6Hdr,
@@ -33,6 +33,7 @@ use awkernel_lib::{
 };
 use core::{
     fmt::{self, Debug},
+    mem,
     net::Ipv4Addr,
 };
 use memoffset::offset_of;
@@ -158,20 +159,43 @@ struct Queue {
     eims: u32,
 }
 
-/// Legacy Transmit Descriptor Format (16B)
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+union Data32<T: Copy> {
+    data: T,
+    raw: u32,
+}
+
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
-struct LegacyTxDescriptor {
-    buf: u64,
+struct LegacyTxLower {
     length: u16,
     cso: u8,
     cmd: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+#[repr(C, packed)]
+struct LegacyTxUpper {
     status: u8,
     css: u8,
     vtags: u16,
 }
 
+/// Legacy Transmit Descriptor Format (16B)
+#[derive(Clone, Copy)]
+#[repr(C, packed)]
+struct LegacyTxDescriptor {
+    buf: u64,
+    lower: Data32<LegacyTxLower>,
+    upper: Data32<LegacyTxUpper>,
+}
+
 /// Advanced Transmit Descriptor Format (16B)
+///
+/// lower[19-18]
+/// lower[17-16]: RSV
+/// lower[15-0]: DTALEN
 #[derive(Debug, Clone, Copy)]
 #[repr(C, packed)]
 struct AdvTxDescriptor {
@@ -200,9 +224,11 @@ struct ContextDesc {
     tucso: u8,  // TCP/UDP checksum offset
     tucse: u16, // TCP/UDP checksum end
     cmd_and_length: u32,
-    status: u8,  // Descriptor status
-    hdr_len: u8, // Header length
-    mss: u16,    // Maximum segment size
+
+    // status: u8,  // Descriptor status
+    // hdr_len: u8, // Header length
+    // mss: u16,    // Maximum segment size
+    data: u32,
 }
 
 #[repr(C)]
@@ -667,7 +693,7 @@ impl IgbInner {
             }
 
             // Setup Transmit Descriptor Base Settings
-            tx.txd_cmd = TXD32_CMD_IFCS | TXD32_CMD_IDE;
+            tx.txd_cmd = TXD32_CMD_IFCS;
 
             if matches!(
                 self.hw.get_mac_type(),
@@ -852,12 +878,8 @@ impl IgbInner {
 
             for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
                 desc.legacy.buf = (buf_phy_addr + i * TXBUFFER_16384 as usize) as u64;
-                desc.legacy.length = 0;
-                desc.legacy.cso = 0;
-                desc.legacy.cmd = 0;
-                desc.legacy.status = 0;
-                desc.legacy.css = 0;
-                desc.legacy.vtags = 0;
+                desc.legacy.lower.raw = 0;
+                desc.legacy.upper.raw = 0;
             }
 
             tx.write_buf = Some(write_buf);
@@ -979,12 +1001,10 @@ impl IgbInner {
         let txd = &mut tx.tx_desc_ring.as_mut()[tx_desc_head];
 
         txd.legacy.buf = buf;
-        txd.legacy.length = 512;
-        txd.legacy.cso = 0;
-        txd.legacy.cmd = TXD_CMD_IFCS;
-        txd.legacy.status = 0;
-        txd.legacy.css = 0;
-        txd.legacy.vtags = 0;
+        txd.legacy.lower.data.length = 512;
+        txd.legacy.lower.data.cso = 0;
+        txd.legacy.lower.data.cmd = TXD_CMD_IFCS;
+        txd.legacy.upper.raw = 0;
 
         tx.tx_desc_head += 1;
         if tx.tx_desc_head == len {
@@ -1120,6 +1140,8 @@ impl Igb {
     }
 
     fn rx_recv(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let mac_type = self.inner.read().hw.get_mac_type();
+
         let que = &self.que[que_id];
 
         {
@@ -1160,7 +1182,12 @@ impl Igb {
                     return self.recv_jumbo(que_id);
                 }
 
-                let mut len = desc.len as usize;
+                let mut len = if matches!(mac_type, MacType::EmI210 | MacType::EmI350) {
+                    desc.len as usize
+                } else {
+                    desc.len as usize - ETHER_CRC_LEN
+                };
+
                 let vlan = if status & RXD_STAT_VP != 0 {
                     Some(u16::from_le(desc.special))
                 } else {
@@ -1233,6 +1260,13 @@ impl Igb {
         let txd_upper;
         let txd_lower;
 
+        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+        if !(matches!(ext.network, NetworkHdr::Ipv4(_))
+            && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
+        {
+            return Ok((0, 0, 0));
+        }
+
         if ether_frame
             .csum_flags
             .contains(PacketHeaderFlags::TCP_CSUM_OUT)
@@ -1259,6 +1293,8 @@ impl Igb {
             return Ok((0, 0, 0));
         }
 
+        let mut cmd = 0;
+
         let txd = &mut tx.tx_desc_ring.as_mut()[head];
 
         txd.context_desc.ipcss = ETHER_HDR_LEN as u8;
@@ -1273,17 +1309,16 @@ impl Igb {
             txd.context_desc.tucso = ETHER_HDR_LEN as u8
                 + core::mem::size_of::<Ip>() as u8
                 + offset_of!(TCPHdr, th_sum) as u8;
+
+            cmd |= TXD32_CMD_TCP;
         } else if tx.active_checksum_context == ActiveChecksumContext::UdpIP {
             txd.context_desc.tucso = ETHER_HDR_LEN as u8
                 + core::mem::size_of::<Ip>() as u8
                 + offset_of!(UDPHdr, uh_sum) as u8;
         }
 
-        txd.context_desc.status = 0;
-        txd.context_desc.hdr_len = 0;
-        txd.context_desc.mss = 0;
-
-        txd.context_desc.cmd_and_length = u32::to_le(tx.txd_cmd | TXD32_CMD_DEXT);
+        txd.context_desc.data = 0;
+        txd.context_desc.cmd_and_length = u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
 
         Ok((1, txd_lower, txd_upper))
     }
@@ -1297,7 +1332,7 @@ impl Igb {
         ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
-        let mut olinfo_status = 0;
+        let mut olinfo_status = (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
         let mut cmd_type_len = 0;
         let mut vlan_macip_lens = 0;
         let mut off = false;
@@ -1333,6 +1368,8 @@ impl Igb {
         vlan_macip_lens |= iphlen;
         type_tucmd_mlhl |= ADVTXD_DCMD_DEXT | ADVTXD_DTYP_CTXT;
 
+        let mut mss_l4len_idx = (ETHER_MAX_LEN << 16) as u32;
+
         match ext.transport {
             TransportHdr::Tcp(_tcp) => {
                 type_tucmd_mlhl |= ADVTXD_TUCMD_L4T_TCP;
@@ -1341,6 +1378,7 @@ impl Igb {
                     .contains(PacketHeaderFlags::TCP_CSUM_OUT)
                 {
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
+                    mss_l4len_idx |= (mem::size_of::<TCPHdr>() as u32) << 8;
                     off = true;
                 }
             }
@@ -1351,6 +1389,7 @@ impl Igb {
                     .contains(PacketHeaderFlags::UDP_CSUM_OUT)
                 {
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
+                    mss_l4len_idx |= (mem::size_of::<UDPHdr>() as u32) << 8;
                     off = true;
                 }
             }
@@ -1361,10 +1400,8 @@ impl Igb {
             return Ok((0, cmd_type_len, olinfo_status));
         }
 
-        let mss_l4len_idx = if mac_type == MacType::Em82575 {
-            ((me & 0xff) as u32) << 4
-        } else {
-            0
+        if mac_type == MacType::Em82575 {
+            mss_l4len_idx |= ((me & 0xff) as u32) << 4
         };
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
@@ -1391,7 +1428,7 @@ impl Igb {
             if inner.flags.contains(NetFlags::RUNNING) {
                 drop(inner);
                 self.rx_recv(0)?;
-                // TODO: em_txeof()
+                self.txeof(0)?;
             }
 
             reg_icr
@@ -1403,6 +1440,22 @@ impl Igb {
             inner.check_for_link()?;
             inner.update_link_status()?;
         }
+
+        Ok(())
+    }
+
+    fn txeof(&self, que_id: usize) -> Result<(), IgbDriverErr> {
+        let reg_tdh = {
+            let inner = self.inner.read();
+            igb_hw::read_reg(&inner.info, tdh_offset(que_id))? as usize
+        };
+
+        let que = &self.que[que_id];
+
+        let mut node = MCSNode::new();
+        let mut tx = que.tx.lock(&mut node);
+
+        tx.tx_desc_tail = reg_tdh;
 
         Ok(())
     }
@@ -1425,6 +1478,7 @@ impl Igb {
             && mac_type as u32 <= MacType::EmI210 as u32
         {
             self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
+            // (0, 0, 0)
         } else if mac_type as u32 >= MacType::Em82543 as u32 {
             self.transmit_checksum_setup(tx, ether_frame, head)?
         } else {
@@ -1448,8 +1502,8 @@ impl Igb {
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
 
         desc.legacy.buf = u64::to_le(addr);
-        desc.adv_tx.lower = u32::to_le(tx.txd_cmd | txd_lower | len as u32);
-        desc.adv_tx.upper = u32::to_le(txd_upper);
+        desc.legacy.lower.raw = u32::to_le(tx.txd_cmd | txd_lower | (len & 0xffff) as u32);
+        desc.legacy.upper.raw = u32::to_le(txd_upper);
 
         head += 1;
         if head == tx_slots {
@@ -1464,16 +1518,16 @@ impl Igb {
                 || (mac_type as u32) > MacType::EmI210 as u32
             {
                 // Set the VLAN id
-                desc.legacy.vtags = u16::to_le(vlan);
+                desc.legacy.upper.data.vtags = u16::to_le(vlan);
 
                 // Tell hardware to add tag
-                unsafe { desc.legacy.cmd |= TXD_CMD_VLE };
+                unsafe { desc.legacy.lower.data.cmd |= TXD_CMD_VLE };
             }
         }
 
         tx.tx_desc_head = head;
 
-        unsafe { desc.legacy.cmd |= TXD_CMD_EOP | TXD_CMD_RS };
+        unsafe { desc.adv_tx.lower |= TXD32_CMD_EOP | TXD32_CMD_RS };
 
         Ok(used)
     }
@@ -1505,13 +1559,6 @@ impl Igb {
                 break;
             }
 
-            // log::debug!(
-            //     "len = {}, csum_flags = {:?}. data = {:x?}",
-            //     ether_frame.data.len(),
-            //     ether_frame.csum_flags,
-            //     ether_frame.data
-            // );
-
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
 
             free -= used;
@@ -1522,6 +1569,8 @@ impl Igb {
         if inner.hw.get_mac_type() != MacType::Em82547 && post {
             igb_hw::write_reg(&inner.info, tdt_offset(que_id), tx.tx_desc_head as u32)?;
         }
+
+        drop(inner);
 
         Ok(())
     }
@@ -1805,8 +1854,6 @@ impl NetDevice for Igb {
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-
-        awkernel_lib::console::put(b'2');
         self.send(0, &frames).or(Err(NetDevError::DeviceError))
     }
 

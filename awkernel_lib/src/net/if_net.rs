@@ -39,18 +39,18 @@ impl<'a> NetDriverRef<'a> {
         let capabilities = self.capabilities();
 
         if matches!(ext.network, NetworkHdr::Ipv4(_)) && !capabilities.checksum.ipv4.tx() {
-            flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT);
+            flags.insert(PacketHeaderFlags::IPV4_CSUM_OUT); // IPv4 checksum offload
         }
 
         match ext.transport {
             TransportHdr::Tcp(_) => {
                 if !capabilities.checksum.tcp.tx() {
-                    flags.insert(PacketHeaderFlags::TCP_CSUM_OUT);
+                    flags.insert(PacketHeaderFlags::TCP_CSUM_OUT); // TCP checksum offload
                 }
             }
             TransportHdr::Udp(_) => {
                 if !capabilities.checksum.udp.tx() {
-                    flags.insert(PacketHeaderFlags::UDP_CSUM_OUT);
+                    flags.insert(PacketHeaderFlags::UDP_CSUM_OUT); // UDP checksum offload
                 }
             }
             _ => {}
@@ -74,13 +74,16 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
-            cap.checksum.tcp = Checksum::Rx;
-        }
+        // TCP and UDP checksum offload is currently not supported
+        // because of bugs in the current implementation.
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
-            cap.checksum.udp = Checksum::Rx;
-        }
+        // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
+        //     cap.checksum.tcp = Checksum::Rx;
+        // }
+
+        // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
+        //     cap.checksum.udp = Checksum::Rx;
+        // }
 
         cap
     }
@@ -226,7 +229,6 @@ impl IfNet {
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some(data) = device_ref.tx_ringq.pop() {
-                crate::console::put(b'1');
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
 
                 let data = EtherFrameRef {
@@ -236,7 +238,7 @@ impl IfNet {
                 };
 
                 if self.net_device.send(data, que_id).is_err() {
-                    crate::console::put(b'3');
+                    log::error!("Failed to send a packet.");
                 }
             } else {
                 break;
