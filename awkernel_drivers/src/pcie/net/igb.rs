@@ -4,7 +4,14 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    format,
+    sync::Arc,
+    vec::Vec,
+};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -17,7 +24,6 @@ use awkernel_lib::{
         },
         ip::Ip,
         ipv6::Ip6Hdr,
-        multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
         net_device::{
             EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
             PacketHeaderFlags,
@@ -34,7 +40,6 @@ use awkernel_lib::{
 use core::{
     fmt::{self, Debug},
     mem,
-    net::Ipv4Addr,
 };
 use memoffset::offset_of;
 
@@ -271,7 +276,7 @@ struct IgbInner {
     smart_speed: u32,
     pcie_int: PCIeInt,
 
-    multicast_ipv4: MulticastIPv4,
+    multicast_addr: BTreeSet<[u8; 6]>,
 
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     msix_mask: u32,
@@ -512,7 +517,7 @@ impl IgbInner {
             link_duplex: igb_hw::Duplex::None,
             smart_speed: 0,
             pcie_int,
-            multicast_ipv4: MulticastIPv4::new(),
+            multicast_addr: BTreeSet::new(),
             irq_to_rx_tx_link,
             msix_mask: 0,
         };
@@ -656,8 +661,7 @@ impl IgbInner {
         self.flags &= !NetFlags::ALLMULTI;
 
         if self.flags.contains(NetFlags::PROMISC)
-            || self.multicast_ipv4.ranges_len() > 0
-            || self.multicast_ipv4.addrs_len() > MAX_NUM_MULTICAST_ADDRESSES
+            || self.multicast_addr.len() > MAX_NUM_MULTICAST_ADDRESSES
         {
             self.flags |= NetFlags::ALLMULTI;
             reg_ctrl |= RCTL_MPE;
@@ -667,8 +671,7 @@ impl IgbInner {
         } else {
             self.hw.clear_mta(&self.info)?;
 
-            for mc_addr in self.multicast_ipv4.addrs_iter() {
-                let mc_addr = ipv4_addr_to_mac_addr(mc_addr);
+            for mc_addr in self.multicast_addr.iter() {
                 let hash_value = self.hw.hash_mc_addr(&mc_addr);
                 self.hw.mta_set(&self.info, hash_value)?;
             }
@@ -2107,52 +2110,40 @@ impl NetDevice for Igb {
         Some(0) // Use only one queue
     }
 
-    fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let restart;
 
-        if inner.multicast_ipv4.add_addr(addr) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        {
+            let mut inner = self.inner.write();
+            inner.multicast_addr.insert(addr.clone());
+
+            restart = inner.flags.contains(NetFlags::UP);
         }
+
+        if restart {
+            self.down()?;
+            self.up()?;
+        }
+
+        Ok(())
     }
 
-    fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let restart;
 
-        if inner.multicast_ipv4.add_range(start, end) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        {
+            let mut inner = self.inner.write();
+            inner.multicast_addr.remove(addr);
+
+            restart = inner.flags.contains(NetFlags::UP);
         }
-    }
 
-    fn remove_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-
-        if inner.multicast_ipv4.remove_addr(addr) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        if restart {
+            self.down()?;
+            self.up()?;
         }
-    }
 
-    fn remove_multicast_range_ipv4(
-        &self,
-        start: Ipv4Addr,
-        end: Ipv4Addr,
-    ) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-
-        if inner.multicast_ipv4.remove_range(start, end) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
-        }
+        Ok(())
     }
 }
 
