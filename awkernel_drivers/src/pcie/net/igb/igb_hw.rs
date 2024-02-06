@@ -8253,10 +8253,6 @@ impl IgbHw {
         Ok(())
     }
 
-    pub fn get_perm_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
-        self.perm_mac_addr
-    }
-
     pub fn get_mac_addr(&self) -> [u8; NODE_ADDRESS_SIZE] {
         self.mac_addr
     }

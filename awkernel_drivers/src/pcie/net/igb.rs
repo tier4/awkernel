@@ -159,7 +159,6 @@ struct Queue {
     tx: Mutex<Tx>,
     rx: Mutex<Rx>,
     me: usize,
-    eims: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -431,7 +430,7 @@ impl IgbInner {
         }
 
         // Allocate MSI-X or MSI
-        let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &mut que) {
+        let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &que) {
             match &pcie_int {
                 PCIeInt::MsiX(irqs) => {
                     for (irq, irq_rx_tx_link) in irqs.iter() {
@@ -497,8 +496,6 @@ impl IgbInner {
                 | NetCapabilities::CSUM_TCPv6
                 | NetCapabilities::CSUM_UDPv6;
         }
-
-        let perm_mac_addr = hw.get_perm_mac_addr();
 
         // Initialize statistics
         hw.clear_hw_cntrs(&info)?;
@@ -1884,7 +1881,6 @@ fn allocate_desc_rings(info: &PCIeInfo, que_id: usize) -> Result<Queue, IgbDrive
         tx: Mutex::new(tx),
         rx: Mutex::new(rx),
         me: que_id,
-        eims: 1,
     };
 
     Ok(que)
