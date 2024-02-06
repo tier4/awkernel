@@ -537,6 +537,7 @@ fn get_numa_info(
     let mut numa_id_to_memory = BTreeMap::new();
     let mut cpu_to_numa_id = BTreeMap::new();
 
+    // Collect the topology information.
     if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
         for entry in srat.entries() {
             match entry {
@@ -576,9 +577,31 @@ fn get_numa_info(
                 _ => (),
             }
         }
+    } else if let Ok(info) = acpi.platform_info() {
+        if let Some(processor) = &info.processor_info {
+            cpu_to_numa_id.insert(processor.boot_processor.local_apic_id, 0);
+
+            for p in processor.application_processors.iter() {
+                cpu_to_numa_id.insert(p.local_apic_id, 0);
+            }
+
+            for mem in boot_info
+                .memory_regions
+                .iter()
+                .filter(|m| m.kind == MemoryRegionKind::Usable)
+            {
+                numa_id_to_memory
+                    .entry(0)
+                    .or_insert_with(Vec::new)
+                    .push((mem.start as usize, mem.end as usize - mem.start as usize));
+            }
+        } else {
+            log::error!("Failed to get processor information.");
+            awkernel_lib::delay::wait_forever();
+        }
     } else {
-        log::error!("Failed to find SRAT.");
-        wait_forever();
+        log::error!("Failed to get topology information.");
+        awkernel_lib::delay::wait_forever();
     }
 
     let mut memory_regions = BTreeMap::new();
