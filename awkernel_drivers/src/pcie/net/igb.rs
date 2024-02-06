@@ -672,7 +672,7 @@ impl IgbInner {
             self.hw.clear_mta(&self.info)?;
 
             for mc_addr in self.multicast_addr.iter() {
-                let hash_value = self.hw.hash_mc_addr(&mc_addr);
+                let hash_value = self.hw.hash_mc_addr(mc_addr);
                 self.hw.mta_set(&self.info, hash_value)?;
             }
         }
@@ -2115,7 +2115,7 @@ impl NetDevice for Igb {
 
         {
             let mut inner = self.inner.write();
-            inner.multicast_addr.insert(addr.clone());
+            inner.multicast_addr.insert(*addr);
 
             restart = inner.flags.contains(NetFlags::UP);
         }
