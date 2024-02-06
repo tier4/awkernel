@@ -57,7 +57,7 @@ pub trait InterruptController: Sync + Send {
         _segment_number: usize,
         _target: u32,
         _irq: u16,
-        _message_data: &mut u16,
+        _message_data: &mut u32,
         _message_address: &mut u32,
         _message_address_upper: Option<&mut u32>,
     ) -> Result<IRQ, &'static str> {
@@ -246,7 +246,7 @@ pub fn register_handler_pcie_msi<F>(
     func: Box<F>,
     segment_number: usize,
     target: u32,
-    message_data: &mut u16,
+    message_data: &mut u32,
     message_address: &mut u32,
     message_address_upper: Option<&mut u32>,
 ) -> Result<IRQ, &'static str>

@@ -4,7 +4,14 @@ use crate::pcie::{
     capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
-use alloc::{borrow::Cow, boxed::Box, format, sync::Arc, vec, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    format,
+    sync::Arc,
+    vec::Vec,
+};
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -17,7 +24,6 @@ use awkernel_lib::{
         },
         ip::Ip,
         ipv6::Ip6Hdr,
-        multicast::{ipv4_addr_to_mac_addr, MulticastIPv4},
         net_device::{
             EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
             PacketHeaderFlags,
@@ -34,7 +40,6 @@ use awkernel_lib::{
 use core::{
     fmt::{self, Debug},
     mem,
-    net::Ipv4Addr,
 };
 use memoffset::offset_of;
 
@@ -44,6 +49,8 @@ mod igb_hw;
 mod igb_regs;
 
 use igb_regs::*;
+
+use self::igb_hw::get_num_queues;
 
 const DEVICE_NAME: &str = "Intel Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "igb";
@@ -58,7 +65,8 @@ const RXBUFFER_4096: u32 = 4096;
 const RXBUFFER_8192: u32 = 8192;
 const _RXBUFFER_16384: u32 = 16384;
 
-const TXBUFFER_16384: u32 = 16384;
+const TXBUFFER_2048: u32 = 2048;
+const _TXBUFFER_16384: u32 = 16384;
 
 const MAX_SCATTER: usize = 64;
 
@@ -118,7 +126,7 @@ type RxRing = [RxDescriptor; MAX_RXD];
 type RxBuffer = [[u8; RXBUFFER_2048 as usize]; MAX_RXD];
 
 type TxRing = [TxDescriptor; MAX_TXD];
-type TxBuffer = [[u8; TXBUFFER_16384 as usize]; MAX_TXD];
+type TxBuffer = [[u8; TXBUFFER_2048 as usize]; MAX_TXD];
 
 struct Rx {
     rx_desc_head: u32,
@@ -156,7 +164,6 @@ struct Queue {
     tx: Mutex<Tx>,
     rx: Mutex<Rx>,
     me: usize,
-    eims: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -269,7 +276,10 @@ struct IgbInner {
     smart_speed: u32,
     pcie_int: PCIeInt,
 
-    multicast_ipv4: MulticastIPv4,
+    multicast_addr: BTreeSet<[u8; 6]>,
+
+    irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
+    msix_mask: u32,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -282,7 +292,7 @@ pub struct Igb {
     // 4. `IgbInner`'s unlock
     //
     // Otherwise, a deadlock will occur.
-    que: [Queue; 1],
+    que: Vec<Queue>,
     inner: RwLock<IgbInner>,
 }
 
@@ -342,18 +352,18 @@ pub enum IgbDriverErr {
     InvalidPacket,
 }
 
-#[derive(Debug)]
-struct MsiX {
-    link_vec: u32,
-    link_mask: u32,
-    queues_mask: u32,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IRQRxTxLink {
+    RxTx(usize),
+    Link,          // Link status change
+    Legacy(usize), // Rx, Tx or Link
 }
 
 #[derive(Debug)]
 enum PCIeInt {
     None,
     Msi(IRQ),
-    MsiX(MsiX),
+    MsiX(Vec<(IRQ, IRQRxTxLink)>),
 }
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
@@ -403,10 +413,49 @@ impl fmt::Display for IgbDriverErr {
 }
 
 impl IgbInner {
-    fn new(mut info: PCIeInfo, que: &[Queue]) -> Result<Self, PCIeDeviceErr> {
+    fn new(mut info: PCIeInfo) -> Result<(Self, Vec<Queue>), PCIeDeviceErr> {
         let mut hw = igb_hw::IgbHw::new(&mut info)?;
 
-        let pcie_int = if let Ok(pcie_int) = allocate_msi(&mut info) {
+        let mut irq_to_rx_tx_link = BTreeMap::new();
+
+        // Allocate Tx and Rx queues
+        let que_num = if info.msix.is_some()
+            && matches!(
+                hw.get_mac_type(),
+                MacType::Em82576 | MacType::Em82580 | MacType::EmI350 | MacType::EmI210
+            ) {
+            get_num_queues(&hw.get_mac_type())
+        } else {
+            1
+        };
+
+        let mut que = Vec::new();
+        for i in 0..que_num {
+            que.push(allocate_desc_rings(&info, i)?);
+        }
+
+        // Allocate MSI-X or MSI
+        let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &que) {
+            match &pcie_int {
+                PCIeInt::MsiX(irqs) => {
+                    for (irq, irq_rx_tx_link) in irqs.iter() {
+                        let irq = irq.get_irq();
+                        irq_to_rx_tx_link.insert(irq, *irq_rx_tx_link);
+                    }
+                }
+                _ => unreachable!(),
+            }
+
+            pcie_int
+        } else if let Ok(pcie_int) = allocate_msi(&mut info) {
+            match &pcie_int {
+                PCIeInt::Msi(irq) => {
+                    let irq = irq.get_irq();
+                    irq_to_rx_tx_link.insert(irq, IRQRxTxLink::Legacy(0));
+                }
+                _ => unreachable!(),
+            }
+
             pcie_int
         } else {
             PCIeInt::None
@@ -453,8 +502,6 @@ impl IgbInner {
                 | NetCapabilities::CSUM_UDPv6;
         }
 
-        let perm_mac_addr = hw.get_perm_mac_addr();
-
         // Initialize statistics
         hw.clear_hw_cntrs(&info)?;
 
@@ -470,10 +517,14 @@ impl IgbInner {
             link_duplex: igb_hw::Duplex::None,
             smart_speed: 0,
             pcie_int,
-            multicast_ipv4: MulticastIPv4::new(),
+            multicast_addr: BTreeSet::new(),
+            irq_to_rx_tx_link,
+            msix_mask: 0,
         };
 
-        igb.new2()
+        let result = igb.new2()?;
+
+        Ok((result, que))
     }
 
     fn new2(mut self) -> Result<Self, PCIeDeviceErr> {
@@ -581,14 +632,16 @@ impl IgbInner {
         self.setup_receive_structures(que)?;
         self.initialize_receive_unit(que)?;
 
-        self.setup_queues_msix()?;
+        if matches!(self.pcie_int, PCIeInt::MsiX(_)) {
+            self.msix_mask = setup_queues_msix(&self.hw, &self.info, que)?;
+        }
 
         self.iff()?;
 
         self.flags |= NetFlags::RUNNING;
         self.hw.clear_hw_cntrs(&self.info)?;
 
-        self.enable_intr()?; // TODO
+        self.enable_intr()?;
 
         // Don't reset the phy next time init gets called
         self.hw.set_phy_reset_disable(true);
@@ -608,8 +661,7 @@ impl IgbInner {
         self.flags &= !NetFlags::ALLMULTI;
 
         if self.flags.contains(NetFlags::PROMISC)
-            || self.multicast_ipv4.ranges_len() > 0
-            || self.multicast_ipv4.addrs_len() > MAX_NUM_MULTICAST_ADDRESSES
+            || self.multicast_addr.len() > MAX_NUM_MULTICAST_ADDRESSES
         {
             self.flags |= NetFlags::ALLMULTI;
             reg_ctrl |= RCTL_MPE;
@@ -619,8 +671,7 @@ impl IgbInner {
         } else {
             self.hw.clear_mta(&self.info)?;
 
-            for mc_addr in self.multicast_ipv4.addrs_iter() {
-                let mc_addr = ipv4_addr_to_mac_addr(mc_addr);
+            for mc_addr in self.multicast_addr.iter() {
                 let hash_value = self.hw.hash_mc_addr(&mc_addr);
                 self.hw.mta_set(&self.info, hash_value)?;
             }
@@ -839,15 +890,6 @@ impl IgbInner {
         Ok(())
     }
 
-    fn setup_queues_msix(&mut self) -> Result<(), IgbDriverErr> {
-        let PCIeInt::MsiX(_msix) = &mut self.pcie_int else {
-            return Ok(());
-        };
-
-        // TODO
-        Ok(())
-    }
-
     /// This turns on the hardware offload of the VLAN
     /// tag stripping and insertion.
     fn enable_hw_vlans(&self) -> Result<(), IgbDriverErr> {
@@ -867,7 +909,7 @@ impl IgbInner {
 
             let tx_desc_ring = tx.tx_desc_ring.as_mut();
 
-            let tx_buffer_size = TXBUFFER_16384 as usize * MAX_TXD;
+            let tx_buffer_size = TXBUFFER_2048 as usize * MAX_TXD;
             let write_buf = DMAPool::new(
                 self.info.get_segment_group() as usize,
                 tx_buffer_size / PAGESIZE,
@@ -877,7 +919,7 @@ impl IgbInner {
             let buf_phy_addr = write_buf.get_phy_addr().as_usize();
 
             for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.legacy.buf = (buf_phy_addr + i * TXBUFFER_16384 as usize) as u64;
+                desc.legacy.buf = (buf_phy_addr + i * TXBUFFER_2048 as usize) as u64;
                 desc.legacy.lower.raw = 0;
                 desc.legacy.upper.raw = 0;
             }
@@ -958,24 +1000,26 @@ impl IgbInner {
         const PCICFG_DESC_RING_STATUS: usize = 0xe4;
         const FLUSH_DESC_REQUIRED: u16 = 0x100;
 
-        // First, disable MULR fix in FEXTNVM11
-        let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
-        fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
-        igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
+        for q in que.iter() {
+            // First, disable MULR fix in FEXTNVM11
+            let mut fextnvm11 = igb_hw::read_reg(&self.info, FEXTNVM11)?;
+            fextnvm11 |= FEXTNVM11_DISABLE_MULR_FIX;
+            igb_hw::write_reg(&self.info, FEXTNVM11, fextnvm11)?;
 
-        // do nothing if we're not in faulty state, or if the queue is empty
-        let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(que[0].me))?;
-        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
-        if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
-            return Ok(());
-        }
+            // do nothing if we're not in faulty state, or if the queue is empty
+            let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(q.me))?;
+            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
+                return Ok(());
+            }
 
-        self.flush_tx_ring(0, que)?;
+            self.flush_tx_ring(q.me, que)?;
 
-        // recheck, maybe the fault is caused by the rx ring
-        let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
-        if hang_state & FLUSH_DESC_REQUIRED != 0 {
-            self.flush_rx_ring(0, que)?;
+            // recheck, maybe the fault is caused by the rx ring
+            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            if hang_state & FLUSH_DESC_REQUIRED != 0 {
+                self.flush_rx_ring(q.me, que)?;
+            }
         }
 
         Ok(())
@@ -1063,7 +1107,14 @@ impl IgbInner {
     fn enable_intr(&self) -> Result<(), IgbDriverErr> {
         match self.pcie_int {
             PCIeInt::Msi(_) => igb_hw::write_reg(&self.info, IMS, IMS_ENABLE_MASK),
-            PCIeInt::MsiX(_) => todo!(), // em_enable_intr()
+            PCIeInt::MsiX(_) => {
+                igb_hw::write_reg(&self.info, EIAC, self.msix_mask)?;
+                igb_hw::write_reg(&self.info, EIAM, self.msix_mask)?;
+                igb_hw::write_reg(&self.info, EIMS, self.msix_mask)?;
+                igb_hw::write_reg(&self.info, IMS, IMS_LSC)?;
+
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -1077,9 +1128,7 @@ impl IgbInner {
 
 impl Igb {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let que = [allocate_desc_rings(&info)?];
-
-        let inner = IgbInner::new(info, &que)?;
+        let (inner, que) = IgbInner::new(info)?;
 
         let igb = Self {
             inner: RwLock::new(inner),
@@ -1332,10 +1381,12 @@ impl Igb {
         ether_frame: &EtherFrameRef,
         head: usize,
     ) -> Result<(usize, u32, u32), IgbDriverErr> {
-        let mut olinfo_status = (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
+        let mut olinfo_status = 0;
         let mut cmd_type_len = 0;
         let mut vlan_macip_lens = 0;
         let mut off = false;
+
+        let mut header_len = core::mem::size_of::<EtherHeader>() as u32;
 
         if let Some(vlan) = ether_frame.vlan {
             vlan_macip_lens |= (vlan as u32) << ADVTXD_VLAN_SHIFT;
@@ -1368,18 +1419,25 @@ impl Igb {
         vlan_macip_lens |= iphlen;
         type_tucmd_mlhl |= ADVTXD_DCMD_DEXT | ADVTXD_DTYP_CTXT;
 
-        let mut mss_l4len_idx = (ETHER_MAX_LEN << 16) as u32;
+        header_len += iphlen;
 
+        let mut mss_l4len_idx = 0;
+
+        let mut paylen = ether_frame.data.len() as u32;
         match ext.transport {
-            TransportHdr::Tcp(_tcp) => {
+            TransportHdr::Tcp(tcp) => {
                 type_tucmd_mlhl |= ADVTXD_TUCMD_L4T_TCP;
                 if ether_frame
                     .csum_flags
                     .contains(PacketHeaderFlags::TCP_CSUM_OUT)
                 {
+                    header_len += (tcp.data_offset() as u32) * 4;
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
                     mss_l4len_idx |= (mem::size_of::<TCPHdr>() as u32) << 8;
+                    cmd_type_len |= ADVTXD_DCMD_TSE;
                     off = true;
+
+                    paylen = ether_frame.data.len() as u32 - header_len;
                 }
             }
             TransportHdr::Udp(_udp) => {
@@ -1388,17 +1446,24 @@ impl Igb {
                     .csum_flags
                     .contains(PacketHeaderFlags::UDP_CSUM_OUT)
                 {
+                    header_len += mem::size_of::<UDPHdr>() as u32;
                     olinfo_status |= TXD32_POPTS_TXSM << 8;
                     mss_l4len_idx |= (mem::size_of::<UDPHdr>() as u32) << 8;
                     off = true;
+
+                    paylen = ether_frame.data.len() as u32 - header_len;
                 }
             }
             _ => (),
         }
 
+        olinfo_status |= (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
+
         if !off {
             return Ok((0, cmd_type_len, olinfo_status));
         }
+
+        mss_l4len_idx |= paylen << 16;
 
         if mac_type == MacType::Em82575 {
             mss_l4len_idx |= ((me & 0xff) as u32) << 4
@@ -1414,31 +1479,69 @@ impl Igb {
         Ok((1, cmd_type_len, olinfo_status))
     }
 
-    fn intr(&self) -> Result<(), IgbDriverErr> {
-        let reg_icr = {
-            let inner = self.inner.read();
-            let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+    fn link_intr_msix(&self) -> Result<(), IgbDriverErr> {
+        let mut inner = self.inner.write();
+        let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
 
-            if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
-                && reg_icr & ICR_INT_ASSERTED == 0
-            {
-                return Ok(());
-            }
-
-            if inner.flags.contains(NetFlags::RUNNING) {
-                drop(inner);
-                self.rx_recv(0)?;
-                self.txeof(0)?;
-            }
-
-            reg_icr
-        };
-
-        if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-            let mut inner = self.inner.write();
+        if reg_icr & ICR_LSC != 0 {
             inner.hw.set_get_link_status(true);
             inner.check_for_link()?;
             inner.update_link_status()?;
+        }
+
+        igb_hw::write_reg(&inner.info, IMS, ICR_LSC)?;
+        igb_hw::write_reg(&inner.info, EIMS, 1 << self.que.len())?;
+
+        Ok(())
+    }
+
+    fn intr(&self, irq: u16) -> Result<(), IgbDriverErr> {
+        let inner = self.inner.read();
+
+        let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {
+            *reason
+        } else {
+            return Ok(());
+        };
+
+        match reason {
+            IRQRxTxLink::Legacy(que_id) => {
+                let reg_icr = igb_hw::read_reg(&inner.info, ICR)?;
+                if inner.hw.get_mac_type() as u32 >= MacType::Em82571 as u32
+                    && reg_icr & ICR_INT_ASSERTED == 0
+                {
+                    return Ok(());
+                }
+
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.rx_recv(que_id)?;
+                    self.txeof(que_id)?;
+                } else {
+                    drop(inner);
+                }
+
+                if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
+                    let mut inner = self.inner.write();
+                    inner.hw.set_get_link_status(true);
+                    inner.check_for_link()?;
+                    inner.update_link_status()?;
+                }
+            }
+            IRQRxTxLink::RxTx(que_id) => {
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.rx_recv(que_id)?;
+                    self.txeof(que_id)?;
+                }
+
+                let inner = self.inner.read();
+                igb_hw::write_reg(&inner.info, EIMS, 1 << que_id)?;
+            }
+            IRQRxTxLink::Link => {
+                drop(inner);
+                self.link_intr_msix()?;
+            }
         }
 
         Ok(())
@@ -1468,7 +1571,7 @@ impl Igb {
         ether_frame: &EtherFrameRef,
     ) -> Result<usize, IgbDriverErr> {
         let len = ether_frame.data.len();
-        if len > TXBUFFER_16384 as usize {
+        if len > TXBUFFER_2048 as usize {
             return Err(IgbDriverErr::InvalidPacket);
         }
 
@@ -1478,7 +1581,6 @@ impl Igb {
             && mac_type as u32 <= MacType::EmI210 as u32
         {
             self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
-            // (0, 0, 0)
         } else if mac_type as u32 >= MacType::Em82543 as u32 {
             self.transmit_checksum_setup(tx, ether_frame, head)?
         } else {
@@ -1496,7 +1598,7 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_16384 as usize) as u64
+            (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_2048 as usize) as u64
         };
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
@@ -1576,14 +1678,92 @@ impl Igb {
     }
 }
 
+fn setup_queues_msix(
+    hw: &igb_hw::IgbHw,
+    info: &PCIeInfo,
+    que: &[Queue],
+) -> Result<u32, IgbDriverErr> {
+    use igb_hw::MacType::*;
+
+    let mac_type = hw.get_mac_type();
+
+    // First turn on RSS capability
+    if mac_type != Em82575 {
+        igb_hw::write_reg(
+            info,
+            GPIE,
+            GPIE_MSIX_MODE | GPIE_EIAME | GPIE_PBA | GPIE_NSICR,
+        )?;
+    }
+
+    let mut msix_mask = 0;
+
+    // Turn on MSIX
+    match mac_type {
+        Em82580 | EmI210 | EmI350 => {
+            for q in que.iter() {
+                let index = q.me >> 1;
+                let mut ivar = igb_hw::read_reg_array(info, IVAR0, index)?;
+
+                let msix_entry = q.me as u32;
+
+                msix_mask |= 1 << msix_entry;
+
+                if q.me & 1 == 0 {
+                    ivar &= 0xffff_0000;
+                    ivar |= msix_entry | IVAR_VALID; // Rx
+                    ivar |= (msix_entry | IVAR_VALID) << 8; // Tx
+                } else {
+                    ivar &= 0x0000_ffff;
+                    ivar |= (msix_entry | IVAR_VALID) << 16; // Rx
+                    ivar |= (msix_entry | IVAR_VALID) << 24; // Tx
+                }
+
+                igb_hw::write_reg_array(info, IVAR0, index, ivar)?;
+            }
+
+            let link_entry = que.len() as u32;
+
+            msix_mask |= 1 << link_entry;
+
+            let ivar = (link_entry | IVAR_VALID) << 8;
+            igb_hw::write_reg(info, IVAR_MISC, ivar)?;
+        }
+        Em82576 => {
+            todo!()
+        }
+        _ => return Err(IgbDriverErr::InitializeInterrupt),
+    }
+
+    // Set the starting interrupt rate
+    let mut newitr = (4000000 / MAX_INTS_PER_SEC) & 0x7FFC;
+
+    if mac_type == Em82575 {
+        newitr |= newitr << 16;
+    } else {
+        newitr |= EITR_CNT_IGNR;
+    }
+
+    for q in que.iter() {
+        igb_hw::write_reg(info, eitr_offset(q.me), newitr)?;
+    }
+
+    Ok(msix_mask)
+}
+
 fn allocate_msix(
     hw: &igb_hw::IgbHw,
     info: &mut PCIeInfo,
-    que: &mut Queue,
+    que: &[Queue],
 ) -> Result<PCIeInt, IgbDriverErr> {
-    if info.get_msix_mut().is_none() {
-        return Err(IgbDriverErr::InitializeInterrupt);
-    }
+    let segment_number = info.segment_group as usize;
+    let bfd = info.get_bfd();
+
+    let msix = info
+        .get_msix_mut()
+        .ok_or(IgbDriverErr::InitializeInterrupt)?;
+
+    let mut irqs = Vec::new();
 
     if !matches!(
         hw.get_mac_type(),
@@ -1592,15 +1772,37 @@ fn allocate_msix(
         return Err(IgbDriverErr::InitializeInterrupt);
     }
 
-    let vec = 0;
-    que.me = vec;
-    que.eims = 1 << vec;
+    for q in que.iter() {
+        let irq_name_rxtx = format!("{}-{}-RxTx{}", DEVICE_SHORT_NAME, bfd, q.me);
+        let mut irq_rxtx = msix
+            .register_handler(
+                irq_name_rxtx.into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+                q.me,
+            )
+            .or(Err(IgbDriverErr::InitializeInterrupt))?;
+        irq_rxtx.enable();
+        irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
+    }
 
-    // Setup linkvector, use last queue vector + 1
-    let vec = vec + 1;
-    let link_vec = vec as u32;
-
-    // TODO: register interrupt handler
+    let irq_name_tx = format!("{}-{}-Other", DEVICE_SHORT_NAME, bfd);
+    let mut irq_other = msix
+        .register_handler(
+            irq_name_tx.into(),
+            Box::new(move |irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+            segment_number,
+            awkernel_lib::cpu::raw_cpu_id() as u32,
+            que.len(),
+        )
+        .or(Err(IgbDriverErr::InitializeInterrupt))?;
+    irq_other.enable();
+    irqs.push((irq_other, IRQRxTxLink::Link));
 
     if let Some(msi) = info.get_msi_mut() {
         msi.disable();
@@ -1610,11 +1812,7 @@ fn allocate_msix(
     let msix = info.get_msix_mut().unwrap();
     msix.enable();
 
-    Ok(PCIeInt::MsiX(MsiX {
-        link_vec,
-        link_mask: 1 << link_vec,
-        queues_mask: 0,
-    }))
+    Ok(PCIeInt::MsiX(irqs))
 }
 
 fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
@@ -1652,7 +1850,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
     }
 }
 
-fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
+fn allocate_desc_rings(info: &PCIeInfo, que_id: usize) -> Result<Queue, IgbDriverErr> {
     let tx_size = core::mem::size_of::<TxDescriptor>() * MAX_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
 
@@ -1685,8 +1883,7 @@ fn allocate_desc_rings(info: &PCIeInfo) -> Result<Queue, IgbDriverErr> {
     let que = Queue {
         tx: Mutex::new(tx),
         rx: Mutex::new(rx),
-        me: 0,
-        eims: 1,
+        me: que_id,
     };
 
     Ok(que)
@@ -1825,10 +2022,10 @@ impl NetDevice for Igb {
         inner.hw.get_mac_addr()
     }
 
-    fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
         {
             let mut node = MCSNode::new();
-            let mut rx = self.que[0].rx.lock(&mut node);
+            let mut rx = self.que[que_id].rx.lock(&mut node);
 
             let data = rx.read_queue.pop();
             if data.is_some() {
@@ -1836,10 +2033,10 @@ impl NetDevice for Igb {
             }
         }
 
-        self.rx_recv(0).or(Err(NetDevError::DeviceError))?;
+        self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
 
         let mut node = MCSNode::new();
-        let mut rx = self.que[0].rx.lock(&mut node);
+        let mut rx = self.que[que_id].rx.lock(&mut node);
         if let Some(data) = rx.read_queue.pop() {
             Ok(Some(data))
         } else {
@@ -1852,9 +2049,9 @@ impl NetDevice for Igb {
         inner.flags.contains(NetFlags::RUNNING)
     }
 
-    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(0, &frames).or(Err(NetDevError::DeviceError))
+        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {
@@ -1893,71 +2090,60 @@ impl NetDevice for Igb {
         }
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
-        self.intr().or(Err(NetDevError::DeviceError))?;
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
+        self.intr(irq).or(Err(NetDevError::DeviceError))?;
         Ok(())
     }
 
     fn irqs(&self) -> Vec<u16> {
         let inner = self.inner.read();
 
-        match &inner.pcie_int {
-            PCIeInt::MsiX(_msix) => todo!(),
-            PCIeInt::Msi(msi) => vec![msi.get_irq()],
-            _ => vec![],
+        let mut result = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            result.push(*irq);
         }
+
+        result
     }
 
     fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
         Some(0) // Use only one queue
     }
 
-    fn add_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let restart;
 
-        if inner.multicast_ipv4.add_addr(addr) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        {
+            let mut inner = self.inner.write();
+            inner.multicast_addr.insert(addr.clone());
+
+            restart = inner.flags.contains(NetFlags::UP);
         }
+
+        if restart {
+            self.down()?;
+            self.up()?;
+        }
+
+        Ok(())
     }
 
-    fn add_multicast_range_ipv4(&self, start: Ipv4Addr, end: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        let restart;
 
-        if inner.multicast_ipv4.add_range(start, end) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        {
+            let mut inner = self.inner.write();
+            inner.multicast_addr.remove(addr);
+
+            restart = inner.flags.contains(NetFlags::UP);
         }
-    }
 
-    fn remove_multicast_addr_ipv4(&self, addr: Ipv4Addr) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-
-        if inner.multicast_ipv4.remove_addr(addr) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
+        if restart {
+            self.down()?;
+            self.up()?;
         }
-    }
 
-    fn remove_multicast_range_ipv4(
-        &self,
-        start: Ipv4Addr,
-        end: Ipv4Addr,
-    ) -> Result<(), NetDevError> {
-        let mut inner = self.inner.write();
-
-        if inner.multicast_ipv4.remove_range(start, end) {
-            inner.iff().or(Err(NetDevError::DeviceError))?;
-            Ok(())
-        } else {
-            Err(NetDevError::MulticastAddrError)
-        }
+        Ok(())
     }
 }
 
@@ -2099,4 +2285,9 @@ fn rdt_offset(n: usize) -> usize {
     } else {
         0x0C018 + (n * 0x40)
     }
+}
+
+#[inline(always)]
+fn eitr_offset(n: usize) -> usize {
+    0x01680 + (0x4 * (n))
 }
