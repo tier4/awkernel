@@ -74,15 +74,13 @@ impl Msix {
     where
         F: Fn(u16) + Send + 'static,
     {
-        if self.table_size as usize > msi_x_entry {
+        if self.table_size as usize <= msi_x_entry {
             return Err(PCIeDeviceErr::Interrupt);
         }
 
         let mut message_address = 0;
         let mut message_address_upper = 0;
         let mut message_data = 0;
-
-        self.table_bar.read32(16 * msi_x_entry);
 
         let irq = awkernel_lib::interrupt::register_handler_pcie_msi(
             name,
