@@ -22,6 +22,21 @@ default-features = false
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
 
+[dependencies.smoltcp]
+version = "0.11.0"
+default-features = false
+features = [
+    "alloc",
+    "async",
+    "log",
+    "socket-udp",
+    "socket-tcp",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-icmp",
+    "medium-ethernet",
+]
+
 [features]
 default = []
 std = ["awkernel_lib/std", "no_preempt"]

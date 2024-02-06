@@ -39,6 +39,7 @@ version = "0.11"
 default-features = false
 features = [
     "alloc",
+    "async",
     "log",
     "socket-udp",
     "socket-tcp",

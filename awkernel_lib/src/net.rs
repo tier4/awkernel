@@ -1,10 +1,11 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use alloc::{
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     format,
     string::String,
     sync::Arc,
+    vec,
     vec::Vec,
 };
 use core::{fmt::Display, net::Ipv4Addr};
@@ -28,6 +29,9 @@ pub mod udp;
 #[derive(Debug)]
 pub enum NetManagerError {
     InvalidInterfaceID,
+    InvalidIPv4Address,
+    CannotFindInterface,
+    PortInUse,
 }
 
 #[derive(Debug)]
@@ -82,6 +86,8 @@ impl Display for IfStatus {
 static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     interfaces: BTreeMap::new(),
     interface_id: 0,
+    udp_ports_ipv4: BTreeSet::new(),
+    udp_port_ipv4_ephemeral: u16::MAX >> 2,
 });
 
 static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
@@ -89,6 +95,8 @@ static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
     interface_id: u64,
+    udp_ports_ipv4: BTreeSet<u16>,
+    udp_port_ipv4_ephemeral: u16,
 }
 
 pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
@@ -284,6 +292,116 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     Ok(())
 }
 
+/// Create a UDP socket for IPv4.
+///
+/// # Example
+///
+/// ```
+/// use awkernel_lib::net::create_udp_socket_ipv4;
+///
+/// fn example_udp_socket_ipv4() {
+///     let handler = create_udp_socket_ipv4("0.0.0.0", 10000, 64 * 1024).unwrap();
+/// }
+/// ```
+pub fn create_udp_socket_ipv4(
+    addr: &str,
+    port: u16,
+    buffer_size: usize,
+) -> Result<smoltcp::iface::SocketHandle, NetManagerError> {
+    let Ok(addr) = addr.parse::<Ipv4Addr>() else {
+        return Err(NetManagerError::InvalidIPv4Address);
+    };
+
+    let mut net_manager = NET_MANAGER.write();
+
+    let port = if port == 0 {
+        // Find an ephemeral port.
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = net_manager.udp_port_ipv4_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            if !net_manager.udp_ports_ipv4.contains(&port) {
+                net_manager.udp_ports_ipv4.insert(port);
+                net_manager.udp_port_ipv4_ephemeral = port;
+                ephemeral_port = Some(port);
+                break;
+            }
+        }
+
+        if let Some(port) = ephemeral_port {
+            port
+        } else {
+            return Err(NetManagerError::PortInUse);
+        }
+    } else {
+        // Check if the specified port is available.
+        if net_manager.udp_ports_ipv4.contains(&port) {
+            return Err(NetManagerError::PortInUse);
+        }
+
+        net_manager.udp_ports_ipv4.insert(port);
+        port
+    };
+
+    // Find the interface that has the specified address.
+    let addr = IpAddress::v4(
+        addr.octets()[0],
+        addr.octets()[1],
+        addr.octets()[2],
+        addr.octets()[3],
+    );
+
+    let mut if_net = None;
+
+    for (_, iface) in net_manager.interfaces.iter() {
+        let mut node = MCSNode::new();
+        let inner = iface.inner.lock(&mut node);
+
+        if addr.is_unspecified() {
+            if inner.get_default_gateway_ipv4().is_some() {
+                if_net = Some(iface.clone());
+            }
+        } else {
+            for cidr in inner.interface.ip_addrs().iter() {
+                if cidr.address() == addr {
+                    if_net = Some(iface.clone());
+                }
+            }
+        }
+    }
+
+    drop(net_manager);
+
+    let if_net = if_net.ok_or(NetManagerError::CannotFindInterface)?;
+
+    // Create a UDP socket.
+    use smoltcp::socket::udp;
+    let udp_rx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; buffer_size],
+    );
+    let udp_tx_buffer = udp::PacketBuffer::new(
+        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
+        vec![0; buffer_size],
+    );
+
+    let mut socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
+
+    // Bind the socket to the specified port.
+    socket.bind(port).expect("udp socket bind");
+
+    // Add the socket to the interface.
+    let handle = {
+        let mut node = MCSNode::new();
+        let mut if_net_inner = if_net.inner.lock(&mut node);
+
+        if_net_inner.socket_set.add(socket)
+    };
+
+    Ok(handle)
+}
+
 pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -297,7 +415,6 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
 }
 
 pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
-    use alloc::vec;
     use smoltcp::socket::udp;
 
     add_ipv4_addr(interface_id, Ipv4Addr::new(192, 168, 100, 15), 24);

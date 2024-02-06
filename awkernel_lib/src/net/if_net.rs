@@ -135,12 +135,25 @@ pub(super) struct IfNet {
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
     pub(super) socket_set: SocketSet<'static>,
+    pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 }
 
 impl IfNetInner {
     #[inline(always)]
     fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
         (&mut self.interface, &mut self.socket_set)
+    }
+
+    pub fn get_default_gateway_ipv4(&self) -> Option<smoltcp::wire::Ipv4Address> {
+        self.default_gateway_ipv4
+    }
+
+    pub fn set_default_gateway_ipv4(&mut self, gateway: smoltcp::wire::Ipv4Address) {
+        if self.default_gateway_ipv4.is_some() {
+            self.interface.routes_mut().remove_default_ipv4_route();
+        }
+
+        self.default_gateway_ipv4 = Some(gateway);
     }
 }
 
@@ -193,6 +206,7 @@ impl IfNet {
             inner: Mutex::new(IfNetInner {
                 interface,
                 socket_set,
+                default_gateway_ipv4: None,
             }),
             rx_irq_to_drvier,
             net_device,
