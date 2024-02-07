@@ -265,19 +265,21 @@ pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) 
     }
 }
 
-pub fn handle_interrupt(interface_id: u64, irq: u16) {
+/// If some packets are processed, true is returned.
+/// If true is returned, the caller should call this function again.
+pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
     let interface = {
         let net_manager = NET_MANAGER.read();
 
         let Some(interface) = net_manager.interfaces.get(&interface_id) else {
-            return;
+            return false;
         };
 
         interface.clone()
     };
 
     let _ = interface.net_device.interrupt(irq);
-    interface.poll_rx_irq(irq);
+    interface.poll_rx_irq(irq)
 }
 
 pub fn up(interface_id: u64) -> Result<(), NetManagerError> {

@@ -125,7 +125,7 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
     let mut ch = ch.recv().boxed().fuse();
 
     loop {
-        let mut future = NetworkInterrupt { irq, wait: true }.fuse();
+        let mut empty = async {}.boxed().fuse();
 
         select_biased! {
             (ch, _) = ch => {
@@ -133,9 +133,26 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
                 ch.close();
                 return;
             },
-            _ = future => {
-                awkernel_lib::net::handle_interrupt(interface_id, irq);
-            },
+            _ = empty => {},
         }
+
+        if awkernel_lib::net::handle_interrupt(interface_id, irq) {
+            awkernel_async_lib::r#yield().await;
+            continue;
+        }
+
+        let mut irq_wait = NetworkInterrupt { irq, wait: true }.fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = irq_wait => {},
+        }
+
+        awkernel_lib::net::handle_interrupt(interface_id, irq);
+        awkernel_async_lib::r#yield().await;
     }
 }
