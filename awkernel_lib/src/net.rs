@@ -32,6 +32,7 @@ pub enum NetManagerError {
     InvalidIPv4Address,
     CannotFindInterface,
     PortInUse,
+    SendError,
 }
 
 #[derive(Debug)]
@@ -302,18 +303,14 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
 /// use awkernel_lib::net::create_udp_socket_ipv4;
 ///
 /// fn example_udp_socket_ipv4() {
-///     let handler = create_udp_socket_ipv4("0.0.0.0", 10000, 64 * 1024).unwrap();
+///     let handler = create_udp_socket_ipv4_on_iface("0.0.0.0", 10000, 0, 64 * 1024).unwrap();
 /// }
 /// ```
-pub fn create_udp_socket_ipv4(
-    addr: &str,
+pub fn create_udp_socket_ipv4_on_iface(
+    interface_id: u64,
     port: u16,
     buffer_size: usize,
 ) -> Result<smoltcp::iface::SocketHandle, NetManagerError> {
-    let Ok(addr) = addr.parse::<Ipv4Addr>() else {
-        return Err(NetManagerError::InvalidIPv4Address);
-    };
-
     let mut net_manager = NET_MANAGER.write();
 
     let port = if port == 0 {
@@ -347,35 +344,13 @@ pub fn create_udp_socket_ipv4(
     };
 
     // Find the interface that has the specified address.
-    let addr = IpAddress::v4(
-        addr.octets()[0],
-        addr.octets()[1],
-        addr.octets()[2],
-        addr.octets()[3],
-    );
-
-    let mut if_net = None;
-
-    for (_, iface) in net_manager.interfaces.iter() {
-        let mut node = MCSNode::new();
-        let inner = iface.inner.lock(&mut node);
-
-        if addr.is_unspecified() {
-            if inner.get_default_gateway_ipv4().is_some() {
-                if_net = Some(iface.clone());
-            }
-        } else {
-            for cidr in inner.interface.ip_addrs().iter() {
-                if cidr.address() == addr {
-                    if_net = Some(iface.clone());
-                }
-            }
-        }
-    }
+    let if_net = net_manager
+        .interfaces
+        .get(&interface_id)
+        .ok_or(NetManagerError::InvalidInterfaceID)?
+        .clone();
 
     drop(net_manager);
-
-    let if_net = if_net.ok_or(NetManagerError::CannotFindInterface)?;
 
     // Create a UDP socket.
     use smoltcp::socket::udp;
@@ -414,6 +389,45 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let _ = if_net.net_device.down();
 
     Ok(())
+}
+
+/// Send a UDP packet to the specified address and port.
+/// If the packet is sent successfully, true is returned.
+/// If the packet is not sent because the socket is not ready, false is returned,
+/// and the waker is registered for the socket.
+pub fn udp_sendto_v4(
+    interface_id: u64,
+    handle: smoltcp::iface::SocketHandle,
+    data: &[u8],
+    addr: Ipv4Addr,
+    port: u16,
+    waker: &core::task::Waker,
+) -> Result<bool, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let octets = addr.octets();
+    let addr = IpAddress::v4(octets[0], octets[1], octets[2], octets[3]);
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+
+    let socket = inner
+        .socket_set
+        .get_mut::<smoltcp::socket::udp::Socket>(handle);
+
+    if socket.can_send() {
+        socket
+            .send_slice(data, (addr, port))
+            .or(Err(NetManagerError::SendError))?;
+        Ok(true)
+    } else {
+        socket.register_send_waker(waker);
+        Ok(false)
+    }
 }
 
 pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
