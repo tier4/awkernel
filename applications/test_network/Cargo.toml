@@ -1,14 +1,12 @@
 [package]
-name = "awkernel_shell"
+name = "test_network"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-blisp = "0.4"
 log = "0.4"
-byteorder = { version = "1.0", default-features = false }
 
 [dependencies.awkernel_async_lib]
 path = "../../awkernel_async_lib"

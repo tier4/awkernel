@@ -4,7 +4,7 @@ use super::NetManagerError;
 
 use alloc::{vec, vec::Vec};
 
-use core::net::IpAddr;
+use core::net::{Ipv4Addr, Ipv6Addr};
 
 pub struct UdpSocket {
     handle: smoltcp::iface::SocketHandle,
@@ -118,26 +118,6 @@ impl UdpSocket {
         return Err(NetManagerError::InvalidInterfaceID);
     };
 
-        let addr = match addr {
-            IpAddr::V6(addr) => {
-                let octets = addr.octets();
-                smoltcp::wire::IpAddress::v6(
-                    ((octets[1] as u16) << 8) | octets[0] as u16,
-                    ((octets[3] as u16) << 8) | octets[2] as u16,
-                    ((octets[5] as u16) << 8) | octets[4] as u16,
-                    ((octets[7] as u16) << 8) | octets[6] as u16,
-                    ((octets[9] as u16) << 8) | octets[8] as u16,
-                    ((octets[11] as u16) << 8) | octets[10] as u16,
-                    ((octets[13] as u16) << 8) | octets[12] as u16,
-                    ((octets[15] as u16) << 8) | octets[14] as u16,
-                )
-            }
-            IpAddr::V4(addr) => {
-                let octets = addr.octets();
-                smoltcp::wire::IpAddress::v4(octets[0], octets[1], octets[2], octets[3])
-            }
-        };
-
         let mut node = MCSNode::new();
         let mut inner = if_net.inner.lock(&mut node);
 
@@ -147,8 +127,14 @@ impl UdpSocket {
 
         if socket.can_send() {
             socket
-                .send_slice(data, (addr, port))
+                .send_slice(data, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
+
+            drop(inner);
+
+            let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
+            if_net.poll_tx_only(que_id);
+
             Ok(true)
         } else {
             socket.register_send_waker(waker);
@@ -179,32 +165,13 @@ impl UdpSocket {
 
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
-
-            let (addr, port) = match meta_data.endpoint.addr {
-                smoltcp::wire::IpAddress::Ipv4(addr) => {
-                    let addr = IpAddr::V4(core::net::Ipv4Addr::new(
-                        addr.0[0], addr.0[1], addr.0[2], addr.0[3],
-                    ));
-                    let port = meta_data.endpoint.port;
-                    (addr, port)
-                }
-                smoltcp::wire::IpAddress::Ipv6(addr) => {
-                    let addr = IpAddr::V6(core::net::Ipv6Addr::new(
-                        ((addr.0[1] as u16) << 8) | addr.0[0] as u16,
-                        ((addr.0[3] as u16) << 8) | addr.0[2] as u16,
-                        ((addr.0[5] as u16) << 8) | addr.0[4] as u16,
-                        ((addr.0[7] as u16) << 8) | addr.0[6] as u16,
-                        ((addr.0[9] as u16) << 8) | addr.0[8] as u16,
-                        ((addr.0[11] as u16) << 8) | addr.0[10] as u16,
-                        ((addr.0[13] as u16) << 8) | addr.0[12] as u16,
-                        ((addr.0[15] as u16) << 8) | addr.0[14] as u16,
-                    ));
-                    let port = meta_data.endpoint.port;
-                    (addr, port)
-                }
-            };
-
-            Ok(Some((data.to_vec(), addr, port)))
+            Ok(Some((
+                data.to_vec(),
+                IpAddr {
+                    addr: meta_data.endpoint.addr,
+                },
+                meta_data.endpoint.port,
+            )))
         } else {
             socket.register_recv_waker(waker);
             Ok(None)
@@ -221,6 +188,59 @@ impl Drop for UdpSocket {
             let mut node = MCSNode::new();
             let mut if_net_inner = if_net.inner.lock(&mut node);
             if_net_inner.socket_set.remove(self.handle);
+        }
+    }
+}
+
+/// Wrapper for `smoltcp::wire::IpAddress` to convert to and from `core::net::IpAddr`.
+#[derive(Debug, Clone)]
+pub struct IpAddr {
+    addr: smoltcp::wire::IpAddress,
+}
+
+impl IpAddr {
+    pub fn new_v4(addr: Ipv4Addr) -> IpAddr {
+        let octets = addr.octets();
+        IpAddr {
+            addr: smoltcp::wire::IpAddress::Ipv4(smoltcp::wire::Ipv4Address::new(
+                octets[0], octets[1], octets[2], octets[3],
+            )),
+        }
+    }
+
+    pub fn new_v6(addr: Ipv6Addr) -> IpAddr {
+        let octets = addr.octets();
+        IpAddr {
+            addr: smoltcp::wire::IpAddress::Ipv6(smoltcp::wire::Ipv6Address::new(
+                ((octets[0] as u16) << 8) | octets[1] as u16,
+                ((octets[2] as u16) << 8) | octets[3] as u16,
+                ((octets[4] as u16) << 8) | octets[5] as u16,
+                ((octets[6] as u16) << 8) | octets[7] as u16,
+                ((octets[8] as u16) << 8) | octets[9] as u16,
+                ((octets[10] as u16) << 8) | octets[11] as u16,
+                ((octets[12] as u16) << 8) | octets[13] as u16,
+                ((octets[14] as u16) << 8) | octets[15] as u16,
+            )),
+        }
+    }
+
+    pub fn get_addr(&self) -> core::net::IpAddr {
+        match self.addr {
+            smoltcp::wire::IpAddress::Ipv4(addr) => core::net::IpAddr::V4(
+                core::net::Ipv4Addr::new(addr.0[0], addr.0[1], addr.0[2], addr.0[3]),
+            ),
+            smoltcp::wire::IpAddress::Ipv6(addr) => {
+                core::net::IpAddr::V6(core::net::Ipv6Addr::new(
+                    ((addr.0[1] as u16) << 8) | addr.0[0] as u16,
+                    ((addr.0[3] as u16) << 8) | addr.0[2] as u16,
+                    ((addr.0[5] as u16) << 8) | addr.0[4] as u16,
+                    ((addr.0[7] as u16) << 8) | addr.0[6] as u16,
+                    ((addr.0[9] as u16) << 8) | addr.0[8] as u16,
+                    ((addr.0[11] as u16) << 8) | addr.0[10] as u16,
+                    ((addr.0[13] as u16) << 8) | addr.0[12] as u16,
+                    ((addr.0[15] as u16) << 8) | addr.0[14] as u16,
+                ))
+            }
         }
     }
 }

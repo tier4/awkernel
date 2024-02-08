@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use core::net::IpAddr;
+use awkernel_lib::net::socket::IpAddr;
 use futures::Future;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,7 +13,7 @@ pub struct UdpSocket {
 }
 
 impl UdpSocket {
-    pub fn create_on_iface(
+    pub fn create_on_interface(
         interface_id: u64,
         port: u16,
         buffer_size: usize,

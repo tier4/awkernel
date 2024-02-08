@@ -161,6 +161,11 @@ pub trait NetDevice {
     fn irqs(&self) -> Vec<u16>;
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize>;
 
+    /// Number of queues that the network device supports.
+    /// This must be a power of 2:
+    /// 0, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, etc.
+    fn num_queues(&self) -> usize;
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
 }

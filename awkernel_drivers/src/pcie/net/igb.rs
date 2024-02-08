@@ -1978,6 +1978,10 @@ impl PCIeDevice for Igb {
 }
 
 impl NetDevice for Igb {
+    fn num_queues(&self) -> usize {
+        self.que.len()
+    }
+
     fn flags(&self) -> NetFlags {
         let inner = self.inner.read();
         inner.flags
