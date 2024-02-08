@@ -50,6 +50,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
+        #[cfg(not(feature = "std"))]
         if let Some(irq) = awkernel_lib::timer::irq_id() {
             awkernel_lib::interrupt::enable_irq(irq);
 
@@ -73,6 +74,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::enable_irq(64);
 
         loop {
@@ -113,6 +115,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
     } else {
+        #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         // Non-primary CPUs.

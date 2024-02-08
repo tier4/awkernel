@@ -32,6 +32,7 @@ use awkernel_lib::{
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
+    unwind::catch_unwind,
 };
 use bootloader_api::{
     config::Mapping,
@@ -110,6 +111,26 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table);
 
+    let _ = catch_unwind(|| {
+        kernel_main2(
+            boot_info,
+            page_table,
+            backup_pages,
+            backup_region,
+            backup_next_frame,
+        )
+    });
+
+    wait_forever();
+}
+
+fn kernel_main2(
+    boot_info: &'static mut BootInfo,
+    mut page_table: OffsetPageTable<'static>,
+    backup_pages: usize,
+    backup_region: MemoryRegion,
+    backup_next_frame: Option<PhysFrame>,
+) {
     // 5. Enable logger.
     super::console::register_console();
 
@@ -223,7 +244,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // 15. Initialize PCIe devices.
-    awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators);
+    if awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators)
+        .is_err()
+    {
+        // fallback
+        awkernel_drivers::pcie::init_with_io();
+    }
+
+    loop {}
 
     // 16. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
@@ -244,8 +272,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // 18. Call `crate::main()`.
     crate::main(kernel_info);
-
-    wait_forever()
 }
 
 fn init_primary_heap(

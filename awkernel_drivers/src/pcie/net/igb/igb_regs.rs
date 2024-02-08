@@ -384,7 +384,7 @@ pub const HDX_COLLISION_DISTANCE: u32 = COLLISION_DISTANCE;
 pub const COLD_SHIFT: u32 = 12;
 
 // FEXTNVM registers
-pub const FEXTNVM7: usize = 0xe;
+pub const FEXTNVM7: usize = 0xe4;
 pub const FEXTNVM7_SIDE_CLK_UNGATE: u32 = 0x04;
 pub const FEXTNVM7_DISABLE_SMB_PERST: u32 = 0x00000020;
 pub const FEXTNVM9: usize = 0x5bb4;

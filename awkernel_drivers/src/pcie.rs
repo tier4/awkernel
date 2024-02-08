@@ -41,6 +41,7 @@ impl BaseAddress {
     }
 
     pub fn read16(&self, offset: usize) -> Option<u16> {
+        assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -62,6 +63,7 @@ impl BaseAddress {
     }
 
     pub fn read32(&self, offset: usize) -> Option<u32> {
+        assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -102,6 +104,7 @@ impl BaseAddress {
     }
 
     pub fn write16(&mut self, offset: usize, val: u16) {
+        assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -121,6 +124,7 @@ impl BaseAddress {
     }
 
     pub fn write32(&mut self, offset: usize, val: u32) {
+        assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
@@ -255,13 +259,14 @@ pub(crate) mod registers {
     pub const BAR0: usize = 0x10;
 }
 
-/// Initialize the PCIe for ACPI
+/// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT, E>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
-) where
+) -> Result<(), PCIeDeviceErr>
+where
     F: Frame,
     FA: FrameAllocator<F, E>,
     PT: PageTable<F, FA, E>,
@@ -274,7 +279,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
-    let pcie_info = PciConfigRegions::new(acpi).unwrap();
+    let pcie_info = PciConfigRegions::new(acpi).or(Err(PCIeDeviceErr::InitFailure))?;
     for segment in pcie_info.iter() {
         let flags = Flags {
             write: true,
@@ -300,8 +305,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
                     .map_to(virt_addr, phy_addr, flags, page_allocator)
                     .is_err()
             } {
-                log::error!("Failed to map the PCIe config space.");
-                return;
+                return Err(PCIeDeviceErr::InitFailure);
             }
 
             config_start += PAGESIZE;
@@ -318,6 +322,46 @@ pub fn init_with_acpi<F, FA, PT, E>(
                 page_allocator,
             );
         }
+    }
+
+    Ok(())
+}
+
+/// Initialize the PCIe with IO port.
+#[cfg(feature = "x86")]
+pub fn init_with_io() {
+    for bus in 0..=255 {
+        for device in 0..32 {
+            for func_num in 0..8 {
+                let vendor = pci_conf_read_word_with_io(bus, device, func_num, 0);
+                if vendor != 0xffff {
+                    log::debug!(
+                        "PCI device found: {:02x}:{:02x}:{:02x}",
+                        bus,
+                        device,
+                        func_num
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "x86")]
+fn pci_conf_read_word_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+    let addr: u32 = 0x80000000
+        | (bus as u32) << 16
+        | (slot as u32) << 11
+        | (func as u32) << 8
+        | (offset as u32 & 0xfc);
+
+    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+    unsafe {
+        port1.write(addr);
+        let tmp: u32 = port2.read();
+        (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
     }
 }
 
