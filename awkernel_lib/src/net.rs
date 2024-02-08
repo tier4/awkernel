@@ -23,6 +23,7 @@ pub mod ip;
 pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
+pub mod socket;
 pub mod tcp;
 pub mod udp;
 
@@ -33,6 +34,7 @@ pub enum NetManagerError {
     CannotFindInterface,
     PortInUse,
     SendError,
+    RecvError,
 }
 
 #[derive(Debug)]
@@ -295,90 +297,6 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     Ok(())
 }
 
-/// Create a UDP socket for IPv4.
-///
-/// # Example
-///
-/// ```
-/// use awkernel_lib::net::create_udp_socket_ipv4;
-///
-/// fn example_udp_socket_ipv4() {
-///     let handler = create_udp_socket_ipv4_on_iface("0.0.0.0", 10000, 0, 64 * 1024).unwrap();
-/// }
-/// ```
-pub fn create_udp_socket_ipv4_on_iface(
-    interface_id: u64,
-    port: u16,
-    buffer_size: usize,
-) -> Result<smoltcp::iface::SocketHandle, NetManagerError> {
-    let mut net_manager = NET_MANAGER.write();
-
-    let port = if port == 0 {
-        // Find an ephemeral port.
-        let mut ephemeral_port = None;
-        for i in 0..(u16::MAX >> 2) {
-            let port = net_manager.udp_port_ipv4_ephemeral.wrapping_add(i);
-            let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-            if !net_manager.udp_ports_ipv4.contains(&port) {
-                net_manager.udp_ports_ipv4.insert(port);
-                net_manager.udp_port_ipv4_ephemeral = port;
-                ephemeral_port = Some(port);
-                break;
-            }
-        }
-
-        if let Some(port) = ephemeral_port {
-            port
-        } else {
-            return Err(NetManagerError::PortInUse);
-        }
-    } else {
-        // Check if the specified port is available.
-        if net_manager.udp_ports_ipv4.contains(&port) {
-            return Err(NetManagerError::PortInUse);
-        }
-
-        net_manager.udp_ports_ipv4.insert(port);
-        port
-    };
-
-    // Find the interface that has the specified address.
-    let if_net = net_manager
-        .interfaces
-        .get(&interface_id)
-        .ok_or(NetManagerError::InvalidInterfaceID)?
-        .clone();
-
-    drop(net_manager);
-
-    // Create a UDP socket.
-    use smoltcp::socket::udp;
-    let udp_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; buffer_size],
-    );
-    let udp_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; buffer_size],
-    );
-
-    let mut socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
-
-    // Bind the socket to the specified port.
-    socket.bind(port).expect("udp socket bind");
-
-    // Add the socket to the interface.
-    let handle = {
-        let mut node = MCSNode::new();
-        let mut if_net_inner = if_net.inner.lock(&mut node);
-
-        if_net_inner.socket_set.add(socket)
-    };
-
-    Ok(handle)
-}
-
 pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -389,45 +307,6 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let _ = if_net.net_device.down();
 
     Ok(())
-}
-
-/// Send a UDP packet to the specified address and port.
-/// If the packet is sent successfully, true is returned.
-/// If the packet is not sent because the socket is not ready, false is returned,
-/// and the waker is registered for the socket.
-pub fn udp_sendto_v4(
-    interface_id: u64,
-    handle: smoltcp::iface::SocketHandle,
-    data: &[u8],
-    addr: Ipv4Addr,
-    port: u16,
-    waker: &core::task::Waker,
-) -> Result<bool, NetManagerError> {
-    let net_manager = NET_MANAGER.read();
-
-    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
-        return Err(NetManagerError::InvalidInterfaceID);
-    };
-
-    let octets = addr.octets();
-    let addr = IpAddress::v4(octets[0], octets[1], octets[2], octets[3]);
-
-    let mut node = MCSNode::new();
-    let mut inner = if_net.inner.lock(&mut node);
-
-    let socket = inner
-        .socket_set
-        .get_mut::<smoltcp::socket::udp::Socket>(handle);
-
-    if socket.can_send() {
-        socket
-            .send_slice(data, (addr, port))
-            .or(Err(NetManagerError::SendError))?;
-        Ok(true)
-    } else {
-        socket.register_send_waker(waker);
-        Ok(false)
-    }
 }
 
 pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
