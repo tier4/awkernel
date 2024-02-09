@@ -251,14 +251,15 @@ pub(crate) mod registers {
     mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
     mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
     mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
-    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>);
     mmio_rw!(offset 0x3c => pub INTERRUPT_LINE<u8>);
+
+    pub const CAPABILITY_POINTER: usize = 0x34;
 
     // Type 1 (PCI-to-PCI bridge)
     mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
 
     // Capability
-    mmio_r!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
+    pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     pub const BAR0: usize = 0x10;
 }
@@ -542,8 +543,13 @@ impl PCIeInfo {
                 i += if bar.is_64bit_memory() { 2 } else { 1 };
             }
 
+            let config_base: u32 = 0x80000000
+                | (bus_number as u32) << 16
+                | (device_number as u32) << 11
+                | (function_number as u32) << 8;
+
             Ok(PCIeInfo {
-                config_base: 0,
+                config_base: config_base as usize,
                 segment_group: 0,
                 bus_number,
                 device_number,
@@ -559,7 +565,7 @@ impl PCIeInfo {
                 msi: None,
                 msix: None,
                 pcie_cap: None,
-                is_memory_space: true,
+                is_memory_space: false,
             })
         }
     }
@@ -608,7 +614,7 @@ impl PCIeInfo {
                 msi: None,
                 msix: None,
                 pcie_cap: None,
-                is_memory_space: false,
+                is_memory_space: true,
             })
         }
     }
@@ -1126,6 +1132,28 @@ fn read_bar_with_io(
             }
         } else {
             BaseAddress::None
+        }
+    }
+}
+
+pub fn pci_read_config_space_u32(is_memory_space: bool, addr: usize) -> u32 {
+    if is_memory_space {
+        unsafe { read_volatile(addr as *const u32) }
+    } else {
+        #[cfg(feature = "x86")]
+        {
+            let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+            let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+            unsafe {
+                port1.write(addr as u32);
+                port2.read()
+            }
+        }
+
+        #[cfg(not(feature = "x86"))]
+        {
+            unreachable!()
         }
     }
 }

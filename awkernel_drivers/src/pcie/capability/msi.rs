@@ -86,8 +86,8 @@ pub enum MultipleMessage {
 ///     - If eight messages had been allocated, the lower three bits of the message data could be modified to represent one of the eight different events.
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
 impl Msi {
-    pub fn new(cap_ptr: usize) -> Self {
-        let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr);
+    pub fn new(base: usize) -> Self {
+        let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base);
 
         let multiple_message_capable = {
             let mlt_msg = (ctrl_cap >> 17) & 0b111;
@@ -107,7 +107,7 @@ impl Msi {
         let bit64_address_capable = ctrl_cap & registers::CTRL_BIT64_ADDRESS_CAPABLE != 0;
 
         Self {
-            base: cap_ptr,
+            base,
             multiple_message_capable,
             per_vector_mask_capable,
             bit64_address_capable,

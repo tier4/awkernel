@@ -29,24 +29,24 @@ pub struct Msix {
 }
 
 impl Msix {
-    pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Option<Self> {
-        let table_size = ((registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(cap_ptr) >> 16)
+    pub fn new(info: &PCIeInfo, base: usize) -> Option<Self> {
+        let table_size = ((registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base) >> 16)
             & 0b0111_1111_1111) as u16;
 
-        let table_offset = registers::MSIX_TABLE_OFFSET.read(cap_ptr);
+        let table_offset = registers::MSIX_TABLE_OFFSET.read(base);
         let table_bir = (table_offset & 0b111) as u8;
         let table_offset = table_offset & !0b111;
 
         let table_bar = info.get_bar(table_bir as usize)?;
 
-        let pba_offset = registers::MSIX_PBA_OFFSET.read(cap_ptr);
+        let pba_offset = registers::MSIX_PBA_OFFSET.read(base);
         let pba_bir = (pba_offset & 0b111) as u8;
         let pba_offset = pba_offset & !0b111;
 
         let pba_bar = info.get_bar(pba_bir as usize)?;
 
         Some(Self {
-            base: cap_ptr,
+            base,
             table_size,
             table_offset,
             table_bar,
