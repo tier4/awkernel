@@ -2,7 +2,7 @@ use crate::{net::NET_MANAGER, sync::mcs::MCSNode};
 
 use super::NetManagerError;
 
-use alloc::{vec, vec::Vec};
+use alloc::vec;
 
 use core::net::{Ipv4Addr, Ipv6Addr};
 
@@ -21,10 +21,10 @@ impl UdpSocket {
     /// use awkernel_lib::net::socket::UDPSocket;
     ///
     /// fn example_udp_socket_ipv4() {
-    ///     let handler = UDPSocket::create_ipv4_on_iface("0.0.0.0", 10000, 0, 64 * 1024).unwrap();
+    ///     let handler = UDPSocket::bind_on_interface(0, 10000, 64 * 1024).unwrap();
     /// }
     /// ```
-    pub fn create_ipv4_on_iface(
+    pub fn bind_on_interface(
         interface_id: u64,
         port: u16,
         buffer_size: usize,
@@ -251,4 +251,10 @@ impl IpAddr {
             }
         }
     }
+}
+
+pub struct TcpSocket {
+    handle: smoltcp::iface::SocketHandle,
+    interface_id: u64,
+    port: u16,
 }

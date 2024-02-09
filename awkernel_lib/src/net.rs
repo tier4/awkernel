@@ -23,9 +23,9 @@ pub mod ip;
 pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
-pub mod socket;
 pub mod tcp;
 pub mod udp;
+pub mod udp_socket;
 
 #[derive(Debug)]
 pub enum NetManagerError {

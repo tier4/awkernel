@@ -1,4 +1,4 @@
-use awkernel_lib::net::socket::IpAddr;
+use awkernel_lib::net::udp_socket::IpAddr;
 use futures::Future;
 use pin_project::pin_project;
 
@@ -9,16 +9,16 @@ pub enum UdpSocketError {
 }
 
 pub struct UdpSocket {
-    socket_handle: awkernel_lib::net::socket::UdpSocket,
+    socket_handle: awkernel_lib::net::udp_socket::UdpSocket,
 }
 
 impl UdpSocket {
-    pub fn create_on_interface(
+    pub fn bind_on_interface(
         interface_id: u64,
         port: u16,
         buffer_size: usize,
     ) -> Result<UdpSocket, UdpSocketError> {
-        let socket_handle = awkernel_lib::net::socket::UdpSocket::create_ipv4_on_iface(
+        let socket_handle = awkernel_lib::net::udp_socket::UdpSocket::bind_on_interface(
             interface_id,
             port,
             buffer_size,
