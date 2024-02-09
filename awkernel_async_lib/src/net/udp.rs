@@ -1,4 +1,4 @@
-use awkernel_lib::net::udp_socket::IpAddr;
+use awkernel_lib::net::ip_addr::IpAddr;
 use futures::Future;
 use pin_project::pin_project;
 
@@ -15,11 +15,13 @@ pub struct UdpSocket {
 impl UdpSocket {
     pub fn bind_on_interface(
         interface_id: u64,
+        addr: IpAddr,
         port: u16,
         buffer_size: usize,
     ) -> Result<UdpSocket, UdpSocketError> {
         let socket_handle = awkernel_lib::net::udp_socket::UdpSocket::bind_on_interface(
             interface_id,
+            addr,
             port,
             buffer_size,
         )

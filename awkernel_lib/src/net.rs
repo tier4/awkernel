@@ -20,10 +20,13 @@ pub mod ether;
 pub mod ethertypes;
 mod if_net;
 pub mod ip;
+pub mod ip_addr;
 pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
 pub mod tcp;
+pub mod tcp_listener;
+pub mod tcp_stream;
 pub mod udp;
 pub mod udp_socket;
 
@@ -91,6 +94,8 @@ static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     interface_id: 0,
     udp_ports_ipv4: BTreeSet::new(),
     udp_port_ipv4_ephemeral: u16::MAX >> 2,
+    tcp_listen_ports_ipv4: BTreeSet::new(),
+    tcp_port_ipv4_ephemeral: u16::MAX >> 2,
 });
 
 static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
@@ -100,6 +105,8 @@ pub struct NetManager {
     interface_id: u64,
     udp_ports_ipv4: BTreeSet<u16>,
     udp_port_ipv4_ephemeral: u16,
+    tcp_listen_ports_ipv4: BTreeSet<u16>,
+    tcp_port_ipv4_ephemeral: u16,
 }
 
 pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
