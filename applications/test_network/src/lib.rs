@@ -24,6 +24,8 @@ async fn udp_test() {
 
     let dst_addr = awkernel_lib::net::socket::IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 1));
 
+    let mut buf = [0u8; 1024 * 2];
+
     loop {
         let t0 = awkernel_lib::delay::uptime();
 
@@ -34,7 +36,7 @@ async fn udp_test() {
             .unwrap();
 
         // Receive a UDP packet.
-        socket.recv().await.unwrap();
+        socket.recv(&mut buf).await.unwrap();
 
         let t1 = awkernel_lib::delay::uptime();
         let rtt = t1 - t0;

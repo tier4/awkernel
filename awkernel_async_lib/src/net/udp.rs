@@ -1,6 +1,6 @@
-use alloc::vec::Vec;
 use awkernel_lib::net::socket::IpAddr;
 use futures::Future;
+use pin_project::pin_project;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdpSocketError {
@@ -43,8 +43,13 @@ impl UdpSocket {
         .await
     }
 
-    pub async fn recv(&mut self) -> Result<(Vec<u8>, IpAddr, u16), UdpSocketError> {
-        UdpReceiver { socket: self }.await
+    /// Receive a UDP packet from the socket.
+    /// This function returns the number of bytes read, the source address, and the source port.
+    ///
+    /// If the length of the received data is greater than the length of the buffer,
+    /// the data is truncated to the length of the buffer.
+    pub async fn recv(&mut self, buf: &mut [u8]) -> Result<(usize, IpAddr, u16), UdpSocketError> {
+        UdpReceiver { socket: self, buf }.await
     }
 }
 
@@ -64,7 +69,7 @@ impl<'a> Future for UdpSender<'a> {
         match self
             .socket
             .socket_handle
-            .sendto(self.data, self.dst_addr, self.dst_port, cx.waker())
+            .send_to(self.data, self.dst_addr, self.dst_port, cx.waker())
         {
             Ok(true) => core::task::Poll::Ready(Ok(())),
             Ok(false) => core::task::Poll::Pending,
@@ -72,17 +77,24 @@ impl<'a> Future for UdpSender<'a> {
         }
     }
 }
+
+#[pin_project]
 pub struct UdpReceiver<'a> {
     socket: &'a mut UdpSocket,
+    buf: &'a mut [u8],
 }
 
 impl<'a> Future for UdpReceiver<'a> {
-    type Output = Result<(Vec<u8>, IpAddr, u16), UdpSocketError>;
+    type Output = Result<(usize, IpAddr, u16), UdpSocketError>;
     fn poll(
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        match self.socket.socket_handle.recv(cx.waker()) {
+        let this = self.project();
+
+        let (socket, buf) = (this.socket, this.buf);
+
+        match socket.socket_handle.recv(buf, cx.waker()) {
             Ok(Some(result)) => core::task::Poll::Ready(Ok(result)),
             Ok(None) => core::task::Poll::Pending,
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),

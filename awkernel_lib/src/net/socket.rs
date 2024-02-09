@@ -105,7 +105,7 @@ impl UdpSocket {
     /// If the packet is sent successfully, true is returned.
     /// If the packet is not sent because the socket is not ready, false is returned,
     /// and the waker is registered for the socket.
-    pub fn sendto(
+    pub fn send_to(
         &self,
         data: &[u8],
         addr: &IpAddr,
@@ -146,10 +146,13 @@ impl UdpSocket {
     /// If a packet is received, the data, source address, and source port are returned.
     /// If a packet is not received, an error is returned.
     /// If the socket is not ready to receive, the waker is registered for the socket.
+    ///
+    /// Return value: `(length of the received data, source address, source port)`
     pub fn recv(
         &self,
+        dst: &mut [u8],
         waker: &core::task::Waker,
-    ) -> Result<Option<(Vec<u8>, IpAddr, u16)>, NetManagerError> {
+    ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError> {
         let net_manager = NET_MANAGER.read();
 
         let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
@@ -165,8 +168,13 @@ impl UdpSocket {
 
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
+
+            let len = dst.len().min(data.len());
+
+            unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), dst.as_mut_ptr(), len) };
+
             Ok(Some((
-                data.to_vec(),
+                len,
                 IpAddr {
                     addr: meta_data.endpoint.addr,
                 },

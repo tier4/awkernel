@@ -251,8 +251,6 @@ fn kernel_main2(
         awkernel_drivers::pcie::init_with_io();
     }
 
-    loop {}
-
     // 16. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
 
