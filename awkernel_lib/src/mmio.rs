@@ -295,6 +295,11 @@ where
         let old = self.read(base);
         self.write(old & !mask, base);
     }
+
+    #[inline]
+    pub fn offset(&self) -> usize {
+        OFFSET
+    }
 }
 
 /// Read only MMIO.
@@ -331,6 +336,11 @@ impl<const OFFSET: usize, T> ReadOnlyOffset<OFFSET, T> {
     pub fn read(&self, base: usize) -> T {
         unsafe { read_volatile((base + OFFSET) as *const T) }
     }
+
+    #[inline]
+    pub fn offset(&self) -> usize {
+        OFFSET
+    }
 }
 
 /// Write only MMIO.
@@ -363,5 +373,10 @@ impl<const OFFSET: usize, T> WriteOnlyOffset<OFFSET, T> {
     #[inline]
     pub fn write(&self, n: T, base: usize) {
         unsafe { write_volatile((base + OFFSET) as *mut T, n) }
+    }
+
+    #[inline]
+    pub fn offset(&self) -> usize {
+        OFFSET
     }
 }

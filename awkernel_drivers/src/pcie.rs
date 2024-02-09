@@ -160,6 +160,7 @@ pub enum PCIeDeviceErr {
     InvalidClass,
     Interrupt,
     NotImplemented,
+    BARFailure,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -195,6 +196,9 @@ impl fmt::Display for PCIeDeviceErr {
             }
             Self::CommandFailure => {
                 write!(f, "Failed to execute the command.")
+            }
+            Self::BARFailure => {
+                write!(f, "Failed to read the base address register.")
             }
         }
     }
@@ -333,14 +337,8 @@ pub fn init_with_io() {
     for bus in 0..=255 {
         for device in 0..32 {
             for func_num in 0..8 {
-                let vendor = pci_conf_read_word_with_io(bus, device, func_num, 0);
-                if vendor != 0xffff {
-                    log::debug!(
-                        "PCI device found: {:02x}:{:02x}:{:02x}",
-                        bus,
-                        device,
-                        func_num
-                    );
+                if let Ok(info) = PCIeInfo::from_io(bus, device, func_num) {
+                    log::debug!("PCIe device: {:?}", info);
                 }
             }
         }
@@ -348,7 +346,7 @@ pub fn init_with_io() {
 }
 
 #[cfg(feature = "x86")]
-fn pci_conf_read_word_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
+fn pci_conf_read_u16_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
     let addr: u32 = 0x80000000
         | (bus as u32) << 16
         | (slot as u32) << 11
@@ -362,6 +360,40 @@ fn pci_conf_read_word_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
         port1.write(addr);
         let tmp: u32 = port2.read();
         (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+    }
+}
+
+#[cfg(feature = "x86")]
+fn pci_conf_write_u32_with_io(bus: u8, slot: u8, func: u8, offset: u8, val: u32) {
+    let addr: u32 = 0x80000000
+        | (bus as u32) << 16
+        | (slot as u32) << 11
+        | (func as u32) << 8
+        | (offset as u32 & 0xfc);
+
+    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+    let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+
+    unsafe {
+        port1.write(addr);
+        port2.write(val);
+    }
+}
+
+#[cfg(feature = "x86")]
+fn pci_conf_read_u32_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u32 {
+    let addr: u32 = 0x80000000
+        | (bus as u32) << 16
+        | (slot as u32) << 11
+        | (func as u32) << 8
+        | (offset as u32 & 0xfc);
+
+    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+    unsafe {
+        port1.write(addr);
+        port2.read()
     }
 }
 
@@ -438,6 +470,7 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
+    is_memory_space: bool, // Memory space or IO space
 }
 
 impl fmt::Display for PCIeInfo {
@@ -456,6 +489,81 @@ impl fmt::Display for PCIeInfo {
 }
 
 impl PCIeInfo {
+    #[cfg(feature = "x86")]
+    fn from_io(
+        bus_number: u8,
+        device_number: u8,
+        function_number: u8,
+    ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        let ids = pci_conf_read_u32_with_io(
+            bus_number,
+            device_number,
+            function_number,
+            registers::DEVICE_VENDOR_ID.offset() as u8,
+        );
+        let vendor = (ids & 0xffff) as u16;
+        let id = (ids >> 16) as u16;
+
+        let header_type = (pci_conf_read_u32_with_io(
+            bus_number,
+            device_number,
+            function_number,
+            registers::BIST_HEAD_LAT_CACH.offset() as u8,
+        ) >> 16
+            & 0xff) as u8;
+        let multiple_functions = header_type & 0x80 == 0x80;
+        let header_type = header_type & 0x7f;
+
+        let cls_rev_id = pci_conf_read_u32_with_io(
+            bus_number,
+            device_number,
+            function_number,
+            registers::CLASS_CODE_REVISION_ID.offset() as u8,
+        );
+        let revision_id = (cls_rev_id & 0xff) as u8;
+
+        let pcie_class = pcie_class::PCIeClass::from_u8(
+            (cls_rev_id >> 24) as u8,
+            ((cls_rev_id >> 16) & 0xff) as u8,
+        )
+        .ok_or(PCIeDeviceErr::InvalidClass)?;
+
+        if id == !0 || vendor == !0 {
+            Err(PCIeDeviceErr::InitFailure)
+        } else {
+            let mut i = 0;
+            while i < 6 {
+                let bar = read_bar_with_io(
+                    bus_number,
+                    device_number,
+                    function_number,
+                    (registers::BAR0 + i * 4) as u8,
+                );
+                i += if bar.is_64bit_memory() { 2 } else { 1 };
+            }
+
+            Ok(PCIeInfo {
+                config_base: 0,
+                segment_group: 0,
+                bus_number,
+                device_number,
+                function_number,
+                id,
+                vendor,
+                revision_id,
+                pcie_class,
+                device_name: None,
+                multiple_functions,
+                header_type,
+                base_addresses: array![_ => BaseAddress::None; 6],
+                msi: None,
+                msix: None,
+                pcie_cap: None,
+                is_memory_space: true,
+            })
+        }
+    }
+
     /// Get the information for PCIe device
     fn from_addr(
         segment_group: u16,
@@ -500,6 +608,7 @@ impl PCIeInfo {
                 msi: None,
                 msix: None,
                 pcie_cap: None,
+                is_memory_space: false,
             })
         }
     }
@@ -545,19 +654,91 @@ impl PCIeInfo {
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {
-        registers::STATUS_COMMAND.read(self.config_base)
+        if self.is_memory_space {
+            registers::STATUS_COMMAND.read(self.config_base)
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                let offset = registers::STATUS_COMMAND.offset() as u8;
+                let val = pci_conf_read_u32_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset,
+                );
+                registers::StatusCommand::from_bits_truncate(val)
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
-        registers::STATUS_COMMAND.write(csr, self.config_base);
+        if self.is_memory_space {
+            registers::STATUS_COMMAND.write(csr, self.config_base);
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                let offset = registers::STATUS_COMMAND.offset() as u8;
+                pci_conf_write_u32_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset,
+                    csr.bits(),
+                );
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub fn read_config_space_u32(&self, offset: usize) -> u32 {
-        unsafe { read_volatile((self.config_base + offset) as *const u32) }
+        if self.is_memory_space {
+            unsafe { read_volatile((self.config_base + offset) as *const u32) }
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                pci_conf_read_u32_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset as u8,
+                )
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub fn read_config_space_u16(&self, offset: usize) -> u16 {
-        unsafe { read_volatile((self.config_base + offset) as *const u16) }
+        if self.is_memory_space {
+            unsafe { read_volatile((self.config_base + offset) as *const u16) }
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                pci_conf_read_u16_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset as u8,
+                )
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub fn get_segment_group(&self) -> u16 {
@@ -565,11 +746,59 @@ impl PCIeInfo {
     }
 
     pub fn get_interrupt_line(&mut self) -> u8 {
-        registers::INTERRUPT_LINE.read(self.config_base)
+        if self.is_memory_space {
+            registers::INTERRUPT_LINE.read(self.config_base)
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                let offset = registers::INTERRUPT_LINE.offset() as u8;
+                let val = pci_conf_read_u16_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset,
+                );
+
+                (val & 0xff) as u8
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub fn set_interrupt_line(&mut self, irq: u8) {
-        registers::INTERRUPT_LINE.write(irq, self.config_base);
+        if self.is_memory_space {
+            registers::INTERRUPT_LINE.write(irq, self.config_base);
+        } else {
+            #[cfg(feature = "x86")]
+            {
+                let offset = registers::INTERRUPT_LINE.offset() as u8;
+                let val = pci_conf_read_u32_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset,
+                );
+
+                let val = (val & !0xff) | irq as u32;
+
+                pci_conf_write_u32_with_io(
+                    self.bus_number,
+                    self.device_number,
+                    self.function_number,
+                    offset,
+                    val,
+                );
+            }
+
+            #[cfg(not(feature = "x86"))]
+            {
+                unreachable!()
+            }
+        }
     }
 
     pub(crate) fn read_capability(&mut self) {
@@ -594,18 +823,33 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        let mut csr = registers::STATUS_COMMAND.read(self.config_base);
+        let mut csr = self.read_status_command();
 
         // Disable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, false);
         csr.set(registers::StatusCommand::IO_SPACE, false);
-        registers::STATUS_COMMAND.write(csr, self.config_base);
+        self.write_status_command(csr);
 
         if self.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
         } else {
             let mut i = 0;
             while i < num_reg {
+                #[cfg(not(feature = "x86"))]
                 let bar = read_bar(self.config_base + registers::BAR0 + i * 4);
+
+                #[cfg(feature = "x86")]
+                let bar = {
+                    if self.is_memory_space {
+                        read_bar(self.config_base + registers::BAR0 + i * 4)
+                    } else {
+                        read_bar_with_io(
+                            self.bus_number,
+                            self.device_number,
+                            self.function_number,
+                            (registers::BAR0 + i * 4) as u8,
+                        )
+                    }
+                };
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -621,7 +865,7 @@ impl PCIeInfo {
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
         csr.set(registers::StatusCommand::IO_SPACE, true);
-        registers::STATUS_COMMAND.write(csr, self.config_base);
+        self.write_status_command(csr);
 
         // map MMIO regions
         for bar in self.base_addresses.iter() {
@@ -716,17 +960,17 @@ pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
 }
 
+const BAR_IO: u32 = 0b1;
+const BAR_TYPE_MASK: u32 = 0b110;
+const BAR_TYPE_32: u32 = 0b000;
+const BAR_TYPE_64: u32 = 0b100;
+const BAR_PREFETCHABLE: u32 = 0b1000;
+const BAR_IO_ADDR_MASK: u32 = !0b11;
+const BAR_MEM_ADDR_MASK: u32 = !0b1111;
+
 /// Read the base address of `addr`.
 fn read_bar(addr: usize) -> BaseAddress {
     let bar = unsafe { read_volatile::<u32>(addr as *const u32) };
-
-    const BAR_IO: u32 = 0b1;
-    const BAR_TYPE_MASK: u32 = 0b110;
-    const BAR_TYPE_32: u32 = 0b000;
-    const BAR_TYPE_64: u32 = 0b100;
-    const BAR_PREFETCHABLE: u32 = 0b1000;
-    const BAR_IO_ADDR_MASK: u32 = !0b11;
-    const BAR_MEM_ADDR_MASK: u32 = !0b1111;
 
     if (bar & BAR_IO) == 1 {
         // I/O space
@@ -768,6 +1012,102 @@ fn read_bar(addr: usize) -> BaseAddress {
 
                 write_volatile(addr as *mut u32, bar);
                 write_volatile(high_addr as *mut u32, high_bar);
+
+                (!((high_size as u64) << 32 | (low_size as u64)) + 1) as usize
+            };
+
+            let addr = (((high_bar as u64) << 32) | (bar & BAR_MEM_ADDR_MASK) as u64) as usize;
+
+            if size == 0 {
+                BaseAddress::None
+            } else {
+                BaseAddress::MMIO {
+                    addr,
+                    size,
+                    address_type: AddressType::T64B,
+                    prefetchable: (bar & BAR_PREFETCHABLE) > 1,
+                }
+            }
+        } else {
+            BaseAddress::None
+        }
+    }
+}
+
+/// Read the base address of `addr`.
+#[cfg(feature = "x86")]
+fn read_bar_with_io(
+    bus_number: u8,
+    device_number: u8,
+    function_number: u8,
+    offset: u8,
+) -> BaseAddress {
+    let bar = pci_conf_read_u32_with_io(bus_number, device_number, function_number, offset);
+
+    if (bar & BAR_IO) == 1 {
+        // I/O space
+        let addr = bar & BAR_IO_ADDR_MASK;
+        BaseAddress::IO(addr)
+    } else {
+        let bar_type = bar & BAR_TYPE_MASK;
+        if bar_type == BAR_TYPE_32 {
+            let size = {
+                pci_conf_write_u32_with_io(bus_number, device_number, function_number, offset, !0);
+                let size =
+                    pci_conf_read_u32_with_io(bus_number, device_number, function_number, offset);
+                pci_conf_write_u32_with_io(bus_number, device_number, function_number, offset, bar);
+                (!size).wrapping_add(1) as usize
+            };
+
+            if size == 0 {
+                BaseAddress::None
+            } else {
+                BaseAddress::MMIO {
+                    addr: (bar & BAR_MEM_ADDR_MASK) as usize,
+                    size,
+                    address_type: AddressType::T32B,
+                    prefetchable: (bar & BAR_PREFETCHABLE) > 1,
+                }
+            }
+        } else if bar_type == BAR_TYPE_64 {
+            let high_offset = offset + 4;
+            let high_bar =
+                pci_conf_read_u32_with_io(bus_number, device_number, function_number, high_offset);
+
+            let size = {
+                let high_bar = pci_conf_read_u32_with_io(
+                    bus_number,
+                    device_number,
+                    function_number,
+                    high_offset,
+                );
+
+                pci_conf_write_u32_with_io(bus_number, device_number, function_number, offset, !0);
+                pci_conf_write_u32_with_io(
+                    bus_number,
+                    device_number,
+                    function_number,
+                    high_offset,
+                    !0,
+                );
+
+                let low_size =
+                    pci_conf_read_u32_with_io(bus_number, device_number, function_number, offset);
+                let high_size = pci_conf_read_u32_with_io(
+                    bus_number,
+                    device_number,
+                    function_number,
+                    high_offset,
+                );
+
+                pci_conf_write_u32_with_io(bus_number, device_number, function_number, offset, bar);
+                pci_conf_write_u32_with_io(
+                    bus_number,
+                    device_number,
+                    function_number,
+                    high_offset,
+                    high_bar,
+                );
 
                 (!((high_size as u64) << 32 | (low_size as u64)) + 1) as usize
             };
