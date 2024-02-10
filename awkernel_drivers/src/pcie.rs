@@ -806,22 +806,7 @@ impl PCIeInfo {
         } else {
             let mut i = 0;
             while i < num_reg {
-                #[cfg(not(feature = "x86"))]
-                let bar = read_bar(self.config_base + registers::BAR0 + i * 4);
-
-                #[cfg(feature = "x86")]
-                let bar = {
-                    if self.is_memory_space {
-                        read_bar(self.config_base + registers::BAR0 + i * 4)
-                    } else {
-                        read_bar_with_io(
-                            self.bus_number,
-                            self.device_number,
-                            self.function_number,
-                            (registers::BAR0 + i * 4) as u8,
-                        )
-                    }
-                };
+                let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -937,8 +922,8 @@ const BAR_IO_ADDR_MASK: u32 = !0b11;
 const BAR_MEM_ADDR_MASK: u32 = !0b1111;
 
 /// Read the base address of `addr`.
-fn read_bar(addr: usize) -> BaseAddress {
-    let bar = unsafe { read_volatile::<u32>(addr as *const u32) };
+fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
+    let bar = config_space.read_u32(offset);
 
     if (bar & BAR_IO) == 1 {
         // I/O space
@@ -948,10 +933,10 @@ fn read_bar(addr: usize) -> BaseAddress {
 
         let bar_type = bar & BAR_TYPE_MASK;
         if bar_type == BAR_TYPE_32 {
-            let size = unsafe {
-                write_volatile(addr as *mut u32, !0);
-                let size = read_volatile::<u32>(addr as *const u32);
-                write_volatile(addr as *mut u32, bar);
+            let size = {
+                config_space.write_u32(!0, offset);
+                let size = config_space.read_u32(offset);
+                config_space.write_u32(bar, offset);
                 (!size).wrapping_add(1) as usize
             };
 
@@ -966,20 +951,20 @@ fn read_bar(addr: usize) -> BaseAddress {
                 }
             }
         } else if bar_type == BAR_TYPE_64 {
-            let high_addr = addr + 4;
-            let high_bar = unsafe { read_volatile::<u32>(high_addr as *const u32) };
+            let high_offset = offset + 4;
+            let high_bar = config_space.read_u32(high_offset);
 
-            let size = unsafe {
-                let high_bar = read_volatile::<u32>(high_addr as *const u32);
+            let size = {
+                let high_bar = config_space.read_u32(high_offset);
 
-                write_volatile(addr as *mut u32, !0);
-                write_volatile(high_addr as *mut u32, !0);
+                config_space.write_u32(!0, offset);
+                config_space.write_u32(!0, high_offset);
 
-                let low_size = read_volatile::<u32>(addr as *const u32);
-                let high_size = read_volatile::<u32>(high_addr as *const u32);
+                let low_size = config_space.read_u32(offset);
+                let high_size = config_space.read_u32(high_offset);
 
-                write_volatile(addr as *mut u32, bar);
-                write_volatile(high_addr as *mut u32, high_bar);
+                config_space.write_u32(bar, offset);
+                config_space.write_u32(high_bar, high_offset);
 
                 (!((high_size as u64) << 32 | (low_size as u64)) + 1) as usize
             };
