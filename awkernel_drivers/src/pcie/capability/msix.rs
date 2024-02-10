@@ -1,24 +1,23 @@
 use alloc::{borrow::Cow, boxed::Box};
 use awkernel_lib::interrupt::IRQ;
 
-use crate::pcie::{BaseAddress, PCIeDeviceErr, PCIeInfo};
+use crate::pcie::{BaseAddress, ConfigSpace, PCIeDeviceErr, PCIeInfo};
 
 mod registers {
-    use awkernel_lib::{mmio_r, mmio_rw};
-
-    mmio_rw!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
+    pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0;
 
     // Message Control Register
     pub const CTRL_ENABLE: u32 = 1 << 31;
 
     // MSI-X
-    mmio_r!(offset 0x04 => pub MSIX_TABLE_OFFSET<u32>);
-    mmio_r!(offset 0x08 => pub MSIX_PBA_OFFSET<u32>); // Pending Bit Array
+    pub const MSIX_TABLE_OFFSET: usize = 0x04;
+    pub const MSIX_PBA_OFFSET: usize = 0x08; // Pending Bit Array
 }
 
 #[derive(Debug)]
 pub struct Msix {
-    base: usize,
+    cap_ptr: usize,
+    config_space: ConfigSpace,
     table_size: u16, // N - 1
 
     table_offset: u32, // Table offset
@@ -29,24 +28,28 @@ pub struct Msix {
 }
 
 impl Msix {
-    pub fn new(info: &PCIeInfo, base: usize) -> Option<Self> {
-        let table_size = ((registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base) >> 16)
-            & 0b0111_1111_1111) as u16;
+    pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Option<Self> {
+        let config_space = info.config_space.clone();
 
-        let table_offset = registers::MSIX_TABLE_OFFSET.read(base);
+        let table_size =
+            ((config_space.read_u32(cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID) >> 16)
+                & 0b0111_1111_1111) as u16;
+
+        let table_offset = config_space.read_u32(cap_ptr + registers::MSIX_TABLE_OFFSET);
         let table_bir = (table_offset & 0b111) as u8;
         let table_offset = table_offset & !0b111;
 
         let table_bar = info.get_bar(table_bir as usize)?;
 
-        let pba_offset = registers::MSIX_PBA_OFFSET.read(base);
+        let pba_offset = config_space.read_u32(cap_ptr + registers::MSIX_PBA_OFFSET);
         let pba_bir = (pba_offset & 0b111) as u8;
         let pba_offset = pba_offset & !0b111;
 
         let pba_bar = info.get_bar(pba_bir as usize)?;
 
         Some(Self {
-            base,
+            cap_ptr,
+            config_space,
             table_size,
             table_offset,
             table_bar,
@@ -56,11 +59,23 @@ impl Msix {
     }
 
     pub fn disable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.base);
+        let reg = self
+            .config_space
+            .read_u32(registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
+        self.config_space.write_u32(
+            reg & !registers::CTRL_ENABLE,
+            self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
+        );
     }
 
     pub fn enable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.base);
+        let reg = self
+            .config_space
+            .read_u32(registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
+        self.config_space.write_u32(
+            reg | registers::CTRL_ENABLE,
+            self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
+        );
     }
 
     pub fn register_handler<F>(

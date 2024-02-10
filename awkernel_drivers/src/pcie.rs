@@ -1082,25 +1082,3 @@ fn read_bar_with_io(
         }
     }
 }
-
-pub fn pci_read_config_space_u32(is_memory_space: bool, addr: usize) -> u32 {
-    if is_memory_space {
-        unsafe { read_volatile(addr as *const u32) }
-    } else {
-        #[cfg(feature = "x86")]
-        {
-            let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
-            let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
-
-            unsafe {
-                port1.write(addr as u32);
-                port2.read()
-            }
-        }
-
-        #[cfg(not(feature = "x86"))]
-        {
-            unreachable!()
-        }
-    }
-}

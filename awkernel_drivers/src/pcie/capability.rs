@@ -43,18 +43,16 @@ pub fn read(info: &mut PCIeInfo) {
 
     while cap_ptr != 0 {
         let base = info.config_base + cap_ptr;
-        let msg_ctl_next_id = super::pci_read_config_space_u32(
-            info.is_memory_space,
-            base + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
-        );
+        let msg_ctl_next_id = info
+            .config_space
+            .read_u32(cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
 
         let cap_id = msg_ctl_next_id & 0xff;
-        cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
 
         match cap_id as u8 {
             MSIX => {
                 log::debug!("MSI-X capability found.");
-                info.msix = msix::Msix::new(info, base);
+                info.msix = msix::Msix::new(info, cap_ptr);
             }
             MSI => {
                 log::debug!("MSI capability found.");
@@ -68,5 +66,7 @@ pub fn read(info: &mut PCIeInfo) {
             }
             _ => (),
         }
+
+        cap_ptr = ((msg_ctl_next_id >> 8) & 0b1111_1100) as usize;
     }
 }
