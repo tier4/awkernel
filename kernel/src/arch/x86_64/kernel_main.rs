@@ -248,7 +248,8 @@ fn kernel_main2(
         .is_err()
     {
         // fallback
-        awkernel_drivers::pcie::init_with_io();
+        let allocator0 = page_allocators.get_mut(&0).unwrap();
+        awkernel_drivers::pcie::init_with_io(&mut awkernel_page_table, allocator0);
     }
 
     // 16. Initialize the primary heap memory allocator.

@@ -50,16 +50,13 @@ pub fn read(info: &mut PCIeInfo) {
 
         match cap_id as u8 {
             MSIX => {
-                log::debug!("MSI-X capability found.");
                 info.msix = msix::Msix::new(info, cap_ptr);
             }
             MSI => {
-                log::debug!("MSI capability found.");
                 let msi = msi::Msi::new(info, cap_ptr);
                 info.msi = Some(msi);
             }
             PCI_EXPRESS => {
-                log::debug!("PCIe capability found.");
                 let pcie_cap = pcie_cap::PCIeCap::new(info, cap_ptr);
                 info.pcie_cap = Some(pcie_cap);
             }

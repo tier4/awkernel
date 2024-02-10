@@ -25,7 +25,8 @@ pub enum ConfigSpace {
 
 impl ConfigSpace {
     fn new_io(bus_number: u8, device_number: u8, function_number: u8) -> Self {
-        let base = (bus_number as u32) << 16
+        let base = 0x80000000
+            | (bus_number as u32) << 16
             | (device_number as u32) << 11
             | (function_number as u32) << 8;
         Self::IO(base)
@@ -43,7 +44,7 @@ impl ConfigSpace {
                     let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
                     let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
 
-                    let addr = *base + (offset as u32) & 0xfc;
+                    let addr = *base | ((offset as u32) & 0xfc);
                     unsafe {
                         port1.write(addr);
                         let tmp: u32 = port2.read();
@@ -71,7 +72,7 @@ impl ConfigSpace {
                     let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
                     let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
 
-                    let addr = *base + (offset as u32) & 0xfc;
+                    let addr = *base | ((offset as u32) & 0xfc);
                     unsafe {
                         port1.write(addr);
                         port2.read()
@@ -98,7 +99,7 @@ impl ConfigSpace {
                     let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
                     let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
 
-                    let addr = *base + (offset as u32) & 0xfc;
+                    let addr = *base | ((offset as u32) & 0xfc);
                     unsafe {
                         port1.write(addr);
                         port2.write(data);
@@ -434,12 +435,26 @@ where
 
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
-pub fn init_with_io() {
+pub fn init_with_io<F, FA, PT, E>(page_table: &mut PT, page_allocator: &mut FA)
+where
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
+    E: Debug,
+{
     for bus in 0..=255 {
         for device in 0..32 {
             for func_num in 0..8 {
                 if let Ok(info) = PCIeInfo::from_io(bus, device, func_num) {
-                    log::debug!("PCIe device: {:?}", info);
+                    let multiple_functions = info.multiple_functions;
+
+                    let _ = info.attach(page_table, page_allocator);
+
+                    if func_num == 0 && !multiple_functions {
+                        break;
+                    }
+                } else if func_num == 0 {
+                    break;
                 }
             }
         }
@@ -495,6 +510,8 @@ fn scan_devices<F, FA, PT, E>(
                 if func == 0 && !multiple_functions {
                     break;
                 }
+            } else if func == 0 {
+                break;
             }
         }
     }
@@ -577,6 +594,11 @@ impl PCIeInfo {
 
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
+
+        if id == !0 || vendor == !0 {
+            return Err(PCIeDeviceErr::InitFailure);
+        }
+
         let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
         let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
@@ -590,28 +612,28 @@ impl PCIeInfo {
         )
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
-        if id == !0 || vendor == !0 {
-            Err(PCIeDeviceErr::InitFailure)
-        } else {
-            Ok(PCIeInfo {
-                config_space,
-                segment_group,
-                bus_number,
-                device_number,
-                function_number,
-                id,
-                vendor,
-                revision_id,
-                pcie_class,
-                device_name: None,
-                multiple_functions,
-                header_type,
-                base_addresses: array![_ => BaseAddress::None; 6],
-                msi: None,
-                msix: None,
-                pcie_cap: None,
-            })
-        }
+        let mut result = PCIeInfo {
+            config_space,
+            segment_group,
+            bus_number,
+            device_number,
+            function_number,
+            id,
+            vendor,
+            revision_id,
+            pcie_class,
+            device_name: None,
+            multiple_functions,
+            header_type,
+            base_addresses: array![_ => BaseAddress::None; 6],
+            msi: None,
+            msix: None,
+            pcie_cap: None,
+        };
+
+        result.read_capability();
+
+        Ok(result)
     }
 
     /// Get the information for PCIe device as BFD format.

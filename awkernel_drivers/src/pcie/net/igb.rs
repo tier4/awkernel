@@ -314,9 +314,6 @@ where
         return Err(PCIeDeviceErr::PageTableFailure);
     }
 
-    // Read the capability of PCIe device.
-    info.read_capability();
-
     let igb = Igb::new(info)?;
 
     awkernel_lib::net::add_interface(Arc::new(igb), None);
