@@ -5874,14 +5874,18 @@ impl IgbHw {
                     Ok(())
                 }
                 EEPROMType::Microwire => {
-                    for d in data.iter_mut() {
+                    for (i, d) in data.iter_mut().enumerate() {
                         // Send the READ command (opcode + addr)
                         hw.shift_out_ee_bits(
                             info,
                             EEPROM_READ_OPCODE_MICROWIRE,
                             hw.eeprom.opcode_bits,
                         )?;
-                        hw.shift_out_ee_bits(info, (offset + 1) as u16, hw.eeprom.address_bits)?;
+                        hw.shift_out_ee_bits(
+                            info,
+                            (offset + i as u32) as u16,
+                            hw.eeprom.address_bits,
+                        )?;
 
                         // Read the data.  For microwire, each word requires
                         // the overhead of eeprom setup and tear-down.
