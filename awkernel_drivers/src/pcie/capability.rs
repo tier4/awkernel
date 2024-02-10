@@ -42,7 +42,6 @@ pub fn read(info: &mut PCIeInfo) {
         (info.config_space.read_u32(registers::CAPABILITY_POINTER) & 0b1111_1100) as usize;
 
     while cap_ptr != 0 {
-        let base = info.config_base + cap_ptr;
         let msg_ctl_next_id = info
             .config_space
             .read_u32(cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
@@ -56,12 +55,12 @@ pub fn read(info: &mut PCIeInfo) {
             }
             MSI => {
                 log::debug!("MSI capability found.");
-                let msi = msi::Msi::new(base);
+                let msi = msi::Msi::new(info, cap_ptr);
                 info.msi = Some(msi);
             }
             PCI_EXPRESS => {
                 log::debug!("PCIe capability found.");
-                let pcie_cap = pcie_cap::PCIeCap::new(base);
+                let pcie_cap = pcie_cap::PCIeCap::new(info, cap_ptr);
                 info.pcie_cap = Some(pcie_cap);
             }
             _ => (),

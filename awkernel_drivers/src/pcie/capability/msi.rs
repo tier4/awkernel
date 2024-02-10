@@ -2,12 +2,10 @@ use awkernel_lib::interrupt::IRQ;
 
 use alloc::{borrow::Cow, boxed::Box};
 
-use crate::pcie::PCIeDeviceErr;
+use crate::pcie::{ConfigSpace, PCIeDeviceErr, PCIeInfo};
 
 mod registers {
-    use awkernel_lib::{mmio_r, mmio_rw};
-
-    mmio_rw!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
+    pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     // Message Control Register
     pub const CTRL_ENABLE: u32 = 1 << 16;
@@ -16,19 +14,20 @@ mod registers {
 
     pub const MESSAGE_ADDRESS_32: usize = 0x04;
     pub const MESSAGE_DATA_32: usize = 0x08;
-    mmio_rw!(offset 0x0c => pub MASK_BITS_32<u32>);
-    mmio_r!(offset 0x10 => pub PENDING_BITS_32<u32>);
+    pub const MASK_BITS_32: usize = 0x0c;
+    pub const PENDING_BITS_32: usize = 0x10;
 
     pub const MESSAGE_ADDRESS_64_LOW: usize = 0x04;
     pub const MESSAGE_ADDRESS_64_HIGH: usize = 0x08;
     pub const MESSAGE_DATA_64: usize = 0x0c;
-    mmio_rw!(offset 0x10 => pub MASK_BITS_64<u32>);
-    mmio_r!(offset 0x14 => pub PENDING_BITS_64<u32>);
+    pub const MASK_BITS_64: usize = 0x10;
+    pub const PENDING_BITS_64: usize = 0x14;
 }
 
 #[derive(Debug)]
 pub struct Msi {
-    base: usize,
+    cap_ptr: usize,
+    config_space: ConfigSpace,
     multiple_message_capable: MultipleMessage,
     per_vector_mask_capable: bool,
     bit64_address_capable: bool,
@@ -86,8 +85,10 @@ pub enum MultipleMessage {
 ///     - If eight messages had been allocated, the lower three bits of the message data could be modified to represent one of the eight different events.
 ///     - This flexibility allows for more granular identification of different types of interrupts or conditions within the device.
 impl Msi {
-    pub fn new(base: usize) -> Self {
-        let ctrl_cap = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(base);
+    pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Self {
+        let config_space = info.config_space.clone();
+
+        let ctrl_cap = config_space.read_u32(cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
 
         let multiple_message_capable = {
             let mlt_msg = (ctrl_cap >> 17) & 0b111;
@@ -107,7 +108,8 @@ impl Msi {
         let bit64_address_capable = ctrl_cap & registers::CTRL_BIT64_ADDRESS_CAPABLE != 0;
 
         Self {
-            base,
+            cap_ptr,
+            config_space,
             multiple_message_capable,
             per_vector_mask_capable,
             bit64_address_capable,
@@ -116,16 +118,31 @@ impl Msi {
 
     /// Enable MSI.
     pub fn enable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.setbits(registers::CTRL_ENABLE, self.base);
+        let reg = self
+            .config_space
+            .read_u32(self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
+        self.config_space.write_u32(
+            reg | registers::CTRL_ENABLE,
+            self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
+        )
     }
 
     /// Disable MSI.
     pub fn disable(&mut self) {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.clrbits(registers::CTRL_ENABLE, self.base);
+        let reg = self
+            .config_space
+            .read_u32(self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
+        self.config_space.write_u32(
+            reg & !registers::CTRL_ENABLE,
+            self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
+        )
     }
 
     pub fn is_enabled(&self) -> bool {
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.base) & registers::CTRL_ENABLE != 0
+        self.config_space
+            .read_u32(self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID)
+            & registers::CTRL_ENABLE
+            != 0
     }
 
     pub fn get_multiple_message_capable(&self) -> MultipleMessage {
@@ -149,9 +166,13 @@ impl Msi {
             MultipleMessage::ThirtyTwo => 0b101,
         };
 
-        let reg = registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID.read(self.base);
-        registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID
-            .write((reg & !(0b111 << (16 + 4))) | (mme << (16 + 4)), self.base);
+        let reg = self
+            .config_space
+            .read_u32(self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID);
+        self.config_space.write_u32(
+            (reg & !(0b111 << (16 + 4))) | (mme << (16 + 4)),
+            self.cap_ptr + registers::MESSAGE_CONTROL_NEXT_PTR_CAP_ID,
+        );
 
         Ok(())
     }
@@ -170,34 +191,48 @@ impl Msi {
     where
         F: Fn(u16) + Send + 'static,
     {
-        let (message_address, message_address_upper, message_data) = if self.bit64_address_capable {
-            (
-                (registers::MESSAGE_ADDRESS_64_LOW + self.base) as *mut () as *mut u32,
-                Some(unsafe {
-                    &mut *((registers::MESSAGE_ADDRESS_64_HIGH + self.base) as *mut () as *mut u32)
-                }),
-                (registers::MESSAGE_DATA_64 + self.base) as *mut () as *mut u32,
-            )
+        let mut message_data = 0;
+        let mut message_address = 0;
+        let mut message_address_upper = 0;
+
+        let upper = if self.bit64_address_capable {
+            Some(&mut message_address_upper)
         } else {
-            (
-                (registers::MESSAGE_ADDRESS_32 + self.base) as *mut () as *mut u32,
-                None,
-                (registers::MESSAGE_DATA_32 + self.base) as *mut () as *mut u32,
-            )
+            None
         };
 
-        unsafe {
-            awkernel_lib::interrupt::register_handler_pcie_msi(
-                name,
-                func,
-                segment_number,
-                target,
-                &mut *message_data,
-                &mut *message_address,
+        let irq = awkernel_lib::interrupt::register_handler_pcie_msi(
+            name,
+            func,
+            segment_number,
+            target,
+            &mut message_data,
+            &mut message_address,
+            upper,
+        )
+        .or(Err(PCIeDeviceErr::Interrupt))?;
+
+        if self.bit64_address_capable {
+            self.config_space
+                .write_u32(message_data, self.cap_ptr + registers::MESSAGE_DATA_64);
+            self.config_space.write_u32(
+                message_address,
+                self.cap_ptr + registers::MESSAGE_ADDRESS_64_LOW,
+            );
+            self.config_space.write_u32(
                 message_address_upper,
-            )
-            .or(Err(PCIeDeviceErr::Interrupt))
+                self.cap_ptr + registers::MESSAGE_ADDRESS_64_HIGH,
+            );
+        } else {
+            self.config_space
+                .write_u32(message_data, self.cap_ptr + registers::MESSAGE_DATA_32);
+            self.config_space.write_u32(
+                message_address,
+                self.cap_ptr + registers::MESSAGE_ADDRESS_32,
+            );
         }
+
+        Ok(irq)
     }
 
     pub fn set_mask(&mut self, mask: u32) {
@@ -206,9 +241,11 @@ impl Msi {
         }
 
         if self.bit64_address_capable {
-            registers::MASK_BITS_64.write(mask, self.base);
+            self.config_space
+                .write_u32(mask, self.cap_ptr + registers::MASK_BITS_64);
         } else {
-            registers::MASK_BITS_32.write(mask, self.base);
+            self.config_space
+                .write_u32(mask, self.cap_ptr + registers::MASK_BITS_32);
         }
     }
 
@@ -218,9 +255,15 @@ impl Msi {
         }
 
         if self.bit64_address_capable {
-            Some(registers::PENDING_BITS_64.read(self.base))
+            Some(
+                self.config_space
+                    .read_u32(self.cap_ptr + registers::PENDING_BITS_64),
+            )
         } else {
-            Some(registers::PENDING_BITS_32.read(self.base))
+            Some(
+                self.config_space
+                    .read_u32(self.cap_ptr + registers::PENDING_BITS_32),
+            )
         }
     }
 }

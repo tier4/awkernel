@@ -537,7 +537,6 @@ fn scan_devices<F, FA, PT, E>(
 /// Information necessary for initializing the device
 #[derive(Debug)]
 pub struct PCIeInfo {
-    pub(crate) config_base: usize,
     pub(crate) config_space: ConfigSpace,
     segment_group: u16,
     bus_number: u8,
@@ -554,7 +553,6 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
-    is_memory_space: bool, // Memory space or IO space
 }
 
 impl fmt::Display for PCIeInfo {
@@ -628,13 +626,7 @@ impl PCIeInfo {
                 i += if bar.is_64bit_memory() { 2 } else { 1 };
             }
 
-            let config_base: u32 = 0x80000000
-                | (bus_number as u32) << 16
-                | (device_number as u32) << 11
-                | (function_number as u32) << 8;
-
             Ok(PCIeInfo {
-                config_base: config_base as usize,
                 config_space,
                 segment_group: 0,
                 bus_number,
@@ -651,7 +643,6 @@ impl PCIeInfo {
                 msi: None,
                 msix: None,
                 pcie_cap: None,
-                is_memory_space: false,
             })
         }
     }
@@ -687,7 +678,6 @@ impl PCIeInfo {
             Err(PCIeDeviceErr::InitFailure)
         } else {
             Ok(PCIeInfo {
-                config_base: addr,
                 config_space,
                 segment_group,
                 bus_number,
@@ -704,7 +694,6 @@ impl PCIeInfo {
                 msi: None,
                 msix: None,
                 pcie_cap: None,
-                is_memory_space: true,
             })
         }
     }

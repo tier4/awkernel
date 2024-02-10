@@ -1,5 +1,6 @@
+use crate::pcie::{ConfigSpace, PCIeInfo};
+
 pub mod registers {
-    use awkernel_lib::mmio_rw;
     use bitflags::bitflags;
 
     bitflags! {
@@ -26,41 +27,47 @@ pub mod registers {
         }
     }
 
-    mmio_rw!(offset 0x00 => pub PCIE_CAPABILITIES_NEXT_PTR_CAP_ID<u32>);
-
-    mmio_rw!(offset 0x04 => pub DEVICE_CAPABILITIES<u32>);
-    mmio_rw!(offset 0x08 => pub DEVICE_STATUS_CONTROL<u32>);
-    mmio_rw!(offset 0x0c => pub LINK_CAPABILITIES<u32>);
-    mmio_rw!(offset 0x10 => pub LINK_STATUS_CONTROL<LinkStatusControl>);
-    mmio_rw!(offset 0x14 => pub SLOT_CAPABILITIES<u32>);
-    mmio_rw!(offset 0x18 => pub SLOT_STATUS_CONTROL<u32>);
-    mmio_rw!(offset 0x1c => pub ROOT_CAPABILITY_CONTROL<u32>);
-    mmio_rw!(offset 0x20 => pub ROOT_STATUS<u32>);
+    pub const _DEVICE_CAPABILITIES: usize = 0x04;
+    pub const _DEVICE_STATUS_CONTROL: usize = 0x08;
+    pub const _LINK_CAPABILITIES: usize = 0x0c;
+    pub const LINK_STATUS_CONTROL: usize = 0x10;
+    pub const _SLOT_CAPABILITIES: usize = 0x14;
+    pub const _SLOT_STATUS_CONTROL: usize = 0x18;
+    pub const _ROOT_CAPABILITY_CONTROL: usize = 0x1c;
+    pub const _ROOT_STATUS: usize = 0x20;
 
     // Gen2 and later devices only
-    mmio_rw!(offset 0x24 => pub DEVICE_CAPABILITIES_2<u32>);
-    mmio_rw!(offset 0x28 => pub DEVICE_STATUS_CONTROL_2<u32>);
-    mmio_rw!(offset 0x2c => pub LINK_CAPABILITIES_2<u32>);
-    mmio_rw!(offset 0x30 => pub LINK_STATUS_CONTROL_2<LinkStatusControl>);
-    mmio_rw!(offset 0x34 => pub SLOT_CAPABILITIES_2<u32>);
-    mmio_rw!(offset 0x38 => pub SLOT_STATUS_CONTROL_2<u32>);
+    pub const _DEVICE_CAPABILITIES_2: usize = 0x24;
+    pub const _DEVICE_STATUS_CONTROL_2: usize = 0x28;
+    pub const _LINK_CAPABILITIES_2: usize = 0x2c;
+    pub const _LINK_STATUS_CONTROL_2: usize = 0x30;
+    pub const _SLOT_CAPABILITIES_2: usize = 0x34;
+    pub const _SLOT_STATUS_CONTROL_2: usize = 0x38;
 }
 
 #[derive(Debug)]
 pub struct PCIeCap {
-    base: usize,
+    cap_ptr: usize,
+    config_space: ConfigSpace,
 }
 
 impl PCIeCap {
-    pub fn new(cap_ptr: usize) -> PCIeCap {
-        PCIeCap { base: cap_ptr }
+    pub fn new(info: &PCIeInfo, cap_ptr: usize) -> PCIeCap {
+        PCIeCap {
+            cap_ptr,
+            config_space: info.config_space.clone(),
+        }
     }
 
     pub fn get_link_status_control(&self) -> registers::LinkStatusControl {
-        registers::LINK_STATUS_CONTROL.read(self.base)
+        let reg = self
+            .config_space
+            .read_u32(self.cap_ptr + registers::LINK_STATUS_CONTROL);
+        registers::LinkStatusControl::from_bits_truncate(reg)
     }
 
     pub fn set_link_status_control(&mut self, val: registers::LinkStatusControl) {
-        registers::LINK_STATUS_CONTROL.write(val, self.base);
+        self.config_space
+            .write_u32(val.bits(), self.cap_ptr + registers::LINK_STATUS_CONTROL);
     }
 }
