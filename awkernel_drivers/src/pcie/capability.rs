@@ -39,7 +39,7 @@ pub fn read(info: &mut PCIeInfo) {
     }
 
     let mut cap_ptr =
-        (info.read_config_space_u32(registers::CAPABILITY_POINTER) & 0b1111_1100) as usize;
+        (info.config_space.read_u32(registers::CAPABILITY_POINTER) & 0b1111_1100) as usize;
 
     while cap_ptr != 0 {
         let base = info.config_base + cap_ptr;

@@ -1008,7 +1008,7 @@ impl IgbInner {
 
             // do nothing if we're not in faulty state, or if the queue is empty
             let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(q.me))?;
-            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
                 return Ok(());
             }
@@ -1016,7 +1016,7 @@ impl IgbInner {
             self.flush_tx_ring(q.me, que)?;
 
             // recheck, maybe the fault is caused by the rx ring
-            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED != 0 {
                 self.flush_rx_ring(q.me, que)?;
             }
@@ -2166,7 +2166,7 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let tdlen = bar0
         .read32(tdlen_offset(0))
         .ok_or(IgbDriverErr::ReadFailure)?;
-    let hang_state = info.read_config_space_u32(PCICFG_DESC_RING_STATUS);
+    let hang_state = info.config_space.read_u32(PCICFG_DESC_RING_STATUS);
     if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
         return Ok(());
     }

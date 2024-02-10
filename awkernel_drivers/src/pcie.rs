@@ -815,48 +815,6 @@ impl PCIeInfo {
         }
     }
 
-    pub fn read_config_space_u32(&self, offset: usize) -> u32 {
-        if self.is_memory_space {
-            unsafe { read_volatile((self.config_base + offset) as *const u32) }
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                pci_conf_read_u32_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset as u8,
-                )
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
-    }
-
-    pub fn read_config_space_u16(&self, offset: usize) -> u16 {
-        if self.is_memory_space {
-            unsafe { read_volatile((self.config_base + offset) as *const u16) }
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                pci_conf_read_u16_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset as u8,
-                )
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
-    }
-
     pub fn get_segment_group(&self) -> u16 {
         self.segment_group
     }
