@@ -691,10 +691,10 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u3
         | E1000_DEV_ID_82540EM_LOM
         | E1000_DEV_ID_82540EP
         | E1000_DEV_ID_82540EP_LOM
-        | E1000_DEV_ID_82540EP_LP => Em82540,
+        | E1000_DEV_ID_82540EP_LP => Em82540, // e1000
         E1000_DEV_ID_82545EM_COPPER | E1000_DEV_ID_82545EM_FIBER => Em82545,
         E1000_DEV_ID_82545GM_COPPER | E1000_DEV_ID_82545GM_FIBER | E1000_DEV_ID_82545GM_SERDES => {
-            Em82545Rev3 // e1000
+            Em82545Rev3
         }
         E1000_DEV_ID_82546EB_COPPER
         | E1000_DEV_ID_82546EB_FIBER
@@ -931,13 +931,17 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool) {
 /// Reject non-PCI Express devices.
 ///
 /// https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em_hw.c#L8381
+///
+/// e1000 of PCI is supported because it is used in virtual machines.
 fn check_pci_express(mac_type: &MacType) -> Result<(), IgbDriverErr> {
     use MacType::*;
 
+    log::debug!("mac_type: {:?}", mac_type);
+
     match mac_type {
-        Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
-        | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
-        | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
+        Em82540 | Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580
+        | Em80003es2lan | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan
+        | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
         _ => Err(IgbDriverErr::NotPciExpress),
     }
 }
@@ -4878,6 +4882,10 @@ impl IgbHw {
         }
 
         match self.mac_type {
+            Em82544 | Em82540 | Em82545 | Em82546 | Em82541 | Em82541Rev2 => {
+                let ctrl = read_reg(info, CTRL)?;
+                write_reg(info, CTRL, ctrl | CTRL_RST)?;
+            }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
                 let mut ctrl = read_reg(info, CTRL)?;

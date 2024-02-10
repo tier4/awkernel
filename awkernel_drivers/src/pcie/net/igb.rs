@@ -316,6 +316,12 @@ where
 
     let igb = Igb::new(info)?;
 
+    {
+        let inner = igb.inner.read();
+        log::debug!("igb.info: {:?}", inner.info);
+        log::debug!("igb.hw: {:?}", inner.hw);
+    }
+
     awkernel_lib::net::add_interface(Arc::new(igb), None);
 
     Ok(())

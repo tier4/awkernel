@@ -146,15 +146,19 @@ impl BaseAddress {
         assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+            BaseAddress::IO(addr) => {
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                let addr = *addr | ((offset as u32) & 0xfc);
+                let val = unsafe {
+                    port1.write(addr);
+                    let tmp: u32 = port2.read();
+                    (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                };
+
                 Some(val)
-            },
+            }
             BaseAddress::MMIO { addr, size, .. } => {
                 let dst = *addr + offset;
                 assert!(dst + 2 < *addr + *size);
@@ -169,13 +173,10 @@ impl BaseAddress {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-                Some(val)
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+                port1.write(*addr + ((offset as u32) & 0xfc));
+                Some(port2.read())
             },
             BaseAddress::MMIO { addr, size, .. } => {
                 let dst = *addr + offset;
@@ -190,11 +191,17 @@ impl BaseAddress {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, al",
-                        in("al") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::Port::new(0xCFC);
+
+                let addr = *addr + ((offset as u32) & 0xfc);
+                port1.write(addr);
+                let reg: u32 = port2.read();
+
+                let mask = !(0xff << ((offset & 3) * 8));
+
+                port1.write(addr);
+                port2.write((reg & mask) | (val as u32) << ((offset & 3) * 8));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
@@ -210,11 +217,17 @@ impl BaseAddress {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, ax",
-                        in("ax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::Port::new(0xCFC);
+
+                let addr = *addr + ((offset as u32) & 0xfc);
+                port1.write(addr);
+                let reg: u32 = port2.read();
+
+                let mask = !(0xffff << ((offset & 2) * 8));
+
+                port1.write(addr);
+                port2.write((reg & mask) | (val as u32) << ((offset & 2) * 8));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
@@ -230,11 +243,10 @@ impl BaseAddress {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, eax",
-                        in("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+                port1.write(*addr + ((offset as u32) & 0xfc));
+                port2.write(val);
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
