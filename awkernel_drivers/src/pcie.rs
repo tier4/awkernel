@@ -306,7 +306,6 @@ impl fmt::Display for PCIeDeviceErr {
 }
 
 pub(crate) mod registers {
-    use awkernel_lib::{mmio_r, mmio_rw};
     use bitflags::bitflags;
 
     bitflags! {
@@ -348,17 +347,16 @@ pub(crate) mod registers {
     pub const HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE: u8 = 2;
 
     // Type 0 and 1
-    mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
-    mmio_rw!(offset 0x3c => pub INTERRUPT_LINE<u8>);
-
     pub const DEVICE_VENDOR_ID: usize = 0x00;
+    pub const STATUS_COMMAND: usize = 0x04;
     pub const CLASS_CODE_REVISION_ID: usize = 0x08;
     pub const BIST_HEAD_LAT_CACH: usize = 0x0c;
 
     pub const CAPABILITY_POINTER: usize = 0x34;
+    pub const INTERRUPT_LINE: usize = 0x3c;
 
     // Type 1 (PCI-to-PCI bridge)
-    mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
+    pub const _SECONDARY_LATENCY_TIMER_BUS_NUMBER: usize = 0x18;
 
     // Capability
     pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
@@ -445,24 +443,6 @@ pub fn init_with_io() {
                 }
             }
         }
-    }
-}
-
-#[cfg(feature = "x86")]
-fn pci_conf_read_u16_with_io(bus: u8, slot: u8, func: u8, offset: u8) -> u16 {
-    let addr: u32 = 0x80000000
-        | (bus as u32) << 16
-        | (slot as u32) << 11
-        | (func as u32) << 8
-        | (offset as u32 & 0xfc);
-
-    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
-    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
-
-    unsafe {
-        port1.write(addr);
-        let tmp: u32 = port2.read();
-        (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
     }
 }
 
@@ -770,49 +750,13 @@ impl PCIeInfo {
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {
-        if self.is_memory_space {
-            registers::STATUS_COMMAND.read(self.config_base)
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                let offset = registers::STATUS_COMMAND.offset() as u8;
-                let val = pci_conf_read_u32_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset,
-                );
-                registers::StatusCommand::from_bits_truncate(val)
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
+        let val = self.config_space.read_u32(registers::STATUS_COMMAND);
+        registers::StatusCommand::from_bits_truncate(val)
     }
 
     pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
-        if self.is_memory_space {
-            registers::STATUS_COMMAND.write(csr, self.config_base);
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                let offset = registers::STATUS_COMMAND.offset() as u8;
-                pci_conf_write_u32_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset,
-                    csr.bits(),
-                );
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
+        self.config_space
+            .write_u32(csr.bits(), registers::STATUS_COMMAND);
     }
 
     pub fn get_segment_group(&self) -> u16 {
@@ -820,59 +764,13 @@ impl PCIeInfo {
     }
 
     pub fn get_interrupt_line(&mut self) -> u8 {
-        if self.is_memory_space {
-            registers::INTERRUPT_LINE.read(self.config_base)
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                let offset = registers::INTERRUPT_LINE.offset() as u8;
-                let val = pci_conf_read_u16_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset,
-                );
-
-                (val & 0xff) as u8
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
+        (self.config_space.read_u16(registers::INTERRUPT_LINE) & 0xff) as u8
     }
 
     pub fn set_interrupt_line(&mut self, irq: u8) {
-        if self.is_memory_space {
-            registers::INTERRUPT_LINE.write(irq, self.config_base);
-        } else {
-            #[cfg(feature = "x86")]
-            {
-                let offset = registers::INTERRUPT_LINE.offset() as u8;
-                let val = pci_conf_read_u32_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset,
-                );
-
-                let val = (val & !0xff) | irq as u32;
-
-                pci_conf_write_u32_with_io(
-                    self.bus_number,
-                    self.device_number,
-                    self.function_number,
-                    offset,
-                    val,
-                );
-            }
-
-            #[cfg(not(feature = "x86"))]
-            {
-                unreachable!()
-            }
-        }
+        let reg = self.config_space.read_u32(registers::INTERRUPT_LINE);
+        self.config_space
+            .write_u32((reg & !0xff) | irq as u32, registers::INTERRUPT_LINE);
     }
 
     pub(crate) fn read_capability(&mut self) {
@@ -1016,17 +914,13 @@ impl PCIeInfo {
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.setbits(
-            registers::StatusCommand::INTERRUPT_DISABLE,
-            self.config_base,
-        );
+        let reg = self.read_status_command();
+        self.write_status_command(reg | registers::StatusCommand::INTERRUPT_DISABLE);
     }
 
     pub fn enable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.clrbits(
-            registers::StatusCommand::INTERRUPT_DISABLE,
-            self.config_base,
-        );
+        let reg = self.read_status_command();
+        self.write_status_command(reg & !registers::StatusCommand::INTERRUPT_DISABLE);
     }
 }
 
