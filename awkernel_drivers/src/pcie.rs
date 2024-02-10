@@ -18,6 +18,107 @@ pub mod pcie_class;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
+pub enum ConfigSpace {
+    IO(u32),
+    MMIO(usize),
+}
+
+impl ConfigSpace {
+    fn new_io(bus_number: u8, device_number: u8, function_number: u8) -> Self {
+        let base = (bus_number as u32) << 16
+            | (device_number as u32) << 11
+            | (function_number as u32) << 8;
+        Self::IO(base)
+    }
+
+    fn new_memory(base: usize) -> Self {
+        Self::MMIO(base)
+    }
+
+    fn read_u16(&self, offset: usize) -> u16 {
+        match self {
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                    let addr = *base + (offset as u32) & 0xfc;
+                    unsafe {
+                        port1.write(addr);
+                        let tmp: u32 = port2.read();
+                        (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { read_volatile(addr as *const u16) }
+            }
+        }
+    }
+
+    fn read_u32(&self, offset: usize) -> u32 {
+        match self {
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                    let addr = *base + (offset as u32) & 0xfc;
+                    unsafe {
+                        port1.write(addr);
+                        port2.read()
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { read_volatile(addr as *const u32) }
+            }
+        }
+    }
+
+    fn write_u32(&self, data: u32, offset: usize) {
+        match self {
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+
+                    let addr = *base + (offset as u32) & 0xfc;
+                    unsafe {
+                        port1.write(addr);
+                        port2.write(data);
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { write_volatile(addr as *mut u32, data) }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum BaseAddress {
     IO(u32),
     MMIO {
@@ -247,11 +348,12 @@ pub(crate) mod registers {
     pub const HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE: u8 = 2;
 
     // Type 0 and 1
-    mmio_r!(offset 0x00 => pub DEVICE_VENDOR_ID<u32>);
     mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
-    mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
-    mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
     mmio_rw!(offset 0x3c => pub INTERRUPT_LINE<u8>);
+
+    pub const DEVICE_VENDOR_ID: usize = 0x00;
+    pub const CLASS_CODE_REVISION_ID: usize = 0x08;
+    pub const BIST_HEAD_LAT_CACH: usize = 0x0c;
 
     pub const CAPABILITY_POINTER: usize = 0x34;
 
@@ -456,6 +558,7 @@ fn scan_devices<F, FA, PT, E>(
 #[derive(Debug)]
 pub struct PCIeInfo {
     pub(crate) config_base: usize,
+    pub(crate) config_space: ConfigSpace,
     segment_group: u16,
     bus_number: u8,
     device_number: u8,
@@ -496,11 +599,13 @@ impl PCIeInfo {
         device_number: u8,
         function_number: u8,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        let config_space = ConfigSpace::new_io(bus_number, device_number, function_number);
+
         let ids = pci_conf_read_u32_with_io(
             bus_number,
             device_number,
             function_number,
-            registers::DEVICE_VENDOR_ID.offset() as u8,
+            registers::DEVICE_VENDOR_ID as u8,
         );
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -509,7 +614,7 @@ impl PCIeInfo {
             bus_number,
             device_number,
             function_number,
-            registers::BIST_HEAD_LAT_CACH.offset() as u8,
+            registers::BIST_HEAD_LAT_CACH as u8,
         ) >> 16
             & 0xff) as u8;
         let multiple_functions = header_type & 0x80 == 0x80;
@@ -519,7 +624,7 @@ impl PCIeInfo {
             bus_number,
             device_number,
             function_number,
-            registers::CLASS_CODE_REVISION_ID.offset() as u8,
+            registers::CLASS_CODE_REVISION_ID as u8,
         );
         let revision_id = (cls_rev_id & 0xff) as u8;
 
@@ -550,6 +655,7 @@ impl PCIeInfo {
 
             Ok(PCIeInfo {
                 config_base: config_base as usize,
+                config_space,
                 segment_group: 0,
                 bus_number,
                 device_number,
@@ -578,14 +684,17 @@ impl PCIeInfo {
         function_number: u8,
         addr: usize,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
-        let ids = registers::DEVICE_VENDOR_ID.read(addr);
+        let config_space = ConfigSpace::new_memory(addr);
+
+        let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
+
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
-        let header_type = (registers::BIST_HEAD_LAT_CACH.read(addr) >> 16 & 0xff) as u8;
+        let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
         let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
 
-        let cls_rev_id = registers::CLASS_CODE_REVISION_ID.read(addr);
+        let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
         let revision_id = (cls_rev_id & 0xff) as u8;
 
         let pcie_class = pcie_class::PCIeClass::from_u8(
@@ -599,6 +708,7 @@ impl PCIeInfo {
         } else {
             Ok(PCIeInfo {
                 config_base: addr,
+                config_space,
                 segment_group,
                 bus_number,
                 device_number,
