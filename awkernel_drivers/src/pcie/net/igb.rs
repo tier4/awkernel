@@ -314,6 +314,9 @@ where
         return Err(PCIeDeviceErr::PageTableFailure);
     }
 
+    // Read capabilities of PCIe.
+    info.read_capability();
+
     let igb = Igb::new(info)?;
 
     {

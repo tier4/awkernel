@@ -624,7 +624,7 @@ impl PCIeInfo {
         )
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
-        let mut result = PCIeInfo {
+        let result = PCIeInfo {
             config_space,
             segment_group,
             bus_number,
@@ -642,8 +642,6 @@ impl PCIeInfo {
             msix: None,
             pcie_cap: None,
         };
-
-        result.read_capability();
 
         Ok(result)
     }
