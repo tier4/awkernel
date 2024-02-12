@@ -9,7 +9,7 @@ use awkernel_lib::net::ip_addr::IpAddr;
 const NETWORK_SERVICE_NAME: &str = "test network";
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(1, Ipv4Addr::new(192, 168, 100, 64), 24);
+    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
 
     awkernel_async_lib::spawn(
         NETWORK_SERVICE_NAME.into(),
@@ -23,7 +23,7 @@ async fn udp_test() {
     // Create a UDP socket on interface 1.
     let addr = IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0));
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(1, addr, 0, 1024 * 64).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, addr, 0, 1024 * 64).unwrap();
 
     let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 1));
 

@@ -323,6 +323,7 @@ where
         let inner = igb.inner.read();
         log::debug!("igb.info: {:?}", inner.info);
         log::debug!("igb.hw: {:?}", inner.hw);
+        log::debug!("interrupt line: {}", inner.info.get_interrupt_line());
     }
 
     awkernel_lib::net::add_interface(Arc::new(igb), None);

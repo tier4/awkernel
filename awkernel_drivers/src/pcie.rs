@@ -540,6 +540,7 @@ pub struct PCIeInfo {
     id: u16,
     vendor: u16,
     revision_id: u8,
+    interrupt_pin: u8,
     pcie_class: pcie_class::PCIeClass,
     device_name: Option<pcie_id::PCIeID>,
     multiple_functions: bool,
@@ -624,6 +625,8 @@ impl PCIeInfo {
         )
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
+        let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
+
         let result = PCIeInfo {
             config_space,
             segment_group,
@@ -633,6 +636,7 @@ impl PCIeInfo {
             id,
             vendor,
             revision_id,
+            interrupt_pin: (interrupt_pin_line >> 8) as u8,
             pcie_class,
             device_name: None,
             multiple_functions,
@@ -700,7 +704,7 @@ impl PCIeInfo {
         self.segment_group
     }
 
-    pub fn get_interrupt_line(&mut self) -> u8 {
+    pub fn get_interrupt_line(&self) -> u8 {
         (self.config_space.read_u16(registers::INTERRUPT_LINE) & 0xff) as u8
     }
 
