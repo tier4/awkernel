@@ -343,7 +343,7 @@ pub fn poll() {
                 Entry::Occupied(e) => {
                     if matches!(e.get(), IRQWaker::Waker(_)) {
                         let IRQWaker::Waker(w) = e.remove() else {
-                            return;
+                            continue;
                         };
 
                         w.wake();

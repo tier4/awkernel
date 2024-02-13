@@ -19,7 +19,7 @@ pub async fn run() -> TaskResult {
 
     for if_status in awkernel_lib::net::get_all_interface() {
         if awkernel_lib::net::up(if_status.interface_id).is_ok() {
-            spawn_interrupt_handler(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
+            spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
         }
     }
 
@@ -47,8 +47,7 @@ pub async fn run() -> TaskResult {
                     continue;
                 };
 
-                spawn_interrupt_handler(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers)
-                    .await;
+                spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
             }
             ("down", id) => {
                 let Ok(if_status) = awkernel_lib::net::get_interface(id) else {
@@ -59,6 +58,7 @@ pub async fn run() -> TaskResult {
                     continue;
                 };
 
+                // Close interrupt handlers.
                 for irq in if_status.irqs {
                     if let Some(ch) = ch_irq_handlers.remove(&irq) {
                         let ch = ch.send(()).await;
@@ -67,6 +67,7 @@ pub async fn run() -> TaskResult {
                     }
                 }
 
+                // Close poll handlers.
                 if let Some(ch) = ch_poll_handlers.remove(&if_status.interface_id) {
                     let ch = ch.send(()).await;
                     let (ch, _) = ch.recv().await;
@@ -78,7 +79,7 @@ pub async fn run() -> TaskResult {
     }
 }
 
-async fn spawn_interrupt_handler(
+async fn spawn_handlers(
     if_status: awkernel_lib::net::IfStatus,
     ch_irq_handlers: &mut BTreeMap<u16, ChanProtoInterruptHandlerDual>,
     ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
@@ -119,6 +120,8 @@ async fn spawn_interrupt_handler(
         .await;
     }
 }
+
+// Interrupt handlers.
 
 struct NetworkInterrupt {
     irq: u16,
@@ -168,6 +171,7 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
             continue;
         }
 
+        // Wait interrupts.
         let mut irq_wait = NetworkInterrupt { irq, wait: true }.fuse();
 
         select_biased! {
@@ -183,6 +187,8 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
         awkernel_async_lib::r#yield().await;
     }
 }
+
+// Poll mode devices.
 
 struct NetworkPoll {
     interface_id: u64,
@@ -232,6 +238,7 @@ async fn poll_handler(interface_id: u64, ch: Chan<(), ProtoInterruptHandler>) {
             continue;
         }
 
+        // Wait some events.
         let mut poll_wait = NetworkPoll {
             interface_id,
             wait: true,
