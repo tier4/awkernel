@@ -279,6 +279,14 @@ pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) 
     }
 }
 
+/// Register a waker for a poll service.
+///
+/// The old waker will be replaced.
+/// The waker will be called when the network device has some events to be processed
+/// and it will be removed after it is called.
+///
+/// Returns true if the waker is registered successfully.
+/// Returns false if there are some events.
 pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> bool {
     let mut node = MCSNode::new();
     let mut w = POLL_WAKERS.lock(&mut node);
@@ -302,6 +310,27 @@ pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> b
     }
 }
 
+/// If some packets are processed, true is returned.
+/// If true is returned, the caller should call this function again.
+///
+/// `poll_interface()` should be called by a network service.
+pub fn poll_interface(interface_id: u64) -> bool {
+    let interface = {
+        let net_manager = NET_MANAGER.read();
+
+        let Some(interface) = net_manager.interfaces.get(&interface_id) else {
+            return false;
+        };
+
+        interface.clone()
+    };
+
+    let _ = interface.net_device.poll_in_service();
+    interface.poll_rx_poll_mode()
+}
+
+/// Check if there are some events to be processed.
+/// `poll()` should be called by CPU0.
 pub fn poll() {
     let net_manager = NET_MANAGER.read();
 
@@ -345,6 +374,7 @@ pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
     interface.poll_rx_irq(irq)
 }
 
+/// Enable the network interface.
 pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -357,6 +387,7 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     Ok(())
 }
 
+/// Disable the network interface.
 pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 

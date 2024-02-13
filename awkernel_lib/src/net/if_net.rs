@@ -131,6 +131,7 @@ pub(super) struct IfNet {
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
+    poll_driver: Option<NetDriver>,
 }
 
 pub(super) struct IfNetInner {
@@ -199,6 +200,20 @@ impl IfNet {
             tx_only_ringq.push(tx_ringq);
         }
 
+        let poll_driver;
+        if net_device.poll_mode() {
+            let tx_ringq = Mutex::new(RingQ::new(512));
+            tx_only_ringq.push(tx_ringq);
+
+            poll_driver = Some(NetDriver {
+                inner: net_device.clone(),
+                rx_que_id: 0,
+                rx_ringq: Mutex::new(RingQ::new(512)),
+            });
+        } else {
+            poll_driver = None;
+        }
+
         // Create a SocketSet.
         let socket_set = SocketSet::new(vec![]);
 
@@ -215,6 +230,7 @@ impl IfNet {
             net_device,
             tx_only_ringq,
             is_poll_mode,
+            poll_driver,
         }
     }
 
@@ -266,14 +282,8 @@ impl IfNet {
         result
     }
 
-    /// If some packets are processed, return true.
-    /// If poll returns true, the caller should call poll again.
-    pub fn poll_rx_irq(&self, irq: u16) -> bool {
-        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
-            return false;
-        };
-
-        let que_id = ref_net_driver.rx_que_id; // TODO: fix
+    fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
+        let que_id = ref_net_driver.rx_que_id;
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
@@ -328,6 +338,24 @@ impl IfNet {
         }
 
         result
+    }
+
+    pub fn poll_rx_poll_mode(&self) -> bool {
+        let Some(ref_net_driver) = self.poll_driver.as_ref() else {
+            return false;
+        };
+
+        self.poll_rx(ref_net_driver)
+    }
+
+    /// If some packets are processed, return true.
+    /// If poll returns true, the caller should call poll again.
+    pub fn poll_rx_irq(&self, irq: u16) -> bool {
+        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
+            return false;
+        };
+
+        self.poll_rx(ref_net_driver)
     }
 }
 
