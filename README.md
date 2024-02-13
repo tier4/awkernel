@@ -9,14 +9,49 @@ isolated zero-copy communications written in Rust.
   - [x] Publish and subscribe
   - [x] Service
   - [x] Action
+- [x] Channel
+  - [x] Bounded channel
+  - [x] Unbounded channel
+  - [x] Session-type based channel
 - [x] Memory space isolation
+- [ ] Measurement
+- [ ] Power Management
+  - [ ] Shutdown
+  - [ ] Reboot
 - [ ] Scheduler
   - [x] FIFO scheduler
+  - [ ] Round robin scheduler
+  - [ ] EDF scheduler
   - [ ] DAG scheduler
     - [ ] GEDF DAG Scheduler
 - [ ] Memory allocator
   - [x] O(1) memory allocator
+  - [x] DMA pool
   - [ ] NUMA aware memory allocator
+- Networking
+  - [x] IPv4
+  - [x] IPv6
+  - [x] UDP
+  - [ ] TCP
+  - [ ] VLAN
+  - [ ] Offloading
+    - [ ] TSO
+    - [ ] Checksum
+      - [ ] UDP Checksum
+      - [ ] TCP Checksum
+      - [ ] VLAN
+- Network controller
+  - [x] Intel Gb Ethernet Controller (e1000 Series)
+  - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
+  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [ ] Intel 40Gb Ethernet Controller (X710 Series)
+- [ ] Block device
+  - [ ] NVMe
+  - [ ] SATA
+- [ ] XHCI
+- [ ] File system
+  - [ ] FAT32
+  - [ ] Journaling file system
 
 ## Dependencies
 

@@ -25,7 +25,7 @@ async fn udp_test() {
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, addr, 0, 1024 * 64).unwrap();
 
-    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 1));
+    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2));
 
     let mut buf = [0u8; 1024 * 2];
 
