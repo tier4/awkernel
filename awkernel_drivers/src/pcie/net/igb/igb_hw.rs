@@ -1140,6 +1140,10 @@ impl IgbHw {
         Ok(hw)
     }
 
+    pub fn set_legacy_irq(&mut self, legacy_irq: bool) {
+        self.legacy_irq = legacy_irq;
+    }
+
     #[inline(always)]
     pub fn get_mac_type(&self) -> MacType {
         self.mac_type

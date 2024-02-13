@@ -130,6 +130,7 @@ pub(super) struct IfNet {
     rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
+    pub(super) is_poll_mode: bool,
 }
 
 pub(super) struct IfNetInner {
@@ -201,6 +202,8 @@ impl IfNet {
         // Create a SocketSet.
         let socket_set = SocketSet::new(vec![]);
 
+        let is_poll_mode = net_device.poll_mode();
+
         IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
@@ -211,6 +214,7 @@ impl IfNet {
             rx_irq_to_drvier,
             net_device,
             tx_only_ringq,
+            is_poll_mode,
         }
     }
 

@@ -804,6 +804,7 @@ impl PCIeInfo {
         Ok(())
     }
 
+    #[inline(always)]
     pub fn get_bar(&self, i: usize) -> Option<BaseAddress> {
         self.base_addresses.get(i).cloned()
     }

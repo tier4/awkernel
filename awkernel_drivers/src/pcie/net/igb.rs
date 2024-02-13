@@ -280,6 +280,8 @@ struct IgbInner {
 
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     msix_mask: u32,
+
+    is_poll_mode: bool,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -441,6 +443,8 @@ impl IgbInner {
             que.push(allocate_desc_rings(&info, i)?);
         }
 
+        let is_poll_mode;
+
         // Allocate MSI-X or MSI
         let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &que) {
             match &pcie_int {
@@ -453,6 +457,7 @@ impl IgbInner {
                 _ => unreachable!(),
             }
 
+            is_poll_mode = false;
             pcie_int
         } else if let Ok(pcie_int) = allocate_msi(&mut info) {
             match &pcie_int {
@@ -463,8 +468,12 @@ impl IgbInner {
                 _ => unreachable!(),
             }
 
+            is_poll_mode = false;
             pcie_int
         } else {
+            irq_to_rx_tx_link.insert(0, IRQRxTxLink::Legacy(0));
+            is_poll_mode = true;
+            hw.set_legacy_irq(true);
             PCIeInt::None
         };
 
@@ -527,6 +536,7 @@ impl IgbInner {
             multicast_addr: BTreeSet::new(),
             irq_to_rx_tx_link,
             msix_mask: 0,
+            is_poll_mode,
         };
 
         let result = igb.new2()?;
@@ -2102,8 +2112,7 @@ impl NetDevice for Igb {
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        self.intr(irq).or(Err(NetDevError::DeviceError))?;
-        Ok(())
+        self.intr(irq).or(Err(NetDevError::DeviceError))
     }
 
     fn irqs(&self) -> Vec<u16> {
@@ -2111,7 +2120,9 @@ impl NetDevice for Igb {
 
         let mut result = Vec::new();
         for irq in inner.irq_to_rx_tx_link.keys() {
-            result.push(*irq);
+            if *irq != 0 {
+                result.push(*irq);
+            }
         }
 
         result
@@ -2155,6 +2166,25 @@ impl NetDevice for Igb {
         }
 
         Ok(())
+    }
+
+    fn poll_in_service(&self) -> Result<(), NetDevError> {
+        self.intr(0).or(Err(NetDevError::DeviceError))
+    }
+
+    fn poll_mode(&self) -> bool {
+        self.inner.read().is_poll_mode
+    }
+
+    fn poll(&self) -> bool {
+        let inner = self.inner.read();
+        if let Ok(icr) = igb_hw::read_reg(&inner.info, ICR) {
+            let _ = igb_hw::write_reg(&inner.info, ICS, icr);
+            drop(inner);
+            icr != 0
+        } else {
+            false
+        }
     }
 }
 

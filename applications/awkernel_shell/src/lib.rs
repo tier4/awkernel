@@ -12,7 +12,6 @@ use awkernel_async_lib::{
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::embedded;
 use core::time::Duration;
-mod udp;
 
 const SERVICE_NAME: &str = "awkernel shell";
 
@@ -40,7 +39,6 @@ async fn console_handler() -> TaskResult {
         vec![
             Box::new(HelpFfi),
             Box::new(TaskFfi),
-            Box::new(UdptestFfi),
             Box::new(InterruptFfi),
             Box::new(IfconfigFfi),
         ],
@@ -152,9 +150,6 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
-
-(export udptest () (IO (-> () []))
-    (udptest_ffi))
 ";
 
 #[embedded]
@@ -210,12 +205,6 @@ fn ifconfig_ffi() {
         let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);
     }
-}
-
-#[embedded]
-fn udptest_ffi() {
-    console::print("Testing UDP\r\n");
-    udp::udp_test();
 }
 
 fn print_tasks() {

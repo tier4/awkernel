@@ -5,7 +5,6 @@ use alloc::{
     format,
     string::String,
     sync::Arc,
-    vec,
     vec::Vec,
 };
 use core::{fmt::Display, net::Ipv4Addr};
@@ -53,13 +52,14 @@ pub struct IfStatus {
     pub irqs: Vec<u16>,
     pub rx_irq_to_que_id: BTreeMap<u16, usize>,
     pub capabilities: NetCapabilities,
+    pub poll_mode: bool,
 }
 
 impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
-            ipv4_addr.push_str(&format!("{}/{}\r\n", addr, plen));
+            ipv4_addr.push_str(&format!("{}/{}", addr, plen));
         }
 
         let ipv4_gateway = match self.ipv4_gateway {
@@ -69,7 +69,7 @@ impl Display for IfStatus {
 
         write!(
             f,
-            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}",
+            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
             self.interface_id,
             self.device_name,
             ipv4_addr,
@@ -85,6 +85,7 @@ impl Display for IfStatus {
             self.full_duplex,
             self.capabilities,
             self.irqs,
+            self.poll_mode
         )
     }
 }
@@ -98,7 +99,8 @@ static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     tcp_port_ipv4_ephemeral: u16::MAX >> 2,
 });
 
-static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
+static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
+static POLL_WAKERS: Mutex<BTreeMap<u64, IRQWaker>> = Mutex::new(BTreeMap::new());
 
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
@@ -139,6 +141,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     }
 
     let irqs = inner.irqs();
+    let poll_mode = inner.poll_mode();
 
     let mut rx_irq_to_que_id = BTreeMap::new();
     for irq in irqs.iter() {
@@ -161,6 +164,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
         irqs,
         rx_irq_to_que_id,
         capabilities,
+        poll_mode,
     };
 
     Ok(if_status)
@@ -226,7 +230,7 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
 /// This routine should be called by interrupt handlers provided by device drivers.
 pub fn net_interrupt(irq: u16) {
     let mut node = MCSNode::new();
-    let mut w = WAKERS.lock(&mut node);
+    let mut w = IRQ_WAKERS.lock(&mut node);
 
     match w.entry(irq) {
         Entry::Occupied(e) => {
@@ -254,7 +258,7 @@ pub fn net_interrupt(irq: u16) {
 /// Returns false if the interrupt occurred before.
 pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) -> bool {
     let mut node = MCSNode::new();
-    let mut w = WAKERS.lock(&mut node);
+    let mut w = IRQ_WAKERS.lock(&mut node);
 
     let entry = w.entry(irq);
 
@@ -271,6 +275,55 @@ pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) 
         Entry::Vacant(e) => {
             e.insert(IRQWaker::Waker(waker));
             true
+        }
+    }
+}
+
+pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> bool {
+    let mut node = MCSNode::new();
+    let mut w = POLL_WAKERS.lock(&mut node);
+
+    let entry = w.entry(interface_id);
+
+    match entry {
+        Entry::Occupied(mut e) => {
+            if matches!(e.get(), IRQWaker::Interrupted) {
+                e.remove();
+                false
+            } else {
+                e.insert(IRQWaker::Waker(waker));
+                true
+            }
+        }
+        Entry::Vacant(e) => {
+            e.insert(IRQWaker::Waker(waker));
+            true
+        }
+    }
+}
+
+pub fn poll() {
+    let net_manager = NET_MANAGER.read();
+
+    for (interface_id, if_net) in net_manager.interfaces.iter() {
+        if if_net.is_poll_mode && if_net.net_device.poll() {
+            let mut node = MCSNode::new();
+            let mut w = POLL_WAKERS.lock(&mut node);
+
+            match w.entry(*interface_id) {
+                Entry::Occupied(e) => {
+                    if matches!(e.get(), IRQWaker::Waker(_)) {
+                        let IRQWaker::Waker(w) = e.remove() else {
+                            return;
+                        };
+
+                        w.wake();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    e.insert(IRQWaker::Interrupted);
+                }
+            }
         }
     }
 }
@@ -314,68 +367,4 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let _ = if_net.net_device.down();
 
     Ok(())
-}
-
-pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
-    use smoltcp::socket::udp;
-
-    add_ipv4_addr(interface_id, Ipv4Addr::new(192, 168, 100, 15), 24);
-
-    let if_status = get_interface(interface_id).unwrap();
-    log::debug!("Interface status: {}", if_status);
-
-    let net_manager = NET_MANAGER.read();
-
-    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
-        return Err(NetManagerError::InvalidInterfaceID);
-    };
-
-    let udp_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
-
-    let mut node = MCSNode::new();
-    let mut inner = if_net.inner.lock(&mut node);
-    let udp_handle = inner.socket_set.add(udp_socket);
-
-    let address = IpAddress::v4(192, 168, 100, 1);
-    let port = 26099;
-
-    let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
-    socket.bind(20000).unwrap();
-
-    drop(inner);
-
-    let mut t0 = None;
-
-    loop {
-        {
-            let mut node = MCSNode::new();
-            let mut inner = if_net.inner.lock(&mut node);
-
-            let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
-
-            if socket.can_send() {
-                t0 = Some(crate::delay::uptime());
-                let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
-            }
-
-            if socket.recv().is_ok() {
-                if let Some(t0) = t0.take() {
-                    let t1 = crate::delay::uptime();
-                    log::debug!("UDP RTT: {} [us]", t1 - t0);
-                }
-            }
-        }
-
-        if_net.poll_tx_only(0);
-
-        crate::delay::wait_millisec(100);
-    }
 }
