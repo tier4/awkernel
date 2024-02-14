@@ -36,10 +36,12 @@ async fn tcp_listen_test() {
     };
 
     loop {
-        let Ok(tcp_stream) = tcp_listener.accept().await else {
+        let Ok(mut tcp_stream) = tcp_listener.accept().await else {
             log::error!("Failed to accept TCP connection.");
             continue;
         };
+
+        tcp_stream.send(b"Hello Awkernel!\r\n").await.unwrap();
 
         log::debug!("Accepted a TCP connection.");
     }

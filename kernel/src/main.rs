@@ -74,9 +74,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
-        #[cfg(not(feature = "std"))]
-        awkernel_lib::interrupt::enable_irq(64);
-
         loop {
             awkernel_lib::interrupt::disable();
 

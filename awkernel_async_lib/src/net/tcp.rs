@@ -12,6 +12,13 @@ pub struct TcpListener {
     listener: awkernel_lib::net::tcp_listener::TcpListener,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TcpSendError {
+    Unreachable,
+    CloseLocal,
+    InvalidState,
+}
+
 impl TcpListener {
     pub fn bind_on_interface(
         interface_id: u64,
@@ -61,4 +68,44 @@ impl Future for TcpAccepter<'_> {
 
 pub struct TcpStream {
     stream: awkernel_lib::net::tcp_stream::TcpStream,
+}
+
+impl TcpStream {
+    pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
+        TcpSender { stream: self, buf }.await
+    }
+}
+
+#[pin_project]
+struct TcpSender<'a> {
+    stream: &'a mut TcpStream,
+    buf: &'a [u8],
+}
+
+impl<'a> Future for TcpSender<'a> {
+    type Output = Result<usize, TcpSendError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+        let stream = this.stream;
+        let result = stream.stream.send(this.buf, cx.waker());
+
+        match result {
+            awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
+            awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
+            awkernel_lib::net::tcp_stream::TcpResult::CloseLocal => {
+                core::task::Poll::Ready(Err(TcpSendError::CloseLocal))
+            }
+            awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
+                core::task::Poll::Ready(Err(TcpSendError::InvalidState))
+            }
+            awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
+                core::task::Poll::Ready(Err(TcpSendError::Unreachable))
+            }
+            _ => unreachable!(),
+        }
+    }
 }
