@@ -1,4 +1,4 @@
-use core::{future::Future, task::Poll};
+use core::{future::Future, task::Poll, time::Duration};
 
 use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
@@ -118,6 +118,21 @@ async fn spawn_handlers(
             SchedulerType::FIFO,
         )
         .await;
+    }
+
+    awkernel_async_lib::spawn(
+        "TCP garbage collector".into(),
+        tcp_garbage_collector(),
+        SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn tcp_garbage_collector() {
+    let dur = Duration::from_millis(100);
+    loop {
+        awkernel_async_lib::sleep(dur).await;
+        awkernel_lib::net::tcp_stream::close_connections();
     }
 }
 

@@ -9,12 +9,12 @@ use awkernel_async_lib::net::IpAddr;
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
 
-    awkernel_async_lib::spawn(
-        "test udp".into(),
-        udp_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test udp".into(),
+    //     udp_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
     awkernel_async_lib::spawn(
         "test tcp listen".into(),
@@ -30,7 +30,7 @@ async fn tcp_listen_test() {
         IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 64)),
         8080,
         4096,
-        32,
+        1,
     ) else {
         panic!("Failed to bind TCP listener.");
     };
@@ -69,7 +69,7 @@ async fn udp_test() {
 
         let t1 = awkernel_lib::delay::uptime();
         let rtt = t1 - t0;
-        log::debug!("UDP RTT: {} us", rtt);
+        // log::debug!("UDP RTT: {} us", rtt);
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
     }

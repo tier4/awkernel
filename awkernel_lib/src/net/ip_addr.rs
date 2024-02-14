@@ -51,4 +51,20 @@ impl IpAddr {
             }
         }
     }
+
+    #[inline(always)]
+    pub fn is_ipv4(&self) -> bool {
+        match self.addr {
+            smoltcp::wire::IpAddress::Ipv4(_) => true,
+            smoltcp::wire::IpAddress::Ipv6(_) => false,
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_ipv6(&self) -> bool {
+        match self.addr {
+            smoltcp::wire::IpAddress::Ipv4(_) => false,
+            smoltcp::wire::IpAddress::Ipv6(_) => true,
+        }
+    }
 }

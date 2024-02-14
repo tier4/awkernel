@@ -3,14 +3,14 @@ use smoltcp::iface::SocketHandle;
 
 use crate::sync::mcs::MCSNode;
 
-use super::{ip_addr::IpAddr, tcp_stream::TcpStream, NetManagerError, NET_MANAGER};
+use super::{ip_addr::IpAddr, tcp::TcpPort, tcp_stream::TcpStream, NetManagerError, NET_MANAGER};
 
 pub struct TcpListener {
     handles: Vec<SocketHandle>,
     connected_sockets: VecDeque<SocketHandle>,
     interface_id: u64,
     addr: IpAddr,
-    port: u16,
+    port: TcpPort,
     buffer_size: usize,
 }
 
@@ -26,32 +26,16 @@ impl TcpListener {
 
         let port = if port == 0 {
             // Find an ephemeral port.
-            let mut ephemeral_port = None;
-            for i in 0..(u16::MAX >> 2) {
-                let port = net_manager.tcp_port_ipv4_ephemeral.wrapping_add(i);
-                let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-                if !net_manager.tcp_listen_ports_ipv4.contains(&port) {
-                    net_manager.tcp_listen_ports_ipv4.insert(port);
-                    net_manager.tcp_port_ipv4_ephemeral = port;
-                    ephemeral_port = Some(port);
-                    break;
-                }
-            }
-
-            if let Some(port) = ephemeral_port {
-                port
-            } else {
-                return Err(NetManagerError::PortInUse);
-            }
+            net_manager
+                .get_ephemeral_port_tcp_ipv4()
+                .ok_or(NetManagerError::PortInUse)?
         } else {
             // Check if the specified port is available.
-            if net_manager.tcp_listen_ports_ipv4.contains(&port) {
+            if net_manager.is_port_in_use_tcp_ipv4(port) {
                 return Err(NetManagerError::PortInUse);
             }
 
-            net_manager.tcp_listen_ports_ipv4.insert(port);
-            port
+            net_manager.port_in_use_tcp_ipv4(port)
         };
 
         // Find the interface that has the specified address.
@@ -67,7 +51,7 @@ impl TcpListener {
 
         for _ in 0..num_waiting_connections {
             // Create a TCP socket.
-            let socket = create_listen_socket(&addr, port, buffer_size);
+            let socket = create_listen_socket(&addr, port.port(), buffer_size);
 
             let handle = {
                 let mut node = MCSNode::new();
@@ -95,9 +79,14 @@ impl TcpListener {
     ) -> Result<Option<TcpStream>, NetManagerError> {
         // If there is a connected socket, return it.
         if let Some(handle) = self.connected_sockets.pop_front() {
+            let port = {
+                let mut net_manager = NET_MANAGER.write();
+                net_manager.port_in_use_tcp_ipv4(self.port.port())
+            };
             return Ok(Some(TcpStream {
                 handle,
                 interface_id: self.interface_id,
+                port: Some(port),
             }));
         }
 
@@ -115,30 +104,45 @@ impl TcpListener {
         let mut interface = if_net.inner.lock(&mut node);
 
         for handle in self.handles.iter_mut() {
-            let socket: &smoltcp::socket::tcp::Socket = interface.socket_set.get(*handle);
+            let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
             if socket.is_active() {
                 // If the socket is active, create a new socket and add it to the interface.
-                let new_socket = create_listen_socket(&self.addr, self.port, self.buffer_size);
-                let mut new_handle = interface.socket_set.add(new_socket);
+                // let new_socket =
+                //     create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                // let mut new_handle = interface.socket_set.add(new_socket);
 
                 // Swap the new handle with the old handle.
-                core::mem::swap(handle, &mut new_handle);
+                // core::mem::swap(handle, &mut new_handle);
 
                 // The old handle is now a connected socket.
-                self.connected_sockets.push_back(new_handle);
+                // self.connected_sockets.push_back(new_handle);
+
+                self.connected_sockets.push_back(*handle);
             } else if !socket.is_open() {
                 // If the socket is not open, create a new socket and add it to the interface.
-                let new_socket = create_listen_socket(&self.addr, self.port, self.buffer_size);
-                interface.socket_set.remove(*handle);
-                *handle = interface.socket_set.add(new_socket);
+                // let new_socket =
+                //     create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                // log::debug!("socket_set.remove()");
+                // interface.socket_set.remove(*handle);
+                // *handle = interface.socket_set.add(new_socket);
             }
         }
 
         // If there is a connected socket, return it.
         if let Some(handle) = self.connected_sockets.pop_front() {
+            drop(interface);
+
+            let port = {
+                let mut net_manager = NET_MANAGER.write();
+                net_manager.port_in_use_tcp_ipv4(self.port.port())
+            };
+
+            if_net.poll_tx_only(crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1));
+
             return Ok(Some(TcpStream {
                 handle,
                 interface_id: self.interface_id,
+                port: Some(port),
             }));
         }
 
@@ -148,14 +152,15 @@ impl TcpListener {
             socket.register_recv_waker(waker);
         }
 
+        drop(interface);
+
         Ok(None)
     }
 }
 
 impl Drop for TcpListener {
     fn drop(&mut self) {
-        let mut net_manager = NET_MANAGER.write();
-        net_manager.tcp_listen_ports_ipv4.remove(&self.port);
+        let net_manager = NET_MANAGER.read();
 
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
             let if_net = if_net.clone();

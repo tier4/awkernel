@@ -35,32 +35,32 @@ impl UdpSocket {
 
         let port = if port == 0 {
             // Find an ephemeral port.
-            let mut ephemeral_port = None;
-            for i in 0..(u16::MAX >> 2) {
-                let port = net_manager.udp_port_ipv4_ephemeral.wrapping_add(i);
-                let port = if port == 0 { u16::MAX >> 2 } else { port };
-
-                if !net_manager.udp_ports_ipv4.contains(&port) {
-                    net_manager.udp_ports_ipv4.insert(port);
-                    net_manager.udp_port_ipv4_ephemeral = port;
-                    ephemeral_port = Some(port);
-                    break;
-                }
-            }
-
-            if let Some(port) = ephemeral_port {
-                port
+            if addr.is_ipv4() {
+                net_manager
+                    .get_ephemeral_port_udp_ipv4()
+                    .ok_or(NetManagerError::PortInUse)?
             } else {
-                return Err(NetManagerError::PortInUse);
+                net_manager
+                    .get_ephemeral_port_udp_ipv6()
+                    .ok_or(NetManagerError::PortInUse)?
             }
         } else {
             // Check if the specified port is available.
-            if net_manager.udp_ports_ipv4.contains(&port) {
-                return Err(NetManagerError::PortInUse);
-            }
+            if addr.is_ipv4() {
+                if net_manager.is_port_in_use_udp_ipv4(port) {
+                    return Err(NetManagerError::PortInUse);
+                }
 
-            net_manager.udp_ports_ipv4.insert(port);
-            port
+                net_manager.set_port_in_use_udp_ipv4(port);
+                port
+            } else {
+                if net_manager.is_port_in_use_udp_ipv6(port) {
+                    return Err(NetManagerError::PortInUse);
+                }
+
+                net_manager.set_port_in_use_udp_ipv6(port);
+                port
+            }
         };
 
         // Find the interface that has the specified address.
@@ -215,7 +215,7 @@ impl UdpSocket {
 impl Drop for UdpSocket {
     fn drop(&mut self) {
         let mut net_manager = NET_MANAGER.write();
-        net_manager.udp_ports_ipv4.remove(&self.port);
+        net_manager.free_port_udp_ipv4(self.port);
 
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
             let mut node = MCSNode::new();
