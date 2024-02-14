@@ -1,4 +1,4 @@
-use awkernel_lib::net::ip_addr::IpAddr;
+use super::IpAddr;
 use futures::Future;
 use pin_project::pin_project;
 

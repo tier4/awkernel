@@ -4,7 +4,7 @@ extern crate alloc;
 
 use core::{convert::Into, net::Ipv4Addr, time::Duration};
 
-use awkernel_lib::net::ip_addr::IpAddr;
+use awkernel_async_lib::net::IpAddr;
 
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
@@ -25,18 +25,23 @@ pub async fn run() {
 }
 
 async fn tcp_listen_test() {
-    let Ok(socket) = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
+    let Ok(mut tcp_listener) = awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(
         0,
         IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 64)),
         8080,
         4096,
-        2,
+        32,
     ) else {
         panic!("Failed to bind TCP listener.");
     };
 
     loop {
-        awkernel_async_lib::forever().await;
+        let Ok(tcp_stream) = tcp_listener.accept().await else {
+            log::error!("Failed to accept TCP connection.");
+            continue;
+        };
+
+        log::debug!("Accepted a TCP connection.");
     }
 }
 

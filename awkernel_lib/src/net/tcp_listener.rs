@@ -126,6 +126,11 @@ impl TcpListener {
 
                 // The old handle is now a connected socket.
                 self.connected_sockets.push_back(new_handle);
+            } else if !socket.is_open() {
+                // If the socket is not open, create a new socket and add it to the interface.
+                let new_socket = create_listen_socket(&self.addr, self.port, self.buffer_size);
+                interface.socket_set.remove(*handle);
+                *handle = interface.socket_set.add(new_socket);
             }
         }
 
