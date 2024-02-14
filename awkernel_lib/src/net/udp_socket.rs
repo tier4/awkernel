@@ -126,7 +126,7 @@ impl UdpSocket {
     /// and the waker is registered for the socket.
     pub fn send_to(
         &self,
-        data: &[u8],
+        buf: &[u8],
         addr: &IpAddr,
         port: u16,
         waker: &core::task::Waker,
@@ -134,8 +134,11 @@ impl UdpSocket {
         let net_manager = NET_MANAGER.read();
 
         let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
-        return Err(NetManagerError::InvalidInterfaceID);
-    };
+            return Err(NetManagerError::InvalidInterfaceID);
+        };
+
+        let if_net = if_net.clone();
+        drop(net_manager);
 
         let mut node = MCSNode::new();
         let mut inner = if_net.inner.lock(&mut node);
@@ -146,7 +149,7 @@ impl UdpSocket {
 
         if socket.can_send() {
             socket
-                .send_slice(data, (addr.addr, port))
+                .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
 
             drop(inner);
@@ -169,7 +172,7 @@ impl UdpSocket {
     /// Return value: `(length of the received data, source address, source port)`
     pub fn recv(
         &self,
-        dst: &mut [u8],
+        buf: &mut [u8],
         waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError> {
         let net_manager = NET_MANAGER.read();
@@ -177,6 +180,9 @@ impl UdpSocket {
         let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
             return Err(NetManagerError::InvalidInterfaceID);
         };
+
+        let if_net = if_net.clone();
+        drop(net_manager);
 
         let mut node = MCSNode::new();
         let mut inner = if_net.inner.lock(&mut node);
@@ -188,9 +194,9 @@ impl UdpSocket {
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
 
-            let len = dst.len().min(data.len());
+            let len = buf.len().min(data.len());
 
-            unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), dst.as_mut_ptr(), len) };
+            unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), buf.as_mut_ptr(), len) };
 
             Ok(Some((
                 len,

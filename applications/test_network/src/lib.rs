@@ -6,17 +6,38 @@ use core::{convert::Into, net::Ipv4Addr, time::Duration};
 
 use awkernel_lib::net::ip_addr::IpAddr;
 
-const NETWORK_SERVICE_NAME: &str = "test network";
-
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
 
     awkernel_async_lib::spawn(
-        NETWORK_SERVICE_NAME.into(),
+        "test udp".into(),
         udp_test(),
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
+
+    awkernel_async_lib::spawn(
+        "test tcp listen".into(),
+        tcp_listen_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn tcp_listen_test() {
+    let Ok(socket) = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
+        0,
+        IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 64)),
+        8080,
+        4096,
+        2,
+    ) else {
+        panic!("Failed to bind TCP listener.");
+    };
+
+    loop {
+        awkernel_async_lib::forever().await;
+    }
 }
 
 async fn udp_test() {
