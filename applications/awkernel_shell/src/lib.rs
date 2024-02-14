@@ -3,7 +3,7 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
@@ -158,7 +158,14 @@ fn help_ffi() {
     console::print("BLisp grammer: https://ytakano.github.io/blisp/\r\n\r\n");
 
     console::print("BLisp functions:\r\n");
-    console::print(CODE);
+
+    let mut lines = String::new();
+    CODE.lines().for_each(|line| {
+        lines.push_str(line);
+        lines.push_str("\r\n");
+    });
+
+    console::print(lines.as_str());
 }
 
 #[embedded]

@@ -89,7 +89,7 @@ async fn spawn_handlers(
         ch_irq_handlers.insert(irq, client);
 
         let name = format!(
-            "{}: device = {}, IRQ = {irq}",
+            "{}:{}: IRQ = {irq}",
             crate::NETWORK_SERVICE_NAME,
             if_status.device_name,
         );
@@ -107,7 +107,7 @@ async fn spawn_handlers(
         ch_poll_handlers.insert(if_status.interface_id, client);
 
         let name = format!(
-            "{}: device = {}, poll mode",
+            "{}:{}: poll mode",
             crate::NETWORK_SERVICE_NAME,
             if_status.device_name,
         );

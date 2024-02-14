@@ -9,12 +9,12 @@ use awkernel_async_lib::net::IpAddr;
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
 
-    // awkernel_async_lib::spawn(
-    //     "test udp".into(),
-    //     udp_test(),
-    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    // )
-    // .await;
+    awkernel_async_lib::spawn(
+        "test udp".into(),
+        udp_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 
     awkernel_async_lib::spawn(
         "test tcp listen".into(),
@@ -30,7 +30,7 @@ async fn tcp_listen_test() {
         IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 64)),
         8080,
         4096,
-        1,
+        8,
     ) else {
         panic!("Failed to bind TCP listener.");
     };

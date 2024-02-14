@@ -105,26 +105,23 @@ impl TcpListener {
 
         for handle in self.handles.iter_mut() {
             let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
-            if socket.is_active() {
-                // If the socket is active, create a new socket and add it to the interface.
-                // let new_socket =
-                //     create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
-                // let mut new_handle = interface.socket_set.add(new_socket);
+            if socket.may_send() {
+                // If the connection is established, create a new socket and add it to the interface.
+                let new_socket =
+                    create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                let mut new_handle = interface.socket_set.add(new_socket);
 
                 // Swap the new handle with the old handle.
-                // core::mem::swap(handle, &mut new_handle);
+                core::mem::swap(handle, &mut new_handle);
 
                 // The old handle is now a connected socket.
-                // self.connected_sockets.push_back(new_handle);
-
-                self.connected_sockets.push_back(*handle);
+                self.connected_sockets.push_back(new_handle);
             } else if !socket.is_open() {
-                // If the socket is not open, create a new socket and add it to the interface.
-                // let new_socket =
-                //     create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
-                // log::debug!("socket_set.remove()");
-                // interface.socket_set.remove(*handle);
-                // *handle = interface.socket_set.add(new_socket);
+                // If the socket is closed, create a new socket and add it to the interface.
+                let new_socket =
+                    create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                interface.socket_set.remove(*handle);
+                *handle = interface.socket_set.add(new_socket);
             }
         }
 
@@ -149,7 +146,7 @@ impl TcpListener {
         // Register the waker for the listening sockets.
         for handle in self.handles.iter() {
             let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
-            socket.register_recv_waker(waker);
+            socket.register_send_waker(waker);
         }
 
         drop(interface);

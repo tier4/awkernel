@@ -40,8 +40,6 @@ impl TcpPort {
 
 impl Drop for TcpPort {
     fn drop(&mut self) {
-        log::debug!("Closed TCP connection: {}", self.port);
-
         let mut net_manager = NET_MANAGER.write();
         if self.is_ipv4 {
             net_manager.decrement_port_in_use_tcp_ipv4(self.port);

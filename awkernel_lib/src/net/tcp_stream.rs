@@ -16,7 +16,6 @@ pub struct TcpStream {
 
 impl Drop for TcpStream {
     fn drop(&mut self) {
-        log::debug!("drop TcpStream");
         let net_manager = NET_MANAGER.read();
 
         let Some(if_net) = net_manager
@@ -37,19 +36,16 @@ impl Drop for TcpStream {
 
             // If the socket is already closed, remove it from the socket set.
             if matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
-                log::debug!("drop TcpStream: state is Closed");
                 inner.socket_set.remove(self.handle);
 
                 return;
             }
 
             // Otherwise, close the socket.
-            log::debug!("drop TcpStream: close socket: state = {:?}", socket.state());
             socket.close();
         }
 
         let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
-        log::debug!("drop TcpStream: poll_tx_only({})", que_id);
         if_net.poll_tx_only(que_id);
 
         let mut node = MCSNode::new();
@@ -68,8 +64,6 @@ impl Drop for TcpStream {
                 entry.insert(v);
             }
         }
-
-        log::debug!("drop TcpStream end");
     }
 }
 
@@ -88,6 +82,7 @@ pub fn close_connections() {
             let if_net = if_net.clone();
             drop(net_manager);
 
+            // TCP connections which are not closed yet.
             let mut remain_v = VecDeque::new();
 
             {
@@ -97,12 +92,12 @@ pub fn close_connections() {
                 while let Some((handle, port)) = v.pop_front() {
                     let socket: &mut smoltcp::socket::tcp::Socket =
                         inner.socket_set.get_mut(handle);
-                    if !matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
+                    if socket.state() == smoltcp::socket::tcp::State::Closed {
+                        // If the socket is already closed, remove it from the socket set.
+                        inner.socket_set.remove(handle);
+                    } else {
                         socket.close();
                         remain_v.push_back((handle, port));
-                    } else {
-                        log::debug!("drop TcpStream: state is Closed");
-                        inner.socket_set.remove(handle);
                     }
                 }
             }
@@ -114,6 +109,4 @@ pub fn close_connections() {
     }
 
     *closed_connections = remain;
-
-    drop(closed_connections);
 }
