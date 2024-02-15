@@ -74,6 +74,8 @@ impl ArcWake for Task {
     }
 
     fn wake(self: Arc<Self>) {
+        let panicked;
+
         {
             use State::*;
 
@@ -87,9 +89,15 @@ impl ArcWake for Task {
             if matches!(info.state, Terminated | Panicked) {
                 return;
             }
+
+            panicked = info.panicked;
         }
 
-        self.scheduler.wake_task(self);
+        if panicked {
+            scheduler::panicked::SCHEDULER.wake_task(self);
+        } else {
+            self.scheduler.wake_task(self);
+        }
     }
 }
 
@@ -101,6 +109,7 @@ pub struct TaskInfo {
     last_executed_time: u64,
     pub(crate) in_queue: bool,
     need_sched: bool,
+    panicked: bool,
 
     #[cfg(not(feature = "no_preempt"))]
     thread: Option<PtrWorkerThreadContext>,
@@ -127,7 +136,11 @@ impl TaskInfo {
 
     #[inline(always)]
     pub fn get_scheduler_type(&self) -> SchedulerType {
-        self.scheduler_type
+        if self.panicked {
+            SchedulerType::Panicked
+        } else {
+            self.scheduler_type
+        }
     }
 
     #[inline(always)]
@@ -148,6 +161,11 @@ impl TaskInfo {
     #[inline(always)]
     pub fn in_queue(&self) -> bool {
         self.in_queue
+    }
+
+    #[inline(always)]
+    pub fn panicked(&self) -> bool {
+        self.panicked
     }
 }
 
@@ -200,6 +218,7 @@ impl Tasks {
                     last_executed_time: 0,
                     in_queue: false,
                     need_sched: false,
+                    panicked: false,
 
                     #[cfg(not(feature = "no_preempt"))]
                     thread: None,
@@ -629,5 +648,30 @@ pub fn get_num_preemption() -> usize {
     #[cfg(feature = "no_preempt")]
     {
         0
+    }
+}
+
+pub fn panicking() {
+    let Some(task_id) = get_current_task(awkernel_lib::cpu::cpu_id()) else {
+        return;
+    };
+
+    {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+
+        if let Some(task) = tasks.id_to_task.get(&task_id) {
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+            info.scheduler_type = SchedulerType::Panicked;
+            info.panicked = true;
+        } else {
+            return;
+        }
+    }
+
+    #[cfg(not(feature = "no_preempt"))]
+    unsafe {
+        preempt::preemption();
     }
 }

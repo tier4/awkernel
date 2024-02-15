@@ -1,19 +1,20 @@
-//! A basic FIFO scheduler.
+//! A scheduler for panicked tasks.
+//! Panicked tasks will be the lowest priority.
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::State;
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-pub struct FIFOScheduler {
-    data: Mutex<Option<FIFOData>>, // Run queue.
+pub struct PanickedScheduler {
+    data: Mutex<Option<PanickedData>>, // Run queue.
 }
 
-struct FIFOData {
+struct PanickedData {
     queue: VecDeque<Arc<Task>>,
 }
 
-impl FIFOData {
+impl PanickedData {
     fn new() -> Self {
         Self {
             queue: VecDeque::new(),
@@ -21,13 +22,13 @@ impl FIFOData {
     }
 }
 
-impl Scheduler for FIFOScheduler {
+impl Scheduler for PanickedScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
         if data.is_none() {
-            *data = Some(FIFOData::new());
+            *data = Some(PanickedData::new());
         }
 
         let data = data.as_mut().unwrap();
@@ -66,6 +67,6 @@ impl Scheduler for FIFOScheduler {
     }
 }
 
-pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
+pub static SCHEDULER: PanickedScheduler = PanickedScheduler {
     data: Mutex::new(None),
 };
