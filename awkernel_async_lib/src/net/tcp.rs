@@ -131,6 +131,15 @@ impl TcpStream {
     pub fn remote_addr(&self) -> Option<(IpAddr, u16)> {
         self.stream.remote_addr().ok()
     }
+
+    pub fn split(self) -> (TcpStreamTx, TcpStreamRx) {
+        let stream = self.stream.split();
+
+        (
+            TcpStreamTx { stream: stream.0 },
+            TcpStreamRx { stream: stream.1 },
+        )
+    }
 }
 
 #[pin_project]
@@ -149,21 +158,7 @@ impl<'a> Future for TcpSender<'a> {
         let this = self.project();
         let stream = this.stream;
         let result = stream.stream.send(this.buf, cx.waker());
-
-        match result {
-            awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
-            awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
-            awkernel_lib::net::tcp_stream::TcpResult::CloseLocal => {
-                core::task::Poll::Ready(Err(TcpSendError::CloseLocal))
-            }
-            awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
-                core::task::Poll::Ready(Err(TcpSendError::InvalidState))
-            }
-            awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
-                core::task::Poll::Ready(Err(TcpSendError::Unreachable))
-            }
-            _ => unreachable!(),
-        }
+        send_result(result)
     }
 }
 
@@ -183,20 +178,114 @@ impl<'a> Future for TcpReceiver<'a> {
         let this = self.project();
         let stream = this.stream;
         let result = stream.stream.recv(this.buf, cx.waker());
+        recv_result(result)
+    }
+}
 
-        match result {
-            awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
-            awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
-            awkernel_lib::net::tcp_stream::TcpResult::CloseRemote => {
-                core::task::Poll::Ready(Err(TcpRecvError::CloseRemote))
-            }
-            awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
-                core::task::Poll::Ready(Err(TcpRecvError::InvalidState))
-            }
-            awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
-                core::task::Poll::Ready(Err(TcpRecvError::Unreachable))
-            }
-            _ => unreachable!(),
+pub struct TcpStreamTx {
+    stream: awkernel_lib::net::tcp_stream::TcpStreamTx,
+}
+
+impl TcpStreamTx {
+    /// Send data to the stream.
+    ///
+    /// This function returns the number of bytes sent.
+    #[inline(always)]
+    pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
+        TcpStreamTxSender { stream: self, buf }.await
+    }
+}
+
+#[inline(always)]
+fn send_result(
+    result: awkernel_lib::net::tcp_stream::TcpResult,
+) -> core::task::Poll<Result<usize, TcpSendError>> {
+    match result {
+        awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
+        awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
+        awkernel_lib::net::tcp_stream::TcpResult::CloseLocal => {
+            core::task::Poll::Ready(Err(TcpSendError::CloseLocal))
         }
+        awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
+            core::task::Poll::Ready(Err(TcpSendError::InvalidState))
+        }
+        awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
+            core::task::Poll::Ready(Err(TcpSendError::Unreachable))
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[pin_project]
+struct TcpStreamTxSender<'a> {
+    stream: &'a mut TcpStreamTx,
+    buf: &'a [u8],
+}
+
+impl<'a> Future for TcpStreamTxSender<'a> {
+    type Output = Result<usize, TcpSendError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+        let stream = this.stream;
+        let result = stream.stream.send(this.buf, cx.waker());
+        send_result(result)
+    }
+}
+
+pub struct TcpStreamRx {
+    stream: awkernel_lib::net::tcp_stream::TcpStreamRx,
+}
+
+impl TcpStreamRx {
+    /// Receive data from the stream.
+    ///
+    /// This function returns the number of bytes received.
+    #[inline(always)]
+    pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
+        TcpStreamRxReceiver { stream: self, buf }.await
+    }
+}
+
+#[inline(always)]
+fn recv_result(
+    result: awkernel_lib::net::tcp_stream::TcpResult,
+) -> core::task::Poll<Result<usize, TcpRecvError>> {
+    match result {
+        awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
+        awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
+        awkernel_lib::net::tcp_stream::TcpResult::CloseRemote => {
+            core::task::Poll::Ready(Err(TcpRecvError::CloseRemote))
+        }
+        awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
+            core::task::Poll::Ready(Err(TcpRecvError::InvalidState))
+        }
+        awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
+            core::task::Poll::Ready(Err(TcpRecvError::Unreachable))
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[pin_project]
+struct TcpStreamRxReceiver<'a> {
+    stream: &'a mut TcpStreamRx,
+    buf: &'a mut [u8],
+}
+
+impl<'a> Future for TcpStreamRxReceiver<'a> {
+    type Output = Result<usize, TcpRecvError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+        let stream = this.stream;
+        let result = stream.stream.recv(this.buf, cx.waker());
+        recv_result(result)
     }
 }

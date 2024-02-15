@@ -4,6 +4,7 @@ extern crate alloc;
 
 use core::{convert::Into, net::Ipv4Addr, time::Duration};
 
+use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
 
 pub async fn run() {
@@ -36,15 +37,36 @@ async fn tcp_listen_test() {
     };
 
     loop {
-        let Ok(mut tcp_stream) = tcp_listener.accept().await else {
+        let Ok(tcp_stream) = tcp_listener.accept().await else {
             log::error!("Failed to accept TCP connection.");
             continue;
         };
 
-        tcp_stream.send(b"Hello Awkernel!\r\n").await.unwrap();
+        log::debug!("Accepted a TCP connection. {:?}", tcp_stream.remote_addr());
 
-        log::debug!("Accepted a TCP connection.");
+        awkernel_async_lib::spawn(
+            "bogus HTTP server".into(),
+            bogus_http_server(tcp_stream),
+            awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        )
+        .await;
     }
+}
+
+async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) {
+    let mut buf = [0u8; 1024 * 2];
+
+    let n = stream.recv(&mut buf).await.unwrap();
+
+    let request = core::str::from_utf8(&buf[..n]).unwrap();
+    log::debug!("Received HTTP request: {}", request);
+
+    static MSG: &str = "<html><body><h1>Hello, Awkernel!</h1></body></html>\r\n";
+
+    let len = MSG.len();
+    let response = format!("HTTP/1.0 200 OK\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: {len}\r\n\r\n");
+    stream.send(response.as_bytes()).await.unwrap();
+    stream.send(MSG.as_bytes()).await.unwrap();
 }
 
 async fn udp_test() {

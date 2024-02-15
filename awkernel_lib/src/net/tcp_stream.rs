@@ -1,4 +1,7 @@
-use alloc::collections::{btree_map::Entry, BTreeMap, VecDeque};
+use alloc::{
+    collections::{btree_map::Entry, BTreeMap, VecDeque},
+    sync::Arc,
+};
 use smoltcp::iface::SocketHandle;
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
@@ -230,5 +233,40 @@ impl TcpStream {
         } else {
             Err(NetManagerError::InvalidState)
         }
+    }
+
+    pub fn split(self) -> (TcpStreamTx, TcpStreamRx) {
+        let stream = Arc::new(Mutex::new(self));
+
+        (
+            TcpStreamTx {
+                stream: stream.clone(),
+            },
+            TcpStreamRx { stream },
+        )
+    }
+}
+
+pub struct TcpStreamTx {
+    stream: Arc<Mutex<TcpStream>>,
+}
+
+impl TcpStreamTx {
+    pub fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult {
+        let mut node = MCSNode::new();
+        let mut stream = self.stream.lock(&mut node);
+        stream.send(buf, waker)
+    }
+}
+
+pub struct TcpStreamRx {
+    stream: Arc<Mutex<TcpStream>>,
+}
+
+impl TcpStreamRx {
+    pub fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
+        let mut node = MCSNode::new();
+        let mut stream = self.stream.lock(&mut node);
+        stream.recv(buf, waker)
     }
 }
