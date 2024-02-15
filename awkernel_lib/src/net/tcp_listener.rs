@@ -30,12 +30,21 @@ impl TcpListener {
                 .get_ephemeral_port_tcp_ipv4()
                 .ok_or(NetManagerError::PortInUse)?
         } else {
-            // Check if the specified port is available.
-            if net_manager.is_port_in_use_tcp_ipv4(port) {
-                return Err(NetManagerError::PortInUse);
-            }
+            if addr.is_ipv4() {
+                // Check if the specified port is available.
+                if net_manager.is_port_in_use_tcp_ipv4(port) {
+                    return Err(NetManagerError::PortInUse);
+                }
 
-            net_manager.port_in_use_tcp_ipv4(port)
+                net_manager.port_in_use_tcp_ipv4(port)
+            } else {
+                // Check if the specified port is available.
+                if net_manager.is_port_in_use_tcp_ipv6(port) {
+                    return Err(NetManagerError::PortInUse);
+                }
+
+                net_manager.port_in_use_tcp_ipv6(port)
+            }
         };
 
         // Find the interface that has the specified address.
@@ -81,7 +90,11 @@ impl TcpListener {
         if let Some(handle) = self.connected_sockets.pop_front() {
             let port = {
                 let mut net_manager = NET_MANAGER.write();
-                net_manager.port_in_use_tcp_ipv4(self.port.port())
+                if self.addr.is_ipv4() {
+                    net_manager.port_in_use_tcp_ipv4(self.port.port())
+                } else {
+                    net_manager.port_in_use_tcp_ipv6(self.port.port())
+                }
             };
             return Ok(Some(TcpStream {
                 handle,
@@ -131,7 +144,11 @@ impl TcpListener {
 
             let port = {
                 let mut net_manager = NET_MANAGER.write();
-                net_manager.port_in_use_tcp_ipv4(self.port.port())
+                if self.addr.is_ipv4() {
+                    net_manager.port_in_use_tcp_ipv4(self.port.port())
+                } else {
+                    net_manager.port_in_use_tcp_ipv6(self.port.port())
+                }
             };
 
             if_net.poll_tx_only(crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1));

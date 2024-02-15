@@ -11,6 +11,7 @@ pub struct UdpSocket {
     handle: smoltcp::iface::SocketHandle,
     interface_id: u64,
     port: u16,
+    is_ipv4: bool,
 }
 
 impl UdpSocket {
@@ -33,13 +34,16 @@ impl UdpSocket {
     ) -> Result<Self, NetManagerError> {
         let mut net_manager = NET_MANAGER.write();
 
+        let is_ipv4;
         let port = if port == 0 {
             // Find an ephemeral port.
             if addr.is_ipv4() {
+                is_ipv4 = true;
                 net_manager
                     .get_ephemeral_port_udp_ipv4()
                     .ok_or(NetManagerError::PortInUse)?
             } else {
+                is_ipv4 = false;
                 net_manager
                     .get_ephemeral_port_udp_ipv6()
                     .ok_or(NetManagerError::PortInUse)?
@@ -51,6 +55,7 @@ impl UdpSocket {
                     return Err(NetManagerError::PortInUse);
                 }
 
+                is_ipv4 = true;
                 net_manager.set_port_in_use_udp_ipv4(port);
                 port
             } else {
@@ -58,6 +63,7 @@ impl UdpSocket {
                     return Err(NetManagerError::PortInUse);
                 }
 
+                is_ipv4 = false;
                 net_manager.set_port_in_use_udp_ipv6(port);
                 port
             }
@@ -117,6 +123,7 @@ impl UdpSocket {
             handle,
             interface_id,
             port,
+            is_ipv4,
         })
     }
 
@@ -215,7 +222,12 @@ impl UdpSocket {
 impl Drop for UdpSocket {
     fn drop(&mut self) {
         let mut net_manager = NET_MANAGER.write();
-        net_manager.free_port_udp_ipv4(self.port);
+
+        if self.is_ipv4 {
+            net_manager.free_port_udp_ipv4(self.port);
+        } else {
+            net_manager.free_port_udp_ipv6(self.port);
+        }
 
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
             let mut node = MCSNode::new();

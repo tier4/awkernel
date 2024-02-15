@@ -101,6 +101,8 @@ static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     udp_port_ipv6_ephemeral: u16::MAX >> 2,
     tcp_ports_ipv4: BTreeMap::new(),
     tcp_port_ipv4_ephemeral: u16::MAX >> 2,
+    tcp_ports_ipv6: BTreeMap::new(),
+    tcp_port_ipv6_ephemeral: u16::MAX >> 2,
 });
 
 static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
@@ -115,6 +117,8 @@ pub struct NetManager {
     udp_port_ipv6_ephemeral: u16,
     tcp_ports_ipv4: BTreeMap<u16, u64>,
     tcp_port_ipv4_ephemeral: u16,
+    tcp_ports_ipv6: BTreeMap<u16, u64>,
+    tcp_port_ipv6_ephemeral: u16,
 }
 
 impl NetManager {
@@ -226,6 +230,54 @@ impl NetManager {
             *e -= 1;
             if *e == 0 {
                 self.tcp_ports_ipv4.remove(&port);
+            }
+        }
+    }
+
+    fn get_ephemeral_port_tcp_ipv6(&mut self) -> Option<TcpPort> {
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = self.tcp_port_ipv6_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            let entry = self.tcp_ports_ipv6.entry(i);
+
+            match entry {
+                Entry::Occupied(_) => (),
+                Entry::Vacant(e) => {
+                    e.insert(1);
+                    ephemeral_port = Some(TcpPort::new(port, false));
+                    self.tcp_port_ipv6_ephemeral = port;
+                    break;
+                }
+            }
+        }
+
+        ephemeral_port
+    }
+
+    #[inline(always)]
+    fn is_port_in_use_tcp_ipv6(&mut self, port: u16) -> bool {
+        self.tcp_ports_ipv6.contains_key(&port)
+    }
+
+    #[inline(always)]
+    fn port_in_use_tcp_ipv6(&mut self, port: u16) -> TcpPort {
+        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
+            *e += 1;
+        } else {
+            self.tcp_ports_ipv6.insert(port, 1);
+        }
+
+        TcpPort::new(port, true)
+    }
+
+    #[inline(always)]
+    fn decrement_port_in_use_tcp_ipv6(&mut self, port: u16) {
+        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
+            *e -= 1;
+            if *e == 0 {
+                self.tcp_ports_ipv6.remove(&port);
             }
         }
     }

@@ -44,7 +44,7 @@ impl Drop for TcpPort {
         if self.is_ipv4 {
             net_manager.decrement_port_in_use_tcp_ipv4(self.port);
         } else {
-            // TODO
+            net_manager.decrement_port_in_use_tcp_ipv6(self.port);
         }
     }
 }
