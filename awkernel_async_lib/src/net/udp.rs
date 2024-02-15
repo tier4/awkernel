@@ -30,6 +30,8 @@ impl UdpSocket {
         Ok(UdpSocket { socket_handle })
     }
 
+    /// Send a UDP packet to the specified address and port.
+    #[inline(always)]
     pub async fn send(
         &mut self,
         data: &[u8],
@@ -50,6 +52,7 @@ impl UdpSocket {
     ///
     /// If the length of the received data is greater than the length of the buffer,
     /// the data is truncated to the length of the buffer.
+    #[inline(always)]
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<(usize, IpAddr, u16), UdpSocketError> {
         UdpReceiver { socket: self, buf }.await
     }

@@ -19,7 +19,16 @@ pub enum TcpSendError {
     InvalidState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TcpRecvError {
+    Unreachable,
+    CloseRemote,
+    InvalidState,
+}
+
 impl TcpListener {
+    /// Create a new listener.
+    /// The listener is bound to the specified address and port.
     pub fn bind_on_interface(
         interface_id: u64,
         addr: IpAddr,
@@ -38,6 +47,7 @@ impl TcpListener {
         Ok(TcpListener { listener })
     }
 
+    /// Accept a new connection.
     pub async fn accept(&mut self) -> Result<TcpStream, TcpSocketError> {
         TcpAccepter { listener: self }.await
     }
@@ -71,8 +81,20 @@ pub struct TcpStream {
 }
 
 impl TcpStream {
+    /// Send data to the stream.
+    ///
+    /// This function returns the number of bytes sent.
+    #[inline(always)]
     pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
         TcpSender { stream: self, buf }.await
+    }
+
+    /// Receive data from the stream.
+    ///
+    /// This function returns the number of bytes received.
+    #[inline(always)]
+    pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
+        TcpReceiver { stream: self, buf }.await
     }
 }
 
@@ -104,6 +126,40 @@ impl<'a> Future for TcpSender<'a> {
             }
             awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
                 core::task::Poll::Ready(Err(TcpSendError::Unreachable))
+            }
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[pin_project]
+struct TcpReceiver<'a> {
+    stream: &'a mut TcpStream,
+    buf: &'a mut [u8],
+}
+
+impl<'a> Future for TcpReceiver<'a> {
+    type Output = Result<usize, TcpRecvError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+        let stream = this.stream;
+        let result = stream.stream.recv(this.buf, cx.waker());
+
+        match result {
+            awkernel_lib::net::tcp_stream::TcpResult::Ok(len) => core::task::Poll::Ready(Ok(len)),
+            awkernel_lib::net::tcp_stream::TcpResult::WouldBlock => core::task::Poll::Pending,
+            awkernel_lib::net::tcp_stream::TcpResult::CloseRemote => {
+                core::task::Poll::Ready(Err(TcpRecvError::CloseRemote))
+            }
+            awkernel_lib::net::tcp_stream::TcpResult::InvalidState => {
+                core::task::Poll::Ready(Err(TcpRecvError::InvalidState))
+            }
+            awkernel_lib::net::tcp_stream::TcpResult::Unreachable => {
+                core::task::Poll::Ready(Err(TcpRecvError::Unreachable))
             }
             _ => unreachable!(),
         }
