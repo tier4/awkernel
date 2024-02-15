@@ -11,25 +11,26 @@ pub struct TcpListener {
     interface_id: u64,
     addr: IpAddr,
     port: TcpPort,
-    buffer_size: usize,
+    rx_buffer_size: usize,
+    tx_buffer_size: usize,
 }
 
 impl TcpListener {
     pub fn bind_on_interface(
         interface_id: u64,
         addr: IpAddr,
-        port: u16,
-        buffer_size: usize,
-        num_waiting_connections: usize,
+        port: Option<u16>,
+        rx_buffer_size: usize,
+        tx_buffer_size: usize,
+        backlogs: usize,
     ) -> Result<TcpListener, NetManagerError> {
         let mut net_manager = NET_MANAGER.write();
 
-        let port = if port == 0 {
-            // Find an ephemeral port.
-            net_manager
-                .get_ephemeral_port_tcp_ipv4()
-                .ok_or(NetManagerError::PortInUse)?
-        } else {
+        let port = if let Some(port) = port {
+            if port == 0 {
+                return Err(NetManagerError::InvalidPort);
+            }
+
             if addr.is_ipv4() {
                 // Check if the specified port is available.
                 if net_manager.is_port_in_use_tcp_ipv4(port) {
@@ -45,6 +46,18 @@ impl TcpListener {
 
                 net_manager.port_in_use_tcp_ipv6(port)
             }
+        } else {
+            if addr.is_ipv4() {
+                // Find an ephemeral port.
+                net_manager
+                    .get_ephemeral_port_tcp_ipv4()
+                    .ok_or(NetManagerError::PortInUse)?
+            } else {
+                // Find an ephemeral port.
+                net_manager
+                    .get_ephemeral_port_tcp_ipv6()
+                    .ok_or(NetManagerError::PortInUse)?
+            }
         };
 
         // Find the interface that has the specified address.
@@ -58,9 +71,9 @@ impl TcpListener {
 
         let mut handles = Vec::new();
 
-        for _ in 0..num_waiting_connections {
+        for _ in 0..backlogs {
             // Create a TCP socket.
-            let socket = create_listen_socket(&addr, port.port(), buffer_size);
+            let socket = create_listen_socket(&addr, port.port(), rx_buffer_size, tx_buffer_size);
 
             let handle = {
                 let mut node = MCSNode::new();
@@ -78,7 +91,8 @@ impl TcpListener {
             interface_id,
             addr,
             port,
-            buffer_size,
+            rx_buffer_size,
+            tx_buffer_size,
         })
     }
 
@@ -120,8 +134,12 @@ impl TcpListener {
             let socket: &mut smoltcp::socket::tcp::Socket = interface.socket_set.get_mut(*handle);
             if socket.may_send() {
                 // If the connection is established, create a new socket and add it to the interface.
-                let new_socket =
-                    create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                let new_socket = create_listen_socket(
+                    &self.addr,
+                    self.port.port(),
+                    self.rx_buffer_size,
+                    self.tx_buffer_size,
+                );
                 let mut new_handle = interface.socket_set.add(new_socket);
 
                 // Swap the new handle with the old handle.
@@ -131,8 +149,12 @@ impl TcpListener {
                 self.connected_sockets.push_back(new_handle);
             } else if !socket.is_open() {
                 // If the socket is closed, create a new socket and add it to the interface.
-                let new_socket =
-                    create_listen_socket(&self.addr, self.port.port(), self.buffer_size);
+                let new_socket = create_listen_socket(
+                    &self.addr,
+                    self.port.port(),
+                    self.rx_buffer_size,
+                    self.tx_buffer_size,
+                );
                 interface.socket_set.remove(*handle);
                 *handle = interface.socket_set.add(new_socket);
             }
@@ -206,11 +228,12 @@ impl Drop for TcpListener {
 fn create_listen_socket(
     addr: &IpAddr,
     port: u16,
-    buffer_size: usize,
+    rx_buffer_size: usize,
+    tx_buffer_size: usize,
 ) -> smoltcp::socket::tcp::Socket<'static> {
     // Create a TCP socket.
-    let rx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; buffer_size]);
-    let tx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; buffer_size]);
+    let rx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; rx_buffer_size]);
+    let tx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; tx_buffer_size]);
 
     let mut socket = smoltcp::socket::tcp::Socket::new(rx_buffer, tx_buffer);
 

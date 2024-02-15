@@ -4,7 +4,7 @@ extern crate alloc;
 
 use core::{convert::Into, net::Ipv4Addr, time::Duration};
 
-use awkernel_async_lib::net::IpAddr;
+use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
 
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
@@ -25,12 +25,12 @@ pub async fn run() {
 }
 
 async fn tcp_listen_test() {
+    let mut config = TcpConfig::default();
+    config.port = Some(8080);
+
     let Ok(mut tcp_listener) = awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(
         0,
-        IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 64)),
-        8080,
-        4096,
-        8,
+        config
     ) else {
         panic!("Failed to bind TCP listener.");
     };
@@ -49,9 +49,8 @@ async fn tcp_listen_test() {
 
 async fn udp_test() {
     // Create a UDP socket on interface 1.
-    let addr = IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0));
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, addr, 0, 1024 * 64).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
     let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2));
 

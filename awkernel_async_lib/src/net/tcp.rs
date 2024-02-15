@@ -1,7 +1,39 @@
+use core::net::Ipv4Addr;
+
 use super::IpAddr;
 use awkernel_lib::net::NetManagerError;
 use futures::Future;
 use pin_project::pin_project;
+
+/// Configuration for TCP.
+///
+/// # Example
+/// ```
+/// use awkernel_async_lib::net::tcp::TcpConfig;
+///
+/// let mut config = TcpConfig::default();
+/// config.port = Some(8080);
+/// ```
+#[derive(Debug, Clone)]
+pub struct TcpConfig {
+    pub addr: IpAddr,          // The address to bind.
+    pub port: Option<u16>,     // The port to bind. If None, an ephemeral port is used.
+    pub rx_buffer_size: usize, // The size of the receive buffer in bytes.
+    pub tx_buffer_size: usize, // The size of the transmit buffer in bytes.
+    pub backlogs: usize,       // The number of backlogs. This is used only for TcpListener.
+}
+
+impl Default for TcpConfig {
+    fn default() -> Self {
+        TcpConfig {
+            addr: IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0)),
+            port: None,
+            rx_buffer_size: 1024 * 64,
+            tx_buffer_size: 1024 * 64,
+            backlogs: 10,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcpSocketError {
@@ -31,17 +63,15 @@ impl TcpListener {
     /// The listener is bound to the specified address and port.
     pub fn bind_on_interface(
         interface_id: u64,
-        addr: IpAddr,
-        port: u16,
-        buffer_size: usize,
-        num_waiting_connections: usize,
+        config: TcpConfig,
     ) -> Result<TcpListener, NetManagerError> {
         let listener = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
             interface_id,
-            addr,
-            port,
-            buffer_size,
-            num_waiting_connections,
+            config.addr,
+            config.port,
+            config.rx_buffer_size,
+            config.tx_buffer_size,
+            config.backlogs,
         )?;
 
         Ok(TcpListener { listener })

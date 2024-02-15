@@ -39,6 +39,7 @@ pub enum NetManagerError {
     SendError,
     RecvError,
     NotYetImplemented,
+    InvalidPort,
 }
 
 #[derive(Debug)]

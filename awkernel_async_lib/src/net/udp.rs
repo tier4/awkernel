@@ -1,3 +1,5 @@
+use core::net::Ipv4Addr;
+
 use super::IpAddr;
 use futures::Future;
 use pin_project::pin_project;
@@ -8,6 +10,25 @@ pub enum UdpSocketError {
     SendError,
 }
 
+#[derive(Debug, Clone)]
+pub struct UdpConfig {
+    pub addr: IpAddr,
+    pub port: Option<u16>,
+    pub rx_buffer_size: usize,
+    pub tx_buffer_size: usize,
+}
+
+impl Default for UdpConfig {
+    fn default() -> Self {
+        UdpConfig {
+            addr: IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0)),
+            port: None,
+            rx_buffer_size: 1024 * 64,
+            tx_buffer_size: 1024 * 64,
+        }
+    }
+}
+
 pub struct UdpSocket {
     socket_handle: awkernel_lib::net::udp_socket::UdpSocket,
 }
@@ -15,15 +36,14 @@ pub struct UdpSocket {
 impl UdpSocket {
     pub fn bind_on_interface(
         interface_id: u64,
-        addr: IpAddr,
-        port: u16,
-        buffer_size: usize,
+        config: UdpConfig,
     ) -> Result<UdpSocket, UdpSocketError> {
         let socket_handle = awkernel_lib::net::udp_socket::UdpSocket::bind_on_interface(
             interface_id,
-            addr,
-            port,
-            buffer_size,
+            config.addr,
+            config.port,
+            config.rx_buffer_size,
+            config.tx_buffer_size,
         )
         .or(Err(UdpSocketError::SocketCreationError))?;
 

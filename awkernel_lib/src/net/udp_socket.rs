@@ -23,32 +23,24 @@ impl UdpSocket {
     /// use awkernel_lib::net::socket::UDPSocket;
     ///
     /// fn example_udp_socket_ipv4() {
-    ///     let handler = UDPSocket::bind_on_interface(0, 10000, 64 * 1024).unwrap();
+    ///     let handler = UDPSocket::bind_on_interface(0, Some(10000), 64 * 1024, 64 * 1024).unwrap();
     /// }
     /// ```
     pub fn bind_on_interface(
         interface_id: u64,
         addr: IpAddr,
-        port: u16,
-        buffer_size: usize,
+        port: Option<u16>,
+        rx_buffer_size: usize,
+        tx_buffer_size: usize,
     ) -> Result<Self, NetManagerError> {
         let mut net_manager = NET_MANAGER.write();
 
         let is_ipv4;
-        let port = if port == 0 {
-            // Find an ephemeral port.
-            if addr.is_ipv4() {
-                is_ipv4 = true;
-                net_manager
-                    .get_ephemeral_port_udp_ipv4()
-                    .ok_or(NetManagerError::PortInUse)?
-            } else {
-                is_ipv4 = false;
-                net_manager
-                    .get_ephemeral_port_udp_ipv6()
-                    .ok_or(NetManagerError::PortInUse)?
+        let port = if let Some(port) = port {
+            if port == 0 {
+                return Err(NetManagerError::InvalidPort);
             }
-        } else {
+
             // Check if the specified port is available.
             if addr.is_ipv4() {
                 if net_manager.is_port_in_use_udp_ipv4(port) {
@@ -67,6 +59,19 @@ impl UdpSocket {
                 net_manager.set_port_in_use_udp_ipv6(port);
                 port
             }
+        } else {
+            // Find an ephemeral port.
+            if addr.is_ipv4() {
+                is_ipv4 = true;
+                net_manager
+                    .get_ephemeral_port_udp_ipv4()
+                    .ok_or(NetManagerError::PortInUse)?
+            } else {
+                is_ipv4 = false;
+                net_manager
+                    .get_ephemeral_port_udp_ipv6()
+                    .ok_or(NetManagerError::PortInUse)?
+            }
         };
 
         // Find the interface that has the specified address.
@@ -82,11 +87,11 @@ impl UdpSocket {
         use smoltcp::socket::udp;
         let udp_rx_buffer = udp::PacketBuffer::new(
             vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-            vec![0; buffer_size],
+            vec![0; rx_buffer_size],
         );
         let udp_tx_buffer = udp::PacketBuffer::new(
             vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-            vec![0; buffer_size],
+            vec![0; tx_buffer_size],
         );
 
         let mut socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
