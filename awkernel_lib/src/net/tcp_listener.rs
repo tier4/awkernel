@@ -51,12 +51,12 @@ impl TcpListener {
                 // Find an ephemeral port.
                 net_manager
                     .get_ephemeral_port_tcp_ipv4()
-                    .ok_or(NetManagerError::PortInUse)?
+                    .ok_or(NetManagerError::NoAvailablePort)?
             } else {
                 // Find an ephemeral port.
                 net_manager
                     .get_ephemeral_port_tcp_ipv6()
-                    .ok_or(NetManagerError::PortInUse)?
+                    .ok_or(NetManagerError::NoAvailablePort)?
             }
         };
 

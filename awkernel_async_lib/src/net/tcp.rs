@@ -38,6 +38,8 @@ impl Default for TcpConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcpSocketError {
     SocketCreationError,
+    InvalidInterfaceID,
+    PortInUse,
 }
 
 pub struct TcpListener {
@@ -139,6 +141,27 @@ impl TcpStream {
             TcpStreamTx { stream: stream.0 },
             TcpStreamRx { stream: stream.1 },
         )
+    }
+
+    pub fn connect(
+        interface_id: u64,
+        addr: IpAddr,
+        port: u16,
+        config: TcpConfig,
+    ) -> Result<TcpStream, TcpSocketError> {
+        match awkernel_lib::net::tcp_stream::TcpStream::connect(
+            interface_id,
+            addr,
+            port,
+            config.port,
+            config.rx_buffer_size,
+            config.tx_buffer_size,
+        ) {
+            Ok(stream) => Ok(TcpStream { stream }),
+            Err(NetManagerError::CannotFindInterface) => Err(TcpSocketError::InvalidInterfaceID),
+            Err(NetManagerError::PortInUse) => Err(TcpSocketError::PortInUse),
+            Err(_) => Err(TcpSocketError::SocketCreationError),
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 use alloc::{
     collections::{btree_map::Entry, BTreeMap, VecDeque},
     sync::Arc,
+    vec,
 };
 use smoltcp::iface::SocketHandle;
 
@@ -125,6 +126,93 @@ pub fn close_connections() {
 }
 
 impl TcpStream {
+    pub fn connect(
+        interface_id: u64,
+        remote_addr: IpAddr,
+        remote_port: u16,
+        local_port: Option<u16>,
+        rx_buffer_size: usize,
+        tx_buffer_size: usize,
+    ) -> Result<TcpStream, NetManagerError> {
+        let mut net_manager = NET_MANAGER.write();
+
+        let if_net = net_manager
+            .interfaces
+            .get(&interface_id)
+            .ok_or(NetManagerError::InvalidInterfaceID)?;
+        let if_net = if_net.clone();
+
+        let local_port = if let Some(port) = local_port {
+            if port == 0 {
+                return Err(NetManagerError::InvalidPort);
+            }
+
+            if remote_addr.is_ipv4() {
+                if net_manager.tcp_ports_ipv4.contains_key(&port) {
+                    return Err(NetManagerError::PortInUse);
+                }
+
+                net_manager.port_in_use_tcp_ipv4(port)
+            } else {
+                if net_manager.tcp_ports_ipv6.contains_key(&port) {
+                    return Err(NetManagerError::PortInUse);
+                }
+
+                net_manager.port_in_use_tcp_ipv6(port)
+            }
+        } else {
+            if remote_addr.is_ipv4() {
+                net_manager
+                    .get_ephemeral_port_tcp_ipv4()
+                    .ok_or(NetManagerError::NoAvailablePort)?
+            } else {
+                net_manager
+                    .get_ephemeral_port_tcp_ipv6()
+                    .ok_or(NetManagerError::NoAvailablePort)?
+            }
+        };
+
+        drop(net_manager);
+
+        let rx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; rx_buffer_size]);
+        let tx_buffer = smoltcp::socket::tcp::SocketBuffer::new(vec![0; tx_buffer_size]);
+
+        let socket = smoltcp::socket::tcp::Socket::new(rx_buffer, tx_buffer);
+
+        let handle;
+        {
+            let mut node = MCSNode::new();
+            let mut inner = if_net.inner.lock(&mut node);
+
+            let (interface, socket_set) = inner.split();
+
+            handle = socket_set.add(socket);
+
+            let socket: &mut smoltcp::socket::tcp::Socket = socket_set.get_mut(handle);
+
+            if socket
+                .connect(
+                    interface.context(),
+                    (remote_addr.addr, remote_port),
+                    local_port.port(),
+                )
+                .is_err()
+            {
+                socket_set.remove(handle);
+                return Err(NetManagerError::InvalidState);
+            }
+        }
+
+        let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
+        if_net.poll_tx_only(que_id);
+
+        Ok(TcpStream {
+            handle,
+            interface_id,
+            port: Some(local_port),
+        })
+    }
+
     /// Send a TCP packet.
     ///
     /// - If the packet is sent successfully, the number of bytes sent is returned.
@@ -149,6 +237,11 @@ impl TcpStream {
         let mut inner = if_net.inner.lock(&mut node);
 
         let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+
+        if socket.state() == smoltcp::socket::tcp::State::SynSent {
+            socket.register_recv_waker(waker);
+            return TcpResult::WouldBlock;
+        }
 
         if !socket.may_send() {
             return TcpResult::CloseLocal;
@@ -190,6 +283,11 @@ impl TcpStream {
         let mut inner = if_net.inner.lock(&mut node);
 
         let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+
+        if socket.state() == smoltcp::socket::tcp::State::SynSent {
+            socket.register_recv_waker(waker);
+            return TcpResult::WouldBlock;
+        }
 
         if !socket.may_recv() {
             return TcpResult::CloseRemote;

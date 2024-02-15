@@ -23,6 +23,16 @@ pub async fn run() {
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
+
+    let mut stream = awkernel_async_lib::net::tcp::TcpStream::connect(
+        0,
+        IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2)),
+        8080,
+        Default::default(),
+    )
+    .unwrap();
+
+    stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
 }
 
 async fn tcp_listen_test() {

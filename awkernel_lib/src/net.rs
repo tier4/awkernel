@@ -41,6 +41,7 @@ pub enum NetManagerError {
     NotYetImplemented,
     InvalidPort,
     InvalidState,
+    NoAvailablePort,
 }
 
 #[derive(Debug)]

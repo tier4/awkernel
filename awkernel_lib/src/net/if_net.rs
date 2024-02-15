@@ -142,7 +142,7 @@ pub(super) struct IfNetInner {
 
 impl IfNetInner {
     #[inline(always)]
-    fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
+    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
         (&mut self.interface, &mut self.socket_set)
     }
 

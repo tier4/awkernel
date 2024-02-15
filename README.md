@@ -37,6 +37,7 @@ isolated zero-copy communications written in Rust.
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
+  - [ ] IP multicast
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
