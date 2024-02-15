@@ -506,6 +506,9 @@ pub fn poll_interface(interface_id: u64) -> bool {
 
 /// Check if there are some events to be processed.
 /// `poll()` should be called by CPU0.
+///
+/// 1. `NetManager.read()`
+/// 2. `POLL_WAKERS.lock()`
 pub fn poll() {
     let net_manager = NET_MANAGER.read();
 
