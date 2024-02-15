@@ -22,11 +22,13 @@ pub(crate) use self::rv32::RV32 as ArchImpl;
 #[cfg(feature = "std")]
 pub(crate) use self::std_common::StdCommon as ArchImpl;
 
+#[allow(dead_code)]
 #[cfg(not(feature = "std"))]
 trait Arch:
     super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::paging::Mapper
 {
 }
 
+#[allow(dead_code)]
 #[cfg(feature = "std")]
 trait Arch: super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU {}

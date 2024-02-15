@@ -32,9 +32,7 @@ impl Drop for TcpStream {
     fn drop(&mut self) {
         let net_manager = NET_MANAGER.read();
 
-        let Some(if_net) = net_manager
-            .interfaces
-            .get(&self.interface_id) else {
+        let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
             return;
         };
 
@@ -160,16 +158,14 @@ impl TcpStream {
 
                 net_manager.port_in_use_tcp_ipv6(port)
             }
+        } else if remote_addr.is_ipv4() {
+            net_manager
+                .get_ephemeral_port_tcp_ipv4()
+                .ok_or(NetManagerError::NoAvailablePort)?
         } else {
-            if remote_addr.is_ipv4() {
-                net_manager
-                    .get_ephemeral_port_tcp_ipv4()
-                    .ok_or(NetManagerError::NoAvailablePort)?
-            } else {
-                net_manager
-                    .get_ephemeral_port_tcp_ipv6()
-                    .ok_or(NetManagerError::NoAvailablePort)?
-            }
+            net_manager
+                .get_ephemeral_port_tcp_ipv6()
+                .ok_or(NetManagerError::NoAvailablePort)?
         };
 
         drop(net_manager);
@@ -224,9 +220,7 @@ impl TcpStream {
     pub fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult {
         let net_manager = NET_MANAGER.read();
 
-        let Some(if_net) = net_manager
-            .interfaces
-            .get(&self.interface_id) else {
+        let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
             return TcpResult::Unreachable;
         };
 
@@ -270,9 +264,7 @@ impl TcpStream {
     pub fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
         let net_manager = NET_MANAGER.read();
 
-        let Some(if_net) = net_manager
-            .interfaces
-            .get(&self.interface_id) else {
+        let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
             return TcpResult::Unreachable;
         };
 

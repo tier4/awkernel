@@ -27,7 +27,7 @@ impl<'a> Iterator for DeviceScopeIter<'a> {
             self.pointer = unsafe { self.pointer.offset(device_scope.length as isize) };
             self.remaining_length = self.remaining_length.saturating_sub(device_scope.length);
 
-            Some((&device_scope, path))
+            Some((device_scope, path))
         } else {
             None
         }

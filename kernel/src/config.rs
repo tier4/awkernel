@@ -1,3 +1,4 @@
+#[cfg(not(feature = "std"))]
 pub use crate::arch::config::*;
 
 /// Backup Heap size is 64 MiB

@@ -24,6 +24,7 @@ pub enum ConfigSpace {
 }
 
 impl ConfigSpace {
+    #[cfg(feature = "x86")]
     fn new_io(bus_number: u8, device_number: u8, function_number: u8) -> Self {
         let base = 0x80000000
             | (bus_number as u32) << 16
@@ -38,6 +39,7 @@ impl ConfigSpace {
 
     fn read_u16(&self, offset: usize) -> u16 {
         match self {
+            #[allow(unused_variables)]
             Self::IO(base) => {
                 #[cfg(feature = "x86")]
                 {
@@ -66,6 +68,7 @@ impl ConfigSpace {
 
     fn read_u32(&self, offset: usize) -> u32 {
         match self {
+            #[allow(unused_variables)]
             Self::IO(base) => {
                 #[cfg(feature = "x86")]
                 {
@@ -93,6 +96,7 @@ impl ConfigSpace {
 
     fn write_u32(&self, data: u32, offset: usize) {
         match self {
+            #[allow(unused_variables)]
             Self::IO(base) => {
                 #[cfg(feature = "x86")]
                 {
@@ -712,6 +716,10 @@ impl PCIeInfo {
         let reg = self.config_space.read_u32(registers::INTERRUPT_LINE);
         self.config_space
             .write_u32((reg & !0xff) | irq as u32, registers::INTERRUPT_LINE);
+    }
+
+    pub fn get_interrupt_pin(&self) -> u8 {
+        self.interrupt_pin
     }
 
     pub(crate) fn read_capability(&mut self) {

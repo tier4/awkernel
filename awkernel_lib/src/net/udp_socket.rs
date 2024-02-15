@@ -16,14 +16,23 @@ pub struct UdpSocket {
 
 impl UdpSocket {
     /// Create a UDP socket for IPv4.
+    /// This function is for `awkernel_async_lib`,
+    /// and it is not intended to be used directly.
     ///
     /// # Example
     ///
     /// ```
-    /// use awkernel_lib::net::socket::UDPSocket;
+    /// use awkernel_lib::net::{ip_addr::IpAddr, udp_socket::UdpSocket};
+    /// use core::net::Ipv4Addr;
     ///
     /// fn example_udp_socket_ipv4() {
-    ///     let handler = UDPSocket::bind_on_interface(0, Some(10000), 64 * 1024, 64 * 1024).unwrap();
+    ///     let buf_size = 64 * 1024;
+    ///     let handler = UdpSocket::bind_on_interface(
+    ///         0,
+    ///         IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 1)),
+    ///         Some(10000),
+    ///         buf_size,
+    ///         buf_size).unwrap();
     /// }
     /// ```
     pub fn bind_on_interface(

@@ -46,18 +46,16 @@ impl TcpListener {
 
                 net_manager.port_in_use_tcp_ipv6(port)
             }
+        } else if addr.is_ipv4() {
+            // Find an ephemeral port.
+            net_manager
+                .get_ephemeral_port_tcp_ipv4()
+                .ok_or(NetManagerError::NoAvailablePort)?
         } else {
-            if addr.is_ipv4() {
-                // Find an ephemeral port.
-                net_manager
-                    .get_ephemeral_port_tcp_ipv4()
-                    .ok_or(NetManagerError::NoAvailablePort)?
-            } else {
-                // Find an ephemeral port.
-                net_manager
-                    .get_ephemeral_port_tcp_ipv6()
-                    .ok_or(NetManagerError::NoAvailablePort)?
-            }
+            // Find an ephemeral port.
+            net_manager
+                .get_ephemeral_port_tcp_ipv6()
+                .ok_or(NetManagerError::NoAvailablePort)?
         };
 
         // Find the interface that has the specified address.

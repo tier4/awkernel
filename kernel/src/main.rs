@@ -11,7 +11,6 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
@@ -52,6 +51,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Set-up timer interrupt.
         #[cfg(not(feature = "std"))]
         if let Some(irq) = awkernel_lib::timer::irq_id() {
+            use alloc::boxed::Box;
+
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {

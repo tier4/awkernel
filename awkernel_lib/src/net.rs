@@ -574,3 +574,43 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
 
     Ok(())
 }
+
+pub fn set_default_gateway_ipv4(
+    interface_id: u64,
+    gateway: Ipv4Addr,
+) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let mut node = MCSNode::new();
+    let mut inner = if_net.inner.lock(&mut node);
+
+    let octets = gateway.octets();
+    inner.set_default_gateway_ipv4(smoltcp::wire::Ipv4Address::new(
+        octets[0], octets[1], octets[2], octets[3],
+    ));
+
+    Ok(())
+}
+
+pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let mut node = MCSNode::new();
+    let inner = if_net.inner.lock(&mut node);
+
+    if let Some(addr) = inner.get_default_gateway_ipv4() {
+        Ok(Some(Ipv4Addr::new(
+            addr.0[0], addr.0[1], addr.0[2], addr.0[3],
+        )))
+    } else {
+        Ok(None)
+    }
+}

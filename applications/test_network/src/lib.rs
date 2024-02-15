@@ -36,13 +36,14 @@ pub async fn run() {
 }
 
 async fn tcp_listen_test() {
-    let mut config = TcpConfig::default();
-    config.port = Some(8080);
+    let config = TcpConfig {
+        port: Some(8080),
+        ..Default::default()
+    };
 
-    let Ok(mut tcp_listener) = awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(
-        0,
-        config
-    ) else {
+    let Ok(mut tcp_listener) =
+        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(0, config)
+    else {
         panic!("Failed to bind TCP listener.");
     };
 
@@ -101,8 +102,7 @@ async fn udp_test() {
         socket.recv(&mut buf).await.unwrap();
 
         let t1 = awkernel_lib::delay::uptime();
-        let rtt = t1 - t0;
-        // log::debug!("UDP RTT: {} us", rtt);
+        let _rtt = t1 - t0;
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
     }

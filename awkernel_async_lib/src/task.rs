@@ -58,6 +58,12 @@ pub struct Task {
     scheduler: &'static dyn Scheduler,
 }
 
+impl Task {
+    pub fn scheduler_name(&self) -> SchedulerType {
+        self.scheduler.scheduler_name()
+    }
+}
+
 unsafe impl Sync for Task {}
 unsafe impl Send for Task {}
 

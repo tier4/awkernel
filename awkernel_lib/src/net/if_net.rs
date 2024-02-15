@@ -146,10 +146,12 @@ impl IfNetInner {
         (&mut self.interface, &mut self.socket_set)
     }
 
+    #[inline(always)]
     pub fn get_default_gateway_ipv4(&self) -> Option<smoltcp::wire::Ipv4Address> {
         self.default_gateway_ipv4
     }
 
+    #[inline(always)]
     pub fn set_default_gateway_ipv4(&mut self, gateway: smoltcp::wire::Ipv4Address) {
         if self.default_gateway_ipv4.is_some() {
             self.interface.routes_mut().remove_default_ipv4_route();
@@ -200,19 +202,18 @@ impl IfNet {
             tx_only_ringq.push(tx_ringq);
         }
 
-        let poll_driver;
-        if net_device.poll_mode() {
+        let poll_driver = if net_device.poll_mode() {
             let tx_ringq = Mutex::new(RingQ::new(512));
             tx_only_ringq.push(tx_ringq);
 
-            poll_driver = Some(NetDriver {
+            Some(NetDriver {
                 inner: net_device.clone(),
                 rx_que_id: 0,
                 rx_ringq: Mutex::new(RingQ::new(512)),
-            });
+            })
         } else {
-            poll_driver = None;
-        }
+            None
+        };
 
         // Create a SocketSet.
         let socket_set = SocketSet::new(vec![]);
@@ -340,6 +341,7 @@ impl IfNet {
         result
     }
 
+    #[inline(always)]
     pub fn poll_rx_poll_mode(&self) -> bool {
         let Some(ref_net_driver) = self.poll_driver.as_ref() else {
             return false;
@@ -350,6 +352,7 @@ impl IfNet {
 
     /// If some packets are processed, return true.
     /// If poll returns true, the caller should call poll again.
+    #[inline(always)]
     pub fn poll_rx_irq(&self, irq: u16) -> bool {
         let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
             return false;
