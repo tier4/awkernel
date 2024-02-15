@@ -3,7 +3,7 @@ use smoltcp::iface::SocketHandle;
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
-use super::{tcp::TcpPort, NET_MANAGER};
+use super::{ip_addr::IpAddr, tcp::TcpPort, NetManagerError, NET_MANAGER};
 
 static CLOSED_CONNECTIONS: Mutex<BTreeMap<u64, VecDeque<(SocketHandle, TcpPort)>>> =
     Mutex::new(BTreeMap::new());
@@ -202,5 +202,33 @@ impl TcpStream {
         };
 
         TcpResult::Ok(len)
+    }
+
+    pub fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError> {
+        let net_manager = NET_MANAGER.read();
+
+        let if_net = net_manager
+            .interfaces
+            .get(&self.interface_id)
+            .ok_or(NetManagerError::InvalidInterfaceID)?;
+
+        let if_net = if_net.clone();
+        drop(net_manager);
+
+        let mut node = MCSNode::new();
+        let inner = if_net.inner.lock(&mut node);
+
+        let socket: &smoltcp::socket::tcp::Socket = inner.socket_set.get(self.handle);
+
+        if let Some(endpoint) = socket.remote_endpoint() {
+            Ok((
+                IpAddr {
+                    addr: endpoint.addr,
+                },
+                endpoint.port,
+            ))
+        } else {
+            Err(NetManagerError::InvalidState)
+        }
     }
 }

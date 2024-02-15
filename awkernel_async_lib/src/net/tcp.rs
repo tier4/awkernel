@@ -126,6 +126,11 @@ impl TcpStream {
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
         TcpReceiver { stream: self, buf }.await
     }
+
+    /// Get the remote address and port.
+    pub fn remote_addr(&self) -> Option<(IpAddr, u16)> {
+        self.stream.remote_addr().ok()
+    }
 }
 
 #[pin_project]
