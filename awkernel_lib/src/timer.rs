@@ -1,6 +1,9 @@
+use core::sync::atomic::AtomicBool;
+
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 static TIMER: Mutex<Option<&'static (dyn Timer + Sync + Send)>> = Mutex::new(None);
+static IS_TIMER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub trait Timer {
     /// Reset the timer interrupt.
@@ -14,12 +17,14 @@ pub trait Timer {
 }
 
 pub fn register_timer(timer: &'static (dyn Timer + Sync + Send)) {
+    IS_TIMER_ENABLED.store(true, core::sync::atomic::Ordering::Relaxed);
     let mut node = MCSNode::new();
     let mut guard = TIMER.lock(&mut node);
     *guard = Some(timer);
 }
 
 /// Re-enable timer.
+#[inline(always)]
 pub fn reset() {
     let mut node = MCSNode::new();
     let guard = TIMER.lock(&mut node);
@@ -29,6 +34,7 @@ pub fn reset() {
 }
 
 /// Get IRQ#.
+#[inline(always)]
 pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let guard = TIMER.lock(&mut node);
@@ -37,6 +43,7 @@ pub fn irq_id() -> Option<u16> {
 }
 
 /// Disable the timer interrupt.
+#[inline(always)]
 pub fn disable() {
     let mut node = MCSNode::new();
     let guard = TIMER.lock(&mut node);
@@ -50,8 +57,13 @@ pub fn sanity_check() {
     let guard = TIMER.lock(&mut node);
 
     if guard.is_none() {
-        log::warn!("timer::TIMER is not yet initialized.");
+        log::info!("timer::TIMER is not yet initialized.");
     } else {
         log::info!("timer::TIMER has been initialized.");
     }
+}
+
+#[inline(always)]
+pub fn is_timer_enabled() -> bool {
+    IS_TIMER_ENABLED.load(core::sync::atomic::Ordering::Relaxed)
 }

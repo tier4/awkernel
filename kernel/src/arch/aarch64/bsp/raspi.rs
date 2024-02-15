@@ -37,7 +37,7 @@ pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 19);
 /// IRQ #1 and the base address of 0x3f003000.
 ///
 /// 64 is the offset for IRQ 1 / IRQ 2 of bcm2835's device driver.
-pub static TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1 + 64, 0x3f003000);
+pub static _TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1 + 64, 0x3f003000);
 
 fn start_non_primary() {
     unsafe {
@@ -584,7 +584,8 @@ impl Raspi {
                 awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
             }
             _ => {
-                awkernel_lib::timer::register_timer(&TIMER_RPI);
+                // Timer of Raspberry Pi 3 is not supported.
+                // awkernel_lib::timer::register_timer(&TIMER_RPI);
             }
         }
 

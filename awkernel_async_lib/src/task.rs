@@ -11,7 +11,6 @@ mod preempt;
 
 use self::perf::MAX_MEASURE_SIZE;
 use crate::{
-    delay::wait_microsec,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
     uptime,
 };
@@ -59,6 +58,7 @@ pub struct Task {
 }
 
 impl Task {
+    #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
     }
@@ -82,7 +82,9 @@ impl ArcWake for Task {
             if matches!(info.state, Running | ReadyToRun | Preempted) {
                 info.need_sched = true;
                 return;
-            } else if matches!(info.state, Terminated | Panicked) {
+            }
+
+            if matches!(info.state, Terminated | Panicked) {
                 return;
             }
         }
@@ -106,36 +108,44 @@ pub struct TaskInfo {
 
 impl TaskInfo {
     #[cfg(not(feature = "no_preempt"))]
+    #[inline(always)]
     pub(crate) fn take_preempt_context(&mut self) -> Option<PtrWorkerThreadContext> {
         self.thread.take()
     }
 
     #[cfg(not(feature = "no_preempt"))]
+    #[inline(always)]
     pub(crate) fn set_preempt_context(&mut self, ctx: PtrWorkerThreadContext) {
         assert!(self.thread.is_none());
         self.thread = Some(ctx)
     }
 
+    #[inline(always)]
     pub fn get_state(&self) -> State {
         self.state
     }
 
+    #[inline(always)]
     pub fn get_scheduler_type(&self) -> SchedulerType {
         self.scheduler_type
     }
 
+    #[inline(always)]
     pub fn update_last_executed(&mut self) {
         self.last_executed_time = awkernel_lib::delay::uptime();
     }
 
+    #[inline(always)]
     pub fn get_last_executed(&self) -> u64 {
         self.last_executed_time
     }
 
+    #[inline(always)]
     pub fn get_num_preemption(&self) -> u64 {
         self.num_preempt
     }
 
+    #[inline(always)]
     pub fn in_queue(&self) -> bool {
         self.in_queue
     }
@@ -215,12 +225,14 @@ impl Tasks {
         }
     }
 
+    #[inline(always)]
     fn wake(&self, id: u32) {
         if let Some(task) = self.id_to_task.get(&id) {
             task.clone().wake();
         }
     }
 
+    #[inline(always)]
     fn remove(&mut self, id: u32) {
         self.id_to_task.remove(&id);
     }
@@ -264,6 +276,7 @@ pub fn spawn(
 /// ```
 /// if let Some(task_id) = awkernel_async_lib::task::get_current_task(1) { }
 /// ```
+#[inline(always)]
 pub fn get_current_task(cpu_id: usize) -> Option<u32> {
     let id = RUNNING[cpu_id].load(Ordering::Relaxed);
     if id == 0 {
@@ -273,6 +286,7 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
     }
 }
 
+#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
@@ -531,10 +545,20 @@ pub fn run_main() {
             }
         } else {
             #[cfg(feature = "std")]
-            wait_microsec(10);
+            awkernel_lib::delay::wait_microsec(50);
 
             #[cfg(not(feature = "std"))]
-            wait_microsec(1);
+            {
+                if awkernel_lib::timer::is_timer_enabled() {
+                    let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
+                    awkernel_lib::interrupt::enable();
+                    awkernel_lib::timer::reset();
+                    awkernel_lib::delay::wait_interrupt();
+                    awkernel_lib::timer::disable();
+                } else {
+                    awkernel_lib::delay::wait_microsec(10);
+                }
+            }
         }
     }
 }
@@ -553,6 +577,7 @@ pub unsafe fn run() {
 }
 
 /// Wake `task_id` up.
+#[inline(always)]
 pub fn wake(task_id: u32) {
     let mut node = MCSNode::new();
     let gurad = TASKS.lock(&mut node);
@@ -594,6 +619,7 @@ pub fn get_tasks_running() -> Vec<RunningTask> {
     tasks
 }
 
+#[inline(always)]
 pub fn get_num_preemption() -> usize {
     #[cfg(not(feature = "no_preempt"))]
     {
