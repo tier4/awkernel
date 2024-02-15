@@ -38,34 +38,34 @@ pub async fn run_rpi_hal() {
 }
 
 pub async fn test_uart2() {
-    // let mut uart2 = Uart::new(Uarts::Uart2, 230400).unwrap();
-    // let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
+    let mut uart2 = Uart::new(Uarts::Uart2, 230400).unwrap();
+    let (tx2, rx2) = uart2.get_gpio_pins(); // Get the GPIO pins for UART2.
 
-    // log::debug!("UART2: tx = {tx2}, rx = {rx2}");
+    log::debug!("UART2: tx = {tx2}, rx = {rx2}");
 
-    // let write_buf = b"Hello, world!\r\n";
+    let write_buf = b"Hello, world!\r\n";
 
-    // for data in write_buf.iter() {
-    //     uart2.write(*data).unwrap();
-    // }
+    for data in write_buf.iter() {
+        uart2.write(*data).unwrap();
+    }
 
-    // loop {
-    //     if let Ok(data) = uart2.read() {
-    //         loop {
-    //             match uart2.write(data) {
-    //                 Ok(_) => break,
-    //                 Err(embedded_hal_nb::nb::Error::WouldBlock) => {
-    //                     awkernel_async_lib::r#yield().await;
-    //                 }
-    //                 Err(_) => {
-    //                     // Some error occurred.
-    //                     break;
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     awkernel_async_lib::sleep(Duration::from_millis(5)).await;
-    // }
+    loop {
+        if let Ok(data) = uart2.read() {
+            loop {
+                match uart2.write(data) {
+                    Ok(_) => break,
+                    Err(embedded_hal_nb::nb::Error::WouldBlock) => {
+                        awkernel_async_lib::r#yield().await;
+                    }
+                    Err(_) => {
+                        // Some error occurred.
+                        break;
+                    }
+                }
+            }
+        }
+        awkernel_async_lib::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 pub async fn _blink_led() {
