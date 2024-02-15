@@ -1,3 +1,5 @@
+use super::NET_MANAGER;
+
 #[derive(Debug, Clone)]
 #[repr(C, packed)]
 pub struct TCPHdr {
@@ -16,5 +18,33 @@ impl TCPHdr {
     #[inline]
     pub fn data_offset(&self) -> u8 {
         self.th_x2_off >> 4
+    }
+}
+
+#[derive(Debug)]
+pub struct TcpPort {
+    port: u16,
+    is_ipv4: bool,
+}
+
+impl TcpPort {
+    pub fn new(port: u16, is_ipv4: bool) -> Self {
+        Self { port, is_ipv4 }
+    }
+
+    #[inline(always)]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for TcpPort {
+    fn drop(&mut self) {
+        let mut net_manager = NET_MANAGER.write();
+        if self.is_ipv4 {
+            net_manager.decrement_port_in_use_tcp_ipv4(self.port);
+        } else {
+            net_manager.decrement_port_in_use_tcp_ipv6(self.port);
+        }
     }
 }

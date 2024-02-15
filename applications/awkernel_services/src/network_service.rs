@@ -1,4 +1,4 @@
-use core::{future::Future, task::Poll};
+use core::{future::Future, task::Poll, time::Duration};
 
 use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
@@ -15,10 +15,11 @@ pub async fn run() -> TaskResult {
     log::info!("Starting {}.", crate::NETWORK_SERVICE_NAME);
 
     let mut ch_irq_handlers = BTreeMap::new();
+    let mut ch_poll_handlers = BTreeMap::new();
 
     for if_status in awkernel_lib::net::get_all_interface() {
         if awkernel_lib::net::up(if_status.interface_id).is_ok() {
-            spawn_interrupt_handler(if_status, &mut ch_irq_handlers).await;
+            spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
         }
     }
 
@@ -46,7 +47,7 @@ pub async fn run() -> TaskResult {
                     continue;
                 };
 
-                spawn_interrupt_handler(if_status, &mut ch_irq_handlers).await;
+                spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
             }
             ("down", id) => {
                 let Ok(if_status) = awkernel_lib::net::get_interface(id) else {
@@ -57,6 +58,7 @@ pub async fn run() -> TaskResult {
                     continue;
                 };
 
+                // Close interrupt handlers.
                 for irq in if_status.irqs {
                     if let Some(ch) = ch_irq_handlers.remove(&irq) {
                         let ch = ch.send(()).await;
@@ -64,22 +66,30 @@ pub async fn run() -> TaskResult {
                         ch.close();
                     }
                 }
+
+                // Close poll handlers.
+                if let Some(ch) = ch_poll_handlers.remove(&if_status.interface_id) {
+                    let ch = ch.send(()).await;
+                    let (ch, _) = ch.recv().await;
+                    ch.close();
+                }
             }
             _ => (),
         }
     }
 }
 
-async fn spawn_interrupt_handler(
+async fn spawn_handlers(
     if_status: awkernel_lib::net::IfStatus,
     ch_irq_handlers: &mut BTreeMap<u16, ChanProtoInterruptHandlerDual>,
+    ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
 ) {
     for irq in if_status.irqs {
         let (server, client) = session_channel::<ProtoInterruptHandler>();
         ch_irq_handlers.insert(irq, client);
 
         let name = format!(
-            "{}: device = {}, IRQ = {irq}",
+            "{}:{}: IRQ = {irq}",
             crate::NETWORK_SERVICE_NAME,
             if_status.device_name,
         );
@@ -91,7 +101,42 @@ async fn spawn_interrupt_handler(
         )
         .await;
     }
+
+    if if_status.poll_mode {
+        let (server, client) = session_channel::<ProtoInterruptHandler>();
+        ch_poll_handlers.insert(if_status.interface_id, client);
+
+        let name = format!(
+            "{}:{}: poll mode",
+            crate::NETWORK_SERVICE_NAME,
+            if_status.device_name,
+        );
+
+        awkernel_async_lib::spawn(
+            name.into(),
+            poll_handler(if_status.interface_id, server),
+            SchedulerType::FIFO,
+        )
+        .await;
+    }
+
+    awkernel_async_lib::spawn(
+        "TCP garbage collector".into(),
+        tcp_garbage_collector(),
+        SchedulerType::FIFO,
+    )
+    .await;
 }
+
+async fn tcp_garbage_collector() {
+    let dur = Duration::from_millis(100);
+    loop {
+        awkernel_async_lib::sleep(dur).await;
+        awkernel_lib::net::tcp_stream::close_connections();
+    }
+}
+
+// Interrupt handlers.
 
 struct NetworkInterrupt {
     irq: u16,
@@ -125,7 +170,7 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
     let mut ch = ch.recv().boxed().fuse();
 
     loop {
-        let mut future = NetworkInterrupt { irq, wait: true }.fuse();
+        let mut empty = async {}.boxed().fuse();
 
         select_biased! {
             (ch, _) = ch => {
@@ -133,9 +178,98 @@ async fn interrupt_handler(interface_id: u64, irq: u16, ch: Chan<(), ProtoInterr
                 ch.close();
                 return;
             },
-            _ = future => {
-                awkernel_lib::net::handle_interrupt(interface_id, irq);
-            },
+            _ = empty => {},
         }
+
+        if awkernel_lib::net::handle_interrupt(interface_id, irq) {
+            awkernel_async_lib::r#yield().await;
+            continue;
+        }
+
+        // Wait interrupts.
+        let mut irq_wait = NetworkInterrupt { irq, wait: true }.fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = irq_wait => {},
+        }
+
+        awkernel_lib::net::handle_interrupt(interface_id, irq);
+        awkernel_async_lib::r#yield().await;
+    }
+}
+
+// Poll mode devices.
+
+struct NetworkPoll {
+    interface_id: u64,
+    wait: bool,
+}
+
+impl Future for NetworkPoll {
+    type Output = ();
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let m = self.get_mut();
+
+        if !m.wait {
+            return Poll::Ready(());
+        }
+
+        m.wait = false;
+
+        if awkernel_lib::net::register_waker_for_poll(m.interface_id, cx.waker().clone()) {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    }
+}
+
+async fn poll_handler(interface_id: u64, ch: Chan<(), ProtoInterruptHandler>) {
+    let mut ch = ch.recv().boxed().fuse();
+
+    loop {
+        let mut empty = async {}.boxed().fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = empty => {},
+        }
+
+        if awkernel_lib::net::poll_interface(interface_id) {
+            awkernel_async_lib::r#yield().await;
+            continue;
+        }
+
+        // Wait some events.
+        let mut poll_wait = NetworkPoll {
+            interface_id,
+            wait: true,
+        }
+        .fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = poll_wait => {},
+        }
+
+        awkernel_lib::net::poll_interface(interface_id);
+        awkernel_async_lib::r#yield().await;
     }
 }

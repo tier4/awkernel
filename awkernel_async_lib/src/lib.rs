@@ -16,6 +16,7 @@ pub mod channel;
 mod delay;
 pub mod future;
 mod join_handle;
+pub mod net;
 mod never_return;
 pub mod pubsub;
 pub mod scheduler;

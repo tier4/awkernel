@@ -130,17 +130,34 @@ pub(super) struct IfNet {
     rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
+    pub(super) is_poll_mode: bool,
+    poll_driver: Option<NetDriver>,
 }
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
     pub(super) socket_set: SocketSet<'static>,
+    pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 }
 
 impl IfNetInner {
     #[inline(always)]
-    fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
+    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
         (&mut self.interface, &mut self.socket_set)
+    }
+
+    #[inline(always)]
+    pub fn get_default_gateway_ipv4(&self) -> Option<smoltcp::wire::Ipv4Address> {
+        self.default_gateway_ipv4
+    }
+
+    #[inline(always)]
+    pub fn set_default_gateway_ipv4(&mut self, gateway: smoltcp::wire::Ipv4Address) {
+        if self.default_gateway_ipv4.is_some() {
+            self.interface.routes_mut().remove_default_ipv4_route();
+        }
+
+        self.default_gateway_ipv4 = Some(gateway);
     }
 }
 
@@ -185,18 +202,36 @@ impl IfNet {
             tx_only_ringq.push(tx_ringq);
         }
 
+        let poll_driver = if net_device.poll_mode() {
+            let tx_ringq = Mutex::new(RingQ::new(512));
+            tx_only_ringq.push(tx_ringq);
+
+            Some(NetDriver {
+                inner: net_device.clone(),
+                rx_que_id: 0,
+                rx_ringq: Mutex::new(RingQ::new(512)),
+            })
+        } else {
+            None
+        };
+
         // Create a SocketSet.
         let socket_set = SocketSet::new(vec![]);
+
+        let is_poll_mode = net_device.poll_mode();
 
         IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
                 interface,
                 socket_set,
+                default_gateway_ipv4: None,
             }),
             rx_irq_to_drvier,
             net_device,
             tx_only_ringq,
+            is_poll_mode,
+            poll_driver,
         }
     }
 
@@ -248,14 +283,8 @@ impl IfNet {
         result
     }
 
-    /// If some packets are processed, return true.
-    /// If poll returns true, the caller should call poll again.
-    pub fn poll_rx_irq(&self, irq: u16) -> bool {
-        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
-            return false;
-        };
-
-        let que_id = ref_net_driver.rx_que_id; // TODO: fix
+    fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
+        let que_id = ref_net_driver.rx_que_id;
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
@@ -310,6 +339,26 @@ impl IfNet {
         }
 
         result
+    }
+
+    #[inline(always)]
+    pub fn poll_rx_poll_mode(&self) -> bool {
+        let Some(ref_net_driver) = self.poll_driver.as_ref() else {
+            return false;
+        };
+
+        self.poll_rx(ref_net_driver)
+    }
+
+    /// If some packets are processed, return true.
+    /// If poll returns true, the caller should call poll again.
+    #[inline(always)]
+    pub fn poll_rx_irq(&self, irq: u16) -> bool {
+        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
+            return false;
+        };
+
+        self.poll_rx(ref_net_driver)
     }
 }
 

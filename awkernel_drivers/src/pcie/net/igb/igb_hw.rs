@@ -15,7 +15,7 @@ const E1000_DEV_ID_82544EI_COPPER: u16 = 0x1008;
 const E1000_DEV_ID_82544EI_FIBER: u16 = 0x1009;
 const E1000_DEV_ID_82544GC_COPPER: u16 = 0x100C;
 const E1000_DEV_ID_82544GC_LOM: u16 = 0x100D;
-const E1000_DEV_ID_82540EM: u16 = 0x100E;
+const E1000_DEV_ID_82540EM: u16 = 0x100E; // e1000
 const E1000_DEV_ID_82540EM_LOM: u16 = 0x1015;
 const E1000_DEV_ID_82540EP_LOM: u16 = 0x1016;
 const E1000_DEV_ID_82540EP: u16 = 0x1017;
@@ -691,7 +691,7 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<(MacType, bool, bool, u3
         | E1000_DEV_ID_82540EM_LOM
         | E1000_DEV_ID_82540EP
         | E1000_DEV_ID_82540EP_LOM
-        | E1000_DEV_ID_82540EP_LP => Em82540,
+        | E1000_DEV_ID_82540EP_LP => Em82540, // e1000
         E1000_DEV_ID_82545EM_COPPER | E1000_DEV_ID_82545EM_FIBER => Em82545,
         E1000_DEV_ID_82545GM_COPPER | E1000_DEV_ID_82545GM_FIBER | E1000_DEV_ID_82545GM_SERDES => {
             Em82545Rev3
@@ -931,13 +931,17 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool) {
 /// Reject non-PCI Express devices.
 ///
 /// https://github.com/openbsd/src/blob/d88178ae581240e08c6acece5c276298d1ac6c90/sys/dev/pci/if_em_hw.c#L8381
+///
+/// e1000 of PCI is supported because it is used in virtual machines.
 fn check_pci_express(mac_type: &MacType) -> Result<(), IgbDriverErr> {
     use MacType::*;
 
+    log::debug!("mac_type: {:?}", mac_type);
+
     match mac_type {
-        Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580 | Em80003es2lan
-        | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan
-        | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
+        Em82540 | Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580
+        | Em80003es2lan | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan
+        | EmPch2lan | EmPchLpt | EmPchSpt | EmPchCnp | EmPchTgp | EmPchAdp => Ok(()),
         _ => Err(IgbDriverErr::NotPciExpress),
     }
 }
@@ -1134,6 +1138,10 @@ impl IgbHw {
         hw.detect_gig_phy(info)?;
 
         Ok(hw)
+    }
+
+    pub fn set_legacy_irq(&mut self, legacy_irq: bool) {
+        self.legacy_irq = legacy_irq;
     }
 
     #[inline(always)]
@@ -4878,6 +4886,10 @@ impl IgbHw {
         }
 
         match self.mac_type {
+            Em82544 | Em82540 | Em82545 | Em82546 | Em82541 | Em82541Rev2 => {
+                let ctrl = read_reg(info, CTRL)?;
+                write_reg(info, CTRL, ctrl | CTRL_RST)?;
+            }
             EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan | EmPch2lan | EmPchLpt | EmPchSpt
             | EmPchCnp | EmPchTgp | EmPchAdp => {
                 let mut ctrl = read_reg(info, CTRL)?;
@@ -5866,14 +5878,18 @@ impl IgbHw {
                     Ok(())
                 }
                 EEPROMType::Microwire => {
-                    for d in data.iter_mut() {
+                    for (i, d) in data.iter_mut().enumerate() {
                         // Send the READ command (opcode + addr)
                         hw.shift_out_ee_bits(
                             info,
                             EEPROM_READ_OPCODE_MICROWIRE,
                             hw.eeprom.opcode_bits,
                         )?;
-                        hw.shift_out_ee_bits(info, (offset + 1) as u16, hw.eeprom.address_bits)?;
+                        hw.shift_out_ee_bits(
+                            info,
+                            (offset + i as u32) as u16,
+                            hw.eeprom.address_bits,
+                        )?;
 
                         // Read the data.  For microwire, each word requires
                         // the overhead of eeprom setup and tear-down.

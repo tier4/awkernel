@@ -5,25 +5,66 @@ isolated zero-copy communications written in Rust.
 
 ## Progress
 
-- [x] Zero-copy communication
+- [x] Zero-copy communications
   - [x] Publish and subscribe
   - [x] Service
   - [x] Action
+- [x] Channels
+  - [x] Bounded channel
+  - [x] Unbounded channel
+  - [x] Session-type based channel
 - [x] Memory space isolation
-- [ ] Scheduler
+- [ ] Timer interrupts
+  - [x] Raspberry Pi
+  - [x] AArch64
+  - [ ] x86_64
+- [ ] Measurement
+- [ ] Power Management
+  - [ ] Shutdown
+  - [ ] Reboot
+- [ ] Schedulers
   - [x] FIFO scheduler
+  - [ ] Round robin scheduler
+  - [ ] EDF scheduler
   - [ ] DAG scheduler
-    - [ ] GEDF DAG Scheduler
-- [ ] Memory allocator
+- [ ] Memory allocators
   - [x] O(1) memory allocator
+  - [x] DMA pool
   - [ ] NUMA aware memory allocator
+- Networking
+  - [x] IPv4
+  - [x] IPv6
+  - [x] UDP
+  - [x] TCP
+  - [ ] VLAN
+  - [ ] IP multicast
+  - [ ] Offloading
+    - [ ] TSO
+    - [ ] IPv4 header checksum
+    - [ ] UDP checksum
+    - [ ] TCP checksum
+    - [ ] VLAN hardware tagging
+- Network controllers
+  - [x] Intel Gb Ethernet Controller (e1000 Series)
+  - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
+  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [ ] Intel 40Gb Ethernet Controller (X710 Series)
+  - [ ] genet for Raspberry Pi
+- [ ] Block devices
+  - [ ] NVMe
+  - [ ] AHCI
+- [ ] Diagnostics
+- [ ] XHCI
+- [ ] File systems
+  - [ ] FAT32
+  - [ ] Journaling file system
 
 ## Dependencies
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly
-$ rustup default nightly
+$ rustup toolchain install nightly-2024-02-12
+$ rustup default nightly-2024-02-12
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils

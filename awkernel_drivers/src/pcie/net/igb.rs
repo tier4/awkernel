@@ -280,6 +280,8 @@ struct IgbInner {
 
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     msix_mask: u32,
+
+    is_poll_mode: bool,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -314,7 +316,7 @@ where
         return Err(PCIeDeviceErr::PageTableFailure);
     }
 
-    // Read the capability of PCIe device.
+    // Read capabilities of PCIe.
     info.read_capability();
 
     let igb = Igb::new(info)?;
@@ -434,6 +436,8 @@ impl IgbInner {
             que.push(allocate_desc_rings(&info, i)?);
         }
 
+        let is_poll_mode;
+
         // Allocate MSI-X or MSI
         let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &que) {
             match &pcie_int {
@@ -446,6 +450,7 @@ impl IgbInner {
                 _ => unreachable!(),
             }
 
+            is_poll_mode = false;
             pcie_int
         } else if let Ok(pcie_int) = allocate_msi(&mut info) {
             match &pcie_int {
@@ -456,8 +461,12 @@ impl IgbInner {
                 _ => unreachable!(),
             }
 
+            is_poll_mode = false;
             pcie_int
         } else {
+            irq_to_rx_tx_link.insert(0, IRQRxTxLink::Legacy(0));
+            is_poll_mode = true;
+            hw.set_legacy_irq(true);
             PCIeInt::None
         };
 
@@ -520,6 +529,7 @@ impl IgbInner {
             multicast_addr: BTreeSet::new(),
             irq_to_rx_tx_link,
             msix_mask: 0,
+            is_poll_mode,
         };
 
         let result = igb.new2()?;
@@ -1008,7 +1018,7 @@ impl IgbInner {
 
             // do nothing if we're not in faulty state, or if the queue is empty
             let tdlen = igb_hw::read_reg(&self.info, tdlen_offset(q.me))?;
-            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
                 return Ok(());
             }
@@ -1016,7 +1026,7 @@ impl IgbInner {
             self.flush_tx_ring(q.me, que)?;
 
             // recheck, maybe the fault is caused by the rx ring
-            let hang_state = self.info.read_config_space_u16(PCICFG_DESC_RING_STATUS);
+            let hang_state = self.info.config_space.read_u16(PCICFG_DESC_RING_STATUS);
             if hang_state & FLUSH_DESC_REQUIRED != 0 {
                 self.flush_rx_ring(q.me, que)?;
             }
@@ -1978,6 +1988,10 @@ impl PCIeDevice for Igb {
 }
 
 impl NetDevice for Igb {
+    fn num_queues(&self) -> usize {
+        self.que.len()
+    }
+
     fn flags(&self) -> NetFlags {
         let inner = self.inner.read();
         inner.flags
@@ -2091,8 +2105,7 @@ impl NetDevice for Igb {
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        self.intr(irq).or(Err(NetDevError::DeviceError))?;
-        Ok(())
+        self.intr(irq).or(Err(NetDevError::DeviceError))
     }
 
     fn irqs(&self) -> Vec<u16> {
@@ -2100,7 +2113,9 @@ impl NetDevice for Igb {
 
         let mut result = Vec::new();
         for irq in inner.irq_to_rx_tx_link.keys() {
-            result.push(*irq);
+            if *irq != 0 {
+                result.push(*irq);
+            }
         }
 
         result
@@ -2145,6 +2160,25 @@ impl NetDevice for Igb {
 
         Ok(())
     }
+
+    fn poll_in_service(&self) -> Result<(), NetDevError> {
+        self.intr(0).or(Err(NetDevError::DeviceError))
+    }
+
+    fn poll_mode(&self) -> bool {
+        self.inner.read().is_poll_mode
+    }
+
+    fn poll(&self) -> bool {
+        let inner = self.inner.read();
+        if let Ok(icr) = igb_hw::read_reg(&inner.info, ICR) {
+            let _ = igb_hw::write_reg(&inner.info, ICS, icr);
+            drop(inner);
+            icr != 0
+        } else {
+            false
+        }
+    }
 }
 
 pub fn match_device(vendor: u16, id: u16) -> bool {
@@ -2162,7 +2196,7 @@ fn check_desc_ring(info: &PCIeInfo) -> Result<(), IgbDriverErr> {
     let tdlen = bar0
         .read32(tdlen_offset(0))
         .ok_or(IgbDriverErr::ReadFailure)?;
-    let hang_state = info.read_config_space_u32(PCICFG_DESC_RING_STATUS);
+    let hang_state = info.config_space.read_u32(PCICFG_DESC_RING_STATUS);
     if hang_state & FLUSH_DESC_REQUIRED == 0 || tdlen == 0 {
         return Ok(());
     }

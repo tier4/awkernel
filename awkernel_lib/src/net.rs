@@ -1,7 +1,7 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use alloc::{
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
     format,
     string::String,
     sync::Arc,
@@ -13,21 +13,35 @@ use smoltcp::wire::{IpAddress, IpCidr};
 use self::{
     if_net::IfNet,
     net_device::{NetCapabilities, NetDevice},
+    tcp::TcpPort,
 };
 
 pub mod ether;
 pub mod ethertypes;
 mod if_net;
 pub mod ip;
+pub mod ip_addr;
 pub mod ipv6;
 pub mod multicast;
 pub mod net_device;
 pub mod tcp;
+pub mod tcp_listener;
+pub mod tcp_stream;
 pub mod udp;
+pub mod udp_socket;
 
 #[derive(Debug)]
 pub enum NetManagerError {
     InvalidInterfaceID,
+    InvalidIPv4Address,
+    CannotFindInterface,
+    PortInUse,
+    SendError,
+    RecvError,
+    NotYetImplemented,
+    InvalidPort,
+    InvalidState,
+    NoAvailablePort,
 }
 
 #[derive(Debug)]
@@ -43,13 +57,14 @@ pub struct IfStatus {
     pub irqs: Vec<u16>,
     pub rx_irq_to_que_id: BTreeMap<u16, usize>,
     pub capabilities: NetCapabilities,
+    pub poll_mode: bool,
 }
 
 impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
-            ipv4_addr.push_str(&format!("{}/{}\r\n", addr, plen));
+            ipv4_addr.push_str(&format!("{}/{}", addr, plen));
         }
 
         let ipv4_gateway = match self.ipv4_gateway {
@@ -59,7 +74,7 @@ impl Display for IfStatus {
 
         write!(
             f,
-            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}",
+            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
             self.interface_id,
             self.device_name,
             ipv4_addr,
@@ -75,6 +90,7 @@ impl Display for IfStatus {
             self.full_duplex,
             self.capabilities,
             self.irqs,
+            self.poll_mode
         )
     }
 }
@@ -82,13 +98,192 @@ impl Display for IfStatus {
 static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     interfaces: BTreeMap::new(),
     interface_id: 0,
+    udp_ports_ipv4: BTreeSet::new(),
+    udp_port_ipv4_ephemeral: u16::MAX >> 2,
+    udp_ports_ipv6: BTreeSet::new(),
+    udp_port_ipv6_ephemeral: u16::MAX >> 2,
+    tcp_ports_ipv4: BTreeMap::new(),
+    tcp_port_ipv4_ephemeral: u16::MAX >> 2,
+    tcp_ports_ipv6: BTreeMap::new(),
+    tcp_port_ipv6_ephemeral: u16::MAX >> 2,
 });
 
-static WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
+static IRQ_WAKERS: Mutex<BTreeMap<u16, IRQWaker>> = Mutex::new(BTreeMap::new());
+static POLL_WAKERS: Mutex<BTreeMap<u64, IRQWaker>> = Mutex::new(BTreeMap::new());
 
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
     interface_id: u64,
+    udp_ports_ipv4: BTreeSet<u16>,
+    udp_port_ipv4_ephemeral: u16,
+    udp_ports_ipv6: BTreeSet<u16>,
+    udp_port_ipv6_ephemeral: u16,
+    tcp_ports_ipv4: BTreeMap<u16, u64>,
+    tcp_port_ipv4_ephemeral: u16,
+    tcp_ports_ipv6: BTreeMap<u16, u64>,
+    tcp_port_ipv6_ephemeral: u16,
+}
+
+impl NetManager {
+    fn get_ephemeral_port_udp_ipv4(&mut self) -> Option<u16> {
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = self.udp_port_ipv4_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            if !self.udp_ports_ipv4.contains(&port) {
+                self.udp_ports_ipv4.insert(port);
+                self.udp_port_ipv4_ephemeral = port;
+                ephemeral_port = Some(port);
+                break;
+            }
+        }
+
+        ephemeral_port
+    }
+
+    #[inline(always)]
+    fn set_port_in_use_udp_ipv4(&mut self, port: u16) {
+        self.udp_ports_ipv4.insert(port);
+    }
+
+    #[inline(always)]
+    fn is_port_in_use_udp_ipv4(&mut self, port: u16) -> bool {
+        self.udp_ports_ipv4.get(&port).is_some()
+    }
+
+    #[inline(always)]
+    fn free_port_udp_ipv4(&mut self, port: u16) {
+        self.udp_ports_ipv4.remove(&port);
+    }
+
+    fn get_ephemeral_port_udp_ipv6(&mut self) -> Option<u16> {
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = self.udp_port_ipv6_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            if !self.udp_ports_ipv6.contains(&port) {
+                self.udp_ports_ipv6.insert(port);
+                self.udp_port_ipv4_ephemeral = port;
+                ephemeral_port = Some(port);
+                break;
+            }
+        }
+
+        ephemeral_port
+    }
+
+    #[inline(always)]
+    fn set_port_in_use_udp_ipv6(&mut self, port: u16) {
+        self.udp_ports_ipv6.insert(port);
+    }
+
+    #[inline(always)]
+    fn is_port_in_use_udp_ipv6(&mut self, port: u16) -> bool {
+        self.udp_ports_ipv6.get(&port).is_some()
+    }
+
+    #[inline(always)]
+    fn free_port_udp_ipv6(&mut self, port: u16) {
+        self.udp_ports_ipv6.remove(&port);
+    }
+
+    fn get_ephemeral_port_tcp_ipv4(&mut self) -> Option<TcpPort> {
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = self.tcp_port_ipv4_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            let entry = self.tcp_ports_ipv4.entry(i);
+
+            match entry {
+                Entry::Occupied(_) => (),
+                Entry::Vacant(e) => {
+                    e.insert(1);
+                    ephemeral_port = Some(TcpPort::new(port, true));
+                    self.tcp_port_ipv4_ephemeral = port;
+                    break;
+                }
+            }
+        }
+
+        ephemeral_port
+    }
+
+    #[inline(always)]
+    fn is_port_in_use_tcp_ipv4(&mut self, port: u16) -> bool {
+        self.tcp_ports_ipv4.contains_key(&port)
+    }
+
+    #[inline(always)]
+    fn port_in_use_tcp_ipv4(&mut self, port: u16) -> TcpPort {
+        if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
+            *e += 1;
+        } else {
+            self.tcp_ports_ipv4.insert(port, 1);
+        }
+
+        TcpPort::new(port, true)
+    }
+
+    #[inline(always)]
+    fn decrement_port_in_use_tcp_ipv4(&mut self, port: u16) {
+        if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
+            *e -= 1;
+            if *e == 0 {
+                self.tcp_ports_ipv4.remove(&port);
+            }
+        }
+    }
+
+    fn get_ephemeral_port_tcp_ipv6(&mut self) -> Option<TcpPort> {
+        let mut ephemeral_port = None;
+        for i in 0..(u16::MAX >> 2) {
+            let port = self.tcp_port_ipv6_ephemeral.wrapping_add(i);
+            let port = if port == 0 { u16::MAX >> 2 } else { port };
+
+            let entry = self.tcp_ports_ipv6.entry(i);
+
+            match entry {
+                Entry::Occupied(_) => (),
+                Entry::Vacant(e) => {
+                    e.insert(1);
+                    ephemeral_port = Some(TcpPort::new(port, false));
+                    self.tcp_port_ipv6_ephemeral = port;
+                    break;
+                }
+            }
+        }
+
+        ephemeral_port
+    }
+
+    #[inline(always)]
+    fn is_port_in_use_tcp_ipv6(&mut self, port: u16) -> bool {
+        self.tcp_ports_ipv6.contains_key(&port)
+    }
+
+    #[inline(always)]
+    fn port_in_use_tcp_ipv6(&mut self, port: u16) -> TcpPort {
+        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
+            *e += 1;
+        } else {
+            self.tcp_ports_ipv6.insert(port, 1);
+        }
+
+        TcpPort::new(port, true)
+    }
+
+    #[inline(always)]
+    fn decrement_port_in_use_tcp_ipv6(&mut self, port: u16) {
+        if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
+            *e -= 1;
+            if *e == 0 {
+                self.tcp_ports_ipv6.remove(&port);
+            }
+        }
+    }
 }
 
 pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
@@ -121,6 +316,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     }
 
     let irqs = inner.irqs();
+    let poll_mode = inner.poll_mode();
 
     let mut rx_irq_to_que_id = BTreeMap::new();
     for irq in irqs.iter() {
@@ -143,6 +339,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
         irqs,
         rx_irq_to_que_id,
         capabilities,
+        poll_mode,
     };
 
     Ok(if_status)
@@ -208,7 +405,7 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
 /// This routine should be called by interrupt handlers provided by device drivers.
 pub fn net_interrupt(irq: u16) {
     let mut node = MCSNode::new();
-    let mut w = WAKERS.lock(&mut node);
+    let mut w = IRQ_WAKERS.lock(&mut node);
 
     match w.entry(irq) {
         Entry::Occupied(e) => {
@@ -236,7 +433,7 @@ pub fn net_interrupt(irq: u16) {
 /// Returns false if the interrupt occurred before.
 pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) -> bool {
     let mut node = MCSNode::new();
-    let mut w = WAKERS.lock(&mut node);
+    let mut w = IRQ_WAKERS.lock(&mut node);
 
     let entry = w.entry(irq);
 
@@ -257,21 +454,102 @@ pub fn register_waker_for_network_interrupt(irq: u16, waker: core::task::Waker) 
     }
 }
 
-pub fn handle_interrupt(interface_id: u64, irq: u16) {
+/// Register a waker for a poll service.
+///
+/// The old waker will be replaced.
+/// The waker will be called when the network device has some events to be processed
+/// and it will be removed after it is called.
+///
+/// Returns true if the waker is registered successfully.
+/// Returns false if there are some events.
+pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> bool {
+    let mut node = MCSNode::new();
+    let mut w = POLL_WAKERS.lock(&mut node);
+
+    let entry = w.entry(interface_id);
+
+    match entry {
+        Entry::Occupied(mut e) => {
+            if matches!(e.get(), IRQWaker::Interrupted) {
+                e.remove();
+                false
+            } else {
+                e.insert(IRQWaker::Waker(waker));
+                true
+            }
+        }
+        Entry::Vacant(e) => {
+            e.insert(IRQWaker::Waker(waker));
+            true
+        }
+    }
+}
+
+/// If some packets are processed, true is returned.
+/// If true is returned, the caller should call this function again.
+///
+/// `poll_interface()` should be called by a network service.
+pub fn poll_interface(interface_id: u64) -> bool {
     let interface = {
         let net_manager = NET_MANAGER.read();
 
         let Some(interface) = net_manager.interfaces.get(&interface_id) else {
-            return;
+            return false;
+        };
+
+        interface.clone()
+    };
+
+    let _ = interface.net_device.poll_in_service();
+    interface.poll_rx_poll_mode()
+}
+
+/// Check if there are some events to be processed.
+/// `poll()` should be called by CPU0.
+pub fn poll() {
+    let net_manager = NET_MANAGER.read();
+
+    for (interface_id, if_net) in net_manager.interfaces.iter() {
+        if if_net.is_poll_mode && if_net.net_device.poll() {
+            let mut node = MCSNode::new();
+            let mut w = POLL_WAKERS.lock(&mut node);
+
+            match w.entry(*interface_id) {
+                Entry::Occupied(e) => {
+                    if matches!(e.get(), IRQWaker::Waker(_)) {
+                        let IRQWaker::Waker(w) = e.remove() else {
+                            continue;
+                        };
+
+                        w.wake();
+                    }
+                }
+                Entry::Vacant(e) => {
+                    e.insert(IRQWaker::Interrupted);
+                }
+            }
+        }
+    }
+}
+
+/// If some packets are processed, true is returned.
+/// If true is returned, the caller should call this function again.
+pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
+    let interface = {
+        let net_manager = NET_MANAGER.read();
+
+        let Some(interface) = net_manager.interfaces.get(&interface_id) else {
+            return false;
         };
 
         interface.clone()
     };
 
     let _ = interface.net_device.interrupt(irq);
-    interface.poll_rx_irq(irq);
+    interface.poll_rx_irq(irq)
 }
 
+/// Enable the network interface.
 pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -284,6 +562,7 @@ pub fn up(interface_id: u64) -> Result<(), NetManagerError> {
     Ok(())
 }
 
+/// Disable the network interface.
 pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -296,67 +575,42 @@ pub fn down(interface_id: u64) -> Result<(), NetManagerError> {
     Ok(())
 }
 
-pub fn udp_test(interface_id: u64) -> Result<(), NetManagerError> {
-    use alloc::vec;
-    use smoltcp::socket::udp;
-
-    add_ipv4_addr(interface_id, Ipv4Addr::new(192, 168, 100, 15), 24);
-
-    let if_status = get_interface(interface_id).unwrap();
-    log::debug!("Interface status: {}", if_status);
-
+pub fn set_default_gateway_ipv4(
+    interface_id: u64,
+    gateway: Ipv4Addr,
+) -> Result<(), NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
         return Err(NetManagerError::InvalidInterfaceID);
     };
 
-    let udp_rx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp_tx_buffer = udp::PacketBuffer::new(
-        vec![udp::PacketMetadata::EMPTY, udp::PacketMetadata::EMPTY],
-        vec![0; 65535],
-    );
-    let udp_socket = udp::Socket::new(udp_rx_buffer, udp_tx_buffer);
-
     let mut node = MCSNode::new();
     let mut inner = if_net.inner.lock(&mut node);
-    let udp_handle = inner.socket_set.add(udp_socket);
 
-    let address = IpAddress::v4(192, 168, 100, 1);
-    let port = 26099;
+    let octets = gateway.octets();
+    inner.set_default_gateway_ipv4(smoltcp::wire::Ipv4Address::new(
+        octets[0], octets[1], octets[2], octets[3],
+    ));
 
-    let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
-    socket.bind(20000).unwrap();
+    Ok(())
+}
 
-    drop(inner);
+pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
 
-    let mut t0 = None;
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
 
-    loop {
-        {
-            let mut node = MCSNode::new();
-            let mut inner = if_net.inner.lock(&mut node);
+    let mut node = MCSNode::new();
+    let inner = if_net.inner.lock(&mut node);
 
-            let socket = inner.socket_set.get_mut::<udp::Socket>(udp_handle);
-
-            if socket.can_send() {
-                t0 = Some(crate::delay::uptime());
-                let _ = socket.send_slice(b"HELLO FROM AUTOWARE KERNEL", (address, port));
-            }
-
-            if socket.recv().is_ok() {
-                if let Some(t0) = t0.take() {
-                    let t1 = crate::delay::uptime();
-                    log::debug!("UDP RTT: {} [us]", t1 - t0);
-                }
-            }
-        }
-
-        if_net.poll_tx_only(0);
-
-        crate::delay::wait_millisec(100);
+    if let Some(addr) = inner.get_default_gateway_ipv4() {
+        Ok(Some(Ipv4Addr::new(
+            addr.0[0], addr.0[1], addr.0[2], addr.0[3],
+        )))
+    } else {
+        Ok(None)
     }
 }

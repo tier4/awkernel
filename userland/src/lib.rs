@@ -29,6 +29,8 @@ fn add_rtt(rtt: u64) {
 pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_services::run().await;
 
+    test_network::run().await; // test for network
+
     spawn(
         "panic".into(),
         async move {

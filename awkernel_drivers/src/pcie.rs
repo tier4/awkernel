@@ -18,6 +18,112 @@ pub mod pcie_class;
 pub mod pcie_id;
 
 #[derive(Debug, Clone)]
+pub enum ConfigSpace {
+    IO(u32),
+    MMIO(usize),
+}
+
+impl ConfigSpace {
+    #[cfg(feature = "x86")]
+    fn new_io(bus_number: u8, device_number: u8, function_number: u8) -> Self {
+        let base = 0x80000000
+            | (bus_number as u32) << 16
+            | (device_number as u32) << 11
+            | (function_number as u32) << 8;
+        Self::IO(base)
+    }
+
+    fn new_memory(base: usize) -> Self {
+        Self::MMIO(base)
+    }
+
+    fn read_u16(&self, offset: usize) -> u16 {
+        match self {
+            #[allow(unused_variables)]
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                    let addr = *base | ((offset as u32) & 0xfc);
+                    unsafe {
+                        port1.write(addr);
+                        let tmp: u32 = port2.read();
+                        (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { read_volatile(addr as *const u16) }
+            }
+        }
+    }
+
+    fn read_u32(&self, offset: usize) -> u32 {
+        match self {
+            #[allow(unused_variables)]
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                    let addr = *base | ((offset as u32) & 0xfc);
+                    unsafe {
+                        port1.write(addr);
+                        port2.read()
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { read_volatile(addr as *const u32) }
+            }
+        }
+    }
+
+    fn write_u32(&self, data: u32, offset: usize) {
+        match self {
+            #[allow(unused_variables)]
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+
+                    let addr = *base | ((offset as u32) & 0xfc);
+                    unsafe {
+                        port1.write(addr);
+                        port2.write(data);
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::MMIO(base) => {
+                let addr = *base + offset;
+                unsafe { write_volatile(addr as *mut u32, data) }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub enum BaseAddress {
     IO(u32),
     MMIO {
@@ -41,17 +147,22 @@ impl BaseAddress {
     }
 
     pub fn read16(&self, offset: usize) -> Option<u16> {
+        assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+            BaseAddress::IO(addr) => {
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                let addr = *addr | ((offset as u32) & 0xfc);
+                let val = unsafe {
+                    port1.write(addr);
+                    let tmp: u32 = port2.read();
+                    (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                };
+
                 Some(val)
-            },
+            }
             BaseAddress::MMIO { addr, size, .. } => {
                 let dst = *addr + offset;
                 assert!(dst + 2 < *addr + *size);
@@ -62,16 +173,14 @@ impl BaseAddress {
     }
 
     pub fn read32(&self, offset: usize) -> Option<u32> {
+        assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let mut val;
-                let port = *addr + offset as u32;
-                core::arch::asm!("in eax, dx",
-                        out("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
-                Some(val)
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+                port1.write(*addr + ((offset as u32) & 0xfc));
+                Some(port2.read())
             },
             BaseAddress::MMIO { addr, size, .. } => {
                 let dst = *addr + offset;
@@ -86,11 +195,17 @@ impl BaseAddress {
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, al",
-                        in("al") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::Port::new(0xCFC);
+
+                let addr = *addr + ((offset as u32) & 0xfc);
+                port1.write(addr);
+                let reg: u32 = port2.read();
+
+                let mask = !(0xff << ((offset & 3) * 8));
+
+                port1.write(addr);
+                port2.write((reg & mask) | (val as u32) << ((offset & 3) * 8));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
@@ -102,14 +217,21 @@ impl BaseAddress {
     }
 
     pub fn write16(&mut self, offset: usize, val: u16) {
+        assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, ax",
-                        in("ax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::Port::new(0xCFC);
+
+                let addr = *addr + ((offset as u32) & 0xfc);
+                port1.write(addr);
+                let reg: u32 = port2.read();
+
+                let mask = !(0xffff << ((offset & 2) * 8));
+
+                port1.write(addr);
+                port2.write((reg & mask) | (val as u32) << ((offset & 2) * 8));
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
@@ -121,14 +243,14 @@ impl BaseAddress {
     }
 
     pub fn write32(&mut self, offset: usize, val: u32) {
+        assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
             BaseAddress::IO(addr) => unsafe {
-                let port = *addr + offset as u32;
-                core::arch::asm!("out dx, eax",
-                        in("eax") val,
-                        in("dx") port,
-                        options(nomem, nostack, preserves_flags));
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+                port1.write(*addr + ((offset as u32) & 0xfc));
+                port2.write(val);
             },
             BaseAddress::MMIO { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
@@ -156,6 +278,7 @@ pub enum PCIeDeviceErr {
     InvalidClass,
     Interrupt,
     NotImplemented,
+    BARFailure,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -192,12 +315,14 @@ impl fmt::Display for PCIeDeviceErr {
             Self::CommandFailure => {
                 write!(f, "Failed to execute the command.")
             }
+            Self::BARFailure => {
+                write!(f, "Failed to read the base address register.")
+            }
         }
     }
 }
 
 pub(crate) mod registers {
-    use awkernel_lib::{mmio_r, mmio_rw};
     use bitflags::bitflags;
 
     bitflags! {
@@ -239,29 +364,31 @@ pub(crate) mod registers {
     pub const HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE: u8 = 2;
 
     // Type 0 and 1
-    mmio_r!(offset 0x00 => pub DEVICE_VENDOR_ID<u32>);
-    mmio_rw!(offset 0x04 => pub STATUS_COMMAND<StatusCommand>);
-    mmio_r!(offset 0x08 => pub CLASS_CODE_REVISION_ID<u32>);
-    mmio_r!(offset 0x0c => pub BIST_HEAD_LAT_CACH<u32>);
-    mmio_r!(offset 0x34 => pub CAPABILITY_POINTER<u32>);
-    mmio_rw!(offset 0x3c => pub INTERRUPT_LINE<u8>);
+    pub const DEVICE_VENDOR_ID: usize = 0x00;
+    pub const STATUS_COMMAND: usize = 0x04;
+    pub const CLASS_CODE_REVISION_ID: usize = 0x08;
+    pub const BIST_HEAD_LAT_CACH: usize = 0x0c;
+
+    pub const CAPABILITY_POINTER: usize = 0x34;
+    pub const INTERRUPT_LINE: usize = 0x3c;
 
     // Type 1 (PCI-to-PCI bridge)
-    mmio_r!(offset 0x18 => pub SECONDARY_LATENCY_TIMER_BUS_NUMBER<u32>);
+    pub const _SECONDARY_LATENCY_TIMER_BUS_NUMBER: usize = 0x18;
 
     // Capability
-    mmio_r!(offset 0x00 => pub MESSAGE_CONTROL_NEXT_PTR_CAP_ID<u32>);
+    pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     pub const BAR0: usize = 0x10;
 }
 
-/// Initialize the PCIe for ACPI
+/// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
 pub fn init_with_acpi<F, FA, PT, E>(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut PT,
     page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
-) where
+) -> Result<(), PCIeDeviceErr>
+where
     F: Frame,
     FA: FrameAllocator<F, E>,
     PT: PageTable<F, FA, E>,
@@ -274,7 +401,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
 
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
-    let pcie_info = PciConfigRegions::new(acpi).unwrap();
+    let pcie_info = PciConfigRegions::new(acpi).or(Err(PCIeDeviceErr::InitFailure))?;
     for segment in pcie_info.iter() {
         let flags = Flags {
             write: true,
@@ -300,8 +427,7 @@ pub fn init_with_acpi<F, FA, PT, E>(
                     .map_to(virt_addr, phy_addr, flags, page_allocator)
                     .is_err()
             } {
-                log::error!("Failed to map the PCIe config space.");
-                return;
+                return Err(PCIeDeviceErr::InitFailure);
             }
 
             config_start += PAGESIZE;
@@ -317,6 +443,36 @@ pub fn init_with_acpi<F, FA, PT, E>(
                 page_table,
                 page_allocator,
             );
+        }
+    }
+
+    Ok(())
+}
+
+/// Initialize the PCIe with IO port.
+#[cfg(feature = "x86")]
+pub fn init_with_io<F, FA, PT, E>(page_table: &mut PT, page_allocator: &mut FA)
+where
+    F: Frame,
+    FA: FrameAllocator<F, E>,
+    PT: PageTable<F, FA, E>,
+    E: Debug,
+{
+    for bus in 0..=255 {
+        for device in 0..32 {
+            for func_num in 0..8 {
+                if let Ok(info) = PCIeInfo::from_io(bus, device, func_num) {
+                    let multiple_functions = info.multiple_functions;
+
+                    let _ = info.attach(page_table, page_allocator);
+
+                    if func_num == 0 && !multiple_functions {
+                        break;
+                    }
+                } else if func_num == 0 {
+                    break;
+                }
+            }
         }
     }
 }
@@ -370,6 +526,8 @@ fn scan_devices<F, FA, PT, E>(
                 if func == 0 && !multiple_functions {
                     break;
                 }
+            } else if func == 0 {
+                break;
             }
         }
     }
@@ -378,7 +536,7 @@ fn scan_devices<F, FA, PT, E>(
 /// Information necessary for initializing the device
 #[derive(Debug)]
 pub struct PCIeInfo {
-    pub(crate) config_base: usize,
+    pub(crate) config_space: ConfigSpace,
     segment_group: u16,
     bus_number: u8,
     device_number: u8,
@@ -386,6 +544,7 @@ pub struct PCIeInfo {
     id: u16,
     vendor: u16,
     revision_id: u8,
+    interrupt_pin: u8,
     pcie_class: pcie_class::PCIeClass,
     device_name: Option<pcie_id::PCIeID>,
     multiple_functions: bool,
@@ -412,6 +571,16 @@ impl fmt::Display for PCIeInfo {
 }
 
 impl PCIeInfo {
+    #[cfg(feature = "x86")]
+    fn from_io(
+        bus_number: u8,
+        device_number: u8,
+        function_number: u8,
+    ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        let config_space = ConfigSpace::new_io(bus_number, device_number, function_number);
+        Self::new(config_space, 0, bus_number, device_number, function_number)
+    }
+
     /// Get the information for PCIe device
     fn from_addr(
         segment_group: u16,
@@ -420,14 +589,38 @@ impl PCIeInfo {
         function_number: u8,
         addr: usize,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
-        let ids = registers::DEVICE_VENDOR_ID.read(addr);
+        let config_space = ConfigSpace::new_memory(addr);
+        Self::new(
+            config_space,
+            segment_group,
+            bus_number,
+            device_number,
+            function_number,
+        )
+    }
+
+    /// Get the information for PCIe device
+    fn new(
+        config_space: ConfigSpace,
+        segment_group: u16,
+        bus_number: u8,
+        device_number: u8,
+        function_number: u8,
+    ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
+
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
-        let header_type = (registers::BIST_HEAD_LAT_CACH.read(addr) >> 16 & 0xff) as u8;
+
+        if id == !0 || vendor == !0 {
+            return Err(PCIeDeviceErr::InitFailure);
+        }
+
+        let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
         let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
 
-        let cls_rev_id = registers::CLASS_CODE_REVISION_ID.read(addr);
+        let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
         let revision_id = (cls_rev_id & 0xff) as u8;
 
         let pcie_class = pcie_class::PCIeClass::from_u8(
@@ -436,28 +629,29 @@ impl PCIeInfo {
         )
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
-        if id == !0 || vendor == !0 {
-            Err(PCIeDeviceErr::InitFailure)
-        } else {
-            Ok(PCIeInfo {
-                config_base: addr,
-                segment_group,
-                bus_number,
-                device_number,
-                function_number,
-                id,
-                vendor,
-                revision_id,
-                pcie_class,
-                device_name: None,
-                multiple_functions,
-                header_type,
-                base_addresses: array![_ => BaseAddress::None; 6],
-                msi: None,
-                msix: None,
-                pcie_cap: None,
-            })
-        }
+        let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
+
+        let result = PCIeInfo {
+            config_space,
+            segment_group,
+            bus_number,
+            device_number,
+            function_number,
+            id,
+            vendor,
+            revision_id,
+            interrupt_pin: (interrupt_pin_line >> 8) as u8,
+            pcie_class,
+            device_name: None,
+            multiple_functions,
+            header_type,
+            base_addresses: array![_ => BaseAddress::None; 6],
+            msi: None,
+            msix: None,
+            pcie_cap: None,
+        };
+
+        Ok(result)
     }
 
     /// Get the information for PCIe device as BFD format.
@@ -501,31 +695,31 @@ impl PCIeInfo {
     }
 
     pub fn read_status_command(&self) -> registers::StatusCommand {
-        registers::STATUS_COMMAND.read(self.config_base)
+        let val = self.config_space.read_u32(registers::STATUS_COMMAND);
+        registers::StatusCommand::from_bits_truncate(val)
     }
 
     pub fn write_status_command(&mut self, csr: registers::StatusCommand) {
-        registers::STATUS_COMMAND.write(csr, self.config_base);
-    }
-
-    pub fn read_config_space_u32(&self, offset: usize) -> u32 {
-        unsafe { read_volatile((self.config_base + offset) as *const u32) }
-    }
-
-    pub fn read_config_space_u16(&self, offset: usize) -> u16 {
-        unsafe { read_volatile((self.config_base + offset) as *const u16) }
+        self.config_space
+            .write_u32(csr.bits(), registers::STATUS_COMMAND);
     }
 
     pub fn get_segment_group(&self) -> u16 {
         self.segment_group
     }
 
-    pub fn get_interrupt_line(&mut self) -> u8 {
-        registers::INTERRUPT_LINE.read(self.config_base)
+    pub fn get_interrupt_line(&self) -> u8 {
+        (self.config_space.read_u16(registers::INTERRUPT_LINE) & 0xff) as u8
     }
 
     pub fn set_interrupt_line(&mut self, irq: u8) {
-        registers::INTERRUPT_LINE.write(irq, self.config_base);
+        let reg = self.config_space.read_u32(registers::INTERRUPT_LINE);
+        self.config_space
+            .write_u32((reg & !0xff) | irq as u32, registers::INTERRUPT_LINE);
+    }
+
+    pub fn get_interrupt_pin(&self) -> u8 {
+        self.interrupt_pin
     }
 
     pub(crate) fn read_capability(&mut self) {
@@ -550,18 +744,18 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        let mut csr = registers::STATUS_COMMAND.read(self.config_base);
+        let mut csr = self.read_status_command();
 
         // Disable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, false);
         csr.set(registers::StatusCommand::IO_SPACE, false);
-        registers::STATUS_COMMAND.write(csr, self.config_base);
+        self.write_status_command(csr);
 
         if self.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
         } else {
             let mut i = 0;
             while i < num_reg {
-                let bar = read_bar(self.config_base + registers::BAR0 + i * 4);
+                let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -577,7 +771,7 @@ impl PCIeInfo {
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
         csr.set(registers::StatusCommand::IO_SPACE, true);
-        registers::STATUS_COMMAND.write(csr, self.config_base);
+        self.write_status_command(csr);
 
         // map MMIO regions
         for bar in self.base_addresses.iter() {
@@ -618,6 +812,7 @@ impl PCIeInfo {
         Ok(())
     }
 
+    #[inline(always)]
     pub fn get_bar(&self, i: usize) -> Option<BaseAddress> {
         self.base_addresses.get(i).cloned()
     }
@@ -654,17 +849,13 @@ impl PCIeInfo {
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.setbits(
-            registers::StatusCommand::INTERRUPT_DISABLE,
-            self.config_base,
-        );
+        let reg = self.read_status_command();
+        self.write_status_command(reg | registers::StatusCommand::INTERRUPT_DISABLE);
     }
 
     pub fn enable_legacy_interrupt(&mut self) {
-        registers::STATUS_COMMAND.clrbits(
-            registers::StatusCommand::INTERRUPT_DISABLE,
-            self.config_base,
-        );
+        let reg = self.read_status_command();
+        self.write_status_command(reg & !registers::StatusCommand::INTERRUPT_DISABLE);
     }
 }
 
@@ -672,17 +863,17 @@ pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
 }
 
-/// Read the base address of `addr`.
-fn read_bar(addr: usize) -> BaseAddress {
-    let bar = unsafe { read_volatile::<u32>(addr as *const u32) };
+const BAR_IO: u32 = 0b1;
+const BAR_TYPE_MASK: u32 = 0b110;
+const BAR_TYPE_32: u32 = 0b000;
+const BAR_TYPE_64: u32 = 0b100;
+const BAR_PREFETCHABLE: u32 = 0b1000;
+const BAR_IO_ADDR_MASK: u32 = !0b11;
+const BAR_MEM_ADDR_MASK: u32 = !0b1111;
 
-    const BAR_IO: u32 = 0b1;
-    const BAR_TYPE_MASK: u32 = 0b110;
-    const BAR_TYPE_32: u32 = 0b000;
-    const BAR_TYPE_64: u32 = 0b100;
-    const BAR_PREFETCHABLE: u32 = 0b1000;
-    const BAR_IO_ADDR_MASK: u32 = !0b11;
-    const BAR_MEM_ADDR_MASK: u32 = !0b1111;
+/// Read the base address of `addr`.
+fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
+    let bar = config_space.read_u32(offset);
 
     if (bar & BAR_IO) == 1 {
         // I/O space
@@ -692,10 +883,10 @@ fn read_bar(addr: usize) -> BaseAddress {
 
         let bar_type = bar & BAR_TYPE_MASK;
         if bar_type == BAR_TYPE_32 {
-            let size = unsafe {
-                write_volatile(addr as *mut u32, !0);
-                let size = read_volatile::<u32>(addr as *const u32);
-                write_volatile(addr as *mut u32, bar);
+            let size = {
+                config_space.write_u32(!0, offset);
+                let size = config_space.read_u32(offset);
+                config_space.write_u32(bar, offset);
                 (!size).wrapping_add(1) as usize
             };
 
@@ -710,20 +901,20 @@ fn read_bar(addr: usize) -> BaseAddress {
                 }
             }
         } else if bar_type == BAR_TYPE_64 {
-            let high_addr = addr + 4;
-            let high_bar = unsafe { read_volatile::<u32>(high_addr as *const u32) };
+            let high_offset = offset + 4;
+            let high_bar = config_space.read_u32(high_offset);
 
-            let size = unsafe {
-                let high_bar = read_volatile::<u32>(high_addr as *const u32);
+            let size = {
+                let high_bar = config_space.read_u32(high_offset);
 
-                write_volatile(addr as *mut u32, !0);
-                write_volatile(high_addr as *mut u32, !0);
+                config_space.write_u32(!0, offset);
+                config_space.write_u32(!0, high_offset);
 
-                let low_size = read_volatile::<u32>(addr as *const u32);
-                let high_size = read_volatile::<u32>(high_addr as *const u32);
+                let low_size = config_space.read_u32(offset);
+                let high_size = config_space.read_u32(high_offset);
 
-                write_volatile(addr as *mut u32, bar);
-                write_volatile(high_addr as *mut u32, high_bar);
+                config_space.write_u32(bar, offset);
+                config_space.write_u32(high_bar, high_offset);
 
                 (!((high_size as u64) << 32 | (low_size as u64)) + 1) as usize
             };

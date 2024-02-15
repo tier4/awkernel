@@ -1,7 +1,4 @@
-use core::{
-    ptr::{addr_of_mut, write_volatile},
-    slice,
-};
+use core::{ptr::addr_of_mut, slice};
 
 use super::mbox::{Mbox, MboxChannel};
 use awkernel_lib::paging::PAGESIZE;
@@ -30,14 +27,17 @@ impl FramebufferInfo {
     fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
         let pos = (y * self.pitch + x * 4) as usize;
 
-        let pixel = if self.is_rgb {
-            r as u32 | (g as u32) << 8 | (b as u32) << 16
+        if self.is_rgb {
+            self.framebuffer[pos] = r;
+            self.framebuffer[pos + 1] = g;
+            self.framebuffer[pos + 2] = b;
+            self.framebuffer[pos + 3] = 0;
         } else {
-            b as u32 | (g as u32) << 8 | (r as u32) << 16
-        };
-
-        let ptr = (&mut (self.framebuffer[pos])) as *mut u8 as *mut u32;
-        unsafe { write_volatile(ptr, pixel) };
+            self.framebuffer[pos] = b;
+            self.framebuffer[pos + 1] = g;
+            self.framebuffer[pos + 2] = r;
+            self.framebuffer[pos + 3] = 0;
+        }
     }
 }
 

@@ -32,6 +32,7 @@ use awkernel_lib::{
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
+    unwind::catch_unwind,
 };
 use bootloader_api::{
     config::Mapping,
@@ -110,6 +111,26 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     let (backup_pages, backup_region, backup_next_frame) =
         init_backup_heap(boot_info, &mut page_table);
 
+    let _ = catch_unwind(|| {
+        kernel_main2(
+            boot_info,
+            page_table,
+            backup_pages,
+            backup_region,
+            backup_next_frame,
+        )
+    });
+
+    wait_forever();
+}
+
+fn kernel_main2(
+    boot_info: &'static mut BootInfo,
+    mut page_table: OffsetPageTable<'static>,
+    backup_pages: usize,
+    backup_region: MemoryRegion,
+    backup_next_frame: Option<PhysFrame>,
+) {
     // 5. Enable logger.
     super::console::register_console();
 
@@ -223,7 +244,13 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     }
 
     // 15. Initialize PCIe devices.
-    awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators);
+    if awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators)
+        .is_err()
+    {
+        // fallback
+        let allocator0 = page_allocators.get_mut(&0).unwrap();
+        awkernel_drivers::pcie::init_with_io(&mut awkernel_page_table, allocator0);
+    }
 
     // 16. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
@@ -244,8 +271,6 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     // 18. Call `crate::main()`.
     crate::main(kernel_info);
-
-    wait_forever()
 }
 
 fn init_primary_heap(
@@ -537,6 +562,7 @@ fn get_numa_info(
     let mut numa_id_to_memory = BTreeMap::new();
     let mut cpu_to_numa_id = BTreeMap::new();
 
+    // Collect the topology information.
     if let Ok(srat) = acpi.find_table::<awkernel_lib::arch::x86_64::acpi::srat::Srat>() {
         for entry in srat.entries() {
             match entry {
@@ -576,9 +602,31 @@ fn get_numa_info(
                 _ => (),
             }
         }
+    } else if let Ok(info) = acpi.platform_info() {
+        if let Some(processor) = &info.processor_info {
+            cpu_to_numa_id.insert(processor.boot_processor.local_apic_id, 0);
+
+            for p in processor.application_processors.iter() {
+                cpu_to_numa_id.insert(p.local_apic_id, 0);
+            }
+
+            for mem in boot_info
+                .memory_regions
+                .iter()
+                .filter(|m| m.kind == MemoryRegionKind::Usable)
+            {
+                numa_id_to_memory
+                    .entry(0)
+                    .or_insert_with(Vec::new)
+                    .push((mem.start as usize, mem.end as usize - mem.start as usize));
+            }
+        } else {
+            log::error!("Failed to get processor information.");
+            awkernel_lib::delay::wait_forever();
+        }
     } else {
-        log::error!("Failed to find SRAT.");
-        wait_forever();
+        log::error!("Failed to get topology information.");
+        awkernel_lib::delay::wait_forever();
     }
 
     let mut memory_regions = BTreeMap::new();

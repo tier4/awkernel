@@ -11,7 +11,6 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
@@ -50,7 +49,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         let mut send_ipi = awkernel_lib::delay::uptime();
 
         // Set-up timer interrupt.
+        #[cfg(not(feature = "std"))]
         if let Some(irq) = awkernel_lib::timer::irq_id() {
+            use alloc::boxed::Box;
+
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {
@@ -73,12 +75,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
-        awkernel_lib::interrupt::enable_irq(64);
-
         loop {
             awkernel_lib::interrupt::disable();
 
             wake_task(); // Wake executable tasks periodically.
+            awkernel_lib::net::poll(); // Poll network devices.
 
             awkernel_lib::interrupt::enable();
 
@@ -113,6 +114,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             }
         }
     } else {
+        #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         // Non-primary CPUs.

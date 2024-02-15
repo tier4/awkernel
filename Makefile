@@ -51,17 +51,18 @@ AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 
+RUSTV=nightly-2024-02-12
 
 all: aarch64 x86_64 riscv32 std
 
 check: check_aarch64 check_x86_64 check_std check_riscv32
 
 clippy:
-	cargo +nightly clippy_x86
-	cargo +nightly clippy_raspi
-	cargo +nightly clippy_aarch64_virt
-	cargo +nightly clippy_rv32
-	cargo +nightly clippy_std
+	cargo +$(RUSTV) clippy_x86
+	cargo +$(RUSTV) clippy_raspi
+	cargo +$(RUSTV) clippy_aarch64_virt
+	cargo +$(RUSTV) clippy_rv32
+	cargo +$(RUSTV) clippy_std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
@@ -71,10 +72,10 @@ FORCE:
 aarch64: kernel8.img
 
 check_aarch64: FORCE
-	cargo +nightly check_aarch64 $(AARCH64_OPT)
+	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)
 
 target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
-	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +nightly aarch64 $(AARCH64_OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(AARCH64_OPT)
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
@@ -129,16 +130,16 @@ gdb-aarch64-virt:
 x86_64: x86_64_uefi.img
 
 check_x86_64: $(X86ASM)
-	cargo +nightly check_x86
+	cargo +$(RUSTV) check_x86
 
 kernel-x86_64.elf: $(X86ASM) FORCE
-	cargo +nightly x86 $(OPT)
+	cargo +$(RUSTV) x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
-	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@
+	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
 
 x86_64_uefi.img: kernel-x86_64.elf
-	cargo +nightly run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
+	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@
@@ -184,10 +185,10 @@ gdb-x86_64:
 # riscv32
 
 riscv32:
-	cargo +nightly rv32 $(OPT)
+	cargo +$(RUSTV) rv32 $(OPT)
 
 check_riscv32: $(X86ASM)
-	cargo +nightly check_rv32
+	cargo +$(RUSTV) check_rv32
 
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
@@ -195,13 +196,13 @@ qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 # Linux / macOS
 
 std: FORCE
-	cargo +nightly std $(OPT)
+	cargo +$(RUSTV) std $(OPT)
 
 check_std: FORCE
-	cargo +nightly check_std
+	cargo +$(RUSTV) check_std
 
 run-std:
-	cargo +nightly run --package awkernel --no-default-features --features std $(OPT)
+	cargo +$(RUSTV) run --package awkernel --no-default-features --features std $(OPT)
 
 # Test
 
@@ -211,8 +212,13 @@ test: FORCE
 	cargo test_awkernel_drivers
 
 loom: FORCE
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +nightly test_awkernel_lib --test model_check_mcslock --release -- --nocapture
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +nightly test_awkernel_lib --test model_check_rwlock --release -- --nocapture
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_mcslock --release -- --nocapture
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_rwlock --release -- --nocapture
+
+# Format
+
+fmt: FORCE
+	cargo +$(RUSTV) fmt
 
 # Clean
 
