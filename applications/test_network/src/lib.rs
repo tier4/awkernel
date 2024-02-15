@@ -24,13 +24,23 @@ pub async fn run() {
     )
     .await;
 
-    let mut stream = awkernel_async_lib::net::tcp::TcpStream::connect(
+    awkernel_async_lib::spawn(
+        "test tcp connect".into(),
+        tcp_connect_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn tcp_connect_test() {
+    let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         0,
         IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2)),
         8080,
         Default::default(),
-    )
-    .unwrap();
+    ) else {
+        return;
+    };
 
     stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
 }
@@ -44,7 +54,7 @@ async fn tcp_listen_test() {
     let Ok(mut tcp_listener) =
         awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(0, config)
     else {
-        panic!("Failed to bind TCP listener.");
+        return;
     };
 
     loop {

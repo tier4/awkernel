@@ -26,6 +26,13 @@ impl TcpListener {
     ) -> Result<TcpListener, NetManagerError> {
         let mut net_manager = NET_MANAGER.write();
 
+        // Find the interface that has the specified address.
+        let if_net = net_manager
+            .interfaces
+            .get(&interface_id)
+            .ok_or(NetManagerError::InvalidInterfaceID)?
+            .clone();
+
         let port = if let Some(port) = port {
             if port == 0 {
                 return Err(NetManagerError::InvalidPort);
@@ -57,13 +64,6 @@ impl TcpListener {
                 .get_ephemeral_port_tcp_ipv6()
                 .ok_or(NetManagerError::NoAvailablePort)?
         };
-
-        // Find the interface that has the specified address.
-        let if_net = net_manager
-            .interfaces
-            .get(&interface_id)
-            .ok_or(NetManagerError::InvalidInterfaceID)?
-            .clone();
 
         drop(net_manager);
 
