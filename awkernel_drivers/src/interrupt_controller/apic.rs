@@ -7,9 +7,12 @@ use awkernel_lib::{
     delay::wait_forever,
     interrupt::{InterruptController, IRQ},
     paging::{Flags, PageTable},
+    timer::Timer,
 };
 use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile};
 use x86_64::registers::model_specific::Msr;
+
+const TIMER_IRQ: u8 = 254;
 
 pub mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -24,6 +27,10 @@ pub mod registers {
     mmio_rw!(offset 0x0f0 => pub(crate) XAPIC_SPURIOUS_INTERRUPT_VECTOR<u32>);
     mmio_rw!(offset 0x300 => pub(crate) XAPIC_ICR_LOW<u32>);
     mmio_rw!(offset 0x310 => pub(crate) XAPIC_ICR_HIGH<u32>);
+    mmio_rw!(offset 0x320 => pub(crate) XAPIC_LVT_TIMER<u32>);
+    mmio_rw!(offset 0x380 => pub(crate) XAPIC_TIMER_INITIAL_COUNT<u32>);
+    mmio_rw!(offset 0x390 => pub(crate) XAPIC_TIMER_CURRENT_COUNT<u32>);
+    mmio_rw!(offset 0x3e0 => pub(crate) XAPIC_TIMER_DIV<u32>);
 
     bitflags! {
         pub struct IcrFlags: u32 {
@@ -61,6 +68,10 @@ pub mod registers {
     pub static mut X2APIC_EOI: Msr = Msr::new(0x80B);
     pub static mut X2APIC_SPURIOUS_INTERRUPT_VECTOR: Msr = Msr::new(0x80F);
     pub static mut X2APIC_ICR: Msr = Msr::new(0x830);
+    pub static mut X2APIC_LVT_TIMER: Msr = Msr::new(0x832);
+    pub static mut X2APIC_TIMER_INITIAL_COUNT: Msr = Msr::new(0x838);
+    pub static mut X2APIC_TIMER_CURRENT_COUNT: Msr = Msr::new(0x839);
+    pub static mut X2APIC_TIMER_DIV: Msr = Msr::new(0x83E);
 }
 
 #[allow(dead_code)]
@@ -106,6 +117,18 @@ pub trait Apic {
 
         Some(irq as u8)
     }
+
+    fn write_timer_div(&mut self, div: u32);
+
+    fn read_current_timer_count(&self) -> u32;
+
+    fn write_timer_initial_count(&mut self, _count: u32);
+
+    fn create_timer(
+        &self,
+        timer_div: u32,
+        timer_initial_count: u32,
+    ) -> Box<dyn Timer + Send + Sync>;
 }
 
 pub fn new(
@@ -217,6 +240,30 @@ impl Apic for Xapic {
 
         while (low.read(self.apic_base) & registers::IcrFlags::SEND_PENDING.bits()) != 0 {}
     }
+
+    fn write_timer_div(&mut self, div: u32) {
+        registers::XAPIC_TIMER_DIV.write(div, self.apic_base);
+    }
+
+    fn read_current_timer_count(&self) -> u32 {
+        registers::XAPIC_TIMER_CURRENT_COUNT.read(self.apic_base)
+    }
+
+    fn write_timer_initial_count(&mut self, count: u32) {
+        registers::XAPIC_TIMER_INITIAL_COUNT.write(count, self.apic_base);
+    }
+
+    fn create_timer(
+        &self,
+        timer_div: u32,
+        timer_initial_count: u32,
+    ) -> Box<dyn Timer + Send + Sync> {
+        Box::new(TimerXapic {
+            apic_base: self.apic_base,
+            timer_div,
+            timer_initial_count,
+        })
+    }
 }
 
 impl Apic for X2Apic {
@@ -245,6 +292,29 @@ impl Apic for X2Apic {
             | vector as u64;
 
         unsafe { registers::X2APIC_ICR.write(bits) };
+    }
+
+    fn write_timer_div(&mut self, div: u32) {
+        unsafe { registers::X2APIC_TIMER_DIV.write(div as u64) };
+    }
+
+    fn read_current_timer_count(&self) -> u32 {
+        unsafe { registers::X2APIC_TIMER_CURRENT_COUNT.read() as u32 }
+    }
+
+    fn write_timer_initial_count(&mut self, count: u32) {
+        unsafe { registers::X2APIC_TIMER_INITIAL_COUNT.write(count as u64) };
+    }
+
+    fn create_timer(
+        &self,
+        timer_div: u32,
+        timer_initial_count: u32,
+    ) -> Box<dyn Timer + Send + Sync> {
+        Box::new(TimerX2apic {
+            timer_div,
+            timer_initial_count,
+        })
     }
 }
 
@@ -324,11 +394,14 @@ impl InterruptController for Xapic {
     }
 
     fn irq_range(&self) -> (u16, u16) {
-        (32, 255) // IRQ255 is used for preemption
+        // IRQ255 is used for preemption
+        (32, 255)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
-        (64, 255)
+        // IRQ255 is used for preemption
+        // IRQ254 is used for local timer
+        (64, 254)
     }
 
     fn set_pcie_msi(
@@ -430,11 +503,14 @@ impl InterruptController for X2Apic {
     }
 
     fn irq_range(&self) -> (u16, u16) {
-        (32, 255) // IRQ255 is used for preemption
+        // IRQ255 is used for preemption
+        (32, 255)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
-        (64, 255)
+        // IRQ255 is used for preemption
+        // IRQ254 is used for local timer
+        (64, 254)
     }
 
     fn init_non_primary(&mut self) {
@@ -485,5 +561,52 @@ impl InterruptController for X2Apic {
         }
 
         Ok(IRQ::X86InterruptRemap { irq, remap_info })
+    }
+}
+
+pub struct TimerXapic {
+    apic_base: usize,
+    timer_div: u32,
+    timer_initial_count: u32,
+}
+
+impl awkernel_lib::timer::Timer for TimerXapic {
+    fn irq_id(&self) -> u16 {
+        TIMER_IRQ as u16
+    }
+
+    fn reset(&self) {
+        registers::XAPIC_LVT_TIMER.write(TIMER_IRQ as u32, self.apic_base);
+        registers::XAPIC_TIMER_DIV.write(self.timer_div, self.apic_base);
+        registers::XAPIC_TIMER_INITIAL_COUNT.write(self.timer_initial_count, self.apic_base);
+    }
+
+    fn disable(&self) {
+        registers::XAPIC_LVT_TIMER.write(0, self.apic_base);
+    }
+}
+
+pub struct TimerX2apic {
+    timer_div: u32,
+    timer_initial_count: u32,
+}
+
+impl awkernel_lib::timer::Timer for TimerX2apic {
+    fn irq_id(&self) -> u16 {
+        TIMER_IRQ as u16
+    }
+
+    fn reset(&self) {
+        unsafe {
+            registers::X2APIC_LVT_TIMER.write(TIMER_IRQ as u64);
+            registers::X2APIC_TIMER_DIV.write(self.timer_div as u64);
+            registers::X2APIC_TIMER_INITIAL_COUNT.write(self.timer_initial_count as u64);
+        }
+    }
+
+    fn disable(&self) {
+        unsafe {
+            registers::X2APIC_LVT_TIMER.write(0);
+        }
     }
 }

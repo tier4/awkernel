@@ -1,8 +1,10 @@
 use core::sync::atomic::AtomicBool;
 
+use alloc::boxed::Box;
+
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
-static TIMER: Mutex<Option<&'static (dyn Timer + Sync + Send)>> = Mutex::new(None);
+static TIMER: Mutex<Option<Box<dyn Timer + Send + Sync>>> = Mutex::new(None);
 static IS_TIMER_ENABLED: AtomicBool = AtomicBool::new(false);
 
 pub trait Timer {
@@ -16,7 +18,7 @@ pub trait Timer {
     fn disable(&self);
 }
 
-pub fn register_timer(timer: &'static (dyn Timer + Sync + Send)) {
+pub fn register_timer(timer: Box<dyn Timer + Send + Sync>) {
     IS_TIMER_ENABLED.store(true, core::sync::atomic::Ordering::Relaxed);
     let mut node = MCSNode::new();
     let mut guard = TIMER.lock(&mut node);

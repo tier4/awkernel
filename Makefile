@@ -51,7 +51,7 @@ AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 
-RUSTV=nightly-2024-02-12
+RUSTV=nightly
 
 all: aarch64 x86_64 riscv32 std
 

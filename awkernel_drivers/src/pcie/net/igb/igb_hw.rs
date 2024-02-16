@@ -936,8 +936,6 @@ fn get_hw_info(mac_type: &MacType) -> (bool, bool, bool) {
 fn check_pci_express(mac_type: &MacType) -> Result<(), IgbDriverErr> {
     use MacType::*;
 
-    log::debug!("mac_type: {:?}", mac_type);
-
     match mac_type {
         Em82540 | Em82571 | Em82572 | Em82573 | Em82574 | Em82575 | Em82576 | Em82580
         | Em80003es2lan | EmI210 | EmI350 | EmIch8lan | EmIch9lan | EmIch10lan | EmPchlan

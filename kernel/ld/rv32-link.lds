@@ -2,6 +2,7 @@ OUTPUT_ARCH("riscv")
 ENTRY(_start)
 SECTIONS
 {
+    PROVIDE (__executable_start = .);
     . = 0x80000000;
     __ram_start = .;
     .init : { KEEP(*(.init)) }

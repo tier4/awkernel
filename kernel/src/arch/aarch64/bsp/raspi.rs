@@ -580,8 +580,13 @@ impl Raspi {
 
         match *compatible {
             "arm,armv8-timer" => {
+                // IRQ #27 is the recommended value.
+                // every 1/2^19 = .000_001_9 [s].
+                let timer = Box::new(Armv8Timer::new(27, 19));
+
+                awkernel_lib::timer::register_timer(timer);
+
                 log::info!("armv8-timer has been initialized.");
-                awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
             }
             _ => {
                 // Timer of Raspberry Pi 3 is not supported.
