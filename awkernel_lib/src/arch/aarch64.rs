@@ -6,7 +6,6 @@ pub(super) mod interrupt;
 pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;
-pub mod rpi_system_timer;
 
 pub use cpu::*;
 

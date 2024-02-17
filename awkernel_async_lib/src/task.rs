@@ -666,6 +666,7 @@ pub fn panicking() {
             info.scheduler_type = SchedulerType::Panicked;
             info.panicked = true;
         } else {
+            #[allow(clippy::needless_return)]
             return;
         }
     }
