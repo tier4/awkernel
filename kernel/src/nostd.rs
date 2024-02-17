@@ -10,6 +10,8 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
         log::error!("panic: {}", info);
     }
 
+    awkernel_async_lib::task::panicking();
+
     unwinding::panic::begin_panic(Box::new(()));
     wait_forever();
 }

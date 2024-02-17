@@ -5,7 +5,7 @@ use awkernel_drivers::{
 };
 use awkernel_lib::{
     addr::phy_addr::PhyAddr,
-    arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
+    arch::aarch64::set_max_affinity,
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
@@ -27,10 +27,6 @@ const DEVICE_MEM_START: PhyAddr = PhyAddr::new(0x0800_0000);
 const DEVICE_MEM_END: PhyAddr = PhyAddr::new(0x4000_0000);
 const FLASH_START: PhyAddr = PhyAddr::new(0);
 const FLASH_END: PhyAddr = PhyAddr::new(0x0800_0000);
-
-/// IRQ #27 is the recommended value.
-/// every 1/2^14 = 0..000_061 [s].
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 14);
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
@@ -102,7 +98,6 @@ impl super::SoC for AArch64Virt {
         register_console(port);
 
         self.init_interrupt_controller()?;
-        awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
 
         Ok(())
     }

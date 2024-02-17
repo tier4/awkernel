@@ -51,7 +51,7 @@ AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 
-RUSTV=nightly-2024-02-12
+RUSTV=nightly
 
 all: aarch64 x86_64 riscv32 std
 
@@ -145,7 +145,7 @@ $(X86ASM): FORCE
 	$(MAKE) -C $@
 
 
-QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img -d int # --trace "e1000e_irq_*" --trace "pci_cfg_*"
+QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img # -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 QEMU_X86_ARGS+= -m 4G -smp cpus=16

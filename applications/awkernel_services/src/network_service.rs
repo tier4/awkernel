@@ -14,6 +14,13 @@ type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>
 pub async fn run() -> TaskResult {
     log::info!("Starting {}.", crate::NETWORK_SERVICE_NAME);
 
+    awkernel_async_lib::spawn(
+        "TCP garbage collector".into(),
+        tcp_garbage_collector(),
+        SchedulerType::FIFO,
+    )
+    .await;
+
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
 
@@ -119,13 +126,6 @@ async fn spawn_handlers(
         )
         .await;
     }
-
-    awkernel_async_lib::spawn(
-        "TCP garbage collector".into(),
-        tcp_garbage_collector(),
-        SchedulerType::FIFO,
-    )
-    .await;
 }
 
 async fn tcp_garbage_collector() {

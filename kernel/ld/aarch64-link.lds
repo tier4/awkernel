@@ -1,6 +1,7 @@
 ENTRY(_start)
 SECTIONS
 {
+    PROVIDE (__executable_start = .);
     . = #INITADDR#; /* replaced by sed */
     __kernel_start = .;
     .init : { KEEP(*(.init)) }
@@ -15,6 +16,7 @@ SECTIONS
 
     .eh_frame_hdr : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
 
+  . = ALIGN(8);
     PROVIDE(__eh_frame = .);
     .eh_frame : { KEEP (*(.eh_frame)) *(.eh_frame.*) }
 

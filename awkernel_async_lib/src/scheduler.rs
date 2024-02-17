@@ -7,6 +7,7 @@ use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 mod fifo;
+pub(super) mod panicked;
 mod prioritized_fifo;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
@@ -16,6 +17,7 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 pub enum SchedulerType {
     FIFO,
     PrioritizedFIFO(u8),
+    Panicked,
 }
 
 pub(crate) trait Scheduler {
@@ -40,6 +42,10 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
         return Some(task);
     }
 
+    if let Some(task) = panicked::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
     None
 }
 
@@ -48,6 +54,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
     match sched_type {
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
+        SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
 

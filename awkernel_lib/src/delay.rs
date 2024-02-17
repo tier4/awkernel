@@ -42,6 +42,7 @@ pub trait Delay {
 }
 
 /// Wait interrupt.
+#[inline(always)]
 pub fn wait_interrupt() {
     ArchImpl::wait_interrupt();
 }
@@ -53,6 +54,7 @@ pub fn wait_interrupt() {
 /// ```
 /// awkernel_lib::delay::wait_microsec(10); // Wait 10 microseconds.
 /// ```
+#[inline(always)]
 pub fn wait_microsec(usec: u64) {
     ArchImpl::wait_microsec(usec);
 }
@@ -64,6 +66,7 @@ pub fn wait_microsec(usec: u64) {
 /// ```
 /// awkernel_lib::delay::wait_millisec(10); // Wait 10 milliseconds.
 /// ```
+#[inline(always)]
 pub fn wait_millisec(msec: u64) {
     ArchImpl::wait_millisec(msec);
 }
@@ -75,6 +78,7 @@ pub fn wait_millisec(msec: u64) {
 /// ```
 /// awkernel_lib::delay::wait_sec(1); // Wait 1 seconds.
 /// ```
+#[inline(always)]
 pub fn wait_sec(sec: u64) {
     ArchImpl::wait_sec(sec);
 }
@@ -94,6 +98,7 @@ pub fn wait_forever() -> ! {
 /// let end = uptime();
 /// log::info!("{} [us]", end - start);
 /// ```
+#[inline(always)]
 pub fn uptime() -> u64 {
     ArchImpl::uptime()
 }
@@ -105,6 +110,7 @@ pub fn uptime() -> u64 {
 /// ```
 /// awkernel_lib::delay::pause();
 /// ```
+#[inline(always)]
 pub fn pause() {
     ArchImpl::pause();
 }
@@ -125,6 +131,7 @@ pub fn pause() {
 ///     }
 /// }
 /// ```
+#[inline(always)]
 pub fn cpu_counter() -> u64 {
     ArchImpl::cpu_counter()
 }

@@ -204,15 +204,18 @@ fn kernel_main2(
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
-        TypeApic::Xapic(xapic) => {
+        TypeApic::Xapic(mut xapic) => {
             let result = wake_non_primary_cpus(&xapic, &acpi, offset);
+
+            // Initialize timer.
+            init_apic_timer(&mut xapic);
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(xapic));
 
             result
         }
-        TypeApic::X2Apic(x2apic) => {
+        TypeApic::X2Apic(mut x2apic) => {
             let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
 
             // Initialize the interrupt remapping table.
@@ -226,6 +229,9 @@ fn kernel_main2(
                 log::error!("Failed to initialize interrupt remapping table. {}", e);
                 wait_forever();
             }
+
+            // Initialize timer.
+            init_apic_timer(&mut x2apic);
 
             // Register interrupt controller.
             register_interrupt_controller(Box::new(x2apic));
@@ -271,6 +277,22 @@ fn kernel_main2(
 
     // 18. Call `crate::main()`.
     crate::main(kernel_info);
+}
+
+fn init_apic_timer(apic: &mut dyn Apic) {
+    apic.write_timer_div(1);
+
+    let mut total = 0;
+    for _ in 0..10 {
+        apic.write_timer_initial_count(!0);
+        awkernel_lib::delay::wait_microsec(20);
+
+        let diff = !0 - apic.read_current_timer_count();
+        total += diff;
+    }
+
+    let timer = apic.create_timer(1, total / 10);
+    awkernel_lib::timer::register_timer(timer);
 }
 
 fn init_primary_heap(

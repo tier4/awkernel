@@ -1,7 +1,7 @@
 //! # Autoware Kernel
 //!
-//! Autoware Kernel is a safe and realtime operating system
-//! supporting isolated zero-copy communications written in Rust.
+//! Autoware kernel is a safe and realtime operating system.
+//! It can execute async/await applications in kernel space safely.
 
 #![feature(start)]
 #![feature(abi_x86_interrupt)]
@@ -83,17 +83,20 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             awkernel_lib::interrupt::enable();
 
-            #[cfg(not(all(feature = "aarch64", not(feature = "std"))))]
-            awkernel_lib::delay::wait_microsec(10);
+            #[cfg(feature = "std")]
+            awkernel_lib::delay::wait_microsec(50);
 
-            // TODO: enable timer on x86.
-            #[cfg(all(feature = "aarch64", not(feature = "std")))]
+            #[cfg(not(feature = "std"))]
             {
-                let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
-                awkernel_lib::interrupt::enable();
-                awkernel_lib::timer::reset();
-                awkernel_lib::delay::wait_interrupt();
-                awkernel_lib::timer::disable();
+                if awkernel_lib::timer::is_timer_enabled() {
+                    let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
+                    awkernel_lib::interrupt::enable();
+                    awkernel_lib::timer::reset();
+                    awkernel_lib::delay::wait_interrupt();
+                    awkernel_lib::interrupt::disable();
+                } else {
+                    awkernel_lib::delay::wait_microsec(10);
+                }
             }
 
             // Test for IPI.
@@ -104,20 +107,26 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     let dur = 20_000; // 20[ms]
                     if now - send_ipi >= dur {
                         // Send IPI to all CPUs except for primary CPU.
-                        // awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                        //     config::PREEMPT_IRQ,
-                        // );
+                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
+                            config::PREEMPT_IRQ,
+                        );
 
                         send_ipi = now;
                     }
                 }
             }
         }
-    } else {
-        #[cfg(not(feature = "std"))]
+    }
+
+    // Non-primary CPUs.
+    #[cfg(not(feature = "std"))]
+    {
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
-        // Non-primary CPUs.
-        unsafe { task::run() }; // Execute tasks.
+        if let Some(irq) = awkernel_lib::timer::irq_id() {
+            awkernel_lib::interrupt::enable_irq(irq);
+        }
     }
+
+    unsafe { task::run() }; // Execute tasks.
 }

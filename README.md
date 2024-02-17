@@ -1,7 +1,7 @@
 # Autoware Kernel
 
-Autoware kernel is a safe and realtime operating system supporting
-isolated zero-copy communications written in Rust.
+Autoware kernel is a safe and realtime operating system.
+It can execute async/await applications in kernel space safely.
 
 ## Progress
 
@@ -14,10 +14,22 @@ isolated zero-copy communications written in Rust.
   - [x] Unbounded channel
   - [x] Session-type based channel
 - [x] Memory space isolation
-- [ ] Timer interrupts
-  - [x] Raspberry Pi
+- [x] Timer interrupts
   - [x] AArch64
+  - [x] x86_64
+- [x] Interrupt Controllers
+  - [x] AArch64
+    - [x] Raspberry Pi 3
+    - [x] GICv2
+    - [x] GICv3
+  - [x] x86_64
+    - [x] xAPIC
+    - [x] x2APIC
+- [ ] Frame buffer
+  - [ ] AArch64 virt
+  - [x] Raspberry Pi 3 and 4
   - [ ] x86_64
+- [ ] Diagnostics
 - [ ] Measurement
 - [ ] Power Management
   - [ ] Shutdown
@@ -31,6 +43,22 @@ isolated zero-copy communications written in Rust.
   - [x] O(1) memory allocator
   - [x] DMA pool
   - [ ] NUMA aware memory allocator
+- [ ] DVFS
+  - [ ] AArch64
+  - [ ] x86_64
+- [ ] PCIe
+  - [ ] MSI
+    - [x] x86_64 xAPIC and x2APIC
+    - [ ] AArch64 GICv3
+  - [ ] MSI-X
+    - [x] x86_64 xAPIC and x2APIC
+    - [ ] AArch64 GICv3
+- Network controllers
+  - [x] Intel Gb Ethernet Controller (e1000 Series)
+  - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
+  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [ ] Mellanox ConnectX-5 series
+  - [ ] genet for Raspberry Pi
 - Networking
   - [x] IPv4
   - [x] IPv6
@@ -44,17 +72,10 @@ isolated zero-copy communications written in Rust.
     - [ ] UDP checksum
     - [ ] TCP checksum
     - [ ] VLAN hardware tagging
-- Network controllers
-  - [x] Intel Gb Ethernet Controller (e1000 Series)
-  - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
-  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
-  - [ ] Intel 40Gb Ethernet Controller (X710 Series)
-  - [ ] genet for Raspberry Pi
+- [ ] XHCI
 - [ ] Block devices
   - [ ] NVMe
   - [ ] AHCI
-- [ ] Diagnostics
-- [ ] XHCI
 - [ ] File systems
   - [ ] FAT32
   - [ ] Journaling file system
@@ -63,8 +84,8 @@ isolated zero-copy communications written in Rust.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-02-12
-$ rustup default nightly-2024-02-12
+$ rustup toolchain install nightly
+$ rustup default nightly
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils

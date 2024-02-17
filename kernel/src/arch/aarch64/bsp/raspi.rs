@@ -13,7 +13,7 @@ use awkernel_drivers::{
 };
 use awkernel_lib::{
     addr::phy_addr::PhyAddr,
-    arch::aarch64::{armv8_timer::Armv8Timer, rpi_system_timer::RpiSystemTimer, set_max_affinity},
+    arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
@@ -27,17 +27,6 @@ use core::arch::asm;
 pub mod config;
 pub mod memory;
 mod uart;
-
-/// IRQ #27 is the recommended value.
-/// every 1/2^19 = .000_001_9 [s].
-pub static TIMER_ARM_V8: Armv8Timer = Armv8Timer::new(27, 19);
-
-/// Because the device tree does not contain the system timer,
-/// it is initialized with constant values,
-/// IRQ #1 and the base address of 0x3f003000.
-///
-/// 64 is the offset for IRQ 1 / IRQ 2 of bcm2835's device driver.
-pub static TIMER_RPI: RpiSystemTimer = RpiSystemTimer::new(1 + 64, 0x3f003000);
 
 fn start_non_primary() {
     unsafe {
@@ -580,11 +569,16 @@ impl Raspi {
 
         match *compatible {
             "arm,armv8-timer" => {
+                // IRQ #27 is the recommended value.
+                // every 1/2^19 = .000_001_9 [s].
+                let timer = Box::new(Armv8Timer::new(27, 19));
+
+                awkernel_lib::timer::register_timer(timer);
+
                 log::info!("armv8-timer has been initialized.");
-                awkernel_lib::timer::register_timer(&TIMER_ARM_V8);
             }
             _ => {
-                awkernel_lib::timer::register_timer(&TIMER_RPI);
+                // Timer of Raspberry Pi 3 is not supported.
             }
         }
 
