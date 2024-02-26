@@ -115,6 +115,7 @@ QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
 QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
 QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
 QEMU_AARCH64_VIRT_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
+QEMU_AARCH64_VIRT_ARGS+= -device e1000e
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)

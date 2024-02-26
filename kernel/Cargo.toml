@@ -59,7 +59,7 @@ version = "0.3.0"
 optional = true
 
 [features]
-default = ["x86"]
+default = ["aarch64_virt"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = [
     "no_std_unwinding",
