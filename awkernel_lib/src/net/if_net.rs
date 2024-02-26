@@ -1,4 +1,4 @@
-use alloc::{collections::BTreeMap, sync::Arc, vec, vec::Vec};
+use alloc::{collections::BTreeMap, sync::Arc};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
     iface::{Config, Interface, SocketSet},
@@ -13,6 +13,9 @@ use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr},
     net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,

@@ -1,6 +1,9 @@
-use alloc::{borrow::Cow, string::String, vec::Vec};
+use alloc::borrow::Cow;
 use bitflags::bitflags;
 use core::fmt::Display;
+
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

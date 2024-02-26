@@ -1,10 +1,12 @@
 use crate::arch::ArchImpl;
 use alloc::{
     borrow::Cow,
-    boxed::Box,
     collections::{btree_map::Entry, BTreeMap},
 };
 use core::sync::atomic::{AtomicPtr, AtomicU16, Ordering};
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 #[cfg(feature = "x86")]
 use crate::arch::x86_64::interrupt_remap;

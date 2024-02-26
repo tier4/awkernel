@@ -3,8 +3,11 @@ use crate::{
     channel::unbounded::{self, Receiver, RecvErr, Sender},
     session_types::{self as S},
 };
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::borrow::Cow;
 use core::{marker::PhantomData, sync::atomic::AtomicPtr};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 /// Channel so that a server accepts a connection.
 

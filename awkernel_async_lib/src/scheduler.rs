@@ -2,9 +2,12 @@
 //! This module contains `SleepingTasks` for sleeping.
 
 use crate::{delay::uptime, task::Task};
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 mod fifo;
 pub(super) mod panicked;

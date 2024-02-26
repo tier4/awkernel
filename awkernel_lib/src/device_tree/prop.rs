@@ -1,6 +1,3 @@
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter};
 
@@ -14,6 +11,9 @@ use crate::device_tree::utils::{
 use crate::device_tree::InheritedValues;
 
 use super::utils::{safe_index, Addr};
+
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
 
 pub struct Range {
     pub range: (Addr, Addr, Addr),

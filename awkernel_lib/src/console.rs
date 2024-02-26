@@ -1,11 +1,13 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
-use alloc::boxed::Box;
 use core::{
     fmt::Write,
     ptr::{addr_of_mut, write_volatile},
     str::from_utf8_unchecked,
 };
 use log::Log;
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 pub trait Console: Write + Send {
     /// Enable the serial port.

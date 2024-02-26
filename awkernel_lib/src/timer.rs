@@ -1,5 +1,6 @@
 use core::sync::atomic::AtomicBool;
 
+#[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};

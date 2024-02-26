@@ -4,7 +4,7 @@ extern crate alloc;
 
 mod network_service;
 
-use core::{convert::Into, time::Duration};
+use core::time::Duration;
 
 const NETWORK_SERVICE_NAME: &str = "network service";
 

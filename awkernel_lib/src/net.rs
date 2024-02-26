@@ -3,9 +3,7 @@ use alloc::{
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
     format,
-    string::String,
     sync::Arc,
-    vec::Vec,
 };
 use core::{fmt::Display, net::Ipv4Addr};
 use smoltcp::wire::{IpAddress, IpCidr};
@@ -15,6 +13,9 @@ use self::{
     net_device::{NetCapabilities, NetDevice},
     tcp::TcpPort,
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 
 pub mod ether;
 pub mod ethertypes;

@@ -1,6 +1,5 @@
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
-    convert::{From, Into},
     ptr::{read_volatile, write_volatile},
     sync::atomic::{AtomicUsize, Ordering},
 };

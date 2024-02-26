@@ -36,7 +36,7 @@ use crate::{
     },
     local_heap::{self, LocalHeap, TLSF},
 };
-use alloc::{collections::VecDeque, vec::Vec};
+use alloc::collections::VecDeque;
 use core::{
     alloc::Allocator,
     cell::{OnceCell, RefCell},
@@ -45,6 +45,9 @@ use core::{
     ptr::addr_of_mut,
 };
 use utils::safe_index;
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 const DEVICE_TREE_MEMORY_SIZE: usize = 1024 * 1024 * 4;
 

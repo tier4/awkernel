@@ -1,6 +1,8 @@
 use super::error::{DeviceTreeError, Result};
-use alloc::vec::Vec;
 use core::{alloc::Allocator, fmt::Display};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 pub(super) const BLOCK_SIZE: usize = 4;
 

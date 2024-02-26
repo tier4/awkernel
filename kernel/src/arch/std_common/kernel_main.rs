@@ -1,5 +1,4 @@
 use crate::{arch::std_common::console, kernel_info::KernelInfo};
-use alloc::vec::Vec;
 use core::{mem::MaybeUninit, ptr::null_mut};
 use libc::c_void;
 

@@ -2,10 +2,13 @@
 
 use super::Cancel;
 use crate::scheduler;
-use alloc::{boxed::Box, sync::Arc};
+use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::task::Poll;
 use futures::{future::FusedFuture, Future};
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
 
 #[must_use = "use `.await` to sleep"]
 pub struct Sleep {

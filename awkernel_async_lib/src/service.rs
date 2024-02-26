@@ -230,8 +230,11 @@ use crate::{
     channel::unbounded,
     session_types::{mk_chan, Chan, HasDual},
 };
-use alloc::{borrow::Cow, vec::Vec};
+use alloc::borrow::Cow;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 static SERVICES: Mutex<Services> = Mutex::new(Services::new());
 

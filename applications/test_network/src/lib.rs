@@ -2,7 +2,7 @@
 
 extern crate alloc;
 
-use core::{convert::Into, net::Ipv4Addr, time::Duration};
+use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};

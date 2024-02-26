@@ -18,7 +18,6 @@ use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
     sync::Arc,
-    vec::Vec,
 };
 use array_macro::array;
 use awkernel_lib::{
@@ -35,6 +34,9 @@ use futures::{
     task::{waker_ref, ArcWake},
     Future, FutureExt,
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
 
 #[cfg(not(feature = "no_preempt"))]
 pub use preempt::{preemption, thread::deallocate_thread_pool};

@@ -1,9 +1,12 @@
-use alloc::{collections::VecDeque, vec, vec::Vec};
+use alloc::collections::VecDeque;
 use smoltcp::iface::SocketHandle;
 
 use crate::sync::mcs::MCSNode;
 
 use super::{ip_addr::IpAddr, tcp::TcpPort, tcp_stream::TcpStream, NetManagerError, NET_MANAGER};
+
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
 
 pub struct TcpListener {
     handles: Vec<SocketHandle>,

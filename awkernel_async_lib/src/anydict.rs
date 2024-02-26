@@ -1,7 +1,10 @@
 //! Dictionary mapping from string to any value.
 
-use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, vec::Vec};
+use alloc::{borrow::Cow, collections::BTreeMap};
 use core::any::Any;
+
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec::Vec};
 
 /// Return value of `AnyDict`.
 pub(super) enum AnyDictResult<T> {

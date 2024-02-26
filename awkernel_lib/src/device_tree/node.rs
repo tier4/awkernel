@@ -1,5 +1,3 @@
-use alloc::string::String;
-use alloc::vec::Vec;
 use core::alloc::Allocator;
 use core::fmt::{Display, Formatter, Write};
 
@@ -11,6 +9,9 @@ use crate::device_tree::utils::{align_size, locate_block, read_aligned_be_u32, r
 use crate::device_tree::InheritedValues;
 
 use super::utils::Addr;
+
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec::Vec};
 
 type VecNodeProp<'a, A> = Vec<NodeProperty<'a, A>, A>;
 type VecDevTreeNode<'a, A> = Vec<DeviceTreeNode<'a, A>, A>;

@@ -67,12 +67,14 @@ use crate::{
     channel::unbounded::{self, Receiver, Sender},
     r#yield,
 };
-use alloc::{boxed::Box, vec::Vec};
 use core::{
     marker::{self, PhantomData},
     mem, ptr,
     sync::atomic::{AtomicPtr, Ordering},
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, vec::Vec};
 
 pub use Branch::*;
 
