@@ -1,13 +1,24 @@
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    arch::aarch64::page_table::{flags::*, PageTable},
-    paging::PAGESIZE,
+    arch::aarch64::{
+        page_allocator::HeapPageAllocator,
+        page_table::{flags::*, PageTable},
+    },
+    paging::{MapError, PAGESIZE},
 };
 
 const TTBR1_ADDR: usize = 0xffff_ff80_0000_0000;
 
 impl crate::paging::Mapper for super::AArch64 {
-    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: crate::paging::Flags) -> bool {
+    unsafe fn map(
+        vm_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+    ) -> Result<(), MapError> {
+        if Self::vm_to_phy(vm_addr).is_some() {
+            return Err(MapError::AlreadyMapped);
+        }
+
         let vm_addr = vm_addr.as_usize() & !(PAGESIZE - 1);
         let phy_addr = phy_addr.as_usize() & !(PAGESIZE - 1);
 
@@ -25,7 +36,11 @@ impl crate::paging::Mapper for super::AArch64 {
             f |= FLAG_L3_SH_R_N;
         }
 
-        page_table.unsafe_map(VirtAddr::new(vm_addr), PhyAddr::new(phy_addr), f)
+        let mut allocator = HeapPageAllocator;
+
+        page_table
+            .map_to_aarch64(VirtAddr::new(vm_addr), PhyAddr::new(phy_addr), f, &mut allocator)
+            .or(Err(MapError::OutOfMemory))
     }
 
     unsafe fn unmap(vm_addr: VirtAddr) {

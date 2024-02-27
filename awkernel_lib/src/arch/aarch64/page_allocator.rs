@@ -1,3 +1,5 @@
+use core::alloc::Layout;
+
 use crate::{
     addr::phy_addr::PhyAddr,
     paging::{Frame, PAGESIZE},
@@ -88,5 +90,20 @@ impl<F: crate::paging::Frame + Copy> PageAllocator<F> {
 impl<F: crate::paging::Frame + Copy> Default for PageAllocator<F> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct HeapPageAllocator;
+
+impl crate::paging::FrameAllocator<Page, &'static str> for HeapPageAllocator {
+    fn allocate_frame(&mut self) -> Result<Page, &'static str> {
+        let layout = Layout::from_size_align(PAGESIZE, PAGESIZE).or(Err("invalid layout"))?;
+        let ptr = unsafe { alloc::alloc::alloc(layout) };
+
+        if ptr.is_null() {
+            return Err("out of memory");
+        }
+
+        Ok(Page::new(PhyAddr::new(ptr as usize)))
     }
 }
