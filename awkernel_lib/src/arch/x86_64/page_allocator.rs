@@ -1,6 +1,6 @@
 use crate::{
     addr::Addr,
-    paging::PAGESIZE,
+    paging::{self, PAGESIZE},
     sync::mutex::{MCSNode, Mutex},
 };
 use alloc::vec::Vec;
@@ -178,7 +178,11 @@ unsafe impl FrameAllocator<Size4KiB> for HeapPageAllocator {
             ptr
         };
 
-        let frame = PhysFrame::containing_address(PhysAddr::new(ptr as u64));
+        log::debug!("ptr = {ptr:p}");
+
+        let phy_addr = paging::vm_to_phy(crate::addr::virt_addr::VirtAddr::new(ptr as usize))?;
+
+        let frame = PhysFrame::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
         Some(frame)
     }
 }

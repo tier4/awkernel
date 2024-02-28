@@ -1,6 +1,6 @@
 use alloc::{borrow::Cow, format, string::String};
 use array_macro::array;
-use awkernel_lib::paging::{Frame, FrameAllocator, PageTable, PAGESIZE};
+use awkernel_lib::paging::{self, MapError, PAGESIZE};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
@@ -383,17 +383,7 @@ pub(crate) mod registers {
 
 /// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
-pub fn init_with_acpi<F, FA, PT, E>(
-    acpi: &AcpiTables<AcpiMapper>,
-    page_table: &mut PT,
-    page_allocators: &mut alloc::collections::BTreeMap<u32, FA>,
-) -> Result<(), PCIeDeviceErr>
-where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    PT: PageTable<F, FA, E>,
-    E: Debug,
-{
+pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr> {
     use awkernel_lib::{
         addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
         paging::Flags,
@@ -414,21 +404,13 @@ where
         let mut config_start = segment.physical_address;
         let config_end = config_start + CONFIG_SPACE_SIZE;
 
-        let Some(page_allocator) = page_allocators.get_mut(&(segment.segment_group as u32)) else {
-            continue;
-        };
-
         while config_start < config_end {
             let phy_addr = PhyAddr::new(config_start);
             let virt_addr = VirtAddr::new(config_start);
 
-            if unsafe {
-                page_table
-                    .map_to(virt_addr, phy_addr, flags, page_allocator)
-                    .is_err()
-            } {
-                return Err(PCIeDeviceErr::InitFailure);
-            }
+            unsafe {
+                paging::map(virt_addr, phy_addr, flags).or(Err(PCIeDeviceErr::PageTableFailure))?
+            };
 
             config_start += PAGESIZE;
         }
@@ -436,13 +418,7 @@ where
         let base_address = segment.physical_address;
 
         for bus in segment.bus_range {
-            scan_devices(
-                segment.segment_group,
-                bus,
-                base_address,
-                page_table,
-                page_allocator,
-            );
+            scan_devices(segment.segment_group, bus, base_address);
         }
     }
 
@@ -451,20 +427,14 @@ where
 
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
-pub fn init_with_io<F, FA, PT, E>(page_table: &mut PT, page_allocator: &mut FA)
-where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    PT: PageTable<F, FA, E>,
-    E: Debug,
-{
+pub fn init_with_io() {
     for bus in 0..=255 {
         for device in 0..32 {
             for func_num in 0..8 {
                 if let Ok(info) = PCIeInfo::from_io(bus, device, func_num) {
                     let multiple_functions = info.multiple_functions;
 
-                    let _ = info.attach(page_table, page_allocator);
+                    let _ = info.attach();
 
                     if func_num == 0 && !multiple_functions {
                         break;
@@ -477,42 +447,14 @@ where
     }
 }
 
-pub fn init_with_addr<F, FA, PT, E>(
-    segment_group: u16,
-    base_address: usize,
-    page_table: &mut PT,
-    page_allocator: &mut FA,
-    starting_bus: u8,
-) where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    PT: PageTable<F, FA, E>,
-    E: Debug,
-{
+pub fn init_with_addr<F, FA, PT, E>(segment_group: u16, base_address: usize, starting_bus: u8) {
     for bus in (starting_bus as u32)..256 {
-        scan_devices(
-            segment_group,
-            bus as u8,
-            base_address,
-            page_table,
-            page_allocator,
-        );
+        scan_devices(segment_group, bus as u8, base_address);
     }
 }
 
 /// Scan and initialize the PICe devices
-fn scan_devices<F, FA, PT, E>(
-    segment_group: u16,
-    bus: u8,
-    base_address: usize,
-    page_table: &mut PT,
-    page_allocator: &mut FA,
-) where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    PT: PageTable<F, FA, E>,
-    E: Debug,
-{
+fn scan_devices(segment_group: u16, bus: u8, base_address: usize) {
     for dev in 0..(1 << 5) {
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
@@ -521,7 +463,7 @@ fn scan_devices<F, FA, PT, E>(
             {
                 let multiple_functions = device.multiple_functions;
 
-                let _ = device.attach(page_table, page_allocator);
+                let _ = device.attach();
 
                 if func == 0 && !multiple_functions {
                     break;
@@ -727,17 +669,7 @@ impl PCIeInfo {
         capability::read(self);
     }
 
-    pub(crate) fn map_bar<F, FA, PT, E>(
-        &mut self,
-        page_table: &mut PT,
-        page_allocator: &mut FA,
-    ) -> Result<(), E>
-    where
-        F: Frame,
-        FA: FrameAllocator<F, E>,
-        PT: PageTable<F, FA, E>,
-        E: Debug,
-    {
+    pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
@@ -803,7 +735,9 @@ impl PCIeInfo {
                     let phy_addr = awkernel_lib::addr::phy_addr::PhyAddr::new(addr & mask);
                     let virt_addr = awkernel_lib::addr::virt_addr::VirtAddr::new(addr & mask);
 
-                    unsafe { page_table.map_to(virt_addr, phy_addr, flags, page_allocator)? };
+                    unsafe {
+                        paging::map(virt_addr, phy_addr, flags)?;
+                    }
 
                     addr += PAGESIZE;
                 }
@@ -819,24 +753,14 @@ impl PCIeInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    fn attach<F, FA, PT, E>(
-        self,
-        page_table: &mut PT,
-        page_allocator: &mut FA,
-    ) -> Result<(), PCIeDeviceErr>
-    where
-        F: Frame,
-        FA: FrameAllocator<F, E>,
-        PT: PageTable<F, FA, E>,
-        E: Debug,
-    {
+    fn attach(self) -> Result<(), PCIeDeviceErr> {
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID =>
             {
                 #[cfg(feature = "igb")]
                 if net::igb::match_device(self.vendor, self.id) {
-                    return net::igb::attach(self, page_table, page_allocator);
+                    return net::igb::attach(self);
                 }
             }
             _ => (),
