@@ -167,7 +167,7 @@ impl AArch64Virt {
             _ => return Err(err_msg!("PCIe: reg property has invalid value")),
         };
 
-        let reg_base = reg.get(0).ok_or(err_msg!("PCIe: failed to get reg[0]"))?;
+        let reg_base = reg.first().ok_or(err_msg!("PCIe: failed to get reg[0]"))?;
         let reg_size = reg.get(1).ok_or(err_msg!("PCIe: failed to get reg[1]"))?;
 
         self.pcie_regs = Some((PhyAddr::new(*reg_base as usize), *reg_size as usize));

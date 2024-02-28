@@ -150,7 +150,7 @@ impl NetManager {
 
     #[inline(always)]
     fn is_port_in_use_udp_ipv4(&mut self, port: u16) -> bool {
-        self.udp_ports_ipv4.get(&port).is_some()
+        self.udp_ports_ipv4.contains(&port)
     }
 
     #[inline(always)]
@@ -182,7 +182,7 @@ impl NetManager {
 
     #[inline(always)]
     fn is_port_in_use_udp_ipv6(&mut self, port: u16) -> bool {
-        self.udp_ports_ipv6.get(&port).is_some()
+        self.udp_ports_ipv6.contains(&port)
     }
 
     #[inline(always)]

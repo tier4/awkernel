@@ -39,7 +39,12 @@ impl crate::paging::Mapper for super::AArch64 {
         let mut allocator = HeapPageAllocator;
 
         page_table
-            .map_to_aarch64(VirtAddr::new(vm_addr), PhyAddr::new(phy_addr), f, &mut allocator)
+            .map_to_aarch64(
+                VirtAddr::new(vm_addr),
+                PhyAddr::new(phy_addr),
+                f,
+                &mut allocator,
+            )
             .or(Err(MapError::OutOfMemory))
     }
 
