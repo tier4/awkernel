@@ -67,6 +67,8 @@ pub struct Flags {
 pub enum MapError {
     OutOfMemory,
     AlreadyMapped,
+    InvalidPageTable,
+    AddressNotAligned,
 }
 
 pub trait Mapper {
