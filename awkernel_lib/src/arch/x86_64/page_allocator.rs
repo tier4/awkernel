@@ -5,7 +5,10 @@ use crate::{
 };
 use alloc::vec::Vec;
 use bootloader_api::{info::MemoryRegion, BootInfo};
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    alloc::Layout,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 use x86_64::{
     registers::control::Cr3,
     structures::paging::{FrameAllocator, OffsetPageTable, PageTable, PhysFrame, Size4KiB},
@@ -159,4 +162,23 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
     let ptr = virt.as_mut_ptr();
 
     &mut *ptr
+}
+
+pub struct HeapPageAllocator;
+
+unsafe impl FrameAllocator<Size4KiB> for HeapPageAllocator {
+    fn allocate_frame(&mut self) -> Option<x86_64::structures::paging::PhysFrame<Size4KiB>> {
+        let layout = Layout::from_size_align(PAGESIZE, PAGESIZE).ok()?;
+
+        let ptr = unsafe {
+            let ptr = crate::alloc::alloc::alloc(layout);
+            if ptr.is_null() {
+                return None;
+            }
+            ptr
+        };
+
+        let frame = PhysFrame::containing_address(PhysAddr::new(ptr as u64));
+        Some(frame)
+    }
 }

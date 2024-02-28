@@ -612,6 +612,7 @@ impl PCIeInfo {
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
 
+        #[allow(clippy::nonminimal_bool)] // bug in clippy
         if id == !0 || vendor == !0 {
             return Err(PCIeDeviceErr::InitFailure);
         }

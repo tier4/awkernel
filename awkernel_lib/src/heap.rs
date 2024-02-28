@@ -152,6 +152,12 @@ impl<'a> Drop for Guard<'a> {
     }
 }
 
+impl Default for Talloc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Talloc {
     pub const fn new() -> Self {
         let flags = [0; NUM_MAX_CPU / 32];

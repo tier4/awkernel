@@ -132,7 +132,7 @@ impl PageTable {
         &mut self,
         vm_addr: VirtAddr,
         phy_addr: PhyAddr,
-        flag: u64,
+        flags: u64,
         allocator: &mut FA,
     ) -> Result<(), &'static str>
     where
@@ -163,42 +163,12 @@ impl PageTable {
         }
 
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let e = phy_addr.as_usize() as u64 & !0xfff | flag;
+        let e = phy_addr.as_usize() as u64 & !0xfff | flags;
         let ptr = &mut lv3_table[lv3_idx];
 
         unsafe { write_volatile(ptr, e) };
 
         Ok(())
-    }
-
-    /// # Safety
-    ///
-    /// Ensure that the page tables regarding the virtual address must be allocated before calling this function.
-    pub unsafe fn unsafe_map(&mut self, vm_addr: VirtAddr, phy_addr: PhyAddr, flag: u64) -> bool {
-        let lv1_table = &mut self.root.entries;
-        let lv1_idx = Self::get_idx(vm_addr, PageTableLevel::Lv1);
-        let lv2_table = if lv1_table[lv1_idx] == 0 {
-            return false;
-        } else {
-            let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
-            PageTableEntry::from_addr(PhyAddr::new(addr as usize)).entries
-        };
-
-        let lv2_idx = Self::get_idx(vm_addr, PageTableLevel::Lv2);
-        let lv3_table = if lv2_table[lv2_idx] == 0 {
-            return false;
-        } else {
-            let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-            PageTableEntry::from_addr(PhyAddr::new(addr as usize)).entries
-        };
-
-        let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
-        let e = phy_addr.as_usize() as u64 & !0xfff | flag;
-        let ptr = &mut lv3_table[lv3_idx];
-
-        unsafe { write_volatile(ptr, e) };
-
-        true
     }
 
     /// # Safety

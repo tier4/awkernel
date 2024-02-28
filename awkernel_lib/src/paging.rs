@@ -63,6 +63,14 @@ pub struct Flags {
     pub device: bool,        // this page is MMIO, ignored on x86
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapError {
+    OutOfMemory,
+    AlreadyMapped,
+    InvalidPageTable,
+    AddressNotAligned,
+}
+
 pub trait Mapper {
     /// Return the physical address of `vm_addr`.
     fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr>;
@@ -74,7 +82,7 @@ pub trait Mapper {
     /// - Virtual memory must be enabled.
     /// - `flag` must be reasonable.
     /// - `phy_addr` must be being unmapped.
-    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> bool;
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<(), MapError>;
 
     /// Unmap `vm_addr`.
     ///
@@ -99,7 +107,7 @@ pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
 /// - `flag` must be reasonable.
 /// - `phy_addr` must be being unmapped.
 #[cfg(not(feature = "std"))]
-pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> bool {
+pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<(), MapError> {
     ArchImpl::map(vm_addr, phy_addr, flags)
 }
 

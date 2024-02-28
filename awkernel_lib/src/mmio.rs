@@ -255,6 +255,15 @@ where
     }
 }
 
+impl<const BASE: usize, T> Default for ReadWrite<BASE, T>
+where
+    T: Not<Output = T> + BitOr<Output = T> + BitAnd<Output = T>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Read/write MMIO.
 /// `OFFSET` is the offset address of it.
 pub struct ReadWriteOffset<const OFFSET: usize, T>(PhantomData<fn() -> T>);
@@ -302,6 +311,15 @@ where
     }
 }
 
+impl<const OFFSET: usize, T> Default for ReadWriteOffset<OFFSET, T>
+where
+    T: Not<Output = T> + BitOr<Output = T> + BitAnd<Output = T>,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Read only MMIO.
 /// `BASE` is the absolute address of it.
 pub struct ReadOnly<const BASE: usize, T>(PhantomData<fn() -> T>);
@@ -316,6 +334,12 @@ impl<const BASE: usize, T> ReadOnly<BASE, T> {
     #[inline]
     pub fn read(&self) -> T {
         unsafe { read_volatile(BASE as *const T) }
+    }
+}
+
+impl<const BASE: usize, T> Default for ReadOnly<BASE, T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -343,6 +367,12 @@ impl<const OFFSET: usize, T> ReadOnlyOffset<OFFSET, T> {
     }
 }
 
+impl<const OFFSET: usize, T> Default for ReadOnlyOffset<OFFSET, T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Write only MMIO.
 /// `BASE` is the absolute address of it.
 pub struct WriteOnly<const BASE: usize, T>(PhantomData<fn() -> T>);
@@ -357,6 +387,12 @@ impl<const BASE: usize, T> WriteOnly<BASE, T> {
     #[inline]
     pub fn write(&self, n: T) {
         unsafe { write_volatile(BASE as *mut T, n) }
+    }
+}
+
+impl<const BASE: usize, T> Default for WriteOnly<BASE, T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -378,5 +414,10 @@ impl<const OFFSET: usize, T> WriteOnlyOffset<OFFSET, T> {
     #[inline]
     pub fn offset(&self) -> usize {
         OFFSET
+    }
+}
+impl<const OFFSET: usize, T> Default for WriteOnlyOffset<OFFSET, T> {
+    fn default() -> Self {
+        Self::new()
     }
 }

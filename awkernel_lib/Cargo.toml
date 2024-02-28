@@ -40,7 +40,8 @@ version = "0.12"
 optional = true
 
 [dependencies.unwinding]
-version = "0.2"
+# version = "0.2"
+git = "https://github.com/ytakano/unwinding.git"
 default-features = false
 features = ["panic"]
 

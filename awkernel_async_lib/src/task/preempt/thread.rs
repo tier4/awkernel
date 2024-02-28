@@ -62,7 +62,7 @@ impl PtrWorkerThreadContext {
 
     unsafe fn delete(self) {
         let ctx = Box::from_raw(self.0);
-        unsafe {
+        let _ = unsafe {
             paging::map(
                 ctx.stack_mem,
                 ctx.stack_mem_phy,
