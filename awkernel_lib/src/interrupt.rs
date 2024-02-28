@@ -54,14 +54,15 @@ pub trait InterruptController: Sync + Send {
     fn irq_range_for_pnp(&self) -> (u16, u16);
 
     /// Set the PCIe MSI or MSI-X interrupt
+    #[allow(unused_variables)]
     fn set_pcie_msi(
         &self,
-        _segment_number: usize,
-        _target: u32,
-        _irq: u16,
-        _message_data: &mut u32,
-        _message_address: &mut u32,
-        _message_address_upper: Option<&mut u32>,
+        segment_number: usize,
+        target: u32,
+        irq: u16,
+        message_data: &mut u32,
+        message_address: &mut u32,
+        message_address_upper: Option<&mut u32>,
     ) -> Result<IRQ, &'static str> {
         Err("Interrupt controller does not support PCIe MSI or MSI-X.")
     }

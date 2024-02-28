@@ -125,7 +125,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
-    // 6. Board specific initialization (Interrupt controller, etc).
+    // 6. Board specific initialization (Interrupt controller, PCIe, etc).
     if let Err(msg) = initializer.init() {
         unsafe_puts("failed init()\r\n");
         unsafe_puts(msg);

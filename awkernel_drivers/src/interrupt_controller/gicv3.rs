@@ -408,6 +408,18 @@ impl InterruptController for GICv3 {
     fn irq_range_for_pnp(&self) -> (u16, u16) {
         (96, 1020)
     }
+
+    fn set_pcie_msi(
+        &self,
+        _segment_number: usize,
+        _target: u32,
+        _irq: u16,
+        _message_data: &mut u32,
+        _message_address: &mut u32,
+        _message_address_upper: Option<&mut u32>,
+    ) -> Result<awkernel_lib::interrupt::IRQ, &'static str> {
+        Err("GICv3: set_pcie_msi is not yet implemented.")
+    }
 }
 
 pub struct PendingInterruptIterator;

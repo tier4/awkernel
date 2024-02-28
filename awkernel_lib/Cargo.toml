@@ -40,8 +40,8 @@ version = "0.12"
 optional = true
 
 [dependencies.unwinding]
-# version = "0.2"
-git = "https://github.com/ytakano/unwinding.git"
+version = "0.2"
+# git = "https://github.com/ytakano/unwinding.git"
 default-features = false
 features = ["panic"]
 
@@ -61,7 +61,7 @@ features = [
 ]
 
 [features]
-default = ["x86"]
+default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []

@@ -1,6 +1,9 @@
 use alloc::{borrow::Cow, format, string::String};
 use array_macro::array;
-use awkernel_lib::paging::{self, MapError, PAGESIZE};
+use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
+    paging::{self, MapError, PAGESIZE},
+};
 use core::{
     fmt::{self, Debug},
     ptr::{read_volatile, write_volatile},
@@ -20,7 +23,7 @@ pub mod pcie_id;
 #[derive(Debug, Clone)]
 pub enum ConfigSpace {
     IO(u32),
-    MMIO(usize),
+    MMIO(VirtAddr),
 }
 
 impl ConfigSpace {
@@ -33,7 +36,7 @@ impl ConfigSpace {
         Self::IO(base)
     }
 
-    fn new_memory(base: usize) -> Self {
+    fn new_memory(base: VirtAddr) -> Self {
         Self::MMIO(base)
     }
 
@@ -61,7 +64,7 @@ impl ConfigSpace {
             }
             Self::MMIO(base) => {
                 let addr = *base + offset;
-                unsafe { read_volatile(addr as *const u16) }
+                unsafe { read_volatile(addr.as_ptr()) }
             }
         }
     }
@@ -89,7 +92,7 @@ impl ConfigSpace {
             }
             Self::MMIO(base) => {
                 let addr = *base + offset;
-                unsafe { read_volatile(addr as *const u32) }
+                unsafe { read_volatile(addr.as_ptr()) }
             }
         }
     }
@@ -117,7 +120,7 @@ impl ConfigSpace {
             }
             Self::MMIO(base) => {
                 let addr = *base + offset;
-                unsafe { write_volatile(addr as *mut u32, data) }
+                unsafe { write_volatile(addr.as_mut_ptr(), data) }
             }
         }
     }
@@ -384,10 +387,7 @@ pub(crate) mod registers {
 /// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
 pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr> {
-    use awkernel_lib::{
-        addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-        paging::Flags,
-    };
+    use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
 
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
 
@@ -418,7 +418,8 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         let base_address = segment.physical_address;
 
         for bus in segment.bus_range {
-            scan_devices(segment.segment_group, bus, base_address);
+            // Config space must be mapped to the same address space.
+            scan_devices(segment.segment_group, bus, VirtAddr::new(base_address));
         }
     }
 
@@ -447,20 +448,22 @@ pub fn init_with_io() {
     }
 }
 
-pub fn init_with_addr<F, FA, PT, E>(segment_group: u16, base_address: usize, starting_bus: u8) {
+pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, starting_bus: u8) {
     for bus in (starting_bus as u32)..256 {
         scan_devices(segment_group, bus as u8, base_address);
     }
 }
 
 /// Scan and initialize the PICe devices
-fn scan_devices(segment_group: u16, bus: u8, base_address: usize) {
+fn scan_devices(segment_group: u16, bus: u8, base_address: VirtAddr) {
     for dev in 0..(1 << 5) {
         for func in 0..(1 << 3) {
             let offset = (bus as usize) << 20 | dev << 15 | func << 12;
             let addr = base_address + offset;
             if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, dev as u8, func as u8, addr)
             {
+                log::debug!("PCIe device: {}", device);
+
                 let multiple_functions = device.multiple_functions;
 
                 let _ = device.attach();
@@ -529,7 +532,7 @@ impl PCIeInfo {
         bus_number: u8,
         device_number: u8,
         function_number: u8,
-        addr: usize,
+        addr: VirtAddr,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
         let config_space = ConfigSpace::new_memory(addr);
         Self::new(
@@ -554,7 +557,6 @@ impl PCIeInfo {
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
 
-        #[allow(clippy::nonminimal_bool)] // bug in clippy
         if id == !0 || vendor == !0 {
             return Err(PCIeDeviceErr::InitFailure);
         }

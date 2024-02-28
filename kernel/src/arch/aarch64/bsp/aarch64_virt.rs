@@ -4,7 +4,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::phy_addr::PhyAddr,
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::set_max_affinity,
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
@@ -110,6 +110,8 @@ impl super::SoC for AArch64Virt {
 
         self.init_interrupt_controller()?;
 
+        self.init_pcie();
+
         Ok(())
     }
 }
@@ -163,14 +165,14 @@ impl AArch64Virt {
             .ok_or(err_msg!("PCIe: failed to get reg property"))?;
 
         let reg = match reg_prop.value() {
-            PropertyValue::Integers(v) => v,
+            PropertyValue::Address(base, size) => (base, size),
             _ => return Err(err_msg!("PCIe: reg property has invalid value")),
         };
 
-        let reg_base = reg.first().ok_or(err_msg!("PCIe: failed to get reg[0]"))?;
-        let reg_size = reg.get(1).ok_or(err_msg!("PCIe: failed to get reg[1]"))?;
+        let reg_base = reg.0.to_u128() as usize;
+        let reg_size = reg.1.to_u128() as usize;
 
-        self.pcie_regs = Some((PhyAddr::new(*reg_base as usize), *reg_size as usize));
+        self.pcie_regs = Some((PhyAddr::new(reg_base as usize), reg_size as usize));
 
         Ok(())
     }
@@ -380,5 +382,15 @@ impl AArch64Virt {
         unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 1) };
 
         Ok(())
+    }
+
+    fn init_pcie(&self) {
+        let Some((base, _size)) = self.pcie_regs else {
+            return;
+        };
+
+        log::debug!("PCIe: base = {:#x}", base.as_usize());
+
+        awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()), 0);
     }
 }

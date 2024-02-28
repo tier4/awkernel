@@ -178,8 +178,6 @@ unsafe impl FrameAllocator<Size4KiB> for HeapPageAllocator {
             ptr
         };
 
-        log::debug!("ptr = {ptr:p}");
-
         let phy_addr = paging::vm_to_phy(crate::addr::virt_addr::VirtAddr::new(ptr as usize))?;
 
         let frame = PhysFrame::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
