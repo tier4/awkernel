@@ -462,8 +462,6 @@ fn scan_devices(segment_group: u16, bus: u8, base_address: VirtAddr) {
             let addr = base_address + offset;
             if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, dev as u8, func as u8, addr)
             {
-                log::debug!("PCIe device: {}", device);
-
                 let multiple_functions = device.multiple_functions;
 
                 let _ = device.attach();

@@ -100,6 +100,7 @@ pub struct NodeProperty<'a, A: Allocator + Clone> {
     pub(super) block_count: usize,
     name: &'a str,
     value: PropertyValue<'a, A>,
+    raw_value: Vec<u8, A>,
 }
 
 impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
@@ -126,13 +127,23 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                             )
                             .ok_or(ParsingFailed)?;
                         match NodeProperty::parse_value(
-                            raw_value, name, inherited, owned, allocator,
+                            raw_value,
+                            name,
+                            inherited,
+                            owned,
+                            allocator.clone(),
                         ) {
-                            Ok(value) => Ok(Self {
-                                block_count: 3 + align_size(prop_val_size as usize),
-                                name,
-                                value,
-                            }),
+                            Ok(value) => {
+                                let mut raw_value_vec = Vec::new_in(allocator);
+                                raw_value_vec.extend_from_slice(raw_value);
+
+                                Ok(Self {
+                                    block_count: 3 + align_size(prop_val_size as usize),
+                                    name,
+                                    value,
+                                    raw_value: raw_value_vec,
+                                })
+                            }
                             Err(err) => Err(err),
                         }
                     } else {
@@ -140,6 +151,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
                             block_count: 3,
                             name,
                             value: PropertyValue::None,
+                            raw_value: Vec::new_in(allocator),
                         })
                     }
                 } else {
@@ -308,6 +320,11 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
     /// Returns the PropertyValue of the NodeProperty
     pub fn value(&self) -> &PropertyValue<'a, A> {
         &self.value
+    }
+
+    /// Returns the PropertyValue of the NodeProperty
+    pub fn raw_value(&self) -> &[u8] {
+        &self.raw_value
     }
 }
 

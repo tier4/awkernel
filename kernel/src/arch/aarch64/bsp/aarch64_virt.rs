@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use awkernel_drivers::{
     psci::{self, Affinity},
     uart::pl011::PL011,
@@ -35,7 +35,7 @@ pub struct AArch64Virt {
     uart_irq: Option<u16>,
     interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
-    pcie_regs: Option<(PhyAddr, usize)>,
+    pcie_reg: Option<(PhyAddr, usize)>,
 }
 
 impl super::SoC for AArch64Virt {
@@ -62,7 +62,7 @@ impl super::SoC for AArch64Virt {
         let mut vm = VM::new();
 
         // Add PCIe's configuration space.
-        if let Some((base, size)) = self.pcie_regs {
+        if let Some((base, size)) = self.pcie_reg {
             vm.push_device_range(base, base + size)?;
         }
 
@@ -110,7 +110,9 @@ impl super::SoC for AArch64Virt {
 
         self.init_interrupt_controller()?;
 
-        self.init_pcie();
+        if let Err(msg) = self.init_pcie() {
+            log::warn!("failed to initialize PCIe: {}", msg);
+        }
 
         Ok(())
     }
@@ -125,25 +127,9 @@ impl AArch64Virt {
             uart_irq: None,
             interrupt: None,
             interrupt_compatible: "",
-            pcie_regs: None,
+            pcie_reg: None,
         }
     }
-
-    // pcie@10000000 {
-    //     interrupt-map-mask = <0x1800 0x0 0x0 0x7>;
-    //     interrupt-map = <0x0 0x0 0x0 0x1 0x8011 0x0 0x0 0x0 0x3 0x4 0x0 0x0 0x0 0x2 0x8011 0x0 0x0 0x0 0x4 0x4 0x0 0x0 0x0 0x3 0x8011 0x0 0x0 0x0 0x5 0x4 0x0 0x0 0x0 0x4 0x8011 0x0 0x0 0x0 0x6 0x4 0x800 0x0 0x0 0x1 0x8011 0x0 0x0 0x0 0x4 0x4 0x800 0x0 0x0 0x2 0x8011 0x0 0x0 0x0 0x5 0x4 0x800 0x0 0x0 0x3 0x8011 0x0 0x0 0x0 0x6 0x4 0x800 0x0 0x0 0x4 0x8011 0x0 0x0 0x0 0x3 0x4 0x1000 0x0 0x0 0x1 0x8011 0x0 0x0 0x0 0x5 0x4 0x1000 0x0 0x0 0x2 0x8011 0x0 0x0 0x0 0x6 0x4 0x1000 0x0 0x0 0x3 0x8011 0x0 0x0 0x0 0x3 0x4 0x1000 0x0 0x0 0x4 0x8011 0x0 0x0 0x0 0x4 0x4 0x1800 0x0 0x0 0x1 0x8011 0x0 0x0 0x0 0x6 0x4 0x1800 0x0 0x0 0x2 0x8011 0x0 0x0 0x0 0x3 0x4 0x1800 0x0 0x0 0x3 0x8011 0x0 0x0 0x0 0x4 0x4 0x1800 0x0 0x0 0x4 0x8011 0x0 0x0 0x0 0x5 0x4>;
-    //     #interrupt-cells = <0x1>;
-    //     ranges = <0x0100000000000000 0x0000000000000000 0x3eff000000000000 0x0001000002000000 0x0000000010000000 0x0000000010000000 0x000000002eff0000 0x0300000000000080 0x0000000000000080>;
-    //     reg = <0x0000004010000000 0x0000000010000000>;
-    //     msi-parent = <0x8012>;
-    //     dma-coherent;
-    //     bus-range = <0x0 0xff>;
-    //     linux,pci-domain = <0x0>;
-    //     #size-cells = <0x2>;
-    //     #address-cells = <0x3>;
-    //     device_type = "pci";
-    //     compatible = "pci-host-ecam-generic";
-    // };
 
     unsafe fn get_pcie_mem(&mut self) -> Result<(), &'static str> {
         // Find PCIe node.
@@ -172,7 +158,9 @@ impl AArch64Virt {
         let reg_base = reg.0.to_u128() as usize;
         let reg_size = reg.1.to_u128() as usize;
 
-        self.pcie_regs = Some((PhyAddr::new(reg_base as usize), reg_size as usize));
+        let pcie_regs = (PhyAddr::new(reg_base as usize), reg_size as usize);
+
+        self.pcie_reg = Some(pcie_regs);
 
         Ok(())
     }
@@ -384,13 +372,82 @@ impl AArch64Virt {
         Ok(())
     }
 
-    fn init_pcie(&self) {
-        let Some((base, _size)) = self.pcie_regs else {
-            return;
+    fn init_pcie(&self) -> Result<(), &'static str> {
+        // Find PCIe node.
+        let Some(pcie_node) = self
+            .device_tree
+            .root()
+            .nodes()
+            .iter()
+            .find(|n| n.name().starts_with("pcie@"))
+        else {
+            return Err(err_msg!("PCIe node not found"));
+        };
+
+        // Get the "ranges" property.
+        let ranges_prop = pcie_node
+            .get_property("ranges")
+            .ok_or(err_msg!("PCIe: failed to get ranges property"))?;
+
+        if !matches!(ranges_prop.value(), PropertyValue::Ranges(_)) {
+            return Err(err_msg!("PCIe: ranges property has invalid value"));
+        };
+
+        let value = ranges_prop.raw_value();
+
+        if value.len() % 28 != 0 {
+            return Err(err_msg!("PCIe: ranges property has invalid length"));
+        }
+
+        let mut ranges = Vec::new();
+
+        // A range's format:
+        // {
+        //     head: u32,
+        //     pcie_mem_hi: u32,
+        //     pcie_mem_lo: u32,
+        //     cpu_mem_hi: u32,
+        //     cpu_mem_lo: u32,
+        //     size_hi: u32,
+        //     size_lo: u32,
+        // }
+        //
+        // `head`'s format is described in the following link.
+        // https://elinux.org/Device_Tree_Usage#PCI_Address_Translation
+        for i in (0..).step_by(28) {
+            if i >= value.len() {
+                break;
+            }
+
+            let value = &value[i..(i + 28)];
+
+            let head = u32::from_be_bytes([value[0], value[1], value[2], value[3]]);
+            let pcie_mem_hi = u32::from_be_bytes([value[4], value[5], value[6], value[7]]);
+            let pcie_mem_lo = u32::from_be_bytes([value[8], value[9], value[10], value[11]]);
+            let cpu_mem_hi = u32::from_be_bytes([value[12], value[13], value[14], value[15]]);
+            let cpu_mem_lo = u32::from_be_bytes([value[16], value[17], value[18], value[19]]);
+            let size_hi = u32::from_be_bytes([value[20], value[21], value[22], value[23]]);
+            let size_lo = u32::from_be_bytes([value[24], value[25], value[26], value[27]]);
+
+            let pcie_mem = (pcie_mem_hi as u64) << 32 | pcie_mem_lo as u64;
+            let cpu_mem = (cpu_mem_hi as u64) << 32 | cpu_mem_lo as u64;
+            let size = (size_hi as u64) << 32 | size_lo as u64;
+
+            ranges.push((head, pcie_mem, cpu_mem, size));
+        }
+
+        log::debug!("PCIe: range = {:x?}", ranges);
+
+        // Get the "reg" property.
+        let Some((base, _size)) = self.pcie_reg else {
+            return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
         log::debug!("PCIe: base = {:#x}", base.as_usize());
 
+        // Initialize PCIe.
         awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()), 0);
+
+        Ok(())
     }
 }
