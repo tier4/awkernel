@@ -50,12 +50,12 @@ impl Scheduler for FIFOScheduler {
         let data = data.as_mut()?;
         let task = data.queue.pop_front()?;
 
-        // Make the state of the task ReadyToRun.
+        // Make the state of the task Running.
         {
             let mut node = MCSNode::new();
             let mut task_info = task.info.lock(&mut node);
             task_info.in_queue = false;
-            task_info.state = State::ReadyToRun;
+            task_info.state = State::Running;
         }
 
         Some(task)

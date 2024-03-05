@@ -62,7 +62,7 @@ begin
         await ~lock_info[task];
         lock_info[task] := TRUE;
 
-        if state[task] = "Running" \/ state[task] = "ReadyToRun" then
+        if state[task] = "Running" \/ in_queue[task] then
             need_sched_wake:
                 need_sched[task] := TRUE;
                 lock_info[task] := FALSE;
@@ -108,14 +108,20 @@ begin
         await ~lock_info[head];
         lock_info[head] := TRUE;
 
+    is_terminate_get_next:
+        if state[head] = "Terminated" then
+            lock_info[head] := FALSE;
+            goto check_get_next;
+        end if;
+
     end_get_next:
         in_queue[head] := FALSE;
+        state[head] := "Running";
 
         lock_info[head] := FALSE;
         lock_scheduler := FALSE;
 
         result_next[pid] := head;
-        state[head] := "ReadyToRun";
 
         return;
 end procedure;
@@ -155,7 +161,6 @@ begin
         end if;
 
     pre_future_run_main:
-        state[task] := "Running";
         lock_info[task] := FALSE;
         need_sched[task] := FALSE;
 
@@ -250,13 +255,13 @@ begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "84d03581" /\ chksum(tla) = "b3893fd1")
-\* Procedure variable task of procedure run_main at line 126 col 5 changed to task_
+\* BEGIN TRANSLATION (chksum(pcal) = "c0536ab4" /\ chksum(tla) = "4f2941d1")
+\* Procedure variable task of procedure run_main at line 132 col 5 changed to task_
 \* Parameter task of procedure wake_task at line 39 col 21 changed to task_w
 \* Parameter task of procedure wake at line 59 col 16 changed to task_wa
 \* Parameter pid of procedure get_next at line 87 col 20 changed to pid_
-\* Parameter pid of procedure run_main at line 124 col 20 changed to pid_r
-\* Parameter task of procedure future at line 202 col 23 changed to task_f
+\* Parameter pid of procedure run_main at line 130 col 20 changed to pid_r
+\* Parameter task of procedure future at line 207 col 23 changed to task_f
 CONSTANT defaultInitValue
 VARIABLES queue, lock_info, lock_future, lock_scheduler, in_queue, need_sched, 
           state, result_next, result_future, wake_other, pc, stack
@@ -353,7 +358,7 @@ wake_task(self) == start_wake_task(self) \/ wait_wake_task(self)
 start_wake(self) == /\ pc[self] = "start_wake"
                     /\ ~lock_info[task_wa[self]]
                     /\ lock_info' = [lock_info EXCEPT ![task_wa[self]] = TRUE]
-                    /\ IF state[task_wa[self]] = "Running" \/ state[task_wa[self]] = "ReadyToRun"
+                    /\ IF state[task_wa[self]] = "Running" \/ in_queue[task_wa[self]]
                           THEN /\ pc' = [pc EXCEPT ![self] = "need_sched_wake"]
                           ELSE /\ IF state[task_wa[self]] = "Terminated"
                                      THEN /\ pc' = [pc EXCEPT ![self] = "wake_but_terminated"]
@@ -456,19 +461,33 @@ pop_get_next(self) == /\ pc[self] = "pop_get_next"
 wait_get_next(self) == /\ pc[self] = "wait_get_next"
                        /\ ~lock_info[head[self]]
                        /\ lock_info' = [lock_info EXCEPT ![head[self]] = TRUE]
-                       /\ pc' = [pc EXCEPT ![self] = "end_get_next"]
+                       /\ pc' = [pc EXCEPT ![self] = "is_terminate_get_next"]
                        /\ UNCHANGED << queue, lock_future, lock_scheduler, 
                                        in_queue, need_sched, state, 
                                        result_next, result_future, wake_other, 
                                        stack, task_w, task_wa, pid_, head, 
                                        pid_r, task_, pid, task_f, task >>
 
+is_terminate_get_next(self) == /\ pc[self] = "is_terminate_get_next"
+                               /\ IF state[head[self]] = "Terminated"
+                                     THEN /\ lock_info' = [lock_info EXCEPT ![head[self]] = FALSE]
+                                          /\ pc' = [pc EXCEPT ![self] = "check_get_next"]
+                                     ELSE /\ pc' = [pc EXCEPT ![self] = "end_get_next"]
+                                          /\ UNCHANGED lock_info
+                               /\ UNCHANGED << queue, lock_future, 
+                                               lock_scheduler, in_queue, 
+                                               need_sched, state, result_next, 
+                                               result_future, wake_other, 
+                                               stack, task_w, task_wa, pid_, 
+                                               head, pid_r, task_, pid, task_f, 
+                                               task >>
+
 end_get_next(self) == /\ pc[self] = "end_get_next"
                       /\ in_queue' = [in_queue EXCEPT ![head[self]] = FALSE]
+                      /\ state' = [state EXCEPT ![head[self]] = "Running"]
                       /\ lock_info' = [lock_info EXCEPT ![head[self]] = FALSE]
                       /\ lock_scheduler' = FALSE
                       /\ result_next' = [result_next EXCEPT ![pid_[self]] = head[self]]
-                      /\ state' = [state EXCEPT ![head[self]] = "ReadyToRun"]
                       /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                       /\ head' = [head EXCEPT ![self] = Head(stack[self]).head]
                       /\ pid_' = [pid_ EXCEPT ![self] = Head(stack[self]).pid_]
@@ -479,7 +498,7 @@ end_get_next(self) == /\ pc[self] = "end_get_next"
 
 get_next(self) == start_get_next(self) \/ check_get_next(self)
                      \/ pop_get_next(self) \/ wait_get_next(self)
-                     \/ end_get_next(self)
+                     \/ is_terminate_get_next(self) \/ end_get_next(self)
 
 start_run_main(self) == /\ pc[self] = "start_run_main"
                         /\ /\ pid_' = [pid_ EXCEPT ![self] = pid_r[self]]
@@ -550,12 +569,11 @@ terminated_run_main(self) == /\ pc[self] = "terminated_run_main"
                                              pid_r, task_, pid, task_f, task >>
 
 pre_future_run_main(self) == /\ pc[self] = "pre_future_run_main"
-                             /\ state' = [state EXCEPT ![task_[self]] = "Running"]
                              /\ lock_info' = [lock_info EXCEPT ![task_[self]] = FALSE]
                              /\ need_sched' = [need_sched EXCEPT ![task_[self]] = FALSE]
                              /\ pc' = [pc EXCEPT ![self] = "start_future_run_main"]
                              /\ UNCHANGED << queue, lock_future, 
-                                             lock_scheduler, in_queue, 
+                                             lock_scheduler, in_queue, state, 
                                              result_next, result_future, 
                                              wake_other, stack, task_w, 
                                              task_wa, pid_, head, pid_r, task_, 
@@ -598,7 +616,7 @@ post_future_run_main(self) == /\ pc[self] = "post_future_run_main"
                                     ELSE /\ IF result_future[pid_r[self]] = "Ready"
                                                THEN /\ state' = [state EXCEPT ![task_[self]] = "Terminated"]
                                                ELSE /\ Assert((FALSE), 
-                                                              "Failure of assertion at line 185, column 13.")
+                                                              "Failure of assertion at line 190, column 13.")
                                                     /\ state' = state
                                          /\ pc' = [pc EXCEPT ![self] = "unlock_run_main"]
                               /\ UNCHANGED << queue, lock_future, 

@@ -15,14 +15,8 @@
 ```text
 $ java -jar tla2tools.jar -workers `nproc` -config cooperative.cfg cooperative.tla
 TLC2 Version 2.18 of 20 March 2023 (rev: 3ea3222)
-Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector b
-y passing the "-XX:+UseParallelGC" property.
-(Use the -nowarning option to disable this warning.)
-Running breadth-first search Model-Checking with fp 117 and seed -437211069157201313 with 16 worke
-rs on 16 cores with 15936MB heap and 64MB offheap memory [pid: 570809] (Linux 5.19.0-50-generic am
-d64, Private Build 19.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /home/ytakano/program/rust/awkernel/specification/awkernel_async_lib/src/task/coopera
-tive/cooperative.tla
+Running breadth-first search Model-Checking with fp 96 and seed 2341452010617550429 with 16 workers on 16 cores with 14160MB heap and 64MB offheap memory [pid: 226049] (Linux 6.2.0-26-generic amd64, Private Build 19.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /home/ytakano/program/rust/awkernel/specification/awkernel_async_lib/src/task/cooperative/cooperative.tla
 Warning: symbols were renamed.
 Parsing file /tmp/TLC.tla
 Parsing file /tmp/Integers.tla
@@ -35,16 +29,16 @@ Semantic processing of module FiniteSets
 Semantic processing of module TLC
 Semantic processing of module Integers
 Semantic processing of module cooperative
-Starting... (2023-08-01 11:54:54)
+Starting... (2024-03-05 09:40:08)
 Implied-temporal checking--satisfiability problem has 5 branches.
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2023-08-01 11:54:54.
-Checking 5 branches of temporal properties for the current state space with 244695 total distinct states at (2023-08-01 11:54:57)
-Finished checking temporal properties in 46min 25s at 2023-08-01 12:41:23
-Progress(140) at 2023-08-01 12:41:23: 93,780 states generated (93,780 s/min), 48,942 distinct states found (48,942 ds/min), 1,126 states left on queue.
-Progress(178) at 2023-08-01 12:41:25: 159,341 states generated, 81,252 distinct states found, 0 states left on queue.
-Checking 5 branches of temporal properties for the complete state space with 406260 total distinct states at (2023-08-01 12:41:25)
-Finished checking temporal properties in 01h 44min at 2023-08-01 14:25:54
+Finished computing initial states: 1 distinct state generated at 2024-03-05 09:40:08.
+Checking 5 branches of temporal properties for the current state space with 233905 total distinct states at (2024-03-05 09:40:11)
+Finished checking temporal properties in 42min 41s at 2024-03-05 10:22:53
+Progress(138) at 2024-03-05 10:22:53: 89,574 states generated (89,574 s/min), 46,784 distinct states found (46,784 ds/min), 1,109 states left on queue.
+Progress(178) at 2024-03-05 10:22:55: 159,341 states generated, 81,252 distinct states found, 0 states left on queue.
+Checking 5 branches of temporal properties for the complete state space with 406260 total distinct states at (2024-03-05 10:22:55)
+Finished checking temporal properties in 01h 27min at 2024-03-05 11:50:54
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
@@ -53,7 +47,7 @@ Model checking completed. No error has been found.
 159341 states generated, 81252 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 178.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 2 and the 95th percentile is 2).
-Finished in 02h 31min at (2023-08-01 14:25:54)
+Finished in 02h 10min at (2024-03-05 11:50:54)
 ```
 
 ## Variables
@@ -93,7 +87,6 @@ and `Preempted` state is also omitted because this verification is for cooperati
 ```rust
 pub enum State {
     Ready,
-    ReadyToRun,
     Running,
     Waiting,
     Preempted,
@@ -104,13 +97,11 @@ pub enum State {
 
 ```mermaid
 graph TD;
-    Ready-->ReadyToRun;
-    ReadyToRun-->Running;
-    Running-->Preempted-->ReadyToRun;
+    Ready-->Running;
+    Running-->Preempted-->Running;
+    Running-->Waiting-->Running;
     Running-->Terminated;
     Running-->Panicked;
-    Running-->Waiting;
-    Waiting-->ReadyToRun;
 ```
 
 Note that this specification does not deal with `Panicked` and `Preempted` states.
