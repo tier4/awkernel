@@ -119,8 +119,9 @@ inline future(tid, task) {
         :: else ->
             if
                 :: wake_other[task] ->
-                    wake(task);
+                    // wake(task);
                     result_future[tid] = Ready;
+                    printf("future(): tid = %d, task = %d\n", tid, task);
                 :: else ->
                     wake(task + TASK_NUM / 2);
                     wake_other[task] = true;
@@ -174,6 +175,8 @@ start:
 
     unlock(lock_info[task]);
 
+    tasks[task].need_sched = false;
+
     printf("execute task = %d\n", task);
 
     // Invoke a task.
@@ -182,6 +185,13 @@ start:
     unlock(lock_future[task]);
 
     lock(lock_info[task]);
+
+    if
+        :: result_future[tid] == Pending ->
+            printf("Pending: tid = %d\n", tid);
+        :: result_future[tid] == Ready ->
+            printf("Ready: tid = %d\n", tid);
+    fi
 
     if
         :: result_future[tid] == Pending ->
@@ -244,4 +254,8 @@ init {
     for (i: 0 .. WORKERS - 1) {
         run run_main(i);
     }
+}
+
+ltl starvation_free  {
+    <> (num_terminated == TASK_NUM)
 }
