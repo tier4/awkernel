@@ -23,12 +23,24 @@ bool lock_info[TASK_NUM];
 bool lock_future[TASK_NUM];
 bool lock_scheduler = false;
 
+bool result_try_lock[WORKERS];
 int result_next[WORKERS];
 mtype result_future[WORKERS];
 
 bool wake_other[TASK_NUM / 2];
 
 int num_terminated = 0;
+
+inline try_lock(tid, mutex) {
+    atomic {
+        if
+            :: mutex == false ->
+                mutex = true;
+                result_try_lock[tid] = true;
+            :: mutex == true -> result_try_lock[tid] = false;
+        fi
+    }
+}
 
 inline lock(mutex) {
     atomic {
@@ -142,17 +154,19 @@ start:
     int task = result_next[tid];
 
     if
-        :: task == -1 -> goto start;
+        :: task == -1 -> goto end;
         :: else -> skip;
     fi
 
+    try_lock(tid, lock_future[task]);
+
     if
-        :: lock_future[task] ->
+        :: result_try_lock[tid] == false ->
             // This task is running on another CPU,
             // and re-schedule the task to avoid starvation just in case.
             wake(task);
             goto start;
-        :: else -> lock(lock_future[task]);
+        :: else -> skip;
     fi
 
     // Can remove this?
@@ -256,6 +270,8 @@ init {
     }
 }
 
-ltl starvation_free  {
+// - starvation-free
+// - eventually all tasks will be terminated
+ltl p0  {
     <> (num_terminated == TASK_NUM)
 }
