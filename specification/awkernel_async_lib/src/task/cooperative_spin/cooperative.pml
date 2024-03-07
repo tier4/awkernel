@@ -1,7 +1,10 @@
-#define TASK_NUM 4 // must be a power of 2
+#define TASK_NUM 4
 #define WORKERS 2
 
 #define NUM_PROC WORKERS
+
+// verify `ltl fairness { }` or `ltl eventually_terminate { }`.
+#define FAIRNESS
 
 #include "fair_lock.pml"
 
@@ -118,6 +121,17 @@ inline future(tid, task) {
     fi
 }
 
+inline future_for_fairness(tid, task) {
+    if
+        :: task = TASK_NUM - 1 ->
+            result_future[tid] = Ready;
+        :: else ->
+            // yield
+            wake(tid, task);
+            result_future[tid] = Pending;
+    fi
+}
+
 proctype run_main(int tid) {
 start:
     if
@@ -170,7 +184,11 @@ start:
     printf("execute task = %d\n", task);
 
     // Invoke a task.
-    future(tid, task);
+    #ifdef FAIRNESS
+        future_for_fairness(tid, task);
+    #else
+        future(tid, task);
+    #endif
 
     unlock(tid, lock_future[task]);
 
@@ -234,8 +252,14 @@ init {
     }
 }
 
-// - starvation-free
-// - eventually all tasks will be terminated
-ltl p0  {
-    <> (num_terminated == TASK_NUM)
-}
+#ifdef FAIRNESS
+    ltl fairness  {
+        <> (num_terminated == 1)
+    }
+#else
+    // - starvation-free
+    // - eventually all tasks will be terminated
+    ltl eventually_terminate {
+        <> (num_terminated == TASK_NUM)
+    }
+#endif
