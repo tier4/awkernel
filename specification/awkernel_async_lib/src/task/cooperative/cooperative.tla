@@ -160,7 +160,6 @@ begin
 
     pre_future_run_main:
         lock_info[task] := FALSE;
-        need_sched[task] := FALSE;
 
     start_future_run_main:
         call future(pid, task);
@@ -254,13 +253,13 @@ begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "3874877" /\ chksum(tla) = "ca282b54")
+\* BEGIN TRANSLATION (chksum(pcal) = "d5065915" /\ chksum(tla) = "4c80b277")
 \* Procedure variable task of procedure run_main at line 124 col 5 changed to task_
 \* Parameter task of procedure wake_task at line 38 col 21 changed to task_w
 \* Parameter task of procedure wake at line 50 col 16 changed to task_wa
 \* Parameter pid of procedure get_next at line 80 col 20 changed to pid_
 \* Parameter pid of procedure run_main at line 122 col 20 changed to pid_r
-\* Parameter task of procedure future at line 206 col 23 changed to task_f
+\* Parameter task of procedure future at line 205 col 23 changed to task_f
 CONSTANT defaultInitValue
 VARIABLES queue, lock_info, lock_future, lock_scheduler, need_sched, state, 
           is_terminated, result_next, result_future, wake_other, pc, stack
@@ -568,10 +567,9 @@ terminated_run_main(self) == /\ pc[self] = "terminated_run_main"
 
 pre_future_run_main(self) == /\ pc[self] = "pre_future_run_main"
                              /\ lock_info' = [lock_info EXCEPT ![task_[self]] = FALSE]
-                             /\ need_sched' = [need_sched EXCEPT ![task_[self]] = FALSE]
                              /\ pc' = [pc EXCEPT ![self] = "start_future_run_main"]
                              /\ UNCHANGED << queue, lock_future, 
-                                             lock_scheduler, state, 
+                                             lock_scheduler, need_sched, state, 
                                              is_terminated, result_next, 
                                              result_future, wake_other, stack, 
                                              task_w, task_wa, pid_, head, 
@@ -616,7 +614,7 @@ post_future_run_main(self) == /\ pc[self] = "post_future_run_main"
                                                THEN /\ is_terminated' = [is_terminated EXCEPT ![task_[self]] = TRUE]
                                                     /\ state' = [state EXCEPT ![task_[self]] = "Terminated"]
                                                ELSE /\ Assert((FALSE), 
-                                                              "Failure of assertion at line 189, column 13.")
+                                                              "Failure of assertion at line 188, column 13.")
                                                     /\ UNCHANGED << state, 
                                                                     is_terminated >>
                                          /\ pc' = [pc EXCEPT ![self] = "unlock_run_main"]
