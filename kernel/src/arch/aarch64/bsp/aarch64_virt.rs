@@ -158,7 +158,7 @@ impl AArch64Virt {
         let reg_base = reg.0.to_u128() as usize;
         let reg_size = reg.1.to_u128() as usize;
 
-        let pcie_regs = (PhyAddr::new(reg_base as usize), reg_size as usize);
+        let pcie_regs = (PhyAddr::new(reg_base), reg_size);
 
         self.pcie_reg = Some(pcie_regs);
 
