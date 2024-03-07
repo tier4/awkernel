@@ -1,8 +1,8 @@
 use core::alloc::Layout;
 
 use crate::{
-    addr::phy_addr::PhyAddr,
-    paging::{Frame, PAGESIZE},
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+    paging::{self, Frame, PAGESIZE},
 };
 
 const NUM_RANGES: usize = 16;
@@ -104,6 +104,9 @@ impl crate::paging::FrameAllocator<Page, &'static str> for HeapPageAllocator {
             return Err("out of memory");
         }
 
-        Ok(Page::new(PhyAddr::new(ptr as usize)))
+        let phy_addr = paging::vm_to_phy(VirtAddr::new(ptr as usize))
+            .ok_or("failed to translate VM to Phy")?;
+
+        Ok(Page::new(phy_addr))
     }
 }

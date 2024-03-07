@@ -86,8 +86,8 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 12. Map the page #0.
 /// 13. Write boot images to wake non-primary CPUs up.
 /// 14. Boot non-primary CPUs.
-/// 15. Initialize PCIe devices.
-/// 16. Initialize the primary heap memory allocator.
+/// 15. Initialize the primary heap memory allocator.
+/// 16. Initialize PCIe devices.
 /// 17. Initialize interrupt handlers.
 /// 18. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -176,26 +176,25 @@ fn kernel_main2(
         wait_forever();
     }
 
-    let (mut awkernel_page_table, type_apic) =
-        if let Some(page_allocator0) = page_allocators.get_mut(&0) {
-            // 10. Initialize `awkernel_lib` and `awkernel_driver`
-            let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
-            awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
+    let type_apic = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
+        // 10. Initialize `awkernel_lib` and `awkernel_driver`
+        let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
+        awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
 
-            // 11. Initialize APIC.
-            let type_apic = awkernel_drivers::interrupt_controller::apic::new(
-                &mut awkernel_page_table,
-                page_allocator0,
-            );
+        // 11. Initialize APIC.
+        let type_apic = awkernel_drivers::interrupt_controller::apic::new(
+            &mut awkernel_page_table,
+            page_allocator0,
+        );
 
-            // 12. Map the page #0.
-            map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
+        // 12. Map the page #0.
+        map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
 
-            (awkernel_page_table, type_apic)
-        } else {
-            log::error!("No page allocator for NUMA #0.");
-            awkernel_lib::delay::wait_forever();
-        };
+        type_apic
+    } else {
+        log::error!("No page allocator for NUMA #0.");
+        awkernel_lib::delay::wait_forever();
+    };
 
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset);
@@ -249,17 +248,14 @@ fn kernel_main2(
         wait_forever();
     }
 
-    // 15. Initialize PCIe devices.
-    if awkernel_drivers::pcie::init_with_acpi(&acpi, &mut awkernel_page_table, &mut page_allocators)
-        .is_err()
-    {
-        // fallback
-        let allocator0 = page_allocators.get_mut(&0).unwrap();
-        awkernel_drivers::pcie::init_with_io(&mut awkernel_page_table, allocator0);
-    }
-
-    // 16. Initialize the primary heap memory allocator.
+    // 15. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
+
+    // 16. Initialize PCIe devices.
+    if awkernel_drivers::pcie::init_with_acpi(&acpi).is_err() {
+        // fallback
+        awkernel_drivers::pcie::init_with_io();
+    }
 
     BSP_READY.store(true, Ordering::Release);
 

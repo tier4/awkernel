@@ -31,7 +31,7 @@ use awkernel_lib::{
         tcp::TCPHdr,
         udp::UDPHdr,
     },
-    paging::{Frame, FrameAllocator, PageTable, PAGESIZE},
+    paging::PAGESIZE,
     sync::{
         mutex::{MCSNode, Mutex},
         rwlock::RwLock,
@@ -298,20 +298,11 @@ pub struct Igb {
     inner: RwLock<IgbInner>,
 }
 
-pub fn attach<F, FA, E>(
-    mut info: PCIeInfo,
-    page_table: &mut impl PageTable<F, FA, E>,
-    page_allocator: &mut FA,
-) -> Result<(), PCIeDeviceErr>
-where
-    F: Frame,
-    FA: FrameAllocator<F, E>,
-    E: Debug,
-{
+pub fn attach(mut info: PCIeInfo) -> Result<(), PCIeDeviceErr> {
     // Initialize PCIeInfo
 
     // Map the memory regions of MMIO.
-    if let Err(e) = info.map_bar(page_table, page_allocator) {
+    if let Err(e) = info.map_bar() {
         log::warn!("Failed to map the memory regions of MMIO: {e:?}");
         return Err(PCIeDeviceErr::PageTableFailure);
     }

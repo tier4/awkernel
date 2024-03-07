@@ -15,14 +15,7 @@
 ```text
 $ java -jar tla2tools.jar -workers `nproc` -config cooperative.cfg cooperative.tla
 TLC2 Version 2.18 of 20 March 2023 (rev: 3ea3222)
-Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector b
-y passing the "-XX:+UseParallelGC" property.
-(Use the -nowarning option to disable this warning.)
-Running breadth-first search Model-Checking with fp 117 and seed -437211069157201313 with 16 worke
-rs on 16 cores with 15936MB heap and 64MB offheap memory [pid: 570809] (Linux 5.19.0-50-generic am
-d64, Private Build 19.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
-Parsing file /home/ytakano/program/rust/awkernel/specification/awkernel_async_lib/src/task/coopera
-tive/cooperative.tla
+Running breadth-first search Model-Checking with fp 15 and seed -897931680380485310 with 16 workers on 16 cores with 14160MB heap and 64MB offheap memory [pid: 22189] (Linux 6.5.0-21-generic amd64, Private Build 19.0.2 x86_64, MSBDiskFPSet, DiskStateQueue).
 Warning: symbols were renamed.
 Parsing file /tmp/TLC.tla
 Parsing file /tmp/Integers.tla
@@ -35,25 +28,25 @@ Semantic processing of module FiniteSets
 Semantic processing of module TLC
 Semantic processing of module Integers
 Semantic processing of module cooperative
-Starting... (2023-08-01 11:54:54)
+Starting... (2024-03-07 01:16:04)
 Implied-temporal checking--satisfiability problem has 5 branches.
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2023-08-01 11:54:54.
-Checking 5 branches of temporal properties for the current state space with 244695 total distinct states at (2023-08-01 11:54:57)
-Finished checking temporal properties in 46min 25s at 2023-08-01 12:41:23
-Progress(140) at 2023-08-01 12:41:23: 93,780 states generated (93,780 s/min), 48,942 distinct states found (48,942 ds/min), 1,126 states left on queue.
-Progress(178) at 2023-08-01 12:41:25: 159,341 states generated, 81,252 distinct states found, 0 states left on queue.
-Checking 5 branches of temporal properties for the complete state space with 406260 total distinct states at (2023-08-01 12:41:25)
-Finished checking temporal properties in 01h 44min at 2023-08-01 14:25:54
+Finished computing initial states: 1 distinct state generated at 2024-03-07 01:16:04.
+Checking 5 branches of temporal properties for the current state space with 178135 total distinct states at (2024-03-07 01:16:07)
+Finished checking temporal properties in 46min 48s at 2024-03-07 02:02:55
+Progress(125) at 2024-03-07 02:02:55: 67,806 states generated (67,806 s/min), 35,627 distinct states found (35,627 ds/min), 1,040 states left on queue.
+Progress(178) at 2024-03-07 02:02:58: 171,137 states generated, 87,128 distinct states found, 0 states left on queue.
+Checking 5 branches of temporal properties for the complete state space with 435640 total distinct states at (2024-03-07 02:02:58)
+Finished checking temporal properties in 02h 57min at 2024-03-07 05:00:47
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
-  calculated (optimistic):  val = 3.4E-10
-  based on the actual fingerprints:  val = 1.7E-10
-159341 states generated, 81252 distinct states found, 0 states left on queue.
+  calculated (optimistic):  val = 4.0E-10
+  based on the actual fingerprints:  val = 1.5E-9
+171137 states generated, 87128 distinct states found, 0 states left on queue.
 The depth of the complete state graph search is 178.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 2 and the 95th percentile is 2).
-Finished in 02h 31min at (2023-08-01 14:25:54)
+Finished in 03h 44min at (2024-03-07 05:00:47)
 ```
 
 ## Variables
@@ -69,11 +62,10 @@ lock_info = [x \in 1..TASK_NUM |-> FALSE];
 lock_future = [x \in 1..TASK_NUM |-> FALSE];
 lock_scheduler = FALSE;
 
-\* awkernel_async_lib::task::info::in_queue
-in_queue = [x \in 1..TASK_NUM |-> FALSE];
-
 \* awkernel_async_lib::task::State
 state = [x \in 1..TASK_NUM |-> "Ready"];
+
+is_terminated = [x \in 1..TASK_NUM |-> FALSE];
 
 result_next = [x \in WORKERS |-> -1]; \* return value of get_next
 result_future = [x \in WORKERS |-> ""]; \* return value of future
@@ -85,16 +77,17 @@ wake_other = [x \in ((TASK_NUM \div 2) + 1)..TASK_NUM |-> FALSE];
 `result_next` and `result_future` are variable to be stored of results of
 `get_next` and `future` procedures, respectively.
 
-Each entry of `state` must be `Ready`, `ReadyToRun`, `Waiting`, `Running`, or `Terminated`,
-as `task::State` defined in `task.rs`, as follows.
-`Panicked` state is omitted because it is almost equivalent to `Terminated`,
+Each entry of `state` must be `Ready`, `Waiting`, `Runnable`, `Running`, `Panicked`,
+or `Terminated`, as `task::State` defined in `task.rs`, as follows.
+`Panicked` state is omitted in this verification
+because it is almost equivalent to `Terminated`,
 and `Preempted` state is also omitted because this verification is for cooperative multitask.
 
 ```rust
 pub enum State {
     Ready,
-    ReadyToRun,
     Running,
+    Runnable,
     Waiting,
     Preempted,
     Terminated,
@@ -104,13 +97,11 @@ pub enum State {
 
 ```mermaid
 graph TD;
-    Ready-->ReadyToRun;
-    ReadyToRun-->Running;
-    Running-->Preempted-->ReadyToRun;
+    Ready-->Runnable;
+    Running-->Preempted-->Running;
     Running-->Terminated;
     Running-->Panicked;
-    Running-->Waiting;
-    Waiting-->ReadyToRun;
+    Running-->Waiting-->Runnable-->Running;
 ```
 
 Note that this specification does not deal with `Panicked` and `Preempted` states.
@@ -120,7 +111,7 @@ Note that this specification does not deal with `Panicked` and `Preempted` state
 The starvation-free can be verified as follows.
 
 $$
-\forall x \in 1..\mathrm{TASK\_NUM}: (x \in \mathrm{in\_queue[x]} \land \mathrm{state}[x] \neq \mathtt{Terminated} \leadsto \mathrm{state}[x] = \mathtt{Running})
+\forall x \in 1..\mathrm{TASK\_NUM}: (\mathrm{state}[x] = \mathtt{Runnable} \leadsto \mathrm{state}[x] = \mathtt{Running})
 $$
 
 ## Must be Awaken
@@ -138,9 +129,8 @@ async fn task_b() {
     send_to_task_b().await;
 }
 ```
-Task A and Task B each awaken the other.
-Thus, when awakening another task, it must be in a `Ready`, `Waiting`, `Running`, or `Terminated` state, and will be in a `Running` if it is not in a `Terminated` state.
-These tasks are emulated as follows.
+
+Tasks will awaken each other as follows.
 
 ```text
 \* If there is 2 tasks, their task ID's are 1 and 2.
