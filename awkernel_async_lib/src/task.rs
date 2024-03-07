@@ -83,13 +83,18 @@ impl ArcWake for Task {
 
             let mut node = MCSNode::new();
             let mut info = self.info.lock(&mut node);
-            if matches!(info.state, Running | ReadyToRun | Preempted) {
-                info.need_sched = true;
-                return;
-            }
 
-            if matches!(info.state, Terminated | Panicked) {
-                return;
+            match info.state {
+                Running | Runnable | Preempted => {
+                    info.need_sched = true;
+                    return;
+                }
+                Terminated | Panicked => {
+                    return;
+                }
+                Ready | Waiting => {
+                    info.state = Runnable;
+                }
             }
 
             panicked = info.panicked;
@@ -109,7 +114,6 @@ pub struct TaskInfo {
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
     last_executed_time: u64,
-    pub(crate) in_queue: bool,
     need_sched: bool,
     panicked: bool,
 
@@ -161,11 +165,6 @@ impl TaskInfo {
     }
 
     #[inline(always)]
-    pub fn in_queue(&self) -> bool {
-        self.in_queue
-    }
-
-    #[inline(always)]
     pub fn panicked(&self) -> bool {
         self.panicked
     }
@@ -175,8 +174,8 @@ impl TaskInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
-    ReadyToRun,
     Running,
+    Runnable,
     Waiting,
     Preempted,
     Terminated,
@@ -218,7 +217,6 @@ impl Tasks {
                     state: State::Ready,
                     num_preempt: 0,
                     last_executed_time: 0,
-                    in_queue: false,
                     need_sched: false,
                     panicked: false,
 

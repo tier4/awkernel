@@ -220,8 +220,8 @@ fn print_tasks() {
     console::print("Tasks:\r\n");
 
     let msg = format!(
-        "{:>5}  {:<10} {:<8} {:>14} {:>14} name\r\n",
-        "ID", "State", "In Queue", "#Preemption", "Last Executed"
+        "{:>5}  {:<10} {:>14} {:>14} name\r\n",
+        "ID", "State", "#Preemption", "Last Executed"
     );
     console::print(&msg);
 
@@ -232,11 +232,10 @@ fn print_tasks() {
         let state = format!("{:?}", info.get_state());
 
         let msg = format!(
-            "{:>5}{} {:<10} {:<8} {:>14} {:>14} {}\r\n",
+            "{:>5}{} {:<10} {:>14} {:>14} {}\r\n",
             t.id,
             if info.panicked() { "*" } else { " " },
             state,
-            info.in_queue(),
             info.get_num_preemption(),
             info.get_last_executed(),
             t.name,

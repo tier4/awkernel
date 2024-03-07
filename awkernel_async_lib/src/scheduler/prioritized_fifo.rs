@@ -33,13 +33,6 @@ impl Scheduler for PrioritizedFIFOScheduler {
         let data = data.as_mut().unwrap();
 
         // Put the state in queue.
-        let mut node = MCSNode::new();
-        let mut task_info = task.info.lock(&mut node);
-
-        // The task is in queue.
-        task_info.in_queue = true;
-
-        drop(task_info);
         insert_in_priority_order(&mut data.queue, task.clone());
     }
 
@@ -49,18 +42,24 @@ impl Scheduler for PrioritizedFIFOScheduler {
 
         let data = data.as_mut()?;
 
-        // Pop a task from the run queue.
-        let task = data.queue.pop_front()?;
+        loop {
+            // Pop a task from the run queue.
+            let task = data.queue.pop_front()?;
 
-        // Make the state of the task Running.
-        {
-            let mut node = MCSNode::new();
-            let mut task_info = task.info.lock(&mut node);
-            task_info.in_queue = false;
-            task_info.state = State::ReadyToRun;
+            // Make the state of the task Running.
+            {
+                let mut node = MCSNode::new();
+                let mut task_info = task.info.lock(&mut node);
+
+                if matches!(task_info.state, State::Terminated | State::Panicked) {
+                    continue;
+                }
+
+                task_info.state = State::Running;
+            }
+
+            return Some(task);
         }
-
-        Some(task)
     }
 
     fn scheduler_name(&self) -> SchedulerType {
