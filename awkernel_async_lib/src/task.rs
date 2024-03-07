@@ -452,8 +452,6 @@ pub fn run_main() {
                     }
 
                     info.update_last_executed();
-                    info.state = State::Running;
-                    info.need_sched = false;
                 }
 
                 // Use the primary memory allocator.
