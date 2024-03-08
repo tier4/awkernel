@@ -65,6 +65,10 @@ impl Scheduler for FIFOScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::FIFO
     }
+
+    fn priority(&self) -> u8 {
+        0
+    }
 }
 
 pub static SCHEDULER: FIFOScheduler = FIFOScheduler {

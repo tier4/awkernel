@@ -19,10 +19,26 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 #[derive(Debug, Clone, Copy)]
 pub enum SchedulerType {
     FIFO,
+
+    /// `u8` is the priority of the prioritized scheduler.
+    /// 0 is the highest priority and 255 is the lowest priority.
     PrioritizedFIFO(u8),
+
     Panicked,
 }
 
+/// # Priority
+///
+/// `priority()` returns the priority of the scheduler for preemption.
+///
+/// - 0: The highest priority.
+///   - FIFO scheduler.
+///   - Prioritized FIFO scheduler.
+///   - Tasks using these schedulers will not be preempted.
+/// - 1 - 16
+///   - Round-Robin scheduler.
+/// - 255: The lowest priority.
+///   - Panicked scheduler.
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
@@ -33,6 +49,9 @@ pub(crate) trait Scheduler {
 
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
+
+    #[allow(dead_code)] // TODO: to be removed
+    fn priority(&self) -> u8;
 }
 
 /// Get the next executable task.
