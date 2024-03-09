@@ -13,8 +13,8 @@ embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 
 [dependencies.unwinding]
-version = "0.2"
-# git = "https://github.com/ytakano/unwinding.git"
+# version = "0.2"
+git = "https://github.com/ytakano/unwinding.git"
 default-features = false
 optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
@@ -48,7 +48,7 @@ path = "../awkernel_aarch64"
 optional = true
 
 [dependencies.x86_64]
-version = "0.14"
+version = "0.15"
 optional = true
 
 [dependencies.bootloader_api]

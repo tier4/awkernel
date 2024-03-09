@@ -5,7 +5,7 @@ pan: pan.c
 	gcc -O3 -o $@ $<
 
 run: pan
-	./pan -f -a -m1000000000
+	./pan -f -a -n
 
 trail:
 	spin -plgrc -t cooperative.pml

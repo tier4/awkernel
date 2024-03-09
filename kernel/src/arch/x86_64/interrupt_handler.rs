@@ -594,7 +594,8 @@ extern "x86-interrupt" fn security_exception(stack_frame: InterruptStackFrame, e
 
 extern "x86-interrupt" fn segment_not_present(stack_frame: InterruptStackFrame, error: u64) {
     log::debug!(
-        "segment not present: stack_frame = {:?}, error = {error}",
+        "segment not present: cpu = {}, stack_frame = {:?}, error = {error}",
+        awkernel_lib::cpu::cpu_id(),
         stack_frame,
     );
 }

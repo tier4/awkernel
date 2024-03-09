@@ -257,14 +257,14 @@ fn kernel_main2(
         awkernel_drivers::pcie::init_with_io();
     }
 
-    BSP_READY.store(true, Ordering::Release);
+    // 17. Initialize interrupt handlers.
+    unsafe { interrupt_handler::init() };
+
+    BSP_READY.store(true, Ordering::SeqCst);
 
     while BOOTED_APS.load(Ordering::Relaxed) != 0 {
         core::hint::spin_loop();
     }
-
-    // 17. Initialize interrupt handlers.
-    unsafe { interrupt_handler::init() };
 
     let kernel_info = KernelInfo {
         info: Some(boot_info),
