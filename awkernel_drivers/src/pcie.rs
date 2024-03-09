@@ -453,6 +453,27 @@ pub fn init_with_io() {
     }
 }
 
+struct UnknownDevice {
+    info: PCIeInfo,
+}
+
+impl PCIeDevice for UnknownDevice {
+    fn device_name(&self) -> Cow<'static, str> {
+        let name = format!(
+            "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.info.get_bfd(),
+            self.info.vendor,
+            self.info.id,
+            self.info.pcie_class,
+        );
+        name.into()
+    }
+
+    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+        None
+    }
+}
+
 struct PCIeTree {
     segment_group: u16,
     tree: BTreeMap<u8, Arc<PCIeBus>>,
@@ -931,7 +952,9 @@ impl PCIeInfo {
                     return net::igb::attach(self);
                 }
             }
-            _ => (),
+            _ => {
+                return Ok(Arc::new(UnknownDevice { info: self }));
+            }
         }
 
         Err(PCIeDeviceErr::UnRecognizedDevice {
