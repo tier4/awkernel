@@ -446,7 +446,7 @@ impl AArch64Virt {
         log::debug!("PCIe: base = {:#x}", base.as_usize());
 
         // Initialize PCIe.
-        awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()), 0);
+        awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()));
 
         Ok(())
     }
