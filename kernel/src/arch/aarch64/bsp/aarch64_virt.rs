@@ -438,6 +438,16 @@ impl AArch64Virt {
 
         log::debug!("PCIe: range = {:x?}", ranges);
 
+        for range in ranges.iter() {
+            let r = awkernel_drivers::pcie::pcie_device_tree::PCIeRange::new(
+                range.0,
+                range.1 as usize,
+                range.2 as usize,
+                range.3 as usize,
+            );
+            log::debug!("PCIeRange: {:?}", r);
+        }
+
         // Get the "reg" property.
         let Some((base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));

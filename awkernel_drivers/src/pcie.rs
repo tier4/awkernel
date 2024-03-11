@@ -25,6 +25,8 @@ use acpi::{AcpiTables, PciConfigRegions};
 
 use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
 
+pub mod pcie_device_tree;
+
 mod capability;
 pub mod net;
 pub mod pcie_class;
@@ -159,6 +161,20 @@ impl BaseAddress {
                 ..
             }
         )
+    }
+
+    pub fn is_32bit_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::MMIO {
+                address_type: AddressType::T32B,
+                ..
+            }
+        )
+    }
+
+    pub fn is_io(&self) -> bool {
+        matches!(self, Self::IO(_))
     }
 
     pub fn read16(&self, offset: usize) -> Option<u16> {
@@ -475,6 +491,8 @@ impl PCIeDevice for UnknownDevice {
 }
 
 struct PCIeTree {
+    // - Key: Bus number
+    // - Value: PCIeBus
     tree: BTreeMap<u8, Arc<PCIeBus>>,
 }
 
@@ -671,6 +689,8 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
 
         bus_tree.tree.insert(bus_number, Arc::new(bus));
     }
+
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
