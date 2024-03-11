@@ -15,7 +15,7 @@ array-macro = "2.1"
 memoffset = "0.9"
 
 [dependencies.x86_64]
-version = "0.14"
+version = "0.15"
 optional = true
 
 [dependencies.acpi]

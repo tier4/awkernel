@@ -1,8 +1,16 @@
-use alloc::{borrow::Cow, format, string::String};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    format,
+    string::String,
+    sync::Arc,
+    vec::Vec,
+};
 use array_macro::array;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     paging::{self, MapError, PAGESIZE},
+    sync::{mcs::MCSNode, mutex::Mutex},
 };
 use core::{
     fmt::{self, Debug},
@@ -15,10 +23,14 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
+use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
+
 mod capability;
 pub mod net;
 pub mod pcie_class;
 pub mod pcie_id;
+
+static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
 #[derive(Debug, Clone)]
 pub enum ConfigSpace {
@@ -375,8 +387,8 @@ pub(crate) mod registers {
     pub const CAPABILITY_POINTER: usize = 0x34;
     pub const INTERRUPT_LINE: usize = 0x3c;
 
-    // Type 1 (PCI-to-PCI bridge)
-    pub const _SECONDARY_LATENCY_TIMER_BUS_NUMBER: usize = 0x18;
+    // Type 1 (Bridge)
+    pub const SECONDARY_LATENCY_TIMER_BUS_NUMBER: usize = 0x18;
 
     // Capability
     pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
@@ -416,11 +428,7 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         }
 
         let base_address = segment.physical_address;
-
-        for bus in segment.bus_range {
-            // Config space must be mapped to the same address space.
-            scan_devices(segment.segment_group, bus, VirtAddr::new(base_address));
-        }
+        init_with_addr(segment.segment_group, VirtAddr::new(base_address));
     }
 
     Ok(())
@@ -429,51 +437,244 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
 pub fn init_with_io() {
-    for bus in 0..=255 {
-        for device in 0..32 {
-            for func_num in 0..8 {
-                if let Ok(info) = PCIeInfo::from_io(bus, device, func_num) {
-                    let multiple_functions = info.multiple_functions;
+    let mut visited = BTreeSet::new();
 
-                    let _ = info.attach();
+    let mut bus_tree = PCIeTree {
+        tree: BTreeMap::new(),
+    };
 
-                    if func_num == 0 && !multiple_functions {
-                        break;
-                    }
-                } else if func_num == 0 {
-                    break;
-                }
+    for bus_number in 0..=255 {
+        if PCIeInfo::from_io(0, bus_number, 0, 0, VirtAddr::new(0)).is_err() {
+            continue;
+        };
+        let mut bus = PCIeBus::new(0, bus_number, None, None);
+
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_io);
+    }
+}
+
+struct UnknownDevice {
+    info: PCIeInfo,
+}
+
+impl PCIeDevice for UnknownDevice {
+    fn device_name(&self) -> Cow<'static, str> {
+        let name = format!(
+            "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.info.get_bfd(),
+            self.info.vendor,
+            self.info.id,
+            self.info.pcie_class,
+        );
+        name.into()
+    }
+
+    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+        None
+    }
+}
+
+struct PCIeTree {
+    tree: BTreeMap<u8, Arc<PCIeBus>>,
+}
+
+impl fmt::Display for PCIeTree {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (_, bus) in self.tree.iter() {
+            if !bus.attached_devices.is_empty() {
+                write!(f, "{}", bus)?;
             }
+        }
+
+        Ok(())
+    }
+}
+
+struct PCIeBus {
+    segment_group: u16,
+    bus_number: u8,
+    base_address: Option<VirtAddr>,
+    info: Option<PCIeInfo>,
+    attached_devices: Vec<Arc<dyn PCIeDevice + Sync + Send>>,
+}
+
+impl PCIeBus {
+    fn new(
+        segment_group: u16,
+        bus_number: u8,
+        base_address: Option<VirtAddr>,
+        info: Option<PCIeInfo>,
+    ) -> Self {
+        PCIeBus {
+            segment_group,
+            bus_number,
+            base_address,
+            info,
+            attached_devices: Vec::new(),
         }
     }
 }
 
-pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, starting_bus: u8) {
-    for bus in (starting_bus as u32)..256 {
-        scan_devices(segment_group, bus as u8, base_address);
+impl PCIeDevice for PCIeBus {
+    fn device_name(&self) -> Cow<'static, str> {
+        if let Some(info) = self.info.as_ref() {
+            let bfd = info.get_bfd();
+            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            name.into()
+        } else {
+            let name = format!("Bus #{:02x}", self.bus_number);
+            name.into()
+        }
+    }
+
+    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+        Some(&self.attached_devices)
     }
 }
 
-/// Scan and initialize the PICe devices
-fn scan_devices(segment_group: u16, bus: u8, base_address: VirtAddr) {
-    for dev in 0..(1 << 5) {
-        for func in 0..(1 << 3) {
-            let offset = (bus as usize) << 20 | dev << 15 | func << 12;
-            let addr = base_address + offset;
-            if let Ok(device) = PCIeInfo::from_addr(segment_group, bus, dev as u8, func as u8, addr)
-            {
-                let multiple_functions = device.multiple_functions;
+impl fmt::Display for PCIeBus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        print_pcie_devices(self, f, 0)
+    }
+}
 
-                let _ = device.attach();
+fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u8) -> fmt::Result {
+    let indent_str = " ".repeat(indent as usize * 4);
+    write!(f, "{}{}\r\n", indent_str, device.device_name())?;
 
-                if func == 0 && !multiple_functions {
-                    break;
-                }
-            } else if func == 0 {
-                break;
-            }
+    if let Some(children) = device.children() {
+        for child in children.iter() {
+            print_pcie_devices(child.as_ref(), f, indent + 1)?;
         }
     }
+
+    Ok(())
+}
+
+#[inline]
+fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+{
+    for device in 0..32 {
+        check_device(bus, device, bus_tree, visited, f);
+    }
+}
+
+#[inline]
+fn check_device<F>(
+    bus: &mut PCIeBus,
+    device: u8,
+    bus_tree: &mut PCIeTree,
+    visited: &mut BTreeSet<u8>,
+    f: &F,
+) where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+{
+    for function in 0..8 {
+        check_function(bus, device, function, bus_tree, visited, f);
+    }
+}
+
+fn check_function<F>(
+    bus: &mut PCIeBus,
+    device: u8,
+    function: u8,
+    bus_tree: &mut PCIeTree,
+    visited: &mut BTreeSet<u8>,
+    f: &F,
+) -> bool
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+{
+    let offset =
+        (bus.bus_number as usize) << 20 | (device as usize) << 15 | (function as usize) << 12;
+
+    let addr = if let Some(base_address) = bus.base_address {
+        base_address + offset
+    } else {
+        VirtAddr::new(0)
+    };
+
+    if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
+        if matches!(
+            info.pcie_class,
+            PCIeClass::BridgeDevice(PCIeBridgeSubClass::PCItoPCI)
+        ) {
+            let secondary_bus = info.get_secondary_bus().unwrap();
+
+            if secondary_bus < bus.bus_number {
+                // If the secondary bus number is less than the current bus number,
+                // it means that the bus has already been visited.
+                if let Some(grandchild) = bus_tree.tree.remove(&secondary_bus) {
+                    let mut bus_child = PCIeBus::new(
+                        bus.segment_group,
+                        secondary_bus,
+                        bus.base_address,
+                        Some(info),
+                    );
+                    bus_child.attached_devices.push(grandchild);
+                }
+            } else if secondary_bus == bus.bus_number {
+                log::warn!("PCIe: Secondary bus number is same as the current bus number.");
+            } else if !visited.contains(&secondary_bus) {
+                // If the secondary bus number is greater than the current bus number,
+                // it means that the bus may has not been visited yet.
+                let mut bus_child = PCIeBus::new(
+                    bus.segment_group,
+                    secondary_bus,
+                    bus.base_address,
+                    Some(info),
+                );
+
+                // Recursively check the bus
+                visited.insert(secondary_bus);
+                check_bus(&mut bus_child, bus_tree, visited, f);
+
+                bus.attached_devices.push(Arc::new(bus_child));
+            }
+        } else if let Ok(device) = info.attach() {
+            bus.attached_devices.push(device);
+        } else {
+            // Fallback to UnknownDevice.
+            let info = f(bus.segment_group, bus.bus_number, device, function, addr).unwrap();
+            let unknown_device = UnknownDevice { info };
+            bus.attached_devices.push(Arc::new(unknown_device));
+        }
+
+        true
+    } else {
+        false
+    }
+}
+
+pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
+    let mut visited = BTreeSet::new();
+
+    let mut bus_tree = PCIeTree {
+        tree: BTreeMap::new(),
+    };
+
+    for bus_number in 0..=255 {
+        if visited.contains(&bus_number) {
+            continue;
+        }
+
+        if PCIeInfo::from_addr(segment_group, bus_number, 0, 0, base_address).is_err() {
+            continue;
+        };
+
+        let mut bus = PCIeBus::new(segment_group, bus_number, Some(base_address), None);
+
+        visited.insert(bus_number);
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_addr);
+
+        bus_tree.tree.insert(bus_number, Arc::new(bus));
+    }
+
+    let mut node = MCSNode::new();
+    let mut pcie_trees = PCIE_TREES.lock(&mut node);
+    pcie_trees.insert(segment_group, Arc::new(bus_tree));
 }
 
 /// Information necessary for initializing the device
@@ -490,7 +691,6 @@ pub struct PCIeInfo {
     interrupt_pin: u8,
     pcie_class: pcie_class::PCIeClass,
     device_name: Option<pcie_id::PCIeID>,
-    multiple_functions: bool,
     pub(crate) header_type: u8,
     base_addresses: [BaseAddress; 6],
     msi: Option<capability::msi::Msi>,
@@ -516,9 +716,11 @@ impl fmt::Display for PCIeInfo {
 impl PCIeInfo {
     #[cfg(feature = "x86")]
     fn from_io(
+        _get_segment_group: u16,
         bus_number: u8,
         device_number: u8,
         function_number: u8,
+        _addr: VirtAddr,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
         let config_space = ConfigSpace::new_io(bus_number, device_number, function_number);
         Self::new(config_space, 0, bus_number, device_number, function_number)
@@ -560,7 +762,6 @@ impl PCIeInfo {
         }
 
         let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
-        let multiple_functions = header_type & 0x80 == 0x80;
         let header_type = header_type & 0x7f;
 
         let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
@@ -586,7 +787,6 @@ impl PCIeInfo {
             interrupt_pin: (interrupt_pin_line >> 8) as u8,
             pcie_class,
             device_name: None,
-            multiple_functions,
             header_type,
             base_addresses: array![_ => BaseAddress::None; 6],
             msi: None,
@@ -603,6 +803,17 @@ impl PCIeInfo {
             "{:04x}:{:02x}:{:02x}.{:01x}",
             self.segment_group, self.bus_number, self.device_number, self.function_number
         )
+    }
+
+    pub fn get_secondary_bus(&self) -> Option<u8> {
+        if matches!(self.pcie_class, pcie_class::PCIeClass::BridgeDevice(_)) {
+            let val = self
+                .config_space
+                .read_u32(registers::SECONDARY_LATENCY_TIMER_BUS_NUMBER);
+            Some((val >> 8) as u8)
+        } else {
+            None
+        }
     }
 
     pub fn get_device_name(&self) -> Option<pcie_id::PCIeID> {
@@ -753,7 +964,7 @@ impl PCIeInfo {
     }
 
     /// Initialize the PCIe device based on the information
-    fn attach(self) -> Result<(), PCIeDeviceErr> {
+    fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID =>
@@ -763,7 +974,9 @@ impl PCIeInfo {
                     return net::igb::attach(self);
                 }
             }
-            _ => (),
+            _ => {
+                return Ok(Arc::new(UnknownDevice { info: self }));
+            }
         }
 
         Err(PCIeDeviceErr::UnRecognizedDevice {
@@ -786,6 +999,10 @@ impl PCIeInfo {
 
 pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
+
+    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+        None
+    }
 }
 
 const BAR_IO: u32 = 0b1;

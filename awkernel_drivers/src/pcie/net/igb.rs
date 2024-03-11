@@ -298,7 +298,7 @@ pub struct Igb {
     inner: RwLock<IgbInner>,
 }
 
-pub fn attach(mut info: PCIeInfo) -> Result<(), PCIeDeviceErr> {
+pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     // Initialize PCIeInfo
 
     // Map the memory regions of MMIO.
@@ -312,9 +312,11 @@ pub fn attach(mut info: PCIeInfo) -> Result<(), PCIeDeviceErr> {
 
     let igb = Igb::new(info)?;
 
-    awkernel_lib::net::add_interface(Arc::new(igb), None);
+    let result = Arc::new(igb);
 
-    Ok(())
+    awkernel_lib::net::add_interface(result.clone(), None);
+
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1974,7 +1976,9 @@ fn disable_aspm(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) {
 //===========================================================================
 impl PCIeDevice for Igb {
     fn device_name(&self) -> Cow<'static, str> {
-        DEVICE_NAME.into()
+        let bfd = self.inner.read().info.get_bfd();
+        let name = format!("{bfd}: {DEVICE_NAME}");
+        name.into()
     }
 }
 
