@@ -8,7 +8,7 @@ pub enum RangeCode {
     Memory64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PCIeRange {
     prefetchable: bool,
     code: RangeCode,

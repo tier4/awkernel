@@ -1,5 +1,6 @@
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
@@ -485,7 +486,7 @@ impl PCIeDevice for UnknownDevice {
         name.into()
     }
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
         None
     }
 }
@@ -493,13 +494,13 @@ impl PCIeDevice for UnknownDevice {
 struct PCIeTree {
     // - Key: Bus number
     // - Value: PCIeBus
-    tree: BTreeMap<u8, Arc<PCIeBus>>,
+    tree: BTreeMap<u8, Box<PCIeBus>>,
 }
 
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
-            if !bus.attached_devices.is_empty() {
+            if !bus.devices.is_empty() {
                 write!(f, "{}", bus)?;
             }
         }
@@ -508,12 +509,33 @@ impl fmt::Display for PCIeTree {
     }
 }
 
+enum ChildDevice {
+    Bus(Box<PCIeBus>),
+    Attached(Arc<dyn PCIeDevice + Sync + Send>),
+    Attaching,
+    Unattached(Box<PCIeInfo>),
+}
+
+impl ChildDevice {
+    /// Take the unattached device.
+    /// If the device is not unattached, return None.
+    /// If the device is unattached, return Some(PCIeInfo), and make the device to Attaching.
+    fn take_unattached(&mut self) -> Option<Box<PCIeInfo>> {
+        let none = ChildDevice::Attaching;
+
+        match core::mem::replace(self, none) {
+            ChildDevice::Unattached(info) => Some(info),
+            _ => None,
+        }
+    }
+}
+
 struct PCIeBus {
     segment_group: u16,
     bus_number: u8,
     base_address: Option<VirtAddr>,
     info: Option<PCIeInfo>,
-    attached_devices: Vec<Arc<dyn PCIeDevice + Sync + Send>>,
+    devices: Vec<ChildDevice>,
 }
 
 impl PCIeBus {
@@ -528,7 +550,7 @@ impl PCIeBus {
             bus_number,
             base_address,
             info,
-            attached_devices: Vec::new(),
+            devices: Vec::new(),
         }
     }
 }
@@ -545,8 +567,8 @@ impl PCIeDevice for PCIeBus {
         }
     }
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
-        Some(&self.attached_devices)
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
+        Some(&self.devices)
     }
 }
 
@@ -562,7 +584,30 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
 
     if let Some(children) = device.children() {
         for child in children.iter() {
-            print_pcie_devices(child.as_ref(), f, indent + 1)?;
+            match child {
+                ChildDevice::Attached(child) => {
+                    print_pcie_devices(child.as_ref(), f, indent + 1)?;
+                }
+                ChildDevice::Unattached(info) => {
+                    let name = format!(
+                        "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
+                        info.get_bfd(),
+                        info.vendor,
+                        info.id,
+                        info.pcie_class,
+                        info.bridge_bus_number,
+                        info.bridge_device_number,
+                        info.bridge_function_number,
+                    );
+
+                    let indent_str = " ".repeat((indent as usize + 1) * 4);
+                    write!(f, "{}{}\r\n", indent_str, name)?;
+                }
+                ChildDevice::Bus(bus) => {
+                    print_pcie_devices(bus.as_ref(), f, indent + 1)?;
+                }
+                _ => (),
+            }
         }
     }
 
@@ -631,7 +676,8 @@ where
                         bus.base_address,
                         Some(info),
                     );
-                    bus_child.attached_devices.push(grandchild);
+                    bus_child.devices.push(ChildDevice::Bus(grandchild));
+                    bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
                 }
             } else if secondary_bus == bus.bus_number {
                 log::warn!("PCIe: Secondary bus number is same as the current bus number.");
@@ -649,15 +695,10 @@ where
                 visited.insert(secondary_bus);
                 check_bus(&mut bus_child, bus_tree, visited, f);
 
-                bus.attached_devices.push(Arc::new(bus_child));
+                bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
-        } else if let Ok(device) = info.attach() {
-            bus.attached_devices.push(device);
         } else {
-            // Fallback to UnknownDevice.
-            let info = f(bus.segment_group, bus.bus_number, device, function, addr).unwrap();
-            let unknown_device = UnknownDevice { info };
-            bus.attached_devices.push(Arc::new(unknown_device));
+            bus.devices.push(ChildDevice::Unattached(Box::new(info)));
         }
 
         true
@@ -687,7 +728,7 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
         visited.insert(bus_number);
         check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_addr);
 
-        bus_tree.tree.insert(bus_number, Arc::new(bus));
+        bus_tree.tree.insert(bus_number, Box::new(bus));
     }
 
     log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
@@ -716,6 +757,11 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
+
+    // The bridge having this device.
+    bridge_bus_number: Option<u8>,
+    bridge_device_number: Option<u8>,
+    bridge_function_number: Option<u8>,
 }
 
 impl fmt::Display for PCIeInfo {
@@ -812,6 +858,9 @@ impl PCIeInfo {
             msi: None,
             msix: None,
             pcie_cap: None,
+            bridge_bus_number: None,
+            bridge_device_number: None,
+            bridge_function_number: None,
         };
 
         Ok(result)
@@ -1020,7 +1069,7 @@ impl PCIeInfo {
 pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
         None
     }
 }
