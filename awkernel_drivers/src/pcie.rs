@@ -497,6 +497,23 @@ struct PCIeTree {
     tree: BTreeMap<u8, Box<PCIeBus>>,
 }
 
+impl PCIeTree {
+    fn update_bridge_info(
+        &mut self,
+        bridge_bus_number: u8,
+        bridge_device_number: u8,
+        bridge_function_number: u8,
+    ) {
+        for (_, bus) in self.tree.iter_mut() {
+            bus.update_bridge_info(
+                bridge_bus_number,
+                bridge_device_number,
+                bridge_function_number,
+            );
+        }
+    }
+}
+
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
@@ -551,6 +568,41 @@ impl PCIeBus {
             base_address,
             info,
             devices: Vec::new(),
+        }
+    }
+
+    fn update_bridge_info(
+        &mut self,
+        mut bridge_bus_number: u8,
+        mut bridge_device_number: u8,
+        mut bridge_function_number: u8,
+    ) {
+        if let Some(info) = self.info.as_mut() {
+            info.bridge_bus_number = Some(bridge_bus_number);
+            info.bridge_device_number = Some(bridge_device_number);
+            info.bridge_function_number = Some(bridge_function_number);
+
+            bridge_bus_number = info.bus_number;
+            bridge_device_number = info.device_number;
+            bridge_function_number = info.function_number;
+        }
+
+        for device in self.devices.iter_mut() {
+            match device {
+                ChildDevice::Bus(bus) => {
+                    bus.update_bridge_info(
+                        bridge_bus_number,
+                        bridge_device_number,
+                        bridge_function_number,
+                    );
+                }
+                ChildDevice::Unattached(info) => {
+                    info.bridge_bus_number = Some(bridge_bus_number);
+                    info.bridge_device_number = Some(bridge_device_number);
+                    info.bridge_function_number = Some(bridge_function_number);
+                }
+                _ => (),
+            }
         }
     }
 }
@@ -714,12 +766,22 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
         tree: BTreeMap::new(),
     };
 
+    let mut host_bridge_bus = 0;
+
     for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
         }
 
-        if PCIeInfo::from_addr(segment_group, bus_number, 0, 0, base_address).is_err() {
+        let offset = (bus_number as usize) << 20;
+
+        let addr = base_address + offset;
+
+        if let Ok(info) = PCIeInfo::from_addr(segment_group, bus_number, 0, 0, addr) {
+            if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
+                host_bridge_bus = bus_number;
+            }
+        } else {
             continue;
         };
 
@@ -730,6 +792,8 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
     }
+
+    bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
 
     log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
 
