@@ -135,6 +135,17 @@ impl RunningTaskGuard {
 impl Drop for RunningTaskGuard {
     fn drop(&mut self) {
         let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let mut node = MCSNode::new();
+        let tasks = super::TASKS.lock(&mut node);
+        let task = tasks.id_to_task.get(&self.0).unwrap();
+
+        {
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
+            info.update_last_executed();
+        }
+
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
     }
 }
