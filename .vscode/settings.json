@@ -2,18 +2,18 @@
     "rust-analyzer.showUnlinkedFileNotification": false,
     "tlaplus.tlc.modelChecker.options": "-workers auto",
     "editor.formatOnSave": true,
-    // For AArch64
+    // For AArch64 Virt
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
     //     "+nightly",
-    //     "check_no_std",
-    //     "--target=targets/aarch64-kernel.json",
+    //     "clippy_aarch64_virt",
+    //     "--message-format=json",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
     //     "+nightly",
-    //     "check_no_std",
-    //     "--target=targets/aarch64-kernel.json",
+    //     "clippy_aarch64_virt",
+    //     "--message-format=json",
     // ],
     // "rust-analyzer.cargo.features": [
     //     "aarch64_virt"

@@ -1,10 +1,11 @@
 use alloc::{boxed::Box, vec::Vec};
 use awkernel_drivers::{
+    pcie::pcie_device_tree::PCIeRange,
     psci::{self, Affinity},
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
+    addr::phy_addr::PhyAddr,
     arch::aarch64::set_max_affinity,
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
@@ -433,20 +434,23 @@ impl AArch64Virt {
             let cpu_mem = (cpu_mem_hi as u64) << 32 | cpu_mem_lo as u64;
             let size = (size_hi as u64) << 32 | size_lo as u64;
 
-            ranges.push((head, pcie_mem, cpu_mem, size));
+            let range = PCIeRange::new(head, pcie_mem as usize, cpu_mem as usize, size as usize);
+            ranges.push(range);
         }
 
-        log::debug!("PCIe: range = {:x?}", ranges);
-
         // Get the "reg" property.
-        let Some((base, _size)) = self.pcie_reg else {
+        let Some((_base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
-        log::debug!("PCIe: base = {:#x}", base.as_usize());
+        // TODO: disabled PCIe currently.
 
         // Initialize PCIe.
-        awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()));
+        // awkernel_drivers::pcie::init_with_addr(
+        //     0,
+        //     VirtAddr::new(base.as_usize()),
+        //     ranges.as_slice(),
+        // );
 
         Ok(())
     }

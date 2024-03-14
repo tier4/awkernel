@@ -1976,8 +1976,12 @@ fn disable_aspm(hw: &mut igb_hw::IgbHw, info: &mut PCIeInfo) {
 //===========================================================================
 impl PCIeDevice for Igb {
     fn device_name(&self) -> Cow<'static, str> {
-        let bfd = self.inner.read().info.get_bfd();
-        let name = format!("{bfd}: {DEVICE_NAME}");
+        let (mac_type, bfd) = {
+            let inner = self.inner.read();
+            (inner.hw.get_mac_type(), inner.info.get_bfd())
+        };
+
+        let name = format!("{bfd}: {DEVICE_NAME} ({mac_type:?})");
         name.into()
     }
 }

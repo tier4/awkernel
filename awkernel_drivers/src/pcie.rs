@@ -1,5 +1,6 @@
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
     string::String,
@@ -24,6 +25,10 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 use acpi::{AcpiTables, PciConfigRegions};
 
 use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
+
+use self::pcie_device_tree::PCIeRange;
+
+pub mod pcie_device_tree;
 
 mod capability;
 pub mod net;
@@ -138,7 +143,7 @@ impl ConfigSpace {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseAddress {
     IO(u32),
     MMIO {
@@ -159,6 +164,20 @@ impl BaseAddress {
                 ..
             }
         )
+    }
+
+    pub fn is_32bit_memory(&self) -> bool {
+        matches!(
+            self,
+            Self::MMIO {
+                address_type: AddressType::T32B,
+                ..
+            }
+        )
+    }
+
+    pub fn is_io(&self) -> bool {
+        matches!(self, Self::IO(_))
     }
 
     pub fn read16(&self, offset: usize) -> Option<u16> {
@@ -277,7 +296,7 @@ impl BaseAddress {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressType {
     T32B, // 32 bit address space
     T64B, // 64 bit address space
@@ -428,7 +447,7 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         }
 
         let base_address = segment.physical_address;
-        init_with_addr(segment.segment_group, VirtAddr::new(base_address));
+        init_with_addr(segment.segment_group, VirtAddr::new(base_address), &[]);
     }
 
     Ok(())
@@ -437,51 +456,71 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
 pub fn init_with_io() {
-    let mut visited = BTreeSet::new();
-
-    let mut bus_tree = PCIeTree {
-        tree: BTreeMap::new(),
-    };
-
-    for bus_number in 0..=255 {
-        if PCIeInfo::from_io(0, bus_number, 0, 0, VirtAddr::new(0)).is_err() {
-            continue;
-        };
-        let mut bus = PCIeBus::new(0, bus_number, None, None);
-
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_io);
-    }
+    init(0, None, PCIeInfo::from_io, &[]);
 }
 
 struct UnknownDevice {
-    info: PCIeInfo,
+    segment_group: u16,
+    bus_number: u8,
+    device_number: u8,
+    function_number: u8,
+    vendor: u16,
+    id: u16,
+    pcie_class: pcie_class::PCIeClass,
 }
 
 impl PCIeDevice for UnknownDevice {
     fn device_name(&self) -> Cow<'static, str> {
+        let bfd = format!(
+            "{:04x}:{:02x}:{:02x}.{:01x}",
+            self.segment_group, self.bus_number, self.device_number, self.function_number
+        );
+
         let name = format!(
-            "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
-            self.info.get_bfd(),
-            self.info.vendor,
-            self.info.id,
-            self.info.pcie_class,
+            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.vendor, self.id, self.pcie_class,
         );
         name.into()
     }
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
         None
     }
 }
 
 struct PCIeTree {
-    tree: BTreeMap<u8, Arc<PCIeBus>>,
+    // - Key: Bus number
+    // - Value: PCIeBus
+    tree: BTreeMap<u8, Box<PCIeBus>>,
+}
+
+impl PCIeTree {
+    fn update_bridge_info(
+        &mut self,
+        bridge_bus_number: u8,
+        bridge_device_number: u8,
+        bridge_function_number: u8,
+    ) {
+        for (_, bus) in self.tree.iter_mut() {
+            bus.update_bridge_info(
+                bridge_bus_number,
+                bridge_device_number,
+                bridge_function_number,
+            );
+        }
+    }
+
+    fn attach(&mut self) {
+        for (_, bus) in self.tree.iter_mut() {
+            bus.attach();
+        }
+    }
 }
 
 impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
-            if !bus.attached_devices.is_empty() {
+            if !bus.devices.is_empty() {
                 write!(f, "{}", bus)?;
             }
         }
@@ -490,12 +529,38 @@ impl fmt::Display for PCIeTree {
     }
 }
 
-struct PCIeBus {
+pub enum ChildDevice {
+    Bus(Box<PCIeBus>),
+    Attached(Arc<dyn PCIeDevice + Sync + Send>),
+    Attaching,
+    Unattached(Box<PCIeInfo>),
+}
+
+impl ChildDevice {
+    fn attach(&mut self) {
+        let attaching = ChildDevice::Attaching;
+
+        if let ChildDevice::Bus(bus) = self {
+            bus.attach();
+            return;
+        };
+
+        let ChildDevice::Unattached(info) = core::mem::replace(self, attaching) else {
+            return;
+        };
+
+        if let Ok(device) = info.attach() {
+            *self = ChildDevice::Attached(device);
+        }
+    }
+}
+
+pub struct PCIeBus {
     segment_group: u16,
     bus_number: u8,
     base_address: Option<VirtAddr>,
     info: Option<PCIeInfo>,
-    attached_devices: Vec<Arc<dyn PCIeDevice + Sync + Send>>,
+    devices: Vec<ChildDevice>,
 }
 
 impl PCIeBus {
@@ -510,7 +575,48 @@ impl PCIeBus {
             bus_number,
             base_address,
             info,
-            attached_devices: Vec::new(),
+            devices: Vec::new(),
+        }
+    }
+
+    fn update_bridge_info(
+        &mut self,
+        mut bridge_bus_number: u8,
+        mut bridge_device_number: u8,
+        mut bridge_function_number: u8,
+    ) {
+        if let Some(info) = self.info.as_mut() {
+            info.bridge_bus_number = Some(bridge_bus_number);
+            info.bridge_device_number = Some(bridge_device_number);
+            info.bridge_function_number = Some(bridge_function_number);
+
+            bridge_bus_number = info.bus_number;
+            bridge_device_number = info.device_number;
+            bridge_function_number = info.function_number;
+        }
+
+        for device in self.devices.iter_mut() {
+            match device {
+                ChildDevice::Bus(bus) => {
+                    bus.update_bridge_info(
+                        bridge_bus_number,
+                        bridge_device_number,
+                        bridge_function_number,
+                    );
+                }
+                ChildDevice::Unattached(info) => {
+                    info.bridge_bus_number = Some(bridge_bus_number);
+                    info.bridge_device_number = Some(bridge_device_number);
+                    info.bridge_function_number = Some(bridge_function_number);
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn attach(&mut self) {
+        for device in self.devices.iter_mut() {
+            device.attach();
         }
     }
 }
@@ -527,8 +633,8 @@ impl PCIeDevice for PCIeBus {
         }
     }
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
-        Some(&self.attached_devices)
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
+        Some(&self.devices)
     }
 }
 
@@ -544,7 +650,30 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
 
     if let Some(children) = device.children() {
         for child in children.iter() {
-            print_pcie_devices(child.as_ref(), f, indent + 1)?;
+            match child {
+                ChildDevice::Attached(child) => {
+                    print_pcie_devices(child.as_ref(), f, indent + 1)?;
+                }
+                ChildDevice::Unattached(info) => {
+                    let name = format!(
+                        "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
+                        info.get_bfd(),
+                        info.vendor,
+                        info.id,
+                        info.pcie_class,
+                        info.bridge_bus_number,
+                        info.bridge_device_number,
+                        info.bridge_function_number,
+                    );
+
+                    let indent_str = " ".repeat((indent as usize + 1) * 4);
+                    write!(f, "{}{}\r\n", indent_str, name)?;
+                }
+                ChildDevice::Bus(bus) => {
+                    print_pcie_devices(bus.as_ref(), f, indent + 1)?;
+                }
+                _ => (),
+            }
         }
     }
 
@@ -613,7 +742,8 @@ where
                         bus.base_address,
                         Some(info),
                     );
-                    bus_child.attached_devices.push(grandchild);
+                    bus_child.devices.push(ChildDevice::Bus(grandchild));
+                    bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
                 }
             } else if secondary_bus == bus.bus_number {
                 log::warn!("PCIe: Secondary bus number is same as the current bus number.");
@@ -631,15 +761,10 @@ where
                 visited.insert(secondary_bus);
                 check_bus(&mut bus_child, bus_tree, visited, f);
 
-                bus.attached_devices.push(Arc::new(bus_child));
+                bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
-        } else if let Ok(device) = info.attach() {
-            bus.attached_devices.push(device);
         } else {
-            // Fallback to UnknownDevice.
-            let info = f(bus.segment_group, bus.bus_number, device, function, addr).unwrap();
-            let unknown_device = UnknownDevice { info };
-            bus.attached_devices.push(Arc::new(unknown_device));
+            bus.devices.push(ChildDevice::Unattached(Box::new(info)));
         }
 
         true
@@ -648,29 +773,60 @@ where
     }
 }
 
-pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
+pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, ranges: &[PCIeRange]) {
+    init(
+        segment_group,
+        Some(base_address),
+        PCIeInfo::from_addr,
+        ranges,
+    );
+}
+
+fn init<F>(segment_group: u16, base_address: Option<VirtAddr>, f: F, _ranges: &[PCIeRange])
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+{
     let mut visited = BTreeSet::new();
 
     let mut bus_tree = PCIeTree {
         tree: BTreeMap::new(),
     };
 
+    let mut host_bridge_bus = 0;
+
     for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
         }
 
-        if PCIeInfo::from_addr(segment_group, bus_number, 0, 0, base_address).is_err() {
+        let offset = (bus_number as usize) << 20;
+
+        let addr = if let Some(base_address) = base_address {
+            base_address + offset
+        } else {
+            VirtAddr::new(0)
+        };
+
+        if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
+            if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
+                host_bridge_bus = bus_number;
+            }
+        } else {
             continue;
         };
 
-        let mut bus = PCIeBus::new(segment_group, bus_number, Some(base_address), None);
+        let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
 
         visited.insert(bus_number);
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_addr);
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
 
-        bus_tree.tree.insert(bus_number, Arc::new(bus));
+        bus_tree.tree.insert(bus_number, Box::new(bus));
     }
+
+    bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
+    bus_tree.attach();
+
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
@@ -696,6 +852,11 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
+
+    // The bridge having this device.
+    bridge_bus_number: Option<u8>,
+    bridge_device_number: Option<u8>,
+    bridge_function_number: Option<u8>,
 }
 
 impl fmt::Display for PCIeInfo {
@@ -775,7 +936,7 @@ impl PCIeInfo {
 
         let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
 
-        let result = PCIeInfo {
+        let mut result = PCIeInfo {
             config_space,
             segment_group,
             bus_number,
@@ -792,7 +953,14 @@ impl PCIeInfo {
             msi: None,
             msix: None,
             pcie_cap: None,
+            bridge_bus_number: None,
+            bridge_device_number: None,
+            bridge_function_number: None,
         };
+
+        if result.match_device() {
+            result.read_bar();
+        }
 
         Ok(result)
     }
@@ -880,7 +1048,7 @@ impl PCIeInfo {
         capability::read(self);
     }
 
-    pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
+    fn read_bar(&mut self) {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
@@ -888,15 +1056,7 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        let mut csr = self.read_status_command();
-
-        // Disable the device
-        csr.set(registers::StatusCommand::MEMORY_SPACE, false);
-        csr.set(registers::StatusCommand::IO_SPACE, false);
-        self.write_status_command(csr);
-
-        if self.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
-        } else {
+        if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
                 let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
@@ -911,6 +1071,15 @@ impl PCIeInfo {
                 }
             }
         }
+    }
+
+    pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
+        let mut csr = self.read_status_command();
+
+        // Disable the device
+        csr.set(registers::StatusCommand::MEMORY_SPACE, false);
+        csr.set(registers::StatusCommand::IO_SPACE, false);
+        self.write_status_command(csr);
 
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
@@ -963,8 +1132,31 @@ impl PCIeInfo {
         self.base_addresses.get(i).cloned()
     }
 
+    fn match_device(&self) -> bool {
+        #[allow(clippy::single_match)] // TODO: To be removed
+        match self.vendor {
+            pcie_id::INTEL_VENDOR_ID =>
+            {
+                #[cfg(feature = "igb")]
+                if net::igb::match_device(self.vendor, self.id) {
+                    return true;
+                }
+            }
+            _ => (),
+        }
+
+        false
+    }
+
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        let segment_group = self.segment_group;
+        let bus_number = self.bus_number;
+        let device_number = self.device_number;
+        let function_number = self.function_number;
+        let vendor = self.vendor;
+        let id = self.id;
+
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID =>
@@ -974,16 +1166,18 @@ impl PCIeInfo {
                     return net::igb::attach(self);
                 }
             }
-            _ => {
-                return Ok(Arc::new(UnknownDevice { info: self }));
-            }
+            _ => (),
         }
 
-        Err(PCIeDeviceErr::UnRecognizedDevice {
-            bus: self.bus_number,
-            device: self.id,
-            vendor: self.vendor,
-        })
+        Ok(Arc::new(UnknownDevice {
+            segment_group,
+            bus_number,
+            device_number,
+            function_number,
+            vendor,
+            id,
+            pcie_class: self.pcie_class,
+        }))
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
@@ -1000,7 +1194,7 @@ impl PCIeInfo {
 pub trait PCIeDevice {
     fn device_name(&self) -> Cow<'static, str>;
 
-    fn children(&self) -> Option<&Vec<Arc<dyn PCIeDevice + Sync + Send>>> {
+    fn children(&self) -> Option<&Vec<ChildDevice>> {
         None
     }
 }
