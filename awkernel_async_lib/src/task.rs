@@ -26,7 +26,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -49,6 +49,8 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+static CPUID_TO_RAWCPUID: [AtomicUsize; NUM_MAX_CPU] =
+    array![_ => AtomicUsize::new(0); NUM_MAX_CPU]; // CPU ID to RAW CPU ID
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -306,6 +308,17 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
 }
 
 #[inline(always)]
+pub fn get_current_task_ref(cpu_id: usize) -> Option<Arc<Task>> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+    if let Some(task_id) = get_current_task(cpu_id) {
+        tasks.id_to_task.get(&task_id).cloned()
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
@@ -403,6 +416,8 @@ pub mod perf {
 }
 
 pub fn run_main() {
+    CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
+        .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
     let mut task_exec_times = [0; MAX_MEASURE_SIZE];
     let mut measure_count = 0;
     let mut measure_duration_start = 0;
@@ -646,6 +661,11 @@ pub fn get_num_preemption() -> usize {
     {
         0
     }
+}
+
+#[inline(always)]
+pub fn get_raw_cpu_id(cpu_id: usize) -> usize {
+    CPUID_TO_RAWCPUID[cpu_id].load(Ordering::Relaxed)
 }
 
 pub fn panicking() {
