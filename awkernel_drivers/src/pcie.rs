@@ -456,20 +456,7 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
 pub fn init_with_io() {
-    let mut visited = BTreeSet::new();
-
-    let mut bus_tree = PCIeTree {
-        tree: BTreeMap::new(),
-    };
-
-    for bus_number in 0..=255 {
-        if PCIeInfo::from_io(0, bus_number, 0, 0, VirtAddr::new(0)).is_err() {
-            continue;
-        };
-        let mut bus = PCIeBus::new(0, bus_number, None, None);
-
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_io);
-    }
+    init(0, None, PCIeInfo::from_io, &[]);
 }
 
 struct UnknownDevice {
@@ -786,7 +773,19 @@ where
     }
 }
 
-pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, _ranges: &[PCIeRange]) {
+pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, ranges: &[PCIeRange]) {
+    init(
+        segment_group,
+        Some(base_address),
+        PCIeInfo::from_addr,
+        ranges,
+    );
+}
+
+fn init<F>(segment_group: u16, base_address: Option<VirtAddr>, f: F, _ranges: &[PCIeRange])
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+{
     let mut visited = BTreeSet::new();
 
     let mut bus_tree = PCIeTree {
@@ -802,9 +801,13 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, _ranges: &[PCI
 
         let offset = (bus_number as usize) << 20;
 
-        let addr = base_address + offset;
+        let addr = if let Some(base_address) = base_address {
+            base_address + offset
+        } else {
+            VirtAddr::new(0)
+        };
 
-        if let Ok(info) = PCIeInfo::from_addr(segment_group, bus_number, 0, 0, addr) {
+        if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
             if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
                 host_bridge_bus = bus_number;
             }
@@ -812,10 +815,10 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, _ranges: &[PCI
             continue;
         };
 
-        let mut bus = PCIeBus::new(segment_group, bus_number, Some(base_address), None);
+        let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
 
         visited.insert(bus_number);
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &PCIeInfo::from_addr);
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
     }

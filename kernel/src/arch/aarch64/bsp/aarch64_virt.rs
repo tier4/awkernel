@@ -438,21 +438,19 @@ impl AArch64Virt {
             ranges.push(range);
         }
 
-        log::debug!("PCIe: range = {:x?}", ranges);
-
         // Get the "reg" property.
         let Some((base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
-        log::debug!("PCIe: base = {:#x}", base.as_usize());
+        // TODO: disabled PCIe currently.
 
         // Initialize PCIe.
-        awkernel_drivers::pcie::init_with_addr(
-            0,
-            VirtAddr::new(base.as_usize()),
-            ranges.as_slice(),
-        );
+        // awkernel_drivers::pcie::init_with_addr(
+        //     0,
+        //     VirtAddr::new(base.as_usize()),
+        //     ranges.as_slice(),
+        // );
 
         Ok(())
     }
