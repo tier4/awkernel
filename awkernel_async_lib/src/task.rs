@@ -418,7 +418,6 @@ pub fn run_main() {
 
                 if let Some(ctx) = info.take_preempt_context() {
                     info.update_last_executed();
-                    info.state = State::Running;
                     drop(info);
 
                     unsafe { preempt::yield_and_pool(ctx) };
