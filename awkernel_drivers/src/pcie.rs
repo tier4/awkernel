@@ -24,7 +24,12 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
-use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
+use crate::{
+    device,
+    pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass},
+};
+
+use self::pcie_device_tree::PCIeRange;
 
 pub mod pcie_device_tree;
 
@@ -141,7 +146,7 @@ impl ConfigSpace {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseAddress {
     IO(u32),
     MMIO {
@@ -294,7 +299,7 @@ impl BaseAddress {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressType {
     T32B, // 32 bit address space
     T64B, // 64 bit address space
@@ -445,7 +450,7 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         }
 
         let base_address = segment.physical_address;
-        init_with_addr(segment.segment_group, VirtAddr::new(base_address));
+        init_with_addr(segment.segment_group, VirtAddr::new(base_address), &[]);
     }
 
     Ok(())
@@ -605,6 +610,37 @@ impl PCIeBus {
             }
         }
     }
+
+    fn apply_ranges(&mut self, ranges: &[PCIeRange]) {
+        for device in self.devices.iter_mut() {
+            if let ChildDevice::Unattached(info) = device {
+                for addr in info.base_addresses.iter_mut() {
+                    if let BaseAddress::None = addr {
+                        continue;
+                    }
+
+                    for range in ranges.iter() {
+                        if let (
+                            Some(bridge_bus_number),
+                            Some(bridge_device_number),
+                            Some(bridge_function_number),
+                        ) = (
+                            info.bridge_bus_number,
+                            info.bridge_device_number,
+                            info.bridge_function_number,
+                        ) {
+                            range.translate(
+                                addr,
+                                bridge_bus_number,
+                                bridge_device_number,
+                                bridge_function_number,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl PCIeDevice for PCIeBus {
@@ -759,7 +795,7 @@ where
     }
 }
 
-pub fn init_with_addr(segment_group: u16, base_address: VirtAddr) {
+pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, ranges: &[PCIeRange]) {
     let mut visited = BTreeSet::new();
 
     let mut bus_tree = PCIeTree {
@@ -905,7 +941,7 @@ impl PCIeInfo {
 
         let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
 
-        let result = PCIeInfo {
+        let mut result = PCIeInfo {
             config_space,
             segment_group,
             bus_number,
@@ -926,6 +962,9 @@ impl PCIeInfo {
             bridge_device_number: None,
             bridge_function_number: None,
         };
+
+        log::debug!("PCIe: reading BAR, {}", result);
+        result.read_bar();
 
         Ok(result)
     }
@@ -1013,7 +1052,7 @@ impl PCIeInfo {
         capability::read(self);
     }
 
-    pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
+    fn read_bar(&mut self) {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
@@ -1021,15 +1060,12 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        let mut csr = self.read_status_command();
+        for i in 0..num_reg {
+            let reg = self.config_space.read_u32(registers::BAR0 + i * 4);
+            log::debug!("BAR{}: {:x}", i, reg);
+        }
 
-        // Disable the device
-        csr.set(registers::StatusCommand::MEMORY_SPACE, false);
-        csr.set(registers::StatusCommand::IO_SPACE, false);
-        self.write_status_command(csr);
-
-        if self.header_type == registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
-        } else {
+        if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
                 let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
@@ -1044,6 +1080,15 @@ impl PCIeInfo {
                 }
             }
         }
+    }
+
+    pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
+        let mut csr = self.read_status_command();
+
+        // Disable the device
+        csr.set(registers::StatusCommand::MEMORY_SPACE, false);
+        csr.set(registers::StatusCommand::IO_SPACE, false);
+        self.write_status_command(csr);
 
         // Enable the device
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);

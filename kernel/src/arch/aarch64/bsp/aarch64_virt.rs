@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, vec::Vec};
 use awkernel_drivers::{
+    pcie::pcie_device_tree::PCIeRange,
     psci::{self, Affinity},
     uart::pl011::PL011,
 };
@@ -433,20 +434,11 @@ impl AArch64Virt {
             let cpu_mem = (cpu_mem_hi as u64) << 32 | cpu_mem_lo as u64;
             let size = (size_hi as u64) << 32 | size_lo as u64;
 
-            ranges.push((head, pcie_mem, cpu_mem, size));
+            let range = PCIeRange::new(head, pcie_mem as usize, cpu_mem as usize, size as usize);
+            ranges.push(range);
         }
 
         log::debug!("PCIe: range = {:x?}", ranges);
-
-        for range in ranges.iter() {
-            let r = awkernel_drivers::pcie::pcie_device_tree::PCIeRange::new(
-                range.0,
-                range.1 as usize,
-                range.2 as usize,
-                range.3 as usize,
-            );
-            log::debug!("PCIeRange: {:?}", r);
-        }
 
         // Get the "reg" property.
         let Some((base, _size)) = self.pcie_reg else {
@@ -456,7 +448,11 @@ impl AArch64Virt {
         log::debug!("PCIe: base = {:#x}", base.as_usize());
 
         // Initialize PCIe.
-        awkernel_drivers::pcie::init_with_addr(0, VirtAddr::new(base.as_usize()));
+        awkernel_drivers::pcie::init_with_addr(
+            0,
+            VirtAddr::new(base.as_usize()),
+            ranges.as_slice(),
+        );
 
         Ok(())
     }

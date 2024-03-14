@@ -51,7 +51,7 @@ impl PCIeRange {
 
     pub fn translate(
         &self,
-        addr: BaseAddress,
+        addr: &BaseAddress,
         bridge_bus_number: u8,
         bridge_device_number: u8,
         bridge_function_number: u8,
@@ -74,7 +74,7 @@ impl PCIeRange {
                     return None;
                 }
 
-                let addr = addr as usize;
+                let addr = *addr as usize;
 
                 if (self.device_addr..(self.device_addr + self.size)).contains(&addr) {
                     Some(BaseAddress::MMIO {
@@ -106,16 +106,16 @@ impl PCIeRange {
                     }
                 };
 
-                if self.prefetchable != prefetchable {
+                if self.prefetchable != *prefetchable {
                     return None;
                 }
 
                 let range = self.device_addr..(self.device_addr + self.size);
 
-                if range.contains(&addr) && range.contains(&(addr + size - 1)) {
+                if range.contains(addr) && range.contains(&(*addr + *size - 1)) {
                     Some(BaseAddress::MMIO {
                         addr: self.cpu_addr + (addr - self.device_addr),
-                        size,
+                        size: *size,
                         address_type: AddressType::T64B,
                         prefetchable: self.prefetchable,
                     })
