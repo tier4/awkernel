@@ -360,6 +360,12 @@ impl PCIeTree {
             bus.attach();
         }
     }
+
+    fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
+        for (_, bus) in self.tree.iter_mut() {
+            bus.init_base_address(ranges);
+        }
+    }
 }
 
 impl fmt::Display for PCIeTree {
@@ -396,6 +402,20 @@ impl ChildDevice {
 
         if let Ok(device) = info.attach() {
             *self = ChildDevice::Attached(device);
+        }
+    }
+
+    fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
+        match self {
+            ChildDevice::Bus(bus) => {
+                if let Some(info) = bus.info.as_mut() {
+                    info.init_base_address(ranges);
+                }
+            }
+            ChildDevice::Unattached(info) => {
+                info.init_base_address(ranges);
+            }
+            _ => (),
         }
     }
 }
@@ -462,6 +482,12 @@ impl PCIeBus {
     fn attach(&mut self) {
         for device in self.devices.iter_mut() {
             device.attach();
+        }
+    }
+
+    fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
+        for device in self.devices.iter_mut() {
+            device.init_base_address(ranges);
         }
     }
 }
@@ -618,7 +644,11 @@ where
     }
 }
 
-pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, ranges: &[PCIeRange]) {
+pub fn init_with_addr(
+    segment_group: u16,
+    base_address: VirtAddr,
+    ranges: Option<&mut [PCIeRange]>,
+) {
     init(
         segment_group,
         Some(base_address),
@@ -627,8 +657,12 @@ pub fn init_with_addr(segment_group: u16, base_address: VirtAddr, ranges: &[PCIe
     );
 }
 
-fn init<F>(segment_group: u16, base_address: Option<VirtAddr>, f: F, _ranges: &[PCIeRange])
-where
+fn init<F>(
+    segment_group: u16,
+    base_address: Option<VirtAddr>,
+    f: F,
+    ranges: Option<&mut [PCIeRange]>,
+) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
     let mut visited = BTreeSet::new();
@@ -669,6 +703,11 @@ where
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
+
+    if let Some(ranges) = ranges {
+        bus_tree.init_base_address(ranges);
+    }
+
     bus_tree.attach();
 
     log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
@@ -808,6 +847,35 @@ impl PCIeInfo {
         log::debug!("PCIeInfo: {}, BAR = {:x?}", result, result.base_addresses);
 
         Ok(result)
+    }
+
+    fn init_base_address(&mut self, ranges: &mut [PCIeRange]) {
+        let Some(bridge_bus_number) = self.bridge_bus_number else {
+            return;
+        };
+
+        let Some(bridge_device_number) = self.bridge_device_number else {
+            return;
+        };
+
+        let Some(bridge_function_number) = self.bridge_function_number else {
+            return;
+        };
+
+        for addr in self.base_addresses.iter_mut() {
+            for range in ranges.iter_mut() {
+                if let Some(allocated) = range.allocate(
+                    addr,
+                    bridge_bus_number,
+                    bridge_device_number,
+                    bridge_function_number,
+                ) {
+                    log::debug!("PCIe: Allocate {:x?} -> {:x?}", addr, allocated.cpu_addr);
+                    // TODO
+                    break;
+                }
+            }
+        }
     }
 
     /// Get the information for PCIe device as BFD format.

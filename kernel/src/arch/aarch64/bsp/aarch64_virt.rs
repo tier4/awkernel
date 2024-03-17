@@ -451,7 +451,7 @@ impl AArch64Virt {
         awkernel_drivers::pcie::init_with_addr(
             0,
             VirtAddr::new(base.as_usize()),
-            ranges.as_slice(),
+            Some(ranges.as_mut_slice()),
         );
 
         Ok(())
