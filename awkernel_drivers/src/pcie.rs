@@ -803,9 +803,7 @@ impl PCIeInfo {
             bridge_function_number: None,
         };
 
-        if result.match_device() {
-            result.read_bar();
-        }
+        result.read_bar();
 
         log::debug!("PCIeInfo: {}, BAR = {:x?}", result, result.base_addresses);
 

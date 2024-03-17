@@ -18,6 +18,12 @@ pub struct PCIeRange {
     device_addr: usize,
     cpu_addr: usize,
     size: usize,
+    allocated_size: usize,
+}
+
+pub struct AllocatedRange {
+    pub device_addr: usize,
+    pub cpu_addr: BaseAddress,
 }
 
 impl PCIeRange {
@@ -46,6 +52,99 @@ impl PCIeRange {
             device_addr,
             cpu_addr,
             size,
+            allocated_size: 0,
+        }
+    }
+
+    pub fn allocate(
+        &mut self,
+        addr: &BaseAddress,
+        bridge_bus_number: u8,
+        bridge_device_number: u8,
+        bridge_function_number: u8,
+    ) -> Option<AllocatedRange> {
+        if self.bus_number != bridge_bus_number {
+            return None;
+        }
+
+        if self.device_number != bridge_device_number {
+            return None;
+        }
+
+        if self.function_number != bridge_function_number {
+            return None;
+        }
+
+        match addr {
+            BaseAddress::IO { size, .. } => {
+                if self.code != RangeCode::IOSpace {
+                    return None;
+                }
+
+                let allocated_size = self.allocated_size + size;
+                if allocated_size > self.size {
+                    return None;
+                }
+
+                let allocated = AllocatedRange {
+                    device_addr: self.device_addr + self.allocated_size,
+                    cpu_addr: BaseAddress::MMIO {
+                        addr: self.cpu_addr + self.allocated_size,
+                        size: *size,
+                        address_type: AddressType::T32B,
+                        prefetchable: self.prefetchable,
+                    },
+                };
+
+                self.allocated_size = allocated_size;
+
+                Some(allocated)
+            }
+            BaseAddress::MMIO {
+                size,
+                address_type,
+                prefetchable,
+                ..
+            } => {
+                if self.prefetchable != *prefetchable {
+                    return None;
+                }
+
+                let allocated_size = self.allocated_size + size;
+                if allocated_size > self.size {
+                    return None;
+                }
+
+                let address_type = match address_type {
+                    AddressType::T32B => {
+                        if self.code != RangeCode::Memory32 {
+                            return None;
+                        }
+                        AddressType::T32B
+                    }
+                    AddressType::T64B => {
+                        if self.code != RangeCode::Memory64 {
+                            return None;
+                        }
+                        AddressType::T64B
+                    }
+                };
+
+                let result = AllocatedRange {
+                    device_addr: self.device_addr + self.allocated_size,
+                    cpu_addr: BaseAddress::MMIO {
+                        addr: self.cpu_addr + self.allocated_size,
+                        size: *size,
+                        address_type,
+                        prefetchable: self.prefetchable,
+                    },
+                };
+
+                self.allocated_size = allocated_size;
+
+                Some(result)
+            }
+            BaseAddress::None => None,
         }
     }
 
