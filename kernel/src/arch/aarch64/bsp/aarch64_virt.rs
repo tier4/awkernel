@@ -5,7 +5,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::phy_addr::PhyAddr,
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::set_max_affinity,
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
@@ -439,18 +439,18 @@ impl AArch64Virt {
         }
 
         // Get the "reg" property.
-        let Some((_base, _size)) = self.pcie_reg else {
+        let Some((base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
         // TODO: disabled PCIe currently.
 
         // Initialize PCIe.
-        // awkernel_drivers::pcie::init_with_addr(
-        //     0,
-        //     VirtAddr::new(base.as_usize()),
-        //     ranges.as_slice(),
-        // );
+        awkernel_drivers::pcie::init_with_addr(
+            0,
+            VirtAddr::new(base.as_usize()),
+            ranges.as_slice(),
+        );
 
         Ok(())
     }

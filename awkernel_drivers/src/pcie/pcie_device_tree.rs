@@ -1,4 +1,4 @@
-use super::{AddressType, BaseAddress};
+use super::base_address::{AddressType, BaseAddress};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RangeCode {
@@ -69,14 +69,17 @@ impl PCIeRange {
         }
 
         match addr {
-            BaseAddress::IO(addr) => {
+            BaseAddress::IO { addr, size } => {
                 if self.code != RangeCode::IOSpace {
                     return None;
                 }
 
                 let addr = *addr as usize;
 
-                if (self.device_addr..(self.device_addr + self.size)).contains(&addr) {
+                if (self.device_addr..(self.device_addr + self.size)).contains(&addr)
+                    && (self.device_addr..(self.device_addr + self.size))
+                        .contains(&(addr + size - 1))
+                {
                     Some(BaseAddress::MMIO {
                         addr: self.cpu_addr + (addr - self.device_addr),
                         size: self.size - (addr - self.device_addr),
