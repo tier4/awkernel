@@ -12,16 +12,16 @@ type Lock<T> = super::mcs::MCSLock<T>;
 type Lock<T> = super::spinlock::SpinLock<T>;
 
 #[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
-type LockGuard<'a, T> = super::mcs::MCSLockGuard<'a, T>;
+pub type LockGuard<'a, T> = super::mcs::MCSLockGuard<'a, T>;
 
 #[cfg(all(not(feature = "std"), feature = "spinlock"))]
-type LockGuard<'a, T> = super::spinlock::SpinLockGuard<'a, T>;
+pub type LockGuard<'a, T> = super::spinlock::SpinLockGuard<'a, T>;
 
 #[cfg(feature = "std")]
 type Lock<T> = parking_lot::Mutex<T>;
 
 #[cfg(feature = "std")]
-type LockGuard<'a, T> = parking_lot::MutexGuard<'a, T>;
+pub type LockGuard<'a, T> = parking_lot::MutexGuard<'a, T>;
 
 /// A mutual exclusion primitive that provides safe concurrent access to the inner data.
 ///
