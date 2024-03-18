@@ -445,7 +445,7 @@ impl AArch64Virt {
 
         // TODO: disabled PCIe currently.
 
-        log::debug!("ranges: {:?}", ranges);
+        log::debug!("ranges: {:#x?}", ranges);
 
         // Initialize PCIe.
         awkernel_drivers::pcie::init_with_addr(

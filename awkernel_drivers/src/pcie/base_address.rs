@@ -1,6 +1,6 @@
 use core::ptr::{read_volatile, write_volatile};
 
-use awkernel_lib::addr::virt_addr::VirtAddr;
+use awkernel_lib::addr::{virt_addr::VirtAddr, Addr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressType {
@@ -49,6 +49,31 @@ impl BaseAddress {
 
     pub fn is_io(&self) -> bool {
         matches!(self, Self::IO { .. })
+    }
+
+    pub unsafe fn set_base_address(&mut self, addr: usize) {
+        match self {
+            Self::IO {
+                reg_addr: Some(reg_addr),
+                ..
+            } => {
+                write_volatile(reg_addr.as_mut_ptr(), addr as u32);
+            }
+            Self::MMIO {
+                reg_addr: Some(reg_addr),
+                address_type,
+                ..
+            } => {
+                if *address_type == AddressType::T32B {
+                    write_volatile(reg_addr.as_mut_ptr(), addr as u32);
+                } else {
+                    let dst = reg_addr.as_mut_ptr::<u32>();
+                    write_volatile(dst, ((addr as u64) & 0xffff_ffff) as u32);
+                    write_volatile(dst.add(1), ((addr as u64) >> 32) as u32);
+                }
+            }
+            _ => (),
+        }
     }
 
     pub fn read16(&self, offset: usize) -> Option<u16> {

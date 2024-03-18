@@ -31,7 +31,7 @@ use self::{
 
 pub mod pcie_device_tree;
 
-pub mod base_address;
+mod base_address;
 mod capability;
 mod config_space;
 pub mod net;
@@ -765,7 +765,11 @@ impl PCIeInfo {
                     bridge_device_number,
                     bridge_function_number,
                 ) {
-                    log::debug!("PCIe: Allocate {:x?} -> {:x?}", addr, allocated.cpu_addr);
+                    unsafe { addr.set_base_address(allocated.device_addr) };
+                    log::debug!("PCIe: Allocate {:#x?} -> {:#x?}", addr, allocated.cpu_addr);
+
+                    *addr = allocated.cpu_addr;
+
                     // TODO
                     break;
                 }
@@ -904,11 +908,7 @@ impl PCIeInfo {
                 ..
             } = bar
             {
-                if *size == 0 {
-                    continue;
-                }
-
-                if *mapped {
+                if *size == 0 || *mapped {
                     continue;
                 }
 

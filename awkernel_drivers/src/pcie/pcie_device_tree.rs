@@ -1,3 +1,5 @@
+use awkernel_lib::addr::phy_addr::PhyAddr;
+
 use super::base_address::{AddressType, BaseAddress};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -56,6 +58,14 @@ impl PCIeRange {
         }
     }
 
+    pub fn get_cpu_mem(&self) -> PhyAddr {
+        PhyAddr::new(self.cpu_addr)
+    }
+
+    pub fn get_size(&self) -> usize {
+        self.size
+    }
+
     pub fn allocate(
         &mut self,
         addr: &BaseAddress,
@@ -63,17 +73,14 @@ impl PCIeRange {
         bridge_device_number: u8,
         bridge_function_number: u8,
     ) -> Option<AllocatedRange> {
-        if self.bus_number != bridge_bus_number {
+        if self.bus_number != bridge_bus_number
+            || self.device_number != bridge_device_number
+            || self.function_number != bridge_function_number
+        {
             return None;
         }
 
-        if self.device_number != bridge_device_number {
-            return None;
-        }
-
-        if self.function_number != bridge_function_number {
-            return None;
-        }
+        // TODO: align memory
 
         match addr {
             BaseAddress::IO { reg_addr, size, .. } => {
@@ -107,7 +114,6 @@ impl PCIeRange {
                 size,
                 address_type,
                 prefetchable,
-                mapped,
                 ..
             } => {
                 if self.prefetchable != *prefetchable {
@@ -142,7 +148,7 @@ impl PCIeRange {
                         size: *size,
                         address_type,
                         prefetchable: self.prefetchable,
-                        mapped: *mapped,
+                        mapped: true,
                     },
                 };
 
@@ -161,15 +167,10 @@ impl PCIeRange {
         bridge_device_number: u8,
         bridge_function_number: u8,
     ) -> Option<BaseAddress> {
-        if self.bus_number != bridge_bus_number {
-            return None;
-        }
-
-        if self.device_number != bridge_device_number {
-            return None;
-        }
-
-        if self.function_number != bridge_function_number {
+        if self.bus_number != bridge_bus_number
+            || self.device_number != bridge_device_number
+            || self.function_number != bridge_function_number
+        {
             return None;
         }
 
