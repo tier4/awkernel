@@ -1,5 +1,7 @@
 use core::ptr::{read_volatile, write_volatile};
 
+use awkernel_lib::addr::virt_addr::VirtAddr;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AddressType {
     T32B, // 32 bit address space
@@ -9,14 +11,17 @@ pub enum AddressType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BaseAddress {
     IO {
+        reg_addr: Option<VirtAddr>,
         addr: u32,
         size: usize,
     },
     MMIO {
+        reg_addr: Option<VirtAddr>,
         addr: usize,
         size: usize,
         address_type: AddressType,
         prefetchable: bool,
+        mapped: bool,
     },
     None,
 }
@@ -50,7 +55,7 @@ impl BaseAddress {
         assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO { addr, size, .. } => {
                 if offset >= *size {
                     return None;
                 }
@@ -80,7 +85,7 @@ impl BaseAddress {
         assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO { addr, size, .. } => {
                 if offset >= *size {
                     return None;
                 }
@@ -104,7 +109,7 @@ impl BaseAddress {
     pub fn write8(&mut self, offset: usize, val: u8) {
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO { addr, size, .. } => {
                 if offset >= *size {
                     return;
                 }
@@ -136,7 +141,7 @@ impl BaseAddress {
         assert_eq!(offset & 1, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO { addr, size, .. } => {
                 if offset >= *size {
                     return;
                 }
@@ -168,7 +173,7 @@ impl BaseAddress {
         assert_eq!(offset & 0b11, 0);
         match self {
             #[cfg(feature = "x86")]
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO { addr, size, .. } => {
                 if offset >= *size {
                     return;
                 }

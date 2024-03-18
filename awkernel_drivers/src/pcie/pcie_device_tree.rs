@@ -76,7 +76,7 @@ impl PCIeRange {
         }
 
         match addr {
-            BaseAddress::IO { size, .. } => {
+            BaseAddress::IO { reg_addr, size, .. } => {
                 if self.code != RangeCode::IOSpace {
                     return None;
                 }
@@ -89,10 +89,12 @@ impl PCIeRange {
                 let allocated = AllocatedRange {
                     device_addr: self.device_addr + self.allocated_size,
                     cpu_addr: BaseAddress::MMIO {
+                        reg_addr: *reg_addr,
                         addr: self.cpu_addr + self.allocated_size,
                         size: *size,
                         address_type: AddressType::T32B,
                         prefetchable: self.prefetchable,
+                        mapped: true,
                     },
                 };
 
@@ -101,9 +103,11 @@ impl PCIeRange {
                 Some(allocated)
             }
             BaseAddress::MMIO {
+                reg_addr,
                 size,
                 address_type,
                 prefetchable,
+                mapped,
                 ..
             } => {
                 if self.prefetchable != *prefetchable {
@@ -133,10 +137,12 @@ impl PCIeRange {
                 let result = AllocatedRange {
                     device_addr: self.device_addr + self.allocated_size,
                     cpu_addr: BaseAddress::MMIO {
+                        reg_addr: *reg_addr,
                         addr: self.cpu_addr + self.allocated_size,
                         size: *size,
                         address_type,
                         prefetchable: self.prefetchable,
+                        mapped: *mapped,
                     },
                 };
 
@@ -168,7 +174,11 @@ impl PCIeRange {
         }
 
         match addr {
-            BaseAddress::IO { addr, size } => {
+            BaseAddress::IO {
+                reg_addr,
+                addr,
+                size,
+            } => {
                 if self.code != RangeCode::IOSpace {
                     return None;
                 }
@@ -180,20 +190,24 @@ impl PCIeRange {
                         .contains(&(addr + size - 1))
                 {
                     Some(BaseAddress::MMIO {
+                        reg_addr: *reg_addr,
                         addr: self.cpu_addr + (addr - self.device_addr),
                         size: self.size - (addr - self.device_addr),
                         address_type: AddressType::T64B,
                         prefetchable: self.prefetchable,
+                        mapped: true,
                     })
                 } else {
                     None
                 }
             }
             BaseAddress::MMIO {
+                reg_addr,
                 addr,
                 size,
                 address_type,
                 prefetchable,
+                mapped,
             } => {
                 match address_type {
                     AddressType::T32B => {
@@ -216,10 +230,12 @@ impl PCIeRange {
 
                 if range.contains(addr) && range.contains(&(*addr + *size - 1)) {
                     Some(BaseAddress::MMIO {
+                        reg_addr: *reg_addr,
                         addr: self.cpu_addr + (addr - self.device_addr),
                         size: *size,
                         address_type: AddressType::T64B,
                         prefetchable: self.prefetchable,
+                        mapped: *mapped,
                     })
                 } else {
                     None
