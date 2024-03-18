@@ -222,6 +222,17 @@ impl VM {
         Some(addr as usize)
     }
 
+    pub fn find_heap(&self, size: usize) -> Option<PhyAddr> {
+        for range in self.heap.iter().flatten() {
+            let range_size = range.end - range.start;
+            if range_size.as_usize() >= size {
+                return Some(range.start);
+            }
+        }
+
+        None
+    }
+
     /// If
     /// - heap:   `***---------***`
     /// - remove: `*****---*******`

@@ -8,14 +8,14 @@
 use super::bsp::DeviceTreeRef;
 use crate::{
     arch::aarch64::bsp::SoC,
-    config::{BACKUP_HEAP_SIZE, HEAP_START},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
 use awkernel_lib::{
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
-    heap,
+    dma_pool, heap,
 };
 use core::{
     arch::asm,
@@ -124,6 +124,13 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     heap::init_backup(backup_start, backup_size);
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    for i in 0..initializer.get_segment_count() {
+        if let Some(dma_pool) = initializer.get_dma_pool(i) {
+            log::debug!("DMA pool: {:?}", dma_pool);
+            dma_pool::init_dma_pool(i, dma_pool, DMA_SIZE);
+        }
+    }
 
     // 6. Board specific initialization (Interrupt controller, PCIe, etc).
     if let Err(msg) = initializer.init() {

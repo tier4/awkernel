@@ -71,7 +71,7 @@ impl super::SoC for Raspi {
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str> {
+    unsafe fn init_virtual_memory(&mut self) -> Result<VM, &'static str> {
         let mut vm = VM::new();
 
         let num_cpus = self
