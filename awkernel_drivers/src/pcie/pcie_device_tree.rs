@@ -88,16 +88,16 @@ impl PCIeRange {
                     return None;
                 }
 
-                let allocated_size = self.allocated_size + size;
+                let allocated_size = align_addr(self.allocated_size, *size) + size;
                 if allocated_size > self.size {
                     return None;
                 }
 
                 let allocated = AllocatedRange {
-                    device_addr: self.device_addr + self.allocated_size,
+                    device_addr: self.device_addr + allocated_size,
                     cpu_addr: BaseAddress::MMIO {
                         reg_addr: *reg_addr,
-                        addr: self.cpu_addr + self.allocated_size,
+                        addr: self.cpu_addr + allocated_size,
                         size: *size,
                         address_type: AddressType::T32B,
                         prefetchable: self.prefetchable,
@@ -120,7 +120,7 @@ impl PCIeRange {
                     return None;
                 }
 
-                let allocated_size = self.allocated_size + size;
+                let allocated_size = align_addr(self.allocated_size, *size) + size;
                 if allocated_size > self.size {
                     return None;
                 }
@@ -141,10 +141,10 @@ impl PCIeRange {
                 };
 
                 let result = AllocatedRange {
-                    device_addr: self.device_addr + self.allocated_size,
+                    device_addr: self.device_addr + allocated_size,
                     cpu_addr: BaseAddress::MMIO {
                         reg_addr: *reg_addr,
-                        addr: self.cpu_addr + self.allocated_size,
+                        addr: self.cpu_addr + allocated_size,
                         size: *size,
                         address_type,
                         prefetchable: self.prefetchable,
@@ -245,4 +245,9 @@ impl PCIeRange {
             BaseAddress::None => None,
         }
     }
+}
+
+#[inline]
+fn align_addr(addr: usize, align: usize) -> usize {
+    addr.wrapping_add(align - 1) & !(align - 1)
 }

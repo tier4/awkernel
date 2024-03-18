@@ -443,8 +443,6 @@ impl AArch64Virt {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
-        // TODO: disabled PCIe currently.
-
         log::debug!("ranges: {:#x?}", ranges);
 
         // Initialize PCIe.

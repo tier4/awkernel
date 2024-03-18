@@ -739,8 +739,6 @@ impl PCIeInfo {
 
         result.read_bar();
 
-        log::debug!("PCIeInfo: {}, BAR = {:x?}", result, result.base_addresses);
-
         Ok(result)
     }
 
@@ -769,8 +767,6 @@ impl PCIeInfo {
                     log::debug!("PCIe: Allocate {:#x?} -> {:#x?}", addr, allocated.cpu_addr);
 
                     *addr = allocated.cpu_addr;
-
-                    // TODO
                     break;
                 }
             }
