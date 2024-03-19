@@ -31,7 +31,7 @@ mod registers {
 
     bitflags! {
         #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-        pub struct GicdCtlrSecure: u32 {
+        pub struct GicdCtrlSecure: u32 {
             const RWP = 1 << 31;
             const nASSGIreq = 1 << 8;
             const E1NWF = 1 << 7;
@@ -44,7 +44,7 @@ mod registers {
         }
 
         #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-        pub struct GicdCtlrNonSecure: u32 {
+        pub struct GicdCtrlNonSecure: u32 {
             const RWP = 1 << 31;
             const ARE_NS = 1 << 4;
             const EnableGrp1 = 1 << 1;
@@ -52,10 +52,10 @@ mod registers {
         }
 
         #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-        pub struct GicdCtlr: u32 {
+        pub struct GicdCtrl: u32 {
             /// RWP is 1 during the following fields are updating.
-            /// - GICD_CTLR[2:0], the Group Enables, for transitions from 1 to 0 only.
-            /// - GICD_CTLR[7:4], the ARE bits, E1NWF bit and DS bit.
+            /// - GICD_CTRL[2:0], the Group Enables, for transitions from 1 to 0 only.
+            /// - GICD_CTRL[7:4], the ARE bits, E1NWF bit and DS bit.
             /// - GICD_ICENABLER<n>.
             const RWP = 1 << 31;
 
@@ -68,7 +68,7 @@ mod registers {
         }
 
         #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-        pub struct GicrCtlr: u32 {
+        pub struct GicrCtrl: u32 {
             const UWP = 1 << 31;
             const DPG1S = 1 << 26;
             const DPG1NS = 1 << 25;
@@ -86,10 +86,12 @@ mod registers {
         }
     }
 
+    pub const _GICD_TYPER_LPIS: u32 = 1 << 17;
+
     // GICD_base
-    mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>); // Single security mode.
-    mmio_rw!(offset 0x0000 => pub GICD_CTLR_SECURE<GicdCtlrSecure>); // Secure mode.
-    mmio_rw!(offset 0x0000 => pub GICD_CTLR_NON_SECURE<GicdCtlrNonSecure>); // Non-secure mode.
+    mmio_rw!(offset 0x0000 => pub GICD_CTRL<GicdCtrl>); // Single security mode.
+    mmio_rw!(offset 0x0000 => pub GICD_CTRL_SECURE<GicdCtrlSecure>); // Secure mode.
+    mmio_rw!(offset 0x0000 => pub GICD_CTRL_NON_SECURE<GicdCtrlNonSecure>); // Non-secure mode.
     mmio_rw!(offset 0x0004 => pub GICD_TYPER<u32>);
     mmio_rw!(offset 0x0080 => pub GICD_IGROUPR<u32>);
     mmio_rw!(offset 0x0100 => pub GICD_ISENABLER<u32>);
@@ -101,7 +103,7 @@ mod registers {
     mmio_rw!(offset 0x6000 => pub GICD_IROUTER<u64>);
 
     // GICR_base
-    mmio_rw!(offset 0x0000 => pub GICR_CTLR<GicrCtlr>);
+    mmio_rw!(offset 0x0000 => pub GICR_CTRL<GicrCtrl>);
     mmio_rw!(offset 0x0008 => pub GICR_TYPER<u64>);
     mmio_rw!(offset 0x0014 => pub GICR_WAKER<GicrWaker>);
 
@@ -125,18 +127,18 @@ pub struct GICv3 {
 const SGI_OFFSET: usize = 0x10000;
 
 fn wait_gicd_rwp(gicd_base: usize) {
-    while registers::GICD_CTLR
+    while registers::GICD_CTRL
         .read(gicd_base)
-        .contains(registers::GicdCtlr::RWP)
+        .contains(registers::GicdCtrl::RWP)
     {
         spin_loop();
     }
 }
 
 fn wait_gicr_rwp(gicr_base: usize) {
-    while registers::GICR_CTLR
+    while registers::GICR_CTRL
         .read(gicr_base)
-        .contains(registers::GicrCtlr::RWP)
+        .contains(registers::GicrCtrl::RWP)
     {
         spin_loop();
     }
@@ -149,8 +151,8 @@ fn cpu_identity() -> u64 {
 
 impl GICv3 {
     pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
-        let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
-        if gicd_ctlr.contains(registers::GicdCtlr::DS) {
+        let gicd_ctrl = registers::GICD_CTRL.read(gicd_base);
+        if gicd_ctrl.contains(registers::GicdCtrl::DS) {
             log::info!("GICv3 is non secure mode.");
             Self::new_non_secure(gicd_base, gicr_base)
         } else {
@@ -167,7 +169,7 @@ impl GICv3 {
         let gic_max_int = it_lines_number * 32;
 
         // Disable GICD.
-        registers::GICD_CTLR.write(registers::GicdCtlr::empty(), gicd_base);
+        registers::GICD_CTRL.write(registers::GicdCtrl::empty(), gicd_base);
         wait_gicd_rwp(gicd_base);
 
         // Clear SPIs, set group 1.
@@ -208,8 +210,8 @@ impl GICv3 {
         }
 
         // Enable group 1 and affinity routing.
-        registers::GICD_CTLR.write(
-            registers::GicdCtlr::EnableGrp1 | registers::GicdCtlr::ARE | registers::GicdCtlr::E1NWF,
+        registers::GICD_CTRL.write(
+            registers::GicdCtrl::EnableGrp1 | registers::GicdCtrl::ARE | registers::GicdCtrl::E1NWF,
             gicd_base,
         );
         wait_gicd_rwp(gicd_base);
@@ -357,14 +359,14 @@ impl InterruptController for GICv3 {
     }
 
     fn send_ipi(&mut self, irq: u16, target: u32) {
-        const ICC_CTLR_RSS: u64 = 1 << 18;
+        const ICC_CTRL_RSS: u64 = 1 << 18;
         const GICD_TYPER_RSS: u32 = 1 << 26;
 
         let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else {
             return;
         };
 
-        let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTLR_RSS) != 0
+        let (rs, target_list) = if (awkernel_aarch64::icc_ctlr_el1::get() & ICC_CTRL_RSS) != 0
             && registers::GICD_TYPER.read(self.gicd_base) & GICD_TYPER_RSS != 0
         {
             // Targeted SGIs with affinity level 0 values of 0 - 255 are supported.
