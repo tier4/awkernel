@@ -1,11 +1,11 @@
 //! # genet: Broadcom's Genet Ethernet controller.
 
-use core::f32::consts::E;
-
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     net::ether::ETHER_ADDR_LEN,
 };
+
+use crate::mii::MiiFlags;
 
 mod registers {
     use awkernel_lib::mmio_r;
@@ -24,6 +24,25 @@ mod registers {
 pub enum GenetError {
     InvalidMajorVersion,
     InvalidMacAddress,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PhyMode {
+    RGMIIId,
+    RGMIIRxId,
+    RGMIITxId,
+    RGMII,
+}
+
+impl PhyMode {
+    fn new(phy_mode: &str) -> Self {
+        match phy_mode {
+            "rgmii-id" => PhyMode::RGMIIId,
+            "rgmii-rxid" => PhyMode::RGMIIRxId,
+            "rgmii-txid" => PhyMode::RGMIITxId,
+            _ => PhyMode::RGMII,
+        }
+    }
 }
 
 pub fn attach(
@@ -63,6 +82,16 @@ pub fn attach(
         mac_addr[4],
         mac_addr[5]
     );
+
+    // Get the PHY mode.
+    let phy_mode = PhyMode::new(phy_mode);
+
+    let mii_flags = match phy_mode {
+        PhyMode::RGMIIId => MiiFlags::RXID | MiiFlags::TXID,
+        PhyMode::RGMIIRxId => MiiFlags::RXID,
+        PhyMode::RGMIITxId => MiiFlags::TXID,
+        PhyMode::RGMII => MiiFlags::empty(),
+    };
 
     Ok(())
 }

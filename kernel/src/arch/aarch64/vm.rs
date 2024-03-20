@@ -222,6 +222,7 @@ impl VM {
         Some(addr as usize)
     }
 
+    #[allow(dead_code)]
     pub fn find_heap(&self, size: usize) -> Option<PhyAddr> {
         for range in self.heap.iter().flatten() {
             let range_size = range.end - range.start;

@@ -17,7 +17,7 @@ use awkernel_lib::{
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
         node::DeviceTreeNode,
-        prop::{NodeProperty, PropertyValue, Range},
+        prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
     },
     err_msg,
