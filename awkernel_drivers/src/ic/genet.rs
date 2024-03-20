@@ -7,8 +7,10 @@ use awkernel_lib::{
 
 use crate::mii::MiiFlags;
 
+pub const DMA_DEFAULT_QUEUE: usize = 16;
+
 mod registers {
-    use awkernel_lib::mmio_r;
+    use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
 
     pub const REV_MAJOR_V5: u8 = 6;
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
@@ -16,8 +18,29 @@ mod registers {
     mmio_r!(offset 0x000 => pub SYS_REV_CTRL<u32>);
     mmio_r!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
 
+    pub const GENET_RX_BASE: usize = 0x2000;
+    pub const GENET_TX_BASE: usize = 0x4000;
+
+    pub const RX_DMA_CTRL_EN: u32 = 1;
+    pub fn rx_dma_ctrl_rbuf_en(qid: usize) -> u32 {
+        1 << (qid + 1)
+    }
+
+    pub const TX_DMA_CTRL_EN: u32 = 1;
+    pub fn tx_dma_ctrl_rbuf_en(qid: usize) -> u32 {
+        1 << (qid + 1)
+    }
+
+    mmio_rw!(offset GENET_RX_BASE + 0x1040 + 0x04 => pub RX_DMA_CTRL<u32>);
+    mmio_rw!(offset GENET_TX_BASE + 0x1040 + 0x04 => pub TX_DMA_CTRL<u32>);
+
+    pub const UMAC_CMD_TXEN: u32 = 1;
+    pub const UMAC_CMD_RXEN: u32 = 1 << 1;
+
+    mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     mmio_r!(offset 0x80c => pub UMAC_MAC0<u32>);
     mmio_r!(offset 0x810 => pub UMAC_MAC1<u32>);
+    mmio_w!(offset 0xb34 => pub UMAC_TX_FLUSH<u32>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +65,72 @@ impl PhyMode {
             "rgmii-txid" => PhyMode::RGMIITxId,
             _ => PhyMode::RGMII,
         }
+    }
+}
+
+pub struct Genet {
+    base_addr: VirtAddr,
+    mac_addr: [u8; ETHER_ADDR_LEN],
+    phy_mode: PhyMode,
+    irqs: [u16; 2],
+}
+
+impl Genet {
+    fn new(
+        base_addr: VirtAddr,
+        mac_addr: [u8; ETHER_ADDR_LEN],
+        phy_mode: PhyMode,
+        irqs: [u16; 2],
+    ) -> Result<Self, GenetError> {
+        let mut genet = Self {
+            base_addr,
+            mac_addr,
+            phy_mode,
+            irqs,
+        };
+
+        genet.reset()?;
+
+        Ok(genet)
+    }
+
+    fn reset(&mut self) -> Result<(), GenetError> {
+        self.disable_dma();
+
+        // TODO
+
+        Ok(())
+    }
+
+    fn disable_dma(&mut self) {
+        let base_addr = self.base_addr.as_usize();
+
+        // Disable receiver.
+        let mut val = registers::UMAC_CMD.read(base_addr);
+        val &= !registers::UMAC_CMD_RXEN;
+        registers::UMAC_CMD.write(val, base_addr);
+
+        // Stop receive DMA.
+        let mut val = registers::RX_DMA_CTRL.read(base_addr);
+        val &= !registers::RX_DMA_CTRL_EN;
+        val &= !registers::rx_dma_ctrl_rbuf_en(DMA_DEFAULT_QUEUE);
+        registers::RX_DMA_CTRL.write(val, base_addr);
+
+        // Stop transmit DMA.
+        let mut val = registers::TX_DMA_CTRL.read(base_addr);
+        val &= !registers::TX_DMA_CTRL_EN;
+        val &= !registers::tx_dma_ctrl_rbuf_en(DMA_DEFAULT_QUEUE);
+        registers::TX_DMA_CTRL.write(val, base_addr);
+
+        // Flush data in the TX FIFO.
+        registers::UMAC_TX_FLUSH.write(1, base_addr);
+        awkernel_lib::delay::wait_microsec(10);
+        registers::UMAC_TX_FLUSH.write(0, base_addr);
+
+        // Disable transmitter.
+        let mut val = registers::UMAC_CMD.read(base_addr);
+        val &= !registers::UMAC_CMD_TXEN;
+        registers::UMAC_CMD.write(val, base_addr);
     }
 }
 
@@ -92,6 +181,8 @@ pub fn attach(
         PhyMode::RGMIITxId => MiiFlags::TXID,
         PhyMode::RGMII => MiiFlags::empty(),
     };
+
+    let genet = Genet::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]]);
 
     Ok(())
 }
