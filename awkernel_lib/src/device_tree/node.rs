@@ -103,6 +103,26 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     pub fn get_property(&'a self, property: &str) -> Option<&'a NodeProperty<'a, A>> {
         self.props().iter().find(|p| p.name() == property)
     }
+
+    /// Check if the node is compatible with the given names
+    pub fn compatible(&self, names: &[&str]) -> bool {
+        let Some(prop) = self.get_property("compatible") else {
+            return false;
+        };
+
+        match prop.value() {
+            PropertyValue::String(s) => names.iter().any(|n| n == s),
+            PropertyValue::Strings(v) => {
+                for name in names {
+                    if v.iter().any(|s| s == name) {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Parse properties and nodes

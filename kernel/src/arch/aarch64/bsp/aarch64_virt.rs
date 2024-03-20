@@ -211,25 +211,9 @@ impl AArch64Virt {
 
         let leaf = uart_node.get_leaf_node().unwrap();
 
-        // Get "compatible" property.
-        let compat_prop = leaf
-            .get_property("compatible")
-            .ok_or(err_msg!("failed to get compatible property"))?;
-
-        match compat_prop.value() {
-            PropertyValue::Strings(ss) => {
-                if !ss.contains(&"arm,pl011") {
-                    return Err(err_msg!("stdout-path is not arm,pl011"));
-                }
-            }
-            PropertyValue::String(s) => {
-                if *s != "arm,pl011" {
-                    return Err(err_msg!("stdout-path is not arm,pl011"));
-                }
-            }
-            _ => {
-                return Err(err_msg!("invalid compatible property"));
-            }
+        // Check if the node is compatible with arm,pl011.
+        if !leaf.compatible(&["arm,pl011"]) {
+            return Err(err_msg!("stdout-path is not arm,pl011"));
         }
 
         // Get the base address.
