@@ -2,7 +2,13 @@
 
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
-    net::ether::ETHER_ADDR_LEN,
+    net::{
+        ether::ETHER_ADDR_LEN,
+        net_device::{
+            EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
+        },
+    },
+    sync::rwlock::RwLock,
 };
 
 use crate::mii::MiiFlags;
@@ -80,24 +86,119 @@ impl PhyMode {
 }
 
 pub struct Genet {
+    inner: RwLock<GenetInner>,
+}
+
+impl NetDevice for Genet {
+    fn mac_address(&self) -> [u8; 6] {
+        self.inner.read().mac_addr
+    }
+
+    fn num_queues(&self) -> usize {
+        1
+    }
+
+    fn irqs(&self) -> Vec<u16> {
+        self.inner.read().irqs.to_vec()
+    }
+
+    fn flags(&self) -> NetFlags {
+        self.inner.read().flags
+    }
+
+    fn capabilities(&self) -> NetCapabilities {
+        // 802.1Q VLAN-sized frames are supported
+        NetCapabilities::VLAN_MTU
+    }
+
+    fn device_short_name(&self) -> alloc::borrow::Cow<'static, str> {
+        "genet".into()
+    }
+
+    fn up(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn down(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn can_send(&self) -> bool {
+        todo!()
+    }
+
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn link_up(&self) -> bool {
+        todo!()
+    }
+
+    fn link_speed(&self) -> u64 {
+        todo!()
+    }
+
+    fn full_duplex(&self) -> bool {
+        todo!()
+    }
+
+    fn poll(&self) -> bool {
+        todo!()
+    }
+
+    fn poll_mode(&self) -> bool {
+        todo!()
+    }
+
+    fn poll_in_service(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+        todo!()
+    }
+
+    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
+        todo!()
+    }
+
+    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+        todo!()
+    }
+}
+
+pub struct GenetInner {
     base_addr: VirtAddr,
     mac_addr: [u8; ETHER_ADDR_LEN],
     phy_mode: PhyMode,
     irqs: [u16; 2],
+    flags: NetFlags,
 }
 
-impl Genet {
+impl GenetInner {
     fn new(
         base_addr: VirtAddr,
         mac_addr: [u8; ETHER_ADDR_LEN],
         phy_mode: PhyMode,
         irqs: [u16; 2],
     ) -> Result<Self, GenetError> {
+        let flags = NetFlags::BROADCAST | NetFlags::MULTICAST | NetFlags::SIMPLEX;
+
         let mut genet = Self {
             base_addr,
             mac_addr,
             phy_mode,
             irqs,
+            flags,
         };
 
         // Soft reset EMAC core
@@ -227,7 +328,7 @@ pub fn attach(
         PhyMode::RGMII => MiiFlags::empty(),
     };
 
-    let genet = Genet::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]])?;
+    let genet = GenetInner::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]])?;
 
     Ok(())
 }
