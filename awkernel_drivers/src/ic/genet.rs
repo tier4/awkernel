@@ -4,6 +4,7 @@ use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     net::{
         ether::ETHER_ADDR_LEN,
+        multicast::MulticastAddrs,
         net_device::{
             EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
         },
@@ -11,9 +12,12 @@ use awkernel_lib::{
     sync::rwlock::RwLock,
 };
 
+use alloc::vec::Vec;
+
 use crate::mii::MiiFlags;
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
+pub const MAX_MDF_FILTER: usize = 17;
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -58,6 +62,9 @@ mod registers {
     mmio_w!(offset 0x814 => pub UMAC_MAX_FRAME_LEN<u32>);
     mmio_w!(offset 0xb34 => pub UMAC_TX_FLUSH<u32>);
     mmio_w!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
+    mmio_w!(offset 0xe50 => pub UMAC_MDF_CTRL<u32>);
+    mmio_w!(offset 0xe54 => pub UMAC_MDF_ADDR0<u32>);
+    mmio_w!(offset 0xe58 => pub UMAC_MDF_ADDR1<u32>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +189,7 @@ pub struct GenetInner {
     phy_mode: PhyMode,
     irqs: [u16; 2],
     flags: NetFlags,
+    mulitcast_addrs: MulticastAddrs,
 }
 
 impl GenetInner {
@@ -199,6 +207,7 @@ impl GenetInner {
             phy_mode,
             irqs,
             flags,
+            mulitcast_addrs: MulticastAddrs::new(),
         };
 
         // Soft reset EMAC core
@@ -278,6 +287,63 @@ impl GenetInner {
         val &= !registers::UMAC_CMD_TXEN;
         registers::UMAC_CMD.write(val, base_addr);
     }
+
+    fn init(&mut self) {
+        todo!()
+    }
+
+    fn setup_rxfilter_mdf(&mut self, n: usize, ea: &[u8; ETHER_ADDR_LEN]) {
+        let addr0 = ((ea[0] as u32) << 8) | (ea[1] as u32);
+        let addr1 = ((ea[2] as u32) << 24)
+            | ((ea[3] as u32) << 16)
+            | ((ea[4] as u32) << 8)
+            | (ea[5] as u32);
+
+        let base_addr = self.base_addr.as_usize() + n * 8;
+        registers::UMAC_MDF_ADDR0.write(addr0, base_addr);
+        registers::UMAC_MDF_ADDR1.write(addr1, base_addr);
+    }
+
+    fn setup_rxfilter(&mut self) {
+        let base_addr = self.base_addr.as_usize();
+
+        let mut cmd = registers::UMAC_CMD.read(base_addr);
+
+        // Count the required number of hardware filters. We need one
+        // for each multicast address, plus one for our own address and
+        // the broadcast address.
+        let n = self.mulitcast_addrs.len() + 2;
+
+        if n > MAX_MDF_FILTER {
+            self.flags |= NetFlags::ALLMULTI;
+        } else {
+            self.flags &= !NetFlags::ALLMULTI;
+        }
+
+        let mdf_ctrl;
+
+        if self
+            .flags
+            .intersects(NetFlags::PROMISC | NetFlags::ALLMULTI)
+        {
+            cmd |= registers::UMAC_CMD_PROMISC;
+            mdf_ctrl = 0;
+        } else {
+            cmd &= !registers::UMAC_CMD_PROMISC;
+
+            self.setup_rxfilter_mdf(0, &[0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+            self.setup_rxfilter_mdf(1, &self.mac_addr);
+
+            for (n, addr) in self.mulitcast_addrs.iter().enumerate() {
+                self.setup_rxfilter_mdf(n + 2, addr);
+            }
+
+            mdf_ctrl = bits(MAX_MDF_FILTER as u32 - 1, MAX_MDF_FILTER as u32 - n);
+        }
+
+        registers::UMAC_CMD.write(cmd, base_addr);
+        registers::UMAC_MDF_CTRL.write(mdf_ctrl, base_addr);
+    }
 }
 
 pub fn attach(
@@ -354,4 +420,14 @@ fn read_mac_addr(base_addr: VirtAddr) -> [u8; 6] {
         ((machi >> 8) & 0xff) as u8,
         (machi & 0xff) as u8,
     ]
+}
+
+#[inline(always)]
+fn bit(n: u32) -> u32 {
+    1 << n
+}
+
+#[inline(always)]
+fn bits(n: u32, m: u32) -> u32 {
+    (bit(n - m + 1) - 1) << m
 }
