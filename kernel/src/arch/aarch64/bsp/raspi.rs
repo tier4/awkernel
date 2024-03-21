@@ -651,8 +651,35 @@ impl Raspi {
             None
         };
 
+        fn get_phy_id<'a, A>(node: &'a DeviceTreeNode<A>) -> Option<u32>
+        where
+            A: Allocator + Clone,
+        {
+            // Get the phy-handle property.
+            let prop = node.get_property("phy-handle")?;
+
+            let phandle = match prop.value() {
+                PropertyValue::PHandle(p) => *p,
+                PropertyValue::Integer(p) => *p as u32,
+                _ => return None,
+            };
+
+            let node_phandle = node.get_node_by_phandle(phandle)?;
+            let prop = node_phandle.get_property("reg")?;
+
+            match prop.value() {
+                PropertyValue::Address(addr0, _) => {
+                    let addr = addr0.to_u128() as u32;
+                    Some(addr)
+                }
+                _ => None,
+            }
+        }
+
+        let phy_id = get_phy_id(leaf);
+
         log::debug!(
-            "GENET: base_addr = 0x{:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}",
+            "GENET: base_addr = 0x{:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}, phy_id = {phy_id:x?}",
             base_addr
         );
 
@@ -660,6 +687,7 @@ impl Raspi {
             VirtAddr::new(base_addr as usize),
             &[irq0, irq1],
             phy_mode,
+            phy_id,
             &mac_addr,
         );
 

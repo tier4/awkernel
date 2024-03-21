@@ -16,7 +16,7 @@ use awkernel_lib::{
 
 use alloc::vec::Vec;
 
-use crate::mii::{Mii, MiiFlags};
+use crate::mii::{self, Mii, MiiData, MiiFlags};
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
 pub const MAX_MDF_FILTER: usize = 17;
@@ -139,6 +139,7 @@ pub enum GenetError {
     InvalidMacAddress,
     DMAPoolAllocation,
     InvalidDMAPoolSize,
+    Mii,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,6 +259,7 @@ pub struct GenetInner {
     irqs: [u16; 2],
     flags: NetFlags,
     mulitcast_addrs: MulticastAddrs,
+    mii_data: MiiData,
 }
 
 #[derive(Debug)]
@@ -282,8 +284,11 @@ impl GenetInner {
         mac_addr: [u8; ETHER_ADDR_LEN],
         phy_mode: PhyMode,
         irqs: [u16; 2],
+        mii_flags: MiiFlags,
     ) -> Result<Self, GenetError> {
         let flags = NetFlags::BROADCAST | NetFlags::MULTICAST | NetFlags::SIMPLEX;
+
+        let mii_data = MiiData::new(mii_flags);
 
         let mut genet = Self {
             base_addr,
@@ -292,6 +297,7 @@ impl GenetInner {
             irqs,
             flags,
             mulitcast_addrs: MulticastAddrs::new(),
+            mii_data,
         };
 
         // Soft reset EMAC core
@@ -483,9 +489,9 @@ impl GenetInner {
     fn fill_rx_ring(&mut self, qid: usize, rx: &mut Rx) -> Result<(), GenetError> {
         let mut cidx = rx.cidx;
         let total = (rx.pidx - cidx) & 0xffff;
-        assert!(total <= RX_DESC_COUNT);
+        assert!(total <= registers::RX_DESC_COUNT);
 
-        let index = rx.cidx & (RX_DESC_COUNT - 1);
+        let mut index = rx.cidx & (registers::RX_DESC_COUNT - 1);
 
         let len = rx.buf.as_ref().len();
 
@@ -497,7 +503,7 @@ impl GenetInner {
         for _ in 0..total {
             self.setup_rxdesc(index, phy_addr + index * RX_BUF_SIZE);
             cidx = (cidx + 1) & 0xffff;
-            index = (index + 1) & (RX_DESC_COUNT - 1);
+            index = (index + 1) & (registers::RX_DESC_COUNT - 1);
         }
 
         if rx.cidx != cidx {
@@ -611,12 +617,21 @@ impl Mii for GenetInner {
             awkernel_lib::delay::wait_microsec(10);
         }
     }
+
+    fn mii_data(&self) -> &MiiData {
+        &self.mii_data
+    }
+
+    fn mii_data_mut(&mut self) -> &mut MiiData {
+        &mut self.mii_data
+    }
 }
 
 pub fn attach(
     base_addr: VirtAddr,
     irqs: &[u16],
     phy_mode: &str,
+    phy_id: Option<u32>,
     mac_addr: &Option<[u8; ETHER_ADDR_LEN]>,
 ) -> Result<(), GenetError> {
     // Check the major version of the Genet controller.
@@ -661,7 +676,18 @@ pub fn attach(
         PhyMode::RGMII => MiiFlags::empty(),
     };
 
-    let genet = GenetInner::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]])?;
+    let mut genet = GenetInner::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]], mii_flags)?;
+
+    // 992         /* Attach MII driver */
+    // 993         ifmedia_init(&mii->mii_media, 0, genet_media_change, genet_media_status);
+    // 994         mii->mii_ifp = ifp;
+    // 995         mii->mii_readreg = genet_mii_readreg;
+    // 996         mii->mii_writereg = genet_mii_writereg;
+    // 997         mii->mii_statchg = genet_mii_statchg;
+    // 998         mii_attach(&sc->sc_dev, mii, 0xffffffff, sc->sc_phy_id,
+    // 999             MII_OFFSET_ANY, mii_flags);
+
+    mii::attach(&mut genet, 0xffffffff, phy_id, None).or(Err(GenetError::Mii))?;
 
     Ok(())
 }

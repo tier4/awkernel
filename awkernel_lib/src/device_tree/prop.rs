@@ -15,6 +15,7 @@ use super::utils::{safe_index, Addr};
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+#[derive(Debug, Clone)]
 pub struct Range {
     pub range: (Addr, Addr, Addr),
 }

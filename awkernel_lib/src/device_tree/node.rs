@@ -123,6 +123,33 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
             _ => false,
         }
     }
+
+    /// Get the node by phandle.
+    pub fn get_node_by_phandle(&'a self, phandle: u32) -> Option<&'a DeviceTreeNode<'a, A>> {
+        for node in self.nodes() {
+            if let Some(prop) = node.get_property("phandle") {
+                match prop.value() {
+                    PropertyValue::Integer(v) => {
+                        if *v as u32 == phandle {
+                            return Some(node);
+                        }
+                    }
+                    PropertyValue::PHandle(v) => {
+                        if *v == phandle {
+                            return Some(node);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(n) = node.get_node_by_phandle(phandle) {
+                return Some(n);
+            }
+        }
+
+        None
+    }
 }
 
 /// Parse properties and nodes

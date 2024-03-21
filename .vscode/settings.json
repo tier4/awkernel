@@ -6,14 +6,14 @@
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
         "+nightly",
-        "clippy_aarch64_virt",
-        "--message-format=json",
+        "check_no_std",
+        "--target=targets/aarch64-kernel.json",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
         "+nightly",
-        "clippy_aarch64_virt",
-        "--message-format=json",
+        "check_no_std",
+        "--target=targets/aarch64-kernel.json",
     ],
     "rust-analyzer.cargo.features": [
         "raspi"
