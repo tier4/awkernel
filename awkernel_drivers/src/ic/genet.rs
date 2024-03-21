@@ -16,7 +16,7 @@ use awkernel_lib::{
 
 use alloc::vec::Vec;
 
-use crate::mii::MiiFlags;
+use crate::mii::{Mii, MiiFlags};
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
 pub const MAX_MDF_FILTER: usize = 17;
@@ -24,6 +24,8 @@ pub const MAX_MDF_FILTER: usize = 17;
 pub const TX_BUF_SIZE: usize = 2048;
 pub const RX_BUF_SIZE: usize = 2048;
 type RxBuffer = [[u8; RX_BUF_SIZE]; registers::DMA_DESC_COUNT];
+
+pub const MII_BUSY_RETRY: i32 = 1000;
 
 mod registers {
     use awkernel_lib::{mmio_r, mmio_rw, mmio_w};
@@ -121,6 +123,14 @@ mod registers {
     mmio_w!(offset 0xe50 => pub UMAC_MDF_CTRL<u32>);
     mmio_w!(offset 0xe54 => pub UMAC_MDF_ADDR0<u32>);
     mmio_w!(offset 0xe58 => pub UMAC_MDF_ADDR1<u32>);
+
+    pub const MDIO_START_BUSY: u32 = 1 << 29;
+    pub const MDIO_READ: u32 = 1 << 27;
+    pub const MDIO_WRITE: u32 = 1 << 26;
+    pub const MDIO_PMD: u32 = bits(25, 21);
+    pub const MDIO_REG: u32 = bits(20, 16);
+
+    mmio_rw!(offset 0xe14 => pub MDIO_CMD<u32>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -558,6 +568,48 @@ impl GenetInner {
 
         registers::UMAC_CMD.write(cmd, base_addr);
         registers::UMAC_MDF_CTRL.write(mdf_ctrl, base_addr);
+    }
+}
+
+impl Mii for GenetInner {
+    fn read(&mut self, phy: u32, reg: u32) -> Option<u32> {
+        let base_addr = self.base_addr.as_usize();
+
+        registers::MDIO_CMD.write(
+            registers::MDIO_READ
+                | registers::MDIO_START_BUSY
+                | shiftin(phy, registers::MDIO_PMD)
+                | shiftin(reg, registers::MDIO_REG),
+            base_addr,
+        );
+
+        for _ in 0..MII_BUSY_RETRY {
+            if registers::MDIO_CMD.read(base_addr) & registers::MDIO_START_BUSY == 0 {
+                return Some(registers::MDIO_CMD.read(base_addr) & 0xffff);
+            }
+            awkernel_lib::delay::wait_microsec(10);
+        }
+
+        None
+    }
+
+    fn write(&mut self, phy: u32, reg: u32, val: u32) {
+        let base_addr = self.base_addr.as_usize();
+
+        registers::MDIO_CMD.write(
+            val | registers::MDIO_WRITE
+                | registers::MDIO_START_BUSY
+                | shiftin(phy, registers::MDIO_PMD)
+                | shiftin(reg, registers::MDIO_REG),
+            base_addr,
+        );
+
+        for _ in 0..MII_BUSY_RETRY {
+            if registers::MDIO_CMD.read(base_addr) & registers::MDIO_START_BUSY == 0 {
+                return;
+            }
+            awkernel_lib::delay::wait_microsec(10);
+        }
     }
 }
 

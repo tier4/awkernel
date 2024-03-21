@@ -21,3 +21,8 @@ bitflags! {
         const SGMII = 0x4000; /* MAC to PHY interface is SGMII */
     }
 }
+
+pub trait Mii {
+    fn read(&mut self, phy: u32, reg: u32) -> Option<u32>;
+    fn write(&mut self, phy: u32, reg: u32, val: u32);
+}
