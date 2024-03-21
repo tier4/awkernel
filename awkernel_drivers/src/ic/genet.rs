@@ -14,9 +14,12 @@ mod registers {
 
     pub const REV_MAJOR_V5: u8 = 6;
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
+    pub const RBUF_ALIGN_2B: u32 = 1 << 1;
 
     mmio_r!(offset 0x000 => pub SYS_REV_CTRL<u32>);
-    mmio_r!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
+    mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
+    mmio_rw!(offset 0x300 => pub RBUF_CTRL<u32>);
+    mmio_rw!(offset 0x3b4 => pub RBUF_TBUF_SIZE_CTRL<u32>);
 
     pub const GENET_RX_BASE: usize = 0x2000;
     pub const GENET_TX_BASE: usize = 0x4000;
@@ -34,13 +37,21 @@ mod registers {
     mmio_rw!(offset GENET_RX_BASE + 0x1040 + 0x04 => pub RX_DMA_CTRL<u32>);
     mmio_rw!(offset GENET_TX_BASE + 0x1040 + 0x04 => pub TX_DMA_CTRL<u32>);
 
+    pub const UMAC_CMD_LCL_LOOP_EN: u32 = 1 << 15;
+    pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
+    pub const UMAC_CMD_PROMISC: u32 = 1 << 4;
     pub const UMAC_CMD_TXEN: u32 = 1;
     pub const UMAC_CMD_RXEN: u32 = 1 << 1;
+    pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
+    pub const UMAC_MIB_RESET_RUNT: u32 = 1 << 1;
+    pub const UMAC_MIB_RESET_RX: u32 = 1;
 
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     mmio_r!(offset 0x80c => pub UMAC_MAC0<u32>);
     mmio_r!(offset 0x810 => pub UMAC_MAC1<u32>);
+    mmio_w!(offset 0x814 => pub UMAC_MAX_FRAME_LEN<u32>);
     mmio_w!(offset 0xb34 => pub UMAC_TX_FLUSH<u32>);
+    mmio_w!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,17 +100,51 @@ impl Genet {
             irqs,
         };
 
-        genet.reset()?;
+        // Soft reset EMAC core
+        genet.reset();
 
         Ok(genet)
     }
 
-    fn reset(&mut self) -> Result<(), GenetError> {
+    fn reset(&mut self) {
+        let base_addr = self.base_addr.as_usize();
+
         self.disable_dma();
 
-        // TODO
+        let mut val = registers::SYS_RBUF_FLUSH_CTRL.read(base_addr);
+        val |= registers::SYS_RBUF_FLUSH_RESET;
+        registers::SYS_RBUF_FLUSH_CTRL.write(val, base_addr);
+        awkernel_lib::delay::wait_microsec(10);
 
-        Ok(())
+        val &= !registers::SYS_RBUF_FLUSH_RESET;
+        registers::SYS_RBUF_FLUSH_CTRL.write(val, base_addr);
+        awkernel_lib::delay::wait_microsec(10);
+
+        registers::SYS_RBUF_FLUSH_CTRL.write(0, base_addr);
+        awkernel_lib::delay::wait_microsec(10);
+
+        registers::UMAC_CMD.write(0, base_addr);
+        registers::UMAC_CMD.write(
+            registers::UMAC_CMD_LCL_LOOP_EN | registers::UMAC_CMD_SW_RESET,
+            base_addr,
+        );
+        awkernel_lib::delay::wait_microsec(10);
+
+        registers::UMAC_MIB_CTRL.write(
+            registers::UMAC_MIB_RESET_RUNT
+                | registers::UMAC_MIB_RESET_RX
+                | registers::UMAC_MIB_RESET_TX,
+            base_addr,
+        );
+        registers::UMAC_MIB_CTRL.write(0, base_addr);
+
+        registers::UMAC_MAX_FRAME_LEN.write(1536, base_addr);
+
+        let mut val = registers::RBUF_CTRL.read(base_addr);
+        val |= registers::RBUF_ALIGN_2B;
+        registers::RBUF_CTRL.write(val, base_addr);
+
+        registers::RBUF_TBUF_SIZE_CTRL.write(1, base_addr);
     }
 
     fn disable_dma(&mut self) {
@@ -182,7 +227,7 @@ pub fn attach(
         PhyMode::RGMII => MiiFlags::empty(),
     };
 
-    let genet = Genet::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]]);
+    let genet = Genet::new(base_addr, mac_addr, phy_mode, [irqs[0], irqs[1]])?;
 
     Ok(())
 }
