@@ -3,6 +3,8 @@
 use alloc::collections::BTreeMap;
 use bitflags::bitflags;
 
+use crate::if_media::{IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FLOW};
+
 pub mod ukphy;
 
 bitflags! {
@@ -43,6 +45,9 @@ pub const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
 pub const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
 
 pub const MII_ANAR: u32 = 0x04; // Autonegotiation advertisement (rw)
+pub const ANAR_PAUSE_SYM: u32 = 1 << 10;
+pub const ANAR_PAUSE_ASYM: u32 = 2 << 10;
+pub const ANAR_PAUSE_TOWARDS: u32 = 3 << 10;
 
 pub const MII_ANLPAR: u32 = 0x05; // Autonegotiation lnk partner abilities (rw)
 pub const ANLPAR_T4: u32 = 0x0200; // link partner supports 100bT4
@@ -50,6 +55,10 @@ pub const ANLPAR_TX_FD: u32 = 0x0100; // link partner supports 100bTx FD
 pub const ANLPAR_TX: u32 = 0x0080; // link partner supports 100bTx
 pub const ANLPAR_10_FD: u32 = 0x0040; // link partner supports 10bT FD
 pub const ANLPAR_10: u32 = 0x0020; // link partner supports 10bT
+pub const ANLPAR_PAUSE_NONE: u32 = 0 << 10;
+pub const ANLPAR_PAUSE_SYM: u32 = 1 << 10;
+pub const ANLPAR_PAUSE_ASYM: u32 = 2 << 10;
+pub const ANLPAR_PAUSE_TOWARDS: u32 = 3 << 10;
 
 pub const MII_NPHY: u32 = 32; // max # of PHYs per MII
 
@@ -270,4 +279,50 @@ fn phy_down(ma: &mut MiiAttachArgs) {
 
 fn phy_status(parent: &mut dyn Mii, ma: &mut MiiAttachArgs, phy: &dyn MiiPhy) {
     phy.status(parent, ma);
+}
+
+fn phy_flow_status(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<u64, MiiError> {
+    if !ma.flags.contains(MiiFlags::DOPAUSE) {
+        return Ok(0);
+    }
+
+    let mut anar = parent
+        .read_reg(ma.phy_no, MII_ANAR)
+        .ok_or(MiiError::ReadError)?;
+    let mut anlpar = parent
+        .read_reg(ma.phy_no, MII_ANLPAR)
+        .ok_or(MiiError::ReadError)?;
+
+    // For 1000baseX, the bits are in a different location.
+    if ma.flags.contains(MiiFlags::IS_1000X) {
+        anar <<= 3;
+        anlpar <<= 3;
+    }
+
+    if (anar & ANAR_PAUSE_SYM) & (anlpar & ANLPAR_PAUSE_SYM) != 0 {
+        return Ok(IFM_FLOW | IFM_ETH_TXPAUSE | IFM_ETH_RXPAUSE);
+    }
+
+    if (anar & ANAR_PAUSE_SYM) == 0 {
+        if (anar & ANAR_PAUSE_ASYM) != 0 && (anlpar & ANLPAR_PAUSE_TOWARDS) == ANLPAR_PAUSE_TOWARDS
+        {
+            return Ok(IFM_FLOW | IFM_ETH_TXPAUSE);
+        } else {
+            return Ok(0);
+        }
+    }
+
+    if (anar & ANAR_PAUSE_ASYM) == 0 {
+        if anlpar & ANLPAR_PAUSE_SYM != 0 {
+            return Ok(IFM_FLOW | IFM_ETH_TXPAUSE | IFM_ETH_RXPAUSE);
+        } else {
+            return Ok(0);
+        }
+    }
+
+    match anlpar & ANLPAR_PAUSE_TOWARDS {
+        ANLPAR_PAUSE_NONE => Ok(0),
+        ANLPAR_PAUSE_ASYM => Ok(IFM_FLOW | IFM_ETH_RXPAUSE),
+        _ => Ok(IFM_FLOW | IFM_ETH_RXPAUSE | IFM_ETH_TXPAUSE),
+    }
 }

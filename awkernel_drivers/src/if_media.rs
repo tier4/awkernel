@@ -72,3 +72,14 @@ pub const IFM_FLAG0: u64 = 0x0000100000000000; // Driver defined flag
 pub const IFM_FLAG1: u64 = 0x0000200000000000; // Driver defined flag
 pub const IFM_FLAG2: u64 = 0x0000400000000000; // Driver defined flag
 pub const IFM_LOOP: u64 = 0x0000800000000000; // Put hardware in loopback
+
+pub const IFM_ETH_MASTER: u64 = 0x0000000000010000; // master mode (1000baseT)
+pub const IFM_ETH_RXPAUSE: u64 = 0x0000000000020000; // receive PAUSE frames
+pub const IFM_ETH_TXPAUSE: u64 = 0x0000000000040000; // transmit PAUSE frames
+
+pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
+
+#[inline(always)]
+pub fn ifm_subtype(value: u64) -> u64 {
+    value & IFM_TMASK
+}
