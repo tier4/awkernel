@@ -694,8 +694,10 @@ pub fn attach(
     // 999             MII_OFFSET_ANY, mii_flags);
 
     let mut mii_data = MiiData::new(mii_flags);
+    let phy = Ukphy::new();
 
-    mii::attach(&mut genet, &mut mii_data, 0xffffffff, phy_id, None).or(Err(GenetError::Mii))?;
+    mii::attach(&mut genet, &mut mii_data, &phy, 0xffffffff, phy_id, None)
+        .or(Err(GenetError::Mii))?;
 
     Ok(())
 }

@@ -1,8 +1,12 @@
 use super::*;
 use crate::if_media::*;
 
-pub struct Ukphy {
-    ma: MiiAttachArgs,
+pub struct Ukphy {}
+
+impl Ukphy {
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 impl MiiPhy for Ukphy {
@@ -194,4 +198,41 @@ impl MiiPhy for Ukphy {
     }
 
     fn reset(&self, parent: &mut dyn Mii) {}
+
+    fn attach(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError> {
+        // 105         struct mii_softc *sc = (struct mii_softc *)self;
+        // 106         struct mii_attach_args *ma = aux;
+        // 107         struct mii_data *mii = ma->mii_data;
+        // 108
+        // 109         printf(": Generic IEEE 802.3u media interface, rev. %d:",
+        // 110             MII_REV(ma->mii_id2));
+        // 111         printf(" OUI 0x%06x, model 0x%04x\n",
+        // 112             MII_OUI(ma->mii_id1, ma->mii_id2), MII_MODEL(ma->mii_id2));
+        // 113
+        // 114         sc->mii_inst = mii->mii_instance;
+        // 115         sc->mii_phy = ma->mii_phyno;
+        // 116         sc->mii_funcs = &ukphy_funcs;
+        // 117         sc->mii_oui = MII_OUI(ma->mii_id1, ma->mii_id2);
+        // 118         sc->mii_model = MII_MODEL(ma->mii_id2);
+        // 119         sc->mii_pdata = mii;
+        // 120         sc->mii_flags = ma->mii_flags;
+        // 121
+        // 122         /*
+        // 123          * Don't do loopback on unknown PHYs.  It might confuse some of them.
+        // 124          */
+        // 125         sc->mii_flags |= MIIF_NOLOOP;
+        // 126
+        // 127         PHY_RESET(sc);
+        // 128
+        // 129         sc->mii_capabilities =
+        // 130             PHY_READ(sc, MII_BMSR) & ma->mii_capmask;
+        // 131         if (sc->mii_capabilities & BMSR_EXTSTAT)
+        // 132                 sc->mii_extcapabilities = PHY_READ(sc, MII_EXTSR);
+        // 133         if ((sc->mii_capabilities & BMSR_MEDIAMASK) == 0 &&
+        // 134             (sc->mii_extcapabilities & EXTSR_MEDIAMASK) == 0)
+        // 135                 printf("%s: no media present\n", sc->mii_dev.dv_xname);
+        // 136         else
+        // 137                 mii_phy_add_media(sc);
+        todo!()
+    }
 }

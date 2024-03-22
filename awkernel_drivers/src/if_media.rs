@@ -83,3 +83,15 @@ pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
 pub fn ifm_subtype(value: u64) -> u64 {
     value & IFM_TMASK
 }
+
+/// Create a media word.
+#[inline(always)]
+pub fn ifm_make_word(r#type: u64, subtype: u64, options: u64) -> u64 {
+    r#type | subtype | options
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ifmedia {
+    pub media: u64, // description of this media attachment
+    pub data: u32,  // for driver-specific use
+}

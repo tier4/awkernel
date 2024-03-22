@@ -1,9 +1,9 @@
 //! # Media-independent interface (MII)
 
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, vec::Vec};
 use bitflags::bitflags;
 
-use crate::if_media::{IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FLOW};
+use crate::if_media::*;
 
 pub mod ukphy;
 
@@ -110,6 +110,23 @@ pub const EXTSR_1000XHDX: u32 = 0x4000; // 1000X half-duplex capable
 pub const EXTSR_1000TFDX: u32 = 0x2000; // 1000T full-duplex capable
 pub const EXTSR_1000THDX: u32 = 0x1000; // 1000T half-duplex capable
 
+pub const EXTSR_MEDIAMASK: u32 = EXTSR_1000XFDX | EXTSR_1000XHDX | EXTSR_1000TFDX | EXTSR_1000THDX;
+
+pub const MII_MEDIA_NONE: u32 = 0;
+pub const MII_MEDIA_10_T: u32 = 1;
+pub const MII_MEDIA_10_T_FDX: u32 = 2;
+pub const MII_MEDIA_100_T4: u32 = 3;
+pub const MII_MEDIA_100_TX: u32 = 4;
+pub const MII_MEDIA_100_TX_FDX: u32 = 5;
+pub const MII_MEDIA_1000_X: u32 = 6;
+pub const MII_MEDIA_1000_X_FDX: u32 = 7;
+pub const MII_MEDIA_1000_T: u32 = 8;
+pub const MII_MEDIA_1000_T_FDX: u32 = 9;
+pub const MII_NMEDIA: u32 = 10;
+
+pub const MII_ANEGTICKS: u32 = 5;
+pub const MII_ANEGTICKS_GIGE: u32 = 10;
+
 #[derive(Debug)]
 pub struct MiiData {
     flags: MiiFlags,
@@ -118,6 +135,8 @@ pub struct MiiData {
 
     media_active: u64,
     media_status: u64,
+
+    supported_media: Vec<Ifmedia>,
 }
 
 impl MiiData {
@@ -128,6 +147,8 @@ impl MiiData {
             current_media: None,
             media_active: 0,
             media_status: 0,
+
+            supported_media: Vec::new(),
         }
     }
 
@@ -138,12 +159,16 @@ impl MiiData {
 
 #[derive(Debug)]
 pub struct MiiAttachArgs {
-    phy_no: u32,           // MII address
-    id1: u32,              // PHY ID register 1
-    id2: u32,              // PHY ID register 2
-    capmask: u32,          // capability mask from BMSR
-    flags: MiiFlags,       // flags from parent.
+    phy_no: u32,     // MII address
+    id1: u32,        // PHY ID register 1
+    id2: u32,        // PHY ID register 2
+    capmask: u32,    // capability mask from BMSR
+    flags: MiiFlags, // flags from parent.
+
+    capabilities: u32,     // capabilities from BMSR
     ext_capabilities: u32, // extended capabilities
+
+    anegticks: u32, // ticks before retrying aneg
 
     media_active: u64,
     media_status: u64,
@@ -169,6 +194,8 @@ pub trait MiiPhy {
 
     /// `parent` is the parent device.
     fn reset(&self, parent: &mut dyn Mii);
+
+    fn attach(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -188,6 +215,7 @@ pub enum MiiError {
 pub fn attach(
     mii: &mut impl Mii,
     mii_data: &mut MiiData,
+    phy: &impl MiiPhy,
     capmask: u32,
     phyloc: Option<u32>,
     offloc: Option<u32>,
@@ -246,7 +274,7 @@ pub fn attach(
         log::debug!("MII: id1: {:#x}", id1);
         log::debug!("MII: id2: {:#x}", id2);
 
-        let ma = MiiAttachArgs {
+        let mut ma = MiiAttachArgs {
             phy_no: mii_phyno,
             id1,
             id2,
@@ -254,9 +282,12 @@ pub fn attach(
             flags: mii_data.flags,
             media_active: 0,
             media_status: 0,
+            capabilities: 0,
             ext_capabilities: 0,
+            anegticks: 0,
         };
 
+        phy.attach(mii, &mut ma)?;
         mii_data.phys.insert(mii_phyno, ma);
     }
 
@@ -324,5 +355,115 @@ fn phy_flow_status(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<u64, 
         ANLPAR_PAUSE_NONE => Ok(0),
         ANLPAR_PAUSE_ASYM => Ok(IFM_FLOW | IFM_ETH_RXPAUSE),
         _ => Ok(IFM_FLOW | IFM_ETH_RXPAUSE | IFM_ETH_TXPAUSE),
+    }
+}
+
+/// Initialize generic PHY media based on BMSR, called when a PHY is
+/// attached.
+fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
+    let mii = parent.get_data_mut();
+
+    if !ma.flags.contains(MiiFlags::NOISOLATE) {
+        let media = ifm_make_word(IFM_ETHER, IFM_NONE, 0);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_NONE,
+        });
+    }
+
+    if ma.capabilities & BMSR_10THDX != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_10_T, 0);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_10_T,
+        });
+    }
+
+    if ma.capabilities & BMSR_10TFDX != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_10_T, IFM_FDX);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_10_T_FDX,
+        });
+    }
+
+    if ma.capabilities & BMSR_100TXHDX != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, 0);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_100_TX,
+        });
+    }
+
+    if ma.capabilities & BMSR_100TXFDX != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, IFM_FDX);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_100_TX_FDX,
+        });
+    }
+
+    if ma.capabilities & BMSR_100T4 != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_T4, 0);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_MEDIA_100_T4,
+        });
+    }
+
+    if ma.ext_capabilities & EXTSR_MEDIAMASK != 0 {
+        if ma.ext_capabilities & EXTSR_1000XHDX != 0 {
+            ma.anegticks = MII_ANEGTICKS_GIGE;
+            ma.flags |= MiiFlags::IS_1000X;
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, 0);
+            mii.supported_media.push(Ifmedia {
+                media,
+                data: MII_MEDIA_1000_X,
+            });
+        }
+
+        if ma.ext_capabilities & EXTSR_1000XFDX != 0 {
+            ma.anegticks = MII_ANEGTICKS_GIGE;
+            ma.flags |= MiiFlags::IS_1000X;
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX);
+            mii.supported_media.push(Ifmedia {
+                media,
+                data: MII_MEDIA_1000_X_FDX,
+            });
+        }
+
+        // 1000baseT media needs to be able to manipulate
+        // master/slave mode.  We set IFM_ETH_MASTER in
+        // the "don't care mask" and filter it out when
+        // the media is set.
+        //
+        // All 1000baseT PHYs have a 1000baseT control register.
+        if ma.ext_capabilities & EXTSR_1000THDX != 0 {
+            ma.anegticks = MII_ANEGTICKS_GIGE;
+            ma.flags |= MiiFlags::HAVE_GTCR;
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, 0);
+            mii.supported_media.push(Ifmedia {
+                media,
+                data: MII_MEDIA_1000_T,
+            });
+        }
+
+        if ma.ext_capabilities & EXTSR_1000TFDX != 0 {
+            ma.anegticks = MII_ANEGTICKS_GIGE;
+            ma.flags |= MiiFlags::HAVE_GTCR;
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX);
+            mii.supported_media.push(Ifmedia {
+                media,
+                data: MII_MEDIA_1000_T_FDX,
+            });
+        }
+    }
+
+    if ma.capabilities & BMSR_ANEG != 0 {
+        let media = ifm_make_word(IFM_ETHER, IFM_AUTO, 0);
+        mii.supported_media.push(Ifmedia {
+            media,
+            data: MII_NMEDIA,
+        });
     }
 }
