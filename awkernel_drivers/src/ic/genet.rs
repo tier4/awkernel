@@ -11,12 +11,12 @@ use awkernel_lib::{
         },
     },
     paging::PAGESIZE,
-    sync::rwlock::RwLock,
+    sync::{mutex::Mutex, rwlock::RwLock},
 };
 
 use alloc::vec::Vec;
 
-use crate::mii::{self, Mii, MiiData, MiiFlags};
+use crate::mii::{self, ukphy::Ukphy, Mii, MiiData, MiiFlags, MiiPhy};
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
 pub const MAX_MDF_FILTER: usize = 17;
@@ -161,8 +161,14 @@ impl PhyMode {
     }
 }
 
+struct GenetMii {
+    mii_data: MiiData,
+    ukphy: Ukphy,
+}
+
 pub struct Genet {
     inner: RwLock<GenetInner>,
+    mii: Mutex<GenetMii>,
 }
 
 impl NetDevice for Genet {
@@ -578,7 +584,7 @@ impl GenetInner {
 }
 
 impl Mii for GenetInner {
-    fn read(&mut self, phy: u32, reg: u32) -> Option<u32> {
+    fn read_reg(&mut self, phy: u32, reg: u32) -> Option<u32> {
         let base_addr = self.base_addr.as_usize();
 
         registers::MDIO_CMD.write(
@@ -599,7 +605,7 @@ impl Mii for GenetInner {
         None
     }
 
-    fn write(&mut self, phy: u32, reg: u32, val: u32) {
+    fn write_reg(&mut self, phy: u32, reg: u32, val: u32) {
         let base_addr = self.base_addr.as_usize();
 
         registers::MDIO_CMD.write(
@@ -618,11 +624,11 @@ impl Mii for GenetInner {
         }
     }
 
-    fn mii_data(&self) -> &MiiData {
+    fn get_data(&self) -> &MiiData {
         &self.mii_data
     }
 
-    fn mii_data_mut(&mut self) -> &mut MiiData {
+    fn get_data_mut(&mut self) -> &mut MiiData {
         &mut self.mii_data
     }
 }
@@ -687,7 +693,9 @@ pub fn attach(
     // 998         mii_attach(&sc->sc_dev, mii, 0xffffffff, sc->sc_phy_id,
     // 999             MII_OFFSET_ANY, mii_flags);
 
-    mii::attach(&mut genet, 0xffffffff, phy_id, None).or(Err(GenetError::Mii))?;
+    let mut mii_data = MiiData::new(mii_flags);
+
+    mii::attach(&mut genet, &mut mii_data, 0xffffffff, phy_id, None).or(Err(GenetError::Mii))?;
 
     Ok(())
 }
