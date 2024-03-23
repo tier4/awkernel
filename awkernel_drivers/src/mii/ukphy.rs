@@ -1,16 +1,18 @@
 use super::*;
-use crate::if_media::*;
 
-pub struct Ukphy {}
+#[derive(Debug)]
+pub struct Ukphy {
+    ma: MiiAttachArgs,
+}
 
 impl Ukphy {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(ma: MiiAttachArgs) -> Self {
+        Self { ma }
     }
 }
 
 impl MiiPhy for Ukphy {
-    fn service(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs, opcode: MiiOpCode) {
+    fn service(&mut self, parent: &mut dyn Mii, opcode: MiiOpCode) -> Result<(), MiiError> {
         // TODO: Implement the service routine of the PHY.
 
         // 143         struct ifmedia_entry *ife = mii->mii_media.ifm_cur;
@@ -72,8 +74,8 @@ impl MiiPhy for Ukphy {
                 // 190                 mii_phy_down(sc);
                 // 191                 return (0);
                 // 192         }
-                super::phy_down(ma);
-                return;
+                super::phy_down(&mut self.ma);
+                return Ok(());
             }
         }
 
@@ -82,7 +84,7 @@ impl MiiPhy for Ukphy {
         // 195         mii_phy_status(sc);
 
         // Update the media status.
-        super::phy_status(parent, ma, self);
+        self.status(parent)?;
 
         // 196
         // 197         /* Callback if something changed. */
@@ -91,12 +93,14 @@ impl MiiPhy for Ukphy {
 
         // Callback if something changed.
 
-        todo!()
+        Ok(())
     }
 
     /// Media status subroutine.  If a PHY driver does media detection simply
     /// by decoding the NWay autonegotiation, use this routine.
-    fn status(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError> {
+    fn status(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError> {
+        let ma = self.get_attach_args();
+
         {
             let mii = parent.get_data_mut();
 
@@ -104,20 +108,13 @@ impl MiiPhy for Ukphy {
             mii.media_active = IFM_ETHER;
         }
 
-        let bmsr = parent
-            .read_reg(ma.phy_no, MII_BMSR)
-            .ok_or(MiiError::ReadError)?
-            | parent
-                .read_reg(ma.phy_no, MII_BMSR)
-                .ok_or(MiiError::ReadError)?;
+        let bmsr = parent.read_reg(ma.phy_no, MII_BMSR)? | parent.read_reg(ma.phy_no, MII_BMSR)?;
 
         if (bmsr & BMSR_LINK) != 0 {
             parent.get_data_mut().media_status |= IFM_ACTIVE;
         }
 
-        let bmcr = parent
-            .read_reg(ma.phy_no, MII_BMCR)
-            .ok_or(MiiError::ReadError)?;
+        let bmcr = parent.read_reg(ma.phy_no, MII_BMCR)?;
         if bmcr & BMCR_ISO != 0 {
             parent.get_data_mut().media_active |= IFM_NONE;
             parent.get_data_mut().media_status = 0;
@@ -138,24 +135,16 @@ impl MiiPhy for Ukphy {
                 return Ok(());
             }
 
-            let anlpar = parent
-                .read_reg(ma.phy_no, MII_ANAR)
-                .ok_or(MiiError::ReadError)?
-                & parent
-                    .read_reg(ma.phy_no, MII_ANLPAR)
-                    .ok_or(MiiError::ReadError)?;
+            let anlpar =
+                parent.read_reg(ma.phy_no, MII_ANAR)? & parent.read_reg(ma.phy_no, MII_ANLPAR)?;
 
             let gtcr;
             let gtsr;
             if ma.flags.contains(MiiFlags::HAVE_GTCR)
                 && ma.ext_capabilities & (EXTSR_1000THDX | EXTSR_1000TFDX) != 0
             {
-                gtcr = parent
-                    .read_reg(ma.phy_no, MII_100T2CR)
-                    .ok_or(MiiError::ReadError)?;
-                gtsr = parent
-                    .read_reg(ma.phy_no, MII_100T2SR)
-                    .ok_or(MiiError::ReadError)?;
+                gtcr = parent.read_reg(ma.phy_no, MII_100T2CR)?;
+                gtsr = parent.read_reg(ma.phy_no, MII_100T2SR)?;
             } else {
                 gtcr = 0;
                 gtsr = 0;
@@ -182,7 +171,7 @@ impl MiiPhy for Ukphy {
             }
 
             if mii.media_active & IFM_FDX != 0 {
-                parent.get_data_mut().media_active |= super::phy_flow_status(parent, ma)?;
+                parent.get_data_mut().media_active |= super::phy_flow_status(parent, &mut self.ma)?;
             }
 
             let mii = parent.get_data_mut();
@@ -197,42 +186,42 @@ impl MiiPhy for Ukphy {
         Ok(())
     }
 
-    fn reset(&self, parent: &mut dyn Mii) {}
+    fn reset(&mut self, parent: &mut dyn Mii) {}
 
-    fn attach(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError> {
-        // 105         struct mii_softc *sc = (struct mii_softc *)self;
-        // 106         struct mii_attach_args *ma = aux;
-        // 107         struct mii_data *mii = ma->mii_data;
-        // 108
-        // 109         printf(": Generic IEEE 802.3u media interface, rev. %d:",
-        // 110             MII_REV(ma->mii_id2));
-        // 111         printf(" OUI 0x%06x, model 0x%04x\n",
-        // 112             MII_OUI(ma->mii_id1, ma->mii_id2), MII_MODEL(ma->mii_id2));
-        // 113
-        // 114         sc->mii_inst = mii->mii_instance;
-        // 115         sc->mii_phy = ma->mii_phyno;
-        // 116         sc->mii_funcs = &ukphy_funcs;
-        // 117         sc->mii_oui = MII_OUI(ma->mii_id1, ma->mii_id2);
-        // 118         sc->mii_model = MII_MODEL(ma->mii_id2);
-        // 119         sc->mii_pdata = mii;
-        // 120         sc->mii_flags = ma->mii_flags;
-        // 121
-        // 122         /*
-        // 123          * Don't do loopback on unknown PHYs.  It might confuse some of them.
-        // 124          */
-        // 125         sc->mii_flags |= MIIF_NOLOOP;
-        // 126
-        // 127         PHY_RESET(sc);
-        // 128
-        // 129         sc->mii_capabilities =
-        // 130             PHY_READ(sc, MII_BMSR) & ma->mii_capmask;
-        // 131         if (sc->mii_capabilities & BMSR_EXTSTAT)
-        // 132                 sc->mii_extcapabilities = PHY_READ(sc, MII_EXTSR);
-        // 133         if ((sc->mii_capabilities & BMSR_MEDIAMASK) == 0 &&
-        // 134             (sc->mii_extcapabilities & EXTSR_MEDIAMASK) == 0)
-        // 135                 printf("%s: no media present\n", sc->mii_dev.dv_xname);
-        // 136         else
-        // 137                 mii_phy_add_media(sc);
-        todo!()
+    fn attach(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError> {
+        log::info!(
+            "Generic IEEE 802.3u media interface has been found. rev {}, OUI 0x{:06x} model 0x{:04x}",
+            mii_rev(self.ma.id2),
+            mii_oui(self.ma.id1, self.ma.id2),
+            mii_model(self.ma.id2)
+        );
+
+        self.ma.flags.insert(MiiFlags::NOLOOP);
+
+        self.reset(parent);
+
+        self.ma.capabilities = parent.read_reg(self.ma.phy_no, MII_BMSR)?;
+
+        if self.ma.capabilities & BMSR_EXTSTAT != 0 {
+            self.ma.ext_capabilities = parent.read_reg(self.ma.phy_no, MII_EXTSR)?;
+        }
+
+        if (self.ma.capabilities & BMSR_MEDIAMASK == 0)
+            && (self.ma.ext_capabilities & EXTSR_MEDIAMASK == 0)
+        {
+            log::warn!("No media present");
+        } else {
+            super::phy_add_media(parent, &mut self.ma);
+        }
+
+        Ok(())
+    }
+
+    fn get_attach_args(&self) -> &MiiAttachArgs {
+        &self.ma
+    }
+
+    fn get_attach_args_mut(&mut self) -> &mut MiiAttachArgs {
+        &mut self.ma
     }
 }

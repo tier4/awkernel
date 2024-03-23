@@ -1,6 +1,8 @@
 //! # Media-independent interface (MII)
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use core::fmt::Debug;
+
+use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
 use bitflags::bitflags;
 
 use crate::if_media::*;
@@ -27,6 +29,9 @@ bitflags! {
         const SGMII = 0x4000; // MAC to PHY interface is SGMII
     }
 }
+
+pub const IDR2_MODEL: u32 = 0x03f0; // vendor model
+pub const IDR2_REV: u32 = 0x000f; // vendor revision
 
 pub const MII_BMCR: u32 = 0x00; // Basic mode control register (rw)
 pub const BMCR_RESET: u32 = 0x8000; // reset
@@ -127,10 +132,9 @@ pub const MII_NMEDIA: u32 = 10;
 pub const MII_ANEGTICKS: u32 = 5;
 pub const MII_ANEGTICKS_GIGE: u32 = 10;
 
-#[derive(Debug)]
 pub struct MiiData {
     flags: MiiFlags,
-    phys: BTreeMap<u32, MiiAttachArgs>,
+    phys: BTreeMap<u32, Box<dyn MiiPhy>>,
     current_media: Option<u64>,
 
     media_active: u64,
@@ -152,8 +156,9 @@ impl MiiData {
         }
     }
 
-    pub fn insert(&mut self, mii_phy: MiiAttachArgs) {
-        self.phys.insert(mii_phy.phy_no, mii_phy);
+    pub fn insert(&mut self, phy: Box<dyn MiiPhy>) {
+        let phy_no = phy.get_attach_args().phy_no;
+        self.phys.insert(phy_no, phy);
     }
 }
 
@@ -175,27 +180,30 @@ pub struct MiiAttachArgs {
 }
 
 pub trait Mii {
-    fn read_reg(&mut self, phy: u32, reg: u32) -> Option<u32>;
+    fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError>;
     fn write_reg(&mut self, phy: u32, reg: u32, val: u32);
 
     fn get_data(&self) -> &MiiData;
     fn get_data_mut(&mut self) -> &mut MiiData;
 }
 
-pub trait MiiPhy {
+pub trait MiiPhy: Send + Sync + Debug {
     /// # The Service routine of the PHY.
     ///
     /// `parent` is the parent device.
     /// `ma` is the PHY's attach args.
-    fn service(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs, opcode: MiiOpCode);
+    fn service(&mut self, parent: &mut dyn Mii, opcode: MiiOpCode) -> Result<(), MiiError>;
 
     /// `parent` is the parent device.
-    fn status(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError>;
+    fn status(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError>;
 
     /// `parent` is the parent device.
-    fn reset(&self, parent: &mut dyn Mii);
+    fn reset(&mut self, parent: &mut dyn Mii);
 
-    fn attach(&self, parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<(), MiiError>;
+    fn attach(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError>;
+
+    fn get_attach_args(&self) -> &MiiAttachArgs;
+    fn get_attach_args_mut(&mut self) -> &mut MiiAttachArgs;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -212,14 +220,17 @@ pub enum MiiError {
     WriteError,
 }
 
-pub fn attach(
+pub fn attach<F>(
     mii: &mut impl Mii,
     mii_data: &mut MiiData,
-    phy: &impl MiiPhy,
+    phy_generator: F,
     capmask: u32,
     phyloc: Option<u32>,
     offloc: Option<u32>,
-) -> Result<(), MiiError> {
+) -> Result<(), MiiError>
+where
+    F: Fn(MiiAttachArgs) -> Box<dyn MiiPhy>,
+{
     if phyloc.is_some() && offloc.is_some() {
         panic!("mii_attach: phyloc and offloc specified");
     }
@@ -244,9 +255,7 @@ pub fn attach(
             }
         }
 
-        let bmsr = mii
-            .read_reg(mii_phyno, MII_BMSR)
-            .ok_or(MiiError::ReadError)?;
+        let bmsr = mii.read_reg(mii_phyno, MII_BMSR)?;
         if bmsr == 0 || bmsr == 0xffff || (bmsr & (BMSR_MEDIAMASK | BMSR_EXTSTAT)) == 0 {
             // Assume no PHY at this address.
             continue 'outer;
@@ -264,17 +273,13 @@ pub fn attach(
         // Extract the IDs.  Braindead PHYs will be handled by
         // the `ukphy' driver, as we have no ID information to
         // match on.
-        let id1 = mii
-            .read_reg(mii_phyno, MII_PHYIDR1)
-            .ok_or(MiiError::ReadError)?;
-        let id2 = mii
-            .read_reg(mii_phyno, MII_PHYIDR2)
-            .ok_or(MiiError::ReadError)?;
+        let id1 = mii.read_reg(mii_phyno, MII_PHYIDR1)?;
+        let id2 = mii.read_reg(mii_phyno, MII_PHYIDR2)?;
 
         log::debug!("MII: id1: {:#x}", id1);
         log::debug!("MII: id2: {:#x}", id2);
 
-        let mut ma = MiiAttachArgs {
+        let ma = MiiAttachArgs {
             phy_no: mii_phyno,
             id1,
             id2,
@@ -287,17 +292,24 @@ pub fn attach(
             anegticks: 0,
         };
 
-        phy.attach(mii, &mut ma)?;
-        mii_data.phys.insert(mii_phyno, ma);
+        let mut phy = phy_generator(ma);
+
+        phy.attach(mii)?;
+
+        log::debug!("MII: phy attached. phy = {phy:?}");
+
+        mii_data.phys.insert(mii_phyno, phy);
     }
 
     Ok(())
 }
 
 /// Inform the PHYs that the interface is down.
-pub fn down(dev: &mut dyn Mii, mii_data: &mut MiiData, phy: &mut dyn MiiPhy) {
-    for (_, ma) in mii_data.phys.iter_mut() {
-        phy.service(dev, ma, MiiOpCode::Down);
+pub fn down(dev: &mut dyn Mii, mii_data: &mut MiiData) {
+    for (_, phy) in mii_data.phys.iter_mut() {
+        if let Err(e) = phy.service(dev, MiiOpCode::Down) {
+            log::error!("mii_down: error: {:?}", e);
+        }
     }
 }
 
@@ -308,21 +320,13 @@ fn phy_down(ma: &mut MiiAttachArgs) {
     }
 }
 
-fn phy_status(parent: &mut dyn Mii, ma: &mut MiiAttachArgs, phy: &dyn MiiPhy) {
-    phy.status(parent, ma);
-}
-
 fn phy_flow_status(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) -> Result<u64, MiiError> {
     if !ma.flags.contains(MiiFlags::DOPAUSE) {
         return Ok(0);
     }
 
-    let mut anar = parent
-        .read_reg(ma.phy_no, MII_ANAR)
-        .ok_or(MiiError::ReadError)?;
-    let mut anlpar = parent
-        .read_reg(ma.phy_no, MII_ANLPAR)
-        .ok_or(MiiError::ReadError)?;
+    let mut anar = parent.read_reg(ma.phy_no, MII_ANAR)?;
+    let mut anlpar = parent.read_reg(ma.phy_no, MII_ANLPAR)?;
 
     // For 1000baseX, the bits are in a different location.
     if ma.flags.contains(MiiFlags::IS_1000X) {
@@ -466,4 +470,19 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             data: MII_NMEDIA,
         });
     }
+}
+
+#[inline(always)]
+fn mii_oui(id1: u32, id2: u32) -> u32 {
+    (id1 << 6) | (id2 >> 10)
+}
+
+#[inline(always)]
+fn mii_model(id2: u32) -> u32 {
+    (id2 & IDR2_MODEL) >> 4
+}
+
+#[inline(always)]
+fn mii_rev(id2: u32) -> u32 {
+    id2 & IDR2_REV
 }

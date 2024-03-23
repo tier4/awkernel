@@ -14,9 +14,9 @@ use awkernel_lib::{
     sync::{mutex::Mutex, rwlock::RwLock},
 };
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
-use crate::mii::{self, ukphy::Ukphy, Mii, MiiData, MiiFlags, MiiPhy};
+use crate::mii::{self, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags, MiiPhy};
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
 pub const MAX_MDF_FILTER: usize = 17;
@@ -584,7 +584,7 @@ impl GenetInner {
 }
 
 impl Mii for GenetInner {
-    fn read_reg(&mut self, phy: u32, reg: u32) -> Option<u32> {
+    fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError> {
         let base_addr = self.base_addr.as_usize();
 
         registers::MDIO_CMD.write(
@@ -597,12 +597,12 @@ impl Mii for GenetInner {
 
         for _ in 0..MII_BUSY_RETRY {
             if registers::MDIO_CMD.read(base_addr) & registers::MDIO_START_BUSY == 0 {
-                return Some(registers::MDIO_CMD.read(base_addr) & 0xffff);
+                return Ok(registers::MDIO_CMD.read(base_addr) & 0xffff);
             }
             awkernel_lib::delay::wait_microsec(10);
         }
 
-        None
+        Err(MiiError::ReadError)
     }
 
     fn write_reg(&mut self, phy: u32, reg: u32, val: u32) {
@@ -694,10 +694,16 @@ pub fn attach(
     // 999             MII_OFFSET_ANY, mii_flags);
 
     let mut mii_data = MiiData::new(mii_flags);
-    let phy = Ukphy::new();
 
-    mii::attach(&mut genet, &mut mii_data, &phy, 0xffffffff, phy_id, None)
-        .or(Err(GenetError::Mii))?;
+    mii::attach(
+        &mut genet,
+        &mut mii_data,
+        |args| Box::new(Ukphy::new(args)),
+        0xffffffff,
+        phy_id,
+        None,
+    )
+    .or(Err(GenetError::Mii))?;
 
     Ok(())
 }
