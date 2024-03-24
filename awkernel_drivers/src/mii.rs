@@ -189,6 +189,27 @@ impl MiiData {
     pub fn get_media_active(&self) -> u64 {
         self.media_active
     }
+
+    /// Find the media with the most bits in common with the target.
+    /// Make the media the current media.
+    /// If no media is found, return false.
+    pub fn set_active_media(&mut self, target: u64) -> bool {
+        let Some(ifmedia) = self.supported_media.find(target) else {
+            return false;
+        };
+
+        let instance = ifmedia.get_instance();
+
+        for (_, phy) in self.phys.iter_mut() {
+            let ma = phy.get_attach_args_mut();
+            if ma.instance == instance {
+                self.current_phy = Some(ma.phy_no);
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 #[derive(Debug)]

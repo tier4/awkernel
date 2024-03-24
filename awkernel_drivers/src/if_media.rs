@@ -101,8 +101,8 @@ pub struct Ifmedia {
 
 impl Ifmedia {
     #[inline(always)]
-    pub fn get_instance(&self) -> u64 {
-        (self.media >> IFM_ISHIFT) & 0xff
+    pub fn get_instance(&self) -> u32 {
+        ((self.media >> IFM_ISHIFT) & 0xff) as u32
     }
 }
 
@@ -122,6 +122,9 @@ impl MediaList {
         self.media.push(media);
     }
 
+    /// Find the media with the most bits in common with the target.
+    /// If no media is found, return None.
+    /// If multiple media are found, return the last one.
     pub fn find(&self, target: u64) -> Option<&Ifmedia> {
         let mut ones = 0;
         let mut media = None;

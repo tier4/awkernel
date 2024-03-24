@@ -17,7 +17,7 @@ use awkernel_lib::{
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
-    if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX},
+    if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_AUTO, IFM_ETHER},
     mii::{self, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags, MiiPhy},
 };
 
@@ -758,6 +758,11 @@ pub fn attach(
         None,
     )
     .or(Err(GenetError::Mii))?;
+
+    if !mii_data.set_active_media(IFM_ETHER | IFM_AUTO) {
+        log::error!("GENET: failed to set active media");
+        return Err(GenetError::Mii);
+    }
 
     Ok(())
 }
