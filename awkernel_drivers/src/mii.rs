@@ -135,12 +135,13 @@ pub const MII_ANEGTICKS_GIGE: u32 = 10;
 pub struct MiiData {
     flags: MiiFlags,
     phys: BTreeMap<u32, Box<dyn MiiPhy>>,
-    current_media: Option<u64>,
 
     media_active: u64,
     media_status: u64,
 
     supported_media: Vec<Ifmedia>,
+
+    instance: u32,
 }
 
 impl MiiData {
@@ -148,11 +149,12 @@ impl MiiData {
         Self {
             flags,
             phys: BTreeMap::new(),
-            current_media: None,
             media_active: 0,
             media_status: 0,
 
             supported_media: Vec::new(),
+
+            instance: 0,
         }
     }
 
@@ -177,6 +179,8 @@ pub struct MiiAttachArgs {
 
     media_active: u64,
     media_status: u64,
+
+    instance: u32, // instance number
 }
 
 pub trait Mii {
@@ -198,7 +202,40 @@ pub trait MiiPhy: Send + Sync + Debug {
     fn status(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError>;
 
     /// `parent` is the parent device.
-    fn reset(&mut self, parent: &mut dyn Mii);
+    fn reset(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError> {
+        let ma = self.get_attach_args_mut();
+
+        let reg = if ma.flags.contains(MiiFlags::NOISOLATE) {
+            BMCR_RESET
+        } else {
+            BMCR_RESET | BMCR_ISO
+        };
+
+        parent.write_reg(ma.phy_no, MII_BMCR, reg);
+
+        // It is best to allow a little time for the reset to settle
+        // in before we start polling the BMCR again.  Notably, the
+        // DP83840A manual states that there should be a 500us delay
+        // between asserting software reset and attempting MII serial
+        // operations.  Also, a DP83815 can get into a bad state on
+        // cable removal and reinsertion if we do not delay here.
+        awkernel_lib::delay::wait_microsec(500);
+
+        // Wait another 100ms for it to complete.
+        for _ in 0..100 {
+            let reg = parent.read_reg(ma.phy_no, MII_BMCR)?;
+            if (reg & BMCR_RESET) == 0 {
+                break;
+            }
+            awkernel_lib::delay::wait_microsec(1000);
+        }
+
+        if ma.instance != 0 && !ma.flags.contains(MiiFlags::NOISOLATE) {
+            parent.write_reg(ma.phy_no, MII_BMCR, reg | BMCR_ISO);
+        }
+
+        Ok(())
+    }
 
     fn attach(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError>;
 
@@ -290,6 +327,7 @@ where
             capabilities: 0,
             ext_capabilities: 0,
             anegticks: 0,
+            instance: mii_data.instance,
         };
 
         let mut phy = phy_generator(ma);
@@ -299,6 +337,7 @@ where
         log::debug!("MII: phy attached. phy = {phy:?}");
 
         mii_data.phys.insert(mii_phyno, phy);
+        mii_data.instance += 1;
     }
 
     Ok(())

@@ -186,8 +186,6 @@ impl MiiPhy for Ukphy {
         Ok(())
     }
 
-    fn reset(&mut self, parent: &mut dyn Mii) {}
-
     fn attach(&mut self, parent: &mut dyn Mii) -> Result<(), MiiError> {
         log::info!(
             "Generic IEEE 802.3u media interface has been found. rev {}, OUI 0x{:06x} model 0x{:04x}",
@@ -196,9 +194,11 @@ impl MiiPhy for Ukphy {
             mii_model(self.ma.id2)
         );
 
+        self.ma.instance = parent.get_data().instance;
+
         self.ma.flags.insert(MiiFlags::NOLOOP);
 
-        self.reset(parent);
+        self.reset(parent)?;
 
         self.ma.capabilities = parent.read_reg(self.ma.phy_no, MII_BMSR)?;
 
