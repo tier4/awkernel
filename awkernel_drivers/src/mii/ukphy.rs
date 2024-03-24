@@ -33,6 +33,13 @@ impl MiiPhy for Ukphy {
                 // 155                         return (0);
                 // 156                 break;
                 // 157
+
+                // If we're not polling our PHY instance, just return.
+                if let Some(current_phy) = parent.get_data().current_phy {
+                    if current_phy != self.get_attach_args().phy_no {
+                        return Ok(());
+                    }
+                }
             }
             MiiOpCode::MediaChange => {
                 // 158         case MII_MEDIACHG:
@@ -45,6 +52,17 @@ impl MiiPhy for Ukphy {
                 // 165                         PHY_WRITE(sc, MII_BMCR, reg | BMCR_ISO);
                 // 166                         return (0);
                 // 167                 }
+
+                // If the media indicates a different PHY instance,
+                // isolate ourselves.
+                if let Some(current_phy) = parent.get_data().current_phy {
+                    if current_phy != self.get_attach_args().phy_no {
+                        let reg = parent.read_reg(self.get_attach_args().phy_no, MII_BMCR)?;
+                        parent.write_reg(self.get_attach_args().phy_no, MII_BMCR, reg | BMCR_ISO);
+                        return Ok(());
+                    }
+                }
+
                 // 168
                 // 169                 /*
                 // 170                  * If the interface is not up, don't do anything.
@@ -63,6 +81,14 @@ impl MiiPhy for Ukphy {
                 // 181                  */
                 // 182                 if (IFM_INST(ife->ifm_media) != sc->mii_inst)
                 // 183                         return (0);
+
+                // If we're not currently selected, just return.
+                if let Some(current_phy) = parent.get_data().current_phy {
+                    if current_phy != self.get_attach_args().phy_no {
+                        return Ok(());
+                    }
+                }
+
                 // 184
                 // 185                 if (mii_phy_tick(sc) == EJUSTRETURN)
                 // 186                         return (0);
@@ -92,6 +118,7 @@ impl MiiPhy for Ukphy {
         // 199         return (0);
 
         // Callback if something changed.
+        super::phy_update(parent, &mut self.ma, opcode)?;
 
         Ok(())
     }

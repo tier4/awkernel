@@ -140,3 +140,13 @@ impl MediaList {
         media
     }
 }
+
+#[inline(always)]
+pub fn is_media_active(media: u64) -> bool {
+    media & IFM_ACTIVE != 0
+}
+
+#[inline(always)]
+pub fn is_full_duplex(media: u64) -> bool {
+    media & IFM_FDX != 0
+}

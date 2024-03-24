@@ -293,7 +293,7 @@ pub trait MiiPhy: Send + Sync + Debug {
     fn get_attach_args_mut(&mut self) -> &mut MiiAttachArgs;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MiiOpCode {
     Tick,        // once-per-second tick
     MediaChange, // user changed media; perform the switch
@@ -567,6 +567,26 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             data: MII_NMEDIA,
         });
     }
+}
+
+fn phy_update(
+    parent: &mut dyn Mii,
+    ma: &mut MiiAttachArgs,
+    opcode: MiiOpCode,
+) -> Result<(), MiiError> {
+    let mii = parent.get_data_mut();
+    if ma.media_active != mii.media_active
+        || ma.media_status != mii.media_status
+        || opcode == MiiOpCode::MediaChange
+    {
+        let mii = parent.get_data_mut();
+        ma.media_active = mii.media_active;
+        ma.media_status = mii.media_status;
+
+        parent.stat_change()?;
+    }
+
+    Ok(())
 }
 
 #[inline(always)]
