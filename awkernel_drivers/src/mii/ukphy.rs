@@ -108,9 +108,11 @@ impl MiiPhy for Ukphy {
             mii.media_active = IFM_ETHER;
         }
 
-        let bmsr = parent.read_reg(ma.phy_no, MII_BMSR)? | parent.read_reg(ma.phy_no, MII_BMSR)?;
+        let bmsr = BMSR::from_bits_retain(
+            parent.read_reg(ma.phy_no, MII_BMSR)? | parent.read_reg(ma.phy_no, MII_BMSR)?,
+        );
 
-        if (bmsr & BMSR_LINK) != 0 {
+        if bmsr.contains(BMSR::LINK) {
             parent.get_data_mut().media_status |= IFM_ACTIVE;
         }
 
@@ -129,7 +131,7 @@ impl MiiPhy for Ukphy {
             // NWay autonegotiation takes the highest-order common
             // bit of the ANAR and ANLPAR (i.e. best media advertised
             // both by us and our link partner).
-            if bmsr & BMSR_ACOMP == 0 {
+            if !bmsr.contains(BMSR::ACOMP) {
                 // Erg, still trying, I guess...
                 parent.get_data_mut().media_active |= IFM_NONE;
                 return Ok(());
@@ -141,7 +143,9 @@ impl MiiPhy for Ukphy {
             let gtcr;
             let gtsr;
             if ma.flags.contains(MiiFlags::HAVE_GTCR)
-                && ma.ext_capabilities & (EXTSR_1000THDX | EXTSR_1000TFDX) != 0
+                && ma
+                    .ext_capabilities
+                    .intersects(EXTSR::ETH_1000THDX | EXTSR::ETH_1000TFDX)
             {
                 gtcr = parent.read_reg(ma.phy_no, MII_100T2CR)?;
                 gtsr = parent.read_reg(ma.phy_no, MII_100T2SR)?;
@@ -200,14 +204,15 @@ impl MiiPhy for Ukphy {
 
         self.reset(parent)?;
 
-        self.ma.capabilities = parent.read_reg(self.ma.phy_no, MII_BMSR)?;
+        self.ma.capabilities = BMSR::from_bits_retain(parent.read_reg(self.ma.phy_no, MII_BMSR)?);
 
-        if self.ma.capabilities & BMSR_EXTSTAT != 0 {
-            self.ma.ext_capabilities = parent.read_reg(self.ma.phy_no, MII_EXTSR)?;
+        if self.ma.capabilities.contains(BMSR::EXTSTAT) {
+            self.ma.ext_capabilities =
+                EXTSR::from_bits_retain(parent.read_reg(self.ma.phy_no, MII_EXTSR)?);
         }
 
-        if (self.ma.capabilities & BMSR_MEDIAMASK == 0)
-            && (self.ma.ext_capabilities & EXTSR_MEDIAMASK == 0)
+        if !self.ma.capabilities.intersects(bmsr_media_mask())
+            && !self.ma.ext_capabilities.intersects(extsr_media_mask())
         {
             log::warn!("No media present");
         } else {

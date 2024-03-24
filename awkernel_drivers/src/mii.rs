@@ -3,7 +3,7 @@
 use core::fmt::Debug;
 
 use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
-use bitflags::bitflags;
+use bitflags::{bitflags, Flags};
 
 use crate::if_media::*;
 
@@ -85,37 +85,54 @@ pub const GTSR_LP_1000THDX: u32 = 0x0400; // link partner 1000baseT HDX capable
 pub const GTSR_LP_ASM_DIR: u32 = 0x0200; // link partner asym. pause dir. capable
 pub const GTSR_IDLE_ERR: u32 = 0x00ff; // IDLE error count
 
-pub const BMSR_100T4: u32 = 0x8000; // 100 base T4 capable
-pub const BMSR_100TXFDX: u32 = 0x4000; // 100 base Tx full duplex capable
-pub const BMSR_100TXHDX: u32 = 0x2000; // 100 base Tx half duplex capable
-pub const BMSR_10TFDX: u32 = 0x1000; // 10 base T full duplex capable
-pub const BMSR_10THDX: u32 = 0x0800; // 10 base T half duplex capable
-pub const BMSR_MFPS: u32 = 0x0040; // MII Frame Preamble Suppression
-pub const BMSR_100T2FDX: u32 = 0x0400; // 100 base T2 full duplex capable
-pub const BMSR_100T2HDX: u32 = 0x0200; // 100 base T2 half duplex capable
-pub const BMSR_EXTSTAT: u32 = 0x0100; // Extended status in register 15
-pub const BMSR_ACOMP: u32 = 0x0020; // Autonegotiation complete
-pub const BMSR_RFAULT: u32 = 0x0010; // Link partner fault
-pub const BMSR_ANEG: u32 = 0x0008; // Autonegotiation capable
-pub const BMSR_LINK: u32 = 0x0004; // Link status
-pub const BMSR_JABBER: u32 = 0x0002; // Jabber detected
-pub const BMSR_EXTCAP: u32 = 0x0001; // Extended capability
+bitflags! {
+    #[derive(Debug, Clone, Copy)]
+    pub struct BMSR: u32 {
+        const ETH_100T4 = 0x8000; // 100 base T4 capable
+        const ETH_100TXFDX = 0x4000; // 100 base Tx full duplex capable
+        const ETH_100TXHDX = 0x2000; // 100 base Tx half duplex capable
+        const ETH_10TFDX = 0x1000; // 10 base T full duplex capable
+        const ETH_10THDX = 0x0800; // 10 base T half duplex capable
+        const ETH_100T2FDX = 0x0400; // 100 base T2 full duplex capable
+        const ETH_100T2HDX = 0x0200; // 100 base T2 half duplex capable
+        const EXTSTAT = 0x0100; // Extended status in register 15
+        const MFPS = 0x0040; // MII Frame Preamble Suppression
+        const ACOMP = 0x0020; // Autonegotiation complete
+        const RFAULT = 0x0010; // Link partner fault
+        const ANEG = 0x0008; // Autonegotiation capable
+        const LINK = 0x0004; // Link status
+        const JABBER = 0x0002; // Jabber detected
+        const EXTCAP = 0x0001; // Extended capability
+    }
+}
 
-pub const BMSR_MEDIAMASK: u32 = BMSR_100T4
-    | BMSR_100TXFDX
-    | BMSR_100TXHDX
-    | BMSR_10TFDX
-    | BMSR_10THDX
-    | BMSR_100T2FDX
-    | BMSR_100T2HDX;
+#[inline(always)]
+fn bmsr_media_mask() -> BMSR {
+    BMSR::ETH_100T4
+        | BMSR::ETH_100TXFDX
+        | BMSR::ETH_100TXHDX
+        | BMSR::ETH_10TFDX
+        | BMSR::ETH_10THDX
+        | BMSR::ETH_100T2FDX
+        | BMSR::ETH_100T2HDX
+}
 
 pub const MII_EXTSR: u32 = 0x0f; // Extended status register
-pub const EXTSR_1000XFDX: u32 = 0x8000; // 1000X full-duplex capable
-pub const EXTSR_1000XHDX: u32 = 0x4000; // 1000X half-duplex capable
-pub const EXTSR_1000TFDX: u32 = 0x2000; // 1000T full-duplex capable
-pub const EXTSR_1000THDX: u32 = 0x1000; // 1000T half-duplex capable
 
-pub const EXTSR_MEDIAMASK: u32 = EXTSR_1000XFDX | EXTSR_1000XHDX | EXTSR_1000TFDX | EXTSR_1000THDX;
+bitflags! {
+    #[derive(Debug, Clone, Copy)]
+    pub struct EXTSR: u32 {
+        const ETH_1000XFDX = 0x8000; // 1000X full-duplex capable
+        const ETH_1000XHDX = 0x4000; // 1000X half-duplex capable
+        const ETH_1000TFDX = 0x2000; // 1000T full-duplex capable
+        const ETH_1000THDX = 0x1000; // 1000T half-duplex capable
+    }
+}
+
+#[inline(always)]
+pub fn extsr_media_mask() -> EXTSR {
+    EXTSR::ETH_1000XFDX | EXTSR::ETH_1000XHDX | EXTSR::ETH_1000TFDX | EXTSR::ETH_1000THDX
+}
 
 pub const MII_MEDIA_NONE: u32 = 0;
 pub const MII_MEDIA_10_T: u32 = 1;
@@ -172,8 +189,8 @@ pub struct MiiAttachArgs {
     capmask: u32,    // capability mask from BMSR
     flags: MiiFlags, // flags from parent.
 
-    capabilities: u32,     // capabilities from BMSR
-    ext_capabilities: u32, // extended capabilities
+    capabilities: BMSR,      // capabilities from BMSR
+    ext_capabilities: EXTSR, // extended capabilities
 
     anegticks: u32, // ticks before retrying aneg
 
@@ -292,8 +309,11 @@ where
             }
         }
 
-        let bmsr = mii.read_reg(mii_phyno, MII_BMSR)?;
-        if bmsr == 0 || bmsr == 0xffff || (bmsr & (BMSR_MEDIAMASK | BMSR_EXTSTAT)) == 0 {
+        let bmsr = BMSR::from_bits_retain(mii.read_reg(mii_phyno, MII_BMSR)?);
+        if bmsr.bits() == 0
+            || bmsr.bits() == 0xffff
+            || !bmsr.intersects(bmsr_media_mask() | BMSR::EXTSTAT)
+        {
             // Assume no PHY at this address.
             continue 'outer;
         }
@@ -324,8 +344,8 @@ where
             flags: mii_data.flags,
             media_active: 0,
             media_status: 0,
-            capabilities: 0,
-            ext_capabilities: 0,
+            capabilities: BMSR::empty(),
+            ext_capabilities: EXTSR::empty(),
             anegticks: 0,
             instance: mii_data.instance,
         };
@@ -414,7 +434,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.capabilities & BMSR_10THDX != 0 {
+    if ma.capabilities.contains(BMSR::ETH_10THDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_10_T, 0);
         mii.supported_media.push(Ifmedia {
             media,
@@ -422,7 +442,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.capabilities & BMSR_10TFDX != 0 {
+    if ma.capabilities.contains(BMSR::ETH_10TFDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_10_T, IFM_FDX);
         mii.supported_media.push(Ifmedia {
             media,
@@ -430,7 +450,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.capabilities & BMSR_100TXHDX != 0 {
+    if ma.capabilities.contains(BMSR::ETH_100TXHDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_TX, 0);
         mii.supported_media.push(Ifmedia {
             media,
@@ -438,7 +458,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.capabilities & BMSR_100TXFDX != 0 {
+    if ma.capabilities.contains(BMSR::ETH_100TXFDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_TX, IFM_FDX);
         mii.supported_media.push(Ifmedia {
             media,
@@ -446,7 +466,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.capabilities & BMSR_100T4 != 0 {
+    if ma.capabilities.contains(BMSR::ETH_100T4) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_T4, 0);
         mii.supported_media.push(Ifmedia {
             media,
@@ -454,8 +474,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         });
     }
 
-    if ma.ext_capabilities & EXTSR_MEDIAMASK != 0 {
-        if ma.ext_capabilities & EXTSR_1000XHDX != 0 {
+    if ma.ext_capabilities.intersects(extsr_media_mask()) {
+        if ma.ext_capabilities.contains(EXTSR::ETH_1000XHDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, 0);
@@ -465,7 +485,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             });
         }
 
-        if ma.ext_capabilities & EXTSR_1000XFDX != 0 {
+        if ma.ext_capabilities.contains(EXTSR::ETH_1000XFDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX);
@@ -481,7 +501,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         // the media is set.
         //
         // All 1000baseT PHYs have a 1000baseT control register.
-        if ma.ext_capabilities & EXTSR_1000THDX != 0 {
+        if ma.ext_capabilities.contains(EXTSR::ETH_1000THDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_T, 0);
@@ -491,7 +511,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             });
         }
 
-        if ma.ext_capabilities & EXTSR_1000TFDX != 0 {
+        if ma.ext_capabilities.contains(EXTSR::ETH_1000TFDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX);
@@ -502,7 +522,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         }
     }
 
-    if ma.capabilities & BMSR_ANEG != 0 {
+    if ma.capabilities.contains(BMSR::ANEG) {
         let media = ifm_make_word(IFM_ETHER, IFM_AUTO, 0);
         mii.supported_media.push(Ifmedia {
             media,
