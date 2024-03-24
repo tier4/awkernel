@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 pub const IFM_ETHER: u64 = 0x0000000000000100;
 pub const IFM_10_T: u64 = 3; // 10BaseT - RJ45
 pub const IFM_10_2: u64 = 4; // 10Base2 - Thinnet
@@ -78,6 +80,7 @@ pub const IFM_ETH_RXPAUSE: u64 = 0x0000000000020000; // receive PAUSE frames
 pub const IFM_ETH_TXPAUSE: u64 = 0x0000000000040000; // transmit PAUSE frames
 
 pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
+pub const IFM_ISHIFT: u64 = 56; // Instance shift
 
 #[inline(always)]
 pub fn ifm_subtype(value: u64) -> u64 {
@@ -86,12 +89,51 @@ pub fn ifm_subtype(value: u64) -> u64 {
 
 /// Create a media word.
 #[inline(always)]
-pub fn ifm_make_word(r#type: u64, subtype: u64, options: u64) -> u64 {
-    r#type | subtype | options
+pub fn ifm_make_word(r#type: u64, subtype: u64, options: u64, instance: u64) -> u64 {
+    r#type | subtype | options | (instance << IFM_ISHIFT)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ifmedia {
     pub media: u64, // description of this media attachment
     pub data: u32,  // for driver-specific use
+}
+
+impl Ifmedia {
+    #[inline(always)]
+    pub fn get_instance(&self) -> u64 {
+        (self.media >> IFM_ISHIFT) & 0xff
+    }
+}
+
+#[derive(Debug)]
+pub struct MediaList {
+    media: Vec<Ifmedia>,
+}
+
+impl MediaList {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self { media: Vec::new() }
+    }
+
+    #[inline(always)]
+    pub fn add(&mut self, media: Ifmedia) {
+        self.media.push(media);
+    }
+
+    pub fn find(&self, target: u64) -> Option<&Ifmedia> {
+        let mut ones = 0;
+        let mut media = None;
+
+        for m in &self.media {
+            let n = (m.media & target).count_ones();
+            if n > 0 && n >= ones {
+                ones = n;
+                media = Some(m);
+            }
+        }
+
+        media
+    }
 }

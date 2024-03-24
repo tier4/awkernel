@@ -2,8 +2,8 @@
 
 use core::fmt::Debug;
 
-use alloc::{boxed::Box, collections::BTreeMap, vec::Vec};
-use bitflags::{bitflags, Flags};
+use alloc::{boxed::Box, collections::BTreeMap};
+use bitflags::bitflags;
 
 use crate::if_media::*;
 
@@ -153,10 +153,12 @@ pub struct MiiData {
     flags: MiiFlags,
     phys: BTreeMap<u32, Box<dyn MiiPhy>>,
 
+    current_phy: Option<u32>,
+
     media_active: u64,
     media_status: u64,
 
-    supported_media: Vec<Ifmedia>,
+    supported_media: MediaList,
 
     instance: u32,
 }
@@ -166,10 +168,12 @@ impl MiiData {
         Self {
             flags,
             phys: BTreeMap::new(),
+            current_phy: None,
+
             media_active: 0,
             media_status: 0,
 
-            supported_media: Vec::new(),
+            supported_media: MediaList::new(),
 
             instance: 0,
         }
@@ -360,6 +364,11 @@ where
         mii_data.instance += 1;
     }
 
+    log::debug!(
+        "MII: supported_media = {:?}",
+        mii.get_data().supported_media
+    );
+
     Ok(())
 }
 
@@ -427,48 +436,48 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
     let mii = parent.get_data_mut();
 
     if !ma.flags.contains(MiiFlags::NOISOLATE) {
-        let media = ifm_make_word(IFM_ETHER, IFM_NONE, 0);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_NONE, 0, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_NONE,
         });
     }
 
     if ma.capabilities.contains(BMSR::ETH_10THDX) {
-        let media = ifm_make_word(IFM_ETHER, IFM_10_T, 0);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_10_T, 0, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_10_T,
         });
     }
 
     if ma.capabilities.contains(BMSR::ETH_10TFDX) {
-        let media = ifm_make_word(IFM_ETHER, IFM_10_T, IFM_FDX);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_10_T, IFM_FDX, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_10_T_FDX,
         });
     }
 
     if ma.capabilities.contains(BMSR::ETH_100TXHDX) {
-        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, 0);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, 0, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_100_TX,
         });
     }
 
     if ma.capabilities.contains(BMSR::ETH_100TXFDX) {
-        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, IFM_FDX);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_TX, IFM_FDX, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_100_TX_FDX,
         });
     }
 
     if ma.capabilities.contains(BMSR::ETH_100T4) {
-        let media = ifm_make_word(IFM_ETHER, IFM_100_T4, 0);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_100_T4, 0, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_MEDIA_100_T4,
         });
@@ -478,8 +487,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000XHDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
-            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, 0);
-            mii.supported_media.push(Ifmedia {
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, ma.instance as u64);
+            mii.supported_media.add(Ifmedia {
                 media,
                 data: MII_MEDIA_1000_X,
             });
@@ -488,8 +497,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000XFDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
-            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX);
-            mii.supported_media.push(Ifmedia {
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, ma.instance as u64);
+            mii.supported_media.add(Ifmedia {
                 media,
                 data: MII_MEDIA_1000_X_FDX,
             });
@@ -504,8 +513,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000THDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
-            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, 0);
-            mii.supported_media.push(Ifmedia {
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, 0, ma.instance as u64);
+            mii.supported_media.add(Ifmedia {
                 media,
                 data: MII_MEDIA_1000_T,
             });
@@ -514,8 +523,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000TFDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
-            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX);
-            mii.supported_media.push(Ifmedia {
+            let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX, ma.instance as u64);
+            mii.supported_media.add(Ifmedia {
                 media,
                 data: MII_MEDIA_1000_T_FDX,
             });
@@ -523,8 +532,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
     }
 
     if ma.capabilities.contains(BMSR::ANEG) {
-        let media = ifm_make_word(IFM_ETHER, IFM_AUTO, 0);
-        mii.supported_media.push(Ifmedia {
+        let media = ifm_make_word(IFM_ETHER, IFM_AUTO, 0, ma.instance as u64);
+        mii.supported_media.add(Ifmedia {
             media,
             data: MII_NMEDIA,
         });
