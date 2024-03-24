@@ -179,9 +179,15 @@ impl MiiData {
         }
     }
 
+    #[inline(always)]
     pub fn insert(&mut self, phy: Box<dyn MiiPhy>) {
         let phy_no = phy.get_attach_args().phy_no;
         self.phys.insert(phy_no, phy);
+    }
+
+    #[inline(always)]
+    pub fn get_media_active(&self) -> u64 {
+        self.media_active
     }
 }
 
@@ -207,6 +213,8 @@ pub struct MiiAttachArgs {
 pub trait Mii {
     fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError>;
     fn write_reg(&mut self, phy: u32, reg: u32, val: u32);
+
+    fn stat_change(&mut self) -> Result<(), MiiError>;
 
     fn get_data(&self) -> &MiiData;
     fn get_data_mut(&mut self) -> &mut MiiData;

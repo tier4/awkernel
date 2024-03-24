@@ -16,7 +16,10 @@ use awkernel_lib::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::mii::{self, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags, MiiPhy};
+use crate::{
+    if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX},
+    mii::{self, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags, MiiPhy},
+};
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
 pub const MAX_MDF_FILTER: usize = 17;
@@ -38,6 +41,14 @@ mod registers {
 
     mmio_r!(offset 0x000 => pub SYS_REV_CTRL<u32>);
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
+
+    mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
+
+    pub const EXT_RGMII_OOB_ID_MODE_DISABLE: u32 = 1 << 16;
+    pub const EXT_RGMII_OOB_RGMII_MODE_EN: u32 = 1 << 6;
+    pub const EXT_RGMII_OOB_OOB_DISABLE: u32 = 1 << 5;
+    pub const EXT_RGMII_OOB_RGMII_LINK: u32 = 1 << 4;
+
     mmio_rw!(offset 0x300 => pub RBUF_CTRL<u32>);
     mmio_rw!(offset 0x3b4 => pub RBUF_TBUF_SIZE_CTRL<u32>);
 
@@ -113,6 +124,11 @@ mod registers {
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_MIB_RESET_RUNT: u32 = 1 << 1;
     pub const UMAC_MIB_RESET_RX: u32 = 1;
+
+    pub const UMAC_CMD_SPEED: u32 = bits(3, 2);
+    pub const UMAC_CMD_SPEED_10: u32 = 0;
+    pub const UMAC_CMD_SPEED_100: u32 = 1;
+    pub const UMAC_CMD_SPEED_1000: u32 = 2;
 
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     mmio_r!(offset 0x80c => pub UMAC_MAC0<u32>);
@@ -310,6 +326,39 @@ impl GenetInner {
         genet.reset();
 
         Ok(genet)
+    }
+
+    fn update_link(&mut self) {
+        let media_active = self.mii_data.get_media_active();
+        let speed = if ifm_subtype(media_active) == IFM_1000_T
+            || ifm_subtype(media_active) == IFM_1000_SX
+        {
+            registers::UMAC_CMD_SPEED_1000
+        } else if ifm_subtype(media_active) == IFM_100_TX {
+            registers::UMAC_CMD_SPEED_100
+        } else {
+            registers::UMAC_CMD_SPEED_10
+        };
+
+        let mut val = registers::EXT_RGMII_OOB_CTRL.read(self.base_addr.as_usize());
+        val &= !registers::EXT_RGMII_OOB_OOB_DISABLE;
+        val |= registers::EXT_RGMII_OOB_RGMII_LINK;
+        val |= registers::EXT_RGMII_OOB_RGMII_MODE_EN;
+
+        if self.phy_mode == PhyMode::RGMII {
+            val |= registers::EXT_RGMII_OOB_ID_MODE_DISABLE;
+        } else {
+            val &= !registers::EXT_RGMII_OOB_ID_MODE_DISABLE;
+        }
+
+        registers::EXT_RGMII_OOB_CTRL.write(val, self.base_addr.as_usize());
+
+        let mut val = registers::UMAC_CMD.read(self.base_addr.as_usize());
+
+        val &= !registers::UMAC_CMD_SPEED;
+        val |= shiftin(speed, registers::UMAC_CMD_SPEED);
+
+        registers::UMAC_CMD.write(val, self.base_addr.as_usize());
     }
 
     fn reset(&mut self) {
@@ -622,6 +671,11 @@ impl Mii for GenetInner {
             }
             awkernel_lib::delay::wait_microsec(10);
         }
+    }
+
+    fn stat_change(&mut self) -> Result<(), MiiError> {
+        self.update_link();
+        Ok(())
     }
 
     fn get_data(&self) -> &MiiData {
