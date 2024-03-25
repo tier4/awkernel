@@ -63,6 +63,15 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkStatus {
+    Up,
+    UpFullDuplex,
+    UpHalfDuplex,
+    Down,
+    Unknown,
+}
+
 impl Display for NetCapabilities {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut s = String::new();
@@ -151,8 +160,8 @@ pub trait NetDevice {
 
     fn can_send(&self) -> bool;
     fn mac_address(&self) -> [u8; 6];
-    fn link_up(&self) -> bool;
-    fn full_duplex(&self) -> bool;
+
+    fn link_status(&self) -> LinkStatus;
 
     fn device_short_name(&self) -> Cow<'static, str>;
 
@@ -205,4 +214,16 @@ pub trait NetDevice {
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
+}
+
+impl Display for LinkStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            LinkStatus::Up => write!(f, "Up"),
+            LinkStatus::UpFullDuplex => write!(f, "Up (Full duplex)"),
+            LinkStatus::UpHalfDuplex => write!(f, "Up (Half duplex)"),
+            LinkStatus::Down => write!(f, "Down"),
+            LinkStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
 }

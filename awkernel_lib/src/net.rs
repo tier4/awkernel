@@ -10,7 +10,7 @@ use smoltcp::wire::{IpAddress, IpCidr};
 
 use self::{
     if_net::IfNet,
-    net_device::{NetCapabilities, NetDevice},
+    net_device::{LinkStatus, NetCapabilities, NetDevice},
     tcp::TcpPort,
 };
 
@@ -51,9 +51,8 @@ pub struct IfStatus {
     pub device_name: Cow<'static, str>,
     pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
     pub ipv4_gateway: Option<Ipv4Addr>,
-    pub link_up: bool,
     pub link_speed_mbs: u64,
-    pub full_duplex: bool,
+    pub link_status: LinkStatus,
     pub mac_address: [u8; 6],
     pub irqs: Vec<u16>,
     pub rx_irq_to_que_id: BTreeMap<u16, usize>,
@@ -75,7 +74,7 @@ impl Display for IfStatus {
 
         write!(
             f,
-            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
+            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link status: {}, Link speed: {} Mbps\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
             self.interface_id,
             self.device_name,
             ipv4_addr,
@@ -86,9 +85,8 @@ impl Display for IfStatus {
             self.mac_address[3],
             self.mac_address[4],
             self.mac_address[5],
-            self.link_up,
+            self.link_status,
             self.link_speed_mbs,
-            self.full_duplex,
             self.capabilities,
             self.irqs,
             self.poll_mode
@@ -298,9 +296,8 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     let inner = &if_net.net_device;
 
     let mac_address = inner.mac_address();
-    let link_up = inner.link_up();
     let link_speed_mbs = inner.link_speed();
-    let full_duplex = inner.full_duplex();
+    let link_status = inner.link_status();
 
     let mut ipv4_addrs = Vec::new();
 
@@ -333,9 +330,8 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
         device_name: inner.device_short_name(),
         ipv4_addrs,
         ipv4_gateway: None,
-        link_up,
+        link_status,
         link_speed_mbs,
-        full_duplex,
         mac_address,
         irqs,
         rx_irq_to_que_id,

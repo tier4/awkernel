@@ -25,8 +25,8 @@ use awkernel_lib::{
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
-            PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -2007,9 +2007,17 @@ impl NetDevice for Igb {
         inner.capabilities
     }
 
-    fn link_up(&self) -> bool {
+    fn link_status(&self) -> LinkStatus {
         let inner = self.inner.read();
-        inner.link_active
+        if inner.link_active {
+            if inner.link_duplex == igb_hw::Duplex::Full {
+                LinkStatus::UpFullDuplex
+            } else {
+                LinkStatus::UpHalfDuplex
+            }
+        } else {
+            LinkStatus::Down
+        }
     }
 
     fn link_speed(&self) -> u64 {
@@ -2021,12 +2029,6 @@ impl NetDevice for Igb {
             igb_hw::Speed::S1000Mbps => 1000,
             igb_hw::Speed::None => 0,
         }
-    }
-
-    fn full_duplex(&self) -> bool {
-        let inner = self.inner.read();
-
-        inner.link_duplex == igb_hw::Duplex::Full
     }
 
     fn mac_address(&self) -> [u8; 6] {

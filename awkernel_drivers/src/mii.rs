@@ -3,6 +3,7 @@
 use core::fmt::Debug;
 
 use alloc::{boxed::Box, collections::BTreeMap};
+use awkernel_lib::net::net_device::LinkStatus;
 use bitflags::bitflags;
 
 use crate::if_media::*;
@@ -227,11 +228,19 @@ impl MiiData {
     }
 
     #[inline(always)]
-    pub fn link_up(&self) -> bool {
-        if self.media_status & IFM_AVALID != 0 && self.media_status & IFM_ACTIVE != 0 {
-            true
+    pub fn link_status(&self) -> LinkStatus {
+        if self.media_status & IFM_AVALID != 0 {
+            if self.media_status & IFM_ACTIVE != 0 {
+                if self.media_active & IFM_FDX != 0 {
+                    LinkStatus::UpFullDuplex
+                } else {
+                    LinkStatus::UpHalfDuplex
+                }
+            } else {
+                LinkStatus::Down
+            }
         } else {
-            true
+            LinkStatus::Unknown
         }
     }
 }
@@ -821,6 +830,21 @@ fn phy_auto_timeout(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), Mi
 
     // Update the media status.
     phy.service(parent, MiiOpCode::PollStatus)?;
+
+    Ok(())
+}
+
+fn mii_media_change(parent: &mut dyn Mii) -> Result<(), MiiError> {
+    let mii = parent.get_data_mut();
+    let mut tmp = BTreeMap::new();
+    core::mem::swap(&mut tmp, &mut mii.phys);
+
+    for (_, phy) in tmp.iter_mut() {
+        phy.service(parent, MiiOpCode::MediaChange)?;
+    }
+
+    let mii = parent.get_data_mut();
+    core::mem::swap(&mut tmp, &mut mii.phys);
 
     Ok(())
 }

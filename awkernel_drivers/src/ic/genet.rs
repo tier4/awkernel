@@ -7,7 +7,8 @@ use awkernel_lib::{
         ether::ETHER_ADDR_LEN,
         multicast::MulticastAddrs,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags,
         },
     },
     paging::PAGESIZE,
@@ -229,15 +230,12 @@ impl NetDevice for Genet {
         todo!()
     }
 
-    fn link_up(&self) -> bool {
-        todo!()
+    fn link_status(&self) -> LinkStatus {
+        let inner = self.inner.read();
+        inner.mii_data.link_status()
     }
 
     fn link_speed(&self) -> u64 {
-        todo!()
-    }
-
-    fn full_duplex(&self) -> bool {
         todo!()
     }
 
