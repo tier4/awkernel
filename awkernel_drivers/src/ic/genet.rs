@@ -665,7 +665,7 @@ impl Mii for GenetInner {
         Err(MiiError::ReadError)
     }
 
-    fn write_reg(&mut self, phy: u32, reg: u32, val: u32) {
+    fn write_reg(&mut self, phy: u32, reg: u32, val: u32) -> Result<(), MiiError> {
         let base_addr = self.base_addr.as_usize();
 
         registers::MDIO_CMD.write(
@@ -678,10 +678,12 @@ impl Mii for GenetInner {
 
         for _ in 0..MII_BUSY_RETRY {
             if registers::MDIO_CMD.read(base_addr) & registers::MDIO_START_BUSY == 0 {
-                return;
+                return Ok(());
             }
             awkernel_lib::delay::wait_microsec(10);
         }
+
+        Err(MiiError::WriteError)
     }
 
     fn stat_change(&mut self) -> Result<(), MiiError> {

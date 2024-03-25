@@ -35,11 +35,6 @@ impl MiiPhy for Ukphy {
                 // 157
 
                 // If we're not polling our PHY instance, just return.
-                if let Some(current_phy) = &parent.get_data().current_phy {
-                    if current_phy.0 != self.get_attach_args().phy_no {
-                        return Ok(());
-                    }
-                }
             }
             MiiOpCode::MediaChange => {
                 // 158         case MII_MEDIACHG:
@@ -55,13 +50,6 @@ impl MiiPhy for Ukphy {
 
                 // If the media indicates a different PHY instance,
                 // isolate ourselves.
-                if let Some(current_phy) = &parent.get_data().current_phy {
-                    if current_phy.0 != self.get_attach_args().phy_no {
-                        let reg = parent.read_reg(self.get_attach_args().phy_no, MII_BMCR)?;
-                        parent.write_reg(self.get_attach_args().phy_no, MII_BMCR, reg | BMCR_ISO);
-                        return Ok(());
-                    }
-                }
 
                 // 168
                 // 169                 /*
@@ -83,11 +71,6 @@ impl MiiPhy for Ukphy {
                 // 183                         return (0);
 
                 // If we're not currently selected, just return.
-                if let Some(current_phy) = &parent.get_data().current_phy {
-                    if current_phy.0 != self.get_attach_args().phy_no {
-                        return Ok(());
-                    }
-                }
 
                 // 184
                 // 185                 if (mii_phy_tick(sc) == EJUSTRETURN)
@@ -135,8 +118,8 @@ impl MiiPhy for Ukphy {
         {
             let mii = parent.get_data_mut();
 
-            mii.media_status = IFM_AVALID;
-            mii.media_active = IFM_ETHER;
+            mii.media_status = Media::new(IFM_AVALID);
+            mii.media_active = Media::new(IFM_ETHER);
         }
 
         let bmsr = BMSR::from_bits_retain(
@@ -144,18 +127,18 @@ impl MiiPhy for Ukphy {
         );
 
         if bmsr.contains(BMSR::LINK) {
-            parent.get_data_mut().media_status |= IFM_ACTIVE;
+            parent.get_data_mut().media_status.insert(IFM_ACTIVE);
         }
 
         let bmcr = parent.read_reg(ma.phy_no, MII_BMCR)?;
         if bmcr & BMCR_ISO != 0 {
-            parent.get_data_mut().media_active |= IFM_NONE;
-            parent.get_data_mut().media_status = 0;
+            parent.get_data_mut().media_active.insert(IFM_NONE);
+            parent.get_data_mut().media_status = Media::new(0);
             return Ok(());
         }
 
         if bmcr & BMCR_LOOP != 0 {
-            parent.get_data_mut().media_active |= IFM_LOOP;
+            parent.get_data_mut().media_active.insert(IFM_LOOP);
         }
 
         if bmcr & BMCR_AUTOEN != 0 {
@@ -164,7 +147,7 @@ impl MiiPhy for Ukphy {
             // both by us and our link partner).
             if !bmsr.contains(BMSR::ACOMP) {
                 // Erg, still trying, I guess...
-                parent.get_data_mut().media_active |= IFM_NONE;
+                parent.get_data_mut().media_active.insert(IFM_NONE);
                 return Ok(());
             }
 
@@ -188,31 +171,32 @@ impl MiiPhy for Ukphy {
             let mii = parent.get_data_mut();
 
             if gtcr & GTCR_ADV_1000TFDX != 0 && gtsr & GTSR_LP_1000TFDX != 0 {
-                mii.media_active |= IFM_1000_T | IFM_FDX;
+                mii.media_active.insert(IFM_1000_T | IFM_FDX);
             } else if gtcr & GTCR_ADV_1000THDX != 0 && gtsr & GTSR_LP_1000THDX != 0 {
-                mii.media_active |= IFM_1000_T | IFM_HDX;
+                mii.media_active.insert(IFM_1000_T | IFM_HDX);
             } else if anlpar & ANLPAR_TX_FD != 0 {
-                mii.media_active |= IFM_100_TX | IFM_FDX;
+                mii.media_active.insert(IFM_100_TX | IFM_FDX);
             } else if anlpar & ANLPAR_T4 != 0 {
-                mii.media_active |= IFM_100_T4 | IFM_HDX;
+                mii.media_active.insert(IFM_100_T4 | IFM_HDX);
             } else if anlpar & ANLPAR_TX != 0 {
-                mii.media_active |= IFM_100_TX | IFM_HDX;
+                mii.media_active.insert(IFM_100_TX | IFM_HDX);
             } else if anlpar & ANLPAR_10_FD != 0 {
-                mii.media_active |= IFM_10_T | IFM_FDX;
+                mii.media_active.insert(IFM_10_T | IFM_FDX);
             } else if anlpar & ANLPAR_10 != 0 {
-                mii.media_active |= IFM_10_T | IFM_HDX;
+                mii.media_active.insert(IFM_10_T | IFM_HDX);
             } else {
-                mii.media_active |= IFM_NONE;
+                mii.media_active.insert(IFM_NONE);
             }
 
-            if mii.media_active & IFM_FDX != 0 {
-                parent.get_data_mut().media_active |= super::phy_flow_status(parent, &mut self.ma)?;
+            if mii.media_active.contains(IFM_FDX) {
+                let flags = super::phy_flow_status(parent, &mut self.ma)?;
+                parent.get_data_mut().media_active.insert(flags);
             }
 
             let mii = parent.get_data_mut();
 
-            if ifm_subtype(mii.media_active) == IFM_1000_T && (gtsr & GTSR_MS_RES != 0) {
-                mii.media_active |= IFM_ETH_MASTER;
+            if ifm_subtype(&mii.media_active) == IFM_1000_T && (gtsr & GTSR_MS_RES != 0) {
+                mii.media_active.insert(IFM_ETH_MASTER);
             }
         } else {
             parent.get_data_mut().media_active = ma.media_active;
@@ -235,7 +219,8 @@ impl MiiPhy for Ukphy {
 
         self.reset(parent)?;
 
-        self.ma.capabilities = BMSR::from_bits_retain(parent.read_reg(self.ma.phy_no, MII_BMSR)?);
+        self.ma.capabilities =
+            BMSR::from_bits_retain(parent.read_reg(self.ma.phy_no, MII_BMSR)? & self.ma.capmask);
 
         if self.ma.capabilities.contains(BMSR::EXTSTAT) {
             self.ma.ext_capabilities =

@@ -245,12 +245,10 @@ pub struct MiiData {
     flags: MiiFlags,
     phys: BTreeMap<u32, Box<dyn MiiPhy>>,
 
-    current_phy: Option<(u32, Ifmedia)>,
+    media_active: Media,
+    media_status: Media,
 
-    media_active: u64,
-    media_status: u64,
-
-    supported_media: MediaList,
+    mii_media: Ifmedia,
 
     instance: u32,
 }
@@ -260,12 +258,11 @@ impl MiiData {
         Self {
             flags,
             phys: BTreeMap::new(),
-            current_phy: None,
 
-            media_active: 0,
-            media_status: 0,
+            media_active: Media::new(0),
+            media_status: Media::new(0),
 
-            supported_media: MediaList::new(),
+            mii_media: Ifmedia::new(0, Media::new(0)),
 
             instance: 0,
         }
@@ -278,36 +275,22 @@ impl MiiData {
     }
 
     #[inline(always)]
-    pub fn get_media_active(&self) -> u64 {
-        self.media_active
+    pub fn get_media_active(&self) -> &Media {
+        &self.media_active
     }
 
     /// Find the media with the most bits in common with the target.
     /// Make the media the current media.
     /// If no media is found, return false.
     pub fn set_active_media(&mut self, target: u64) -> bool {
-        let Some(ifmedia) = self.supported_media.find(target) else {
-            return false;
-        };
-
-        let instance = ifmedia.get_instance();
-
-        for (_, phy) in self.phys.iter_mut() {
-            let ma = phy.get_attach_args_mut();
-            if ma.instance == instance {
-                self.current_phy = Some((ma.phy_no, ifmedia.clone()));
-                return true;
-            }
-        }
-
-        false
+        todo!()
     }
 
     #[inline(always)]
     pub fn link_status(&self) -> LinkStatus {
-        if self.media_status & IFM_AVALID != 0 {
-            if self.media_status & IFM_ACTIVE != 0 {
-                if self.media_active & IFM_FDX != 0 {
+        if self.media_status.contains(IFM_AVALID) {
+            if self.media_status.contains(IFM_ACTIVE) {
+                if self.media_active.contains(IFM_FDX) {
                     LinkStatus::UpFullDuplex
                 } else {
                     LinkStatus::UpHalfDuplex
@@ -335,15 +318,15 @@ pub struct MiiAttachArgs {
     anegticks: u32, // ticks before retrying aneg
     ticks: u32,
 
-    media_active: u64,
-    media_status: u64,
+    media_active: Media,
+    media_status: Media,
 
     instance: u32, // instance number
 }
 
 pub trait Mii {
     fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError>;
-    fn write_reg(&mut self, phy: u32, reg: u32, val: u32);
+    fn write_reg(&mut self, phy: u32, reg: u32, val: u32) -> Result<(), MiiError>;
 
     fn stat_change(&mut self) -> Result<(), MiiError>;
 
@@ -371,7 +354,7 @@ pub trait MiiPhy: Send + Sync + Debug {
             BMCR_RESET | BMCR_ISO
         };
 
-        parent.write_reg(ma.phy_no, MII_BMCR, reg);
+        parent.write_reg(ma.phy_no, MII_BMCR, reg)?;
 
         // It is best to allow a little time for the reset to settle
         // in before we start polling the BMCR again.  Notably, the
@@ -391,7 +374,7 @@ pub trait MiiPhy: Send + Sync + Debug {
         }
 
         if ma.instance != 0 && !ma.flags.contains(MiiFlags::NOISOLATE) {
-            parent.write_reg(ma.phy_no, MII_BMCR, reg | BMCR_ISO);
+            parent.write_reg(ma.phy_no, MII_BMCR, reg | BMCR_ISO)?;
         }
 
         Ok(())
@@ -416,6 +399,7 @@ pub enum MiiError {
     ReadError,
     WriteError,
     IO,
+    InvalidState,
 }
 
 pub fn attach<F>(
@@ -487,8 +471,8 @@ where
             id2,
             capmask,
             flags: mii_data.flags,
-            media_active: 0,
-            media_status: 0,
+            media_active: Media::new(0),
+            media_status: Media::new(0),
             capabilities: BMSR::empty(),
             ext_capabilities: EXTSR::empty(),
             anegticks: 0,
@@ -508,10 +492,7 @@ where
         mii_data.instance += 1;
     }
 
-    log::debug!(
-        "MII: supported_media = {:?}",
-        mii.get_data().supported_media
-    );
+    log::debug!("MII: supported_media = {:?}", mii.get_data().mii_media);
 
     Ok(())
 }
@@ -581,7 +562,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if !ma.flags.contains(MiiFlags::NOISOLATE) {
         let media = ifm_make_word(IFM_ETHER, IFM_NONE, 0, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_NONE,
         });
@@ -589,7 +570,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ETH_10THDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_10_T, 0, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_10_T,
         });
@@ -597,7 +578,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ETH_10TFDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_10_T, IFM_FDX, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_10_T_FDX,
         });
@@ -605,7 +586,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ETH_100TXHDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_TX, 0, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_100_TX,
         });
@@ -613,7 +594,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ETH_100TXFDX) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_TX, IFM_FDX, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_100_TX_FDX,
         });
@@ -621,7 +602,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ETH_100T4) {
         let media = ifm_make_word(IFM_ETHER, IFM_100_T4, 0, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_MEDIA_100_T4,
         });
@@ -632,7 +613,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, ma.instance as u64);
-            mii.supported_media.add(Ifmedia {
+            mii.mii_media.add(IfmediaEntry {
                 media,
                 data: MII_MEDIA_1000_X,
             });
@@ -642,7 +623,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::IS_1000X;
             let media = ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, ma.instance as u64);
-            mii.supported_media.add(Ifmedia {
+            mii.mii_media.add(IfmediaEntry {
                 media,
                 data: MII_MEDIA_1000_X_FDX,
             });
@@ -657,8 +638,10 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000THDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
+            mii.mii_media.set_mask(IFM_ETH_MASTER);
+
             let media = ifm_make_word(IFM_ETHER, IFM_1000_T, 0, ma.instance as u64);
-            mii.supported_media.add(Ifmedia {
+            mii.mii_media.add(IfmediaEntry {
                 media,
                 data: MII_MEDIA_1000_T,
             });
@@ -667,8 +650,10 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
         if ma.ext_capabilities.contains(EXTSR::ETH_1000TFDX) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
+            mii.mii_media.set_mask(IFM_ETH_MASTER);
+
             let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX, ma.instance as u64);
-            mii.supported_media.add(Ifmedia {
+            mii.mii_media.add(IfmediaEntry {
                 media,
                 data: MII_MEDIA_1000_T_FDX,
             });
@@ -677,7 +662,7 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
 
     if ma.capabilities.contains(BMSR::ANEG) {
         let media = ifm_make_word(IFM_ETHER, IFM_AUTO, 0, ma.instance as u64);
-        mii.supported_media.add(Ifmedia {
+        mii.mii_media.add(IfmediaEntry {
             media,
             data: MII_NMEDIA,
         });
@@ -748,11 +733,11 @@ fn phy_tick(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, Mi
     // any extra work here.  However, we need to check the link
     // status so we can generate an announcement if the status
     // changes.
-    let Some(current_phy) = &parent.get_data().current_phy else {
+    let Some(current_phy) = &parent.get_data().mii_media.get_current() else {
         return Ok(JustReturn::No);
     };
 
-    if ifm_subtype(current_phy.1.media) != IFM_AUTO {
+    if ifm_subtype(&current_phy.media) != IFM_AUTO {
         return Ok(JustReturn::No);
     }
 
@@ -817,7 +802,7 @@ fn phy_auto(
                 anar |= ANAR_X_PAUSE_TOWARDS;
             }
 
-            parent.write_reg(ma.phy_no, MII_ANAR, anar);
+            parent.write_reg(ma.phy_no, MII_ANAR, anar)?;
         } else {
             let mut anar = bmsr_media_to_anar(ma.capabilities) | ANAR_CSMA;
 
@@ -834,7 +819,7 @@ fn phy_auto(
                 }
             }
 
-            parent.write_reg(ma.phy_no, MII_ANAR, anar);
+            parent.write_reg(ma.phy_no, MII_ANAR, anar)?;
 
             if ma.flags.contains(MiiFlags::HAVE_GTCR) {
                 let mut gtcr = 0;
@@ -847,10 +832,10 @@ fn phy_auto(
                     gtcr |= GTCR_ADV_1000THDX;
                 }
 
-                parent.write_reg(ma.phy_no, MII_100T2CR, gtcr);
+                parent.write_reg(ma.phy_no, MII_100T2CR, gtcr)?;
             }
         }
-        parent.write_reg(ma.phy_no, MII_BMCR, BMCR_AUTOEN | BMCR_STARTNEG);
+        parent.write_reg(ma.phy_no, MII_BMCR, BMCR_AUTOEN | BMCR_STARTNEG)?;
     }
 
     if waitfor {
@@ -921,6 +906,68 @@ fn mii_media_change(parent: &mut dyn Mii) -> Result<(), MiiError> {
 
     let mii = parent.get_data_mut();
     core::mem::swap(&mut tmp, &mut mii.phys);
+
+    Ok(())
+}
+
+fn phy_set_media(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), MiiError> {
+    // 79 void
+    // 80 mii_phy_setmedia(struct mii_softc *sc)
+    //    /* [previous][next][first][last][top][bottom][index][help]  */
+    // 81 {
+    // 82         struct mii_data *mii = sc->mii_pdata;
+    // 83         struct ifmedia_entry *ife = mii->mii_media.ifm_cur;
+    // 84         int bmcr, anar, gtcr;
+    // 85
+    // 86         if (IFM_SUBTYPE(ife->ifm_media) == IFM_AUTO) {
+    // 87                 if ((PHY_READ(sc, MII_BMCR) & BMCR_AUTOEN) == 0 ||
+    // 88                     (sc->mii_flags & MIIF_FORCEANEG))
+    // 89                         (void) mii_phy_auto(sc, 1);
+    // 90                 return;
+    // 91         }
+
+    // 92
+    // 93         /*
+    // 94          * Table index is stored in the media entry.
+    // 95          */
+    // 96 #ifdef DIAGNOSTIC
+    // 97         if (ife->ifm_data >= MII_NMEDIA)
+    // 98                 panic("mii_phy_setmedia");
+    // 99 #endif
+    // 100
+    // 101         anar = mii_media_table[ife->ifm_data].mm_anar;
+    // 102         bmcr = mii_media_table[ife->ifm_data].mm_bmcr;
+    // 103         gtcr = mii_media_table[ife->ifm_data].mm_gtcr;
+
+    // 104
+    // 105         if (mii->mii_media.ifm_media & IFM_ETH_MASTER) {
+    // 106                 switch (IFM_SUBTYPE(ife->ifm_media)) {
+    // 107                 case IFM_1000_T:
+    // 108                         gtcr |= GTCR_MAN_MS|GTCR_ADV_MS;
+    // 109                         break;
+    // 110
+    // 111                 default:
+    // 112                         panic("mii_phy_setmedia: MASTER on wrong media");
+    // 113                 }
+    // 114         }
+
+    // if ifmedia.media & IFM_ETH_MASTER != 0 {
+    //     match ifm_subtype(ifmedia.media) {
+    //         IFM_1000_T => {
+    //             // 108
+    //         }
+    //     }
+    // }
+
+    // 115
+    // 116         if (ife->ifm_media & IFM_LOOP)
+    // 117                 bmcr |= BMCR_LOOP;
+    // 118
+    // 119         PHY_WRITE(sc, MII_ANAR, anar);
+    // 120         PHY_WRITE(sc, MII_BMCR, bmcr);
+    // 121         if (sc->mii_flags & MIIF_HAVE_GTCR)
+    // 122                 PHY_WRITE(sc, MII_100T2CR, gtcr);
+    // 123 }
 
     Ok(())
 }

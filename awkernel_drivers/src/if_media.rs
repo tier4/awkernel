@@ -83,54 +83,93 @@ pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
 pub const IFM_ISHIFT: u64 = 56; // Instance shift
 
 #[inline(always)]
-pub fn ifm_subtype(value: u64) -> u64 {
-    value & IFM_TMASK
+pub fn ifm_subtype(media: &Media) -> u64 {
+    media.0 & IFM_TMASK
 }
 
 /// Create a media word.
 #[inline(always)]
-pub fn ifm_make_word(r#type: u64, subtype: u64, options: u64, instance: u64) -> u64 {
-    r#type | subtype | options | (instance << IFM_ISHIFT)
+pub fn ifm_make_word(r#type: u64, subtype: u64, options: u64, instance: u64) -> Media {
+    Media(r#type | subtype | options | (instance << IFM_ISHIFT))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Ifmedia {
-    pub media: u64, // description of this media attachment
-    pub data: u32,  // for driver-specific use
-}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Media(u64);
 
-impl Ifmedia {
+impl Media {
     #[inline(always)]
-    pub fn get_instance(&self) -> u32 {
-        ((self.media >> IFM_ISHIFT) & 0xff) as u32
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    #[inline(always)]
+    pub fn get_value(&self) -> u64 {
+        self.0
+    }
+
+    #[inline(always)]
+    pub fn insert(&mut self, value: u64) {
+        self.0 |= value;
+    }
+
+    #[inline(always)]
+    pub fn contains(&self, value: u64) -> bool {
+        self.0 & value != 0
     }
 }
 
 #[derive(Debug)]
-pub struct MediaList {
-    media: Vec<Ifmedia>,
+pub struct Ifmedia {
+    ifm_mask: u64,                 // mask of changes we don't care about
+    ifm_media: Media,              // current user-set media word
+    ifm_cur: Option<IfmediaEntry>, // [M] currently selected media
+    ifm_list: Vec<IfmediaEntry>,   // [M] list of all supported media
 }
 
-impl MediaList {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IfmediaEntry {
+    pub media: Media, // description of this media attachment
+    pub data: u32,    // for driver-specific use
+}
+
+impl IfmediaEntry {
     #[inline(always)]
-    pub fn new() -> Self {
-        Self { media: Vec::new() }
+    pub fn get_instance(&self) -> u32 {
+        ((self.media.0 >> IFM_ISHIFT) & 0xff) as u32
+    }
+}
+
+impl Ifmedia {
+    pub fn new(ifm_mask: u64, ifm_media: Media) -> Self {
+        Self {
+            ifm_mask,
+            ifm_media,
+            ifm_cur: None,
+            ifm_list: Vec::new(),
+        }
     }
 
     #[inline(always)]
-    pub fn add(&mut self, media: Ifmedia) {
-        self.media.push(media);
+    pub fn add(&mut self, media: IfmediaEntry) {
+        self.ifm_list.push(media);
+    }
+
+    #[inline(always)]
+    pub fn set_mask(&mut self, mask: u64) {
+        self.ifm_mask |= mask;
     }
 
     /// Find the media with the most bits in common with the target.
     /// If no media is found, return None.
     /// If multiple media are found, return the last one.
-    pub fn find(&self, target: u64) -> Option<&Ifmedia> {
+    pub fn find(&self, target: u64) -> Option<&IfmediaEntry> {
         let mut ones = 0;
         let mut media = None;
 
-        for m in &self.media {
-            let n = (m.media & target).count_ones();
+        let mask = !self.ifm_mask;
+
+        for m in &self.ifm_list {
+            let n = (m.media.0 & target & mask).count_ones();
             if n > 0 && n >= ones {
                 ones = n;
                 media = Some(m);
@@ -139,14 +178,19 @@ impl MediaList {
 
         media
     }
+
+    #[inline(always)]
+    pub fn get_current(&self) -> Option<&IfmediaEntry> {
+        self.ifm_cur.as_ref()
+    }
 }
 
 #[inline(always)]
-pub fn is_media_active(media: u64) -> bool {
-    media & IFM_ACTIVE != 0
+pub fn is_media_active(media: Media) -> bool {
+    media.0 & IFM_ACTIVE != 0
 }
 
 #[inline(always)]
-pub fn is_full_duplex(media: u64) -> bool {
-    media & IFM_FDX != 0
+pub fn is_full_duplex(media: Media) -> bool {
+    media.0 & IFM_FDX != 0
 }
