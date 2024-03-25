@@ -225,6 +225,15 @@ impl MiiData {
 
         false
     }
+
+    #[inline(always)]
+    pub fn link_up(&self) -> bool {
+        if self.media_status & IFM_AVALID != 0 && self.media_status & IFM_ACTIVE != 0 {
+            true
+        } else {
+            true
+        }
+    }
 }
 
 #[derive(Debug)]
