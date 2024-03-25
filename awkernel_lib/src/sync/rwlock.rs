@@ -157,6 +157,11 @@ impl<'a, T: Send> RwLockReadGuard<'a, T> {
     {
         self.rwlock.data.with(f)
     }
+
+    #[inline(always)]
+    pub fn as_ref(&self) -> &T {
+        unsafe { &*self.rwlock.data.get() }
+    }
 }
 
 pub struct RwLockWriteGuard<'a, T: Send> {
@@ -175,6 +180,16 @@ impl<'a, T: Send> RwLockWriteGuard<'a, T> {
         F: FnOnce(*mut T) -> R,
     {
         self.rwlock.data.with_mut(f)
+    }
+
+    #[inline(always)]
+    pub fn as_ref(&self) -> &T {
+        unsafe { &*self.rwlock.data.get() }
+    }
+
+    #[inline(always)]
+    pub fn as_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.rwlock.data.get() }
     }
 }
 

@@ -190,6 +190,19 @@ pub trait NetDevice {
         false
     }
 
+    /// Get the millisecond tick count.
+    /// If `None`, then the kernel does not call `tick()`.
+    /// If `Some`, then the kernel calls `tick()` every `tick_msec()` milliseconds.
+    fn tick_msec(&self) -> Option<u64> {
+        None
+    }
+
+    /// `poll()` is used for polling mode, which is a alternative to interrupt mode.
+    /// `tick()` is used for periodic tasks, such as status update.
+    fn tick(&self) -> Result<(), NetDevError> {
+        Ok(())
+    }
+
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
 }

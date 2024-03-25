@@ -309,7 +309,6 @@ pub enum MiiError {
 
 pub fn attach<F>(
     mii: &mut impl Mii,
-    mii_data: &mut MiiData,
     phy_generator: F,
     capmask: u32,
     phyloc: Option<u32>,
@@ -333,7 +332,7 @@ where
         // Make sure we haven't already configured a PHY at this
         // address.  This allows mii_attach() to be called
         // multiple times.
-        for (phy, _) in mii_data.phys.iter() {
+        for (phy, _) in mii.get_data().phys.iter() {
             if *phy == mii_phyno {
                 // Yes, there is already something
                 // configured at this address.
@@ -369,6 +368,8 @@ where
         log::debug!("MII: id1: {:#x}", id1);
         log::debug!("MII: id2: {:#x}", id2);
 
+        let mii_data = mii.get_data();
+
         let ma = MiiAttachArgs {
             phy_no: mii_phyno,
             id1,
@@ -389,6 +390,8 @@ where
 
         log::debug!("MII: phy attached. phy = {phy:?}");
 
+        let mii_data = mii.get_data_mut();
+
         mii_data.phys.insert(mii_phyno, phy);
         mii_data.instance += 1;
     }
@@ -402,7 +405,7 @@ where
 }
 
 /// Inform the PHYs that the interface is down.
-pub fn down(dev: &mut dyn Mii, mii_data: &mut MiiData) {
+pub fn mii_down(dev: &mut dyn Mii, mii_data: &mut MiiData) {
     for (_, phy) in mii_data.phys.iter_mut() {
         if let Err(e) = phy.service(dev, MiiOpCode::Down) {
             log::error!("mii_down: error: {:?}", e);
@@ -602,4 +605,22 @@ fn mii_model(id2: u32) -> u32 {
 #[inline(always)]
 fn mii_rev(id2: u32) -> u32 {
     id2 & IDR2_REV
+}
+
+/// Call the PHY tick routines, used during autonegotiation.
+pub fn mii_tick(parent: &mut dyn Mii) -> Result<(), MiiError> {
+    let mii = parent.get_data_mut();
+    let mut tmp = BTreeMap::new();
+    core::mem::swap(&mut tmp, &mut mii.phys);
+
+    for (_, phy) in tmp.iter_mut() {
+        if let Err(e) = phy.service(parent, MiiOpCode::Tick) {
+            log::error!("mii_tick: error: {:?}", e);
+        }
+    }
+
+    let mii = parent.get_data_mut();
+    core::mem::swap(&mut tmp, &mut mii.phys);
+
+    Ok(())
 }

@@ -18,7 +18,7 @@ use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
     if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_AUTO, IFM_ETHER},
-    mii::{self, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags, MiiPhy},
+    mii::{self, mii_tick, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags},
 };
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
@@ -271,6 +271,19 @@ impl NetDevice for Genet {
 
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
         todo!()
+    }
+
+    fn tick_msec(&self) -> Option<u64> {
+        Some(1000)
+    }
+
+    fn tick(&self) -> Result<(), NetDevError> {
+        let mut inner = self.inner.write();
+        if mii_tick(inner.as_mut()).is_err() {
+            Err(NetDevError::DeviceError)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -747,11 +760,8 @@ pub fn attach(
     // 998         mii_attach(&sc->sc_dev, mii, 0xffffffff, sc->sc_phy_id,
     // 999             MII_OFFSET_ANY, mii_flags);
 
-    let mut mii_data = MiiData::new(mii_flags);
-
     mii::attach(
         &mut genet,
-        &mut mii_data,
         |args| Box::new(Ukphy::new(args)),
         0xffffffff,
         phy_id,
@@ -759,7 +769,7 @@ pub fn attach(
     )
     .or(Err(GenetError::Mii))?;
 
-    if !mii_data.set_active_media(IFM_ETHER | IFM_AUTO) {
+    if !genet.mii_data.set_active_media(IFM_ETHER | IFM_AUTO) {
         log::error!("GENET: failed to set active media");
         return Err(GenetError::Mii);
     }
