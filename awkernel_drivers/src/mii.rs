@@ -153,7 +153,7 @@ pub struct MiiData {
     flags: MiiFlags,
     phys: BTreeMap<u32, Box<dyn MiiPhy>>,
 
-    current_phy: Option<u32>,
+    current_phy: Option<(u32, Ifmedia)>,
 
     media_active: u64,
     media_status: u64,
@@ -203,7 +203,7 @@ impl MiiData {
         for (_, phy) in self.phys.iter_mut() {
             let ma = phy.get_attach_args_mut();
             if ma.instance == instance {
-                self.current_phy = Some(ma.phy_no);
+                self.current_phy = Some((ma.phy_no, ifmedia.clone()));
                 return true;
             }
         }
@@ -224,6 +224,7 @@ pub struct MiiAttachArgs {
     ext_capabilities: EXTSR, // extended capabilities
 
     anegticks: u32, // ticks before retrying aneg
+    ticks: u32,
 
     media_active: u64,
     media_status: u64,
@@ -381,6 +382,7 @@ where
             capabilities: BMSR::empty(),
             ext_capabilities: EXTSR::empty(),
             anegticks: 0,
+            ticks: 0,
             instance: mii_data.instance,
         };
 
@@ -623,4 +625,61 @@ pub fn mii_tick(parent: &mut dyn Mii) -> Result<(), MiiError> {
     core::mem::swap(&mut tmp, &mut mii.phys);
 
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JustReturn {
+    Yes,
+    No,
+}
+
+fn phy_tick(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, MiiError> {
+    // If we're not doing autonegotiation, we don't need to do
+    // any extra work here.  However, we need to check the link
+    // status so we can generate an announcement if the status
+    // changes.
+    let Some(current_phy) = &parent.get_data().current_phy else {
+        return Ok(JustReturn::No);
+    };
+
+    if ifm_subtype(current_phy.1.media) != IFM_AUTO {
+        return Ok(JustReturn::No);
+    }
+
+    let ma = phy.get_attach_args_mut();
+
+    // Read the status register twice; BMSR_LINK is latch-low.
+    let reg = BMSR::from_bits_retain(
+        parent.read_reg(ma.phy_no, MII_BMSR)? | parent.read_reg(ma.phy_no, MII_BMSR)?,
+    );
+
+    if reg.contains(BMSR::LINK) {
+        return Ok(JustReturn::No);
+    }
+
+    if ma.anegticks == 0 {
+        ma.anegticks = MII_ANEGTICKS;
+    }
+
+    ma.ticks += 1;
+
+    if ma.ticks <= ma.anegticks {
+        return Ok(JustReturn::Yes); // EJUSTRETURN
+    }
+
+    ma.ticks = 0;
+
+    phy.reset(parent)?;
+
+    if phy_auto(parent, phy)? == JustReturn::Yes {
+        return Ok(JustReturn::Yes); // EJUSTRETURN
+    }
+
+    // Might need to generate a status message if autonegotiation
+    // failed.
+    Ok(JustReturn::No)
+}
+
+fn phy_auto(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, MiiError> {
+    todo!()
 }

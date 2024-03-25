@@ -35,8 +35,8 @@ impl MiiPhy for Ukphy {
                 // 157
 
                 // If we're not polling our PHY instance, just return.
-                if let Some(current_phy) = parent.get_data().current_phy {
-                    if current_phy != self.get_attach_args().phy_no {
+                if let Some(current_phy) = &parent.get_data().current_phy {
+                    if current_phy.0 != self.get_attach_args().phy_no {
                         return Ok(());
                     }
                 }
@@ -55,8 +55,8 @@ impl MiiPhy for Ukphy {
 
                 // If the media indicates a different PHY instance,
                 // isolate ourselves.
-                if let Some(current_phy) = parent.get_data().current_phy {
-                    if current_phy != self.get_attach_args().phy_no {
+                if let Some(current_phy) = &parent.get_data().current_phy {
+                    if current_phy.0 != self.get_attach_args().phy_no {
                         let reg = parent.read_reg(self.get_attach_args().phy_no, MII_BMCR)?;
                         parent.write_reg(self.get_attach_args().phy_no, MII_BMCR, reg | BMCR_ISO);
                         return Ok(());
@@ -83,8 +83,8 @@ impl MiiPhy for Ukphy {
                 // 183                         return (0);
 
                 // If we're not currently selected, just return.
-                if let Some(current_phy) = parent.get_data().current_phy {
-                    if current_phy != self.get_attach_args().phy_no {
+                if let Some(current_phy) = &parent.get_data().current_phy {
+                    if current_phy.0 != self.get_attach_args().phy_no {
                         return Ok(());
                     }
                 }
@@ -94,6 +94,10 @@ impl MiiPhy for Ukphy {
                 // 186                         return (0);
                 // 187                 break;
                 // 188
+
+                if phy_tick(parent, self)? == JustReturn::Yes {
+                    return Ok(());
+                }
             }
             MiiOpCode::Down => {
                 // 189         case MII_DOWN:
