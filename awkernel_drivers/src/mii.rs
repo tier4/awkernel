@@ -46,6 +46,10 @@ pub const BMCR_FDX: u32 = 0x0100; // Set duplex mode
 pub const BMCR_CTEST: u32 = 0x0080; // collision test
 pub const BMCR_SPEED1: u32 = 0x0040; // speed selection (MSB)
 
+pub const BMCR_S10: u32 = 0x0000; // 10 Mb/s
+pub const BMCR_S100: u32 = BMCR_SPEED0; // 100 Mb/s
+pub const BMCR_S1000: u32 = BMCR_SPEED1; // 1000 Mb/s
+
 pub const MII_BMSR: u32 = 0x01; // Basic mode status register (ro)
 pub const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
 pub const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
@@ -164,6 +168,78 @@ pub const MII_NMEDIA: u32 = 10;
 
 pub const MII_ANEGTICKS: u32 = 5;
 pub const MII_ANEGTICKS_GIGE: u32 = 10;
+
+/// An array of these structures map MII media types to BMCR/ANAR settings.
+struct MiiMedia {
+    mm_bmcr: u32, // BMCR settings for this media
+    mm_anar: u32, // ANAR settings for this media
+    mm_gtcr: u32, // 100base-T2 or 1000base-T CR
+}
+
+// Media to register setting conversion table.  Order matters.
+// XXX 802.3 doesn't specify ANAR or ANLPAR bits for 1000base.
+const MII_MEDIA_TABLE: [MiiMedia; 10] = [
+    // None
+    MiiMedia {
+        mm_bmcr: BMCR_ISO,
+        mm_anar: ANAR_CSMA,
+        mm_gtcr: 0,
+    },
+    // 10baseT
+    MiiMedia {
+        mm_bmcr: BMCR_S10,
+        mm_anar: ANAR_CSMA | ANAR_10,
+        mm_gtcr: 0,
+    },
+    // 10baseT-FDX
+    MiiMedia {
+        mm_bmcr: BMCR_S10 | BMCR_FDX,
+        mm_anar: ANAR_CSMA | ANAR_10_FD,
+        mm_gtcr: 0,
+    },
+    // 100baseT4
+    MiiMedia {
+        mm_bmcr: BMCR_S100,
+        mm_anar: ANAR_CSMA | ANAR_T4,
+        mm_gtcr: 0,
+    },
+    // 100baseTX
+    MiiMedia {
+        mm_bmcr: BMCR_S100,
+        mm_anar: ANAR_CSMA | ANAR_TX,
+        mm_gtcr: 0,
+    },
+    // 100baseTX-FDX
+    MiiMedia {
+        mm_bmcr: BMCR_S100 | BMCR_FDX,
+        mm_anar: ANAR_CSMA | ANAR_TX_FD,
+        mm_gtcr: 0,
+    },
+    // 1000baseX
+    MiiMedia {
+        mm_bmcr: BMCR_S1000,
+        mm_anar: ANAR_CSMA,
+        mm_gtcr: 0,
+    },
+    // 1000baseX-FDX
+    MiiMedia {
+        mm_bmcr: BMCR_S1000 | BMCR_FDX,
+        mm_anar: ANAR_CSMA,
+        mm_gtcr: 0,
+    },
+    // 1000baseT
+    MiiMedia {
+        mm_bmcr: BMCR_S1000,
+        mm_anar: ANAR_CSMA,
+        mm_gtcr: GTCR_ADV_1000THDX,
+    },
+    // 1000baseT-FDX
+    MiiMedia {
+        mm_bmcr: BMCR_S1000 | BMCR_FDX,
+        mm_anar: ANAR_CSMA,
+        mm_gtcr: GTCR_ADV_1000TFDX,
+    },
+];
 
 pub struct MiiData {
     flags: MiiFlags,
