@@ -65,6 +65,21 @@ pub const ANLPAR_PAUSE_SYM: u32 = 1 << 10;
 pub const ANLPAR_PAUSE_ASYM: u32 = 2 << 10;
 pub const ANLPAR_PAUSE_TOWARDS: u32 = 3 << 10;
 
+pub const ANAR_FC: u32 = 0x0400; // local device supports PAUSE
+pub const ANAR_T4: u32 = 0x0200; // local device supports 100bT4
+pub const ANAR_TX_FD: u32 = 0x0100; // local device supports 100bTx FD
+pub const ANAR_TX: u32 = 0x0080; // local device supports 100bTx
+pub const ANAR_10_FD: u32 = 0x0040; // local device supports 10bT FD
+pub const ANAR_10: u32 = 0x0020; // local device supports 10bT
+pub const ANAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
+
+pub const ANAR_X_FD: u32 = 0x0020; // local device supports 1000BASE-X FD
+pub const ANAR_X_HD: u32 = 0x0040; // local device supports 1000BASE-X HD
+pub const ANAR_X_PAUSE_NONE: u32 = 0 << 7;
+pub const ANAR_X_PAUSE_SYM: u32 = 1 << 7;
+pub const ANAR_X_PAUSE_ASYM: u32 = 2 << 7;
+pub const ANAR_X_PAUSE_TOWARDS: u32 = 3 << 7;
+
 pub const MII_NPHY: u32 = 32; // max # of PHYs per MII
 
 pub const MII_100T2CR: u32 = 0x09; // 100base-T2 control register
@@ -306,6 +321,7 @@ pub enum MiiOpCode {
 pub enum MiiError {
     ReadError,
     WriteError,
+    IO,
 }
 
 pub fn attach<F>(
@@ -671,7 +687,7 @@ fn phy_tick(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, Mi
 
     phy.reset(parent)?;
 
-    if phy_auto(parent, phy)? == JustReturn::Yes {
+    if phy_auto(parent, phy, false)? == JustReturn::Yes {
         return Ok(JustReturn::Yes); // EJUSTRETURN
     }
 
@@ -680,6 +696,122 @@ fn phy_tick(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, Mi
     Ok(JustReturn::No)
 }
 
-fn phy_auto(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<JustReturn, MiiError> {
-    todo!()
+fn phy_auto(
+    parent: &mut dyn Mii,
+    phy: &mut dyn MiiPhy,
+    waitfor: bool,
+) -> Result<JustReturn, MiiError> {
+    let ma = phy.get_attach_args_mut();
+
+    if !ma.flags.contains(MiiFlags::DOINGAUTO) {
+        // Check for 1000BASE-X.  Autonegotiation is a bit
+        // different on such devices.
+        if ma.flags.contains(MiiFlags::IS_1000X) {
+            let mut anar = 0;
+
+            if ma.ext_capabilities.contains(EXTSR::ETH_1000XFDX) {
+                anar |= ANAR_X_FD;
+            }
+
+            if ma.ext_capabilities.contains(EXTSR::ETH_1000XHDX) {
+                anar |= ANAR_X_HD;
+            }
+
+            if ma.flags.contains(MiiFlags::DOPAUSE)
+                && ma.ext_capabilities.contains(EXTSR::ETH_1000XFDX)
+            {
+                anar |= ANAR_X_PAUSE_TOWARDS;
+            }
+
+            parent.write_reg(ma.phy_no, MII_ANAR, anar);
+        } else {
+            let mut anar = bmsr_media_to_anar(ma.capabilities) | ANAR_CSMA;
+
+            // Most 100baseTX PHY's only support symmetric
+            // PAUSE, so we don't advertise asymmetric
+            // PAUSE unless we also have 1000baseT capability.
+            if ma.flags.contains(MiiFlags::DOPAUSE) {
+                if ma.capabilities.contains(BMSR::ETH_100TXFDX) {
+                    anar |= ANAR_FC;
+                }
+
+                if ma.ext_capabilities.contains(EXTSR::ETH_1000TFDX) {
+                    anar |= ANAR_PAUSE_TOWARDS;
+                }
+            }
+
+            parent.write_reg(ma.phy_no, MII_ANAR, anar);
+
+            if ma.flags.contains(MiiFlags::HAVE_GTCR) {
+                let mut gtcr = 0;
+
+                if ma.ext_capabilities.contains(EXTSR::ETH_1000TFDX) {
+                    gtcr |= GTCR_ADV_1000TFDX;
+                }
+
+                if ma.ext_capabilities.contains(EXTSR::ETH_1000THDX) {
+                    gtcr |= GTCR_ADV_1000THDX;
+                }
+
+                parent.write_reg(ma.phy_no, MII_100T2CR, gtcr);
+            }
+        }
+        parent.write_reg(ma.phy_no, MII_BMCR, BMCR_AUTOEN | BMCR_STARTNEG);
+    }
+
+    if waitfor {
+        for _ in 0..500 {
+            // Wait 500ms for it to complete.
+            let bmsr = BMSR::from_bits_retain(parent.read_reg(ma.phy_no, MII_BMSR)?);
+            if bmsr.contains(BMSR::ACOMP) {
+                return Ok(JustReturn::No);
+            }
+            awkernel_lib::delay::wait_microsec(1000);
+        }
+
+        return Err(MiiError::IO);
+    }
+
+    // Just let it finish asynchronously.  This is for the benefit of
+    // the tick handler driving autonegotiation.  Don't want 500ms
+    // delays all the time while the system is running!
+    if ma.flags.contains(MiiFlags::AUTOTSLEEP) {
+        ma.flags |= MiiFlags::DOINGAUTO;
+        awkernel_lib::delay::wait_microsec(500);
+        phy_auto_timeout(parent, phy)?;
+    } else if !ma.flags.contains(MiiFlags::DOINGAUTO) {
+        ma.flags |= MiiFlags::DOINGAUTO;
+    }
+
+    Ok(JustReturn::Yes)
+}
+
+// BMSR_MEDIA_TO_ANAR(x)   (((x) & BMSR_MEDIAMASK) >> 6)
+fn bmsr_media_to_anar(x: BMSR) -> u32 {
+    let mask = BMSR::ETH_100T4
+        | BMSR::ETH_100TXFDX
+        | BMSR::ETH_100TXHDX
+        | BMSR::ETH_10TFDX
+        | BMSR::ETH_10THDX
+        | BMSR::ETH_100T2FDX
+        | BMSR::ETH_100T2HDX;
+
+    (x.bits() & mask.bits()) >> 6
+}
+
+fn phy_auto_timeout(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), MiiError> {
+    let ma = phy.get_attach_args_mut();
+
+    if ma.flags.contains(MiiFlags::DOINGAUTO) {
+        ma.flags.remove(MiiFlags::DOINGAUTO);
+    } else {
+        return Ok(());
+    }
+
+    let _bmsr = parent.read_reg(ma.phy_no, MII_BMSR)?;
+
+    // Update the media status.
+    phy.service(parent, MiiOpCode::PollStatus)?;
+
+    Ok(())
 }
