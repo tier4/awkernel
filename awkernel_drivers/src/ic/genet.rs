@@ -474,13 +474,13 @@ impl GenetInner {
         self.setup_rxfilter();
 
         // Setup TX/RX rings
-        self.init_rings(DMA_DEFAULT_QUEUE)?;
+        // self.init_rings(DMA_DEFAULT_QUEUE)?;
 
         // Enable transmitter and receiver
         let mut val = registers::UMAC_CMD.read(self.base_addr.as_usize());
         val |= registers::UMAC_CMD_TXEN;
         val |= registers::UMAC_CMD_RXEN;
-        registers::UMAC_CMD.write(val, self.base_addr.as_usize());
+        // registers::UMAC_CMD.write(val, self.base_addr.as_usize());
 
         // TODO:
         // Enable interrupts
@@ -603,7 +603,7 @@ impl GenetInner {
 
         let mut index = rx.cidx & (registers::RX_DESC_COUNT - 1);
 
-        let len = rx.buf.as_ref().len();
+        let len = rx.buf.as_ref().len() * core::mem::size_of::<[u8; RX_BUF_SIZE]>();
 
         if len < RX_BUF_SIZE * registers::DMA_DESC_COUNT {
             return Err(GenetError::InvalidDMAPoolSize);
@@ -826,16 +826,15 @@ pub fn attach(
         inner: RwLock::new(genet),
     };
 
-    genet.tick().unwrap();
-    log::debug!("GENET: link status = {:?}", genet.link_status());
-    awkernel_lib::delay::wait_millisec(500);
-    genet.tick().unwrap();
+    loop {
+        genet.tick().unwrap();
+        log::debug!("GENET: link status = {:?}", genet.link_status());
+        awkernel_lib::delay::wait_millisec(500);
 
-    log::debug!("GENET: link status = {:?}", genet.link_status());
-    awkernel_lib::delay::wait_millisec(500);
-    genet.tick().unwrap();
-
-    log::debug!("GENET: link status = {:?}", genet.link_status());
+        if genet.link_status() == LinkStatus::UpFullDuplex {
+            break;
+        }
+    }
 
     Ok(())
 }

@@ -1,7 +1,10 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
-use crate::arch::aarch64::{
-    interrupt_ctl,
-    vm::{self, VM},
+use crate::{
+    arch::aarch64::{
+        interrupt_ctl,
+        vm::{self, VM},
+    },
+    config::DMA_SIZE,
 };
 use alloc::{boxed::Box, format};
 use awkernel_drivers::{
@@ -12,7 +15,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::{register_console, register_unsafe_puts, unsafe_puts},
     device_tree::{
@@ -55,6 +58,7 @@ pub struct Raspi {
     device_tree_base: usize,
     uart_base: Option<usize>,
     uart_irq: Option<u16>,
+    dma_pool: Option<VirtAddr>,
 }
 
 impl super::SoC for Raspi {
@@ -115,6 +119,14 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
+        // Allocate a memory region for the DMA pool.
+        if let Some(dma_start) = vm.find_heap(DMA_SIZE) {
+            let dma_end = dma_start + DMA_SIZE;
+            vm.remove_heap(dma_start, dma_end)?;
+            vm.push_device_range(dma_start, dma_end)?;
+            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+        }
+
         vm.print();
 
         unsafe_puts("Initializing the page table. Wait a moment.\r\n");
@@ -147,6 +159,14 @@ impl super::SoC for Raspi {
 
         Ok(())
     }
+
+    fn get_dma_pool(&self, segment: usize) -> Option<VirtAddr> {
+        if segment == 0 {
+            self.dma_pool
+        } else {
+            None
+        }
+    }
 }
 
 impl Raspi {
@@ -161,6 +181,7 @@ impl Raspi {
             device_tree_base,
             uart_base: None,
             uart_irq: None,
+            dma_pool: None,
         }
     }
 
