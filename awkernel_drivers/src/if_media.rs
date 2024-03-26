@@ -193,6 +193,11 @@ impl Ifmedia {
     pub fn get_current(&self) -> Option<&IfmediaEntry> {
         self.ifm_cur.as_ref()
     }
+
+    #[inline(always)]
+    pub fn get_media(&self) -> &Media {
+        &self.ifm_media
+    }
 }
 
 #[inline(always)]

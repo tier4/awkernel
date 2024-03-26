@@ -912,63 +912,52 @@ fn mii_media_change(parent: &mut dyn Mii) -> Result<(), MiiError> {
 }
 
 fn phy_set_media(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), MiiError> {
-    // 79 void
-    // 80 mii_phy_setmedia(struct mii_softc *sc)
-    //    /* [previous][next][first][last][top][bottom][index][help]  */
-    // 81 {
-    // 82         struct mii_data *mii = sc->mii_pdata;
-    // 83         struct ifmedia_entry *ife = mii->mii_media.ifm_cur;
-    // 84         int bmcr, anar, gtcr;
-    // 85
-    // 86         if (IFM_SUBTYPE(ife->ifm_media) == IFM_AUTO) {
-    // 87                 if ((PHY_READ(sc, MII_BMCR) & BMCR_AUTOEN) == 0 ||
-    // 88                     (sc->mii_flags & MIIF_FORCEANEG))
-    // 89                         (void) mii_phy_auto(sc, 1);
-    // 90                 return;
-    // 91         }
+    let mii = parent.get_data();
+    let flags = mii.flags;
+    let phy_no = phy.get_attach_args().phy_no;
 
-    // 92
-    // 93         /*
-    // 94          * Table index is stored in the media entry.
-    // 95          */
-    // 96 #ifdef DIAGNOSTIC
-    // 97         if (ife->ifm_data >= MII_NMEDIA)
-    // 98                 panic("mii_phy_setmedia");
-    // 99 #endif
-    // 100
-    // 101         anar = mii_media_table[ife->ifm_data].mm_anar;
-    // 102         bmcr = mii_media_table[ife->ifm_data].mm_bmcr;
-    // 103         gtcr = mii_media_table[ife->ifm_data].mm_gtcr;
+    let Some(ife) = mii.mii_media.get_current() else {
+        return Ok(());
+    };
 
-    // 104
-    // 105         if (mii->mii_media.ifm_media & IFM_ETH_MASTER) {
-    // 106                 switch (IFM_SUBTYPE(ife->ifm_media)) {
-    // 107                 case IFM_1000_T:
-    // 108                         gtcr |= GTCR_MAN_MS|GTCR_ADV_MS;
-    // 109                         break;
-    // 110
-    // 111                 default:
-    // 112                         panic("mii_phy_setmedia: MASTER on wrong media");
-    // 113                 }
-    // 114         }
+    if ifm_subtype(&ife.media) == IFM_AUTO {
+        if (parent.read_reg(phy_no, MII_BMCR)? & BMCR_AUTOEN) == 0
+            || flags.contains(MiiFlags::FORCEANEG)
+        {
+            phy_auto(parent, phy, true)?;
+        }
+        return Ok(());
+    }
 
-    // if ifmedia.media & IFM_ETH_MASTER != 0 {
-    //     match ifm_subtype(ifmedia.media) {
-    //         IFM_1000_T => {
-    //             // 108
-    //         }
-    //     }
-    // }
+    let entry = &MII_MEDIA_TABLE[ife.data as usize];
+    let anar = entry.mm_anar;
+    let mut bmcr = entry.mm_bmcr;
+    let mut gtcr = entry.mm_gtcr;
 
-    // 115
-    // 116         if (ife->ifm_media & IFM_LOOP)
-    // 117                 bmcr |= BMCR_LOOP;
-    // 118
-    // 119         PHY_WRITE(sc, MII_ANAR, anar);
-    // 120         PHY_WRITE(sc, MII_BMCR, bmcr);
-    // 121         if (sc->mii_flags & MIIF_HAVE_GTCR)
-    // 122                 PHY_WRITE(sc, MII_100T2CR, gtcr);
-    // 123 }
+    if parent
+        .get_data()
+        .mii_media
+        .get_media()
+        .contains(IFM_ETH_MASTER)
+    {
+        match ifm_subtype(&ife.media) {
+            IFM_1000_T => {
+                gtcr |= GTCR_MAN_MS | GTCR_ADV_MS;
+            }
+            _ => panic!("mii_phy_setmedia: MASTER on wrong media"),
+        }
+    }
+
+    if ife.media.contains(IFM_LOOP) {
+        bmcr |= BMCR_LOOP;
+    }
+
+    parent.write_reg(phy_no, MII_ANAR, anar)?;
+    parent.write_reg(phy_no, MII_BMCR, bmcr)?;
+
+    if parent.get_data().flags.contains(MiiFlags::HAVE_GTCR) {
+        parent.write_reg(phy_no, MII_100T2CR, gtcr)?;
+    }
 
     Ok(())
 }
