@@ -9,6 +9,18 @@ impl Ukphy {
     pub fn new(ma: MiiAttachArgs) -> Self {
         Self { ma }
     }
+
+    /// Check if the PHY is the current one.
+    #[inline(always)]
+    fn is_current(&self, parent: &dyn Mii) -> bool {
+        if let Some(current) = parent.get_data().mii_media.get_current() {
+            if current.get_instance() == self.ma.instance {
+                return true;
+            }
+        }
+
+        false
+    }
 }
 
 impl MiiPhy for Ukphy {
@@ -35,6 +47,9 @@ impl MiiPhy for Ukphy {
                 // 157
 
                 // If we're not polling our PHY instance, just return.
+                if !self.is_current(parent) {
+                    return Ok(());
+                }
             }
             MiiOpCode::MediaChange => {
                 // 158         case MII_MEDIACHG:
@@ -50,6 +65,11 @@ impl MiiPhy for Ukphy {
 
                 // If the media indicates a different PHY instance,
                 // isolate ourselves.
+                if !self.is_current(parent) {
+                    let reg = parent.read_reg(self.ma.phy_no, MII_BMCR)?;
+                    parent.write_reg(self.ma.phy_no, MII_BMCR, reg | BMCR_ISO)?;
+                    return Ok(());
+                }
 
                 // 168
                 // 169                 /*
@@ -71,6 +91,9 @@ impl MiiPhy for Ukphy {
                 // 183                         return (0);
 
                 // If we're not currently selected, just return.
+                if !self.is_current(parent) {
+                    return Ok(());
+                }
 
                 // 184
                 // 185                 if (mii_phy_tick(sc) == EJUSTRETURN)

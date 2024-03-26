@@ -769,7 +769,7 @@ pub fn attach(
     )
     .or(Err(GenetError::Mii))?;
 
-    if !genet.mii_data.set_active_media(IFM_ETHER | IFM_AUTO) {
+    if !genet.mii_data.set_current_media(IFM_ETHER | IFM_AUTO) {
         log::error!("GENET: failed to set active media");
         return Err(GenetError::Mii);
     }

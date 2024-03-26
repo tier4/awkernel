@@ -159,6 +159,16 @@ impl Ifmedia {
         self.ifm_mask |= mask;
     }
 
+    /// Find the media with the most bits in common with the target,
+    /// and set it as the current media.
+    ///
+    /// If no media is found, return false.
+    #[inline(always)]
+    pub fn set_current_media(&mut self, target: u64) -> bool {
+        self.ifm_cur = self.find(target).cloned();
+        self.ifm_cur.is_some()
+    }
+
     /// Find the media with the most bits in common with the target.
     /// If no media is found, return None.
     /// If multiple media are found, return the last one.

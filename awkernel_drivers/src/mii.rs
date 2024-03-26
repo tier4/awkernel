@@ -282,8 +282,9 @@ impl MiiData {
     /// Find the media with the most bits in common with the target.
     /// Make the media the current media.
     /// If no media is found, return false.
-    pub fn set_active_media(&mut self, target: u64) -> bool {
-        todo!()
+    #[inline(always)]
+    pub fn set_current_media(&mut self, target: u64) -> bool {
+        self.mii_media.set_current_media(target)
     }
 
     #[inline(always)]
