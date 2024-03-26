@@ -940,7 +940,7 @@ fn phy_auto_timeout(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), Mi
     Ok(())
 }
 
-fn mii_media_change(parent: &mut dyn Mii) -> Result<(), MiiError> {
+pub fn mii_media_change(parent: &mut dyn Mii) -> Result<(), MiiError> {
     let mii = parent.get_data_mut();
     let mut tmp = BTreeMap::new();
     core::mem::swap(&mut tmp, &mut mii.phys);

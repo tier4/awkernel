@@ -1,7 +1,5 @@
 //! # genet: Broadcom's Genet Ethernet controller.
 
-use core::sync::atomic::AtomicBool;
-
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
@@ -14,7 +12,7 @@ use awkernel_lib::{
         },
     },
     paging::PAGESIZE,
-    sync::{mutex::Mutex, rwlock::RwLock},
+    sync::rwlock::RwLock,
 };
 
 use alloc::{boxed::Box, vec::Vec};
@@ -41,8 +39,10 @@ mod registers {
     pub const REV_MAJOR_V5: u8 = 6;
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
+    pub const SYS_PORT_MODE_EXT_GPHY: u32 = 3;
 
-    mmio_r!(offset 0x000 => pub SYS_REV_CTRL<u32>);
+    mmio_r!(offset  0x000 => pub SYS_REV_CTRL<u32>);
+    mmio_rw!(offset 0x004 => pub SYS_PORT_CTRL<u32>);
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
 
     mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
@@ -134,8 +134,8 @@ mod registers {
     pub const UMAC_CMD_SPEED_1000: u32 = 2;
 
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
-    mmio_r!(offset 0x80c => pub UMAC_MAC0<u32>);
-    mmio_r!(offset 0x810 => pub UMAC_MAC1<u32>);
+    mmio_rw!(offset 0x80c => pub UMAC_MAC0<u32>);
+    mmio_rw!(offset 0x810 => pub UMAC_MAC1<u32>);
     mmio_w!(offset 0x814 => pub UMAC_MAX_FRAME_LEN<u32>);
     mmio_w!(offset 0xb34 => pub UMAC_TX_FLUSH<u32>);
     mmio_w!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
@@ -187,8 +187,6 @@ struct GenetMii {
 
 pub struct Genet {
     inner: RwLock<GenetInner>,
-    mii: Mutex<GenetMii>,
-    tick_sec: AtomicBool,
 }
 
 impl NetDevice for Genet {
@@ -446,8 +444,52 @@ impl GenetInner {
         registers::UMAC_CMD.write(val, base_addr);
     }
 
-    fn init(&mut self) {
-        todo!()
+    fn init(&mut self) -> Result<(), GenetError> {
+        if self.flags.contains(NetFlags::RUNNING) {
+            return Ok(());
+        }
+
+        if matches!(
+            self.phy_mode,
+            PhyMode::RGMII | PhyMode::RGMIIId | PhyMode::RGMIIRxId | PhyMode::RGMIITxId
+        ) {
+            registers::SYS_PORT_CTRL
+                .write(registers::SYS_PORT_MODE_EXT_GPHY, self.base_addr.as_usize());
+        }
+
+        // Write hardware address
+        registers::UMAC_MAC0.write(
+            (self.mac_addr[3] as u32)
+                | ((self.mac_addr[2] as u32) << 8)
+                | ((self.mac_addr[1] as u32) << 16)
+                | ((self.mac_addr[0] as u32) << 24),
+            self.base_addr.as_usize(),
+        );
+        registers::UMAC_MAC1.write(
+            (self.mac_addr[5] as u32) | ((self.mac_addr[4] as u32) << 8),
+            self.base_addr.as_usize(),
+        );
+
+        // Setup RX filter
+        self.setup_rxfilter();
+
+        // Setup TX/RX rings
+        self.init_rings(DMA_DEFAULT_QUEUE)?;
+
+        // Enable transmitter and receiver
+        let mut val = registers::UMAC_CMD.read(self.base_addr.as_usize());
+        val |= registers::UMAC_CMD_TXEN;
+        val |= registers::UMAC_CMD_RXEN;
+        registers::UMAC_CMD.write(val, self.base_addr.as_usize());
+
+        // TODO:
+        // Enable interrupts
+
+        self.flags |= NetFlags::RUNNING;
+
+        mii::mii_media_change(self).or(Err(GenetError::Mii))?;
+
+        Ok(())
     }
 
     fn init_rings(&mut self, qid: usize) -> Result<(), GenetError> {
@@ -717,8 +759,6 @@ pub fn attach(
         return Err(GenetError::InvalidMajorVersion);
     }
 
-    log::debug!("GENET: major_ver = {major_ver}, minor_ver = {minor_ver}");
-
     // Get the MAC address.
     let mac_addr = if let Some(mac_addr) = mac_addr {
         mac_addr.clone()
@@ -779,6 +819,23 @@ pub fn attach(
     if let Some(current) = genet.get_data().get_media().get_current() {
         log::debug!("GENET: current phy = {}", current.get_instance());
     }
+
+    genet.init()?;
+
+    let genet = Genet {
+        inner: RwLock::new(genet),
+    };
+
+    genet.tick().unwrap();
+    log::debug!("GENET: link status = {:?}", genet.link_status());
+    awkernel_lib::delay::wait_millisec(500);
+    genet.tick().unwrap();
+
+    log::debug!("GENET: link status = {:?}", genet.link_status());
+    awkernel_lib::delay::wait_millisec(500);
+    genet.tick().unwrap();
+
+    log::debug!("GENET: link status = {:?}", genet.link_status());
 
     Ok(())
 }

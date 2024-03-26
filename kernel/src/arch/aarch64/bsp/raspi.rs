@@ -143,8 +143,7 @@ impl super::SoC for Raspi {
         self.init_pwm()?;
         self.init_uarts();
 
-        let result = self.init_ethernet();
-        log::debug!("init_genet: {:?}", result);
+        let _ = self.init_ethernet();
 
         Ok(())
     }
@@ -683,13 +682,15 @@ impl Raspi {
             base_addr
         );
 
-        let _ = awkernel_drivers::ic::genet::attach(
+        let result = awkernel_drivers::ic::genet::attach(
             VirtAddr::new(base_addr as usize),
             &[irq0, irq1],
             phy_mode,
             phy_id,
             &mac_addr,
         );
+
+        log::debug!("GENET: {:?}", result);
 
         Ok(())
     }
