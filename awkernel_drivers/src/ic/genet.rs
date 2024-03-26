@@ -1,5 +1,7 @@
 //! # genet: Broadcom's Genet Ethernet controller.
 
+use core::sync::atomic::AtomicBool;
+
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
@@ -19,7 +21,7 @@ use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
     if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_AUTO, IFM_ETHER},
-    mii::{self, mii_tick, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags},
+    mii::{self, mii_timer, ukphy::Ukphy, Mii, MiiData, MiiError, MiiFlags},
 };
 
 pub const DMA_DEFAULT_QUEUE: usize = 16;
@@ -186,6 +188,7 @@ struct GenetMii {
 pub struct Genet {
     inner: RwLock<GenetInner>,
     mii: Mutex<GenetMii>,
+    tick_sec: AtomicBool,
 }
 
 impl NetDevice for Genet {
@@ -272,16 +275,15 @@ impl NetDevice for Genet {
     }
 
     fn tick_msec(&self) -> Option<u64> {
-        Some(1000)
+        Some(500)
     }
 
     fn tick(&self) -> Result<(), NetDevError> {
+        // Call every 500ms.
         let mut inner = self.inner.write();
-        if mii_tick(inner.as_mut()).is_err() {
-            Err(NetDevError::DeviceError)
-        } else {
-            Ok(())
-        }
+        mii_timer(inner.as_mut());
+
+        Ok(())
     }
 }
 
@@ -772,6 +774,10 @@ pub fn attach(
     if !genet.mii_data.set_current_media(IFM_ETHER | IFM_AUTO) {
         log::error!("GENET: failed to set active media");
         return Err(GenetError::Mii);
+    }
+
+    if let Some(current) = genet.get_data().get_media().get_current() {
+        log::debug!("GENET: current phy = {}", current.get_instance());
     }
 
     Ok(())

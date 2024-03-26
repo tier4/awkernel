@@ -251,6 +251,9 @@ pub struct MiiData {
     mii_media: Ifmedia,
 
     instance: u32,
+
+    need_auto_timeout: bool,
+    is_1sec_tick: bool,
 }
 
 impl MiiData {
@@ -265,13 +268,21 @@ impl MiiData {
             mii_media: Ifmedia::new(0, Media::new(0)),
 
             instance: 0,
+
+            need_auto_timeout: false,
+            is_1sec_tick: true,
         }
     }
 
     #[inline(always)]
     pub fn insert(&mut self, phy: Box<dyn MiiPhy>) {
-        let phy_no = phy.get_attach_args().phy_no;
-        self.phys.insert(phy_no, phy);
+        let instance = phy.get_attach_args().instance;
+        self.phys.insert(instance, phy);
+    }
+
+    #[inline(always)]
+    pub fn get_media(&self) -> &Ifmedia {
+        &self.mii_media
     }
 
     #[inline(always)]
@@ -705,8 +716,42 @@ fn mii_rev(id2: u32) -> u32 {
     id2 & IDR2_REV
 }
 
+/// `mii_timer()` should be called every 500ms.
+pub fn mii_timer(parent: &mut dyn Mii) {
+    let mii = parent.get_data_mut();
+    let is_1sec_tick = mii.is_1sec_tick;
+    mii.is_1sec_tick = !is_1sec_tick;
+
+    if mii.need_auto_timeout {
+        mii.need_auto_timeout = false;
+        mii_auto_timeout(parent);
+    }
+
+    // Call every second.
+    if is_1sec_tick {
+        mii_tick(parent);
+    }
+}
+
+/// Call `phy_auto_timeout()` for each PHY.
+fn mii_auto_timeout(parent: &mut dyn Mii) {
+    let mii = parent.get_data_mut();
+
+    let mut tmp = BTreeMap::new();
+    core::mem::swap(&mut tmp, &mut mii.phys);
+
+    for (_, phy) in tmp.iter_mut() {
+        if let Err(e) = phy_auto_timeout(parent, phy.as_mut()) {
+            log::error!("mii_timer: error: {:?}", e);
+        }
+    }
+
+    let mii = parent.get_data_mut();
+    core::mem::swap(&mut tmp, &mut mii.phys);
+}
+
 /// Call the PHY tick routines, used during autonegotiation.
-pub fn mii_tick(parent: &mut dyn Mii) -> Result<(), MiiError> {
+fn mii_tick(parent: &mut dyn Mii) {
     let mii = parent.get_data_mut();
     let mut tmp = BTreeMap::new();
     core::mem::swap(&mut tmp, &mut mii.phys);
@@ -719,8 +764,6 @@ pub fn mii_tick(parent: &mut dyn Mii) -> Result<(), MiiError> {
 
     let mii = parent.get_data_mut();
     core::mem::swap(&mut tmp, &mut mii.phys);
-
-    Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -861,6 +904,7 @@ fn phy_auto(
         phy_auto_timeout(parent, phy)?;
     } else if !ma.flags.contains(MiiFlags::DOINGAUTO) {
         ma.flags |= MiiFlags::DOINGAUTO;
+        parent.get_data_mut().need_auto_timeout = true;
     }
 
     Ok(JustReturn::Yes)
