@@ -846,20 +846,70 @@ impl GenetInner {
     }
 
     fn enable_intr(&mut self) {
-        for irq in self.irqs.iter() {
-            let _ = awkernel_lib::interrupt::register_handler(
-                *irq,
-                "genet".into(),
-                Box::new(move |irq| {
-                    awkernel_lib::net::net_interrupt(irq);
-                }),
-            );
-        }
-
         registers::INTRL2_CPU_CLEAR_MASK.write(
             registers::IRQ_TXDMA_DONE | registers::IRQ_RXDMA_DONE,
             self.base_addr.as_usize(),
         );
+    }
+
+    fn send(&self, ether_frames: &[EtherFrameRef]) -> Result<(), GenetError> {
+        let Some(tx) = self.tx.as_ref() else {
+            return Ok(());
+        };
+
+        let mut node = MCSNode::new();
+        let mut tx = tx.lock(&mut node);
+
+        let base_addr = self.base_addr.as_usize();
+
+        // 801         index = sc->sc_tx.pidx & (TX_DESC_COUNT - 1);
+        // 802         cnt = 0;
+
+        let mut index = tx.pidx & (registers::TX_DESC_COUNT - 1);
+        let mut cnt = 0;
+
+        for frame in ether_frames.iter() {
+            // 803
+            // 804         for (;;) {
+            // 805                 m = ifq_deq_begin(&ifp->if_snd);
+            // 806                 if (m == NULL)
+            // 807                         break;
+            // 808
+            // 809                 nsegs = genet_setup_txbuf(sc, index, m);
+            // 810                 if (nsegs == -1) {
+            // 811                         ifq_deq_rollback(&ifp->if_snd, m);
+            // 812                         ifq_set_oactive(&ifp->if_snd);
+            // 813                         break;
+            // 814                 }
+            // 815                 if (nsegs == 0) {
+            // 816                         ifq_deq_commit(&ifp->if_snd, m);
+            // 817                         m_freem(m);
+            // 818                         ifp->if_oerrors++;
+            // 819                         continue;
+            // 820                 }
+            // 821                 ifq_deq_commit(&ifp->if_snd, m);
+            // 822                 if (ifp->if_bpf)
+            // 823                         bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
+            // 824
+            // 825                 index = TX_SKIP(index, nsegs);
+            // 826
+            // 827                 sc->sc_tx.pidx = (sc->sc_tx.pidx + nsegs) & 0xffff;
+            // 828                 cnt++;
+            // 829         }
+
+            index = (index + 1) & (registers::TX_DESC_COUNT - 1);
+
+            tx.pidx = (tx.pidx + 1) & 0xffff;
+            cnt += 1;
+        }
+
+        // 830
+        // 831         if (cnt != 0) {
+        // 832                 WR4(sc, GENET_TX_DMA_PROD_INDEX(qid), sc->sc_tx.pidx);
+        // 833                 ifp->if_timer = 5;
+        // 834         }
+
+        Ok(())
     }
 
     fn rxintr(&self, qid: usize) {
@@ -1029,6 +1079,20 @@ pub fn attach(
 
     if let Some(current) = genet.get_data().get_media().get_current() {
         log::debug!("GENET: current phy = {}", current.get_instance());
+    }
+
+    // Register interrupt handlers.
+    for irq in genet.irqs.iter() {
+        match awkernel_lib::interrupt::register_handler(
+            *irq,
+            "genet".into(),
+            Box::new(move |irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+        ) {
+            Ok(()) => awkernel_lib::interrupt::enable_irq(*irq),
+            Err(e) => log::error!("GENET: failed to register interrupt handler: {e}"),
+        }
     }
 
     let genet = Genet {

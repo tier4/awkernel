@@ -2061,7 +2061,15 @@ impl NetDevice for Igb {
 
     fn can_send(&self) -> bool {
         let inner = self.inner.read();
-        inner.flags.contains(NetFlags::RUNNING)
+        if inner.flags.contains(NetFlags::RUNNING) {
+            return false;
+        }
+
+        if !inner.link_active {
+            return false;
+        };
+
+        true
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
