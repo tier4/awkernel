@@ -160,15 +160,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         log::info!("Use SP_ELx.");
     }
 
-    log::info!("{device_tree}");
-
-    log::info!("Waking non-primary CPUs up.");
-    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
-
-    let kernel_info = KernelInfo {
-        info: (),
-        cpu_id: 0,
-    };
+    // log::info!("{device_tree}");
 
     #[cfg(feature = "raspi")]
     if let Some(framebuffer) = awkernel_drivers::framebuffer::rpi::lfb::get_framebuffer_info() {
@@ -190,6 +182,14 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         )
         .draw(framebuffer);
     }
+
+    log::info!("Waking non-primary CPUs up.");
+    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
+
+    let kernel_info = KernelInfo {
+        info: (),
+        cpu_id: 0,
+    };
 
     crate::main::<()>(kernel_info);
 }
@@ -225,7 +225,7 @@ unsafe fn non_primary_cpu() {
 
     // 2. Wait until the primary CPU is enabled.
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
-        core::hint::spin_loop();
+        awkernel_lib::delay::wait_millisec(1);
     }
 
     // 3. Initialization for non-primary CPUs.

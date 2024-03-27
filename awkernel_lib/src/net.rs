@@ -58,6 +58,7 @@ pub struct IfStatus {
     pub rx_irq_to_que_id: BTreeMap<u16, usize>,
     pub capabilities: NetCapabilities,
     pub poll_mode: bool,
+    pub tick_msec: Option<u64>,
 }
 
 impl Display for IfStatus {
@@ -325,6 +326,8 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let capabilities = inner.capabilities();
 
+    let tick_msec = inner.tick_msec();
+
     let if_status = IfStatus {
         interface_id,
         device_name: inner.device_short_name(),
@@ -337,6 +340,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
         rx_irq_to_que_id,
         capabilities,
         poll_mode,
+        tick_msec,
     };
 
     Ok(if_status)
@@ -480,6 +484,25 @@ pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> b
             true
         }
     }
+}
+
+/// Because some devices need to poll the network device to process some events,
+/// this function should be called by the network service.
+///
+/// Usually, `poll_interface()` is for receiving and reading packets,
+/// and `tick_interface()` is for updating status.
+pub fn tick_interface(interface_id: u64) {
+    let interface = {
+        let net_manager = NET_MANAGER.read();
+
+        let Some(interface) = net_manager.interfaces.get(&interface_id) else {
+            return;
+        };
+
+        interface.clone()
+    };
+
+    let _ = interface.net_device.tick();
 }
 
 /// If some packets are processed, true is returned.

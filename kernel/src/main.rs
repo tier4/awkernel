@@ -15,7 +15,10 @@ use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
-use core::fmt::Debug;
+use core::{
+    fmt::Debug,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use kernel_info::KernelInfo;
 
 mod arch;
@@ -24,6 +27,8 @@ mod kernel_info;
 
 #[cfg(not(feature = "std"))]
 mod nostd;
+
+static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.
@@ -75,6 +80,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        PRIMARY_READY.store(true, Ordering::SeqCst);
+
         loop {
             awkernel_lib::interrupt::disable();
 
@@ -121,6 +128,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     // Non-primary CPUs.
     #[cfg(not(feature = "std"))]
     {
+        while !PRIMARY_READY.load(Ordering::SeqCst) {
+            awkernel_lib::delay::wait_microsec(10);
+        }
+
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
