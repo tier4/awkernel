@@ -27,6 +27,7 @@ pub const MAX_MDF_FILTER: usize = 17;
 pub const TX_BUF_SIZE: usize = 2048;
 pub const RX_BUF_SIZE: usize = 2048;
 type RxBuffer = [[u8; RX_BUF_SIZE]; registers::DMA_DESC_COUNT];
+type TxBuffer = [[u8; TX_BUF_SIZE]; registers::DMA_DESC_COUNT];
 
 pub const MII_BUSY_RETRY: i32 = 1000;
 
@@ -43,11 +44,19 @@ mod registers {
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
     pub const SYS_PORT_MODE_EXT_GPHY: u32 = 3;
 
+    pub const IRQ_TXDMA_DONE: u32 = 1 << 16;
+    pub const IRQ_RXDMA_DONE: u32 = 1 << 13;
+
     mmio_r!(offset  0x000 => pub SYS_REV_CTRL<u32>);
     mmio_rw!(offset 0x004 => pub SYS_PORT_CTRL<u32>);
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
 
     mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
+
+    mmio_rw!(offset 0x200 => pub INTRL2_CPU_STAT<u32>);
+    mmio_rw!(offset 0x208 => pub INTRL2_CPU_CLEAR<u32>);
+    mmio_rw!(offset 0x20c => pub INTRL2_CPU_STAT_MASK<u32>);
+    mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
 
     pub const EXT_RGMII_OOB_ID_MODE_DISABLE: u32 = 1 << 16;
     pub const EXT_RGMII_OOB_RGMII_MODE_EN: u32 = 1 << 6;
@@ -354,12 +363,13 @@ impl NetDevice for Genet {
     }
 
     fn can_send(&self) -> bool {
-        // TODO
-        false
+        let inner = self.inner.read();
+        inner.flags.contains(NetFlags::RUNNING)
     }
 
-    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        // TODO
+    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+        inner.intr();
         Ok(())
     }
 
@@ -449,6 +459,7 @@ struct Tx {
     queued: usize,
     cidx: usize,
     pidx: usize,
+    buf: DMAPool<TxBuffer>,
 }
 
 #[derive(Debug)]
@@ -632,8 +643,8 @@ impl GenetInner {
         val |= registers::UMAC_CMD_RXEN;
         registers::UMAC_CMD.write(val, self.base_addr.as_usize());
 
-        // TODO:
         // Enable interrupts
+        self.enable_intr();
 
         self.flags |= NetFlags::RUNNING;
 
@@ -650,6 +661,7 @@ impl GenetInner {
             queued: 0,
             cidx: 0,
             pidx: 0,
+            buf: DMAPool::new(0, registers::TX_DESC_COUNT).ok_or(GenetError::DMAPoolAllocation)?,
         };
 
         registers::TX_SCB_BURST_SIZE.write(0x08, base_addr);
@@ -685,8 +697,6 @@ impl GenetInner {
         registers::TX_DMA_BASE.write(0, registers::tx_dma_write_ptr_lo(qid) + base_addr);
         registers::TX_DMA_BASE.write(0, registers::tx_dma_write_ptr_hi(qid) + base_addr);
 
-        // 544
-        // 545         WR4(sc, GENET_TX_DMA_RING_CFG, __BIT(qid));     /* enable */
         registers::TX_DMA_RING_CFG.write(1 << qid, base_addr);
 
         // Enable transmit DMA
@@ -698,7 +708,7 @@ impl GenetInner {
         let mut rx = Rx {
             next: 0,
             cidx: 0,
-            pidx: registers::RX_DESC_COUNT,
+            pidx: 0,
             buf: DMAPool::new(0, registers::RX_DESC_COUNT).ok_or(GenetError::DMAPoolAllocation)?,
         };
 
@@ -833,6 +843,45 @@ impl GenetInner {
 
         registers::UMAC_CMD.write(cmd, base_addr);
         registers::UMAC_MDF_CTRL.write(mdf_ctrl, base_addr);
+    }
+
+    fn enable_intr(&mut self) {
+        for irq in self.irqs.iter() {
+            let _ = awkernel_lib::interrupt::register_handler(
+                *irq,
+                "genet".into(),
+                Box::new(move |irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+            );
+        }
+
+        registers::INTRL2_CPU_CLEAR_MASK.write(
+            registers::IRQ_TXDMA_DONE | registers::IRQ_RXDMA_DONE,
+            self.base_addr.as_usize(),
+        );
+    }
+
+    fn rxintr(&self, qid: usize) {
+        // TODO
+    }
+
+    fn txintr(&self, qid: usize) {
+        // TODO
+    }
+
+    fn intr(&self) {
+        let mut val = registers::INTRL2_CPU_STAT.read(self.base_addr.as_usize());
+        val &= !registers::INTRL2_CPU_STAT_MASK.read(self.base_addr.as_usize());
+        registers::INTRL2_CPU_CLEAR.write(val, self.base_addr.as_usize());
+
+        if val & registers::IRQ_RXDMA_DONE != 0 {
+            self.rxintr(DMA_DEFAULT_QUEUE);
+        }
+
+        if val & registers::IRQ_TXDMA_DONE != 0 {
+            self.txintr(DMA_DEFAULT_QUEUE);
+        }
     }
 }
 
