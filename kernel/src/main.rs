@@ -125,6 +125,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     }
 
+    awkernel_lib::delay::wait_millisec(100);
+
     // Non-primary CPUs.
     #[cfg(not(feature = "std"))]
     {

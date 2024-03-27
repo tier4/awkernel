@@ -11,7 +11,7 @@ use awkernel_lib::{
             NetFlags,
         },
     },
-    sync::rwlock::RwLock,
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
@@ -449,7 +449,7 @@ pub struct GenetInner {
     flags: NetFlags,
     mulitcast_addrs: MulticastAddrs,
     mii_data: MiiData,
-    tx: Option<Tx>,
+    tx: Option<Mutex<Tx>>,
     rx: Option<Rx>,
 }
 
@@ -867,7 +867,20 @@ impl GenetInner {
     }
 
     fn txintr(&self, qid: usize) {
-        // TODO
+        let Some(tx) = self.tx.as_ref() else {
+            return;
+        };
+
+        let mut node = MCSNode::new();
+        let mut tx = tx.lock(&mut node);
+
+        let base_addr = self.base_addr.as_usize();
+
+        let cidx =
+            registers::TX_DMA_BASE.read(registers::tx_dma_cons_index(qid) + base_addr) & 0xffff;
+        let total = (cidx - tx.cidx as u32) & 0xffff;
+
+        tx.queued -= total as usize;
     }
 
     fn intr(&self) {
