@@ -43,7 +43,6 @@ pub enum NetManagerError {
     InvalidPort,
     InvalidState,
     NoAvailablePort,
-    LinkDown,
 }
 
 #[derive(Debug)]

@@ -53,16 +53,9 @@ mod registers {
 
     mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
 
-    // 272 #define UMAC_IRQ_MDIO_DONE              (1 << 23)
-    // 273 #define UMAC_IRQ_MDIO_ERROR             (1 << 24)
-
-    pub const UMAC_IRQ_MDIO_DONE: u32 = 1 << 23;
-    pub const UMAC_IRQ_MDIO_ERROR: u32 = 1 << 24;
-
     mmio_rw!(offset 0x200 => pub INTRL2_CPU_STAT<u32>);
     mmio_rw!(offset 0x208 => pub INTRL2_CPU_CLEAR<u32>);
     mmio_rw!(offset 0x20c => pub INTRL2_CPU_STAT_MASK<u32>);
-    mmio_rw!(offset 0x210 => pub INTRL2_CPU_SET_MASK<u32>);
     mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
 
     pub const EXT_RGMII_OOB_ID_MODE_DISABLE: u32 = 1 << 16;
@@ -70,18 +63,8 @@ mod registers {
     pub const EXT_RGMII_OOB_OOB_DISABLE: u32 = 1 << 5;
     pub const EXT_RGMII_OOB_RGMII_LINK: u32 = 1 << 4;
 
-    pub const RBUF_64B_EN: u32 = 1;
-    pub const RBUF_RXCHK_EN: u32 = 1;
-    pub const RBUF_SKIP_FCS: u32 = 1 << 4;
-    pub const RBUF_L3_PARSE_DIS: u32 = 1 << 5;
-
     mmio_rw!(offset 0x300 => pub RBUF_CTRL<u32>);
-    mmio_rw!(offset 0x314 => pub RBUF_CHK_CTRL<u32>);
     mmio_rw!(offset 0x3b4 => pub RBUF_TBUF_SIZE_CTRL<u32>);
-
-    pub const TBUF_64B_EN: u32 = 1;
-
-    mmio_rw!(offset 0x600 => pub TBUF_CTRL<u32>);
 
     pub const RX_BASE: usize = 0x2000;
     pub const TX_BASE: usize = 0x4000;
@@ -110,21 +93,7 @@ mod registers {
     pub const TX_DMA_RING_BUF_SIZE_DESC_COUNT: u32 = bits(31, 16);
     pub const TX_DMA_RING_BUF_SIZE_BUF_LENGTH: u32 = bits(15, 0);
 
-    // 154 #define  GENET_TX_DESC_STATUS_BUFLEN    __BITS(27,16)
-    // 155 #define  GENET_TX_DESC_STATUS_OWN       __BIT(15)
-    // 156 #define  GENET_TX_DESC_STATUS_EOP       __BIT(14)
-    // 157 #define  GENET_TX_DESC_STATUS_SOP       __BIT(13)
-    // 158 #define  GENET_TX_DESC_STATUS_QTAG      __BITS(12,7)
-    // 159 #define  GENET_TX_DESC_STATUS_CRC       __BIT(6)
-
     pub const RX_DESC_STATUS_BUFLEN: u32 = bits(27, 16);
-
-    pub const TX_DESC_STATUS_BUFLEN: u32 = bits(27, 16);
-    pub const TX_DESC_STATUS_OWN: u32 = 1 << 15;
-    pub const TX_DESC_STATUS_EOP: u32 = 1 << 14;
-    pub const TX_DESC_STATUS_SOP: u32 = 1 << 13;
-    pub const TX_DESC_STATUS_QTAG: u32 = bits(12, 7);
-    pub const TX_DESC_STATUS_CRC: u32 = 1 << 6;
 
     #[inline(always)]
     pub fn rx_dma_ringbase(qid: usize) -> usize {
@@ -276,21 +245,6 @@ mod registers {
         DMA_DESC_SIZE * idx
     }
 
-    #[inline(always)]
-    pub fn tx_desc_address_lo(idx: usize) -> usize {
-        DMA_DESC_SIZE * idx + 0x04
-    }
-
-    #[inline(always)]
-    pub fn tx_desc_address_hi(idx: usize) -> usize {
-        DMA_DESC_SIZE * idx + 0x08
-    }
-
-    #[inline(always)]
-    pub fn tx_desc_status(idx: usize) -> usize {
-        DMA_DESC_SIZE * idx
-    }
-
     mmio_rw!(offset RX_BASE => pub RX_DMA_BASE<u32>);
     mmio_rw!(offset TX_BASE => pub TX_DMA_BASE<u32>);
 
@@ -333,13 +287,6 @@ mod registers {
     pub const MDIO_REG: u32 = bits(20, 16);
 
     mmio_rw!(offset 0xe14 => pub MDIO_CMD<u32>);
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerMode {
-    CableSense,
-    Passive,
-    WolMagic,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -416,21 +363,8 @@ impl NetDevice for Genet {
     }
 
     fn can_send(&self) -> bool {
-        log::debug!("TX: can_send()");
-
         let inner = self.inner.read();
-        if !inner.flags.contains(NetFlags::RUNNING) {
-            return false;
-        }
-
-        if matches!(
-            inner.mii_data.link_status(),
-            LinkStatus::Up | LinkStatus::UpFullDuplex | LinkStatus::UpHalfDuplex
-        ) {
-            true
-        } else {
-            false
-        }
+        inner.flags.contains(NetFlags::RUNNING)
     }
 
     fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
@@ -467,9 +401,9 @@ impl NetDevice for Genet {
         Ok(None)
     }
 
-    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
-        let inner = self.inner.read();
-        inner.send(&[data]).or(Err(NetDevError::DeviceError))
+    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+        // TODO
+        Ok(())
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
@@ -501,12 +435,7 @@ impl NetDevice for Genet {
             & 0xffff;
         let total = (pidx - inner.rx.as_ref().unwrap().pidx as u32) & 0xffff;
 
-        let irq = inner.irqs[0];
-        drop(inner);
-
-        // log::debug!("RX: total = {}", total);
-
-        awkernel_lib::net::net_interrupt(irq);
+        log::debug!("RX: total = {}", total);
 
         Ok(())
     }
@@ -566,7 +495,7 @@ impl GenetInner {
         };
 
         // Soft reset EMAC core
-        genet.init_umac();
+        genet.reset();
 
         Ok(genet)
     }
@@ -604,8 +533,10 @@ impl GenetInner {
         registers::UMAC_CMD.write(val, self.base_addr.as_usize());
     }
 
-    fn reset_umac(&mut self) {
+    fn reset(&mut self) {
         let base_addr = self.base_addr.as_usize();
+
+        self.disable_dma();
 
         let mut val = registers::SYS_RBUF_FLUSH_CTRL.read(base_addr);
         val |= registers::SYS_RBUF_FLUSH_RESET;
@@ -615,57 +546,32 @@ impl GenetInner {
         val &= !registers::SYS_RBUF_FLUSH_RESET;
         registers::SYS_RBUF_FLUSH_CTRL.write(val, base_addr);
         awkernel_lib::delay::wait_microsec(10);
-    }
 
-    fn disable_intr(&mut self) {
-        let base_addr = self.base_addr.as_usize();
+        registers::SYS_RBUF_FLUSH_CTRL.write(0, base_addr);
+        awkernel_lib::delay::wait_microsec(10);
 
-        registers::INTRL2_CPU_SET_MASK.write(0xffff_ffff, base_addr);
-        registers::INTRL2_CPU_CLEAR.write(0xffff_ffff, base_addr);
-    }
+        registers::UMAC_CMD.write(0, base_addr);
+        registers::UMAC_CMD.write(
+            registers::UMAC_CMD_LCL_LOOP_EN | registers::UMAC_CMD_SW_RESET,
+            base_addr,
+        );
+        awkernel_lib::delay::wait_microsec(10);
 
-    fn init_umac(&mut self) {
-        self.reset_umac();
-
-        let base_addr = self.base_addr.as_usize();
-
-        // reset tx/rx counter
         registers::UMAC_MIB_CTRL.write(
-            registers::UMAC_MIB_RESET_TX
-                | registers::UMAC_MIB_RESET_RUNT
-                | registers::UMAC_MIB_RESET_RX,
+            registers::UMAC_MIB_RESET_RUNT
+                | registers::UMAC_MIB_RESET_RX
+                | registers::UMAC_MIB_RESET_TX,
             base_addr,
         );
         registers::UMAC_MIB_CTRL.write(0, base_addr);
 
         registers::UMAC_MAX_FRAME_LEN.write(1536, base_addr);
 
-        // init tx registers
-        let mut reg = registers::TBUF_CTRL.read(base_addr);
-        reg |= registers::TBUF_64B_EN;
-        registers::TBUF_CTRL.write(reg, base_addr);
+        let mut val = registers::RBUF_CTRL.read(base_addr);
+        val |= registers::RBUF_ALIGN_2B;
+        registers::RBUF_CTRL.write(val, base_addr);
 
-        // init rx registers
-        let mut reg = registers::RBUF_CTRL.read(base_addr);
-        reg |= registers::RBUF_ALIGN_2B | registers::RBUF_64B_EN;
-        registers::RBUF_CTRL.write(reg, base_addr);
-
-        // enable rx checksum
-        let mut reg = registers::RBUF_CHK_CTRL.read(base_addr);
-        reg |= registers::RBUF_RXCHK_EN | registers::RBUF_L3_PARSE_DIS;
-
-        // TODO: RBUF_SKIP_FCS?
-
-        registers::RBUF_CHK_CTRL.write(reg, base_addr);
-
-        // Disable interrupts
-        self.disable_intr();
-
-        // Enable MDIO interrupts
-        registers::INTRL2_CPU_CLEAR_MASK.write(
-            registers::UMAC_IRQ_MDIO_DONE | registers::UMAC_IRQ_MDIO_ERROR,
-            base_addr,
-        );
+        registers::RBUF_TBUF_SIZE_CTRL.write(1, base_addr);
     }
 
     fn disable_dma(&mut self) {
@@ -699,20 +605,6 @@ impl GenetInner {
         registers::UMAC_CMD.write(val, base_addr);
     }
 
-    fn set_hw_addr(&mut self) {
-        registers::UMAC_MAC0.write(
-            (self.mac_addr[3] as u32)
-                | ((self.mac_addr[2] as u32) << 8)
-                | ((self.mac_addr[1] as u32) << 16)
-                | ((self.mac_addr[0] as u32) << 24),
-            self.base_addr.as_usize(),
-        );
-        registers::UMAC_MAC1.write(
-            (self.mac_addr[5] as u32) | ((self.mac_addr[4] as u32) << 8),
-            self.base_addr.as_usize(),
-        );
-    }
-
     fn init(&mut self) -> Result<(), GenetError> {
         if self.flags.contains(NetFlags::RUNNING) {
             return Ok(());
@@ -727,12 +619,36 @@ impl GenetInner {
         }
 
         // Write hardware address
-        self.set_hw_addr();
+        registers::UMAC_MAC0.write(
+            (self.mac_addr[3] as u32)
+                | ((self.mac_addr[2] as u32) << 8)
+                | ((self.mac_addr[1] as u32) << 16)
+                | ((self.mac_addr[0] as u32) << 24),
+            self.base_addr.as_usize(),
+        );
+        registers::UMAC_MAC1.write(
+            (self.mac_addr[5] as u32) | ((self.mac_addr[4] as u32) << 8),
+            self.base_addr.as_usize(),
+        );
 
-        self.disable_dma();
+        // Setup RX filter
+        self.setup_rxfilter();
 
-        // TODO:
-        // bcmgenet_open()
+        // Setup TX/RX rings
+        self.init_rings(DMA_DEFAULT_QUEUE)?;
+
+        // Enable transmitter and receiver
+        let mut val = registers::UMAC_CMD.read(self.base_addr.as_usize());
+        val |= registers::UMAC_CMD_TXEN;
+        val |= registers::UMAC_CMD_RXEN;
+        registers::UMAC_CMD.write(val, self.base_addr.as_usize());
+
+        // Enable interrupts
+        self.enable_intr();
+
+        self.flags |= NetFlags::RUNNING;
+
+        mii::mii_media_change(self).or(Err(GenetError::Mii))?;
 
         Ok(())
     }
@@ -847,7 +763,6 @@ impl GenetInner {
         registers::RX_DMA_CTRL.write(val, base_addr);
 
         self.rx = Some(rx);
-        self.tx = Some(Mutex::new(tx));
 
         Ok(())
     }
@@ -945,10 +860,6 @@ impl GenetInner {
         let mut node = MCSNode::new();
         let mut tx = tx.lock(&mut node);
 
-        if tx.queued + ether_frames.len() > registers::TX_DESC_COUNT {
-            return Ok(()); // No space in the TX ring, TODO: return error
-        }
-
         let base_addr = self.base_addr.as_usize();
 
         // 801         index = sc->sc_tx.pidx & (TX_DESC_COUNT - 1);
@@ -986,80 +897,19 @@ impl GenetInner {
             // 828                 cnt++;
             // 829         }
 
-            let paddr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
-            let buf = tx
-                .buf
-                .as_mut()
-                .get_mut(index)
-                .ok_or(GenetError::InvalidDMAPoolSize)?;
-
-            let len = frame.data.len();
-
-            unsafe {
-                core::ptr::copy_nonoverlapping(
-                    frame.data.as_ptr() as *const u8,
-                    buf.as_mut_ptr() as *mut u8,
-                    len,
-                )
-            };
-
-            log::debug!("TX: send(), data = {:02x?}", buf[0..len].to_vec());
-
-            let flags = registers::TX_DESC_STATUS_SOP
-                | registers::TX_DESC_STATUS_CRC
-                | registers::TX_DESC_STATUS_QTAG
-                | registers::TX_DESC_STATUS_EOP;
-
-            self.setup_txdesc(index, flags, paddr, len);
-            tx.queued += 1;
-
             index = (index + 1) & (registers::TX_DESC_COUNT - 1);
 
             tx.pidx = (tx.pidx + 1) & 0xffff;
             cnt += 1;
         }
 
-        if cnt != 0 {
-            registers::TX_DMA_BASE.write(
-                tx.pidx as u32,
-                registers::tx_dma_prod_index(DMA_DEFAULT_QUEUE) + base_addr,
-            );
-        }
-
-        let tx_prod = registers::TX_DMA_BASE
-            .read(registers::tx_dma_prod_index(DMA_DEFAULT_QUEUE) + base_addr);
-
-        log::debug!("TX: queued = {}, tx_prod = {tx_prod}", tx.queued);
+        // 830
+        // 831         if (cnt != 0) {
+        // 832                 WR4(sc, GENET_TX_DMA_PROD_INDEX(qid), sc->sc_tx.pidx);
+        // 833                 ifp->if_timer = 5;
+        // 834         }
 
         Ok(())
-    }
-
-    fn setup_txdesc(&self, index: usize, flags: u32, paddr: PhyAddr, len: usize) {
-        // TODO
-        // 195         uint32_t status;
-        // 196
-        // 197         status = flags | __SHIFTIN(len, GENET_TX_DESC_STATUS_BUFLEN);
-        // 198         ++sc->sc_tx.queued;
-
-        let status = flags | shiftin(len as u32, registers::TX_DESC_STATUS_BUFLEN);
-
-        // 199
-        // 200         WR4(sc, GENET_TX_DESC_ADDRESS_LO(index), (uint32_t)paddr);
-        // 201         WR4(sc, GENET_TX_DESC_ADDRESS_HI(index), (uint32_t)(paddr >> 32));
-        // 202         WR4(sc, GENET_TX_DESC_STATUS(index), status);
-
-        let paddr = paddr.as_usize();
-
-        let base_addr = self.base_addr.as_usize();
-        registers::TX_DMA_BASE.write(
-            paddr as u32,
-            registers::tx_desc_address_lo(index) + base_addr,
-        );
-        registers::TX_DMA_BASE.write(
-            (paddr >> 32) as u32,
-            registers::tx_desc_address_hi(index) + base_addr,
-        );
-        registers::TX_DMA_BASE.write(status, registers::tx_desc_status(index) + base_addr);
     }
 
     fn rxintr(&self, qid: usize) {
@@ -1081,9 +931,6 @@ impl GenetInner {
         let total = (cidx - tx.cidx as u32) & 0xffff;
 
         tx.queued -= total as usize;
-        tx.cidx = cidx as usize;
-
-        log::debug!("TX: txintr(), total = {}", total);
     }
 
     fn intr(&self) {
@@ -1216,45 +1063,43 @@ pub fn attach(
     // 998         mii_attach(&sc->sc_dev, mii, 0xffffffff, sc->sc_phy_id,
     // 999             MII_OFFSET_ANY, mii_flags);
 
-    genet.init()?;
+    mii::attach(
+        &mut genet,
+        |args| Box::new(Ukphy::new(args)),
+        0xffffffff,
+        phy_id,
+        None,
+    )
+    .or(Err(GenetError::Mii))?;
 
-    // mii::attach(
-    //     &mut genet,
-    //     |args| Box::new(Ukphy::new(args)),
-    //     0xffffffff,
-    //     phy_id,
-    //     None,
-    // )
-    // .or(Err(GenetError::Mii))?;
+    if !genet.mii_data.set_current_media(IFM_ETHER | IFM_AUTO) {
+        log::error!("GENET: failed to set active media");
+        return Err(GenetError::Mii);
+    }
 
-    // if !genet.mii_data.set_current_media(IFM_ETHER | IFM_AUTO) {
-    //     log::error!("GENET: failed to set active media");
-    //     return Err(GenetError::Mii);
-    // }
+    if let Some(current) = genet.get_data().get_media().get_current() {
+        log::debug!("GENET: current phy = {}", current.get_instance());
+    }
 
-    // if let Some(current) = genet.get_data().get_media().get_current() {
-    //     log::debug!("GENET: current phy = {}", current.get_instance());
-    // }
+    // Register interrupt handlers.
+    for irq in genet.irqs.iter() {
+        match awkernel_lib::interrupt::register_handler(
+            *irq,
+            "genet".into(),
+            Box::new(move |irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+        ) {
+            Ok(()) => awkernel_lib::interrupt::enable_irq(*irq),
+            Err(e) => log::error!("GENET: failed to register interrupt handler: {e}"),
+        }
+    }
 
-    // // Register interrupt handlers.
-    // for irq in genet.irqs.iter() {
-    //     match awkernel_lib::interrupt::register_handler(
-    //         *irq,
-    //         "genet".into(),
-    //         Box::new(move |irq| {
-    //             awkernel_lib::net::net_interrupt(irq);
-    //         }),
-    //     ) {
-    //         Ok(()) => awkernel_lib::interrupt::enable_irq(*irq),
-    //         Err(e) => log::error!("GENET: failed to register interrupt handler: {e}"),
-    //     }
-    // }
+    let genet = Genet {
+        inner: RwLock::new(genet),
+    };
 
-    // let genet = Genet {
-    //     inner: RwLock::new(genet),
-    // };
-
-    // awkernel_lib::net::add_interface(Arc::new(genet), None);
+    awkernel_lib::net::add_interface(Arc::new(genet), None);
 
     Ok(())
 }
