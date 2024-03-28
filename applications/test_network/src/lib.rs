@@ -102,18 +102,30 @@ async fn udp_test() {
     loop {
         let t0 = awkernel_lib::delay::uptime();
 
+        log::debug!("Sending a UDP packet to {:?}.", dst_addr);
+
         // Send a UDP packet.
-        socket
+        if socket
             .send(b"Hello Awkernel!", &dst_addr, 26099)
             .await
-            .unwrap();
+            .is_err()
+        {
+            log::debug!("Failed to send a UDP packet.");
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        log::debug!("Receiving a UDP packet.");
 
         // Receive a UDP packet.
-        socket.recv(&mut buf).await.unwrap();
+        if awkernel_async_lib::timeout(Duration::from_secs(1), socket.recv(&mut buf))
+            .await
+            .is_some()
+        {
+            let t1 = awkernel_lib::delay::uptime();
+            let _rtt = t1 - t0;
+        }
 
-        let t1 = awkernel_lib::delay::uptime();
-        let _rtt = t1 - t0;
-
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        log::debug!("End receiving.");
     }
 }

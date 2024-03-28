@@ -152,11 +152,19 @@ impl UdpSocket {
         port: u16,
         waker: &core::task::Waker,
     ) -> Result<bool, NetManagerError> {
+        log::debug!("send_to 1");
+
         let net_manager = NET_MANAGER.read();
 
         let Some(if_net) = net_manager.interfaces.get(&self.interface_id) else {
             return Err(NetManagerError::InvalidInterfaceID);
         };
+
+        if !if_net.net_device.can_send() {
+            return Err(NetManagerError::LinkDown);
+        }
+
+        log::debug!("send_to 2");
 
         let if_net = if_net.clone();
         drop(net_manager);
@@ -168,6 +176,8 @@ impl UdpSocket {
             .socket_set
             .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
 
+        log::debug!("send_to 3");
+
         if socket.can_send() {
             socket
                 .send_slice(buf, (addr.addr, port))
@@ -178,9 +188,12 @@ impl UdpSocket {
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
             if_net.poll_tx_only(que_id);
 
+            log::debug!("send_to 4");
+
             Ok(true)
         } else {
             socket.register_send_waker(waker);
+            log::debug!("send_to 5");
             Ok(false)
         }
     }
@@ -226,6 +239,8 @@ impl UdpSocket {
                 },
                 meta_data.endpoint.port,
             )))
+        } else if !if_net.net_device.can_send() {
+            return Err(NetManagerError::LinkDown);
         } else {
             socket.register_recv_waker(waker);
             Ok(None)

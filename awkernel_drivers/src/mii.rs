@@ -910,7 +910,6 @@ fn phy_auto(
     Ok(JustReturn::Yes)
 }
 
-// BMSR_MEDIA_TO_ANAR(x)   (((x) & BMSR_MEDIAMASK) >> 6)
 fn bmsr_media_to_anar(x: BMSR) -> u32 {
     let mask = BMSR::ETH_100T4
         | BMSR::ETH_100TXFDX
