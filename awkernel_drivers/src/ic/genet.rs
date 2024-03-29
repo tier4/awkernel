@@ -10,6 +10,8 @@ use awkernel_lib::{
 
 use alloc::vec::Vec;
 
+pub const DMA_DEFAULT_QUEUE: u32 = 16;
+
 mod registers {
     use awkernel_lib::mmio_rw;
 
@@ -33,6 +35,25 @@ mod registers {
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_MIB_RESET_RUNT: u32 = 1 << 1;
     pub const UMAC_MIB_RESET_RX: u32 = 1;
+
+    pub const RX_BASE: usize = 0x2000;
+    pub const TX_BASE: usize = 0x4000;
+
+    mmio_rw!(offset RX_BASE + 0x1040 + 0x04 => pub RX_DMA_CTRL<u32>);
+    pub const RX_DMA_CTRL_EN: u32 = 1;
+
+    #[inline(always)]
+    pub fn rx_dma_ctrl_rbuf_en(qid: u32) -> u32 {
+        1 << (qid + 1)
+    }
+
+    mmio_rw!(offset TX_BASE + 0x1040 + 0x04 => pub TX_DMA_CTRL<u32>);
+    pub const TX_DMA_CTRL_EN: u32 = 1;
+
+    #[inline(always)]
+    pub fn tx_dma_ctrl_rbuf_en(qid: u32) -> u32 {
+        1 << (qid + 1)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +182,9 @@ pub fn attach(
     // reset core
     reset(base_addr);
 
+    // disable DMA
+    dma_disable(base_addr);
+
     Err(GenetError::NotYetImplemented)
 }
 
@@ -194,4 +218,18 @@ fn reset(base_addr: VirtAddr) {
         base,
     );
     registers::UMAC_MIB_CTRL.write(0, base);
+}
+
+fn dma_disable(base_addr: VirtAddr) {
+    let base = base_addr.as_usize();
+
+    let mut val = registers::TX_DMA_CTRL.read(base);
+    val &= !registers::TX_DMA_CTRL_EN;
+    val &= !registers::tx_dma_ctrl_rbuf_en(DMA_DEFAULT_QUEUE);
+    registers::TX_DMA_CTRL.write(val, base);
+
+    let mut val = registers::RX_DMA_CTRL.read(base);
+    val &= !registers::RX_DMA_CTRL_EN;
+    val &= !registers::rx_dma_ctrl_rbuf_en(DMA_DEFAULT_QUEUE);
+    registers::RX_DMA_CTRL.write(val, base);
 }
