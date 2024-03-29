@@ -85,26 +85,32 @@ impl MiiPhy for Ukphy {
         );
 
         if bmsr.contains(BMSR::LINK) {
+            log::debug!("BMSR::LINK");
             parent.get_data_mut().media_status.insert(IFM_ACTIVE);
         }
 
         let bmcr = parent.read_reg(ma.phy_no, MII_BMCR)?;
         if bmcr & BMCR_ISO != 0 {
+            log::debug!("BMCR_ISO");
             parent.get_data_mut().media_active.insert(IFM_NONE);
             parent.get_data_mut().media_status = Media::new(0);
             return Ok(());
         }
 
         if bmcr & BMCR_LOOP != 0 {
+            log::debug!("BMCR_LOOP");
             parent.get_data_mut().media_active.insert(IFM_LOOP);
         }
 
         if bmcr & BMCR_AUTOEN != 0 {
+            log::debug!("BMCR_AUTOEN");
+
             // NWay autonegotiation takes the highest-order common
             // bit of the ANAR and ANLPAR (i.e. best media advertised
             // both by us and our link partner).
             if !bmsr.contains(BMSR::ACOMP) {
                 // Erg, still trying, I guess...
+                log::debug!("BMSR::ACOMP");
                 parent.get_data_mut().media_active.insert(IFM_NONE);
                 return Ok(());
             }
@@ -119,6 +125,7 @@ impl MiiPhy for Ukphy {
                     .ext_capabilities
                     .intersects(EXTSR::ETH_1000THDX | EXTSR::ETH_1000TFDX)
             {
+                log::debug!("HAVE_GTCR");
                 gtcr = parent.read_reg(ma.phy_no, MII_100T2CR)?;
                 gtsr = parent.read_reg(ma.phy_no, MII_100T2SR)?;
             } else {
@@ -129,18 +136,23 @@ impl MiiPhy for Ukphy {
             let mii = parent.get_data_mut();
 
             if gtcr & GTCR_ADV_1000TFDX != 0 && gtsr & GTSR_LP_1000TFDX != 0 {
+                log::debug!("1000Base-T FDX");
                 mii.media_active.insert(IFM_1000_T | IFM_FDX);
             } else if gtcr & GTCR_ADV_1000THDX != 0 && gtsr & GTSR_LP_1000THDX != 0 {
                 mii.media_active.insert(IFM_1000_T | IFM_HDX);
             } else if anlpar & ANLPAR_TX_FD != 0 {
                 mii.media_active.insert(IFM_100_TX | IFM_FDX);
+                log::debug!("100Base-T FDX");
             } else if anlpar & ANLPAR_T4 != 0 {
+                log::debug!("100Base-T HDX");
                 mii.media_active.insert(IFM_100_T4 | IFM_HDX);
             } else if anlpar & ANLPAR_TX != 0 {
                 mii.media_active.insert(IFM_100_TX | IFM_HDX);
             } else if anlpar & ANLPAR_10_FD != 0 {
+                log::debug!("10Base-T FDX");
                 mii.media_active.insert(IFM_10_T | IFM_FDX);
             } else if anlpar & ANLPAR_10 != 0 {
+                log::debug!("10Base-T HDX");
                 mii.media_active.insert(IFM_10_T | IFM_HDX);
             } else {
                 mii.media_active.insert(IFM_NONE);

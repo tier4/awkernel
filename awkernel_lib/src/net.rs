@@ -408,6 +408,8 @@ pub fn net_interrupt(irq: u16) {
     let mut node = MCSNode::new();
     let mut w = IRQ_WAKERS.lock(&mut node);
 
+    log::debug!("net_interrupt: irq = {}", irq);
+
     match w.entry(irq) {
         Entry::Occupied(e) => {
             if matches!(e.get(), IRQWaker::Waker(_)) {
@@ -569,6 +571,11 @@ pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
     };
 
     let _ = interface.net_device.interrupt(irq);
+
+    log::debug!(
+        "handle_interrupt: interface_id = {interface_id}, irq = {}",
+        irq
+    );
     interface.poll_rx_irq(irq)
 }
 

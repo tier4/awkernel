@@ -99,14 +99,19 @@ async fn udp_test() {
 
     let mut buf = [0u8; 1024 * 2];
 
+    awkernel_async_lib::sleep(Duration::from_secs(20)).await;
+
     loop {
         let t0 = awkernel_lib::delay::uptime();
 
         // Send a UDP packet.
-        socket
-            .send(b"Hello Awkernel!", &dst_addr, 26099)
-            .await
-            .unwrap();
+        if let Err(e) = socket.send(b"Hello Awkernel!", &dst_addr, 26099).await {
+            log::error!("Failed to send a UDP packet: {:?}", e);
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        log::debug!("Sent a UDP packet to {:?}.", dst_addr);
 
         // Receive a UDP packet.
         socket.recv(&mut buf).await.unwrap();

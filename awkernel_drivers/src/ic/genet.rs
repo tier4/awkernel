@@ -95,6 +95,13 @@ mod registers {
 
     pub const RX_DESC_STATUS_BUFLEN: u32 = bits(27, 16);
 
+    pub const TX_DESC_STATUS_BUFLEN: u32 = bits(27, 16);
+    pub const TX_DESC_STATUS_OWN: u32 = 1 << 15;
+    pub const TX_DESC_STATUS_EOP: u32 = 1 << 14;
+    pub const TX_DESC_STATUS_SOP: u32 = 1 << 13;
+    pub const TX_DESC_STATUS_QTAG: u32 = bits(12, 7);
+    pub const TX_DESC_STATUS_CRC: u32 = 1 << 6;
+
     #[inline(always)]
     pub fn rx_dma_ringbase(qid: usize) -> usize {
         0xc00 + DMA_RING_SIZE * qid
@@ -245,6 +252,21 @@ mod registers {
         DMA_DESC_SIZE * idx
     }
 
+    #[inline(always)]
+    pub fn tx_desc_address_lo(idx: usize) -> usize {
+        DMA_DESC_SIZE * idx + 0x04
+    }
+
+    #[inline(always)]
+    pub fn tx_desc_address_hi(idx: usize) -> usize {
+        DMA_DESC_SIZE * idx + 0x08
+    }
+
+    #[inline(always)]
+    pub fn tx_desc_status(idx: usize) -> usize {
+        DMA_DESC_SIZE * idx
+    }
+
     mmio_rw!(offset RX_BASE => pub RX_DMA_BASE<u32>);
     mmio_rw!(offset TX_BASE => pub TX_DMA_BASE<u32>);
 
@@ -364,7 +386,19 @@ impl NetDevice for Genet {
 
     fn can_send(&self) -> bool {
         let inner = self.inner.read();
-        inner.flags.contains(NetFlags::RUNNING)
+
+        if !inner.flags.contains(NetFlags::RUNNING) {
+            return false;
+        }
+
+        if matches!(
+            inner.mii_data.link_status(),
+            LinkStatus::Up | LinkStatus::UpFullDuplex | LinkStatus::UpHalfDuplex
+        ) {
+            true
+        } else {
+            false
+        }
     }
 
     fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
@@ -401,9 +435,9 @@ impl NetDevice for Genet {
         Ok(None)
     }
 
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
-        // TODO
-        Ok(())
+    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+        inner.send(&[data]).or(Err(NetDevError::DeviceError))
     }
 
     fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
@@ -434,6 +468,11 @@ impl NetDevice for Genet {
             .read(registers::rx_dma_prod_index(DMA_DEFAULT_QUEUE) + inner.base_addr.as_usize())
             & 0xffff;
         let total = (pidx - inner.rx.as_ref().unwrap().pidx as u32) & 0xffff;
+
+        let irq = inner.irqs[0];
+        drop(inner);
+
+        awkernel_lib::net::net_interrupt(irq);
 
         log::debug!("RX: total = {}", total);
 
@@ -505,10 +544,13 @@ impl GenetInner {
         let speed = if ifm_subtype(media_active) == IFM_1000_T
             || ifm_subtype(media_active) == IFM_1000_SX
         {
+            log::debug!("update_link: 1000");
             registers::UMAC_CMD_SPEED_1000
         } else if ifm_subtype(media_active) == IFM_100_TX {
+            log::debug!("update_link: 100");
             registers::UMAC_CMD_SPEED_100
         } else {
+            log::debug!("update_link: 10");
             registers::UMAC_CMD_SPEED_10
         };
 
@@ -531,6 +573,10 @@ impl GenetInner {
         val |= shiftin(speed, registers::UMAC_CMD_SPEED);
 
         registers::UMAC_CMD.write(val, self.base_addr.as_usize());
+
+        awkernel_lib::net::net_interrupt(self.irqs[0]);
+
+        log::debug!("update_link: done");
     }
 
     fn reset(&mut self) {
@@ -763,6 +809,7 @@ impl GenetInner {
         registers::RX_DMA_CTRL.write(val, base_addr);
 
         self.rx = Some(rx);
+        self.tx = Some(Mutex::new(tx));
 
         Ok(())
     }
@@ -853,6 +900,8 @@ impl GenetInner {
     }
 
     fn send(&self, ether_frames: &[EtherFrameRef]) -> Result<(), GenetError> {
+        log::debug!("TX: send(), frames = {}", ether_frames.len());
+
         let Some(tx) = self.tx.as_ref() else {
             return Ok(());
         };
@@ -860,42 +909,42 @@ impl GenetInner {
         let mut node = MCSNode::new();
         let mut tx = tx.lock(&mut node);
 
-        let base_addr = self.base_addr.as_usize();
+        if tx.queued + ether_frames.len() > registers::TX_DESC_COUNT {
+            return Ok(()); // No space in the TX ring, TODO: return error
+        }
 
-        // 801         index = sc->sc_tx.pidx & (TX_DESC_COUNT - 1);
-        // 802         cnt = 0;
+        let base_addr = self.base_addr.as_usize();
 
         let mut index = tx.pidx & (registers::TX_DESC_COUNT - 1);
         let mut cnt = 0;
 
         for frame in ether_frames.iter() {
-            // 803
-            // 804         for (;;) {
-            // 805                 m = ifq_deq_begin(&ifp->if_snd);
-            // 806                 if (m == NULL)
-            // 807                         break;
-            // 808
-            // 809                 nsegs = genet_setup_txbuf(sc, index, m);
-            // 810                 if (nsegs == -1) {
-            // 811                         ifq_deq_rollback(&ifp->if_snd, m);
-            // 812                         ifq_set_oactive(&ifp->if_snd);
-            // 813                         break;
-            // 814                 }
-            // 815                 if (nsegs == 0) {
-            // 816                         ifq_deq_commit(&ifp->if_snd, m);
-            // 817                         m_freem(m);
-            // 818                         ifp->if_oerrors++;
-            // 819                         continue;
-            // 820                 }
-            // 821                 ifq_deq_commit(&ifp->if_snd, m);
-            // 822                 if (ifp->if_bpf)
-            // 823                         bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
-            // 824
-            // 825                 index = TX_SKIP(index, nsegs);
-            // 826
-            // 827                 sc->sc_tx.pidx = (sc->sc_tx.pidx + nsegs) & 0xffff;
-            // 828                 cnt++;
-            // 829         }
+            let paddr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
+            let buf = tx
+                .buf
+                .as_mut()
+                .get_mut(index)
+                .ok_or(GenetError::InvalidDMAPoolSize)?;
+
+            let len = frame.data.len();
+
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    frame.data.as_ptr() as *const u8,
+                    buf.as_mut_ptr() as *mut u8,
+                    len,
+                )
+            };
+
+            log::debug!("TX: send(), data = {:02x?}", buf[0..len].to_vec());
+
+            let flags = registers::TX_DESC_STATUS_SOP
+                | registers::TX_DESC_STATUS_CRC
+                | registers::TX_DESC_STATUS_QTAG
+                | registers::TX_DESC_STATUS_EOP;
+
+            self.setup_txdesc(index, flags, paddr, len);
+            tx.queued += 1;
 
             index = (index + 1) & (registers::TX_DESC_COUNT - 1);
 
@@ -903,13 +952,36 @@ impl GenetInner {
             cnt += 1;
         }
 
-        // 830
-        // 831         if (cnt != 0) {
-        // 832                 WR4(sc, GENET_TX_DMA_PROD_INDEX(qid), sc->sc_tx.pidx);
-        // 833                 ifp->if_timer = 5;
-        // 834         }
+        if cnt != 0 {
+            registers::TX_DMA_BASE.write(
+                tx.pidx as u32,
+                registers::tx_dma_prod_index(DMA_DEFAULT_QUEUE) + base_addr,
+            );
+        }
+
+        let tx_prod = registers::TX_DMA_BASE
+            .read(registers::tx_dma_prod_index(DMA_DEFAULT_QUEUE) + base_addr);
+
+        log::debug!("TX: queued = {}, tx_prod = {tx_prod}", tx.queued);
 
         Ok(())
+    }
+
+    fn setup_txdesc(&self, index: usize, flags: u32, paddr: PhyAddr, len: usize) {
+        let status = flags | shiftin(len as u32, registers::TX_DESC_STATUS_BUFLEN);
+
+        let paddr = paddr.as_usize();
+
+        let base_addr = self.base_addr.as_usize();
+        registers::TX_DMA_BASE.write(
+            paddr as u32,
+            registers::tx_desc_address_lo(index) + base_addr,
+        );
+        registers::TX_DMA_BASE.write(
+            (paddr >> 32) as u32,
+            registers::tx_desc_address_hi(index) + base_addr,
+        );
+        registers::TX_DMA_BASE.write(status, registers::tx_desc_status(index) + base_addr);
     }
 
     fn rxintr(&self, qid: usize) {
@@ -931,6 +1003,11 @@ impl GenetInner {
         let total = (cidx - tx.cidx as u32) & 0xffff;
 
         tx.queued -= total as usize;
+
+        tx.queued -= total as usize;
+        tx.cidx = cidx as usize;
+
+        log::debug!("txintr(): total = {}", total);
     }
 
     fn intr(&self) {

@@ -504,8 +504,6 @@ where
         mii_data.instance += 1;
     }
 
-    log::debug!("MII: supported_media = {:?}", mii.get_data().mii_media);
-
     Ok(())
 }
 
@@ -663,6 +661,8 @@ fn phy_add_media(parent: &mut dyn Mii, ma: &mut MiiAttachArgs) {
             ma.anegticks = MII_ANEGTICKS_GIGE;
             ma.flags |= MiiFlags::HAVE_GTCR;
             mii.mii_media.set_mask(IFM_ETH_MASTER);
+
+            log::debug!("phy_add_media: 1000baseT-FDX");
 
             let media = ifm_make_word(IFM_ETHER, IFM_1000_T, IFM_FDX, ma.instance as u64);
             mii.mii_media.add(IfmediaEntry {
@@ -960,14 +960,18 @@ fn phy_set_media(parent: &mut dyn Mii, phy: &mut dyn MiiPhy) -> Result<(), MiiEr
     let flags = mii.flags;
     let phy_no = phy.get_attach_args().phy_no;
 
+    log::debug!("phy_set_media: phy_no = {}", phy_no);
+
     let Some(ife) = mii.mii_media.get_current() else {
         return Ok(());
     };
 
     if ifm_subtype(&ife.media) == IFM_AUTO {
+        log::debug!("phy_set_media: IFM_AUTO");
         if (parent.read_reg(phy_no, MII_BMCR)? & BMCR_AUTOEN) == 0
             || flags.contains(MiiFlags::FORCEANEG)
         {
+            log::debug!("phy_set_media: BMCR_AUTOEN");
             phy_auto(parent, phy, true)?;
         }
         return Ok(());

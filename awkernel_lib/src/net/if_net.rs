@@ -260,9 +260,11 @@ impl IfNet {
 
             let (interface, socket_set) = inner.split();
 
-            // device_ref.tx_packet_header_flags(),
+            log::debug!("poll_tx_only: start polling");
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
+
+        log::debug!("poll_tx_only: end polling, result = {}", result);
 
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
@@ -321,6 +323,7 @@ impl IfNet {
 
             let (interface, socket_set) = inner.split();
 
+            log::debug!("poll_rx: start polling");
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
