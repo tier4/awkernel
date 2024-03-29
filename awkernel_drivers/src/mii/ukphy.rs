@@ -1,4 +1,4 @@
-use super::{Mii, MiiAttachArgs, MiiData, MiiError, MiiPhy, MiiPhyData};
+use super::{Mii, MiiAttachArgs, MiiData, MiiError, MiiFlags, MiiPhy, MiiPhyData};
 
 pub struct Ukphy {
     phy_data: MiiPhyData,
@@ -26,8 +26,18 @@ impl MiiPhy for Ukphy {
     }
 }
 
-pub fn attach(mii: &mut dyn Mii, mii_data: &mut MiiData, args: MiiAttachArgs) -> Ukphy {
-    Ukphy {
+pub fn attach(
+    mii: &mut dyn Mii,
+    mii_data: &mut MiiData,
+    args: MiiAttachArgs,
+) -> Result<Ukphy, MiiError> {
+    let mut ukphy = Ukphy {
         phy_data: MiiPhyData::new(mii_data, &args),
-    }
+    };
+
+    super::physubr::dev_attach(mii, mii_data, MiiFlags::NOMANPAUSE, &mut ukphy)?;
+
+    // TODO:
+
+    Ok(ukphy)
 }

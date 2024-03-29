@@ -174,20 +174,15 @@ impl Ifmedia {
     /// If no media is found, return None.
     /// If multiple media are found, return the last one.
     pub fn find(&self, target: u64) -> Option<&IfmediaEntry> {
-        let mut ones = 0;
-        let mut media = None;
-
         let mask = !self.ifm_mask;
 
         for m in &self.ifm_list {
-            let n = (m.media.0 & target & mask).count_ones();
-            if n > 0 && n >= ones {
-                ones = n;
-                media = Some(m);
+            if m.media.0 & mask == target & mask {
+                return Some(m);
             }
         }
 
-        media
+        None
     }
 
     #[inline(always)]

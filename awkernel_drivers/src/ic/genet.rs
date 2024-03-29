@@ -10,9 +10,7 @@ use awkernel_lib::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::mii::{
-    Mii, MiiError, MiiFlags, MiiPhyMode, MIIF_RX_DELAY, MIIF_TX_DELAY, MII_OFFSET_ANY, MII_PHY_ANY,
-};
+use crate::mii::{Mii, MiiError, MiiFlags, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 

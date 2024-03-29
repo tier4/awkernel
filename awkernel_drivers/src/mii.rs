@@ -2,7 +2,7 @@
 
 use bitflags::bitflags;
 
-use crate::if_media::{Ifmedia, Media, IFM_IMASK};
+use crate::if_media::{Ifmedia, Media, IFM_AUTO, IFM_ETHER, IFM_IMASK};
 
 pub mod physubr;
 pub mod ukphy;
@@ -47,13 +47,6 @@ const BMSR_LINK: u32 = 0x0004; // Link status
 const BMSR_JABBER: u32 = 0x0002; // Jabber detected
 const BMSR_EXTCAP: u32 = 0x0001; // Extended capability
 
-const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
-
-const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
-const IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
-const IDR2_MODEL: u32 = 0x03f0; // vendor model
-const IDR2_REV: u32 = 0x000f; // vendor revision
-
 // Note that the EXTSTAT bit indicates that there is extended status
 // info available in register 15, but 802.3 section 22.2.4.3 also
 // states that all 1000 Mb/s capable PHYs will set this bit to 1.
@@ -65,11 +58,30 @@ const BMSR_MEDIAMASK: u32 = BMSR_100T4
     | BMSR_100T2FDX
     | BMSR_100T2HDX;
 
+const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
+
+const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
+const IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
+const IDR2_MODEL: u32 = 0x03f0; // vendor model
+const IDR2_REV: u32 = 0x000f; // vendor revision
+
+const MII_EXTSR: u32 = 0x0f; // Extended status register
+const EXTSR_1000XFDX: u32 = 0x8000; // 1000X full-duplex capable
+const EXTSR_1000XHDX: u32 = 0x4000; // 1000X half-duplex capable
+const EXTSR_1000TFDX: u32 = 0x2000; // 1000T full-duplex capable
+const EXTSR_1000THDX: u32 = 0x1000; // 1000T half-duplex capable
+
+const EXTSR_MEDIAMASK: u32 = EXTSR_1000XFDX | EXTSR_1000XHDX | EXTSR_1000TFDX | EXTSR_1000THDX;
+
+const MII_ANEGTICKS: u32 = 5;
+const MII_ANEGTICKS_GIGE: u32 = 17;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MiiError {
     Read,
     Write,
     InvalidParam,
+    Media,
 }
 
 pub trait Mii {
@@ -78,6 +90,14 @@ pub trait Mii {
 
     /// Write a register to the PHY.
     fn write_reg(&mut self, phy: u32, reg: u32, data: u32) -> Result<(), MiiError>;
+
+    fn media_init(&mut self, mii_data: &mut MiiData) -> Result<(), MiiError> {
+        if mii_data.media.set_current_media(IFM_ETHER | IFM_AUTO) {
+            Ok(())
+        } else {
+            Err(MiiError::Media)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -252,7 +272,9 @@ pub fn attach(
             capmask,
         };
 
-        ukphy::attach(mii, &mut mii_data, args);
+        if let Err(e) = ukphy::attach(mii, &mut mii_data, args) {
+            log::error!("mii_attach: ukphy::attach failed: {:?}", e);
+        }
     }
 
     Ok(())
