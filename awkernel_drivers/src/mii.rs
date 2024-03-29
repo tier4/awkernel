@@ -1,5 +1,7 @@
 //! Media-independent interface (MII) driver.
 
+use bitflags::bitflags;
+
 pub mod physubr;
 pub mod ukphy;
 
@@ -66,7 +68,7 @@ pub trait Mii {
 
 #[derive(Debug)]
 pub struct MiiData {
-    flags: u32,
+    flags: MiiFlags,
 }
 
 pub trait MiiPhy {
@@ -76,9 +78,9 @@ pub trait MiiPhy {
 
     fn reset(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError>;
 
-    fn get_args(&self) -> &MiiAttachArgs;
+    fn get_phy(&self) -> &MiiPhyData;
 
-    fn get_args_mut(&mut self) -> &mut MiiAttachArgs;
+    fn get_phy_data_mut(&mut self) -> &mut MiiPhyData;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,12 +100,77 @@ pub struct MiiAttachArgs {
     capmask: u32, // capability mask for BMSR
 }
 
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct MiiFlags: u32 {
+        const INITDONE = 0x00000001; // has been initialized (mii_data)
+        const NOISOLATE = 0x00000002; // do not isolate the PHY
+        const DOINGAUTO = 0x00000008; // doing autonegotiation (mii_softc)
+        const AUTOTSLEEP = 0x00000010; // use tsleep(), not callout()
+        const HAVEFIBER = 0x00000020; // from parent: has fiber interface
+        const HAVE_GTCR = 0x00000040; // has 100base-T2/1000base-T CR
+        const IS_1000X = 0x00000080; // is a 1000BASE-X device
+        const DOPAUSE = 0x00000100; // advertise PAUSE capability
+        const IS_HPNA = 0x00000200; // is a HomePNA device
+        const FORCEANEG = 0x00000400; // force auto-negotiation
+        const RX_DELAY = 0x00000800; // add RX delay
+        const TX_DELAY = 0x00001000; // add TX delay
+        const NOMANPAUSE = 0x00100000; // no manual PAUSE selection
+        const FORCEPAUSE = 0x00200000; // force PAUSE advertisement
+        const MACPRIV0 = 0x01000000; // private to the MAC driver
+        const MACPRIV1 = 0x02000000; // private to the MAC driver
+        const MACPRIV2 = 0x04000000; // private to the MAC driver
+        const PHYPRIV0 = 0x10000000; // private to the PHY driver
+        const PHYPRIV1 = 0x20000000; // private to the PHY driver
+        const PHYPRIV2 = 0x40000000; // private to the PHY driver
+    }
+}
+
+pub struct MiiPhyData {
+    mpd_oui: u32,   // the PHY's OUI (MII_OUI())
+    mpd_model: u32, // the PHY's model (MII_MODEL())
+    mpd_rev: u32,   // the PHY's revision (MII_REV())
+    capmask: u32,   // capability mask for BMSR
+    phy: u32,       // our MII address
+    offset: u32,    // first PHY, second PHY, etc.
+
+    flags: MiiFlags,      // misc. flags
+    capabilities: u32,    // capabilities from BMSR
+    extcapabilities: u32, // extended capabilities
+    ticks: u32,           // MII_TICK counter
+    anegticks: u32,       // ticks before retrying aneg
+    media_active: u32,    // last active media
+    media_status: u32,    // last active status
+    maxspeed: u32,        // Max speed supported by this PHY
+}
+
+impl MiiPhyData {
+    pub fn new(mii_data: &MiiData, ma: &MiiAttachArgs) -> Self {
+        MiiPhyData {
+            mpd_oui: mii_oui(ma.id1, ma.id2),
+            mpd_model: mii_model(ma.id2),
+            mpd_rev: mii_rev(ma.id2),
+            capmask: ma.capmask,
+            phy: ma.phyno,
+            offset: ma.offset,
+            flags: mii_data.flags,
+            capabilities: 0,
+            extcapabilities: 0,
+            ticks: 0,
+            anegticks: 0,
+            media_active: 0,
+            media_status: 0,
+            maxspeed: 0,
+        }
+    }
+}
+
 pub fn attach(
     mii: &mut dyn Mii,
     capmask: u32,
     phyloc: u32,
     offloc: u32,
-    flags: u32,
+    flags: MiiFlags,
 ) -> Result<(), MiiError> {
     if phyloc != MII_PHY_ANY && offloc != MII_OFFSET_ANY {
         log::debug!("mii_attach: phyloc and offloc are both not MII_ANY");
@@ -124,7 +191,7 @@ pub fn attach(
         (phyloc, phyloc)
     };
 
-    let mut mii_data = MiiData { flags: flags };
+    let mut mii_data = MiiData { flags };
 
     for (offset, phy) in (phymin..=phymax).enumerate() {
         // Check to see if there is a PHY at this address.  Note,
@@ -156,11 +223,26 @@ pub fn attach(
             offset: offset as u32,
             id1: mii_id1,
             id2: mii_id2,
-            capmask: capmask,
+            capmask,
         };
 
         ukphy::attach(mii, &mut mii_data, args);
     }
 
     Ok(())
+}
+
+#[inline(always)]
+fn mii_oui(id1: u32, id2: u32) -> u32 {
+    (id1 << 6) | (id2 >> 10)
+}
+
+#[inline(always)]
+fn mii_model(id2: u32) -> u32 {
+    (id2 & IDR2_MODEL) >> 4
+}
+
+#[inline(always)]
+fn mii_rev(id2: u32) -> u32 {
+    id2 & IDR2_REV
 }

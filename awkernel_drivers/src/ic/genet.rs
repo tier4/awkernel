@@ -11,7 +11,7 @@ use awkernel_lib::{
 use alloc::{boxed::Box, vec::Vec};
 
 use crate::mii::{
-    Mii, MiiError, MiiPhyMode, MIIF_RX_DELAY, MIIF_TX_DELAY, MII_OFFSET_ANY, MII_PHY_ANY,
+    Mii, MiiError, MiiFlags, MiiPhyMode, MIIF_RX_DELAY, MIIF_TX_DELAY, MII_OFFSET_ANY, MII_PHY_ANY,
 };
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
@@ -225,10 +225,10 @@ pub fn attach(
     };
 
     let mii_flags = match phy_mode {
-        MiiPhyMode::RgmiiId => MIIF_RX_DELAY | MIIF_TX_DELAY,
-        MiiPhyMode::RgmiiRxId => MIIF_RX_DELAY,
-        MiiPhyMode::RgmiiTxId => MIIF_TX_DELAY,
-        MiiPhyMode::Rgmii => 0,
+        MiiPhyMode::RgmiiId => MiiFlags::RX_DELAY | MiiFlags::TX_DELAY,
+        MiiPhyMode::RgmiiRxId => MiiFlags::RX_DELAY,
+        MiiPhyMode::RgmiiTxId => MiiFlags::TX_DELAY,
+        MiiPhyMode::Rgmii => MiiFlags::empty(),
     };
 
     let mut genet = GenetInner {
