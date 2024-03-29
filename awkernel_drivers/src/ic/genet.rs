@@ -8,7 +8,7 @@ use awkernel_lib::{
     },
 };
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
@@ -62,6 +62,7 @@ pub enum GenetError {
     InvalidMacAddress,
     DMAPoolAllocation,
     InvalidDMAPoolSize,
+    InitializeInterrupt,
     Mii,
     NotYetImplemented,
 }
@@ -184,6 +185,18 @@ pub fn attach(
 
     // disable DMA
     dma_disable(base_addr);
+
+    // Install interrupt handlers
+    for irq in irqs {
+        awkernel_lib::interrupt::register_handler(
+            *irq,
+            "genet".into(),
+            Box::new(|irq| {
+                awkernel_lib::net::net_interrupt(irq);
+            }),
+        )
+        .or(Err(GenetError::InitializeInterrupt))?;
+    }
 
     Err(GenetError::NotYetImplemented)
 }
