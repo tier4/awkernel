@@ -1,3 +1,5 @@
+use core::f32::consts::E;
+
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     net::{
@@ -12,8 +14,12 @@ use alloc::{boxed::Box, vec::Vec};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
+pub const MII_BUSY_RETRY: u32 = 1000;
+
 mod registers {
     use awkernel_lib::mmio_rw;
+
+    use super::bits;
 
     mmio_rw!(offset 0x000 => pub SYS_REV_CTRL<u32>);
     pub const REV_MAJOR: u32 = 0xf000000;
@@ -35,6 +41,17 @@ mod registers {
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
     pub const UMAC_MIB_RESET_RUNT: u32 = 1 << 1;
     pub const UMAC_MIB_RESET_RX: u32 = 1;
+
+    mmio_rw!(offset 0xe14 => pub MDIO_CMD<u32>);
+    pub const MDIO_START_BUSY: u32 = 1 << 29;
+    pub const MDIO_READ_FAILED: u32 = 1 << 28;
+    pub const MDIO_READ: u32 = 1 << 27;
+    pub const MDIO_WRITE: u32 = 1 << 26;
+    pub const MDIO_PMD: u32 = bits(25, 21);
+    pub const MDIO_REG: u32 = bits(20, 16);
+    pub const MDIO_ADDR_SHIFT: u32 = 21;
+    pub const MDIO_REG_SHIFT: u32 = 16;
+    pub const MDIO_VAL_MASK: u32 = 0xffff;
 
     pub const RX_BASE: usize = 0x2000;
     pub const TX_BASE: usize = 0x4000;
@@ -245,4 +262,35 @@ fn dma_disable(base_addr: VirtAddr) {
     val &= !registers::RX_DMA_CTRL_EN;
     val &= !registers::rx_dma_ctrl_rbuf_en(DMA_DEFAULT_QUEUE);
     registers::RX_DMA_CTRL.write(val, base);
+}
+
+fn miibus_readreg(base_addr: VirtAddr, phy: u32, reg: u32) -> Result<u32, GenetError> {
+    let base = base_addr.as_usize();
+
+    registers::MDIO_CMD.write(
+        registers::MDIO_READ
+            | (phy << registers::MDIO_ADDR_SHIFT)
+            | (reg << registers::MDIO_REG_SHIFT),
+        base,
+    );
+
+    let val = registers::MDIO_CMD.read(base);
+    registers::MDIO_CMD.write(val | registers::MDIO_START_BUSY, base);
+
+    for _ in 0..MII_BUSY_RETRY {
+        let val = registers::MDIO_CMD.read(base);
+        if (val & registers::MDIO_START_BUSY) == 0 {
+            if val & registers::MDIO_READ_FAILED != 0 {
+                return Err(GenetError::Mii);
+            }
+            return Ok(val & registers::MDIO_VAL_MASK);
+        }
+        awkernel_lib::delay::wait_microsec(10);
+    }
+
+    Err(GenetError::Mii)
+}
+
+const fn bits(m: u32, n: u32) -> u32 {
+    (1 << (m + 1) - 1) ^ (1 << n) - 1
 }
