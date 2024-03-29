@@ -1,5 +1,3 @@
-use core::f32::consts::E;
-
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     net::{
@@ -11,6 +9,8 @@ use awkernel_lib::{
 };
 
 use alloc::{boxed::Box, vec::Vec};
+
+use crate::mii::{Mii, MiiError};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
@@ -264,31 +264,42 @@ fn dma_disable(base_addr: VirtAddr) {
     registers::RX_DMA_CTRL.write(val, base);
 }
 
-fn miibus_readreg(base_addr: VirtAddr, phy: u32, reg: u32) -> Result<u32, GenetError> {
-    let base = base_addr.as_usize();
+struct GenetInner {
+    base_addr: VirtAddr,
+    mac_addr: [u8; ETHER_ADDR_LEN],
+}
 
-    registers::MDIO_CMD.write(
-        registers::MDIO_READ
-            | (phy << registers::MDIO_ADDR_SHIFT)
-            | (reg << registers::MDIO_REG_SHIFT),
-        base,
-    );
+impl Mii for GenetInner {
+    fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError> {
+        let base = self.base_addr.as_usize();
 
-    let val = registers::MDIO_CMD.read(base);
-    registers::MDIO_CMD.write(val | registers::MDIO_START_BUSY, base);
+        registers::MDIO_CMD.write(
+            registers::MDIO_READ
+                | (phy << registers::MDIO_ADDR_SHIFT)
+                | (reg << registers::MDIO_REG_SHIFT),
+            base,
+        );
 
-    for _ in 0..MII_BUSY_RETRY {
         let val = registers::MDIO_CMD.read(base);
-        if (val & registers::MDIO_START_BUSY) == 0 {
-            if val & registers::MDIO_READ_FAILED != 0 {
-                return Err(GenetError::Mii);
+        registers::MDIO_CMD.write(val | registers::MDIO_START_BUSY, base);
+
+        for _ in 0..MII_BUSY_RETRY {
+            let val = registers::MDIO_CMD.read(base);
+            if (val & registers::MDIO_START_BUSY) == 0 {
+                if val & registers::MDIO_READ_FAILED != 0 {
+                    return Err(MiiError::Read);
+                }
+                return Ok(val & registers::MDIO_VAL_MASK);
             }
-            return Ok(val & registers::MDIO_VAL_MASK);
+            awkernel_lib::delay::wait_microsec(10);
         }
-        awkernel_lib::delay::wait_microsec(10);
+
+        Err(MiiError::Read)
     }
 
-    Err(GenetError::Mii)
+    fn write_reg(&mut self, phy: u32, reg: u32, data: u32) -> Result<(), MiiError> {
+        todo!()
+    }
 }
 
 const fn bits(m: u32, n: u32) -> u32 {

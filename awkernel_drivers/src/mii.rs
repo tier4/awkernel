@@ -10,8 +10,8 @@ pub enum MiiError {
 
 pub trait Mii {
     /// Read a register from the PHY.
-    fn read(&mut self, phy: u32, reg: u32) -> Result<u16, MiiError>;
+    fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError>;
 
     /// Write a register to the PHY.
-    fn write(&mut self, phy: u32, reg: u32, data: u32) -> Result<(), MiiError>;
+    fn write_reg(&mut self, phy: u32, reg: u32, data: u32) -> Result<(), MiiError>;
 }
