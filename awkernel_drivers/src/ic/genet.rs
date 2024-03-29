@@ -10,7 +10,9 @@ use awkernel_lib::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::mii::{Mii, MiiError};
+use crate::mii::{
+    Mii, MiiError, MiiPhyMode, MIIF_RX_DELAY, MIIF_TX_DELAY, MII_OFFSET_ANY, MII_PHY_ANY,
+};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
@@ -215,6 +217,31 @@ pub fn attach(
         .or(Err(GenetError::InitializeInterrupt))?;
     }
 
+    let phy_mode = match phy_mode {
+        "rgmii-id" => MiiPhyMode::RgmiiId,
+        "rgmii-rxid" => MiiPhyMode::RgmiiRxId,
+        "rgmii-txid" => MiiPhyMode::RgmiiTxId,
+        _ => MiiPhyMode::Rgmii,
+    };
+
+    let mii_flags = match phy_mode {
+        MiiPhyMode::RgmiiId => MIIF_RX_DELAY | MIIF_TX_DELAY,
+        MiiPhyMode::RgmiiRxId => MIIF_RX_DELAY,
+        MiiPhyMode::RgmiiTxId => MIIF_TX_DELAY,
+        MiiPhyMode::Rgmii => 0,
+    };
+
+    let mut genet = GenetInner {
+        base_addr,
+        mac_addr: [0; ETHER_ADDR_LEN],
+        phy_mode,
+    };
+
+    let phy_loc = phy_id.unwrap_or(MII_PHY_ANY);
+
+    crate::mii::attach(&mut genet, 0xffffffff, phy_loc, MII_OFFSET_ANY, mii_flags)
+        .or(Err(GenetError::Mii))?;
+
     Err(GenetError::NotYetImplemented)
 }
 
@@ -267,6 +294,7 @@ fn dma_disable(base_addr: VirtAddr) {
 struct GenetInner {
     base_addr: VirtAddr,
     mac_addr: [u8; ETHER_ADDR_LEN],
+    phy_mode: MiiPhyMode,
 }
 
 impl Mii for GenetInner {
