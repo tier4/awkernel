@@ -298,7 +298,28 @@ impl Mii for GenetInner {
     }
 
     fn write_reg(&mut self, phy: u32, reg: u32, data: u32) -> Result<(), MiiError> {
-        todo!()
+        let base = self.base_addr.as_usize();
+
+        registers::MDIO_CMD.write(
+            registers::MDIO_WRITE
+                | (phy << registers::MDIO_ADDR_SHIFT)
+                | (reg << registers::MDIO_REG_SHIFT)
+                | (data & registers::MDIO_VAL_MASK),
+            base,
+        );
+
+        let val = registers::MDIO_CMD.read(base);
+        registers::MDIO_CMD.write(val | registers::MDIO_START_BUSY, base);
+
+        for _ in 0..MII_BUSY_RETRY {
+            let val = registers::MDIO_CMD.read(base);
+            if (val & registers::MDIO_START_BUSY) == 0 {
+                return Ok(());
+            }
+            awkernel_lib::delay::wait_microsec(10);
+        }
+
+        Err(MiiError::Write)
     }
 }
 
