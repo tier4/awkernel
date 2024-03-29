@@ -2,6 +2,8 @@
 
 use bitflags::bitflags;
 
+use crate::if_media::{Ifmedia, Media, IFM_IMASK};
+
 pub mod physubr;
 pub mod ukphy;
 
@@ -14,36 +16,48 @@ pub const MIIF_TX_DELAY: u32 = 0x00001000; // add TX delay
 pub const MII_OFFSET_ANY: u32 = 0xffffffff;
 pub const MII_PHY_ANY: u32 = 0xffffffff;
 
-pub const MII_NPHY: u32 = 32; // max # of PHYs per MII
+const MII_NPHY: u32 = 32; // max # of PHYs per MII
 
-pub const MII_BMSR: u32 = 0x01; // Basic mode status register (ro)
-pub const BMSR_100T4: u32 = 0x8000; // 100 base T4 capable
-pub const BMSR_100TXFDX: u32 = 0x4000; // 100 base Tx full duplex capable
-pub const BMSR_100TXHDX: u32 = 0x2000; // 100 base Tx half duplex capable
-pub const BMSR_10TFDX: u32 = 0x1000; // 10 base T full duplex capable
-pub const BMSR_10THDX: u32 = 0x0800; // 10 base T half duplex capable
-pub const BMSR_100T2FDX: u32 = 0x0400; // 100 base T2 full duplex capable
-pub const BMSR_100T2HDX: u32 = 0x0200; // 100 base T2 half duplex capable
-pub const BMSR_EXTSTAT: u32 = 0x0100; // Extended status in register 15
-pub const BMSR_MFPS: u32 = 0x0040; // MII Frame Preamble Suppression
-pub const BMSR_ACOMP: u32 = 0x0020; // Autonegotiation complete
-pub const BMSR_RFAULT: u32 = 0x0010; // Link partner fault
-pub const BMSR_ANEG: u32 = 0x0008; // Autonegotiation capable
-pub const BMSR_LINK: u32 = 0x0004; // Link status
-pub const BMSR_JABBER: u32 = 0x0002; // Jabber detected
-pub const BMSR_EXTCAP: u32 = 0x0001; // Extended capability
+const MII_BMCR: u32 = 0x00; // Basic mode control register (rw)
+const BMCR_RESET: u32 = 0x8000; // reset
+const BMCR_LOOP: u32 = 0x4000; // loopback
+const BMCR_SPEED0: u32 = 0x2000; // speed selection (LSB)
+const BMCR_AUTOEN: u32 = 0x1000; // autonegotiation enable
+const BMCR_PDOWN: u32 = 0x0800; // power down
+const BMCR_ISO: u32 = 0x0400; // isolate
+const BMCR_STARTNEG: u32 = 0x0200; // restart autonegotiation
+const BMCR_FDX: u32 = 0x0100; // Set duplex mode
+const BMCR_CTEST: u32 = 0x0080; // collision test
+const BMCR_SPEED1: u32 = 0x0040; // speed selection (MSB)
 
-pub const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
+const MII_BMSR: u32 = 0x01; // Basic mode status register (ro)
+const BMSR_100T4: u32 = 0x8000; // 100 base T4 capable
+const BMSR_100TXFDX: u32 = 0x4000; // 100 base Tx full duplex capable
+const BMSR_100TXHDX: u32 = 0x2000; // 100 base Tx half duplex capable
+const BMSR_10TFDX: u32 = 0x1000; // 10 base T full duplex capable
+const BMSR_10THDX: u32 = 0x0800; // 10 base T half duplex capable
+const BMSR_100T2FDX: u32 = 0x0400; // 100 base T2 full duplex capable
+const BMSR_100T2HDX: u32 = 0x0200; // 100 base T2 half duplex capable
+const BMSR_EXTSTAT: u32 = 0x0100; // Extended status in register 15
+const BMSR_MFPS: u32 = 0x0040; // MII Frame Preamble Suppression
+const BMSR_ACOMP: u32 = 0x0020; // Autonegotiation complete
+const BMSR_RFAULT: u32 = 0x0010; // Link partner fault
+const BMSR_ANEG: u32 = 0x0008; // Autonegotiation capable
+const BMSR_LINK: u32 = 0x0004; // Link status
+const BMSR_JABBER: u32 = 0x0002; // Jabber detected
+const BMSR_EXTCAP: u32 = 0x0001; // Extended capability
 
-pub const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
-pub const IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
-pub const IDR2_MODEL: u32 = 0x03f0; // vendor model
-pub const IDR2_REV: u32 = 0x000f; // vendor revision
+const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
+
+const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
+const IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
+const IDR2_MODEL: u32 = 0x03f0; // vendor model
+const IDR2_REV: u32 = 0x000f; // vendor revision
 
 // Note that the EXTSTAT bit indicates that there is extended status
 // info available in register 15, but 802.3 section 22.2.4.3 also
 // states that all 1000 Mb/s capable PHYs will set this bit to 1.
-pub const BMSR_MEDIAMASK: u32 = BMSR_100T4
+const BMSR_MEDIAMASK: u32 = BMSR_100T4
     | BMSR_100TXFDX
     | BMSR_100TXHDX
     | BMSR_10TFDX
@@ -69,6 +83,8 @@ pub trait Mii {
 #[derive(Debug)]
 pub struct MiiData {
     flags: MiiFlags,
+    instance: u32,
+    media: Ifmedia,
 }
 
 pub trait MiiPhy {
@@ -76,9 +92,9 @@ pub trait MiiPhy {
 
     fn status(&self, mii: &mut dyn Mii) -> u32;
 
-    fn reset(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError>;
+    fn reset(&mut self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError>;
 
-    fn get_phy(&self) -> &MiiPhyData;
+    fn get_phy_data(&self) -> &MiiPhyData;
 
     fn get_phy_data_mut(&mut self) -> &mut MiiPhyData;
 }
@@ -133,6 +149,7 @@ pub struct MiiPhyData {
     capmask: u32,   // capability mask for BMSR
     phy: u32,       // our MII address
     offset: u32,    // first PHY, second PHY, etc.
+    inst: u32,      // instance for ifmedia
 
     flags: MiiFlags,      // misc. flags
     capabilities: u32,    // capabilities from BMSR
@@ -145,14 +162,15 @@ pub struct MiiPhyData {
 }
 
 impl MiiPhyData {
-    pub fn new(mii_data: &MiiData, ma: &MiiAttachArgs) -> Self {
-        MiiPhyData {
+    pub fn new(mii_data: &mut MiiData, ma: &MiiAttachArgs) -> Self {
+        let result = MiiPhyData {
             mpd_oui: mii_oui(ma.id1, ma.id2),
             mpd_model: mii_model(ma.id2),
             mpd_rev: mii_rev(ma.id2),
             capmask: ma.capmask,
             phy: ma.phyno,
             offset: ma.offset,
+            inst: mii_data.instance,
             flags: mii_data.flags,
             capabilities: 0,
             extcapabilities: 0,
@@ -161,7 +179,11 @@ impl MiiPhyData {
             media_active: 0,
             media_status: 0,
             maxspeed: 0,
-        }
+        };
+
+        mii_data.instance += 1;
+
+        result
     }
 }
 
@@ -191,7 +213,11 @@ pub fn attach(
         (phyloc, phyloc)
     };
 
-    let mut mii_data = MiiData { flags };
+    let mut mii_data = MiiData {
+        flags,
+        instance: 0,
+        media: Ifmedia::new(IFM_IMASK, Media::new(0)),
+    };
 
     for (offset, phy) in (phymin..=phymax).enumerate() {
         // Check to see if there is a PHY at this address.  Note,

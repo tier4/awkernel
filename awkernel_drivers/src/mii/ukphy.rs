@@ -13,11 +13,11 @@ impl MiiPhy for Ukphy {
         todo!()
     }
 
-    fn reset(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError> {
-        todo!()
+    fn reset(&mut self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError> {
+        crate::mii::physubr::reset(mii, mii_data, self)
     }
 
-    fn get_phy(&self) -> &MiiPhyData {
+    fn get_phy_data(&self) -> &MiiPhyData {
         &self.phy_data
     }
 

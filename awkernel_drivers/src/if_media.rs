@@ -80,6 +80,7 @@ pub const IFM_ETH_RXPAUSE: u64 = 0x0000000000020000; // receive PAUSE frames
 pub const IFM_ETH_TXPAUSE: u64 = 0x0000000000040000; // transmit PAUSE frames
 
 pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
+pub const IFM_IMASK: u64 = 0xff00000000000000; // Instance mask
 pub const IFM_ISHIFT: u64 = 56; // Instance shift
 
 #[inline(always)]
