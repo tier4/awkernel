@@ -73,6 +73,59 @@ const EXTSR_1000THDX: u32 = 0x1000; // 1000T half-duplex capable
 
 const EXTSR_MEDIAMASK: u32 = EXTSR_1000XFDX | EXTSR_1000XHDX | EXTSR_1000TFDX | EXTSR_1000THDX;
 
+const MII_ANAR: u32 = 0x04; // Autonegotiation advertisement (rw)
+const ANAR_NP: u32 = 0x8000; // Next page (ro)
+const ANAR_ACK: u32 = 0x4000; // link partner abilities acknowledged (ro)
+const ANAR_RF: u32 = 0x2000; // remote fault (ro)
+const ANAR_FC: u32 = 0x0400; // local device supports PAUSE
+const ANAR_T4: u32 = 0x0200; // local device supports 100bT4
+const ANAR_TX_FD: u32 = 0x0100; // local device supports 100bTx FD
+const ANAR_TX: u32 = 0x0080; // local device supports 100bTx
+const ANAR_10_FD: u32 = 0x0040; // local device supports 10bT FD
+const ANAR_10: u32 = 0x0020; // local device supports 10bT
+const ANAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
+const ANAR_PAUSE_NONE: u32 = 0;
+const ANAR_PAUSE_SYM: u32 = 1 << 10;
+const ANAR_PAUSE_ASYM: u32 = 2 << 10;
+const ANAR_PAUSE_TOWARDS: u32 = 3 << 10;
+
+const MII_ANLPAR: u32 = 0x05; // Autonegotiation link partner abilities (ro)
+const ANLPAR_NP: u32 = 0x8000; // Next page (ro)
+const ANLPAR_ACK: u32 = 0x4000; // link partner accepted ACK (ro)
+const ANLPAR_RF: u32 = 0x2000; // remote fault (ro)
+const ANLPAR_FC: u32 = 0x0400; // link partner supports PAUSE
+const ANLPAR_T4: u32 = 0x0200; // link partner supports 100bT4
+const ANLPAR_TX_FD: u32 = 0x0100; // link partner supports 100bTx FD
+const ANLPAR_TX: u32 = 0x0080; // link partner supports 100bTx
+const ANLPAR_10_FD: u32 = 0x0040; // link partner supports 10bT FD
+const ANLPAR_10: u32 = 0x0020; // link partner supports 10bT
+const ANLPAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
+const ANLPAR_PAUSE_MASK: u32 = 3 << 10;
+const ANLPAR_PAUSE_NONE: u32 = 0 << 10;
+const ANLPAR_PAUSE_SYM: u32 = 1 << 10;
+const ANLPAR_PAUSE_ASYM: u32 = 2 << 10;
+const ANLPAR_PAUSE_TOWARDS: u32 = 3 << 10;
+
+// This is the 1000baseT control register
+const MII_100T2CR: u32 = 0x09; // 100base-T2 control register
+const GTCR_TEST_MASK: u32 = 0xe000; // see 802.3ab ss.
+const GTCR_MAN_MS: u32 = 0x1000; // enable manual master/slave control
+const GTCR_ADV_MS: u32 = 0x0800; // 1 = adv. master, 0 = adv. slave
+const GTCR_PORT_TYPE: u32 = 0x0400; // 1 = DCE, 0 = DTE (NIC)
+const GTCR_ADV_1000TFDX: u32 = 0x0200; // adv. 1000baseT FDX
+const GTCR_ADV_1000THDX: u32 = 0x0100; // adv. 1000baseT HDX
+
+// This is also the 1000baseT status register
+const MII_100T2SR: u32 = 0x0a; // 100base-T2 status register
+const GTSR_MAN_MS_FLT: u32 = 0x8000; // master/slave config fault
+const GTSR_MS_RES: u32 = 0x4000; // result: 1 = master, 0 = slave
+const GTSR_LRS: u32 = 0x2000; // local rx status, 1 = ok
+const GTSR_RRS: u32 = 0x1000; // remote rx status, 1 = ok
+const GTSR_LP_1000TFDX: u32 = 0x0800; // link partner 1000baseT FDX capable
+const GTSR_LP_1000THDX: u32 = 0x0400; // link partner 1000baseT HDX capable
+const GTSR_LP_ASM_DIR: u32 = 0x0200; // link partner asym. pause dir. capable
+const GTSR_IDLE_ERR: u32 = 0x00ff; // IDLE error count
+
 const MII_ANEGTICKS: u32 = 5;
 const MII_ANEGTICKS_GIGE: u32 = 17;
 
@@ -105,12 +158,14 @@ pub struct MiiData {
     flags: MiiFlags,
     instance: u32,
     media: Ifmedia,
+    media_active: Media,
+    media_status: Media,
 }
 
 pub trait MiiPhy {
     fn service(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError>;
 
-    fn status(&self, mii: &mut dyn Mii) -> u32;
+    fn status(&self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError>;
 
     fn reset(&mut self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError>;
 
@@ -237,6 +292,8 @@ pub fn attach(
         flags,
         instance: 0,
         media: Ifmedia::new(IFM_IMASK, Media::new(0)),
+        media_active: Media::new(0),
+        media_status: Media::new(0),
     };
 
     for (offset, phy) in (phymin..=phymax).enumerate() {

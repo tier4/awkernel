@@ -1,6 +1,7 @@
 use crate::if_media::{
     ifm_make_word, ifm_subtype, IfmediaEntry, IFM_1000_SX, IFM_1000_T, IFM_100_FX, IFM_100_T4,
-    IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_FDX, IFM_FLOW, IFM_HPNA_1, IFM_NONE,
+    IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FDX, IFM_FLOW,
+    IFM_HPNA_1, IFM_NONE,
 };
 
 use super::*;
@@ -597,4 +598,49 @@ fn phy_auto(mii: &mut dyn Mii, mii_data: &MiiData, phy: &mut dyn MiiPhy) -> Resu
     log::debug!("phy_auto");
 
     Ok(())
+}
+
+/// Return the flow control status flag from MII_ANAR & MII_ANLPAR.
+pub fn phy_flowstatus(mii: &mut dyn Mii, phy: &dyn MiiPhy) -> Result<u64, MiiError> {
+    let phy_data = phy.get_phy_data();
+
+    if !phy_data.flags.contains(MiiFlags::DOPAUSE) {
+        return Ok(0);
+    }
+
+    let mut anar = mii.read_reg(phy_data.phy, MII_ANAR)?;
+    let mut anlpar = mii.read_reg(phy_data.phy, MII_ANLPAR)?;
+
+    // Check for 1000BASE-X.  Autonegotiation is a bit
+    // different on such devices.
+    if phy_data.flags.contains(MiiFlags::IS_1000X) {
+        anar <<= 3;
+        anlpar <<= 3;
+    }
+
+    if anar & ANLPAR_PAUSE_SYM != 0 && anlpar & ANLPAR_PAUSE_SYM != 0 {
+        return Ok(IFM_FLOW | IFM_ETH_TXPAUSE | IFM_ETH_RXPAUSE);
+    }
+
+    if anar & ANAR_PAUSE_SYM == 0 {
+        if anar & ANAR_PAUSE_ASYM != 0 && anlpar & ANLPAR_PAUSE_TOWARDS != 0 {
+            return Ok(IFM_FLOW | IFM_ETH_TXPAUSE);
+        } else {
+            return Ok(0);
+        }
+    }
+
+    if anar & ANAR_PAUSE_ASYM == 0 {
+        if anlpar & ANLPAR_PAUSE_SYM != 0 {
+            return Ok(IFM_FLOW | IFM_ETH_TXPAUSE | IFM_ETH_RXPAUSE);
+        } else {
+            return Ok(0);
+        }
+    }
+
+    match anlpar & ANLPAR_PAUSE_TOWARDS {
+        ANLPAR_PAUSE_NONE => Ok(0),
+        ANLPAR_PAUSE_ASYM => Ok(IFM_FLOW | IFM_ETH_RXPAUSE),
+        _ => Ok(IFM_FLOW | IFM_ETH_RXPAUSE | IFM_ETH_TXPAUSE),
+    }
 }

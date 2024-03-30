@@ -1,3 +1,16 @@
+use crate::{
+    if_media::{
+        Media, IFM_1000_T, IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ACTIVE, IFM_AVALID, IFM_ETHER,
+        IFM_ETH_MASTER, IFM_FDX, IFM_HDX, IFM_LOOP, IFM_NONE,
+    },
+    mii::{
+        ANLPAR_10, ANLPAR_10_FD, ANLPAR_T4, ANLPAR_TX, ANLPAR_TX_FD, BMCR_AUTOEN, BMCR_ISO,
+        BMCR_LOOP, BMSR_ACOMP, BMSR_LINK, EXTSR_1000TFDX, EXTSR_1000THDX, GTCR_ADV_1000TFDX,
+        GTCR_ADV_1000THDX, GTSR_LP_1000TFDX, GTSR_LP_1000THDX, GTSR_MS_RES, MII_100T2CR,
+        MII_100T2SR, MII_ANAR, MII_ANLPAR, MII_BMCR, MII_BMSR,
+    },
+};
+
 use super::{Mii, MiiAttachArgs, MiiData, MiiError, MiiFlags, MiiPhy, MiiPhyData};
 
 pub struct Ukphy {
@@ -9,7 +22,86 @@ impl MiiPhy for Ukphy {
         todo!()
     }
 
-    fn status(&self, mii: &mut dyn Mii) -> u32 {
+    fn status(&self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError> {
+        mii_data.media_status = Media::new(IFM_AVALID);
+        mii_data.media_active = Media::new(IFM_ETHER);
+
+        let phy_data = self.get_phy_data();
+
+        let bmsr = mii.read_reg(phy_data.phy, MII_BMSR)? | mii.read_reg(phy_data.phy, MII_BMSR)?;
+        if bmsr & BMSR_LINK != 0 {
+            mii_data.media_status.insert(IFM_ACTIVE);
+        }
+
+        let bmcr = mii.read_reg(phy_data.phy, MII_BMCR)?;
+        if bmcr & BMCR_ISO != 0 {
+            mii_data.media_active.insert(IFM_NONE);
+            mii_data.media_status = Media::new(0);
+            return Ok(());
+        }
+
+        if bmcr & BMCR_LOOP != 0 {
+            mii_data.media_active.insert(IFM_LOOP);
+        }
+
+        if bmcr & BMCR_AUTOEN != 0 {
+            // NWay autonegotiation takes the highest-order common
+            // bit of the ANAR and ANLPAR (i.e. best media advertised
+            // both by us and our link partner).
+            if bmsr & BMSR_ACOMP == 0 {
+                // Erg, still trying, I guess...
+                mii_data.media_active.insert(IFM_NONE);
+                return Ok(());
+            }
+
+            let anlpar =
+                mii.read_reg(phy_data.phy, MII_ANAR)? & mii.read_reg(phy_data.phy, MII_ANLPAR)?;
+
+            let (gtcr, gtsr) = if phy_data.flags.contains(MiiFlags::HAVE_GTCR)
+                && (phy_data.extcapabilities & (EXTSR_1000THDX | EXTSR_1000TFDX)) != 0
+            {
+                (
+                    mii.read_reg(phy_data.phy, MII_100T2CR)?,
+                    mii.read_reg(phy_data.phy, MII_100T2SR)?,
+                )
+            } else {
+                (0, 0)
+            };
+
+            if gtcr & GTCR_ADV_1000TFDX != 0 && gtsr & GTSR_LP_1000TFDX != 0 {
+                mii_data.media_active.insert(IFM_1000_T | IFM_FDX);
+            } else if gtcr & GTCR_ADV_1000THDX != 0 && gtsr & GTSR_LP_1000THDX != 0 {
+                mii_data.media_active.insert(IFM_1000_T | IFM_HDX);
+            } else if anlpar & ANLPAR_TX_FD != 0 {
+                mii_data.media_active.insert(IFM_100_TX | IFM_FDX);
+            } else if anlpar & ANLPAR_T4 != 0 {
+                mii_data.media_active.insert(IFM_100_T4 | IFM_HDX);
+            } else if anlpar & ANLPAR_TX != 0 {
+                mii_data.media_active.insert(IFM_100_TX | IFM_HDX);
+            } else if anlpar & ANLPAR_10_FD != 0 {
+                mii_data.media_active.insert(IFM_10_T | IFM_FDX);
+            } else if anlpar & ANLPAR_10 != 0 {
+                mii_data.media_active.insert(IFM_10_T | IFM_HDX);
+            } else {
+                mii_data.media_active.insert(IFM_NONE);
+            }
+
+            if mii_data.media_active.contains(IFM_1000_T) && gtsr & GTSR_MS_RES != 0 {
+                mii_data.media_active.insert(IFM_ETH_MASTER);
+            }
+
+            if mii_data.media_active.contains(IFM_FDX) {
+                mii_data
+                    .media_active
+                    .insert(super::physubr::phy_flowstatus(mii, self)?);
+            }
+        } else {
+            let Some(ife) = mii_data.media.get_current() else {
+                return Ok(());
+            };
+
+            mii_data.media_active = ife.media;
+        }
         todo!()
     }
 
