@@ -55,7 +55,7 @@ pub fn phy_dev_attach(
         phy_data.flags &= !MiiFlags::FORCEANEG;
     }
 
-    log::debug!("mii_data = {:?}", mii_data);
+    // log::debug!("mii_data = {:?}", mii_data);
 
     Ok(())
 }
@@ -645,10 +645,23 @@ pub fn phy_flowstatus(mii: &mut dyn Mii, phy: &dyn MiiPhy) -> Result<u64, MiiErr
     }
 }
 
-pub fn phy_update(mii_data: &MiiData, phy: &mut dyn MiiPhy) -> Result<bool, MiiError> {
-    let phy_data = phy.get_phy_data();
+pub fn phy_update(
+    mii: &mut dyn Mii,
+    mii_data: &mut MiiData,
+    phy: &mut dyn MiiPhy,
+    cmd: MiiPhyCmd,
+) -> Result<(), MiiError> {
+    let phy_data = phy.get_phy_data_mut();
 
-    // if mii_data.media
+    if mii_data.media_active != phy_data.media_active || cmd == MiiPhyCmd::MediaChg {
+        mii.on_state_change(mii_data);
+        phy_data.media_active = mii_data.media_active;
+    }
 
-    Ok(true)
+    if mii_data.media_status != phy_data.media_status {
+        miibus_linkchg(mii_data);
+        phy_data.media_status = mii_data.media_status;
+    }
+
+    Ok(())
 }

@@ -6,6 +6,8 @@ use crate::{
     mii::*,
 };
 
+use self::physubr::phy_update;
+
 use super::physubr::TickReturn;
 
 pub struct Ukphy {
@@ -13,8 +15,29 @@ pub struct Ukphy {
 }
 
 impl MiiPhy for Ukphy {
-    fn service(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError> {
-        todo!()
+    fn service(
+        &mut self,
+        mii: &mut dyn Mii,
+        mii_data: &mut MiiData,
+        cmd: MiiPhyCmd,
+    ) -> Result<(), MiiError> {
+        match cmd {
+            MiiPhyCmd::PollStat => (),
+            MiiPhyCmd::MediaChg => super::physubr::phy_set_media(mii, mii_data, self)?,
+            MiiPhyCmd::Tick => {
+                if super::physubr::phy_tick(mii, mii_data, self)? == TickReturn::JustReturn {
+                    return Ok(());
+                }
+            }
+        }
+
+        // Update the media status.
+        self.status(mii, mii_data)?;
+
+        // Callback if something changed.
+        phy_update(mii, mii_data, self, cmd)?;
+
+        Ok(())
     }
 
     fn status(&self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError> {
@@ -118,7 +141,7 @@ pub fn attach(
     mii: &mut dyn Mii,
     mii_data: &mut MiiData,
     args: MiiAttachArgs,
-) -> Result<Ukphy, MiiError> {
+) -> Result<Box<dyn MiiPhy + Send + Sync>, MiiError> {
     let mut ukphy = Ukphy {
         phy_data: MiiPhyData::new(mii_data, &args),
     };
@@ -126,21 +149,5 @@ pub fn attach(
     super::physubr::phy_dev_attach(mii, mii_data, MiiFlags::NOMANPAUSE, &mut ukphy)?;
     super::physubr::phy_set_media(mii, mii_data, &mut ukphy)?;
 
-    // TODO: remove this
-    // Testing
-    loop {
-        if super::physubr::phy_tick(mii, mii_data, &mut ukphy)? == TickReturn::Continue {
-            let media_active = mii_data.media_active;
-
-            ukphy.status(mii, mii_data)?;
-
-            if media_active != mii_data.media_active {
-                miibus_linkchg(mii_data);
-                mii.on_link_update(mii_data);
-            }
-        }
-        awkernel_lib::delay::wait_sec(1);
-    }
-
-    Ok(ukphy)
+    Ok(Box::new(ukphy))
 }

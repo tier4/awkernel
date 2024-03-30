@@ -6,13 +6,16 @@ use awkernel_lib::{
             self, EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
         },
     },
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 
 use crate::{
     if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_10_T},
-    mii::{Mii, MiiError, MiiFlags, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY},
+    mii::{
+        Mii, MiiData, MiiDev, MiiError, MiiFlags, MiiPhy, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY,
+    },
 };
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
@@ -34,12 +37,6 @@ mod registers {
 
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
-
-    // 52 #define GENET_EXT_RGMII_OOB_CTRL        0x08c
-    // 53 #define  GENET_EXT_RGMII_OOB_ID_MODE_DISABLE    __BIT(16)
-    // 54 #define  GENET_EXT_RGMII_OOB_RGMII_MODE_EN      __BIT(6)
-    // 55 #define  GENET_EXT_RGMII_OOB_OOB_DISABLE        __BIT(5)
-    // 56 #define  GENET_EXT_RGMII_OOB_RGMII_LINK         __BIT(4)
 
     mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
     pub const EXT_RGMII_OOB_ID_MODE_DISABLE: u32 = 1 << 16;
@@ -104,7 +101,10 @@ pub enum GenetError {
     NotYetImplemented,
 }
 
-pub struct Genet {}
+pub struct Genet {
+    inner: RwLock<GenetInner>,
+    mii: RwLock<MiiDev>,
+}
 
 impl NetDevice for Genet {
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
@@ -112,11 +112,11 @@ impl NetDevice for Genet {
     }
 
     fn can_send(&self) -> bool {
-        todo!()
+        false
     }
 
     fn capabilities(&self) -> NetCapabilities {
-        todo!()
+        NetCapabilities::empty()
     }
 
     fn device_short_name(&self) -> alloc::borrow::Cow<'static, str> {
@@ -128,35 +128,42 @@ impl NetDevice for Genet {
     }
 
     fn flags(&self) -> NetFlags {
-        todo!()
+        NetFlags::empty()
     }
 
     fn link_speed(&self) -> u64 {
-        todo!()
+        let mii = self.mii.read();
+        mii.link_speed()
     }
 
     fn link_status(&self) -> net_device::LinkStatus {
-        todo!()
+        let mii = self.mii.read();
+        mii.link_status()
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        todo!()
+        let inner = self.inner.read();
+        inner.mac_addr
     }
 
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
-        todo!()
+        // TODO
+        Ok(None)
     }
 
-    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        todo!()
+    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
+        // TODO
+        Ok(())
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
-        todo!()
+        // TODO
+        Ok(())
     }
 
     fn up(&self) -> Result<(), NetDevError> {
-        todo!()
+        // TODO
+        Ok(())
     }
 
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
@@ -164,7 +171,8 @@ impl NetDevice for Genet {
     }
 
     fn irqs(&self) -> Vec<u16> {
-        todo!()
+        let inner = self.inner.read();
+        inner.irqs.to_vec()
     }
 
     fn num_queues(&self) -> usize {
@@ -172,11 +180,12 @@ impl NetDevice for Genet {
     }
 
     fn poll(&self) -> bool {
-        todo!()
+        false
     }
 
     fn poll_in_service(&self) -> Result<(), NetDevError> {
-        todo!()
+        // TODO
+        Ok(())
     }
 
     fn poll_mode(&self) -> bool {
@@ -184,15 +193,20 @@ impl NetDevice for Genet {
     }
 
     fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
-        todo!()
+        Some(DMA_DEFAULT_QUEUE as usize)
     }
 
     fn tick(&self) -> Result<(), NetDevError> {
-        todo!()
+        let mut inner = self.inner.write();
+        let mut mii = self.mii.write();
+
+        crate::mii::mii_tick(inner.as_mut(), &mut mii).or(Err(NetDevError::DeviceError))?;
+
+        Ok(())
     }
 
     fn tick_msec(&self) -> Option<u64> {
-        todo!()
+        Some(1000)
     }
 }
 
@@ -251,16 +265,24 @@ pub fn attach(
 
     let mut genet = GenetInner {
         base_addr,
-        mac_addr: [0; ETHER_ADDR_LEN],
+        mac_addr: mac_addr.unwrap_or([0; ETHER_ADDR_LEN]),
         phy_mode,
+        irqs: [irqs[0], irqs[1]],
     };
 
     let phy_loc = phy_id.unwrap_or(MII_PHY_ANY);
 
-    crate::mii::attach(&mut genet, 0xffffffff, phy_loc, MII_OFFSET_ANY, mii_flags)
+    let mii = crate::mii::attach(&mut genet, 0xffffffff, phy_loc, MII_OFFSET_ANY, mii_flags)
         .or(Err(GenetError::Mii))?;
 
-    Err(GenetError::NotYetImplemented)
+    let genet = Genet {
+        inner: RwLock::new(genet),
+        mii: RwLock::new(mii),
+    };
+
+    awkernel_lib::net::add_interface(Arc::new(genet), None);
+
+    Ok(())
 }
 
 fn reset(base_addr: VirtAddr) {
@@ -313,6 +335,7 @@ struct GenetInner {
     base_addr: VirtAddr,
     mac_addr: [u8; ETHER_ADDR_LEN],
     phy_mode: MiiPhyMode,
+    irqs: [u16; 2],
 }
 
 impl Mii for GenetInner {
@@ -368,7 +391,9 @@ impl Mii for GenetInner {
         Err(MiiError::Write)
     }
 
-    fn on_link_update(&mut self, mii_data: &crate::mii::MiiData) {
+    fn on_state_change(&mut self, mii_data: &crate::mii::MiiData) {
+        log::debug!("GENET: on_state_change");
+
         let media_status = mii_data.get_media_status();
         let media_active = mii_data.get_media_active();
 

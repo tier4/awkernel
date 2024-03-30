@@ -1,4 +1,5 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use alloc::borrow::ToOwned;
 use core::{
     fmt::Write,
     ptr::{addr_of_mut, write_volatile},
@@ -212,7 +213,11 @@ pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let c = CONSOLE.console.lock(&mut node);
 
-    c.as_ref().map(|console| console.irq_id())
+    if let Some(a) = c.as_ref() {
+        Some(a.irq_id())
+    } else {
+        None
+    }
 }
 
 /// Read a byte.

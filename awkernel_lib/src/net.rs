@@ -365,7 +365,7 @@ enum IRQWaker {
     Interrupted,
 }
 
-pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
+pub fn add_interface(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
     let mut net_manager = NET_MANAGER.write();
 
     if net_manager.interface_id == u64::MAX {
@@ -375,7 +375,7 @@ pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>)
     let id = net_manager.interface_id;
     net_manager.interface_id += 1;
 
-    let if_net = Arc::new(IfNet::new(inner, vlan));
+    let if_net = Arc::new(IfNet::new(net_device, vlan));
 
     net_manager.interfaces.insert(id, if_net);
 }

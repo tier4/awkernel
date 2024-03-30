@@ -1,5 +1,6 @@
 //! Media-independent interface (MII) driver.
 
+use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::net::net_device::LinkStatus;
 use bitflags::bitflags;
 
@@ -138,6 +139,24 @@ pub enum MiiError {
     Media,
 }
 
+pub struct MiiDev {
+    mii_data: MiiData,
+    phys: BTreeMap<u32, Box<dyn MiiPhy + Send + Sync>>,
+}
+
+impl MiiDev {
+    #[inline(always)]
+    pub fn link_status(&self) -> LinkStatus {
+        self.mii_data.link_state
+    }
+
+    /// Get the current link speed in Mbps.
+    #[inline(always)]
+    pub fn link_speed(&self) -> u64 {
+        self.mii_data.media_active.link_speed()
+    }
+}
+
 pub trait Mii {
     /// Read a register from the PHY.
     fn read_reg(&mut self, phy: u32, reg: u32) -> Result<u32, MiiError>;
@@ -153,10 +172,9 @@ pub trait Mii {
         }
     }
 
-    fn on_link_update(&mut self, mii_data: &MiiData);
+    fn on_state_change(&mut self, mii_data: &MiiData);
 }
 
-#[derive(Debug)]
 pub struct MiiData {
     flags: MiiFlags,
     instance: u32,
@@ -178,8 +196,20 @@ impl MiiData {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MiiPhyCmd {
+    PollStat,
+    MediaChg,
+    Tick,
+}
+
 pub trait MiiPhy {
-    fn service(&mut self, mii: &mut dyn Mii) -> Result<(), MiiError>;
+    fn service(
+        &mut self,
+        mii: &mut dyn Mii,
+        mii_data: &mut MiiData,
+        cmd: MiiPhyCmd,
+    ) -> Result<(), MiiError>;
 
     fn status(&self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError>;
 
@@ -247,8 +277,8 @@ pub struct MiiPhyData {
     extcapabilities: u32, // extended capabilities
     ticks: u32,           // MII_TICK counter
     anegticks: u32,       // ticks before retrying aneg
-    media_active: u32,    // last active media
-    media_status: u32,    // last active status
+    media_active: Media,  // last active media
+    media_status: Media,  // last active status
     maxspeed: u32,        // Max speed supported by this PHY
 }
 
@@ -267,8 +297,8 @@ impl MiiPhyData {
             extcapabilities: 0,
             ticks: 0,
             anegticks: 0,
-            media_active: 0,
-            media_status: 0,
+            media_active: Media::new(0),
+            media_status: Media::new(0),
             maxspeed: 0,
         };
 
@@ -284,7 +314,7 @@ pub fn attach(
     phyloc: u32,
     offloc: u32,
     flags: MiiFlags,
-) -> Result<(), MiiError> {
+) -> Result<MiiDev, MiiError> {
     if phyloc != MII_PHY_ANY && offloc != MII_OFFSET_ANY {
         log::debug!("mii_attach: phyloc and offloc are both not MII_ANY");
         return Err(MiiError::InvalidParam);
@@ -312,6 +342,8 @@ pub fn attach(
         media_status: Media::new(0),
         link_state: LinkStatus::Unknown,
     };
+
+    let mut phys = BTreeMap::new();
 
     for (offset, phy) in (phymin..=phymax).enumerate() {
         // Check to see if there is a PHY at this address.  Note,
@@ -346,12 +378,14 @@ pub fn attach(
             capmask,
         };
 
-        if let Err(e) = ukphy::attach(mii, &mut mii_data, args) {
-            log::error!("mii_attach: ukphy::attach failed: {:?}", e);
+        if let Ok(phy) = ukphy::attach(mii, &mut mii_data, args) {
+            phys.insert(phy.get_phy_data().inst, phy);
+        } else {
+            log::error!("mii_attach: failed to attach PHY at address {}", phy);
         }
     }
 
-    Ok(())
+    Ok(MiiDev { mii_data, phys })
 }
 
 #[inline(always)]
@@ -385,4 +419,20 @@ fn miibus_linkchg(mii_data: &mut MiiData) {
         mii_data.link_state,
         mii_data.media_active.link_speed()
     );
+}
+
+pub fn mii_tick(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiError> {
+    let (mii_data, phys) = (&mut mii_dev.mii_data, &mut mii_dev.phys);
+
+    let Some(media) = mii_data.media.get_current() else {
+        return Ok(());
+    };
+
+    let inst = media.get_instance();
+
+    if let Some(phy) = phys.get_mut(&inst) {
+        phy.service(mii, mii_data, MiiPhyCmd::Tick)?;
+    }
+
+    Ok(())
 }
