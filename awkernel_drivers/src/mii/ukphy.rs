@@ -1,17 +1,12 @@
 use crate::{
     if_media::{
-        Media, IFM_1000_T, IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ACTIVE, IFM_AVALID, IFM_ETHER,
-        IFM_ETH_MASTER, IFM_FDX, IFM_HDX, IFM_LOOP, IFM_NONE,
+        IFM_1000_T, IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_FDX, IFM_HDX, IFM_LOOP,
+        IFM_NONE,
     },
-    mii::{
-        ANLPAR_10, ANLPAR_10_FD, ANLPAR_T4, ANLPAR_TX, ANLPAR_TX_FD, BMCR_AUTOEN, BMCR_ISO,
-        BMCR_LOOP, BMSR_ACOMP, BMSR_LINK, EXTSR_1000TFDX, EXTSR_1000THDX, GTCR_ADV_1000TFDX,
-        GTCR_ADV_1000THDX, GTSR_LP_1000TFDX, GTSR_LP_1000THDX, GTSR_MS_RES, MII_100T2CR,
-        MII_100T2SR, MII_ANAR, MII_ANLPAR, MII_BMCR, MII_BMSR,
-    },
+    mii::*,
 };
 
-use super::{Mii, MiiAttachArgs, MiiData, MiiError, MiiFlags, MiiPhy, MiiPhyData};
+use super::physubr::TickReturn;
 
 pub struct Ukphy {
     phy_data: MiiPhyData,
@@ -102,7 +97,8 @@ impl MiiPhy for Ukphy {
 
             mii_data.media_active = ife.media;
         }
-        todo!()
+
+        Ok(())
     }
 
     fn reset(&mut self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError> {
@@ -130,8 +126,13 @@ pub fn attach(
     super::physubr::phy_dev_attach(mii, mii_data, MiiFlags::NOMANPAUSE, &mut ukphy)?;
     super::physubr::phy_set_media(mii, mii_data, &mut ukphy)?;
 
+    // TODO: remove this
+    // Testing
     loop {
-        super::physubr::phy_tick(mii, mii_data, &mut ukphy)?;
+        if super::physubr::phy_tick(mii, mii_data, &mut ukphy)? == TickReturn::Continue {
+            ukphy.status(mii, mii_data)?;
+            miibus_linkchg(mii_data);
+        }
         awkernel_lib::delay::wait_sec(1);
     }
 

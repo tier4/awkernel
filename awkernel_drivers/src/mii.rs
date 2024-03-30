@@ -1,8 +1,9 @@
 //! Media-independent interface (MII) driver.
 
+use awkernel_lib::net::net_device::LinkStatus;
 use bitflags::bitflags;
 
-use crate::if_media::{Ifmedia, Media, IFM_AUTO, IFM_ETHER, IFM_IMASK};
+use crate::if_media::{Ifmedia, Media, IFM_ACTIVE, IFM_AUTO, IFM_AVALID, IFM_ETHER, IFM_IMASK};
 
 pub mod physubr;
 pub mod ukphy;
@@ -160,6 +161,7 @@ pub struct MiiData {
     media: Ifmedia,
     media_active: Media,
     media_status: Media,
+    link_state: LinkStatus,
 }
 
 pub trait MiiPhy {
@@ -294,6 +296,7 @@ pub fn attach(
         media: Ifmedia::new(IFM_IMASK, Media::new(0)),
         media_active: Media::new(0),
         media_status: Media::new(0),
+        link_state: LinkStatus::Unknown,
     };
 
     for (offset, phy) in (phymin..=phymax).enumerate() {
@@ -350,4 +353,22 @@ fn mii_model(id2: u32) -> u32 {
 #[inline(always)]
 fn mii_rev(id2: u32) -> u32 {
     id2 & IDR2_REV
+}
+
+fn miibus_linkchg(mii_data: &mut MiiData) {
+    if mii_data.media_status.contains(IFM_AVALID) {
+        if mii_data.media_status.contains(IFM_ACTIVE) {
+            mii_data.link_state = LinkStatus::Up;
+        } else {
+            mii_data.link_state = LinkStatus::Down;
+        }
+    } else {
+        mii_data.link_state = LinkStatus::Unknown;
+    }
+
+    log::debug!(
+        "miibus_linkchg: link state {:?}, speed {}",
+        mii_data.link_state,
+        mii_data.media_active.link_speed()
+    );
 }

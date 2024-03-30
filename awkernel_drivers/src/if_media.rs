@@ -117,6 +117,31 @@ impl Media {
     pub fn contains(&self, value: u64) -> bool {
         self.0 & value != 0
     }
+
+    pub fn link_speed(&self) -> u64 {
+        let subtype = ifm_subtype(self);
+
+        match subtype {
+            IFM_100G_AOC | IFM_100G_LR4 | IFM_100G_SR4 | IFM_100G_CR4 | IFM_100G_KR4 => 100_000,
+            IFM_56G_R4 => 56_000,
+            IFM_40G_AOC | IFM_40G_LR4 | IFM_40G_SR4 | IFM_40G_CR4 | IFM_40G_KR4 | IFM_40G_XLPPI => {
+                40_000
+            }
+            IFM_25G_AOC | IFM_25G_LR | IFM_25G_ER | IFM_25G_SR | IFM_25G_KR | IFM_25G_CR => 25_000,
+            IFM_10G_AOC | IFM_10G_ER | IFM_10G_LR | IFM_10G_LRM | IFM_10G_SR | IFM_10G_CR1
+            | IFM_10G_KR | IFM_10G_KX4 | IFM_10G_SFI | IFM_10G_T | IFM_10G_CX4 | IFM_10G_SFP_CU => {
+                10_000
+            }
+            IFM_5000_T => 5_000,
+            IFM_2500_KX | IFM_2500_T | IFM_2500_SX => 2_500,
+            IFM_1000_T | IFM_1000_SGMII | IFM_1000_CX | IFM_1000_CX_SGMII | IFM_1000_SX
+            | IFM_1000_LX | IFM_1000_KX => 1_000,
+            IFM_100_TX | IFM_100_FX | IFM_100_T2 | IFM_100_VG | IFM_100_T4 => 100,
+            IFM_10_T | IFM_10_STP | IFM_10_FL | IFM_10_2 | IFM_10_5 => 10,
+            IFM_HPNA_1 => 1,
+            _ => 0,
+        }
+    }
 }
 
 #[derive(Debug)]
