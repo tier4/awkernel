@@ -17,7 +17,8 @@ use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
 use crate::{
     if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_10_T},
     mii::{
-        Mii, MiiData, MiiDev, MiiError, MiiFlags, MiiPhy, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY,
+        mii_mediachg, Mii, MiiData, MiiDev, MiiError, MiiFlags, MiiPhy, MiiPhyMode, MII_OFFSET_ANY,
+        MII_PHY_ANY,
     },
 };
 
@@ -60,6 +61,10 @@ mod registers {
     pub const EXT_RGMII_OOB_RGMII_MODE_EN: u32 = 1 << 6;
     pub const EXT_RGMII_OOB_OOB_DISABLE: u32 = 1 << 5;
     pub const EXT_RGMII_OOB_RGMII_LINK: u32 = 1 << 4;
+
+    mmio_rw!(offset 0x200 => pub INTRL2_CPU_STAT<u32>);
+    mmio_rw!(offset 0x208 => pub INTRL2_CPU_CLEAR<u32>);
+    mmio_rw!(offset 0x20c => pub INTRL2_CPU_STAT_MASK<u32>);
 
     mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
     pub const IRQ_MDIO_ERROR: u32 = 1 << 24;
@@ -243,6 +248,10 @@ impl NetDevice for Genet {
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
         // TODO
         log::debug!("GENET: interrupt, irq = {irq}");
+
+        let inner = self.inner.read();
+        inner.intr();
+
         Ok(())
     }
 
@@ -254,8 +263,10 @@ impl NetDevice for Genet {
     fn up(&self) -> Result<(), NetDevError> {
         log::debug!("GENET: up");
         let mut inner = self.inner.write();
+        let mut mii_dev = self.mii.write();
+
         inner.if_flags.insert(NetFlags::UP);
-        inner.init().or(Err(NetDevError::DeviceError))
+        inner.init(&mut mii_dev).or(Err(NetDevError::DeviceError))
     }
 
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
@@ -542,7 +553,7 @@ impl Mii for GenetInner {
 }
 
 impl GenetInner {
-    fn init(&mut self) -> Result<(), GenetError> {
+    fn init(&mut self, mii_dev: &mut MiiDev) -> Result<(), GenetError> {
         if self.if_flags.contains(NetFlags::RUNNING) {
             return Ok(());
         }
@@ -584,7 +595,29 @@ impl GenetInner {
         // 907
         // 908         mii_mediachg(mii);
 
+        mii_mediachg(self, mii_dev).or(Err(GenetError::Mii))?;
+
+        self.if_flags.insert(NetFlags::RUNNING);
+
         Ok(())
+    }
+
+    fn intr(&self) {
+        let base = self.base_addr.as_usize();
+
+        let mut val = registers::INTRL2_CPU_STAT.read(base);
+        val &= !registers::INTRL2_CPU_STAT_MASK.read(base);
+        registers::INTRL2_CPU_CLEAR.write(val, base);
+
+        // TODO: Handle interrupts
+
+        if val & registers::IRQ_RXDMA_DONE != 0 {
+            log::debug!("GENET: RXDMA_DONE");
+        }
+
+        if val & registers::IRQ_TXDMA_DONE != 0 {
+            log::debug!("GENET: TXDMA_DONE");
+        }
     }
 
     fn enable(&mut self) {

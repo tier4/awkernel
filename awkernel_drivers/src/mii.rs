@@ -437,3 +437,25 @@ pub fn mii_tick(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiError>
 
     Ok(())
 }
+
+pub fn mii_mediachg(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiError> {
+    let (mii_data, phys) = (&mut mii_dev.mii_data, &mut mii_dev.phys);
+
+    let Some(media) = mii_data.media.get_current() else {
+        return Ok(());
+    };
+
+    let current_inst = media.get_instance();
+
+    for (inst, phy) in phys.iter_mut() {
+        if *inst != current_inst {
+            let phyno = phy.get_phy_data().phy;
+            let bmcr = mii.read_reg(phyno, MII_BMCR)?;
+            mii.write_reg(phyno, MII_BMCR, bmcr | BMCR_ISO)?;
+        }
+
+        phy.service(mii, mii_data, MiiPhyCmd::MediaChg)?;
+    }
+
+    Ok(())
+}
