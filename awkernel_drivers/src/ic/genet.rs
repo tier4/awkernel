@@ -35,6 +35,11 @@ mod registers {
     pub const REV_MINOR_SHIFT: u32 = 16;
     pub const REV_PHY: u32 = 0xffff;
 
+    // 47 #define GENET_SYS_PORT_CTRL             0x004
+    // 48 #define  GENET_SYS_PORT_MODE_EXT_GPHY   3
+    mmio_rw!(offset 0x004 => pub SYS_PORT_CTRL<u32>);
+    pub const SYS_PORT_MODE_EXT_GPHY: u32 = 3;
+
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
 
@@ -53,6 +58,9 @@ mod registers {
     pub const UMAC_CMD_SPEED_10: u32 = 0 << 2;
     pub const UMAC_CMD_SPEED_100: u32 = 1 << 2;
     pub const UMAC_CMD_SPEED_1000: u32 = 2 << 2;
+
+    mmio_rw!(offset 0x80c => pub UMAC_MAC0<u32>);
+    mmio_rw!(offset 0x810 => pub UMAC_MAC1<u32>);
 
     mmio_rw!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
@@ -128,7 +136,8 @@ impl NetDevice for Genet {
     }
 
     fn flags(&self) -> NetFlags {
-        NetFlags::empty()
+        let inner = self.inner.read();
+        inner.if_flags
     }
 
     fn link_speed(&self) -> u64 {
@@ -162,8 +171,10 @@ impl NetDevice for Genet {
     }
 
     fn up(&self) -> Result<(), NetDevError> {
-        // TODO
-        Ok(())
+        log::debug!("GENET: up");
+        let mut inner = self.inner.write();
+        inner.if_flags.insert(NetFlags::UP);
+        inner.init().or(Err(NetDevError::DeviceError))
     }
 
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
@@ -261,6 +272,7 @@ pub fn attach(
         MiiPhyMode::RgmiiRxId => MiiFlags::RX_DELAY,
         MiiPhyMode::RgmiiTxId => MiiFlags::TX_DELAY,
         MiiPhyMode::Rgmii => MiiFlags::empty(),
+        _ => return Err(GenetError::Mii),
     };
 
     let mut genet = GenetInner {
@@ -268,6 +280,7 @@ pub fn attach(
         mac_addr: mac_addr.unwrap_or([0; ETHER_ADDR_LEN]),
         phy_mode,
         irqs: [irqs[0], irqs[1]],
+        if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
     };
 
     let phy_loc = phy_id.unwrap_or(MII_PHY_ANY);
@@ -336,6 +349,7 @@ struct GenetInner {
     mac_addr: [u8; ETHER_ADDR_LEN],
     phy_mode: MiiPhyMode,
     irqs: [u16; 2],
+    if_flags: NetFlags,
 }
 
 impl Mii for GenetInner {
@@ -411,6 +425,8 @@ impl Mii for GenetInner {
                 return;
             };
 
+        log::debug!("GENET: speed = {speed}");
+
         let base = self.base_addr.as_usize();
 
         let mut val = registers::EXT_RGMII_OOB_CTRL.read(base);
@@ -431,6 +447,60 @@ impl Mii for GenetInner {
         val |= speed;
 
         registers::UMAC_CMD.write(val, base);
+    }
+}
+
+impl GenetInner {
+    fn init(&mut self) -> Result<(), GenetError> {
+        if self.if_flags.contains(NetFlags::RUNNING) {
+            return Ok(());
+        }
+
+        log::debug!("GENET: init");
+
+        let base = self.base_addr.as_usize();
+
+        match self.phy_mode {
+            MiiPhyMode::Rgmii
+            | MiiPhyMode::RgmiiId
+            | MiiPhyMode::RgmiiRxId
+            | MiiPhyMode::RgmiiTxId => {
+                registers::SYS_PORT_CTRL.write(registers::SYS_PORT_MODE_EXT_GPHY, base);
+            }
+            _ => {
+                registers::SYS_PORT_CTRL.write(0, base);
+            }
+        }
+
+        self.set_enaddr();
+
+        // 897
+        // 898         /* Setup RX filter */
+        // 899         gen_setup_rxfilter(sc);
+        // 900
+        // 901         gen_init_txrings(sc);
+        // 902         gen_init_rxrings(sc);
+        // 903         gen_enable(sc);
+        // 904         gen_enable_offload(sc);
+        // 905
+        // 906         if_setdrvflagbits(ifp, IFF_DRV_RUNNING, IFF_DRV_OACTIVE);
+        // 907
+        // 908         mii_mediachg(mii);
+
+        Ok(())
+    }
+
+    fn set_enaddr(&mut self) {
+        let base = self.base_addr.as_usize();
+
+        let val = (self.mac_addr[3] as u32)
+            | ((self.mac_addr[2] as u32) << 8)
+            | ((self.mac_addr[1] as u32) << 16)
+            | ((self.mac_addr[0] as u32) << 24);
+        registers::UMAC_MAC0.write(val, base);
+
+        let val = (self.mac_addr[5] as u32) | ((self.mac_addr[4] as u32) << 8);
+        registers::UMAC_MAC1.write(val, base);
     }
 }
 

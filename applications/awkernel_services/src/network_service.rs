@@ -26,6 +26,7 @@ pub async fn run() -> TaskResult {
     let mut ch_tick_handlers = BTreeMap::new();
 
     for if_status in awkernel_lib::net::get_all_interface() {
+        log::info!("Waking {} up.", if_status.device_name);
         if awkernel_lib::net::up(if_status.interface_id).is_ok() {
             spawn_handlers(
                 if_status,

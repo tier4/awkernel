@@ -222,6 +222,7 @@ pub trait MiiPhy {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MiiPhyMode {
+    Unknown,
     RgmiiId,
     RgmiiRxId,
     RgmiiTxId,
