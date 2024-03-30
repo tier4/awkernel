@@ -1,5 +1,6 @@
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
+    dma_pool::DMAPool,
     net::{
         ether::{ETHER_ADDR_LEN, ETHER_BROADCAST_ADDR},
         multicast::MulticastAddrs,
@@ -7,6 +8,7 @@ use awkernel_lib::{
             self, EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
         },
     },
+    paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 
@@ -19,9 +21,18 @@ use crate::{
     },
 };
 
+pub const DMA_DESC_COUNT: usize = 256;
+pub const DMA_DESC_SIZE: usize = 12;
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
+pub const TX_DESC_COUNT: usize = DMA_DESC_COUNT;
+pub const RX_DESC_COUNT: usize = DMA_DESC_COUNT;
+
 pub const MII_BUSY_RETRY: u32 = 1000;
+
+pub const RX_BUF_SIZE: usize = 2048;
+
+type RxBufType = [[u8; RX_BUF_SIZE]; RX_DESC_COUNT];
 
 mod registers {
     use awkernel_lib::mmio_rw;
@@ -84,12 +95,52 @@ mod registers {
     mmio_rw!(offset 0xe58 => pub UMAC_MDF_ADDR1<u32>);
     pub const MAX_MDF_FILTER: usize = 17;
 
+    #[inline(always)]
     pub fn umac_mdf_offset(n: usize) -> usize {
         n * 0x8
     }
 
     pub const RX_BASE: usize = 0x2000;
     pub const TX_BASE: usize = 0x4000;
+
+    pub const DMA_RING_SIZE: usize = 0x40;
+
+    #[inline(always)]
+    pub fn rx_dma_ringbase(qid: usize) -> usize {
+        RX_BASE + 0xc00 + DMA_RING_SIZE * qid
+    }
+
+    mmio_rw!(offset 0x00 => pub RX_DMA_WRITE_PTR_LO<u32>);
+    mmio_rw!(offset 0x04 => pub RX_DMA_WRITE_PTR_HI<u32>);
+    mmio_rw!(offset 0x08 => pub RX_DMA_PROD_INDEX<u32>);
+    mmio_rw!(offset 0x0c => pub RX_DMA_CONS_INDEX<u32>);
+
+    mmio_rw!(offset 0x10 => pub RX_DMA_RING_BUF_SIZE<u32>);
+    pub const RX_DMA_RING_BUF_SIZE_DESC_COUNT: u32 = bits(31, 16);
+    pub const RX_DMA_RING_BUF_SIZE_BUF_LENGTH: u32 = bits(15, 0);
+    pub const RX_DMA_RING_BUF_SIZE_DESC_SHIFT: u32 = 16;
+    pub const RX_DMA_RING_BUF_SIZE_BUF_LEN_MASK: u32 = 0xffff;
+
+    mmio_rw!(offset 0x14 => pub RX_DMA_START_ADDR_LO<u32>);
+    mmio_rw!(offset 0x18 => pub RX_DMA_START_ADDR_HI<u32>);
+    mmio_rw!(offset 0x1c => pub RX_DMA_END_ADDR_LO<u32>);
+    mmio_rw!(offset 0x20 => pub RX_DMA_END_ADDR_HI<u32>);
+
+    mmio_rw!(offset 0x28 => pub RX_DMA_XON_XOFF_THRES<u32>);
+    pub const RX_DMA_XON_XOFF_THRES_LO_SHIFT: u32 = 16;
+
+    mmio_rw!(offset 0x2c => pub RX_DMA_READ_PTR_LO<u32>);
+    mmio_rw!(offset 0x30 => pub RX_DMA_READ_PTR_HI<u32>);
+
+    #[inline(always)]
+    pub fn dma_desc_offset(i: usize) -> usize {
+        i * super::DMA_DESC_SIZE
+    }
+
+    mmio_rw!(offset RX_BASE + 0x04 => pub RX_DESC_ADDRESS_LO<u32>);
+    mmio_rw!(offset RX_BASE + 0x08 => pub RX_DESC_ADDRESS_HI<u32>);
+
+    mmio_rw!(offset RX_BASE + 0x1040 + 0x00 => pub RX_DMA_RING_CFG<u32>);
 
     mmio_rw!(offset RX_BASE + 0x1040 + 0x04 => pub RX_DMA_CTRL<u32>);
     pub const RX_DMA_CTRL_EN: u32 = 1;
@@ -98,6 +149,8 @@ mod registers {
     pub fn rx_dma_ctrl_rbuf_en(qid: u32) -> u32 {
         1 << (qid + 1)
     }
+
+    mmio_rw!(offset RX_BASE + 0x1040 + 0x0c => pub RX_SCB_BURST_SIZE<u32>);
 
     mmio_rw!(offset TX_BASE + 0x1040 + 0x04 => pub TX_DMA_CTRL<u32>);
     pub const TX_DMA_CTRL_EN: u32 = 1;
@@ -292,6 +345,7 @@ pub fn attach(
         irqs: [irqs[0], irqs[1]],
         if_flags: NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST,
         multicast_addrs: MulticastAddrs::new(),
+        rx: None,
     };
 
     let phy_loc = phy_id.unwrap_or(MII_PHY_ANY);
@@ -355,6 +409,12 @@ fn dma_disable(base_addr: VirtAddr) {
     registers::RX_DMA_CTRL.write(val, base);
 }
 
+struct Rx {
+    cons_idx: u32,
+    prod_idx: u32,
+    buf: DMAPool<RxBufType>,
+}
+
 struct GenetInner {
     base_addr: VirtAddr,
     mac_addr: [u8; ETHER_ADDR_LEN],
@@ -362,6 +422,7 @@ struct GenetInner {
     irqs: [u16; 2],
     if_flags: NetFlags,
     multicast_addrs: MulticastAddrs,
+    rx: Option<Mutex<Rx>>,
 }
 
 impl Mii for GenetInner {
@@ -492,6 +553,9 @@ impl GenetInner {
         // 900
         // 901         gen_init_txrings(sc);
         // 902         gen_init_rxrings(sc);
+
+        self.init_rxring()?;
+
         // 903         gen_enable(sc);
         // 904         gen_enable_offload(sc);
         // 905
@@ -561,6 +625,69 @@ impl GenetInner {
             (ea[2] as u32) << 24 | (ea[3] as u32) << 16 | (ea[4] as u32) << 8 | ea[5] as u32;
         registers::UMAC_MDF_ADDR0.write(addr0, base + registers::umac_mdf_offset(n));
         registers::UMAC_MDF_ADDR1.write(addr1, base + registers::umac_mdf_offset(n));
+    }
+
+    fn init_rxring(&mut self) -> Result<(), GenetError> {
+        use registers::{dma_desc_offset, rx_dma_ringbase};
+
+        let base = self.base_addr.as_usize() + registers::RX_BASE;
+        let qid = DMA_DEFAULT_QUEUE as usize;
+
+        let buf = DMAPool::new(0, core::mem::size_of::<RxBufType>() / PAGESIZE)
+            .ok_or(GenetError::DMAPoolAllocation)?;
+
+        let rx = Rx {
+            cons_idx: 0,
+            prod_idx: 0,
+            buf,
+        };
+
+        registers::RX_SCB_BURST_SIZE.write(0x08, base);
+
+        registers::RX_DMA_WRITE_PTR_LO.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_WRITE_PTR_HI.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_PROD_INDEX.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_CONS_INDEX.write(0, base + rx_dma_ringbase(qid));
+
+        registers::RX_DMA_RING_BUF_SIZE.write(
+            (DMA_DESC_COUNT as u32) << registers::RX_DMA_RING_BUF_SIZE_DESC_SHIFT
+                | (RX_BUF_SIZE as u32 & registers::RX_DMA_RING_BUF_SIZE_BUF_LEN_MASK),
+            base + rx_dma_ringbase(qid),
+        );
+
+        registers::RX_DMA_START_ADDR_LO.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_START_ADDR_HI.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_END_ADDR_LO.write(
+            RX_DESC_COUNT as u32 * DMA_DESC_SIZE as u32 / 4 - 1,
+            base + rx_dma_ringbase(qid),
+        );
+        registers::RX_DMA_END_ADDR_HI.write(0, base + rx_dma_ringbase(qid));
+
+        registers::RX_DMA_XON_XOFF_THRES.write(
+            (5 << registers::RX_DMA_XON_XOFF_THRES_LO_SHIFT) | (RX_DESC_COUNT as u32 >> 4),
+            base + rx_dma_ringbase(qid),
+        );
+        registers::RX_DMA_READ_PTR_LO.write(0, base + rx_dma_ringbase(qid));
+        registers::RX_DMA_READ_PTR_HI.write(0, base + rx_dma_ringbase(qid));
+
+        registers::RX_DMA_RING_CFG.write(1 << qid, base);
+
+        let phy_addr = rx.buf.get_phy_addr().as_usize();
+        for i in 0..RX_DESC_COUNT {
+            let addr = phy_addr + i * RX_BUF_SIZE;
+            registers::RX_DESC_ADDRESS_LO.write(addr as u32, base + dma_desc_offset(i));
+            registers::RX_DESC_ADDRESS_HI.write((addr >> 32) as u32, base + dma_desc_offset(i));
+        }
+
+        // Enable receive DMA
+        let mut val = registers::RX_DMA_CTRL.read(base);
+        val |= registers::RX_DMA_CTRL_EN;
+        val |= registers::rx_dma_ctrl_rbuf_en(qid as u32);
+        registers::RX_DMA_CTRL.write(val, base);
+
+        self.rx = Some(Mutex::new(rx));
+
+        Ok(())
     }
 }
 
