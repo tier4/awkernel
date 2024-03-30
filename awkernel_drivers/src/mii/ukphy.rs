@@ -14,7 +14,7 @@ impl MiiPhy for Ukphy {
     }
 
     fn reset(&mut self, mii: &mut dyn Mii, mii_data: &mut MiiData) -> Result<(), MiiError> {
-        crate::mii::physubr::reset(mii, mii_data, self)
+        crate::mii::physubr::phy_reset(mii, mii_data, self)
     }
 
     fn get_phy_data(&self) -> &MiiPhyData {
@@ -35,9 +35,13 @@ pub fn attach(
         phy_data: MiiPhyData::new(mii_data, &args),
     };
 
-    super::physubr::dev_attach(mii, mii_data, MiiFlags::NOMANPAUSE, &mut ukphy)?;
+    super::physubr::phy_dev_attach(mii, mii_data, MiiFlags::NOMANPAUSE, &mut ukphy)?;
+    super::physubr::phy_set_media(mii, mii_data, &mut ukphy)?;
 
-    // TODO:
+    loop {
+        super::physubr::phy_tick(mii, mii_data, &mut ukphy)?;
+        awkernel_lib::delay::wait_sec(1);
+    }
 
     Ok(ukphy)
 }
