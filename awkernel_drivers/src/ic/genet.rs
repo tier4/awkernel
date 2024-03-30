@@ -61,6 +61,18 @@ mod registers {
     pub const EXT_RGMII_OOB_OOB_DISABLE: u32 = 1 << 5;
     pub const EXT_RGMII_OOB_RGMII_LINK: u32 = 1 << 4;
 
+    mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
+    pub const IRQ_MDIO_ERROR: u32 = 1 << 24;
+    pub const IRQ_MDIO_DONE: u32 = 1 << 23;
+    pub const IRQ_TXDMA_DONE: u32 = 1 << 16;
+    pub const IRQ_RXDMA_DONE: u32 = 1 << 13;
+
+    mmio_rw!(offset 0x300 => pub RBUF_CTRL<u32>);
+    pub const RBUF_ALIGN_2B: u32 = 1 << 1;
+    pub const RBUF_64B_EN: u32 = 1;
+
+    mmio_rw!(offset 0x3b4 => pub RBUF_TBUF_SIZE_CTRL<u32>);
+
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     pub const UMAC_CMD_LCL_LOOP_EN: u32 = 1 << 15;
     pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
@@ -71,8 +83,13 @@ mod registers {
     pub const UMAC_CMD_SPEED_100: u32 = 1 << 2;
     pub const UMAC_CMD_SPEED_1000: u32 = 2 << 2;
 
+    pub const UMAC_CMD_RXEN: u32 = 1 << 1;
+    pub const UMAC_CMD_TXEN: u32 = 1;
+
     mmio_rw!(offset 0x80c => pub UMAC_MAC0<u32>);
     mmio_rw!(offset 0x810 => pub UMAC_MAC1<u32>);
+
+    mmio_rw!(offset 0x814 => pub UMAC_MAX_FRAME_LEN<u32>);
 
     mmio_rw!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
@@ -223,8 +240,9 @@ impl NetDevice for Genet {
         Ok(None)
     }
 
-    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
+    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
         // TODO
+        log::debug!("GENET: interrupt, irq = {irq}");
         Ok(())
     }
 
@@ -557,6 +575,9 @@ impl GenetInner {
         self.init_rxring()?;
 
         // 903         gen_enable(sc);
+
+        self.enable();
+
         // 904         gen_enable_offload(sc);
         // 905
         // 906         if_setdrvflagbits(ifp, IFF_DRV_RUNNING, IFF_DRV_OACTIVE);
@@ -564,6 +585,36 @@ impl GenetInner {
         // 908         mii_mediachg(mii);
 
         Ok(())
+    }
+
+    fn enable(&mut self) {
+        let base = self.base_addr.as_usize();
+
+        registers::UMAC_MAX_FRAME_LEN.write(1536, base);
+
+        let mut val = registers::RBUF_CTRL.read(base);
+        val |= registers::RBUF_ALIGN_2B;
+        registers::RBUF_CTRL.write(val, base);
+
+        registers::RBUF_TBUF_SIZE_CTRL.write(1, base);
+
+        // Enable transmitter and receiver
+        let mut val = registers::UMAC_CMD.read(base);
+
+        // TODO: Enable transmitter
+        // val |= registers::UMAC_CMD_TXEN;
+
+        val |= registers::UMAC_CMD_RXEN;
+        registers::UMAC_CMD.write(val, base);
+
+        // Enable interrupts
+        self.enable_intr();
+    }
+
+    fn enable_intr(&mut self) {
+        let base = self.base_addr.as_usize();
+        registers::INTRL2_CPU_CLEAR_MASK
+            .write(registers::IRQ_TXDMA_DONE | registers::IRQ_RXDMA_DONE, base);
     }
 
     fn set_enaddr(&mut self) {
