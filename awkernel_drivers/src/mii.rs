@@ -152,6 +152,8 @@ pub trait Mii {
             Err(MiiError::Media)
         }
     }
+
+    fn on_link_update(&mut self, mii_data: &MiiData);
 }
 
 #[derive(Debug)]
@@ -162,6 +164,18 @@ pub struct MiiData {
     media_active: Media,
     media_status: Media,
     link_state: LinkStatus,
+}
+
+impl MiiData {
+    #[inline(always)]
+    pub fn get_media_active(&self) -> Media {
+        self.media_active
+    }
+
+    #[inline(always)]
+    pub fn get_media_status(&self) -> Media {
+        self.media_status
+    }
 }
 
 pub trait MiiPhy {

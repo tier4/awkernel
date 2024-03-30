@@ -130,8 +130,14 @@ pub fn attach(
     // Testing
     loop {
         if super::physubr::phy_tick(mii, mii_data, &mut ukphy)? == TickReturn::Continue {
+            let media_active = mii_data.media_active;
+
             ukphy.status(mii, mii_data)?;
-            miibus_linkchg(mii_data);
+
+            if media_active != mii_data.media_active {
+                miibus_linkchg(mii_data);
+                mii.on_link_update(mii_data);
+            }
         }
         awkernel_lib::delay::wait_sec(1);
     }

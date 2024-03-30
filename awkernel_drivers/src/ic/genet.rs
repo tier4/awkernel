@@ -10,7 +10,10 @@ use awkernel_lib::{
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::mii::{Mii, MiiError, MiiFlags, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY};
+use crate::{
+    if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_10_T},
+    mii::{Mii, MiiError, MiiFlags, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY},
+};
 
 pub const DMA_DEFAULT_QUEUE: u32 = 16;
 
@@ -32,10 +35,27 @@ mod registers {
     mmio_rw!(offset 0x008 => pub SYS_RBUF_FLUSH_CTRL<u32>);
     pub const SYS_RBUF_FLUSH_RESET: u32 = 1 << 1;
 
+    // 52 #define GENET_EXT_RGMII_OOB_CTRL        0x08c
+    // 53 #define  GENET_EXT_RGMII_OOB_ID_MODE_DISABLE    __BIT(16)
+    // 54 #define  GENET_EXT_RGMII_OOB_RGMII_MODE_EN      __BIT(6)
+    // 55 #define  GENET_EXT_RGMII_OOB_OOB_DISABLE        __BIT(5)
+    // 56 #define  GENET_EXT_RGMII_OOB_RGMII_LINK         __BIT(4)
+
+    mmio_rw!(offset 0x08c => pub EXT_RGMII_OOB_CTRL<u32>);
+    pub const EXT_RGMII_OOB_ID_MODE_DISABLE: u32 = 1 << 16;
+    pub const EXT_RGMII_OOB_RGMII_MODE_EN: u32 = 1 << 6;
+    pub const EXT_RGMII_OOB_OOB_DISABLE: u32 = 1 << 5;
+    pub const EXT_RGMII_OOB_RGMII_LINK: u32 = 1 << 4;
+
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     pub const UMAC_CMD_LCL_LOOP_EN: u32 = 1 << 15;
     pub const UMAC_CMD_SW_RESET: u32 = 1 << 13;
     pub const UMAC_CMD_PROMISC: u32 = 1 << 4;
+
+    pub const UMAC_CMD_SPEED: u32 = 3 << 2;
+    pub const UMAC_CMD_SPEED_10: u32 = 0 << 2;
+    pub const UMAC_CMD_SPEED_100: u32 = 1 << 2;
+    pub const UMAC_CMD_SPEED_1000: u32 = 2 << 2;
 
     mmio_rw!(offset 0xd80 => pub UMAC_MIB_CTRL<u32>);
     pub const UMAC_MIB_RESET_TX: u32 = 1 << 2;
@@ -346,6 +366,46 @@ impl Mii for GenetInner {
         }
 
         Err(MiiError::Write)
+    }
+
+    fn on_link_update(&mut self, mii_data: &crate::mii::MiiData) {
+        let media_status = mii_data.get_media_status();
+        let media_active = mii_data.get_media_active();
+
+        let speed =
+            if media_status.contains(crate::if_media::IFM_ACTIVE | crate::if_media::IFM_AVALID) {
+                match ifm_subtype(&media_active) {
+                    IFM_1000_T | IFM_1000_SX => registers::UMAC_CMD_SPEED_1000,
+                    IFM_100_TX => registers::UMAC_CMD_SPEED_100,
+                    IFM_10_T => registers::UMAC_CMD_SPEED_10,
+                    _ => {
+                        return;
+                    }
+                }
+            } else {
+                return;
+            };
+
+        let base = self.base_addr.as_usize();
+
+        let mut val = registers::EXT_RGMII_OOB_CTRL.read(base);
+        val &= !registers::EXT_RGMII_OOB_OOB_DISABLE;
+        val |= registers::EXT_RGMII_OOB_RGMII_LINK;
+        val |= registers::EXT_RGMII_OOB_RGMII_MODE_EN;
+
+        if self.phy_mode == MiiPhyMode::Rgmii {
+            val &= !registers::EXT_RGMII_OOB_ID_MODE_DISABLE;
+        } else {
+            val |= registers::EXT_RGMII_OOB_ID_MODE_DISABLE;
+        }
+
+        registers::EXT_RGMII_OOB_CTRL.write(val, base);
+
+        let mut val = registers::UMAC_CMD.read(base);
+        val &= !registers::UMAC_CMD_SPEED;
+        val |= speed;
+
+        registers::UMAC_CMD.write(val, base);
     }
 }
 

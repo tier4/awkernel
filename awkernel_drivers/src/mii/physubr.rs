@@ -644,3 +644,11 @@ pub fn phy_flowstatus(mii: &mut dyn Mii, phy: &dyn MiiPhy) -> Result<u64, MiiErr
         _ => Ok(IFM_FLOW | IFM_ETH_RXPAUSE | IFM_ETH_TXPAUSE),
     }
 }
+
+pub fn phy_update(mii_data: &MiiData, phy: &mut dyn MiiPhy) -> Result<bool, MiiError> {
+    let phy_data = phy.get_phy_data();
+
+    // if mii_data.media
+
+    Ok(true)
+}
