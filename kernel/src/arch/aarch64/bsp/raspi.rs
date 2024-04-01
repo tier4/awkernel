@@ -2,7 +2,7 @@ use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 use crate::{
     arch::aarch64::{
         interrupt_ctl,
-        vm::{self, VM},
+        vm::{self, MemoryRange, VM},
     },
     config::DMA_SIZE,
 };
@@ -17,7 +17,7 @@ use awkernel_drivers::{
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
-    console::{register_console, register_unsafe_puts, unsafe_puts},
+    console::{register_console, register_unsafe_puts, unsafe_print_hex_u64, unsafe_puts},
     device_tree::{
         node::DeviceTreeNode,
         prop::{PropertyValue, Range},
@@ -68,7 +68,7 @@ impl super::SoC for Raspi {
         self.init_interrupt_fields()?;
         self.init_uart0()?;
         self.init_mbox()?;
-        self.init_framebuffer();
+        // self.init_framebuffer();
 
         set_max_affinity(4, 0, 0, 0);
 
@@ -107,12 +107,12 @@ impl super::SoC for Raspi {
         vm.remove_kernel_memory_from_heap_memory()?;
 
         let mask = PAGESIZE - 1;
-        let start = self.device_tree_base & !mask;
+        let device_tree_start = self.device_tree_base & !mask;
         let end = self.device_tree_base + self.device_tree.total_size();
         let end = end + PAGESIZE - (end & mask);
 
-        vm.remove_heap(PhyAddr::new(start), PhyAddr::new(end))?; // Do not use DTB's memory region for heap memory.
-        vm.push_ro_memory(PhyAddr::new(start), PhyAddr::new(end))?; // Make DTB's memory region read-only memory.
+        vm.remove_heap(PhyAddr::new(device_tree_start), PhyAddr::new(end))?; // Do not use DTB's memory region for heap memory.
+        vm.push_ro_memory(PhyAddr::new(device_tree_start), PhyAddr::new(end))?; // Make DTB's memory region read-only memory.
 
         let _ = vm.remove_heap(
             PhyAddr::new(0),
@@ -120,11 +120,18 @@ impl super::SoC for Raspi {
         );
 
         // Allocate a memory region for the DMA pool.
-        if let Some(dma_start) = vm.find_heap(DMA_SIZE) {
+        if let Some(dma_start) = vm.find_heap(
+            DMA_SIZE,
+            MemoryRange::new(PhyAddr::new(device_tree_start), PhyAddr::new(0x40000000)),
+        ) {
             let dma_end = dma_start + DMA_SIZE;
             vm.remove_heap(dma_start, dma_end)?;
             vm.push_device_range(dma_start, dma_end)?;
             self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+
+            unsafe_puts("DMA: start = ");
+            unsafe_print_hex_u64(dma_start.as_usize() as u64);
+            unsafe_puts("\r\n");
         }
 
         vm.print();

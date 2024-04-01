@@ -451,6 +451,7 @@ pub fn mii_mediachg(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiEr
         if *inst != current_inst {
             let phyno = phy.get_phy_data().phy;
             let bmcr = mii.read_reg(phyno, MII_BMCR)?;
+            log::debug!("mii_mediachg: isoalte {}", phyno);
             mii.write_reg(phyno, MII_BMCR, bmcr | BMCR_ISO)?;
         }
 

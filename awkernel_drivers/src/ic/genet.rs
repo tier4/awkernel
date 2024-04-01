@@ -1,4 +1,4 @@
-use core::sync::atomic::fence;
+use core::sync::atomic::{fence, Ordering};
 
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
@@ -8,7 +8,7 @@ use awkernel_lib::{
         multicast::MulticastAddrs,
         net_device::{
             self, EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
-            NetDevice, NetFlags,
+            NetDevice, NetFlags, PacketHeaderFlags,
         },
     },
     paging::PAGESIZE,
@@ -81,7 +81,11 @@ mod registers {
     pub const RBUF_ALIGN_2B: u32 = 1 << 1;
     pub const RBUF_64B_EN: u32 = 1;
 
+    mmio_rw!(offset 0x314 => pub RBUF_CHECK_CTRL<u32>);
+    pub const RBUF_CHECK_CTRL_EN: u32 = 1;
+
     mmio_rw!(offset 0x3b4 => pub RBUF_TBUF_SIZE_CTRL<u32>);
+    mmio_rw!(offset 0x600 => pub TBUF_CTRL<u32>);
 
     mmio_rw!(offset 0x808 => pub UMAC_CMD<u32>);
     pub const UMAC_CMD_LCL_LOOP_EN: u32 = 1 << 15;
@@ -259,7 +263,7 @@ impl NetDevice for Genet {
     }
 
     fn capabilities(&self) -> NetCapabilities {
-        NetCapabilities::empty()
+        NetCapabilities::VLAN_MTU
     }
 
     fn device_short_name(&self) -> alloc::borrow::Cow<'static, str> {
@@ -403,6 +407,8 @@ pub fn attach(
             }),
         )
         .or(Err(GenetError::InitializeInterrupt))?;
+
+        awkernel_lib::interrupt::enable_irq(*irq);
     }
 
     let phy_mode = match phy_mode {
@@ -440,6 +446,34 @@ pub fn attach(
         inner: RwLock::new(genet),
         mii: RwLock::new(mii),
     };
+
+    // genet.up().unwrap();
+    // loop {
+    //     if genet.link_status() == LinkStatus::Up {
+    //         break;
+    //     }
+    //     genet.tick().unwrap();
+
+    //     awkernel_lib::delay::wait_sec(1);
+    // }
+
+    // let data = [
+    //     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xdc, 0xa6, 0x32, 0x6f, 0x1d, 0x6f, 0x08, 0x06, 0x00,
+    //     0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0xdc, 0xa6, 0x32, 0x6f, 0x1d, 0x6f, 0xc0, 0xa8,
+    //     0x64, 0x40, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc0, 0xa8, 0x64, 0x02,
+    // ];
+
+    // awkernel_lib::interrupt::enable();
+
+    // loop {
+    //     let frame = EtherFrameRef {
+    //         data: &data,
+    //         vlan: None,
+    //         csum_flags: PacketHeaderFlags::empty(),
+    //     };
+    //     genet.send(frame, 0).unwrap();
+    //     awkernel_lib::delay::wait_sec(1);
+    // }
 
     awkernel_lib::net::add_interface(Arc::new(genet), None);
 
@@ -645,14 +679,58 @@ impl GenetInner {
         self.init_rxring()?;
 
         self.enable();
-
-        // TODO: gen_enable_offload(sc);
+        self.enable_offlad();
 
         mii_mediachg(self, mii_dev).or(Err(GenetError::Mii))?;
 
         self.if_flags.insert(NetFlags::RUNNING);
 
         Ok(())
+    }
+
+    fn enable_offlad(&mut self) {
+        // 540
+        // 541         check_ctrl = RD4(sc, GENET_RBUF_CHECK_CTRL);
+        // 542         buf_ctrl  = RD4(sc, GENET_RBUF_CTRL);
+
+        let base = self.base_addr.as_usize();
+
+        let mut check_ctrl = registers::RBUF_CHECK_CTRL.read(base);
+        let mut buf_ctrl = registers::RBUF_CTRL.read(base);
+
+        // 543         if ((if_getcapenable(sc->ifp) & IFCAP_RXCSUM) != 0) {
+        // 544                 check_ctrl |= GENET_RBUF_CHECK_CTRL_EN;
+        // 545                 buf_ctrl |= GENET_RBUF_64B_EN;
+        // 546         } else {
+        // 547                 check_ctrl &= ~GENET_RBUF_CHECK_CTRL_EN;
+        // 548                 buf_ctrl &= ~GENET_RBUF_64B_EN;
+        // 549         }
+
+        check_ctrl &= !registers::RBUF_CHECK_CTRL_EN;
+        buf_ctrl &= !registers::RBUF_64B_EN;
+
+        // 550         WR4(sc, GENET_RBUF_CHECK_CTRL, check_ctrl);
+        // 551         WR4(sc, GENET_RBUF_CTRL, buf_ctrl);
+
+        registers::RBUF_CHECK_CTRL.write(check_ctrl, base);
+        registers::RBUF_CTRL.write(buf_ctrl, base);
+
+        // 552
+        // 553         buf_ctrl  = RD4(sc, GENET_TBUF_CTRL);
+
+        let mut buf_ctrl = registers::TBUF_CTRL.read(base);
+
+        // 554         if ((if_getcapenable(sc->ifp) & (IFCAP_TXCSUM | IFCAP_TXCSUM_IPV6)) !=
+        // 555             0)
+        // 556                 buf_ctrl |= GENET_RBUF_64B_EN;
+        // 557         else
+        // 558                 buf_ctrl &= ~GENET_RBUF_64B_EN;
+
+        buf_ctrl &= !registers::RBUF_64B_EN;
+
+        // 559         WR4(sc, GENET_TBUF_CTRL, buf_ctrl);
+
+        registers::TBUF_CTRL.write(buf_ctrl, base);
     }
 
     fn send(&self, ether_frames: &[EtherFrameRef]) {
@@ -666,8 +744,16 @@ impl GenetInner {
 
         let base = self.base_addr.as_usize();
 
+        let cons_idx = registers::TX_DMA_CONS_INDEX
+            .read(base + registers::tx_dma_ringbase(DMA_DEFAULT_QUEUE as usize))
+            & registers::TX_DMA_PROD_CONS_MASK;
+
         let mut node = MCSNode::new();
         let mut tx = tx.lock(&mut node);
+
+        let total = (cons_idx - tx.cons_idx) & registers::TX_DMA_PROD_CONS_MASK;
+        tx.queued -= total;
+        tx.cons_idx = cons_idx;
 
         let mut index = tx.prod_idx as usize & (TX_DESC_COUNT - 1);
 
@@ -689,8 +775,16 @@ impl GenetInner {
             let buf = tx.buf.as_mut().get_mut(index).unwrap();
             unsafe { core::ptr::copy_nonoverlapping(frame.data.as_ptr(), buf.as_mut_ptr(), size) };
 
+            log::debug!(
+                "GENET: send, size = {size}, frame = {:02x?}, index = {index}",
+                &buf[0..size]
+            );
+
+            // <0xc0000000 0x0000000000000000 0x40000000>;
             let addr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
-            let addr = addr.as_usize();
+            let addr = addr.as_usize() + 0xc0000000;
+
+            log::debug!("GENET: send, addr = 0x{addr:x}");
 
             registers::TX_DESC_ADDRESS_LO
                 .write(addr as u32, base + registers::dma_desc_offset(index));
@@ -700,8 +794,6 @@ impl GenetInner {
             );
             registers::TX_DESC_STATUS
                 .write(length_status, base + registers::dma_desc_offset(index));
-
-            log::debug!("GENET: send, frame = {:02x?}", frame.data);
 
             tx.queued += 1;
             index = (index + 1) & (TX_DESC_COUNT - 1);
@@ -733,6 +825,7 @@ impl GenetInner {
         }
 
         if val & registers::IRQ_TXDMA_DONE != 0 {
+            log::debug!("GENET: TXDMA_DONE");
             self.txintr();
         }
     }
@@ -745,7 +838,7 @@ impl GenetInner {
         let base = self.base_addr.as_usize();
 
         let cons_idx = registers::TX_DMA_CONS_INDEX
-            .read(base + registers::dma_desc_offset(DMA_DEFAULT_QUEUE as usize))
+            .read(base + registers::tx_dma_ringbase(DMA_DEFAULT_QUEUE as usize))
             & registers::TX_DMA_PROD_CONS_MASK;
 
         let mut node = MCSNode::new();

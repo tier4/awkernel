@@ -43,7 +43,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
-
         #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::set_preempt_irq(
             config::PREEMPT_IRQ,
@@ -82,6 +81,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         NUM_READY_WORKER.store(awkernel_lib::cpu::num_cpu() as u16 - 1, Ordering::SeqCst);
+
         PRIMARY_READY.store(true, Ordering::SeqCst);
 
         while NUM_READY_WORKER.load(Ordering::SeqCst) > 0 {
