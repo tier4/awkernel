@@ -15,7 +15,10 @@ use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
 };
-use core::fmt::Debug;
+use core::{
+    fmt::Debug,
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
+};
 use kernel_info::KernelInfo;
 
 mod arch;
@@ -24,6 +27,9 @@ mod kernel_info;
 
 #[cfg(not(feature = "std"))]
 mod nostd;
+
+static PRIMARY_READY: AtomicBool = AtomicBool::new(false);
+static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 
 /// `main` function is called from each CPU.
 /// `kernel_info.cpu_id` represents the CPU identifier.
@@ -37,7 +43,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
-
         #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::set_preempt_irq(
             config::PREEMPT_IRQ,
@@ -74,6 +79,14 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             async move { userland::main().await },
             SchedulerType::FIFO,
         );
+
+        NUM_READY_WORKER.store(awkernel_lib::cpu::num_cpu() as u16 - 1, Ordering::SeqCst);
+
+        PRIMARY_READY.store(true, Ordering::SeqCst);
+
+        while NUM_READY_WORKER.load(Ordering::SeqCst) > 0 {
+            awkernel_lib::delay::wait_microsec(10);
+        }
 
         loop {
             awkernel_lib::interrupt::disable();
@@ -121,12 +134,18 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     // Non-primary CPUs.
     #[cfg(not(feature = "std"))]
     {
+        while !PRIMARY_READY.load(Ordering::SeqCst) {
+            awkernel_lib::delay::wait_microsec(10);
+        }
+
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
             awkernel_lib::interrupt::enable_irq(irq);
         }
     }
+
+    NUM_READY_WORKER.fetch_sub(1, Ordering::SeqCst);
 
     unsafe { task::run() }; // Execute tasks.
 }

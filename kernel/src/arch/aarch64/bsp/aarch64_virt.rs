@@ -5,7 +5,7 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::phy_addr::PhyAddr,
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::set_max_affinity,
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
@@ -13,10 +13,13 @@ use awkernel_lib::{
     paging::PAGESIZE,
 };
 
-use crate::arch::aarch64::{
-    bsp::aarch64_virt::uart::unsafe_puts,
-    interrupt_ctl,
-    vm::{get_kernel_start, VM},
+use crate::{
+    arch::aarch64::{
+        bsp::aarch64_virt::uart::unsafe_puts,
+        interrupt_ctl,
+        vm::{get_kernel_start, MemoryRange, VM},
+    },
+    config::DMA_SIZE,
 };
 
 use super::{DeviceTreeRef, StaticArrayedNode};
@@ -37,6 +40,7 @@ pub struct AArch64Virt {
     interrupt: Option<StaticArrayedNode>,
     interrupt_compatible: &'static str,
     pcie_reg: Option<(PhyAddr, usize)>,
+    dma_pool: Option<VirtAddr>,
 }
 
 impl super::SoC for AArch64Virt {
@@ -59,7 +63,15 @@ impl super::SoC for AArch64Virt {
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) -> Result<crate::arch::aarch64::vm::VM, &'static str> {
+    fn get_dma_pool(&self, segment: usize) -> Option<VirtAddr> {
+        if segment == 0 {
+            self.dma_pool
+        } else {
+            None
+        }
+    }
+
+    unsafe fn init_virtual_memory(&mut self) -> Result<crate::arch::aarch64::vm::VM, &'static str> {
         let mut vm = VM::new();
 
         // Add PCIe's configuration space.
@@ -90,6 +102,17 @@ impl super::SoC for AArch64Virt {
 
         vm.remove_heap(start, end)?; // Do not use DTB's memory region for heap memory.
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
+
+        // Allocate a memory region for the DMA pool.
+        if let Some(dma_start) = vm.find_heap(
+            DMA_SIZE,
+            MemoryRange::new(PhyAddr::new(0), PhyAddr::new(!0)),
+        ) {
+            let dma_end = dma_start + DMA_SIZE;
+            vm.remove_heap(dma_start, dma_end)?;
+            vm.push_device_range(dma_start, dma_end)?;
+            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+        }
 
         vm.print();
         unsafe_puts("Initializing the page table. Wait a moment.\r\n");
@@ -129,6 +152,7 @@ impl AArch64Virt {
             interrupt: None,
             interrupt_compatible: "",
             pcie_reg: None,
+            dma_pool: None,
         }
     }
 
@@ -190,25 +214,9 @@ impl AArch64Virt {
 
         let leaf = uart_node.get_leaf_node().unwrap();
 
-        // Get "compatible" property.
-        let compat_prop = leaf
-            .get_property("compatible")
-            .ok_or(err_msg!("failed to get compatible property"))?;
-
-        match compat_prop.value() {
-            PropertyValue::Strings(ss) => {
-                if !ss.contains(&"arm,pl011") {
-                    return Err(err_msg!("stdout-path is not arm,pl011"));
-                }
-            }
-            PropertyValue::String(s) => {
-                if *s != "arm,pl011" {
-                    return Err(err_msg!("stdout-path is not arm,pl011"));
-                }
-            }
-            _ => {
-                return Err(err_msg!("invalid compatible property"));
-            }
+        // Check if the node is compatible with arm,pl011.
+        if !leaf.compatible(&["arm,pl011"]) {
+            return Err(err_msg!("stdout-path is not arm,pl011"));
         }
 
         // Get the base address.
@@ -439,18 +447,16 @@ impl AArch64Virt {
         }
 
         // Get the "reg" property.
-        let Some((_base, _size)) = self.pcie_reg else {
+        let Some((base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
 
-        // TODO: disabled PCIe currently.
-
         // Initialize PCIe.
-        // awkernel_drivers::pcie::init_with_addr(
-        //     0,
-        //     VirtAddr::new(base.as_usize()),
-        //     ranges.as_slice(),
-        // );
+        awkernel_drivers::pcie::init_with_addr(
+            0,
+            VirtAddr::new(base.as_usize()),
+            Some(ranges.as_mut_slice()),
+        );
 
         Ok(())
     }

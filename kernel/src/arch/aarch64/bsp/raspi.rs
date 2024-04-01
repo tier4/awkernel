@@ -1,7 +1,10 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
-use crate::arch::aarch64::{
-    interrupt_ctl,
-    vm::{self, VM},
+use crate::{
+    arch::aarch64::{
+        interrupt_ctl,
+        vm::{self, MemoryRange, VM},
+    },
+    config::DMA_SIZE,
 };
 use alloc::{boxed::Box, format};
 use awkernel_drivers::{
@@ -12,17 +15,19 @@ use awkernel_drivers::{
     uart::pl011::PL011,
 };
 use awkernel_lib::{
-    addr::phy_addr::PhyAddr,
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
-    console::{register_console, register_unsafe_puts, unsafe_puts},
+    console::{register_console, register_unsafe_puts, unsafe_print_hex_u64, unsafe_puts},
     device_tree::{
+        node::DeviceTreeNode,
         prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
     },
     err_msg,
+    net::ether::ETHER_ADDR_LEN,
     paging::PAGESIZE,
 };
-use core::arch::asm;
+use core::{alloc::Allocator, arch::asm};
 
 pub mod config;
 pub mod memory;
@@ -53,6 +58,7 @@ pub struct Raspi {
     device_tree_base: usize,
     uart_base: Option<usize>,
     uart_irq: Option<u16>,
+    dma_pool: Option<VirtAddr>,
 }
 
 impl super::SoC for Raspi {
@@ -71,7 +77,7 @@ impl super::SoC for Raspi {
         Ok(())
     }
 
-    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str> {
+    unsafe fn init_virtual_memory(&mut self) -> Result<VM, &'static str> {
         let mut vm = VM::new();
 
         let num_cpus = self
@@ -101,17 +107,32 @@ impl super::SoC for Raspi {
         vm.remove_kernel_memory_from_heap_memory()?;
 
         let mask = PAGESIZE - 1;
-        let start = self.device_tree_base & !mask;
+        let device_tree_start = self.device_tree_base & !mask;
         let end = self.device_tree_base + self.device_tree.total_size();
         let end = end + PAGESIZE - (end & mask);
 
-        vm.remove_heap(PhyAddr::new(start), PhyAddr::new(end))?; // Do not use DTB's memory region for heap memory.
-        vm.push_ro_memory(PhyAddr::new(start), PhyAddr::new(end))?; // Make DTB's memory region read-only memory.
+        vm.remove_heap(PhyAddr::new(device_tree_start), PhyAddr::new(end))?; // Do not use DTB's memory region for heap memory.
+        vm.push_ro_memory(PhyAddr::new(device_tree_start), PhyAddr::new(end))?; // Make DTB's memory region read-only memory.
 
         let _ = vm.remove_heap(
             PhyAddr::new(0),
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
+
+        // Allocate a memory region for the DMA pool.
+        if let Some(dma_start) = vm.find_heap(
+            DMA_SIZE,
+            MemoryRange::new(PhyAddr::new(device_tree_start), PhyAddr::new(0x40000000)),
+        ) {
+            let dma_end = dma_start + DMA_SIZE;
+            vm.remove_heap(dma_start, dma_end)?;
+            vm.push_device_range(dma_start, dma_end)?;
+            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+
+            unsafe_puts("DMA: start = ");
+            unsafe_print_hex_u64(dma_start.as_usize() as u64);
+            unsafe_puts("\r\n");
+        }
 
         vm.print();
 
@@ -141,7 +162,17 @@ impl super::SoC for Raspi {
         self.init_pwm()?;
         self.init_uarts();
 
+        let _ = self.init_ethernet();
+
         Ok(())
+    }
+
+    fn get_dma_pool(&self, segment: usize) -> Option<VirtAddr> {
+        if segment == 0 {
+            self.dma_pool
+        } else {
+            None
+        }
     }
 }
 
@@ -157,6 +188,7 @@ impl Raspi {
             device_tree_base,
             uart_base: None,
             uart_irq: None,
+            dma_pool: None,
         }
     }
 
@@ -239,6 +271,33 @@ impl Raspi {
             .or(Err(err_msg!("invalid path")))
     }
 
+    fn get_irq<A>(&self, node: &DeviceTreeNode<A>, n: usize) -> Result<u16, &'static str>
+    where
+        A: Allocator + Clone,
+    {
+        // Get IRQ#.
+        let Some(interrupts_prop) = node.get_property("interrupts") else {
+            return Err(err_msg!("could not find interrupts property"));
+        };
+
+        let PropertyValue::Integers(interrupts) = interrupts_prop.value() else {
+            return Err(err_msg!("interrupts property has invalid value"));
+        };
+
+        let index = n * 3;
+
+        if index >= interrupts.len() {
+            return Err(err_msg!("interrupts property has not enough elements"));
+        }
+
+        let interrupts = &interrupts[index..index + 3];
+
+        let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
+            .ok_or(err_msg!("failed to get IRQ# from the interrupt controller"))?;
+
+        Ok(irq)
+    }
+
     fn init_uarts(&self) {
         unsafe { hal::rpi::uart::set_uart_clock(super::config::UART_CLOCK) };
 
@@ -256,31 +315,12 @@ impl Raspi {
             let uart_node = uart_arrayed_node.get_leaf_node().unwrap();
 
             // Get IRQ#.
-            let Some(interrupts_prop) = uart_node.get_property("interrupts") else {
+            let Ok(irq) = self.get_irq(uart_node, 0) else {
                 continue;
             };
 
-            let interrupts = match interrupts_prop.value() {
-                PropertyValue::Integers(ints) => ints,
-                _ => continue,
-            };
-
-            let Some(irq) = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts) else {
-                continue;
-            };
-
-            // Get the compatible property.
-            let Some(compatible_prop) = uart_node.get_property("compatible") else {
-                continue;
-            };
-
-            let compatibles = match compatible_prop.value() {
-                PropertyValue::Strings(v) => v,
-                _ => continue,
-            };
-
-            // UART must be PL011.
-            if !compatibles.iter().any(|c| *c == "arm,pl011") {
+            // The compatible property must be "arm,pl011".
+            if !uart_node.compatible(&["arm,pl011"]) {
                 continue;
             }
 
@@ -355,25 +395,10 @@ impl Raspi {
 
         let uart0_node = uart0_arrayed_node.get_leaf_node().unwrap();
 
-        // Get the compatible property.
-        let compatible_prop = uart0_node
-            .get_property("compatible")
-            .ok_or(err_msg!("uart0 has no compatible property"))?;
-
-        let compatibles = match compatible_prop.value() {
-            PropertyValue::Strings(v) => v,
-            _ => {
-                return Err(err_msg!(
-                    "uart0's compatible property is not a string vector"
-                ))
-            }
-        };
-
-        // UART0 must be PL011.
-        compatibles
-            .iter()
-            .find(|c| **c == "arm,pl011")
-            .ok_or(err_msg!("UART0 is not PL011"))?;
+        // The compatible property must be "arm,pl011".
+        if !uart0_node.compatible(&["arm,pl011"]) {
+            return Err(err_msg!("uart0 is not PL011"));
+        }
 
         let interrupts_prop = uart0_node
             .get_property("interrupts")
@@ -558,29 +583,17 @@ impl Raspi {
             .find_child("timer")
             .ok_or(err_msg!("could not find timer"))?;
 
-        let prop = timer_node
-            .get_property("compatible")
-            .ok_or(err_msg!("could not find compatible property"))?;
+        if timer_node.compatible(&["arm,armv8-timer"]) {
+            // IRQ #27 is the recommended value.
+            // every 1/2^19 = .000_001_9 [s].
+            let timer = Box::new(Armv8Timer::new(27, 19));
 
-        let compatible = match prop.value() {
-            PropertyValue::String(s) => s,
-            _ => return Err(err_msg!("")),
-        };
+            awkernel_lib::timer::register_timer(timer);
 
-        match *compatible {
-            "arm,armv8-timer" => {
-                // IRQ #27 is the recommended value.
-                // every 1/2^19 = .000_001_9 [s].
-                let timer = Box::new(Armv8Timer::new(27, 19));
-
-                awkernel_lib::timer::register_timer(timer);
-
-                log::info!("armv8-timer has been initialized.");
-            }
-            _ => {
-                // Timer of Raspberry Pi 3 is not supported.
-            }
+            log::info!("armv8-timer has been initialized.");
         }
+
+        // Timer of Raspberry Pi 3 is not supported.
 
         Ok(())
     }
@@ -591,5 +604,122 @@ impl Raspi {
                 unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
             }
         }
+    }
+
+    // ethernet@7d580000 {
+    //     local-mac-address = "";
+    //     compatible = "brcm,bcm2711-genet-v5";
+    //     reg = <0x000000007d580000 0x0000000000010000>;
+    //     #address-cells = <0x1>;
+    //     #size-cells = <0x1>;
+    //     interrupts = <0x0 0x9d 0x4 0x0 0x9e 0x4>;
+    //     status = "okay";
+    //     phy-handle = <0x2f>;
+    //     phy-mode = "rgmii-rxid";
+    //     phandle = <0xe0>;
+    //     mdio@e14 {
+    //         compatible = "brcm,genet-mdio-v5";
+    //         reg = <0x00000e14 0x00000008>;
+    //         reg-names = "mdio";
+    //         #address-cells = <0x1>;
+    //         #size-cells = <0x0>;
+    //         phandle = <0xe1>;
+    //         ethernet-phy@1 {
+    //             reg = <0x00000001 0>;
+    //             led-modes = <0x0 0x8>;
+    //             phandle = <0x2f>;
+    //         };
+    //     };
+    // };
+
+    /// Initialize the Ethernet controller.
+    fn init_ethernet(&self) -> Result<(), &'static str> {
+        let Ok(node) = self.get_device_from_symbols("genet") else {
+            return Err(err_msg!("could not find the Ethernet controller"));
+        };
+
+        let leaf = node
+            .get_leaf_node()
+            .ok_or(err_msg!("genet node has no leaf node"))?;
+
+        // The compatible property must be "brcm,bcm2711-genet-v5" or "brcm,genet-v5".
+        if !leaf.compatible(&["brcm,bcm2711-genet-v5", "brcm,genet-v5"]) {
+            return Err(err_msg!("unsupported Ethernet controller"));
+        }
+
+        // Get the base address.
+        let base_addr = node
+            .get_address(0)
+            .or(Err(err_msg!("could not find the base address")))?;
+
+        // Get IRQ#s.
+        let irq0 = self.get_irq(leaf, 0)?;
+        let irq1 = self.get_irq(leaf, 1)?;
+
+        // Get the phy-mode property.
+        let Some(phy_mode_prop) = leaf.get_property("phy-mode") else {
+            return Err(err_msg!("could not find the phy-mode property"));
+        };
+
+        let phy_mode = match phy_mode_prop.value() {
+            PropertyValue::String(s) => s,
+            _ => return Err(err_msg!("phy-mode property has invalid value")),
+        };
+
+        // Get the local-mac-address property.
+        let mac_addr = if let Some(prop) = leaf.get_property("local-mac-address") {
+            let val = prop.raw_value();
+            if val.len() == ETHER_ADDR_LEN {
+                Some([val[0], val[1], val[2], val[3], val[4], val[5]])
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        fn get_phy_id<A>(node: &DeviceTreeNode<A>) -> Option<u32>
+        where
+            A: Allocator + Clone,
+        {
+            // Get the phy-handle property.
+            let prop = node.get_property("phy-handle")?;
+
+            let phandle = match prop.value() {
+                PropertyValue::PHandle(p) => *p,
+                PropertyValue::Integer(p) => *p as u32,
+                _ => return None,
+            };
+
+            let node_phandle = node.get_node_by_phandle(phandle)?;
+            let prop = node_phandle.get_property("reg")?;
+
+            match prop.value() {
+                PropertyValue::Address(addr0, _) => {
+                    let addr = addr0.to_u128() as u32;
+                    Some(addr)
+                }
+                _ => None,
+            }
+        }
+
+        let phy_id = get_phy_id(leaf);
+
+        log::info!(
+            "GENET: base_addr = 0x{:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}, phy_id = {phy_id:x?}",
+            base_addr
+        );
+
+        // let result = awkernel_drivers::ic::genet::attach(
+        //     VirtAddr::new(base_addr as usize),
+        //     &[irq0, irq1],
+        //     phy_mode,
+        //     phy_id,
+        //     &mac_addr,
+        // );
+
+        // log::debug!("GENET: {:?}", result);
+
+        Ok(())
     }
 }

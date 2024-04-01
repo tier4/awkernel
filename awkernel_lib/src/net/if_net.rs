@@ -259,8 +259,6 @@ impl IfNet {
             let mut inner = self.inner.lock(&mut node);
 
             let (interface, socket_set) = inner.split();
-
-            // device_ref.tx_packet_header_flags(),
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 

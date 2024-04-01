@@ -989,7 +989,7 @@ impl IgbHw {
             })
         } else if is_ich8(&mac_type) {
             let bar1 = info.get_bar(1).ok_or(IgbDriverErr::NoBar1)?;
-            if matches!(bar1, BaseAddress::MMIO { .. }) {
+            if matches!(bar1, BaseAddress::Mmio { .. }) {
                 Some(FlashMemory {
                     base_address: bar1,
                     offset: 0,

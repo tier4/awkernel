@@ -13,10 +13,12 @@ pub trait CPU {
     fn raw_cpu_id() -> usize;
 }
 
+#[inline(always)]
 pub fn cpu_id() -> usize {
     ArchImpl::cpu_id()
 }
 
+#[inline(always)]
 pub fn raw_cpu_id() -> usize {
     ArchImpl::raw_cpu_id()
 }
@@ -24,10 +26,12 @@ pub fn raw_cpu_id() -> usize {
 /// # Safety
 ///
 /// Each CPU must call this function only once at its entry.
+#[inline(always)]
 pub unsafe fn increment_num_cpu() {
     NUM_CPU.fetch_add(1, Ordering::Relaxed);
 }
 
+#[inline(always)]
 pub fn num_cpu() -> usize {
     NUM_CPU.load(Ordering::Relaxed)
 }

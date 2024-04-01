@@ -8,14 +8,14 @@
 use super::bsp::DeviceTreeRef;
 use crate::{
     arch::aarch64::bsp::SoC,
-    config::{BACKUP_HEAP_SIZE, HEAP_START},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
 use awkernel_lib::{
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
-    heap,
+    dma_pool, heap,
 };
 use core::{
     arch::asm,
@@ -24,7 +24,8 @@ use core::{
 };
 
 static mut CPU_READY: usize = 0;
-static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static PRIMARY_INITIALIZED_1: AtomicBool = AtomicBool::new(false);
+static PRIMARY_INITIALIZED_2: AtomicBool = AtomicBool::new(false);
 
 static mut TTBR0_EL1: usize = 0;
 
@@ -123,7 +124,16 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
 
+    log::info!("Waking non-primary CPUs up.");
+    PRIMARY_INITIALIZED_1.store(true, Ordering::SeqCst);
+
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    for i in 0..initializer.get_segment_count() {
+        if let Some(dma_pool) = initializer.get_dma_pool(i) {
+            dma_pool::init_dma_pool(i, dma_pool, DMA_SIZE);
+        }
+    }
 
     // 6. Board specific initialization (Interrupt controller, PCIe, etc).
     if let Err(msg) = initializer.init() {
@@ -153,15 +163,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         log::info!("Use SP_ELx.");
     }
 
-    log::info!("{device_tree}");
-
-    log::info!("Waking non-primary CPUs up.");
-    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
-
-    let kernel_info = KernelInfo {
-        info: (),
-        cpu_id: 0,
-    };
+    // log::info!("{device_tree}");
 
     #[cfg(feature = "raspi")]
     if let Some(framebuffer) = awkernel_drivers::framebuffer::rpi::lfb::get_framebuffer_info() {
@@ -183,6 +185,13 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         )
         .draw(framebuffer);
     }
+
+    PRIMARY_INITIALIZED_2.store(true, Ordering::SeqCst);
+
+    let kernel_info = KernelInfo {
+        info: (),
+        cpu_id: 0,
+    };
 
     crate::main::<()>(kernel_info);
 }
@@ -217,8 +226,8 @@ unsafe fn non_primary_cpu() {
     super::vm::flush_cache();
 
     // 2. Wait until the primary CPU is enabled.
-    while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
-        core::hint::spin_loop();
+    while !PRIMARY_INITIALIZED_1.load(Ordering::SeqCst) {
+        awkernel_lib::delay::wait_millisec(1);
     }
 
     // 3. Initialization for non-primary CPUs.
@@ -232,6 +241,11 @@ unsafe fn non_primary_cpu() {
     };
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
+
+    // 3. Wait again
+    while !PRIMARY_INITIALIZED_2.load(Ordering::SeqCst) {
+        awkernel_lib::delay::wait_millisec(1);
+    }
 
     crate::main::<()>(kernel_info);
 }

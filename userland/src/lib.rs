@@ -150,13 +150,13 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
         .await;
     }
 
-    #[cfg(feature = "raspi")]
-    spawn(
-        "test_rpi_hal".into(),
-        test_rpi_hal::run_rpi_hal(),
-        SchedulerType::FIFO,
-    )
-    .await;
+    // #[cfg(feature = "raspi")]
+    // spawn(
+    //     "test_rpi_hal".into(),
+    //     test_rpi_hal::run_rpi_hal(),
+    //     SchedulerType::FIFO,
+    // )
+    // .await;
 
     Ok(())
 }

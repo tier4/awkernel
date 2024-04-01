@@ -43,7 +43,13 @@ pub struct MemoryRange<A: awkernel_lib::addr::Addr> {
     end: A,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl<A: awkernel_lib::addr::Addr> MemoryRange<A> {
+    pub fn new(start: A, end: A) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ContainResult {
     Contain,
     NotContain,
@@ -220,6 +226,21 @@ impl VM {
     pub fn get_ttbr0_addr(&self) -> Option<usize> {
         let addr = self.table0.as_ref()?.addr();
         Some(addr as usize)
+    }
+
+    /// Find a heap memory region that can store `size` bytes.
+    /// `phy_addr` is a hint for the physical address.
+    #[allow(dead_code)]
+    pub fn find_heap(&self, size: usize, phy_range: MemoryRange<PhyAddr>) -> Option<PhyAddr> {
+        for range in self.heap.iter().flatten() {
+            let range_size = range.end - range.start;
+            if range_size.as_usize() >= size && phy_range.contains(*range) == ContainResult::Contain
+            {
+                return Some(range.start);
+            }
+        }
+
+        None
     }
 
     /// If
