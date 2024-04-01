@@ -68,7 +68,7 @@ impl super::SoC for Raspi {
         self.init_interrupt_fields()?;
         self.init_uart0()?;
         self.init_mbox()?;
-        // self.init_framebuffer();
+        self.init_framebuffer();
 
         set_max_affinity(4, 0, 0, 0);
 
@@ -292,7 +292,7 @@ impl Raspi {
 
         let interrupts = &interrupts[index..index + 3];
 
-        let irq = interrupt_ctl::get_irq(self.interrupt_compatible, &interrupts)
+        let irq = interrupt_ctl::get_irq(self.interrupt_compatible, interrupts)
             .ok_or(err_msg!("failed to get IRQ# from the interrupt controller"))?;
 
         Ok(irq)
@@ -653,8 +653,8 @@ impl Raspi {
             .or(Err(err_msg!("could not find the base address")))?;
 
         // Get IRQ#s.
-        let irq0 = self.get_irq(&leaf, 0)?;
-        let irq1 = self.get_irq(&leaf, 1)?;
+        let irq0 = self.get_irq(leaf, 0)?;
+        let irq1 = self.get_irq(leaf, 1)?;
 
         // Get the phy-mode property.
         let Some(phy_mode_prop) = leaf.get_property("phy-mode") else {
@@ -678,7 +678,7 @@ impl Raspi {
             None
         };
 
-        fn get_phy_id<'a, A>(node: &'a DeviceTreeNode<A>) -> Option<u32>
+        fn get_phy_id<A>(node: &DeviceTreeNode<A>) -> Option<u32>
         where
             A: Allocator + Clone,
         {
@@ -705,20 +705,20 @@ impl Raspi {
 
         let phy_id = get_phy_id(leaf);
 
-        log::debug!(
+        log::info!(
             "GENET: base_addr = 0x{:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}, phy_id = {phy_id:x?}",
             base_addr
         );
 
-        let result = awkernel_drivers::ic::genet::attach(
-            VirtAddr::new(base_addr as usize),
-            &[irq0, irq1],
-            phy_mode,
-            phy_id,
-            &mac_addr,
-        );
+        // let result = awkernel_drivers::ic::genet::attach(
+        //     VirtAddr::new(base_addr as usize),
+        //     &[irq0, irq1],
+        //     phy_mode,
+        //     phy_id,
+        //     &mac_addr,
+        // );
 
-        log::debug!("GENET: {:?}", result);
+        // log::debug!("GENET: {:?}", result);
 
         Ok(())
     }

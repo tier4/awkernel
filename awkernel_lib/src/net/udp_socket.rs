@@ -169,17 +169,14 @@ impl UdpSocket {
             .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_send() {
-            log::debug!("UDP: sending {} bytes", buf.len());
             socket
                 .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
 
             drop(inner);
 
-            log::debug!("UDP: sending done");
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
             if_net.poll_tx_only(que_id);
-            log::debug!("UDP: poll_tx_only() done");
 
             Ok(true)
         } else {

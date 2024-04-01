@@ -764,8 +764,6 @@ impl PCIeInfo {
                     bridge_function_number,
                 ) {
                     unsafe { addr.set_base_address(allocated.device_addr) };
-                    log::debug!("PCIe: Allocate {:#x?} -> {:#x?}", addr, allocated.cpu_addr);
-
                     *addr = allocated.cpu_addr;
                     break;
                 }
@@ -896,7 +894,7 @@ impl PCIeInfo {
 
         // map MMIO regions
         for bar in self.base_addresses.iter() {
-            if let BaseAddress::MMIO {
+            if let BaseAddress::Mmio {
                 addr,
                 size,
                 prefetchable,
@@ -939,22 +937,6 @@ impl PCIeInfo {
     #[inline(always)]
     pub fn get_bar(&self, i: usize) -> Option<BaseAddress> {
         self.base_addresses.get(i).cloned()
-    }
-
-    fn match_device(&self) -> bool {
-        #[allow(clippy::single_match)] // TODO: To be removed
-        match self.vendor {
-            pcie_id::INTEL_VENDOR_ID =>
-            {
-                #[cfg(feature = "igb")]
-                if net::igb::match_device(self.vendor, self.id) {
-                    return true;
-                }
-            }
-            _ => (),
-        }
-
-        false
     }
 
     /// Initialize the PCIe device based on the information
@@ -1050,7 +1032,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
             if size == 0 {
                 BaseAddress::None
             } else {
-                BaseAddress::MMIO {
+                BaseAddress::Mmio {
                     reg_addr: config_space.addr(offset),
                     addr: (bar & BAR_MEM_ADDR_MASK) as usize,
                     size,
@@ -1083,7 +1065,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
             if size == 0 {
                 BaseAddress::None
             } else {
-                BaseAddress::MMIO {
+                BaseAddress::Mmio {
                     reg_addr: config_space.addr(offset),
                     addr,
                     size,

@@ -17,7 +17,7 @@ use crate::{
     arch::aarch64::{
         bsp::aarch64_virt::uart::unsafe_puts,
         interrupt_ctl,
-        vm::{get_kernel_start, VM},
+        vm::{get_kernel_start, MemoryRange, VM},
     },
     config::DMA_SIZE,
 };
@@ -104,7 +104,10 @@ impl super::SoC for AArch64Virt {
         vm.push_ro_memory(start, end)?; // Make DTB's memory region read-only memory.
 
         // Allocate a memory region for the DMA pool.
-        if let Some(dma_start) = vm.find_heap(DMA_SIZE) {
+        if let Some(dma_start) = vm.find_heap(
+            DMA_SIZE,
+            MemoryRange::new(PhyAddr::new(0), PhyAddr::new(!0)),
+        ) {
             let dma_end = dma_start + DMA_SIZE;
             vm.remove_heap(dma_start, dma_end)?;
             vm.push_device_range(dma_start, dma_end)?;
@@ -447,8 +450,6 @@ impl AArch64Virt {
         let Some((base, _size)) = self.pcie_reg else {
             return Err(err_msg!("PCIe: PCIe registers are not initialized"));
         };
-
-        log::debug!("ranges: {:#x?}", ranges);
 
         // Initialize PCIe.
         awkernel_drivers::pcie::init_with_addr(

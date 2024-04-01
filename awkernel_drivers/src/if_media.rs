@@ -200,14 +200,9 @@ impl Ifmedia {
     /// If multiple media are found, return the last one.
     pub fn find(&self, target: u64) -> Option<&IfmediaEntry> {
         let mask = !self.ifm_mask;
-
-        for m in &self.ifm_list {
-            if m.media.0 & mask == target & mask {
-                return Some(m);
-            }
-        }
-
-        None
+        self.ifm_list
+            .iter()
+            .find(|&m| m.media.0 & mask == target & mask)
     }
 
     #[inline(always)]

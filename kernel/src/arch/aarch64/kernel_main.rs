@@ -131,7 +131,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     for i in 0..initializer.get_segment_count() {
         if let Some(dma_pool) = initializer.get_dma_pool(i) {
-            log::debug!("DMA pool: {:?}", dma_pool);
             dma_pool::init_dma_pool(i, dma_pool, DMA_SIZE);
         }
     }

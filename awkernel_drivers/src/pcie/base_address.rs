@@ -15,7 +15,7 @@ pub enum BaseAddress {
         addr: u32,
         size: usize,
     },
-    MMIO {
+    Mmio {
         reg_addr: Option<VirtAddr>,
         addr: usize,
         size: usize,
@@ -30,7 +30,7 @@ impl BaseAddress {
     pub fn is_64bit_memory(&self) -> bool {
         matches!(
             self,
-            Self::MMIO {
+            Self::Mmio {
                 address_type: AddressType::T64B,
                 ..
             }
@@ -40,7 +40,7 @@ impl BaseAddress {
     pub fn is_32bit_memory(&self) -> bool {
         matches!(
             self,
-            Self::MMIO {
+            Self::Mmio {
                 address_type: AddressType::T32B,
                 ..
             }
@@ -59,7 +59,7 @@ impl BaseAddress {
             } => {
                 write_volatile(reg_addr.as_mut_ptr(), addr as u32);
             }
-            Self::MMIO {
+            Self::Mmio {
                 reg_addr: Some(reg_addr),
                 address_type,
                 ..
@@ -97,7 +97,7 @@ impl BaseAddress {
 
                 Some(val)
             }
-            BaseAddress::MMIO { addr, size, .. } => {
+            BaseAddress::Mmio { addr, size, .. } => {
                 let dst = *addr + offset;
                 assert!(dst + 2 < *addr + *size);
                 unsafe { Some(read_volatile(dst as *const u16)) }
@@ -122,7 +122,7 @@ impl BaseAddress {
                     Some(port2.read())
                 }
             }
-            BaseAddress::MMIO { addr, size, .. } => {
+            BaseAddress::Mmio { addr, size, .. } => {
                 let dst = *addr + offset;
                 assert!(dst + 4 < *addr + *size);
                 unsafe { Some(read_volatile(dst as *const u32)) }
@@ -153,7 +153,7 @@ impl BaseAddress {
                     port2.write((reg & mask) | (val as u32) << ((offset & 3) * 8));
                 }
             }
-            BaseAddress::MMIO { addr, size, .. } => unsafe {
+            BaseAddress::Mmio { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
                 assert!(dst + 4 < *addr + *size);
                 write_volatile(dst as *mut u8, val);
@@ -185,7 +185,7 @@ impl BaseAddress {
                     port2.write((reg & mask) | (val as u32) << ((offset & 2) * 8));
                 }
             }
-            BaseAddress::MMIO { addr, size, .. } => unsafe {
+            BaseAddress::Mmio { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
                 assert!(dst + 2 < *addr + *size);
                 write_volatile(dst as *mut u16, val);
@@ -210,7 +210,7 @@ impl BaseAddress {
                     port2.write(val);
                 }
             }
-            BaseAddress::MMIO { addr, size, .. } => unsafe {
+            BaseAddress::Mmio { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
                 assert!(dst + 4 < *addr + *size);
                 write_volatile(dst as *mut u32, val);

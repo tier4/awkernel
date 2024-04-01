@@ -1,5 +1,3 @@
-use core::sync::atomic::{fence, Ordering};
-
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     dma_pool::DMAPool,
@@ -8,21 +6,18 @@ use awkernel_lib::{
         multicast::MulticastAddrs,
         net_device::{
             self, EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
-            NetDevice, NetFlags, PacketHeaderFlags,
+            NetDevice, NetFlags,
         },
     },
     paging::PAGESIZE,
     sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
 };
 
-use alloc::{boxed::Box, collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::{
     if_media::{ifm_subtype, IFM_1000_SX, IFM_1000_T, IFM_100_TX, IFM_10_T},
-    mii::{
-        mii_mediachg, Mii, MiiData, MiiDev, MiiError, MiiFlags, MiiPhy, MiiPhyMode, MII_OFFSET_ANY,
-        MII_PHY_ANY,
-    },
+    mii::{mii_mediachg, Mii, MiiDev, MiiError, MiiFlags, MiiPhyMode, MII_OFFSET_ANY, MII_PHY_ANY},
 };
 
 pub const DMA_DESC_COUNT: usize = 256;

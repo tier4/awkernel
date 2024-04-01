@@ -111,8 +111,6 @@ async fn udp_test() {
             continue;
         }
 
-        log::debug!("Sent a UDP packet to {:?}.", dst_addr);
-
         // Receive a UDP packet.
         socket.recv(&mut buf).await.unwrap();
 

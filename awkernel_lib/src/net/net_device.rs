@@ -66,6 +66,8 @@ bitflags! {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkStatus {
     Up,
+    UpFullDuplex,
+    UpHalfDuplex,
     Down,
     Unknown,
 }
@@ -218,6 +220,8 @@ impl Display for LinkStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             LinkStatus::Up => write!(f, "Up"),
+            LinkStatus::UpFullDuplex => write!(f, "Up (Full Duplex)"),
+            LinkStatus::UpHalfDuplex => write!(f, "Up (Half Duplex)"),
             LinkStatus::Down => write!(f, "Down"),
             LinkStatus::Unknown => write!(f, "Unknown"),
         }

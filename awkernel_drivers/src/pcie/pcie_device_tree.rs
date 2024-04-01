@@ -95,7 +95,7 @@ impl PCIeRange {
 
                 let allocated = AllocatedRange {
                     device_addr: self.device_addr + allocated_size,
-                    cpu_addr: BaseAddress::MMIO {
+                    cpu_addr: BaseAddress::Mmio {
                         reg_addr: *reg_addr,
                         addr: self.cpu_addr + allocated_size,
                         size: *size,
@@ -109,7 +109,7 @@ impl PCIeRange {
 
                 Some(allocated)
             }
-            BaseAddress::MMIO {
+            BaseAddress::Mmio {
                 reg_addr,
                 size,
                 address_type,
@@ -142,7 +142,7 @@ impl PCIeRange {
 
                 let result = AllocatedRange {
                     device_addr: self.device_addr + allocated_size,
-                    cpu_addr: BaseAddress::MMIO {
+                    cpu_addr: BaseAddress::Mmio {
                         reg_addr: *reg_addr,
                         addr: self.cpu_addr + allocated_size,
                         size: *size,
@@ -190,7 +190,7 @@ impl PCIeRange {
                     && (self.device_addr..(self.device_addr + self.size))
                         .contains(&(addr + size - 1))
                 {
-                    Some(BaseAddress::MMIO {
+                    Some(BaseAddress::Mmio {
                         reg_addr: *reg_addr,
                         addr: self.cpu_addr + (addr - self.device_addr),
                         size: self.size - (addr - self.device_addr),
@@ -202,7 +202,7 @@ impl PCIeRange {
                     None
                 }
             }
-            BaseAddress::MMIO {
+            BaseAddress::Mmio {
                 reg_addr,
                 addr,
                 size,
@@ -230,7 +230,7 @@ impl PCIeRange {
                 let range = self.device_addr..(self.device_addr + self.size);
 
                 if range.contains(addr) && range.contains(&(*addr + *size - 1)) {
-                    Some(BaseAddress::MMIO {
+                    Some(BaseAddress::Mmio {
                         reg_addr: *reg_addr,
                         addr: self.cpu_addr + (addr - self.device_addr),
                         size: *size,

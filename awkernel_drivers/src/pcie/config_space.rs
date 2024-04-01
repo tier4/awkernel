@@ -7,7 +7,7 @@ pub enum ConfigSpace {
     #[allow(dead_code)]
     IO(u32),
 
-    MMIO(VirtAddr),
+    Mmio(VirtAddr),
 }
 
 impl ConfigSpace {
@@ -21,11 +21,11 @@ impl ConfigSpace {
     }
 
     pub fn new_memory(base: VirtAddr) -> Self {
-        Self::MMIO(base)
+        Self::Mmio(base)
     }
 
     pub fn addr(&self, offset: usize) -> Option<VirtAddr> {
-        let ConfigSpace::MMIO(base) = self else {
+        let ConfigSpace::Mmio(base) = self else {
             return None;
         };
 
@@ -54,7 +54,7 @@ impl ConfigSpace {
                     unreachable!()
                 }
             }
-            Self::MMIO(base) => {
+            Self::Mmio(base) => {
                 let addr = *base + offset;
                 unsafe { read_volatile(addr.as_ptr()) }
             }
@@ -82,7 +82,7 @@ impl ConfigSpace {
                     unreachable!()
                 }
             }
-            Self::MMIO(base) => {
+            Self::Mmio(base) => {
                 let addr = *base + offset;
                 unsafe { read_volatile(addr.as_ptr()) }
             }
@@ -110,7 +110,7 @@ impl ConfigSpace {
                     unreachable!()
                 }
             }
-            Self::MMIO(base) => {
+            Self::Mmio(base) => {
                 let addr = *base + offset;
                 unsafe { write_volatile(addr.as_mut_ptr(), data) }
             }
