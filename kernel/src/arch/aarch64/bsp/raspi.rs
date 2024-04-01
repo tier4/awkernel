@@ -94,9 +94,7 @@ impl super::SoC for Raspi {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(end))?;
         }
 
-        if let Some((start, size)) =
-            awkernel_drivers::framebuffer::rpi::lfb::get_frame_buffer_region()
-        {
+        if let Some((start, size)) = awkernel_drivers::ic::rpi::lfb::get_frame_buffer_region() {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(start + size))?;
         }
 
@@ -500,7 +498,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find Mbox's base address")))?;
 
-        unsafe { awkernel_drivers::framebuffer::rpi::mbox::set_mbox_base(base_addr as usize) };
+        unsafe { awkernel_drivers::ic::rpi::mbox::set_mbox_base(base_addr as usize) };
 
         Ok(())
     }
@@ -600,7 +598,7 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if awkernel_drivers::framebuffer::rpi::lfb::lfb_init(640, 360).is_err() {
+            if awkernel_drivers::ic::rpi::lfb::lfb_init(640, 360).is_err() {
                 unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
             }
         }

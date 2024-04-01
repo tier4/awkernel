@@ -5,6 +5,20 @@ use core::{
 
 static MBOXBASE: AtomicUsize = AtomicUsize::new(0);
 
+const CHANNEL: u32 = 8;
+
+pub const MBOX_REQUEST: u32 = 0;
+pub const MBOX_TAG_LAST: u32 = 0;
+
+/// Its block of memory will be accessed directly, bypassing the cache.
+pub const MEM_FLAG_DIRECT: u32 = 1 << 2;
+
+// Its block of memory will be accessed in a non-allocating fashion through the cache.
+pub const MEM_FLAG_COHERENT: u32 = 2 << 2;
+
+/// Its block of memory will be accessed by the VPU in a fashion which is allocating in L2, but only coherent in L1.
+pub const MEM_FLAG_L1_NONALLOCATING: u32 = MEM_FLAG_DIRECT | MEM_FLAG_COHERENT;
+
 /// Sets the base address of the mailbox.
 ///
 /// # Safety
@@ -38,18 +52,17 @@ pub(crate) struct Mbox<T>(pub T);
 
 pub(crate) struct MboxChannel {
     base: usize,
-    channel: u32,
 }
 
 impl MboxChannel {
-    pub fn new(channel: u32) -> Self {
+    pub fn new() -> Self {
         let base = MBOXBASE.load(Ordering::Relaxed);
-        Self { base, channel }
+        Self { base }
     }
 
     pub fn mbox_call<T>(&self, buffer: &mut Mbox<T>) -> bool {
         let ptr = buffer as *mut Mbox<T> as usize;
-        let r = ((ptr & !0xF) | (self.channel & 0xF) as usize) as u32;
+        let r = ((ptr & !0xF) | (CHANNEL & 0xF) as usize) as u32;
         let ptr1 = (ptr + 4) as *mut u32;
 
         while registers::STATUS
