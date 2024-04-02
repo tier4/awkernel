@@ -12,6 +12,10 @@ use awkernel_drivers::{
         self,
         rpi::{self, uart::PinUart},
     },
+    ic::{
+        self,
+        rpi::dma::{Dma, MEM_FLAG_DIRECT, MEM_FLAG_L1_NONALLOCATING},
+    },
     uart::pl011::PL011,
 };
 use awkernel_lib::{
@@ -60,6 +64,8 @@ pub struct Raspi {
     uart_irq: Option<u16>,
     dma_pool: Option<VirtAddr>,
 }
+
+static mut DMA: Option<Dma> = None;
 
 impl super::SoC for Raspi {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
@@ -117,20 +123,28 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        // Allocate a memory region for the DMA pool.
-        if let Some(dma_start) = vm.find_heap(
-            DMA_SIZE,
-            MemoryRange::new(PhyAddr::new(device_tree_start), PhyAddr::new(0x40000000)),
-        ) {
-            let dma_end = dma_start + DMA_SIZE;
-            vm.remove_heap(dma_start, dma_end)?;
-            vm.push_device_range(dma_start, dma_end)?;
-            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+        if let Some(dma) = ic::rpi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
+        {
+            let bus_addr = dma.get_bus_addr() as usize;
+            let phy_addr = bus_addr as usize & 0x3FFFFFFF;
+            let start = PhyAddr::new(phy_addr);
+            let end = PhyAddr::new(phy_addr + DMA_SIZE);
 
-            unsafe_puts("DMA: start = ");
-            unsafe_print_hex_u64(dma_start.as_usize() as u64);
-            unsafe_puts("\r\n");
-        }
+            let _ = vm.remove_heap(start, end);
+            if vm.push_device_range(start, end).is_ok() {
+                unsafe_puts("DMA: BUS address = ");
+                unsafe_print_hex_u64(bus_addr as u64);
+                unsafe_puts(", Physical address = ");
+                unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
+                unsafe_puts("\r\n");
+
+                self.dma_pool = Some(VirtAddr::new(start.as_usize()));
+
+                unsafe {
+                    DMA = Some(dma);
+                }
+            }
+        };
 
         vm.print();
 
@@ -708,15 +722,15 @@ impl Raspi {
             base_addr
         );
 
-        // let result = awkernel_drivers::ic::genet::attach(
-        //     VirtAddr::new(base_addr as usize),
-        //     &[irq0, irq1],
-        //     phy_mode,
-        //     phy_id,
-        //     &mac_addr,
-        // );
+        let result = awkernel_drivers::ic::genet::attach(
+            VirtAddr::new(base_addr as usize),
+            &[irq0, irq1],
+            phy_mode,
+            phy_id,
+            &mac_addr,
+        );
 
-        // log::debug!("GENET: {:?}", result);
+        log::debug!("GENET: {:?}", result);
 
         Ok(())
     }

@@ -48,8 +48,6 @@ mod registers {
     pub const REV_MINOR_SHIFT: u32 = 16;
     pub const REV_PHY: u32 = 0xffff;
 
-    // 47 #define GENET_SYS_PORT_CTRL             0x004
-    // 48 #define  GENET_SYS_PORT_MODE_EXT_GPHY   3
     mmio_rw!(offset 0x004 => pub SYS_PORT_CTRL<u32>);
     pub const SYS_PORT_MODE_EXT_GPHY: u32 = 3;
 
@@ -684,6 +682,8 @@ impl GenetInner {
     }
 
     fn enable_offlad(&mut self) {
+        // TODO: enable offload
+
         // 540
         // 541         check_ctrl = RD4(sc, GENET_RBUF_CHECK_CTRL);
         // 542         buf_ctrl  = RD4(sc, GENET_RBUF_CTRL);
@@ -760,6 +760,8 @@ impl GenetInner {
 
             let size = frame.data.len();
 
+            log::debug!("GENET: send, size = {size} data = {:02x?}", frame.data);
+
             let mut length_status = registers::TX_DESC_STATUS_QTAG_MASK
                 | registers::TX_DESC_STATUS_SOP
                 | registers::TX_DESC_STATUS_EOP
@@ -770,16 +772,8 @@ impl GenetInner {
             let buf = tx.buf.as_mut().get_mut(index).unwrap();
             unsafe { core::ptr::copy_nonoverlapping(frame.data.as_ptr(), buf.as_mut_ptr(), size) };
 
-            log::debug!(
-                "GENET: send, size = {size}, frame = {:02x?}, index = {index}",
-                &buf[0..size]
-            );
-
-            // <0xc0000000 0x0000000000000000 0x40000000>;
             let addr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
-            let addr = addr.as_usize() + 0xc0000000;
-
-            log::debug!("GENET: send, addr = 0x{addr:x}");
+            let addr = addr.as_usize();
 
             registers::TX_DESC_ADDRESS_LO
                 .write(addr as u32, base + registers::dma_desc_offset(index));

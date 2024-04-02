@@ -219,10 +219,10 @@ impl PageTable {
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
         let ptr = &lv3_table[lv3_idx];
         let val = unsafe { read_volatile(ptr) };
-        let high = (val >> 12) & 0xfffffff; // PA[39:12]
+        let high = val & (0xfffffff) << 12; // PA[39:12]
         let low = vm_addr.as_usize() as u64 & 0xfff; // PA[11:0]
 
-        Some(PhyAddr::new((high << 16 | low) as usize))
+        Some(PhyAddr::new((high | low) as usize))
     }
 }
 

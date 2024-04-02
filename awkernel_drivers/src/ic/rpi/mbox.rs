@@ -10,15 +10,6 @@ const CHANNEL: u32 = 8;
 pub const MBOX_REQUEST: u32 = 0;
 pub const MBOX_TAG_LAST: u32 = 0;
 
-/// Its block of memory will be accessed directly, bypassing the cache.
-pub const MEM_FLAG_DIRECT: u32 = 1 << 2;
-
-// Its block of memory will be accessed in a non-allocating fashion through the cache.
-pub const MEM_FLAG_COHERENT: u32 = 2 << 2;
-
-/// Its block of memory will be accessed by the VPU in a fashion which is allocating in L2, but only coherent in L1.
-pub const MEM_FLAG_L1_NONALLOCATING: u32 = MEM_FLAG_DIRECT | MEM_FLAG_COHERENT;
-
 /// Sets the base address of the mailbox.
 ///
 /// # Safety

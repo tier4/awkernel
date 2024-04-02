@@ -1,7 +1,10 @@
 use core::{ptr::addr_of_mut, slice};
 
 use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
-use awkernel_lib::paging::PAGESIZE;
+use awkernel_lib::{
+    console::{unsafe_print_hex_u64, unsafe_puts},
+    paging::PAGESIZE,
+};
 use embedded_graphics_core::{
     prelude::{DrawTarget, OriginDimensions, RgbColor},
     Pixel,
@@ -99,6 +102,12 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
         let height = mbox.0[6]; // Get actual physical height
         let pitch = mbox.0[33]; // Get number of bytes per row
         let is_rgb = mbox.0[24] == 1; // Get actual color order
+
+        unsafe {
+            unsafe_puts("Frame buffer: addr = 0x");
+            unsafe_print_hex_u64(mbox.0[28] as u64);
+            unsafe_puts("\r\n");
+        }
 
         let framebuffer =
             unsafe { slice::from_raw_parts_mut(framebuffer_address as *mut u8, framebuffer_size) };
