@@ -32,6 +32,10 @@ const BMCR_FDX: u32 = 0x0100; // Set duplex mode
 const BMCR_CTEST: u32 = 0x0080; // collision test
 const BMCR_SPEED1: u32 = 0x0040; // speed selection (MSB)
 
+const BMCR_S10: u32 = 0x0000; // 10 Mb/s
+const BMCR_S100: u32 = BMCR_SPEED0; // 100 Mb/s
+const BMCR_S1000: u32 = BMCR_SPEED1; // 1000 Mb/s
+
 const MII_BMSR: u32 = 0x01; // Basic mode status register (ro)
 const BMSR_100T4: u32 = 0x8000; // 100 base T4 capable
 const BMSR_100TXFDX: u32 = 0x4000; // 100 base Tx full duplex capable
@@ -90,6 +94,12 @@ const ANAR_PAUSE_NONE: u32 = 0;
 const ANAR_PAUSE_SYM: u32 = 1 << 10;
 const ANAR_PAUSE_ASYM: u32 = 2 << 10;
 const ANAR_PAUSE_TOWARDS: u32 = 3 << 10;
+
+const ANAR_X_FD: u32 = 0x0020; // local device supports 1000BASE-X FD
+const ANAR_X_HD: u32 = 0x0040; // local device supports 1000BASE-X HD
+const ANAR_X_PAUSE_SYM: u32 = 1 << 7;
+const ANAR_X_PAUSE_ASYM: u32 = 2 << 7;
+const ANAR_X_PAUSE_TOWARDS: u32 = 3 << 7;
 
 const MII_ANLPAR: u32 = 0x05; // Autonegotiation link partner abilities (ro)
 const ANLPAR_NP: u32 = 0x8000; // Next page (ro)

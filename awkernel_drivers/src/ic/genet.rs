@@ -287,23 +287,18 @@ impl NetDevice for Genet {
         inner.mac_addr
     }
 
-    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
         // TODO
         Ok(None)
     }
 
-    fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {
-        // TODO
-        log::debug!("GENET: interrupt, irq = {irq}");
-
+    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
         let inner = self.inner.read();
         inner.intr();
-
         Ok(())
     }
 
     fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
-        // TODO
         let inner = self.inner.read();
         let frames = [data];
         inner.send(&frames);
@@ -337,7 +332,6 @@ impl NetDevice for Genet {
     }
 
     fn poll_in_service(&self) -> Result<(), NetDevError> {
-        // TODO
         Ok(())
     }
 
