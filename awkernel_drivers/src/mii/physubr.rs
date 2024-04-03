@@ -621,12 +621,71 @@ pub fn phy_tick(
     Ok(TickReturn::Continue)
 }
 
-fn phy_auto(mii: &mut dyn Mii, mii_data: &MiiData, phy: &mut dyn MiiPhy) -> Result<(), MiiError> {
-    // TODO
+fn phy_auto(
+    mii: &mut dyn Mii,
+    mii_data: &MiiData,
+    phy: &mut dyn MiiPhy,
+) -> Result<TickReturn, MiiError> {
+    let Some(ife) = mii_data.media.get_current() else {
+        return Err(MiiError::Media);
+    };
 
-    log::debug!("phy_auto");
+    // Check for 1000BASE-X.  Autonegotiation is a bit
+    // different on such devices.
+    let phy_data = phy.get_phy_data();
 
-    Ok(())
+    if phy_data.flags.contains(MiiFlags::IS_1000X) {
+        let mut anar = 0;
+
+        if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
+            anar |= ANAR_X_FD;
+        }
+
+        if phy_data.extcapabilities & EXTSR_1000XHDX != 0 {
+            anar |= ANAR_X_HD;
+        }
+
+        if ife.media.contains(IFM_FLOW) || phy_data.flags.contains(MiiFlags::FORCEPAUSE) {
+            anar |= ANAR_X_PAUSE_TOWARDS;
+        }
+
+        mii.write_reg(phy_data.phy, MII_ANAR, anar)?;
+    } else {
+        let mut anar = bmsr_media_to_anar(phy_data.capabilities) | ANAR_CSMA;
+
+        if ife.media.contains(IFM_FLOW) || phy_data.flags.contains(MiiFlags::FORCEPAUSE) {
+            if phy_data.capabilities & (BMSR_10TFDX | BMSR_100TXFDX) != 0 {
+                anar |= ANAR_FC;
+            }
+
+            // XXX Only 1000BASE-T has PAUSE_ASYM?
+            if phy_data.flags.contains(MiiFlags::HAVE_GTCR)
+                && phy_data.extcapabilities & (EXTSR_1000THDX | EXTSR_1000TFDX) != 0
+            {
+                anar |= ANAR_X_PAUSE_ASYM;
+            }
+        }
+
+        mii.write_reg(phy_data.phy, MII_ANAR, anar)?;
+
+        if phy_data.flags.contains(MiiFlags::HAVE_GTCR) {
+            let mut gtcr = 0;
+
+            if phy_data.extcapabilities & EXTSR_1000TFDX != 0 {
+                gtcr |= GTCR_ADV_1000TFDX;
+            }
+
+            if phy_data.extcapabilities & EXTSR_1000THDX != 0 {
+                gtcr |= GTCR_ADV_1000THDX;
+            }
+
+            mii.write_reg(phy_data.phy, MII_100T2CR, gtcr)?;
+        }
+    }
+
+    mii.write_reg(phy_data.phy, MII_BMCR, BMCR_AUTOEN | BMCR_STARTNEG)?;
+
+    Ok(TickReturn::JustReturn)
 }
 
 /// Return the flow control status flag from MII_ANAR & MII_ANLPAR.

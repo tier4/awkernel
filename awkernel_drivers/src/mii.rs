@@ -64,6 +64,12 @@ const BMSR_MEDIAMASK: u32 = BMSR_100T4
     | BMSR_100T2FDX
     | BMSR_100T2HDX;
 
+/// Convert BMSR media capabilities to ANAR bits for autonegotiation.
+/// Note the shift chopps off the BMSR_ANEG bit.
+fn bmsr_media_to_anar(x: u32) -> u32 {
+    (x & BMSR_MEDIAMASK) >> 6
+}
+
 const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
 
 const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
