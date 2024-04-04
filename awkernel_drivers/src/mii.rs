@@ -333,19 +333,16 @@ pub fn attach(
     flags: MiiFlags,
 ) -> Result<MiiDev, MiiError> {
     if phyloc != MII_PHY_ANY && offloc != MII_OFFSET_ANY {
-        log::debug!("mii_attach: phyloc and offloc are both not MII_ANY");
         return Err(MiiError::InvalidParam);
     }
 
     if offloc != MII_OFFSET_ANY && offloc >= MII_NPHY {
-        log::debug!("mii_attach: invalid offloc {}", offloc);
         return Err(MiiError::InvalidParam);
     }
 
     let (phymin, phymax) = if phyloc == MII_PHY_ANY {
         (0, MII_NPHY - 1)
     } else if phyloc != MII_PHY_ANY && phyloc >= MII_NPHY {
-        log::debug!("mii_attach: invalid phyloc {}", phyloc);
         return Err(MiiError::InvalidParam);
     } else {
         (phyloc, phyloc)
@@ -430,12 +427,6 @@ fn miibus_linkchg(mii_data: &mut MiiData) {
     } else {
         mii_data.link_state = LinkStatus::Unknown;
     }
-
-    log::debug!(
-        "miibus_linkchg: link state {:?}, speed {}",
-        mii_data.link_state,
-        mii_data.media_active.link_speed()
-    );
 }
 
 pub fn mii_tick(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiError> {
@@ -467,7 +458,6 @@ pub fn mii_mediachg(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiEr
         if *inst != current_inst {
             let phyno = phy.get_phy_data().phy;
             let bmcr = mii.read_reg(phyno, MII_BMCR)?;
-            log::debug!("mii_mediachg: isoalte {}", phyno);
             mii.write_reg(phyno, MII_BMCR, bmcr | BMCR_ISO)?;
         }
 

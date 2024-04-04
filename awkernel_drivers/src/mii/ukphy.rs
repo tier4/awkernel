@@ -6,9 +6,7 @@ use crate::{
     mii::*,
 };
 
-use self::physubr::phy_update;
-
-use super::physubr::TickReturn;
+use self::physubr::{phy_update, TickReturn};
 
 pub struct Ukphy {
     phy_data: MiiPhyData,

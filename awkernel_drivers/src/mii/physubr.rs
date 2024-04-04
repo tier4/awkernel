@@ -139,8 +139,6 @@ pub fn phy_dev_attach(
         phy_data.flags &= !MiiFlags::FORCEANEG;
     }
 
-    // log::debug!("mii_data = {:?}", mii_data);
-
     Ok(())
 }
 
@@ -571,8 +569,6 @@ pub fn phy_tick(
     mii_data: &mut MiiData,
     phy: &mut dyn MiiPhy,
 ) -> Result<TickReturn, MiiError> {
-    log::debug!("phy_tick");
-
     let Some(ife) = mii_data.media.get_current() else {
         return Err(MiiError::Media);
     };
@@ -585,14 +581,12 @@ pub fn phy_tick(
     // changes.
     if ifm_subtype(&ife.media) != IFM_AUTO {
         phy_data.ticks = 0; // reset autonegotiation timer.
-        log::debug!("not doing autonegotiation");
         return Ok(TickReturn::Continue);
     }
 
     // Read the status register twice; BMSR_LINK is latch-low.
     let reg = mii.read_reg(phy_data.phy, MII_BMSR)? | mii.read_reg(phy_data.phy, MII_BMSR)?;
     if reg & BMSR_LINK != 0 {
-        log::debug!("link up");
         phy_data.ticks = 0; // reset autonegotiation timer.
         return Ok(TickReturn::Continue);
     }
