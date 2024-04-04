@@ -58,7 +58,7 @@ It can execute async/await applications in kernel space safely.
   - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
   - [ ] Intel 10Gb Ethernet Controller (X520 Series)
   - [ ] Mellanox ConnectX-5 series
-  - [ ] genet for Raspberry Pi
+  - [x] genet for Raspberry Pi
 - Networking
   - [x] IPv4
   - [x] IPv6
@@ -145,12 +145,6 @@ Release build.
 
 ```text
 $ make x86_64 RELEASE=1
-```
-
-If you want to use UEFI, make `x86_64_uefi.img` as follows.
-
-```text
-$ make x86_64_uefi.img
 ```
 
 ### Boot
