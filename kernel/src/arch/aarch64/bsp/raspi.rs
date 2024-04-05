@@ -2,7 +2,7 @@ use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 use crate::{
     arch::aarch64::{
         interrupt_ctl,
-        vm::{self, MemoryRange, VM},
+        vm::{self, VM},
     },
     config::DMA_SIZE,
 };
@@ -14,7 +14,7 @@ use awkernel_drivers::{
     },
     ic::{
         self,
-        rpi::dma::{Dma, MEM_FLAG_DIRECT, MEM_FLAG_L1_NONALLOCATING},
+        rpi::dma::{Dma, MEM_FLAG_DIRECT},
     },
     uart::pl011::PL011,
 };
@@ -618,32 +618,6 @@ impl Raspi {
         }
     }
 
-    // ethernet@7d580000 {
-    //     local-mac-address = "";
-    //     compatible = "brcm,bcm2711-genet-v5";
-    //     reg = <0x000000007d580000 0x0000000000010000>;
-    //     #address-cells = <0x1>;
-    //     #size-cells = <0x1>;
-    //     interrupts = <0x0 0x9d 0x4 0x0 0x9e 0x4>;
-    //     status = "okay";
-    //     phy-handle = <0x2f>;
-    //     phy-mode = "rgmii-rxid";
-    //     phandle = <0xe0>;
-    //     mdio@e14 {
-    //         compatible = "brcm,genet-mdio-v5";
-    //         reg = <0x00000e14 0x00000008>;
-    //         reg-names = "mdio";
-    //         #address-cells = <0x1>;
-    //         #size-cells = <0x0>;
-    //         phandle = <0xe1>;
-    //         ethernet-phy@1 {
-    //             reg = <0x00000001 0>;
-    //             led-modes = <0x0 0x8>;
-    //             phandle = <0x2f>;
-    //         };
-    //     };
-    // };
-
     /// Initialize the Ethernet controller.
     fn init_ethernet(&self) -> Result<(), &'static str> {
         let Ok(node) = self.get_device_from_symbols("genet") else {
@@ -722,15 +696,15 @@ impl Raspi {
             base_addr
         );
 
-        let result = awkernel_drivers::ic::genet::attach(
+        if let Err(e) = awkernel_drivers::ic::genet::attach(
             VirtAddr::new(base_addr as usize),
             &[irq0, irq1],
             phy_mode,
             phy_id,
             &mac_addr,
-        );
-
-        log::debug!("GENET: {:?}", result);
+        ) {
+            log::error!("Failed to initialize GENET: {:?}", e);
+        }
 
         Ok(())
     }

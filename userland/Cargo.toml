@@ -11,11 +11,16 @@ log = "0.4"
 [dependencies.awkernel_async_lib]
 path = "../awkernel_async_lib"
 
-[dependencies.test_network]
-path = "../applications/test_network"
-
 [dependencies.awkernel_services]
 path = "../applications/awkernel_services"
+
+[dependencies.test_pubsub]
+path = "../applications/test_pubsub"
+optional = true
+
+[dependencies.test_network]
+path = "../applications/test_network"
+optional = true
 
 [dependencies.test_rpi_hal]
 path = "../applications/test_rpi_hal"
@@ -23,3 +28,6 @@ optional = true
 
 [features]
 raspi = ["dep:test_rpi_hal"]
+test_network = ["dep:test_network"]
+test_pubsub = ["dep:test_pubsub"]
+test_rpi_hal = ["dep:test_rpi_hal"]

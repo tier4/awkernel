@@ -22,7 +22,7 @@ pub fn add(left: usize, right: usize) -> usize {
     left + right
 }
 
-pub async fn run_rpi_hal() {
+pub async fn run() {
     awkernel_async_lib::spawn(
         "blink and switch".into(),
         blink_and_switch(),
