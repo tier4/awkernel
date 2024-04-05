@@ -4,7 +4,9 @@ use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::net::net_device::LinkStatus;
 use bitflags::bitflags;
 
-use crate::if_media::{Ifmedia, Media, IFM_ACTIVE, IFM_AUTO, IFM_AVALID, IFM_ETHER, IFM_IMASK};
+use crate::if_media::{
+    Ifmedia, Media, IFM_ACTIVE, IFM_AUTO, IFM_AVALID, IFM_ETHER, IFM_FDX, IFM_IMASK,
+};
 
 pub mod physubr;
 pub mod ukphy;
@@ -436,7 +438,11 @@ fn mii_rev(id2: u32) -> u32 {
 fn miibus_linkchg(mii_data: &mut MiiData) {
     if mii_data.media_status.contains(IFM_AVALID) {
         if mii_data.media_status.contains(IFM_ACTIVE) {
-            mii_data.link_state = LinkStatus::Up;
+            if mii_data.media_active.contains(IFM_FDX) {
+                mii_data.link_state = LinkStatus::UpFullDuplex;
+            } else {
+                mii_data.link_state = LinkStatus::UpHalfDuplex;
+            }
         } else {
             mii_data.link_state = LinkStatus::Down;
         }

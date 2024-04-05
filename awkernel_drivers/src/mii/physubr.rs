@@ -1,7 +1,7 @@
 use crate::if_media::{
     ifm_make_word, ifm_options, ifm_subtype, IfmediaEntry, IFM_1000_SX, IFM_1000_T, IFM_100_FX,
-    IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FDX,
-    IFM_FLOW, IFM_HPNA_1, IFM_NONE,
+    IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FLOW,
+    IFM_HPNA_1, IFM_NONE,
 };
 
 use super::*;

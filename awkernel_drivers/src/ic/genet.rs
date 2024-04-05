@@ -499,34 +499,6 @@ pub fn attach(
         mii: RwLock::new(mii),
     };
 
-    // genet.up().unwrap();
-    // loop {
-    //     if genet.link_status() == LinkStatus::Up {
-    //         break;
-    //     }
-    //     genet.tick().unwrap();
-
-    //     awkernel_lib::delay::wait_sec(1);
-    // }
-
-    // let data = [
-    //     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xdc, 0xa6, 0x32, 0x6f, 0x1d, 0x6f, 0x08, 0x06, 0x00,
-    //     0x01, 0x08, 0x00, 0x06, 0x04, 0x00, 0x01, 0xdc, 0xa6, 0x32, 0x6f, 0x1d, 0x6f, 0xc0, 0xa8,
-    //     0x64, 0x40, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xc0, 0xa8, 0x64, 0x02,
-    // ];
-
-    // awkernel_lib::interrupt::enable();
-
-    // loop {
-    //     let frame = EtherFrameRef {
-    //         data: &data,
-    //         vlan: None,
-    //         csum_flags: PacketHeaderFlags::empty(),
-    //     };
-    //     genet.send(frame, 0).unwrap();
-    //     awkernel_lib::delay::wait_sec(1);
-    // }
-
     awkernel_lib::net::add_interface(Arc::new(genet), None);
 
     Ok(())
