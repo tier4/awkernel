@@ -13,9 +13,6 @@ pub const MEM_FLAG_L1_NONALLOCATING: u32 = MEM_FLAG_DIRECT | MEM_FLAG_COHERENT;
 pub struct Dma {
     handle: u32,
     bus_addr: u32,
-    size: u32,
-    align: u32,
-    mem_flags: u32,
 }
 
 impl Dma {
@@ -56,13 +53,7 @@ impl Dma {
 
         let bus_addr = mbox.0[5];
 
-        Some(Self {
-            handle,
-            bus_addr,
-            size,
-            align,
-            mem_flags,
-        })
+        Some(Self { handle, bus_addr })
     }
 
     #[inline(always)]

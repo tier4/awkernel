@@ -126,7 +126,7 @@ impl super::SoC for Raspi {
         if let Some(dma) = ic::rpi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
         {
             let bus_addr = dma.get_bus_addr() as usize;
-            let phy_addr = bus_addr as usize & 0x3FFFFFFF;
+            let phy_addr = bus_addr & 0x3FFFFFFF;
             let start = PhyAddr::new(phy_addr);
             let end = PhyAddr::new(phy_addr + DMA_SIZE);
 

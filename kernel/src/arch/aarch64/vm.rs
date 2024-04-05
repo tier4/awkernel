@@ -44,6 +44,7 @@ pub struct MemoryRange<A: awkernel_lib::addr::Addr> {
 }
 
 impl<A: awkernel_lib::addr::Addr> MemoryRange<A> {
+    #[allow(dead_code)]
     pub fn new(start: A, end: A) -> Self {
         Self { start, end }
     }

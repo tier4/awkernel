@@ -8,7 +8,6 @@ pub mod hal;
 pub mod ic;
 pub mod if_media;
 pub mod interrupt_controller;
-pub mod mii;
 pub mod uart;
 
 #[cfg(feature = "aarch64")]
@@ -16,3 +15,6 @@ pub mod psci;
 
 #[cfg(feature = "pcie")]
 pub mod pcie;
+
+#[cfg(feature = "mii")]
+pub mod mii;

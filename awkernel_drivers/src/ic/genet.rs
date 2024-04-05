@@ -41,8 +41,6 @@ type TxBufType = [[u8; RX_BUF_SIZE]; RX_DESC_COUNT];
 mod registers {
     use awkernel_lib::mmio_rw;
 
-    use super::bits;
-
     mmio_rw!(offset 0x000 => pub SYS_REV_CTRL<u32>);
     pub const REV_MAJOR: u32 = 0xf000000;
     pub const REV_MAJOR_SHIFT: u32 = 24;
@@ -68,8 +66,8 @@ mod registers {
     mmio_rw!(offset 0x20c => pub INTRL2_CPU_STAT_MASK<u32>);
 
     mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
-    pub const IRQ_MDIO_ERROR: u32 = 1 << 24;
-    pub const IRQ_MDIO_DONE: u32 = 1 << 23;
+    pub const _IRQ_MDIO_ERROR: u32 = 1 << 24;
+    pub const _IRQ_MDIO_DONE: u32 = 1 << 23;
     pub const IRQ_TXDMA_DONE: u32 = 1 << 16;
     pub const IRQ_RXDMA_DONE: u32 = 1 << 13;
 
@@ -111,8 +109,6 @@ mod registers {
     pub const MDIO_READ_FAILED: u32 = 1 << 28;
     pub const MDIO_READ: u32 = 1 << 27;
     pub const MDIO_WRITE: u32 = 1 << 26;
-    pub const MDIO_PMD: u32 = bits(25, 21);
-    pub const MDIO_REG: u32 = bits(20, 16);
     pub const MDIO_ADDR_SHIFT: u32 = 21;
     pub const MDIO_REG_SHIFT: u32 = 16;
     pub const MDIO_VAL_MASK: u32 = 0xffff;
@@ -144,8 +140,6 @@ mod registers {
     pub const RX_DMA_PROD_CONS_MASK: u32 = 0xffff;
 
     mmio_rw!(offset 0x10 => pub RX_DMA_RING_BUF_SIZE<u32>);
-    pub const RX_DMA_RING_BUF_SIZE_DESC_COUNT: u32 = bits(31, 16);
-    pub const RX_DMA_RING_BUF_SIZE_BUF_LENGTH: u32 = bits(15, 0);
     pub const RX_DMA_RING_BUF_SIZE_DESC_SHIFT: u32 = 16;
     pub const RX_DMA_RING_BUF_SIZE_BUF_LEN_MASK: u32 = 0xffff;
 
@@ -193,26 +187,26 @@ mod registers {
     mmio_rw!(offset RX_BASE + 0x04 => pub RX_DESC_ADDRESS_LO<u32>);
     mmio_rw!(offset RX_BASE + 0x08 => pub RX_DESC_ADDRESS_HI<u32>);
 
-    mmio_rw!(offset RX_BASE + 0x00 => pub RX_DESC_STATUS<u32>);
+    mmio_rw!(offset RX_BASE => pub RX_DESC_STATUS<u32>);
     pub const RX_DESC_STATUS_BUFLEN_MASK: u32 = 0xfff0000;
     pub const RX_DESC_STATUS_BUFLEN_SHIFT: u32 = 16;
-    pub const RX_DESC_STATUS_CKSUM_OK: u32 = 1 << 15;
+    pub const _RX_DESC_STATUS_CKSUM_OK: u32 = 1 << 15;
     pub const RX_DESC_STATUS_EOP: u32 = 1 << 14;
     pub const RX_DESC_STATUS_SOP: u32 = 1 << 13;
     pub const RX_DESC_STATUS_RX_ERROR: u32 = 1 << 2;
 
-    mmio_rw!(offset TX_BASE + 0x00 => pub TX_DESC_STATUS<u32>);
+    mmio_rw!(offset TX_BASE => pub TX_DESC_STATUS<u32>);
     pub const TX_DESC_STATUS_EOP: u32 = 1 << 14;
     pub const TX_DESC_STATUS_SOP: u32 = 1 << 13;
     pub const TX_DESC_STATUS_CRC: u32 = 1 << 6;
-    pub const TX_DESC_STATUS_CKSUM: u32 = 1 << 4;
+    pub const _TX_DESC_STATUS_CKSUM: u32 = 1 << 4;
     pub const TX_DESC_STATUS_BUFLEN_SHIFT: u32 = 16;
     pub const TX_DESC_STATUS_QTAG_MASK: u32 = 0x1f80;
 
     mmio_rw!(offset TX_BASE + 0x04 => pub TX_DESC_ADDRESS_LO<u32>);
     mmio_rw!(offset TX_BASE + 0x08 => pub TX_DESC_ADDRESS_HI<u32>);
 
-    mmio_rw!(offset RX_BASE + 0x1040 + 0x00 => pub RX_DMA_RING_CFG<u32>);
+    mmio_rw!(offset RX_BASE + 0x1040  => pub RX_DMA_RING_CFG<u32>);
 
     mmio_rw!(offset RX_BASE + 0x1040 + 0x04 => pub RX_DMA_CTRL<u32>);
     pub const RX_DMA_CTRL_EN: u32 = 1;
@@ -224,7 +218,7 @@ mod registers {
 
     mmio_rw!(offset RX_BASE + 0x1040 + 0x0c => pub RX_SCB_BURST_SIZE<u32>);
 
-    mmio_rw!(offset TX_BASE + 0x1040 + 0x00 => pub TX_DMA_RING_CFG<u32>);
+    mmio_rw!(offset TX_BASE + 0x1040 => pub TX_DMA_RING_CFG<u32>);
 
     mmio_rw!(offset TX_BASE + 0x1040 + 0x04 => pub TX_DMA_CTRL<u32>);
     pub const TX_DMA_CTRL_EN: u32 = 1;
@@ -375,7 +369,7 @@ impl NetDevice for Genet {
                 let mut node = MCSNode::new();
                 let rx = rx.lock(&mut node);
 
-                if rx.read_queue.len() > 0 {
+                if !rx.read_queue.is_empty() {
                     return true;
                 }
             }
@@ -387,7 +381,7 @@ impl NetDevice for Genet {
             let mut node = MCSNode::new();
             let rx = rx.lock(&mut node);
 
-            if rx.read_queue.len() > 0 {
+            if !rx.read_queue.is_empty() {
                 return true;
             }
         }
@@ -593,7 +587,6 @@ struct Tx {
 
 struct Rx {
     cons_idx: u32,
-    prod_idx: u32,
     buf: DMAPool<RxBufType>,
     read_queue: RingQ<EtherFrameBuf>,
 }
@@ -966,7 +959,7 @@ impl GenetInner {
                 self.setup_rxfilter_mdf(ea, i + 2);
             }
 
-            (1 << registers::MAX_MDF_FILTER) - 1 & !((1 << (registers::MAX_MDF_FILTER - n)) - 1)
+            ((1 << registers::MAX_MDF_FILTER) - 1) & !((1 << (registers::MAX_MDF_FILTER - n)) - 1)
         };
 
         registers::UMAC_CMD.write(cmd, base);
@@ -1047,7 +1040,6 @@ impl GenetInner {
 
         let rx = Rx {
             cons_idx: 0,
-            prod_idx: 0,
             buf,
             read_queue: RingQ::new(RECV_QUEUE_SIZE),
         };
@@ -1134,13 +1126,11 @@ impl GenetInner {
                 != (registers::RX_DESC_STATUS_SOP | registers::RX_DESC_STATUS_EOP)
             {
                 // error
-            } else {
-                if let Some(buf) = rx.buf.as_ref().get(index) {
-                    let data = buf[2..len as usize].to_vec();
+            } else if let Some(buf) = rx.buf.as_ref().get(index) {
+                let data = buf[2..len as usize].to_vec();
 
-                    let frame = EtherFrameBuf { data, vlan: None };
-                    let _ = rx.read_queue.push(frame);
-                }
+                let frame = EtherFrameBuf { data, vlan: None };
+                let _ = rx.read_queue.push(frame);
             }
 
             rx.cons_idx = (rx.cons_idx + 1) & registers::RX_DMA_PROD_CONS_MASK;
@@ -1150,8 +1140,4 @@ impl GenetInner {
 
         Ok(())
     }
-}
-
-const fn bits(m: u32, n: u32) -> u32 {
-    (1 << (m + 1) - 1) ^ (1 << n) - 1
 }

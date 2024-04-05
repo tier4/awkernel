@@ -396,38 +396,38 @@ fn phy_add_media(mii_data: &mut MiiData, phy: &mut dyn MiiPhy) {
         }
     }
 
-    if phy_data.extcapabilities & EXTSR_MEDIAMASK != 0 {
-        if phy_data.extcapabilities & EXTSR_1000XHDX != 0 {
-            phy_data.anegticks = MII_ANEGTICKS_GIGE;
-            phy_data.flags |= MiiFlags::IS_1000X;
+    if phy_data.extcapabilities & EXTSR_MEDIAMASK != 0
+        && phy_data.extcapabilities & EXTSR_1000XHDX != 0
+    {
+        phy_data.anegticks = MII_ANEGTICKS_GIGE;
+        phy_data.flags |= MiiFlags::IS_1000X;
 
+        mii_data.media.add(IfmediaEntry {
+            media: ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, phy_data.inst as u64),
+            data: 0,
+        });
+
+        if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
             mii_data.media.add(IfmediaEntry {
-                media: ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, phy_data.inst as u64),
+                media: ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, phy_data.inst as u64),
                 data: 0,
             });
 
-            if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
+            if phy_data.flags.contains(MiiFlags::DOPAUSE)
+                && !phy_data.flags.contains(MiiFlags::NOMANPAUSE)
+            {
                 mii_data.media.add(IfmediaEntry {
-                    media: ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, phy_data.inst as u64),
+                    media: ifm_make_word(
+                        IFM_ETHER,
+                        IFM_1000_SX,
+                        IFM_FDX | IFM_FLOW,
+                        phy_data.inst as u64,
+                    ),
                     data: 0,
                 });
-
-                if phy_data.flags.contains(MiiFlags::DOPAUSE)
-                    && !phy_data.flags.contains(MiiFlags::NOMANPAUSE)
-                {
-                    mii_data.media.add(IfmediaEntry {
-                        media: ifm_make_word(
-                            IFM_ETHER,
-                            IFM_1000_SX,
-                            IFM_FDX | IFM_FLOW,
-                            phy_data.inst as u64,
-                        ),
-                        data: 0,
-                    });
-                }
-
-                fdx = true;
             }
+
+            fdx = true;
         }
     }
 

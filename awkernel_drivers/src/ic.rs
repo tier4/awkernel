@@ -1,4 +1,4 @@
-#[cfg(feature = "raspi")]
+#[cfg(feature = "genet")]
 pub mod genet;
 
 #[cfg(feature = "raspi")]
