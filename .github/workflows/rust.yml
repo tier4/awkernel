@@ -35,6 +35,8 @@ jobs:
 
     - name: Build aarch64_virt
       run: make check_aarch64 BSP=aarch64_virt
+    - name: Build aarch64 raspi5
+      run: make check_aarch64 BSP=raspi5
     - name: Build aarch64 raspi4
       run: make check_aarch64 BSP=raspi4
     - name: Build aarch64 raspi3
