@@ -170,7 +170,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     // log::info!("{device_tree}");
 
     #[cfg(feature = "raspi")]
-    if let Some(framebuffer) = awkernel_drivers::framebuffer::rpi::lfb::get_framebuffer_info() {
+    if let Some(framebuffer) = awkernel_drivers::ic::rpi::lfb::get_framebuffer_info() {
         use embedded_graphics::{
             mono_font::{ascii::FONT_10X20, MonoTextStyle},
             prelude::*,

@@ -1264,16 +1264,9 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let mut data: Vec<u8> = Vec::with_capacity(len);
-
-                    #[allow(clippy::uninit_vec)]
-                    unsafe {
-                        data.set_len(len);
-
-                        let read_buf = rx.read_buf.as_ref().unwrap();
-                        let src = &read_buf.as_ref()[i];
-                        core::ptr::copy_nonoverlapping(src.as_ptr(), data.as_mut_ptr(), len);
-                    }
+                    let read_buf = rx.read_buf.as_ref().unwrap();
+                    let src = &read_buf.as_ref()[i];
+                    let data = src[0..len].to_vec();
 
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 };

@@ -4,7 +4,9 @@ use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::net::net_device::LinkStatus;
 use bitflags::bitflags;
 
-use crate::if_media::{Ifmedia, Media, IFM_ACTIVE, IFM_AUTO, IFM_AVALID, IFM_ETHER, IFM_IMASK};
+use crate::if_media::{
+    Ifmedia, Media, IFM_ACTIVE, IFM_AUTO, IFM_AVALID, IFM_ETHER, IFM_FDX, IFM_IMASK,
+};
 
 pub mod physubr;
 pub mod ukphy;
@@ -29,8 +31,12 @@ const BMCR_PDOWN: u32 = 0x0800; // power down
 const BMCR_ISO: u32 = 0x0400; // isolate
 const BMCR_STARTNEG: u32 = 0x0200; // restart autonegotiation
 const BMCR_FDX: u32 = 0x0100; // Set duplex mode
-const BMCR_CTEST: u32 = 0x0080; // collision test
+const _BMCR_CTEST: u32 = 0x0080; // collision test
 const BMCR_SPEED1: u32 = 0x0040; // speed selection (MSB)
+
+const BMCR_S10: u32 = 0x0000; // 10 Mb/s
+const BMCR_S100: u32 = BMCR_SPEED0; // 100 Mb/s
+const BMCR_S1000: u32 = BMCR_SPEED1; // 1000 Mb/s
 
 const MII_BMSR: u32 = 0x01; // Basic mode status register (ro)
 const BMSR_100T4: u32 = 0x8000; // 100 base T4 capable
@@ -41,13 +47,13 @@ const BMSR_10THDX: u32 = 0x0800; // 10 base T half duplex capable
 const BMSR_100T2FDX: u32 = 0x0400; // 100 base T2 full duplex capable
 const BMSR_100T2HDX: u32 = 0x0200; // 100 base T2 half duplex capable
 const BMSR_EXTSTAT: u32 = 0x0100; // Extended status in register 15
-const BMSR_MFPS: u32 = 0x0040; // MII Frame Preamble Suppression
+const _BMSR_MFPS: u32 = 0x0040; // MII Frame Preamble Suppression
 const BMSR_ACOMP: u32 = 0x0020; // Autonegotiation complete
-const BMSR_RFAULT: u32 = 0x0010; // Link partner fault
+const _BMSR_RFAULT: u32 = 0x0010; // Link partner fault
 const BMSR_ANEG: u32 = 0x0008; // Autonegotiation capable
 const BMSR_LINK: u32 = 0x0004; // Link status
-const BMSR_JABBER: u32 = 0x0002; // Jabber detected
-const BMSR_EXTCAP: u32 = 0x0001; // Extended capability
+const _BMSR_JABBER: u32 = 0x0002; // Jabber detected
+const _BMSR_EXTCAP: u32 = 0x0001; // Extended capability
 
 // Note that the EXTSTAT bit indicates that there is extended status
 // info available in register 15, but 802.3 section 22.2.4.3 also
@@ -60,10 +66,16 @@ const BMSR_MEDIAMASK: u32 = BMSR_100T4
     | BMSR_100T2FDX
     | BMSR_100T2HDX;
 
+/// Convert BMSR media capabilities to ANAR bits for autonegotiation.
+/// Note the shift chopps off the BMSR_ANEG bit.
+fn bmsr_media_to_anar(x: u32) -> u32 {
+    (x & BMSR_MEDIAMASK) >> 6
+}
+
 const MII_PHYIDR1: u32 = 0x02; // ID register 1 (ro)
 
 const MII_PHYIDR2: u32 = 0x03; // ID register 2 (ro)
-const IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
+const _IDR2_OUILSB: u32 = 0xfc00; // OUI LSB
 const IDR2_MODEL: u32 = 0x03f0; // vendor model
 const IDR2_REV: u32 = 0x000f; // vendor revision
 
@@ -76,9 +88,9 @@ const EXTSR_1000THDX: u32 = 0x1000; // 1000T half-duplex capable
 const EXTSR_MEDIAMASK: u32 = EXTSR_1000XFDX | EXTSR_1000XHDX | EXTSR_1000TFDX | EXTSR_1000THDX;
 
 const MII_ANAR: u32 = 0x04; // Autonegotiation advertisement (rw)
-const ANAR_NP: u32 = 0x8000; // Next page (ro)
-const ANAR_ACK: u32 = 0x4000; // link partner abilities acknowledged (ro)
-const ANAR_RF: u32 = 0x2000; // remote fault (ro)
+const _ANAR_NP: u32 = 0x8000; // Next page (ro)
+const _ANAR_ACK: u32 = 0x4000; // link partner abilities acknowledged (ro)
+const _ANAR_RF: u32 = 0x2000; // remote fault (ro)
 const ANAR_FC: u32 = 0x0400; // local device supports PAUSE
 const ANAR_T4: u32 = 0x0200; // local device supports 100bT4
 const ANAR_TX_FD: u32 = 0x0100; // local device supports 100bTx FD
@@ -86,23 +98,29 @@ const ANAR_TX: u32 = 0x0080; // local device supports 100bTx
 const ANAR_10_FD: u32 = 0x0040; // local device supports 10bT FD
 const ANAR_10: u32 = 0x0020; // local device supports 10bT
 const ANAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
-const ANAR_PAUSE_NONE: u32 = 0;
+const _ANAR_PAUSE_NONE: u32 = 0;
 const ANAR_PAUSE_SYM: u32 = 1 << 10;
 const ANAR_PAUSE_ASYM: u32 = 2 << 10;
-const ANAR_PAUSE_TOWARDS: u32 = 3 << 10;
+const _ANAR_PAUSE_TOWARDS: u32 = 3 << 10;
+
+const ANAR_X_FD: u32 = 0x0020; // local device supports 1000BASE-X FD
+const ANAR_X_HD: u32 = 0x0040; // local device supports 1000BASE-X HD
+const _ANAR_X_PAUSE_SYM: u32 = 1 << 7;
+const ANAR_X_PAUSE_ASYM: u32 = 2 << 7;
+const ANAR_X_PAUSE_TOWARDS: u32 = 3 << 7;
 
 const MII_ANLPAR: u32 = 0x05; // Autonegotiation link partner abilities (ro)
-const ANLPAR_NP: u32 = 0x8000; // Next page (ro)
-const ANLPAR_ACK: u32 = 0x4000; // link partner accepted ACK (ro)
-const ANLPAR_RF: u32 = 0x2000; // remote fault (ro)
-const ANLPAR_FC: u32 = 0x0400; // link partner supports PAUSE
+const _ANLPAR_NP: u32 = 0x8000; // Next page (ro)
+const _ANLPAR_ACK: u32 = 0x4000; // link partner accepted ACK (ro)
+const _ANLPAR_RF: u32 = 0x2000; // remote fault (ro)
+const _ANLPAR_FC: u32 = 0x0400; // link partner supports PAUSE
 const ANLPAR_T4: u32 = 0x0200; // link partner supports 100bT4
 const ANLPAR_TX_FD: u32 = 0x0100; // link partner supports 100bTx FD
 const ANLPAR_TX: u32 = 0x0080; // link partner supports 100bTx
 const ANLPAR_10_FD: u32 = 0x0040; // link partner supports 10bT FD
 const ANLPAR_10: u32 = 0x0020; // link partner supports 10bT
-const ANLPAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
-const ANLPAR_PAUSE_MASK: u32 = 3 << 10;
+const _ANLPAR_CSMA: u32 = 0x0001; // protocol selector CSMA/CD
+const _ANLPAR_PAUSE_MASK: u32 = 3 << 10;
 const ANLPAR_PAUSE_NONE: u32 = 0 << 10;
 const ANLPAR_PAUSE_SYM: u32 = 1 << 10;
 const ANLPAR_PAUSE_ASYM: u32 = 2 << 10;
@@ -110,23 +128,23 @@ const ANLPAR_PAUSE_TOWARDS: u32 = 3 << 10;
 
 // This is the 1000baseT control register
 const MII_100T2CR: u32 = 0x09; // 100base-T2 control register
-const GTCR_TEST_MASK: u32 = 0xe000; // see 802.3ab ss.
+const _GTCR_TEST_MASK: u32 = 0xe000; // see 802.3ab ss.
 const GTCR_MAN_MS: u32 = 0x1000; // enable manual master/slave control
 const GTCR_ADV_MS: u32 = 0x0800; // 1 = adv. master, 0 = adv. slave
-const GTCR_PORT_TYPE: u32 = 0x0400; // 1 = DCE, 0 = DTE (NIC)
+const _GTCR_PORT_TYPE: u32 = 0x0400; // 1 = DCE, 0 = DTE (NIC)
 const GTCR_ADV_1000TFDX: u32 = 0x0200; // adv. 1000baseT FDX
 const GTCR_ADV_1000THDX: u32 = 0x0100; // adv. 1000baseT HDX
 
 // This is also the 1000baseT status register
 const MII_100T2SR: u32 = 0x0a; // 100base-T2 status register
-const GTSR_MAN_MS_FLT: u32 = 0x8000; // master/slave config fault
+const _GTSR_MAN_MS_FLT: u32 = 0x8000; // master/slave config fault
 const GTSR_MS_RES: u32 = 0x4000; // result: 1 = master, 0 = slave
-const GTSR_LRS: u32 = 0x2000; // local rx status, 1 = ok
-const GTSR_RRS: u32 = 0x1000; // remote rx status, 1 = ok
+const _GTSR_LRS: u32 = 0x2000; // local rx status, 1 = ok
+const _GTSR_RRS: u32 = 0x1000; // remote rx status, 1 = ok
 const GTSR_LP_1000TFDX: u32 = 0x0800; // link partner 1000baseT FDX capable
 const GTSR_LP_1000THDX: u32 = 0x0400; // link partner 1000baseT HDX capable
-const GTSR_LP_ASM_DIR: u32 = 0x0200; // link partner asym. pause dir. capable
-const GTSR_IDLE_ERR: u32 = 0x00ff; // IDLE error count
+const _GTSR_LP_ASM_DIR: u32 = 0x0200; // link partner asym. pause dir. capable
+const _GTSR_IDLE_ERR: u32 = 0x00ff; // IDLE error count
 
 const MII_ANEGTICKS: u32 = 5;
 const MII_ANEGTICKS_GIGE: u32 = 17;
@@ -307,6 +325,22 @@ impl MiiPhyData {
 
         result
     }
+
+    pub fn get_oui(&self) -> u32 {
+        self.mpd_oui
+    }
+
+    pub fn get_model(&self) -> u32 {
+        self.mpd_model
+    }
+
+    pub fn get_rev(&self) -> u32 {
+        self.mpd_rev
+    }
+
+    pub fn get_offset(&self) -> u32 {
+        self.offset
+    }
 }
 
 pub fn attach(
@@ -317,19 +351,16 @@ pub fn attach(
     flags: MiiFlags,
 ) -> Result<MiiDev, MiiError> {
     if phyloc != MII_PHY_ANY && offloc != MII_OFFSET_ANY {
-        log::debug!("mii_attach: phyloc and offloc are both not MII_ANY");
         return Err(MiiError::InvalidParam);
     }
 
     if offloc != MII_OFFSET_ANY && offloc >= MII_NPHY {
-        log::debug!("mii_attach: invalid offloc {}", offloc);
         return Err(MiiError::InvalidParam);
     }
 
     let (phymin, phymax) = if phyloc == MII_PHY_ANY {
         (0, MII_NPHY - 1)
     } else if phyloc != MII_PHY_ANY && phyloc >= MII_NPHY {
-        log::debug!("mii_attach: invalid phyloc {}", phyloc);
         return Err(MiiError::InvalidParam);
     } else {
         (phyloc, phyloc)
@@ -407,19 +438,17 @@ fn mii_rev(id2: u32) -> u32 {
 fn miibus_linkchg(mii_data: &mut MiiData) {
     if mii_data.media_status.contains(IFM_AVALID) {
         if mii_data.media_status.contains(IFM_ACTIVE) {
-            mii_data.link_state = LinkStatus::Up;
+            if mii_data.media_active.contains(IFM_FDX) {
+                mii_data.link_state = LinkStatus::UpFullDuplex;
+            } else {
+                mii_data.link_state = LinkStatus::UpHalfDuplex;
+            }
         } else {
             mii_data.link_state = LinkStatus::Down;
         }
     } else {
         mii_data.link_state = LinkStatus::Unknown;
     }
-
-    log::debug!(
-        "miibus_linkchg: link state {:?}, speed {}",
-        mii_data.link_state,
-        mii_data.media_active.link_speed()
-    );
 }
 
 pub fn mii_tick(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiError> {
@@ -451,7 +480,6 @@ pub fn mii_mediachg(mii: &mut dyn Mii, mii_dev: &mut MiiDev) -> Result<(), MiiEr
         if *inst != current_inst {
             let phyno = phy.get_phy_data().phy;
             let bmcr = mii.read_reg(phyno, MII_BMCR)?;
-            log::debug!("mii_mediachg: isoalte {}", phyno);
             mii.write_reg(phyno, MII_BMCR, bmcr | BMCR_ISO)?;
         }
 

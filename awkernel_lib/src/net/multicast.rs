@@ -27,6 +27,11 @@ impl MulticastAddrs {
     }
 
     #[inline(always)]
+    pub fn remove_addr(&mut self, addr: &[u8; ETHER_ADDR_LEN]) -> bool {
+        self.addrs.remove(addr)
+    }
+
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.addrs.len()
     }

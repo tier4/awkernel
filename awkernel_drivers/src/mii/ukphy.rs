@@ -1,14 +1,11 @@
 use crate::{
     if_media::{
-        IFM_1000_T, IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_FDX, IFM_HDX, IFM_LOOP,
-        IFM_NONE,
+        IFM_1000_T, IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_HDX, IFM_LOOP, IFM_NONE,
     },
     mii::*,
 };
 
-use self::physubr::phy_update;
-
-use super::physubr::TickReturn;
+use self::physubr::{phy_update, TickReturn};
 
 pub struct Ukphy {
     phy_data: MiiPhyData,

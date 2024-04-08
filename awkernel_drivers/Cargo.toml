@@ -61,13 +61,17 @@ doc = ["awkernel_lib/aarch64", "raspi", "all_device"]
 
 # Devices
 all_device = ["all_pcie", "pl011", "uart_16550", "pcie", "raspi"]
-raspi = []
+raspi = ["genet"]
 
 ## UART
 pl011 = []
 uart_16550 = []
 
+## Ethernet
+mii = []        # Media Independent Interface
+genet = ["mii"] # Broadcom GENET for Raspberry Pi
+
 ## PCIe
 pcie = []
 all_pcie = ["pcie", "igb"]
-igb = []
+igb = []                   # Intel Gigabit Ethernet

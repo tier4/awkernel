@@ -1,14 +1,14 @@
 use core::{ptr::addr_of_mut, slice};
 
-use super::mbox::{Mbox, MboxChannel};
-use awkernel_lib::paging::PAGESIZE;
+use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
+use awkernel_lib::{
+    console::{unsafe_print_hex_u64, unsafe_puts},
+    paging::PAGESIZE,
+};
 use embedded_graphics_core::{
     prelude::{DrawTarget, OriginDimensions, RgbColor},
     Pixel,
 };
-
-const MBOX_REQUEST: u32 = 0;
-const MBOX_TAG_LAST: u32 = 0;
 
 static mut FRMAME_BUFFER_INFO: Option<FramebufferInfo> = None;
 
@@ -47,7 +47,7 @@ impl FramebufferInfo {
 ///
 /// This function must be called at initialization.
 pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
-    let channel = MboxChannel::new(8);
+    let channel = MboxChannel::new();
 
     let mut mbox = Mbox::<[u32; 35]>([
         35 * 4,
@@ -102,6 +102,12 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
         let height = mbox.0[6]; // Get actual physical height
         let pitch = mbox.0[33]; // Get number of bytes per row
         let is_rgb = mbox.0[24] == 1; // Get actual color order
+
+        unsafe {
+            unsafe_puts("Frame buffer: addr = 0x");
+            unsafe_print_hex_u64(mbox.0[28] as u64);
+            unsafe_puts("\r\n");
+        }
 
         let framebuffer =
             unsafe { slice::from_raw_parts_mut(framebuffer_address as *mut u8, framebuffer_size) };

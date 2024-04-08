@@ -138,7 +138,10 @@ impl Drop for RemapInfo {
     fn drop(&mut self) {
         let mut node = MCSNode::new();
         let mut table = INTERRUPT_REMAPPING[self.segment_number].lock(&mut node);
-        table.as_mut().unwrap().deallocate_entry(self.entry_id);
+
+        if let Some(table) = table.as_mut() {
+            table.deallocate_entry(self.entry_id);
+        }
     }
 }
 
@@ -304,7 +307,10 @@ pub fn allocate_remapping_entry(
 ) -> Option<RemapInfo> {
     let mut node = MCSNode::new();
     let mut table = INTERRUPT_REMAPPING[segment_number].lock(&mut node);
-    table
-        .as_mut()?
-        .allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)
+
+    if let Some(table) = table.as_mut() {
+        table.allocate_entry(dest_apic_id, irq, level_trigger, lowest_priority)
+    } else {
+        None
+    }
 }
