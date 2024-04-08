@@ -41,6 +41,7 @@ pub async fn run() {
         "timer".into(),
         async move {
             loop {
+                log::debug!("timer is invoked.");
                 awkernel_async_lib::sleep(Duration::from_secs(10)).await;
             }
         },

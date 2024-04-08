@@ -3,19 +3,20 @@ use core::{future::Future, task::Poll, time::Duration};
 use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
     future::FutureExt, pubsub, scheduler::SchedulerType, select_biased, session_types::*,
-    task::TaskResult,
 };
 
 const NETWORK_SERVICE_RENDEZVOUS: &str = "/awkernel/network_service";
 
+const GARBAGE_COLLECTOR_NAME: &str = "[Awkernel] TCP garbage collector";
+
 type ProtoInterruptHandler = Recv<(), Send<(), Eps>>;
 type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>::Dual>;
 
-pub async fn run() -> TaskResult {
+pub async fn run() {
     log::info!("Starting {}.", crate::NETWORK_SERVICE_NAME);
 
     awkernel_async_lib::spawn(
-        "TCP garbage collector".into(),
+        GARBAGE_COLLECTOR_NAME.into(),
         tcp_garbage_collector(),
         SchedulerType::FIFO,
     )
