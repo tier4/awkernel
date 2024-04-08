@@ -244,6 +244,24 @@ $ make aarch64 BSP=raspi4 RELEASE=1
 
 ---
 
+## Raspberry Pi 5 (AArch64)
+
+### Compile
+
+Specify `Release=1`.
+
+```text
+$ make aarch64 BSP=raspi5 RELEASE=1
+```
+
+### Boot
+
+- Serial
+  - 8N1: eight data bits, no parity, one stop bit
+  - Speed: 115200
+
+---
+
 ## RISC-V (32bit, Qemu)
 
 ### Compile

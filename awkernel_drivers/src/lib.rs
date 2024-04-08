@@ -13,6 +13,9 @@ pub mod uart;
 #[cfg(feature = "aarch64")]
 pub mod psci;
 
+#[cfg(feature = "aarch64")]
+pub mod raspi5;
+
 #[cfg(feature = "pcie")]
 pub mod pcie;
 

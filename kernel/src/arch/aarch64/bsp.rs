@@ -30,6 +30,12 @@ pub mod aarch64_virt;
 #[cfg(feature = "aarch64_virt")]
 pub use aarch64_virt::AArch64Virt as SoCInitializer;
 
+#[cfg(feature = "raspi5")]
+pub mod raspi5;
+
+#[cfg(feature = "raspi5")]
+pub use raspi5::Raspi5 as SoCInitializer;
+
 #[cfg(feature = "raspi")]
 pub mod raspi;
 
