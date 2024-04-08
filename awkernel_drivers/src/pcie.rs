@@ -950,11 +950,15 @@ impl PCIeInfo {
 
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
-            pcie_id::INTEL_VENDOR_ID =>
-            {
+            pcie_id::INTEL_VENDOR_ID => {
                 #[cfg(feature = "igb")]
                 if intel::igb::match_device(self.vendor, self.id) {
                     return intel::igb::attach(self);
+                }
+
+                // Example of the driver for Intel E1000e.
+                if intel::e1000e_example::match_device(self.vendor, self.id) {
+                    return intel::e1000e_example::attach(self);
                 }
             }
             _ => (),
