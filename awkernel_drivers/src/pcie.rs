@@ -34,7 +34,7 @@ pub mod pcie_device_tree;
 mod base_address;
 mod capability;
 mod config_space;
-pub mod net;
+pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 
@@ -953,8 +953,8 @@ impl PCIeInfo {
             pcie_id::INTEL_VENDOR_ID =>
             {
                 #[cfg(feature = "igb")]
-                if net::igb::match_device(self.vendor, self.id) {
-                    return net::igb::attach(self);
+                if intel::igb::match_device(self.vendor, self.id) {
+                    return intel::igb::attach(self);
                 }
             }
             _ => (),
