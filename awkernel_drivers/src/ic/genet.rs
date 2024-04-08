@@ -717,48 +717,22 @@ impl GenetInner {
     }
 
     fn enable_offlad(&mut self) {
-        // TODO: enable offload
-
-        // 540
-        // 541         check_ctrl = RD4(sc, GENET_RBUF_CHECK_CTRL);
-        // 542         buf_ctrl  = RD4(sc, GENET_RBUF_CTRL);
+        // TODO: Currently offloading is disabled
 
         let base = self.base_addr.as_usize();
 
         let mut check_ctrl = registers::RBUF_CHECK_CTRL.read(base);
         let mut buf_ctrl = registers::RBUF_CTRL.read(base);
 
-        // 543         if ((if_getcapenable(sc->ifp) & IFCAP_RXCSUM) != 0) {
-        // 544                 check_ctrl |= GENET_RBUF_CHECK_CTRL_EN;
-        // 545                 buf_ctrl |= GENET_RBUF_64B_EN;
-        // 546         } else {
-        // 547                 check_ctrl &= ~GENET_RBUF_CHECK_CTRL_EN;
-        // 548                 buf_ctrl &= ~GENET_RBUF_64B_EN;
-        // 549         }
-
         check_ctrl &= !registers::RBUF_CHECK_CTRL_EN;
         buf_ctrl &= !registers::RBUF_64B_EN;
-
-        // 550         WR4(sc, GENET_RBUF_CHECK_CTRL, check_ctrl);
-        // 551         WR4(sc, GENET_RBUF_CTRL, buf_ctrl);
 
         registers::RBUF_CHECK_CTRL.write(check_ctrl, base);
         registers::RBUF_CTRL.write(buf_ctrl, base);
 
-        // 552
-        // 553         buf_ctrl  = RD4(sc, GENET_TBUF_CTRL);
-
         let mut buf_ctrl = registers::TBUF_CTRL.read(base);
 
-        // 554         if ((if_getcapenable(sc->ifp) & (IFCAP_TXCSUM | IFCAP_TXCSUM_IPV6)) !=
-        // 555             0)
-        // 556                 buf_ctrl |= GENET_RBUF_64B_EN;
-        // 557         else
-        // 558                 buf_ctrl &= ~GENET_RBUF_64B_EN;
-
         buf_ctrl &= !registers::RBUF_64B_EN;
-
-        // 559         WR4(sc, GENET_TBUF_CTRL, buf_ctrl);
 
         registers::TBUF_CTRL.write(buf_ctrl, base);
     }
