@@ -12,8 +12,10 @@
 //! ```
 
 use crate::{console::Console, delay};
-use alloc::string::String;
 use log::Level;
+
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 
 /// Format a logging message and print it out.
 pub fn write_msg(writer: &mut dyn Console, record: &log::Record) {
