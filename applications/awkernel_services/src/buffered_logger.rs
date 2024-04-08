@@ -57,12 +57,8 @@ pub async fn run() {
     let _ = log::set_logger(&LOGGER);
     log::set_max_level(log::LevelFilter::Debug);
 
-    loop {
-        if let Ok(msg) = rx.recv().await {
-            awkernel_lib::console::print(&msg);
-            awkernel_async_lib::r#yield().await;
-        } else {
-            break;
-        }
+    while let Ok(msg) = rx.recv().await {
+        awkernel_lib::console::print(&msg);
+        awkernel_async_lib::r#yield().await;
     }
 }
