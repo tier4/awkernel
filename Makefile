@@ -64,6 +64,7 @@ check: check_aarch64 check_x86_64 check_std check_riscv32
 clippy:
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
+	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
 	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_std
@@ -73,7 +74,7 @@ cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 FORCE:
 
 # AArch64
-aarch64: kernel8.img 
+aarch64: kernel8.img
 
 check_aarch64: FORCE
 	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)
