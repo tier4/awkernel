@@ -20,6 +20,10 @@ else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
+else ifeq ($(BSP),raspi5)
+	RUSTC_MISC_ARGS = -C target-cpu=cortex-a76
+	INITADDR = 0x80000
+	AARCH64_OPT = $(OPT) --features raspi5
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x40080000
@@ -69,7 +73,7 @@ cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 FORCE:
 
 # AArch64
-aarch64: kernel8.img
+aarch64: kernel8.img 
 
 check_aarch64: FORCE
 	cargo +$(RUSTV) check_aarch64 $(AARCH64_OPT)

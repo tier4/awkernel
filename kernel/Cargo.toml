@@ -91,6 +91,12 @@ raspi = [
     "awkernel_drivers/pl011",
     "userland/raspi",
 ]
+
+raspi5 = [
+    "aarch64",
+]
+
+
 aarch64_virt = [
     "aarch64",
     "awkernel_drivers/all_pcie",

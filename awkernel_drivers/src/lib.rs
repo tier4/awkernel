@@ -9,6 +9,7 @@ pub mod hal;
 pub mod ic;
 pub mod if_media;
 pub mod interrupt_controller;
+pub mod raspi5;
 // pub mod mii;
 pub mod uart;
 
