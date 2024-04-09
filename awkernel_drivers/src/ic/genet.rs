@@ -65,6 +65,7 @@ mod registers {
     mmio_rw!(offset 0x208 => pub INTRL2_CPU_CLEAR<u32>);
     mmio_rw!(offset 0x20c => pub INTRL2_CPU_STAT_MASK<u32>);
 
+    mmio_rw!(offset 0x210 => pub INTRL2_CPU_SET_MASK<u32>);
     mmio_rw!(offset 0x214 => pub INTRL2_CPU_CLEAR_MASK<u32>);
     pub const _IRQ_MDIO_ERROR: u32 = 1 << 24;
     pub const _IRQ_MDIO_DONE: u32 = 1 << 23;
@@ -275,7 +276,9 @@ impl NetDevice for Genet {
     }
 
     fn down(&self) -> Result<(), NetDevError> {
-        todo!()
+        let mut inner = self.inner.write();
+        inner.stop();
+        Ok(())
     }
 
     fn flags(&self) -> NetFlags {
@@ -1095,5 +1098,39 @@ impl GenetInner {
         }
 
         Ok(())
+    }
+
+    fn disable(&mut self) {
+        let base = self.base_addr.as_usize();
+
+        // Stop receiver
+        let mut val = registers::UMAC_CMD.read(base);
+        val &= !registers::UMAC_CMD_RXEN;
+        registers::UMAC_CMD.write(val, base);
+
+        // Stop transmitter
+        let mut val = registers::UMAC_CMD.read(base);
+        val &= !registers::UMAC_CMD_TXEN;
+        registers::UMAC_CMD.write(val, base);
+    }
+
+    fn disable_intr(&mut self) {
+        let base = self.base_addr.as_usize();
+
+        // Disable interrupts
+        registers::INTRL2_CPU_SET_MASK.write(0xffffffff, base);
+        registers::INTRL2_CPU_CLEAR_MASK.write(0xffffffff, base);
+    }
+
+    fn stop(&mut self) {
+        reset(self.base_addr);
+        self.disable();
+        self.disable_intr();
+        dma_disable(self.base_addr);
+
+        self.tx = None;
+        self.rx = None;
+
+        self.if_flags.remove(NetFlags::RUNNING | NetFlags::UP);
     }
 }

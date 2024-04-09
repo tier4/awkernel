@@ -948,7 +948,6 @@ impl PCIeInfo {
         let vendor = self.vendor;
         let id = self.id;
 
-        #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 #[cfg(feature = "igb")]
