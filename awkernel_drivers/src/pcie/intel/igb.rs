@@ -2054,7 +2054,7 @@ impl NetDevice for Igb {
 
     fn can_send(&self) -> bool {
         let inner = self.inner.read();
-        if inner.flags.contains(NetFlags::RUNNING) {
+        if !inner.flags.contains(NetFlags::RUNNING) {
             return false;
         }
 
