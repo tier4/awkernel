@@ -2181,6 +2181,33 @@ impl NetDevice for Igb {
             false
         }
     }
+
+    fn tick(&self) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+
+        if inner.is_poll_mode {
+            return Ok(());
+        }
+
+        let mut irqs = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            if *irq != 0 {
+                irqs.push(*irq);
+            }
+        }
+
+        drop(inner);
+
+        for irq in irqs {
+            let _ = self.intr(irq);
+        }
+
+        Ok(())
+    }
+
+    fn tick_msec(&self) -> Option<u64> {
+        Some(200)
+    }
 }
 
 pub fn match_device(vendor: u16, id: u16) -> bool {

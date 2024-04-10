@@ -8,7 +8,8 @@ use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
+    // awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
+    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(10, 0, 2, 64), 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -17,19 +18,19 @@ pub async fn run() {
     )
     .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp listen".into(),
-        tcp_listen_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp listen".into(),
+    //     tcp_listen_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp connect".into(),
-        tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    // awkernel_async_lib::spawn(
+    //     "test tcp connect".into(),
+    //     tcp_connect_test(),
+    //     awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    // )
+    // .await;
 }
 
 async fn tcp_connect_test() {
@@ -95,11 +96,11 @@ async fn udp_test() {
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
-    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2));
+    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2));
 
     let mut buf = [0u8; 1024 * 2];
 
-    awkernel_async_lib::sleep(Duration::from_secs(20)).await;
+    // awkernel_async_lib::sleep(Duration::from_secs(20)).await;
 
     loop {
         let t0 = awkernel_lib::delay::uptime();
