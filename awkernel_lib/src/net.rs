@@ -43,6 +43,7 @@ pub enum NetManagerError {
     InvalidPort,
     InvalidState,
     NoAvailablePort,
+    InterfaceIsNotReady,
 }
 
 #[derive(Debug)]

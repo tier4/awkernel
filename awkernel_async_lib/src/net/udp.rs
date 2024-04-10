@@ -1,6 +1,7 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
+use awkernel_lib::net::NetManagerError;
 use futures::Future;
 use pin_project::pin_project;
 
@@ -8,6 +9,7 @@ use pin_project::pin_project;
 pub enum UdpSocketError {
     SocketCreationError,
     SendError,
+    InterfaceIsNotReady,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +100,9 @@ impl<'a> Future for UdpSender<'a> {
         {
             Ok(true) => core::task::Poll::Ready(Ok(())),
             Ok(false) => core::task::Poll::Pending,
+            Err(NetManagerError::InterfaceIsNotReady) => {
+                core::task::Poll::Ready(Err(UdpSocketError::InterfaceIsNotReady))
+            }
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),
         }
     }

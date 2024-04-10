@@ -363,7 +363,11 @@ impl IfNet {
             return false;
         };
 
-        self.poll_rx(ref_net_driver)
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver)
+        } else {
+            false
+        }
     }
 
     #[inline(always)]
@@ -372,7 +376,9 @@ impl IfNet {
             return;
         };
 
-        self.poll_rx(ref_net_driver);
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver);
+        }
     }
 
     /// If some packets are processed, return true.
@@ -383,7 +389,11 @@ impl IfNet {
             return false;
         };
 
-        self.poll_rx(ref_net_driver)
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver)
+        } else {
+            false
+        }
     }
 }
 
