@@ -8,7 +8,8 @@ use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(192, 168, 100, 64), 24);
+    // 10.0.2.0/24 is the IP address range of the Qemu's network.
+    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(10, 0, 2, 64), 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -33,9 +34,10 @@ pub async fn run() {
 }
 
 async fn tcp_connect_test() {
+    // 10.0.2.2 is the IP address of the Qemu's host.
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         0,
-        IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2)),
+        IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2)),
         8080,
         Default::default(),
     ) else {
@@ -95,7 +97,8 @@ async fn udp_test() {
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
-    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(192, 168, 100, 2));
+    // 10.0.2.2 is the IP address of the Qemu's host.
+    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2));
 
     let mut buf = [0u8; 1024 * 2];
 
