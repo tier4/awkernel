@@ -259,7 +259,7 @@ impl NetDevice for Genet {
     }
 
     fn can_send(&self) -> bool {
-        if self.mii.read().link_status() != LinkStatus::Up {
+        if self.mii.read().link_status() == LinkStatus::Down {
             return false;
         }
 
@@ -372,7 +372,7 @@ impl NetDevice for Genet {
         let inner = self.inner.read();
 
         if !inner.if_flags.contains(NetFlags::RUNNING | NetFlags::UP)
-            || self.mii.read().link_status() != LinkStatus::Up
+            || self.mii.read().link_status() == LinkStatus::Down
         {
             return false;
         }
@@ -422,9 +422,15 @@ impl NetDevice for Genet {
             crate::mii::mii_tick(inner.as_mut(), &mut mii).or(Err(NetDevError::DeviceError))?;
         }
 
-        {
+        if matches!(
+            self.mii.read().link_status(),
+            LinkStatus::Up | LinkStatus::UpFullDuplex | LinkStatus::UpHalfDuplex
+        ) {
             let inner = self.inner.read();
-            inner.rx_recv().or(Err(NetDevError::DeviceError))?;
+
+            if inner.if_flags.contains(NetFlags::RUNNING | NetFlags::UP) {
+                inner.rx_recv().or(Err(NetDevError::DeviceError))?;
+            }
         }
 
         Ok(())
