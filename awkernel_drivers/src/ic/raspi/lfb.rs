@@ -1,16 +1,23 @@
-use core::{ptr::addr_of_mut, slice};
+use core::slice;
 
 use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
 use awkernel_lib::{
     console::{unsafe_print_hex_u64, unsafe_puts},
+    graphics::{FrameBuffer, FrameBufferError},
     paging::PAGESIZE,
 };
+use embedded_graphics::{
+    mono_font::MonoTextStyle,
+    text::{Alignment, Text},
+    Drawable,
+};
 use embedded_graphics_core::{
+    geometry::Dimensions,
     prelude::{DrawTarget, OriginDimensions, RgbColor},
     Pixel,
 };
 
-static mut FRMAME_BUFFER_INFO: Option<FramebufferInfo> = None;
+static mut RASPI_FRAME_BUFFER: Option<RaspiFrameBuffer> = None;
 
 /// Framebuffer settings
 #[derive(Debug)]
@@ -112,15 +119,20 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
         let framebuffer =
             unsafe { slice::from_raw_parts_mut(framebuffer_address as *mut u8, framebuffer_size) };
 
-        unsafe {
-            FRMAME_BUFFER_INFO = Some(FramebufferInfo {
+        let raspi_framebuffer = RaspiFrameBuffer {
+            frame_buffer: FramebufferInfo {
                 width,
                 height,
                 pitch,
                 is_rgb,
                 framebuffer,
                 framebuffer_size,
-            });
+            },
+        };
+
+        unsafe {
+            RASPI_FRAME_BUFFER = Some(raspi_framebuffer);
+            awkernel_lib::graphics::set_frame_buffer(RASPI_FRAME_BUFFER.as_mut().unwrap());
         }
 
         Ok(())
@@ -131,28 +143,17 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
 
 pub fn get_frame_buffer_region() -> Option<(usize, usize)> {
     unsafe {
-        let info = FRMAME_BUFFER_INFO.as_ref()?;
-        Some((info.framebuffer.as_ptr() as usize, info.framebuffer_size))
+        let rfb = RASPI_FRAME_BUFFER.as_ref()?;
+        Some((
+            rfb.frame_buffer.framebuffer.as_ptr() as usize,
+            rfb.frame_buffer.framebuffer_size,
+        ))
     }
 }
-
-/// Returns the width and height of the framebuffer.
-pub fn get_frame_buffer_size() -> Option<(u32, u32)> {
-    unsafe {
-        let info = FRMAME_BUFFER_INFO.as_ref()?;
-        Some((info.width, info.height))
-    }
-}
-
-pub fn get_framebuffer_info() -> &'static mut Option<FramebufferInfo> {
-    unsafe { &mut *addr_of_mut!(FRMAME_BUFFER_INFO) }
-}
-
-pub enum FramebufferError {}
 
 impl DrawTarget for FramebufferInfo {
     type Color = embedded_graphics_core::pixelcolor::Rgb888;
-    type Error = FramebufferError;
+    type Error = FrameBufferError;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
@@ -175,5 +176,28 @@ impl DrawTarget for FramebufferInfo {
 impl OriginDimensions for FramebufferInfo {
     fn size(&self) -> embedded_graphics_core::prelude::Size {
         embedded_graphics_core::prelude::Size::new(self.width, self.height)
+    }
+}
+
+#[derive(Debug)]
+struct RaspiFrameBuffer {
+    frame_buffer: FramebufferInfo,
+}
+
+impl FrameBuffer for RaspiFrameBuffer {
+    fn bounding_box(&self) -> embedded_graphics_core::primitives::Rectangle {
+        self.frame_buffer.bounding_box()
+    }
+
+    fn draw_mono_text(
+        &mut self,
+        text: &str,
+        position: embedded_graphics_core::prelude::Point,
+        style: MonoTextStyle<'static, embedded_graphics_core::pixelcolor::Rgb888>,
+        alignment: Alignment,
+    ) -> Result<embedded_graphics_core::prelude::Point, awkernel_lib::graphics::FrameBufferError>
+    {
+        let text = Text::with_alignment(text, position, style, alignment);
+        text.draw(&mut self.frame_buffer)
     }
 }

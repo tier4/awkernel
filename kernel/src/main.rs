@@ -19,6 +19,10 @@ use core::{
     fmt::Debug,
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
+use embedded_graphics::{
+    mono_font::{ascii::FONT_10X20, MonoTextStyle},
+    pixelcolor::Rgb888,
+};
 use kernel_info::KernelInfo;
 
 mod arch;
@@ -43,6 +47,17 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
+
+        let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 255));
+        let text = "Welcome to Autoware Kernel v0.1";
+        let _ = awkernel_lib::graphics::draw_mono_text(
+            text,
+            awkernel_lib::graphics::bounding_box().center()
+                + embedded_graphics::geometry::Point::new(0, 15),
+            character_style,
+            embedded_graphics::text::Alignment::Center,
+        );
+
         #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::set_preempt_irq(
             config::PREEMPT_IRQ,
