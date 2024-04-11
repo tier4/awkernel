@@ -31,30 +31,23 @@ struct X86FrameBufferInner {
 impl X86FrameBufferInner {
     #[inline(always)]
     fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
+        let x = x as usize;
+        let y = y as usize;
         let bytes_per_line = self.info.bytes_per_pixel * self.info.stride;
+        let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
 
         match self.info.pixel_format {
             PixelFormat::Rgb => {
-                let x = x as usize;
-                let y = y as usize;
-                let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
                 self.buffer[pos] = r;
                 self.buffer[pos + 1] = g;
                 self.buffer[pos + 2] = b;
             }
             PixelFormat::Bgr => {
-                let x = x as usize;
-                let y = y as usize;
-                let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
                 self.buffer[pos] = b;
                 self.buffer[pos + 1] = g;
                 self.buffer[pos + 2] = r;
             }
             PixelFormat::U8 => {
-                let x = x as usize;
-                let y = y as usize;
-                let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
-
                 let v = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
                 self.buffer[pos] = v as u8;
             }
@@ -63,9 +56,6 @@ impl X86FrameBufferInner {
                 green_position,
                 blue_position,
             } => {
-                let x = x as usize;
-                let y = y as usize;
-                let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
                 self.buffer[pos + red_position as usize] = r;
                 self.buffer[pos + green_position as usize] = g;
                 self.buffer[pos + blue_position as usize] = b;
