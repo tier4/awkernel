@@ -21,7 +21,7 @@ static mut RASPI_FRAME_BUFFER: Option<RaspiFrameBuffer> = None;
 
 /// Framebuffer settings
 #[derive(Debug)]
-pub struct FramebufferInfo {
+struct FramebufferInfo {
     width: u32,
     height: u32,
     pitch: u32,
@@ -31,6 +31,7 @@ pub struct FramebufferInfo {
 }
 
 impl FramebufferInfo {
+    #[inline(always)]
     fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
         let pos = (y * self.pitch + x * 4) as usize;
 
@@ -199,5 +200,17 @@ impl FrameBuffer for RaspiFrameBuffer {
     {
         let text = Text::with_alignment(text, position, style, alignment);
         text.draw(&mut self.frame_buffer)
+    }
+
+    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
+        self.frame_buffer.set_pixel(x, y, r, g, b);
+    }
+
+    fn fill(&mut self, r: u8, g: u8, b: u8) {
+        for y in 0..self.frame_buffer.height {
+            for x in 0..self.frame_buffer.width {
+                self.frame_buffer.set_pixel(x, y, r, g, b);
+            }
+        }
     }
 }

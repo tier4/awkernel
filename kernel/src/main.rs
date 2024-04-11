@@ -48,6 +48,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
+        awkernel_lib::graphics::fill(0, 0, 0);
+
         let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 255));
         let text = "Welcome to Autoware Kernel v0.1";
         let _ = awkernel_lib::graphics::draw_mono_text(

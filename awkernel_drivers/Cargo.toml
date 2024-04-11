@@ -35,6 +35,10 @@ path = "../awkernel_async_lib_verified"
 path = "../awkernel_aarch64"
 optional = true
 
+[dependencies.bootloader_api]
+version = "0.11"
+optional = true
+
 [dependencies.smoltcp]
 version = "0.11"
 default-features = false
@@ -51,7 +55,7 @@ features = [
 
 [features]
 default = []
-x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64"]
+x86 = ["awkernel_lib/x86", "dep:acpi", "dep:x86_64", "dep:bootloader_api"]
 rv32 = ["awkernel_lib/rv32"]
 aarch64 = ["awkernel_lib/aarch64", "dep:awkernel_aarch64"]
 spinlock = ["awkernel_lib/spinlock"]
