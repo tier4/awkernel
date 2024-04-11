@@ -54,7 +54,9 @@ impl X86FrameBufferInner {
                 let x = x as usize;
                 let y = y as usize;
                 let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
-                self.buffer[pos] = 0xff;
+
+                let v = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+                self.buffer[pos] = v as u8;
             }
             PixelFormat::Unknown {
                 red_position,
