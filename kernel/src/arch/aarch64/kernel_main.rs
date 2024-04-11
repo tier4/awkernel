@@ -165,27 +165,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     // log::info!("{device_tree}");
 
-    #[cfg(feature = "raspi")]
-    if let Some(framebuffer) = awkernel_drivers::ic::rpi::lfb::get_framebuffer_info() {
-        use embedded_graphics::{
-            mono_font::{ascii::FONT_10X20, MonoTextStyle},
-            prelude::*,
-            text::{Alignment, Text},
-        };
-        use embedded_graphics_core::pixelcolor::Rgb888;
-
-        let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 255));
-
-        let text = "Welcome to Autoware Kernel v0.1";
-        let _ = Text::with_alignment(
-            text,
-            framebuffer.bounding_box().center() + Point::new(0, 15),
-            character_style,
-            Alignment::Center,
-        )
-        .draw(framebuffer);
-    }
-
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 

@@ -8,13 +8,10 @@ use crate::{
 };
 use alloc::{boxed::Box, format};
 use awkernel_drivers::{
-    hal::{
-        self,
-        rpi::{self, uart::PinUart},
-    },
+    hal::{self, raspi::uart::PinUart},
     ic::{
         self,
-        rpi::dma::{Dma, MEM_FLAG_DIRECT},
+        raspi::dma::{Dma, MEM_FLAG_DIRECT},
     },
     uart::pl011::PL011,
 };
@@ -100,7 +97,7 @@ impl super::SoC for Raspi {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(end))?;
         }
 
-        if let Some((start, size)) = awkernel_drivers::ic::rpi::lfb::get_frame_buffer_region() {
+        if let Some((start, size)) = awkernel_drivers::ic::raspi::lfb::get_frame_buffer_region() {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(start + size))?;
         }
 
@@ -123,7 +120,8 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        if let Some(dma) = ic::rpi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
+        if let Some(dma) =
+            ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
         {
             let bus_addr = dma.get_bus_addr() as usize;
             let phy_addr = bus_addr & 0x3FFFFFFF;
@@ -311,7 +309,7 @@ impl Raspi {
     }
 
     fn init_uarts(&self) {
-        unsafe { hal::rpi::uart::set_uart_clock(super::config::UART_CLOCK) };
+        unsafe { hal::raspi::uart::set_uart_clock(super::config::UART_CLOCK) };
 
         // Raspberry Pi 4 has 5 UARTs.
         for i in 2..=5 {
@@ -365,7 +363,7 @@ impl Raspi {
                 continue;
             };
             let alt = match function.value() {
-                PropertyValue::Integer(v) => hal::rpi::gpio::GpioFunction::from(*v as u32),
+                PropertyValue::Integer(v) => hal::raspi::gpio::GpioFunction::from(*v as u32),
                 _ => continue,
             };
 
@@ -378,20 +376,20 @@ impl Raspi {
                     if v.len() != 2 {
                         continue;
                     }
-                    let tx_pull = hal::rpi::gpio::PullMode::from(v[0] as u32);
-                    let rx_pull = hal::rpi::gpio::PullMode::from(v[1] as u32);
+                    let tx_pull = hal::raspi::gpio::PullMode::from(v[0] as u32);
+                    let rx_pull = hal::raspi::gpio::PullMode::from(v[1] as u32);
                     (tx_pull, rx_pull)
                 }
                 _ => continue,
             };
 
-            let tx = hal::rpi::uart::Pin::new(tx_gpio as u32, alt, tx_pull);
-            let rx = hal::rpi::uart::Pin::new(rx_gpio as u32, alt, rx_pull);
+            let tx = hal::raspi::uart::Pin::new(tx_gpio as u32, alt, tx_pull);
+            let rx = hal::raspi::uart::Pin::new(rx_gpio as u32, alt, rx_pull);
 
-            let uarts = hal::rpi::uart::Uarts::from(i);
+            let uarts = hal::raspi::uart::Uarts::from(i);
             let pin_uart = PinUart::new(tx, rx, irq, base_addr as usize);
 
-            unsafe { hal::rpi::uart::set_uart_info(uarts, pin_uart) };
+            unsafe { hal::raspi::uart::set_uart_info(uarts, pin_uart) };
         }
     }
 
@@ -484,7 +482,7 @@ impl Raspi {
 
         log::info!("GPIO: 0x{base_addr:016x}");
 
-        unsafe { awkernel_drivers::hal::rpi::gpio::set_gpio_base(base_addr as usize) };
+        unsafe { awkernel_drivers::hal::raspi::gpio::set_gpio_base(base_addr as usize) };
 
         Ok(())
     }
@@ -499,7 +497,7 @@ impl Raspi {
 
         log::info!("I2C: 0x{base_addr:016x}");
 
-        unsafe { awkernel_drivers::hal::rpi::i2c::set_i2c_base(base_addr as usize) };
+        unsafe { awkernel_drivers::hal::raspi::i2c::set_i2c_base(base_addr as usize) };
 
         Ok(())
     }
@@ -512,7 +510,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find Mbox's base address")))?;
 
-        unsafe { awkernel_drivers::ic::rpi::mbox::set_mbox_base(base_addr as usize) };
+        unsafe { awkernel_drivers::ic::raspi::mbox::set_mbox_base(base_addr as usize) };
 
         Ok(())
     }
@@ -551,9 +549,9 @@ impl Raspi {
                 return Err("'clock-frequency' property has an invalid type");
             }
         };
-        unsafe { rpi::clock::set_clock_frequency(clock_freq as usize) };
+        unsafe { hal::raspi::clock::set_clock_frequency(clock_freq as usize) };
 
-        unsafe { rpi::clock::set_clk_base(base_addr as usize) };
+        unsafe { hal::raspi::clock::set_clk_base(base_addr as usize) };
 
         Ok(())
     }
@@ -568,7 +566,7 @@ impl Raspi {
 
         log::info!("SPI: 0x{:016x}", base_addr);
 
-        unsafe { awkernel_drivers::hal::rpi::spi::set_spi_base(base_addr as usize) };
+        unsafe { hal::raspi::spi::set_spi_base(base_addr as usize) };
 
         Ok(())
     }
@@ -583,7 +581,7 @@ impl Raspi {
 
         log::info!("PWM: 0x{:016x}", base_addr);
 
-        unsafe { awkernel_drivers::hal::rpi::pwm::set_pwm_base(base_addr as usize) };
+        unsafe { hal::raspi::pwm::set_pwm_base(base_addr as usize) };
 
         Ok(())
     }
@@ -612,7 +610,7 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if awkernel_drivers::ic::rpi::lfb::lfb_init(640, 360).is_err() {
+            if ic::raspi::lfb::lfb_init(640, 360).is_err() {
                 unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
             }
         }
