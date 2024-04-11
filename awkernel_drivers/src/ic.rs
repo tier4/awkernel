@@ -2,4 +2,7 @@
 pub mod genet;
 
 #[cfg(feature = "raspi")]
-pub mod rpi;
+pub mod raspi;
+
+#[cfg(feature = "x86")]
+pub mod x86_64;

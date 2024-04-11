@@ -20,7 +20,7 @@
 //! The following example shows how to use UART2.
 //!
 //! ```
-//! use awkernel_drivers::hal::rpi::uart::{Uart, Uarts};
+//! use awkernel_drivers::hal::raspi::uart::{Uart, Uarts};
 //! use embedded_hal_nb::serial::{Read, Write};
 //!
 //! pub async fn test_uart2() {
@@ -49,7 +49,7 @@ use awkernel_lib::{
     sync::mutex::{MCSNode, Mutex},
 };
 
-use crate::{hal::rpi::gpio::GpioPin, uart::pl011::PL011};
+use crate::{hal::raspi::gpio::GpioPin, uart::pl011::PL011};
 
 use super::gpio::{GpioFunction, GpioPinAlt, PullMode};
 

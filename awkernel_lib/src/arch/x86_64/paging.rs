@@ -4,7 +4,7 @@ use crate::{
     paging::{MapError, PAGESIZE},
 };
 use x86_64::{
-    structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags, PhysFrame, Size4KiB},
+    structures::paging::{Mapper, Page, PageTableFlags, PhysFrame, Size4KiB},
     PhysAddr, VirtAddr,
 };
 
@@ -75,13 +75,5 @@ impl crate::paging::Mapper for super::X86 {
         Some(phy_addr::PhyAddr::new(
             phy_frame.start_address().as_u64() as usize | lower,
         ))
-    }
-}
-
-struct EmptyAllocator;
-
-unsafe impl FrameAllocator<Size4KiB> for EmptyAllocator {
-    fn allocate_frame(&mut self) -> Option<x86_64::structures::paging::PhysFrame<Size4KiB>> {
-        None
     }
 }
