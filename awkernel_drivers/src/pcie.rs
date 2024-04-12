@@ -34,7 +34,7 @@ pub mod pcie_device_tree;
 mod base_address;
 mod capability;
 mod config_space;
-pub mod net;
+pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 
@@ -950,11 +950,15 @@ impl PCIeInfo {
 
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
-            pcie_id::INTEL_VENDOR_ID =>
-            {
+            pcie_id::INTEL_VENDOR_ID => {
                 #[cfg(feature = "igb")]
-                if net::igb::match_device(self.vendor, self.id) {
-                    return net::igb::attach(self);
+                if intel::igb::match_device(self.vendor, self.id) {
+                    return intel::igb::attach(self);
+                }
+
+                // Example of the driver for Intel E1000e.
+                if intel::e1000e_example::match_device(self.vendor, self.id) {
+                    return intel::e1000e_example::attach(self);
                 }
             }
             _ => (),

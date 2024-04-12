@@ -158,6 +158,10 @@ impl UdpSocket {
             return Err(NetManagerError::InvalidInterfaceID);
         };
 
+        if !if_net.net_device.can_send() {
+            return Err(NetManagerError::InterfaceIsNotReady);
+        }
+
         let if_net = if_net.clone();
         drop(net_manager);
 

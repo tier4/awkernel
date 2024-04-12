@@ -24,8 +24,7 @@ use core::{
 };
 
 static mut CPU_READY: usize = 0;
-static PRIMARY_INITIALIZED_1: AtomicBool = AtomicBool::new(false);
-static PRIMARY_INITIALIZED_2: AtomicBool = AtomicBool::new(false);
+static PRIMARY_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 static mut TTBR0_EL1: usize = 0;
 
@@ -128,9 +127,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
     heap::init_primary(primary_start, primary_size);
     heap::init_backup(backup_start, backup_size);
 
-    log::info!("Waking non-primary CPUs up.");
-    PRIMARY_INITIALIZED_1.store(true, Ordering::SeqCst);
-
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
     for i in 0..initializer.get_segment_count() {
@@ -169,28 +165,8 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     // log::info!("{device_tree}");
 
-    #[cfg(feature = "raspi")]
-    if let Some(framebuffer) = awkernel_drivers::framebuffer::rpi::lfb::get_framebuffer_info() {
-        use embedded_graphics::{
-            mono_font::{ascii::FONT_10X20, MonoTextStyle},
-            prelude::*,
-            text::{Alignment, Text},
-        };
-        use embedded_graphics_core::pixelcolor::Rgb888;
-
-        let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 255));
-
-        let text = "Welcome to Autoware Kernel v0.1";
-        let _ = Text::with_alignment(
-            text,
-            framebuffer.bounding_box().center() + Point::new(0, 15),
-            character_style,
-            Alignment::Center,
-        )
-        .draw(framebuffer);
-    }
-
-    PRIMARY_INITIALIZED_2.store(true, Ordering::SeqCst);
+    log::info!("Waking non-primary CPUs up.");
+    PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
 
     let kernel_info = KernelInfo {
         info: (),
@@ -230,7 +206,7 @@ unsafe fn non_primary_cpu() {
     super::vm::flush_cache();
 
     // 2. Wait until the primary CPU is enabled.
-    while !PRIMARY_INITIALIZED_1.load(Ordering::SeqCst) {
+    while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
         awkernel_lib::delay::wait_millisec(1);
     }
 
@@ -245,11 +221,6 @@ unsafe fn non_primary_cpu() {
     };
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
-
-    // 3. Wait again
-    while !PRIMARY_INITIALIZED_2.load(Ordering::SeqCst) {
-        awkernel_lib::delay::wait_millisec(1);
-    }
 
     crate::main::<()>(kernel_info);
 }

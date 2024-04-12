@@ -85,3 +85,15 @@ impl<'a, T: Send> DerefMut for SpinLockGuard<'a, T> {
         unsafe { &mut *self.spin_lock.data.get() }
     }
 }
+
+impl<'a, T: Send> AsMut<T> for SpinLockGuard<'a, T> {
+    fn as_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.spin_lock.data.get() }
+    }
+}
+
+impl<'a, T: Send> AsRef<T> for SpinLockGuard<'a, T> {
+    fn as_ref(&self) -> &T {
+        unsafe { &*self.spin_lock.data.get() }
+    }
+}

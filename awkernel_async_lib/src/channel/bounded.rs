@@ -142,6 +142,12 @@ impl<T: Send> Sender<T> {
         }
     }
 
+    pub fn is_full(&self) -> bool {
+        let mut node = MCSNode::new();
+        let chan = self.chan.lock(&mut node);
+        chan.queue.is_full()
+    }
+
     /// Try to send data.
     ///
     /// # Example

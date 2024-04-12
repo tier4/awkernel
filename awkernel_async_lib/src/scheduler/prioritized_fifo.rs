@@ -51,29 +51,41 @@ impl Scheduler for PrioritizedFIFOScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        if data.is_none() {
-            *data = Some(PrioritizedFIFOData::new());
+        if let Some(data) = data.as_mut() {
+            let mut node = MCSNode::new();
+            let info = task.info.lock(&mut node);
+            let SchedulerType::PrioritizedFIFO(priority) = info.scheduler_type else {
+                return;
+            };
+
+            data.queue.push(PrioritizedFIFOTask {
+                task: task.clone(),
+                priority,
+            });
+        } else {
+            let mut prioritized_fifo_data = PrioritizedFIFOData::new();
+            let mut node = MCSNode::new();
+            let info = task.info.lock(&mut node);
+            let SchedulerType::PrioritizedFIFO(priority) = info.scheduler_type else {
+                return;
+            };
+
+            prioritized_fifo_data.queue.push(PrioritizedFIFOTask {
+                task: task.clone(),
+                priority,
+            });
+            *data = Some(prioritized_fifo_data);
         }
-
-        let data = data.as_mut().unwrap();
-
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        let SchedulerType::PrioritizedFIFO(priority) = info.scheduler_type else {
-            return;
-        };
-
-        data.queue.push(PrioritizedFIFOTask {
-            task: task.clone(),
-            priority,
-        });
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        let data = data.as_mut()?;
+        let data = match data.as_mut() {
+            Some(data) => data,
+            None => return None,
+        };
 
         loop {
             // Pop a task from the run queue.

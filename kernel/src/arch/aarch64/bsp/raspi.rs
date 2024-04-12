@@ -2,15 +2,16 @@ use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 use crate::{
     arch::aarch64::{
         interrupt_ctl,
-        vm::{self, MemoryRange, VM},
+        vm::{self, VM},
     },
     config::DMA_SIZE,
 };
 use alloc::{boxed::Box, format};
 use awkernel_drivers::{
-    hal::{
+    hal::{self, raspi::uart::PinUart},
+    ic::{
         self,
-        rpi::{self, uart::PinUart},
+        raspi::dma::{Dma, MEM_FLAG_DIRECT},
     },
     uart::pl011::PL011,
 };
@@ -61,6 +62,8 @@ pub struct Raspi {
     dma_pool: Option<VirtAddr>,
 }
 
+static mut DMA: Option<Dma> = None;
+
 impl super::SoC for Raspi {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
         self.init_symbols()
@@ -94,9 +97,7 @@ impl super::SoC for Raspi {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(end))?;
         }
 
-        if let Some((start, size)) =
-            awkernel_drivers::framebuffer::rpi::lfb::get_frame_buffer_region()
-        {
+        if let Some((start, size)) = awkernel_drivers::ic::raspi::lfb::get_frame_buffer_region() {
             vm.push_device_range(PhyAddr::new(start), PhyAddr::new(start + size))?;
         }
 
@@ -119,20 +120,29 @@ impl super::SoC for Raspi {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        // Allocate a memory region for the DMA pool.
-        if let Some(dma_start) = vm.find_heap(
-            DMA_SIZE,
-            MemoryRange::new(PhyAddr::new(device_tree_start), PhyAddr::new(0x40000000)),
-        ) {
-            let dma_end = dma_start + DMA_SIZE;
-            vm.remove_heap(dma_start, dma_end)?;
-            vm.push_device_range(dma_start, dma_end)?;
-            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+        if let Some(dma) =
+            ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
+        {
+            let bus_addr = dma.get_bus_addr() as usize;
+            let phy_addr = bus_addr & 0x3FFFFFFF;
+            let start = PhyAddr::new(phy_addr);
+            let end = PhyAddr::new(phy_addr + DMA_SIZE);
 
-            unsafe_puts("DMA: start = ");
-            unsafe_print_hex_u64(dma_start.as_usize() as u64);
-            unsafe_puts("\r\n");
-        }
+            let _ = vm.remove_heap(start, end);
+            if vm.push_device_range(start, end).is_ok() {
+                unsafe_puts("DMA: BUS address = ");
+                unsafe_print_hex_u64(bus_addr as u64);
+                unsafe_puts(", Physical address = ");
+                unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
+                unsafe_puts("\r\n");
+
+                self.dma_pool = Some(VirtAddr::new(start.as_usize()));
+
+                unsafe {
+                    DMA = Some(dma);
+                }
+            }
+        };
 
         vm.print();
 
@@ -299,7 +309,7 @@ impl Raspi {
     }
 
     fn init_uarts(&self) {
-        unsafe { hal::rpi::uart::set_uart_clock(super::config::UART_CLOCK) };
+        unsafe { hal::raspi::uart::set_uart_clock(super::config::UART_CLOCK) };
 
         // Raspberry Pi 4 has 5 UARTs.
         for i in 2..=5 {
@@ -353,7 +363,7 @@ impl Raspi {
                 continue;
             };
             let alt = match function.value() {
-                PropertyValue::Integer(v) => hal::rpi::gpio::GpioFunction::from(*v as u32),
+                PropertyValue::Integer(v) => hal::raspi::gpio::GpioFunction::from(*v as u32),
                 _ => continue,
             };
 
@@ -366,20 +376,20 @@ impl Raspi {
                     if v.len() != 2 {
                         continue;
                     }
-                    let tx_pull = hal::rpi::gpio::PullMode::from(v[0] as u32);
-                    let rx_pull = hal::rpi::gpio::PullMode::from(v[1] as u32);
+                    let tx_pull = hal::raspi::gpio::PullMode::from(v[0] as u32);
+                    let rx_pull = hal::raspi::gpio::PullMode::from(v[1] as u32);
                     (tx_pull, rx_pull)
                 }
                 _ => continue,
             };
 
-            let tx = hal::rpi::uart::Pin::new(tx_gpio as u32, alt, tx_pull);
-            let rx = hal::rpi::uart::Pin::new(rx_gpio as u32, alt, rx_pull);
+            let tx = hal::raspi::uart::Pin::new(tx_gpio as u32, alt, tx_pull);
+            let rx = hal::raspi::uart::Pin::new(rx_gpio as u32, alt, rx_pull);
 
-            let uarts = hal::rpi::uart::Uarts::from(i);
+            let uarts = hal::raspi::uart::Uarts::from(i);
             let pin_uart = PinUart::new(tx, rx, irq, base_addr as usize);
 
-            unsafe { hal::rpi::uart::set_uart_info(uarts, pin_uart) };
+            unsafe { hal::raspi::uart::set_uart_info(uarts, pin_uart) };
         }
     }
 
@@ -472,7 +482,7 @@ impl Raspi {
 
         log::info!("GPIO: 0x{base_addr:016x}");
 
-        unsafe { awkernel_drivers::hal::rpi::gpio::set_gpio_base(base_addr as usize) };
+        unsafe { awkernel_drivers::hal::raspi::gpio::set_gpio_base(base_addr as usize) };
 
         Ok(())
     }
@@ -487,7 +497,7 @@ impl Raspi {
 
         log::info!("I2C: 0x{base_addr:016x}");
 
-        unsafe { awkernel_drivers::hal::rpi::i2c::set_i2c_base(base_addr as usize) };
+        unsafe { awkernel_drivers::hal::raspi::i2c::set_i2c_base(base_addr as usize) };
 
         Ok(())
     }
@@ -500,7 +510,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find Mbox's base address")))?;
 
-        unsafe { awkernel_drivers::framebuffer::rpi::mbox::set_mbox_base(base_addr as usize) };
+        unsafe { awkernel_drivers::ic::raspi::mbox::set_mbox_base(base_addr as usize) };
 
         Ok(())
     }
@@ -539,9 +549,9 @@ impl Raspi {
                 return Err("'clock-frequency' property has an invalid type");
             }
         };
-        unsafe { rpi::clock::set_clock_frequency(clock_freq as usize) };
+        unsafe { hal::raspi::clock::set_clock_frequency(clock_freq as usize) };
 
-        unsafe { rpi::clock::set_clk_base(base_addr as usize) };
+        unsafe { hal::raspi::clock::set_clk_base(base_addr as usize) };
 
         Ok(())
     }
@@ -556,7 +566,7 @@ impl Raspi {
 
         log::info!("SPI: 0x{:016x}", base_addr);
 
-        unsafe { awkernel_drivers::hal::rpi::spi::set_spi_base(base_addr as usize) };
+        unsafe { hal::raspi::spi::set_spi_base(base_addr as usize) };
 
         Ok(())
     }
@@ -571,7 +581,7 @@ impl Raspi {
 
         log::info!("PWM: 0x{:016x}", base_addr);
 
-        unsafe { awkernel_drivers::hal::rpi::pwm::set_pwm_base(base_addr as usize) };
+        unsafe { hal::raspi::pwm::set_pwm_base(base_addr as usize) };
 
         Ok(())
     }
@@ -600,37 +610,11 @@ impl Raspi {
 
     fn init_framebuffer(&self) {
         unsafe {
-            if awkernel_drivers::framebuffer::rpi::lfb::lfb_init(640, 360).is_err() {
+            if ic::raspi::lfb::lfb_init(640, 360).is_err() {
                 unsafe_puts("Failed to initialize the linear framebuffer.\r\n");
             }
         }
     }
-
-    // ethernet@7d580000 {
-    //     local-mac-address = "";
-    //     compatible = "brcm,bcm2711-genet-v5";
-    //     reg = <0x000000007d580000 0x0000000000010000>;
-    //     #address-cells = <0x1>;
-    //     #size-cells = <0x1>;
-    //     interrupts = <0x0 0x9d 0x4 0x0 0x9e 0x4>;
-    //     status = "okay";
-    //     phy-handle = <0x2f>;
-    //     phy-mode = "rgmii-rxid";
-    //     phandle = <0xe0>;
-    //     mdio@e14 {
-    //         compatible = "brcm,genet-mdio-v5";
-    //         reg = <0x00000e14 0x00000008>;
-    //         reg-names = "mdio";
-    //         #address-cells = <0x1>;
-    //         #size-cells = <0x0>;
-    //         phandle = <0xe1>;
-    //         ethernet-phy@1 {
-    //             reg = <0x00000001 0>;
-    //             led-modes = <0x0 0x8>;
-    //             phandle = <0x2f>;
-    //         };
-    //     };
-    // };
 
     /// Initialize the Ethernet controller.
     fn init_ethernet(&self) -> Result<(), &'static str> {
@@ -710,15 +694,15 @@ impl Raspi {
             base_addr
         );
 
-        // let result = awkernel_drivers::ic::genet::attach(
-        //     VirtAddr::new(base_addr as usize),
-        //     &[irq0, irq1],
-        //     phy_mode,
-        //     phy_id,
-        //     &mac_addr,
-        // );
-
-        // log::debug!("GENET: {:?}", result);
+        if let Err(e) = awkernel_drivers::ic::genet::attach(
+            VirtAddr::new(base_addr as usize),
+            &[irq0, irq1],
+            phy_mode,
+            phy_id,
+            &mac_addr,
+        ) {
+            log::error!("Failed to initialize GENET: {:?}", e);
+        }
 
         Ok(())
     }

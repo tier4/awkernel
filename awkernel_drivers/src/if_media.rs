@@ -82,10 +82,17 @@ pub const IFM_ETH_TXPAUSE: u64 = 0x0000000000040000; // transmit PAUSE frames
 pub const IFM_TMASK: u64 = 0x00000000000000ff; // Media sub-type
 pub const IFM_IMASK: u64 = 0xff00000000000000; // Instance mask
 pub const IFM_ISHIFT: u64 = 56; // Instance shift
+pub const IFM_OMASK: u64 = 0x00000000ffff0000; // Type specific options
+pub const IFM_GMASK: u64 = 0x00ffff0000000000; // Global options
 
 #[inline(always)]
 pub fn ifm_subtype(media: &Media) -> u64 {
     media.0 & IFM_TMASK
+}
+
+#[inline(always)]
+pub fn ifm_options(media: &Media) -> u64 {
+    media.0 & (IFM_OMASK | IFM_GMASK)
 }
 
 /// Create a media word.

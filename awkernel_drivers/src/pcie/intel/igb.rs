@@ -1,7 +1,7 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
+    capability::msi::MultipleMessage, intel::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
 use alloc::{
@@ -1264,16 +1264,9 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let mut data: Vec<u8> = Vec::with_capacity(len);
-
-                    #[allow(clippy::uninit_vec)]
-                    unsafe {
-                        data.set_len(len);
-
-                        let read_buf = rx.read_buf.as_ref().unwrap();
-                        let src = &read_buf.as_ref()[i];
-                        core::ptr::copy_nonoverlapping(src.as_ptr(), data.as_mut_ptr(), len);
-                    }
+                    let read_buf = rx.read_buf.as_ref().unwrap();
+                    let src = &read_buf.as_ref()[i];
+                    let data = src[0..len].to_vec();
 
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 };
@@ -2061,7 +2054,7 @@ impl NetDevice for Igb {
 
     fn can_send(&self) -> bool {
         let inner = self.inner.read();
-        if inner.flags.contains(NetFlags::RUNNING) {
+        if !inner.flags.contains(NetFlags::RUNNING) {
             return false;
         }
 
@@ -2187,6 +2180,33 @@ impl NetDevice for Igb {
         } else {
             false
         }
+    }
+
+    fn tick(&self) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+
+        if inner.is_poll_mode {
+            return Ok(());
+        }
+
+        let mut irqs = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            if *irq != 0 {
+                irqs.push(*irq);
+            }
+        }
+
+        drop(inner);
+
+        for irq in irqs {
+            let _ = self.intr(irq);
+        }
+
+        Ok(())
+    }
+
+    fn tick_msec(&self) -> Option<u64> {
+        Some(200)
     }
 }
 

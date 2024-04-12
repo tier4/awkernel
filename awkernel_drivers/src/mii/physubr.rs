@@ -1,10 +1,94 @@
 use crate::if_media::{
-    ifm_make_word, ifm_subtype, IfmediaEntry, IFM_1000_SX, IFM_1000_T, IFM_100_FX, IFM_100_T4,
-    IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FDX, IFM_FLOW,
+    ifm_make_word, ifm_options, ifm_subtype, IfmediaEntry, IFM_1000_SX, IFM_1000_T, IFM_100_FX,
+    IFM_100_T4, IFM_100_TX, IFM_10_T, IFM_ETH_MASTER, IFM_ETH_RXPAUSE, IFM_ETH_TXPAUSE, IFM_FLOW,
     IFM_HPNA_1, IFM_NONE,
 };
 
 use super::*;
+
+#[derive(Debug)]
+struct MiiMedia {
+    bmcr: u32,
+    anar: u32,
+    gtcr: u32,
+}
+
+const MII_MEDIA_TABLE: [MiiMedia; 10] = [
+    // None
+    MiiMedia {
+        bmcr: BMCR_ISO,
+        anar: ANAR_CSMA,
+        gtcr: 0,
+    },
+    // 10baseT
+    MiiMedia {
+        bmcr: BMCR_S10,
+        anar: ANAR_CSMA | ANAR_10,
+        gtcr: 0,
+    },
+    // 10baseT-FDX
+    MiiMedia {
+        bmcr: BMCR_S10 | BMCR_FDX,
+        anar: ANAR_CSMA | ANAR_10_FD,
+        gtcr: 0,
+    },
+    // 100baseT4
+    MiiMedia {
+        bmcr: BMCR_S100,
+        anar: ANAR_CSMA | ANAR_T4,
+        gtcr: 0,
+    },
+    // 100baseTX
+    MiiMedia {
+        bmcr: BMCR_S100,
+        anar: ANAR_CSMA | ANAR_TX,
+        gtcr: 0,
+    },
+    // 100baseTX-FDX
+    MiiMedia {
+        bmcr: BMCR_S100 | BMCR_FDX,
+        anar: ANAR_CSMA | ANAR_TX_FD,
+        gtcr: 0,
+    },
+    // 1000baseX
+    MiiMedia {
+        bmcr: BMCR_S1000,
+        anar: ANAR_CSMA,
+        gtcr: 0,
+    },
+    // 1000baseX-FDX
+    MiiMedia {
+        bmcr: BMCR_S1000 | BMCR_FDX,
+        anar: ANAR_CSMA,
+        gtcr: 0,
+    },
+    // 1000baseT
+    MiiMedia {
+        bmcr: BMCR_S1000,
+        anar: ANAR_CSMA,
+        gtcr: GTCR_ADV_1000THDX,
+    },
+    // 1000baseT-FDX
+    MiiMedia {
+        bmcr: BMCR_S1000,
+        anar: ANAR_CSMA,
+        gtcr: GTCR_ADV_1000TFDX,
+    },
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MiiMediaType {
+    None = 0,
+    _10T,
+    _10TFdx,
+    _100T4,
+    _100Tx,
+    _100TxFdx,
+    _1000X,
+    _1000XFdx,
+    _1000T,
+    _1000TFdx,
+}
 
 pub fn phy_dev_attach(
     mii: &mut dyn Mii,
@@ -54,8 +138,6 @@ pub fn phy_dev_attach(
         let phy_data = phy.get_phy_data_mut();
         phy_data.flags &= !MiiFlags::FORCEANEG;
     }
-
-    // log::debug!("mii_data = {:?}", mii_data);
 
     Ok(())
 }
@@ -314,38 +396,38 @@ fn phy_add_media(mii_data: &mut MiiData, phy: &mut dyn MiiPhy) {
         }
     }
 
-    if phy_data.extcapabilities & EXTSR_MEDIAMASK != 0 {
-        if phy_data.extcapabilities & EXTSR_1000XHDX != 0 {
-            phy_data.anegticks = MII_ANEGTICKS_GIGE;
-            phy_data.flags |= MiiFlags::IS_1000X;
+    if phy_data.extcapabilities & EXTSR_MEDIAMASK != 0
+        && phy_data.extcapabilities & EXTSR_1000XHDX != 0
+    {
+        phy_data.anegticks = MII_ANEGTICKS_GIGE;
+        phy_data.flags |= MiiFlags::IS_1000X;
 
+        mii_data.media.add(IfmediaEntry {
+            media: ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, phy_data.inst as u64),
+            data: 0,
+        });
+
+        if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
             mii_data.media.add(IfmediaEntry {
-                media: ifm_make_word(IFM_ETHER, IFM_1000_SX, 0, phy_data.inst as u64),
+                media: ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, phy_data.inst as u64),
                 data: 0,
             });
 
-            if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
+            if phy_data.flags.contains(MiiFlags::DOPAUSE)
+                && !phy_data.flags.contains(MiiFlags::NOMANPAUSE)
+            {
                 mii_data.media.add(IfmediaEntry {
-                    media: ifm_make_word(IFM_ETHER, IFM_1000_SX, IFM_FDX, phy_data.inst as u64),
+                    media: ifm_make_word(
+                        IFM_ETHER,
+                        IFM_1000_SX,
+                        IFM_FDX | IFM_FLOW,
+                        phy_data.inst as u64,
+                    ),
                     data: 0,
                 });
-
-                if phy_data.flags.contains(MiiFlags::DOPAUSE)
-                    && !phy_data.flags.contains(MiiFlags::NOMANPAUSE)
-                {
-                    mii_data.media.add(IfmediaEntry {
-                        media: ifm_make_word(
-                            IFM_ETHER,
-                            IFM_1000_SX,
-                            IFM_FDX | IFM_FLOW,
-                            phy_data.inst as u64,
-                        ),
-                        data: 0,
-                    });
-                }
-
-                fdx = true;
             }
+
+            fdx = true;
         }
     }
 
@@ -371,162 +453,107 @@ pub fn phy_set_media(
 ) -> Result<(), MiiError> {
     let phy_data = phy.get_phy_data();
 
-    // 123         struct mii_data *mii = sc->mii_pdata;
-    // 124         struct ifmedia_entry *ife = mii->mii_media.ifm_cur;
-    // 125         int bmcr, anar, gtcr;
-    // 126         int index = -1;
-
     let Some(ife) = mii_data.media.get_current() else {
         return Err(MiiError::Media);
     };
 
-    log::debug!("ife = {:?}", ife);
-
-    // 127
-    // 128         switch (IFM_SUBTYPE(ife->ifm_media)) {
-    // 129         case IFM_AUTO:
-    // 130                 /*
-    // 131                  * Force renegotiation if MIIF_DOPAUSE or MIIF_FORCEANEG.
-    // 132                  * The former is necessary as we might switch from flow-
-    // 133                  * control advertisement being off to on or vice versa.
-    // 134                  */
-    // 135                 if ((PHY_READ(sc, MII_BMCR) & BMCR_AUTOEN) == 0 ||
-    // 136                     (sc->mii_flags & (MIIF_DOPAUSE | MIIF_FORCEANEG)) != 0)
-    // 137                         (void)mii_phy_auto(sc);
-    // 138                 return;
-    // 139
-    // 140         case IFM_NONE:
-    // 141                 index = MII_MEDIA_NONE;
-    // 142                 break;
-    // 143
-    // 144         case IFM_HPNA_1:
-    // 145                 index = MII_MEDIA_10_T;
-    // 146                 break;
-    // 147
-    // 148         case IFM_10_T:
-    // 149                 switch (IFM_OPTIONS(ife->ifm_media)) {
-    // 150                 case 0:
-    // 151                         index = MII_MEDIA_10_T;
-    // 152                         break;
-    // 153                 case IFM_FDX:
-    // 154                 case (IFM_FDX | IFM_FLOW):
-    // 155                         index = MII_MEDIA_10_T_FDX;
-    // 156                         break;
-    // 157                 }
-    // 158                 break;
-    // 159
-    // 160         case IFM_100_TX:
-    // 161         case IFM_100_FX:
-    // 162                 switch (IFM_OPTIONS(ife->ifm_media)) {
-    // 163                 case 0:
-    // 164                         index = MII_MEDIA_100_TX;
-    // 165                         break;
-    // 166                 case IFM_FDX:
-    // 167                 case (IFM_FDX | IFM_FLOW):
-    // 168                         index = MII_MEDIA_100_TX_FDX;
-    // 169                         break;
-    // 170                 }
-    // 171                 break;
-    // 172
-    // 173         case IFM_100_T4:
-    // 174                 index = MII_MEDIA_100_T4;
-    // 175                 break;
-    // 176
-    // 177         case IFM_1000_SX:
-    // 178                 switch (IFM_OPTIONS(ife->ifm_media)) {
-    // 179                 case 0:
-    // 180                         index = MII_MEDIA_1000_X;
-    // 181                         break;
-    // 182                 case IFM_FDX:
-    // 183                 case (IFM_FDX | IFM_FLOW):
-    // 184                         index = MII_MEDIA_1000_X_FDX;
-    // 185                         break;
-    // 186                 }
-    // 187                 break;
-    // 188
-    // 189         case IFM_1000_T:
-    // 190                 switch (IFM_OPTIONS(ife->ifm_media)) {
-    // 191                 case 0:
-    // 192                 case IFM_ETH_MASTER:
-    // 193                         index = MII_MEDIA_1000_T;
-    // 194                         break;
-    // 195                 case IFM_FDX:
-    // 196                 case (IFM_FDX | IFM_ETH_MASTER):
-    // 197                 case (IFM_FDX | IFM_FLOW):
-    // 198                 case (IFM_FDX | IFM_FLOW | IFM_ETH_MASTER):
-    // 199                         index = MII_MEDIA_1000_T_FDX;
-    // 200                         break;
-    // 201                 }
-    // 202                 break;
-    // 203         }
-
-    match ifm_subtype(&ife.media) {
+    let index = match ifm_subtype(&ife.media) {
         IFM_AUTO => {
-            // Force renegotiation if MIIF_DOPAUSE or MIIF_FORCEANEG.
-            // The former is necessary as we might switch from flow-
-            // control advertisement being off to on or vice versa.
-            // 134                  */
-            // 135                 if ((PHY_READ(sc, MII_BMCR) & BMCR_AUTOEN) == 0 ||
-            // 136                     (sc->mii_flags & (MIIF_DOPAUSE | MIIF_FORCEANEG)) != 0)
-            // 137                         (void)mii_phy_auto(sc);
-
-            log::debug!("IFM_AUTO");
-
             if mii.read_reg(phy_data.phy, MII_BMCR)? & BMCR_AUTOEN == 0
                 || phy_data
                     .flags
                     .intersects(MiiFlags::DOPAUSE | MiiFlags::FORCEANEG)
             {
-                log::debug!("mii_phy_auto");
+                phy_auto(mii, mii_data, phy)?;
             }
 
             return Ok(());
         }
-        IFM_NONE => {}
-        IFM_HPNA_1 => {}
-        IFM_10_T => {}
-        IFM_100_TX | IFM_100_FX => {}
-        IFM_100_T4 => {}
-        IFM_1000_SX => {}
-        IFM_1000_T => {}
+        IFM_NONE => MiiMediaType::None,
+        IFM_HPNA_1 => MiiMediaType::_10T,
+        IFM_10_T => {
+            let options = ifm_options(&ife.media);
+
+            if options == IFM_FDX || options == IFM_FDX | IFM_FLOW {
+                MiiMediaType::_10TFdx
+            } else {
+                MiiMediaType::_10T
+            }
+        }
+        IFM_100_TX | IFM_100_FX => {
+            let options = ifm_options(&ife.media);
+
+            if options == IFM_FDX || options == IFM_FDX | IFM_FLOW {
+                MiiMediaType::_100TxFdx
+            } else {
+                MiiMediaType::_100Tx
+            }
+        }
+        IFM_100_T4 => MiiMediaType::_100T4,
+        IFM_1000_SX => {
+            let options = ifm_options(&ife.media);
+
+            if options == IFM_FDX || options == IFM_FDX | IFM_FLOW {
+                MiiMediaType::_1000XFdx
+            } else {
+                MiiMediaType::_1000X
+            }
+        }
+        IFM_1000_T => {
+            let options = ifm_options(&ife.media);
+
+            if options == 0 || options == IFM_ETH_MASTER {
+                MiiMediaType::_1000T
+            } else if options == IFM_FDX
+                || options == IFM_FDX | IFM_ETH_MASTER
+                || options == IFM_FDX | IFM_FLOW
+                || options == IFM_FDX | IFM_FLOW | IFM_ETH_MASTER
+            {
+                MiiMediaType::_1000TFdx
+            } else {
+                return Err(MiiError::Media);
+            }
+        }
         _ => {
             return Err(MiiError::Media);
         }
+    };
+
+    let entry = &MII_MEDIA_TABLE[index as usize];
+    let mut anar = entry.anar;
+    let bmcr = entry.bmcr;
+    let mut gtcr = entry.gtcr;
+
+    if ifm_subtype(&ife.media) == IFM_1000_T {
+        gtcr |= GTCR_MAN_MS;
+
+        if ife.media.contains(IFM_ETH_MASTER) {
+            gtcr |= GTCR_ADV_MS;
+        }
     }
 
-    // 204
-    // 205         KASSERT(index != -1, ("%s: failed to map media word %d",
-    // 206             __func__, ife->ifm_media));
-    // 207
-    // 208         anar = mii_media_table[index].mm_anar;
-    // 209         bmcr = mii_media_table[index].mm_bmcr;
-    // 210         gtcr = mii_media_table[index].mm_gtcr;
-    // 211
-    // 212         if (IFM_SUBTYPE(ife->ifm_media) == IFM_1000_T) {
-    // 213                 gtcr |= GTCR_MAN_MS;
-    // 214                 if ((ife->ifm_media & IFM_ETH_MASTER) != 0)
-    // 215                         gtcr |= GTCR_ADV_MS;
-    // 216         }
-    // 217
-    // 218         if ((ife->ifm_media & IFM_FDX) != 0 &&
-    // 219             ((ife->ifm_media & IFM_FLOW) != 0 ||
-    // 220             (sc->mii_flags & MIIF_FORCEPAUSE) != 0)) {
-    // 221                 if ((sc->mii_flags & MIIF_IS_1000X) != 0)
-    // 222                         anar |= ANAR_X_PAUSE_TOWARDS;
-    // 223                 else {
-    // 224                         anar |= ANAR_FC;
-    // 225                         /* XXX Only 1000BASE-T has PAUSE_ASYM? */
-    // 226                         if ((sc->mii_flags & MIIF_HAVE_GTCR) != 0 &&
-    // 227                             (sc->mii_extcapabilities &
-    // 228                             (EXTSR_1000THDX | EXTSR_1000TFDX)) != 0)
-    // 229                                 anar |= ANAR_X_PAUSE_ASYM;
-    // 230                 }
-    // 231         }
-    // 232
-    // 233         PHY_WRITE(sc, MII_ANAR, anar);
-    // 234         PHY_WRITE(sc, MII_BMCR, bmcr);
-    // 235         if ((sc->mii_flags & MIIF_HAVE_GTCR) != 0)
-    // 236                 PHY_WRITE(sc, MII_100T2CR, gtcr);
+    if ife.media.contains(IFM_FDX)
+        && (ife.media.contains(IFM_FLOW) || phy_data.flags.contains(MiiFlags::FORCEPAUSE))
+    {
+        if phy_data.flags.contains(MiiFlags::IS_1000X) {
+            anar |= ANAR_X_PAUSE_TOWARDS;
+        } else {
+            anar |= ANAR_FC;
+
+            // XXX Only 1000BASE-T has PAUSE_ASYM?
+            if phy_data.flags.contains(MiiFlags::HAVE_GTCR)
+                && phy_data.extcapabilities & (EXTSR_1000THDX | EXTSR_1000TFDX) != 0
+            {
+                anar |= ANAR_X_PAUSE_ASYM;
+            }
+        }
+    }
+
+    mii.write_reg(phy_data.phy, MII_ANAR, anar)?;
+    mii.write_reg(phy_data.phy, MII_BMCR, bmcr)?;
+    if phy.get_phy_data().flags.contains(MiiFlags::HAVE_GTCR) {
+        mii.write_reg(phy_data.phy, MII_100T2CR, gtcr)?;
+    }
 
     Ok(())
 }
@@ -542,8 +569,6 @@ pub fn phy_tick(
     mii_data: &mut MiiData,
     phy: &mut dyn MiiPhy,
 ) -> Result<TickReturn, MiiError> {
-    log::debug!("phy_tick");
-
     let Some(ife) = mii_data.media.get_current() else {
         return Err(MiiError::Media);
     };
@@ -556,14 +581,12 @@ pub fn phy_tick(
     // changes.
     if ifm_subtype(&ife.media) != IFM_AUTO {
         phy_data.ticks = 0; // reset autonegotiation timer.
-        log::debug!("not doing autonegotiation");
         return Ok(TickReturn::Continue);
     }
 
     // Read the status register twice; BMSR_LINK is latch-low.
     let reg = mii.read_reg(phy_data.phy, MII_BMSR)? | mii.read_reg(phy_data.phy, MII_BMSR)?;
     if reg & BMSR_LINK != 0 {
-        log::debug!("link up");
         phy_data.ticks = 0; // reset autonegotiation timer.
         return Ok(TickReturn::Continue);
     }
@@ -592,12 +615,71 @@ pub fn phy_tick(
     Ok(TickReturn::Continue)
 }
 
-fn phy_auto(mii: &mut dyn Mii, mii_data: &MiiData, phy: &mut dyn MiiPhy) -> Result<(), MiiError> {
-    // TODO
+fn phy_auto(
+    mii: &mut dyn Mii,
+    mii_data: &MiiData,
+    phy: &mut dyn MiiPhy,
+) -> Result<TickReturn, MiiError> {
+    let Some(ife) = mii_data.media.get_current() else {
+        return Err(MiiError::Media);
+    };
 
-    log::debug!("phy_auto");
+    // Check for 1000BASE-X.  Autonegotiation is a bit
+    // different on such devices.
+    let phy_data = phy.get_phy_data();
 
-    Ok(())
+    if phy_data.flags.contains(MiiFlags::IS_1000X) {
+        let mut anar = 0;
+
+        if phy_data.extcapabilities & EXTSR_1000XFDX != 0 {
+            anar |= ANAR_X_FD;
+        }
+
+        if phy_data.extcapabilities & EXTSR_1000XHDX != 0 {
+            anar |= ANAR_X_HD;
+        }
+
+        if ife.media.contains(IFM_FLOW) || phy_data.flags.contains(MiiFlags::FORCEPAUSE) {
+            anar |= ANAR_X_PAUSE_TOWARDS;
+        }
+
+        mii.write_reg(phy_data.phy, MII_ANAR, anar)?;
+    } else {
+        let mut anar = bmsr_media_to_anar(phy_data.capabilities) | ANAR_CSMA;
+
+        if ife.media.contains(IFM_FLOW) || phy_data.flags.contains(MiiFlags::FORCEPAUSE) {
+            if phy_data.capabilities & (BMSR_10TFDX | BMSR_100TXFDX) != 0 {
+                anar |= ANAR_FC;
+            }
+
+            // XXX Only 1000BASE-T has PAUSE_ASYM?
+            if phy_data.flags.contains(MiiFlags::HAVE_GTCR)
+                && phy_data.extcapabilities & (EXTSR_1000THDX | EXTSR_1000TFDX) != 0
+            {
+                anar |= ANAR_X_PAUSE_ASYM;
+            }
+        }
+
+        mii.write_reg(phy_data.phy, MII_ANAR, anar)?;
+
+        if phy_data.flags.contains(MiiFlags::HAVE_GTCR) {
+            let mut gtcr = 0;
+
+            if phy_data.extcapabilities & EXTSR_1000TFDX != 0 {
+                gtcr |= GTCR_ADV_1000TFDX;
+            }
+
+            if phy_data.extcapabilities & EXTSR_1000THDX != 0 {
+                gtcr |= GTCR_ADV_1000THDX;
+            }
+
+            mii.write_reg(phy_data.phy, MII_100T2CR, gtcr)?;
+        }
+    }
+
+    mii.write_reg(phy_data.phy, MII_BMCR, BMCR_AUTOEN | BMCR_STARTNEG)?;
+
+    Ok(TickReturn::JustReturn)
 }
 
 /// Return the flow control status flag from MII_ANAR & MII_ANLPAR.

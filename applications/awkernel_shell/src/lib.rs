@@ -13,7 +13,7 @@ use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
 use blisp::embedded;
 use core::time::Duration;
 
-const SERVICE_NAME: &str = "awkernel shell";
+const SERVICE_NAME: &str = "[Awkernel] shell";
 
 pub fn init() {
     let task_id = task::spawn(SERVICE_NAME.into(), console_handler(), SchedulerType::FIFO);

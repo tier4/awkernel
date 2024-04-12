@@ -43,6 +43,7 @@ pub enum NetManagerError {
     InvalidPort,
     InvalidState,
     NoAvailablePort,
+    InterfaceIsNotReady,
 }
 
 #[derive(Debug)]
@@ -503,6 +504,7 @@ pub fn tick_interface(interface_id: u64) {
     };
 
     let _ = interface.net_device.tick();
+    interface.tick_rx_poll_mode();
 }
 
 /// If some packets are processed, true is returned.

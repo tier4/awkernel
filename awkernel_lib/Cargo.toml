@@ -10,6 +10,8 @@ log = "0.4"
 rlsf = "0.2"
 bitflags = "2.3"
 array-macro = "2.1"
+embedded-graphics-core = "0.4"
+embedded-graphics = "0.8"
 
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
@@ -61,7 +63,7 @@ features = [
 ]
 
 [features]
-default = ["aarch64"]
+default = ["x86"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []

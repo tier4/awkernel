@@ -26,14 +26,13 @@ impl Scheduler for FIFOScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        if data.is_none() {
-            *data = Some(FIFOData::new());
+        if let Some(data) = data.as_mut() {
+            data.queue.push_back(task);
+        } else {
+            let mut fifo_data = FIFOData::new();
+            fifo_data.queue.push_back(task);
+            *data = Some(fifo_data);
         }
-
-        let data = data.as_mut().unwrap();
-
-        // Put the state in queue.
-        data.queue.push_back(task.clone());
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -41,7 +40,10 @@ impl Scheduler for FIFOScheduler {
         let mut data = self.data.lock(&mut node);
 
         // Pop a task from the run queue.
-        let data = data.as_mut()?;
+        let data = match data.as_mut() {
+            Some(data) => data,
+            None => return None,
+        };
 
         loop {
             let task = data.queue.pop_front()?;
