@@ -167,7 +167,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);
-    
+
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: 0,
