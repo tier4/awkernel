@@ -50,6 +50,8 @@ jobs:
       run: cargo clippy_aarch64_virt -- --deny warnings
     - name: Clippy raspi
       run: cargo clippy_raspi -- --deny warnings
+    - name: Cliipy raspi5
+      run: cargo clippy_raspi5 -- --deny warnings
     - name: Clippy x86_64
       run: cargo clippy_x86 -- --deny warnings
     - name: Clippy std
