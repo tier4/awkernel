@@ -2,6 +2,7 @@ use super::bsp::StaticArrayedNode;
 use alloc::boxed::Box;
 use awkernel_lib::{err_msg, interrupt::register_interrupt_controller};
 
+#[allow(dead_code)]
 pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => get_irq_bcm2836(interrupts),
@@ -10,6 +11,7 @@ pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
     let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
@@ -22,6 +24,7 @@ fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
     let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
@@ -33,6 +36,7 @@ fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let gicd_base = node
         .get_address(0)
@@ -52,6 +56,7 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let gicd_base = node
         .get_address(0)
@@ -71,6 +76,7 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn init_bcm2836(
     node: &StaticArrayedNode,
     local_intc_node: &StaticArrayedNode,
@@ -94,6 +100,7 @@ fn init_bcm2836(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn init_interrupt_controller(
     irc_ctl: &str,
     intc_node: &StaticArrayedNode,
