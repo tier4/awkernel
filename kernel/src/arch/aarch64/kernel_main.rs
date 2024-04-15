@@ -225,6 +225,7 @@ unsafe fn non_primary_cpu() {
     crate::main::<()>(kernel_info);
 }
 
+#[allow(dead_code)]
 unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
     if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
         tree

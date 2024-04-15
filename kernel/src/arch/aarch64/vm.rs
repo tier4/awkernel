@@ -88,6 +88,7 @@ impl<A: awkernel_lib::addr::Addr> MemoryRange<A> {
 
 const NUM_RANGES: usize = 16;
 
+#[allow(dead_code)]
 pub struct VM {
     num_cpus: usize,
 
@@ -158,6 +159,7 @@ pub fn device_page_flag() -> u64 {
         | 0b11
 }
 
+#[allow(dead_code)]
 impl VM {
     pub fn new() -> Self {
         VM {
