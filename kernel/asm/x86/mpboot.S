@@ -252,6 +252,10 @@ entry64:
     // Get local APIC ID.
     movl    $1, %eax
     cpuid
+
+    test    $0x80000000, %ecx // check Hypervisor
+    jnz     xapic
+
     test    $0x200000, %ecx    // Check if x2APIC is supported (bit 21 of ECX)
     jz      xapic
 
