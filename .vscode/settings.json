@@ -21,13 +21,13 @@
     // For x86_64
     "rust-analyzer.cargo.buildScripts.overrideCommand": [
         "cargo",
-        "+nightly",
+        "+nightly-2024-03-09",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
     ],
     "rust-analyzer.check.overrideCommand": [
         "cargo",
-        "+nightly",
+        "+nightly-2024-03-09",
         "check_no_std",
         "--target=targets/x86_64-kernel.json",
     ],

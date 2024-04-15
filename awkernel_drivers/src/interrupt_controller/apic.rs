@@ -138,7 +138,10 @@ pub fn new(
     let mut msr = Msr::new(registers::IA32_APIC_BASE_MSR);
 
     let cpuid = unsafe { __cpuid(1) };
-    if cpuid.ecx & (1 << 21) != 0 {
+
+    // 1 << 21: x2APIC
+    // 1 << 31: Hypervisor present
+    if cpuid.ecx & (1 << 21) != 0 && cpuid.ecx & (1 << 31) == 0 {
         log::info!("x2APIC is available.");
 
         // Enable x2APIC
