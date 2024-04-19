@@ -17,6 +17,7 @@ use super::frame_allocator::*;
 ///  A - Accessed
 ///  D - Dirty
 bitflags! {
+    #[derive(PartialEq)]
     pub struct Flags: u8 {
         const V = 1 << 0;
         const R = 1 << 1;
@@ -38,7 +39,7 @@ pub struct PageTableEntry {
 impl PageTableEntry {
     pub fn new(ppn: PhysAddr, flags: Flags) -> Self {
         Self {
-            bits: ppn.0 << 10 | flags.bits as usize,
+            bits: ppn.0 << 10 | flags.bits() as usize,
         }
     }
 
@@ -51,19 +52,19 @@ impl PageTableEntry {
     }
 
     pub fn is_valid(&self) -> bool {
-        (self.bits() & Flags::V) != Flags::empty()
+        (self.flags() & Flags::V) != Flags::empty()
     }
 
     pub fn is_readable(&self) -> bool {
-        (self.bits() & Flags::R) != Flags::empty()
+        (self.flags() & Flags::R) != Flags::empty()
     }
 
     pub fn is_writable(&self) -> bool {
-        (self.bits() & Flags::W) != Flags::empty()
+        (self.flags() & Flags::W) != Flags::empty()
     }
 
     pub fn is_executable(&self) -> bool {
-        (self.bits() & Flags::X) != Flags::empty()
+        (self.flags() & Flags::X) != Flags::empty()
     }
 }
 
@@ -71,4 +72,6 @@ pub struct PageTable {
     root_ppn: PhysPageNum,
 }
 
-impl PageTable {}
+impl PageTable {
+    fn new() {}
+}

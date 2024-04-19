@@ -1,7 +1,8 @@
-use crate::page_table::{Flags, PageTable};
-
+use super::page_table::{Flags, PageTable};
+use alloc::vec::Vec;
 /// We should set memory end based on specific device
 pub const MEMORY_END: u64 = 0x88000000;
+
 pub struct Memory {
     page_table: PageTable,
     area: Vec<MapArea>,

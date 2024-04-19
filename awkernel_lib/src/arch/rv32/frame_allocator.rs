@@ -2,7 +2,10 @@ use super::address::{
     PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, MEMORY_END, PAGE_SIZE, PA_WIDTH, PPN_WIDTH,
     VA_WIDTH, VPN_WIDTH,
 };
+use alloc::vec::Vec;
+
 use core::cell::OnceCell;
+// use crate::sync::mutex::Mutex;
 
 type FrameAllocatorImpl = PageAllocator;
 
@@ -25,7 +28,7 @@ pub fn init_page_allocator() {
     if let Some(ALLOCATOR_REF) = FRAME_ALLOCATOR.get_mut() {
         ALLOCATOR_REF.init(
             PhysAddr::from(ekernel as usize).ceil(),
-            PhysAddr::from(MEMORY_END).floor(),
+            PhysAddr::from(MEMORY_END as usize).floor(),
         )
     } else {
         panic!("[Error] FrameAllocator is not initialized at all! May be triggered by Race condition of multicore!")
@@ -45,7 +48,20 @@ pub struct FrameTracker {
 
 impl FrameTracker {
     pub fn new(ppn: PhysPageNum) -> Self {
-        let
+        // page cleaning
+        let bytes_array = ppn.get_bytes_array();
+        for i in bytes_array {
+            *i = 0;
+        }
+        Self { ppn }
+    }
+}
+
+pub fn frame_dealloc(ppn: PhysPageNum) {}
+
+impl Drop for FrameTracker {
+    fn drop(&mut self) {
+        frame_dealloc(self.ppn);
     }
 }
 
@@ -90,7 +106,7 @@ impl FrameAllocator for PageAllocator {
     }
 
     fn dealloc(&mut self, ppn: PhysPageNum) {
-        if ppn.0 >= self.current || self.recycled.iter().find(|&v| v == ppn.0).is_some() {
+        if ppn.0 >= self.current || self.recycled.iter().find(|&&v| v == ppn.0).is_some() {
             panic!("Frame ppn={:#x} has not been allocated!", ppn.0)
         }
         self.recycled.push(ppn.0)

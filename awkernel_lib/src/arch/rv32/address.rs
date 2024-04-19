@@ -1,9 +1,11 @@
-use super::PageTableEntry;
+use super::page_table::PageTableEntry;
 use core::{
     self,
     fmt::{self, Debug, Formatter},
 };
-pub const PAGE_SIZE: usize = 0x1000; // 4 KiB
+
+pub const PAGE_SIZE: usize = 0x1000;
+// 4 KiB
 pub const PAGE_OFFSET: usize = 0xc; // 12 bits
 
 pub const MEMORY_END: u64 = 0x8800_0000;
@@ -11,10 +13,17 @@ pub const MEMORY_END: u64 = 0x8800_0000;
 /// Design abstraction struct:
 /// PhysAddr, VirtAddr, PhysPageNum, VirtPageNum
 /// to guarantee memory safty by borrow check in compilation
-pub const PA_WIDTH: usize = 34; // SV32 Physical Address Length
-pub const VA_WIDTH: usize = 32; // SV32 Virtual Address Length
-pub const PPN_WIDTH: usize = PA_WIDTH - PAGE_OFFSET; // SV32 Physical Page Number Range
-pub const VPN_WIDTH: usize = VA_WIDTH - PAGE_OFFSET; // SV32 Virtual Page Number Range
+// SV32 Physical Address Length
+pub const PA_WIDTH: usize = 34;
+
+// SV32 Virtual Address Length
+pub const VA_WIDTH: usize = 32;
+
+// SV32 Physical Page Number Range
+pub const PPN_WIDTH: usize = PA_WIDTH - PAGE_OFFSET;
+
+// SV32 Virtual Page Number Range
+pub const VPN_WIDTH: usize = VA_WIDTH - PAGE_OFFSET;
 
 #[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -61,13 +70,13 @@ impl Debug for VirtPageNum {
 /// From<usize> trait
 impl From<usize> for PhysAddr {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << PA_WIDTH) - 1))
+        Self(v & ((1_u64 << PA_WIDTH as u64) - 1) as usize)
     }
 }
 
 impl From<usize> for VirtAddr {
     fn from(v: usize) -> Self {
-        Self(v & ((1 << VA_WIDTH) - 1))
+        Self(v & ((1_u64 << VA_WIDTH as u64) - 1) as usize)
     }
 }
 
@@ -111,6 +120,32 @@ impl From<VirtPageNum> for usize {
     }
 }
 
+impl From<VirtAddr> for VirtPageNum {
+    fn from(v: VirtAddr) -> Self {
+        assert_eq!(v.page_offset(), 0);
+        v.floor()
+    }
+}
+
+impl From<VirtPageNum> for VirtAddr {
+    fn from(v: VirtPageNum) -> Self {
+        Self(v.0 << PAGE_OFFSET)
+    }
+}
+
+impl From<PhysAddr> for PhysPageNum {
+    fn from(v: PhysAddr) -> Self {
+        assert_eq!(v.page_offset(), 0);
+        v.floor()
+    }
+}
+
+impl From<PhysPageNum> for PhysAddr {
+    fn from(v: PhysPageNum) -> Self {
+        Self(v.0 << PAGE_OFFSET)
+    }
+}
+
 impl VirtAddr {
     pub fn floor(&self) -> VirtPageNum {
         VirtPageNum(self.0 / PAGE_SIZE)
@@ -145,5 +180,35 @@ impl PhysPageNum {
     pub fn get_mut<T>(&self) -> &'static mut T {
         let pa: PhysAddr = (*self).into();
         pa.get_mut()
+    }
+}
+
+impl PhysAddr {
+    pub fn floor(&self) -> PhysPageNum {
+        PhysPageNum(self.0 / PAGE_SIZE)
+    }
+
+    pub fn ceil(&self) -> PhysPageNum {
+        if self.0 == 0 {
+            PhysPageNum(0)
+        } else {
+            PhysPageNum((self.0 - 1 + PAGE_SIZE) / PAGE_SIZE)
+        }
+    }
+
+    pub fn page_offset(&self) -> usize {
+        self.0 & (PAGE_SIZE - 1)
+    }
+
+    pub fn aligned(&self) -> bool {
+        self.page_offset() == 0
+    }
+
+    pub fn get_ref<T>(&self) -> &'static T {
+        unsafe { (self.0 as *const T).as_ref().unwrap() }
+    }
+
+    pub fn get_mut<T>(&self) -> &'static mut T {
+        unsafe { (self.0 as *mut T).as_mut().unwrap() }
     }
 }
