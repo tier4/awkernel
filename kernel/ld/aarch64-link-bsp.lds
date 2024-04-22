@@ -2,7 +2,7 @@ ENTRY(_start)
 SECTIONS
 {
     PROVIDE (__executable_start = .);
-    . = #INITADDR#; /* replaced by sed */
+    . = 0x80000; /* replaced by sed */
     __kernel_start = .;
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }
