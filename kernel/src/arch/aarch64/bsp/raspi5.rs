@@ -1,4 +1,6 @@
+use crate::arch::aarch64::bsp::raspi5::uart::unsafe_puts;
 use crate::arch::aarch64::vm::VM;
+use awkernel_lib::console::register_unsafe_puts;
 
 use awkernel_drivers::raspi5::*;
 
@@ -41,7 +43,11 @@ impl Raspi5 {
     }
 
     pub fn init_uart(&mut self) {
-        uart::init_uart();
+        uart::init();
+
+        register_unsafe_puts(uart::unsafe_puts);
+
+        unsafe { unsafe_puts("uart0 has been successfully initialized.\r\n") };
     }
 
     pub fn init_gpio(&mut self) {
