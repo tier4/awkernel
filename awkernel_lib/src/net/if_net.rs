@@ -1,3 +1,5 @@
+use crate::console;
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{collections::BTreeMap, sync::Arc};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
@@ -6,8 +8,6 @@ use smoltcp::{
     time::Instant,
     wire::HardwareAddress,
 };
-
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr},
@@ -87,6 +87,10 @@ impl<'a> Device for NetDriverRef<'a> {
         // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
         //     cap.checksum.udp = Checksum::Rx;
         // }
+
+        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+            cap.checksum.udp = Checksum::Rx;
+        }
 
         cap
     }

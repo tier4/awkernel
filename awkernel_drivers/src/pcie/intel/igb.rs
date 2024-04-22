@@ -1,5 +1,4 @@
 //! # Intel Gigabit Ethernet Controller
-
 use crate::pcie::{
     capability::msi::MultipleMessage, intel::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
@@ -9,12 +8,14 @@ use alloc::{
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
     format,
+    string::String,
     sync::Arc,
     vec::Vec,
 };
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
+    console::{print, unsafe_print_hex_u8},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -1344,10 +1345,9 @@ impl Igb {
 
         txd.context_desc.ipcss = ETHER_HDR_LEN as u8;
         txd.context_desc.ipcso = ETHER_HDR_LEN as u8 + offset_of!(Ip, ip_sum) as u8;
-        txd.context_desc.ipcse =
-            u16::to_le(ETHER_HDR_LEN as u16 + core::mem::size_of::<Ip>() as u16 - 1);
+        txd.context_desc.ipcse = 16::to_le(ETHER_HDR_LEN as u16 + core::mem::size_of::<Ip>() as u16 - 1);
 
-        txd.context_desc.tucss = ETHER_HDR_LEN as u8 + core::mem::size_of::<Ip>() as u8;
+        txd.context_desc.tucss = ETHER_HDR_LEN as u8; // + core::mem::size_of::<Ip>() as u8;
         txd.context_desc.tucse = 0;
 
         if tx.active_checksum_context == ActiveChecksumContext::TcpIP {
@@ -1363,7 +1363,10 @@ impl Igb {
         }
 
         txd.context_desc.data = 0;
-        txd.context_desc.cmd_and_length = u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
+        txd.context_desc.cmd_and_length =
+            u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
+
+        log::debug!("{:?}", unsafe { txd.context_desc });
 
         Ok((1, txd_lower, txd_upper))
     }
@@ -1559,6 +1562,26 @@ impl Igb {
         Ok(())
     }
 
+    unsafe fn hexdump(&self, addr: *const u8, len: usize, label: &str) {
+        print(label); // Display the label provided
+        print(":\n");
+        let mut i = 0;
+        while i < len {
+            if i % 16 == 0 {
+                if i != 0 {
+                    print("\n"); // Start a new line after 16 bytes
+                }
+                // Print the address offset at the start of the line
+                unsafe_print_hex_u8(i as u8);
+                print(": ");
+            }
+            unsafe_print_hex_u8(*addr.offset(i as isize) as u8); // Print byte in hex format
+            print(" "); // Space between bytes
+            i += 1;
+        }
+        print("\n"); // New line after the dump
+    }
+
     fn encap(
         &self,
         mac_type: MacType,
@@ -1570,6 +1593,12 @@ impl Igb {
         if len > TXBUFFER_2048 as usize {
             return Err(IgbDriverErr::InvalidPacket);
         }
+
+        let hex_string: String = ether_frame.data[0..len]
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect();
+        log::debug!("{}", hex_string);
 
         let mut head = tx.tx_desc_head;
 
@@ -1594,6 +1623,19 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            if ether_frame
+                .csum_flags
+                .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+            {
+                core::ptr::write(dst.as_mut_ptr().add(40) as *mut u16, 0x6a18);
+            }
+            let dst_ptr = dst as *mut u8 as *const u8;
+            if ether_frame
+                .csum_flags
+                .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+            {
+                self.hexdump(dst_ptr, 2048, "write_buf");
+            }
             (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_2048 as usize) as u64
         };
 
@@ -1602,6 +1644,10 @@ impl Igb {
         desc.legacy.buf = u64::to_le(addr);
         desc.legacy.lower.raw = u32::to_le(tx.txd_cmd | txd_lower | (len & 0xffff) as u32);
         desc.legacy.upper.raw = u32::to_le(txd_upper);
+
+        log::debug!("{:02x}", unsafe { desc.legacy.buf });
+        log::debug!("{:02x}", unsafe { desc.legacy.upper.raw });
+        log::debug!("{:02x}", unsafe { desc.legacy.lower.raw });
 
         head += 1;
         if head == tx_slots {
@@ -1622,6 +1668,11 @@ impl Igb {
                 unsafe { desc.legacy.lower.data.cmd |= TXD_CMD_VLE };
             }
         }
+
+        //unsafe {
+        //let desc_ptr = desc as *mut TxDescriptor as *const TxDescriptor as *const u8;
+        //hexdump(desc_ptr as *const u8, 128 * 2, "TxDescriptor Dump");
+        //}
 
         tx.tx_desc_head = head;
 
@@ -1658,6 +1709,11 @@ impl Igb {
             }
 
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+            unsafe {
+                let desc = &mut tx.tx_desc_ring.as_mut()[head];
+                let desc_ptr = desc as *mut TxDescriptor as *const TxDescriptor as *const u8;
+                self.hexdump(desc_ptr as *const u8, 128 * 2, "TxDescriptor Dump");
+            }
 
             free -= used;
 
