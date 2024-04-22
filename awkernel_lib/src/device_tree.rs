@@ -41,7 +41,7 @@ use core::{
     alloc::Allocator,
     cell::{OnceCell, RefCell},
     fmt::{Display, Formatter},
-    mem::MaybeUninit, 
+    mem::MaybeUninit,
 };
 use utils::safe_index;
 
@@ -64,7 +64,7 @@ fn initialize_and_get_memory_pool() -> &'static mut [MaybeUninit<u8>] {
 
     unsafe {
         core::ptr::write_bytes(memory_pool.as_mut_ptr(), 0, memory_pool.len());
-    } 
+    }
 
     memory_pool
 }
