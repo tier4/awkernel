@@ -108,9 +108,16 @@ fn get_tlsf() -> Result<&'static RefCell<TLSF<'static>>> {
     }
 
     unsafe {
-        DEVICE_TREE_MEMORY_SIZE = &__device_tree_end as *const u64 as usize - &__device_tree_start as *const u64 as usize;
-        MEMORY_POOL = alloc::alloc::alloc(core::alloc::Layout::from_size_align_unchecked(DEVICE_TREE_MEMORY_SIZE, 1)) as *mut MaybeUninit<u8>;
-        let local_tlsf = TLSF::new(core::slice::from_raw_parts_mut(MEMORY_POOL, DEVICE_TREE_MEMORY_SIZE));
+        DEVICE_TREE_MEMORY_SIZE =
+            &__device_tree_end as *const u64 as usize - &__device_tree_start as *const u64 as usize;
+        MEMORY_POOL = alloc::alloc::alloc(core::alloc::Layout::from_size_align_unchecked(
+            DEVICE_TREE_MEMORY_SIZE,
+            1,
+        )) as *mut MaybeUninit<u8>;
+        let local_tlsf = TLSF::new(core::slice::from_raw_parts_mut(
+            MEMORY_POOL,
+            DEVICE_TREE_MEMORY_SIZE,
+        ));
         Ok(LOCAL_TLSF.get_or_init(|| RefCell::new(local_tlsf)))
     }
 }
