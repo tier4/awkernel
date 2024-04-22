@@ -37,13 +37,6 @@ SECTIONS
         __bss_end = .;
     }
     . = ALIGN(1024 * 4);
-    .device_tree : {
-        __device_tree_start = .;
-        . += 4 * 1024 * 1024;
-        __device_tree_end = .;
-    }
-    PROVIDE(__device_tree_start = __device_tree_start);
-    PROVIDE(__device_tree_end = __device_tree_end);
 
     __stack_memory = .;
 
