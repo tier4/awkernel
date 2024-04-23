@@ -53,13 +53,11 @@ extern "C" {
     static __device_tree_end: u64;
 }
 
-fn initialize_and_get_memory_pool() -> &'static mut [MaybeUninit<u8>] {
+fn init_memory_pool() -> &'static mut [MaybeUninit<u8>] {
     let start_ptr = unsafe { &__device_tree_start as *const u64 as usize };
     let end_ptr = unsafe { &__device_tree_end as *const u64 as usize };
-    let size = end_ptr - start_ptr;
     let memory_pool = unsafe {
-        let pool_ptr = start_ptr as *mut MaybeUninit<u8>;
-        core::slice::from_raw_parts_mut(pool_ptr, size)
+        core::slice::from_raw_parts_mut(start_ptr as *mut MaybeUninit<u8>, end_ptr - start_ptr)
     };
 
     unsafe {
@@ -120,7 +118,7 @@ fn get_tlsf() -> Result<&'static RefCell<TLSF<'static>>> {
         return Ok(local_tlsf);
     }
 
-    let memory_pool = initialize_and_get_memory_pool();
+    let memory_pool = init_memory_pool();
     let local_tlsf = TLSF::new(memory_pool);
 
     Ok(unsafe { LOCAL_TLSF.get_or_init(|| RefCell::new(local_tlsf)) })
