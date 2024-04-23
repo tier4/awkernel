@@ -42,17 +42,30 @@ use core::{
     cell::{OnceCell, RefCell},
     fmt::{Display, Formatter},
     mem::MaybeUninit,
-    ptr::addr_of_mut,
 };
 use utils::safe_index;
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
-const DEVICE_TREE_MEMORY_SIZE: usize = 1024 * 1024 * 4;
+extern "C" {
+    static __device_tree_start: u64;
+    static __device_tree_end: u64;
+}
 
-static mut MEMORY_POOL: [MaybeUninit<u8>; DEVICE_TREE_MEMORY_SIZE] =
-    [MaybeUninit::new(0); DEVICE_TREE_MEMORY_SIZE];
+fn init_memory_pool() -> &'static mut [MaybeUninit<u8>] {
+    let start_ptr = unsafe { &__device_tree_start as *const u64 as usize };
+    let end_ptr = unsafe { &__device_tree_end as *const u64 as usize };
+    let memory_pool = unsafe {
+        core::slice::from_raw_parts_mut(start_ptr as *mut MaybeUninit<u8>, end_ptr - start_ptr)
+    };
+
+    unsafe {
+        core::ptr::write_bytes(memory_pool.as_mut_ptr(), 0, memory_pool.len());
+    }
+
+    memory_pool
+}
 
 static mut LOCAL_TLSF: OnceCell<RefCell<TLSF<'static>>> = OnceCell::new();
 static mut LOCAL_ALLOCATOR: OnceCell<local_heap::LocalHeap> = OnceCell::new();
@@ -105,7 +118,8 @@ fn get_tlsf() -> Result<&'static RefCell<TLSF<'static>>> {
         return Ok(local_tlsf);
     }
 
-    let local_tlsf = TLSF::new(unsafe { &mut *addr_of_mut!(MEMORY_POOL) });
+    let memory_pool = init_memory_pool();
+    let local_tlsf = TLSF::new(memory_pool);
 
     Ok(unsafe { LOCAL_TLSF.get_or_init(|| RefCell::new(local_tlsf)) })
 }
