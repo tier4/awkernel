@@ -15,13 +15,13 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
-    console::{print, unsafe_print_hex_u8},
+    console::{print, unsafe_print_hex_u32, unsafe_print_hex_u8},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN, ETHER_HDR_LEN,
-            ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN,
+            ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
         ip::Ip,
         ipv6::Ip6Hdr,
@@ -128,6 +128,16 @@ type RxBuffer = [[u8; RXBUFFER_2048 as usize]; MAX_RXD];
 
 type TxRing = [TxDescriptor; MAX_TXD];
 type TxBuffer = [[u8; TXBUFFER_2048 as usize]; MAX_TXD];
+
+union QUtil {
+    s: [u16; 4],
+    q: u64,
+}
+
+union LUtil {
+    s: [u16; 2],
+    l: u32,
+}
 
 struct Rx {
     rx_desc_head: u32,
@@ -1345,7 +1355,8 @@ impl Igb {
 
         txd.context_desc.ipcss = ETHER_HDR_LEN as u8;
         txd.context_desc.ipcso = ETHER_HDR_LEN as u8 + offset_of!(Ip, ip_sum) as u8;
-        txd.context_desc.ipcse = 16::to_le(ETHER_HDR_LEN as u16 + core::mem::size_of::<Ip>() as u16 - 1);
+        txd.context_desc.ipcse =
+            u16::to_le(ETHER_HDR_LEN as u16 + core::mem::size_of::<Ip>() as u16 - 1);
 
         txd.context_desc.tucss = ETHER_HDR_LEN as u8; // + core::mem::size_of::<Ip>() as u8;
         txd.context_desc.tucse = 0;
@@ -1363,8 +1374,7 @@ impl Igb {
         }
 
         txd.context_desc.data = 0;
-        txd.context_desc.cmd_and_length =
-            u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
+        txd.context_desc.cmd_and_length = u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
 
         log::debug!("{:?}", unsafe { txd.context_desc });
 
@@ -1582,6 +1592,60 @@ impl Igb {
         print("\n"); // New line after the dump
     }
 
+    fn pseudo_cksum_req(&self, ext: &EtherExtracted, ether_frame: &EtherFrameRef) -> bool {
+        if (matches!(ext.network, NetworkHdr::Ipv4(_))
+            && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
+        {
+            if ether_frame
+                .csum_flags
+                .contains(PacketHeaderFlags::TCP_CSUM_OUT)
+            {
+                return true;
+            } else if ether_frame
+                .csum_flags
+                .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn in_pseudo(&self, a: u32, b: u32, c: u32) -> u16 {
+        unsafe {
+            let sum64: u64 = a as u64 + b as u64 + c as u64;
+            let q_util = QUtil { q: sum64 };
+            let l_util = LUtil {
+                l: q_util.s[0] as u32
+                    + q_util.s[1] as u32
+                    + q_util.s[2] as u32
+                    + q_util.s[3] as u32,
+            };
+            let mut sum = l_util.s[0] as u32 + l_util.s[1] as u32;
+            if sum > 65535 {
+                sum -= 65535;
+            }
+            sum as u16
+        }
+    }
+
+    fn calc_pseudo_cksum(&self, ext: &EtherExtracted) -> u16 {
+        match ext.network {
+            NetworkHdr::Ipv4(ip_hdr) => {
+                let ip_src = ip_hdr.ip_src.swap_bytes();
+                let ip_dst = ip_hdr.ip_dst.swap_bytes();
+                let udp_len = ip_hdr.ip_len.swap_bytes() as u32 - core::mem::size_of::<Ip>() as u32;
+                let protocol = ip_hdr.ip_p.swap_bytes() as u32;
+                self.in_pseudo(ip_src, ip_dst, udp_len + protocol)
+            }
+            NetworkHdr::Ipv6(_) => {
+                /* TODO */
+                0
+            }
+            NetworkHdr::None => 0,
+        }
+    }
+
     fn encap(
         &self,
         mac_type: MacType,
@@ -1602,12 +1666,22 @@ impl Igb {
 
         let mut head = tx.tx_desc_head;
 
+        let mut context_desc_tucso = 0;
         let (mut used, txd_lower, txd_upper) = if mac_type as u32 >= MacType::Em82575 as u32
             && mac_type as u32 <= MacType::EmI210 as u32
         {
             self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
         } else if mac_type as u32 >= MacType::Em82543 as u32 {
-            self.transmit_checksum_setup(tx, ether_frame, head)?
+            match self.transmit_checksum_setup(tx, ether_frame, head) {
+                Ok(val) => {
+                    let txd = &tx.tx_desc_ring.as_ref()[head];
+                    unsafe {
+                        context_desc_tucso = txd.context_desc.tucso;
+                    }
+                    val
+                }
+                Err(e) => return Err(e),
+            }
         } else {
             (0, 0, 0)
         };
@@ -1623,12 +1697,18 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            if ether_frame
-                .csum_flags
-                .contains(PacketHeaderFlags::UDP_CSUM_OUT)
-            {
-                core::ptr::write(dst.as_mut_ptr().add(40) as *mut u16, 0x6a18);
+
+            let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+            if self.pseudo_cksum_req(&ext, ether_frame) {
+                let cksum_pseudo = self.calc_pseudo_cksum(&ext);
+                print("pseudo_cksum_req");
+                unsafe_print_hex_u32(cksum_pseudo as u32);
+                core::ptr::write(
+                    dst.as_mut_ptr().add(context_desc_tucso as usize) as *mut u16,
+                    cksum_pseudo.to_be(),
+                );
             }
+
             let dst_ptr = dst as *mut u8 as *const u8;
             if ether_frame
                 .csum_flags
@@ -1668,11 +1748,6 @@ impl Igb {
                 unsafe { desc.legacy.lower.data.cmd |= TXD_CMD_VLE };
             }
         }
-
-        //unsafe {
-        //let desc_ptr = desc as *mut TxDescriptor as *const TxDescriptor as *const u8;
-        //hexdump(desc_ptr as *const u8, 128 * 2, "TxDescriptor Dump");
-        //}
 
         tx.tx_desc_head = head;
 
