@@ -3,29 +3,35 @@ use super::address::{
     VA_WIDTH, VPN_WIDTH,
 };
 use alloc::vec::Vec;
-
-use core::cell::OnceCell;
-// use crate::sync::mutex::Mutex;
+use alloc::sync::Arc;
+use crate::sync::mutex::Mutex;
 
 type FrameAllocatorImpl = PageAllocator;
 
-/// Use `OnceCell` to get `lazy_static!` + `Arc` like effect
+/// Use `awkernel_lib::sync::mutex::Mutex` to get `lazy_static!` + `Arc` like effect
+///
+/// `OnceCell` like implementation. (OnceCell: https://doc.rust-lang.org/core/cell/struct.OnceCell.html)
 ///
 /// SAFETY
 ///
-/// May not be thread_safe, Seems that `OnceLock`is better.
-pub static FRAME_ALLOCATOR: OnceCell<FrameAllocatorImpl> = {
-    let mut cell_allocator = OnceCell::new();
-    cell_allocator.get_or_init(FrameAllocatorImpl::new());
-    cell_allocator
+/// Based on MCSLock, thread safe
+static mut FRAME_ALLOCATOR_IML: Option<FrameAllocatorImpl> = {
+    Some(FrameAllocatorImpl::new())
 };
+pub static FRAME_ALLOCATOR: Arc<Mutex<Option<FrameAllocatorImpl>>> = {
+    unsafe { Arc::new(Mutex::new(FRAME_ALLOCATOR_IML)) }
+};
+
+pub fn frame_alloc() -> Option<FrameTracker> {}
+
+pub fn frame_dealloc(ppn: PhysPageNum) {}
 
 pub fn init_page_allocator() {
     extern "C" {
         fn ekernel();
     }
 
-    if let Some(ALLOCATOR_REF) = FRAME_ALLOCATOR.get_mut() {
+    if let Some(ALLOCATOR_REF) = *(Arc::get_mut(&mut FRAME_ALLOCATOR)?).lock().unwrap() {
         ALLOCATOR_REF.init(
             PhysAddr::from(ekernel as usize).ceil(),
             PhysAddr::from(MEMORY_END as usize).floor(),
@@ -42,6 +48,7 @@ pub trait FrameAllocator {
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 
+/// An abstraction to use Rust's borrowchecker to guarantee safety of memory
 pub struct FrameTracker {
     pub ppn: PhysPageNum,
 }
@@ -56,8 +63,6 @@ impl FrameTracker {
         Self { ppn }
     }
 }
-
-pub fn frame_dealloc(ppn: PhysPageNum) {}
 
 impl Drop for FrameTracker {
     fn drop(&mut self) {
@@ -110,5 +115,12 @@ impl FrameAllocator for PageAllocator {
             panic!("Frame ppn={:#x} has not been allocated!", ppn.0)
         }
         self.recycled.push(ppn.0)
+    }
+}
+
+impl PageAllocator {
+    pub fn init(&mut self, l: PhysPageNum, r: PhysPageNum) {
+        self.current = l.0;
+        self.end = r.0;
     }
 }
