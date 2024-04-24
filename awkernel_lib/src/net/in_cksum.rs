@@ -8,8 +8,8 @@ union LUtil {
     l: u32,
 }
 
-// Computes the checksum from three 'u32' arguments.
-// This function is typcially used for calculating the pseudo header checksum.
+/// Computes the checksum from three \u32\ arguments.
+/// This function is typcially used for calculating the pseudo header checksum.
 pub fn in_pseudo(a: u32, b: u32, c: u32) -> u16 {
     let sum64: u64 = a as u64 + b as u64 + c as u64;
     let q_util = QUtil { q: sum64 };
