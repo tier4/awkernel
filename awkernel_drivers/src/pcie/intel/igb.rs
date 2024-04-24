@@ -21,6 +21,7 @@ use awkernel_lib::{
             extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN,
             ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
+        in_cksum::in_pseudo,
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
@@ -126,16 +127,6 @@ type RxBuffer = [[u8; RXBUFFER_2048 as usize]; MAX_RXD];
 
 type TxRing = [TxDescriptor; MAX_TXD];
 type TxBuffer = [[u8; TXBUFFER_2048 as usize]; MAX_TXD];
-
-union QUtil {
-    s: [u16; 4],
-    q: u64,
-}
-
-union LUtil {
-    s: [u16; 2],
-    l: u32,
-}
 
 struct Rx {
     rx_desc_head: u32,
@@ -1304,26 +1295,6 @@ impl Igb {
         todo!()
     }
 
-    // Computes the checksum from three 'u32' arguments.
-    // This function is typcially used for calculating the pseudo header checksum.
-    fn in_pseudo(&self, a: u32, b: u32, c: u32) -> u16 {
-        unsafe {
-            let sum64: u64 = a as u64 + b as u64 + c as u64;
-            let q_util = QUtil { q: sum64 };
-            let l_util = LUtil {
-                l: q_util.s[0] as u32
-                    + q_util.s[1] as u32
-                    + q_util.s[2] as u32
-                    + q_util.s[3] as u32,
-            };
-            let mut sum = l_util.s[0] as u32 + l_util.s[1] as u32;
-            if sum > 65535 {
-                sum -= 65535;
-            }
-            sum as u16
-        }
-    }
-
     // TODO: Ipv6
     fn calc_pseudo_cksum(&self, ext: &EtherExtracted) -> u16 {
         match ext.network {
@@ -1332,7 +1303,7 @@ impl Igb {
                 let ip_dst = ip_hdr.ip_dst.swap_bytes();
                 let len = ip_hdr.ip_len.swap_bytes() as u32 - core::mem::size_of::<Ip>() as u32;
                 let protocol = ip_hdr.ip_p.swap_bytes() as u32;
-                self.in_pseudo(ip_src, ip_dst, len + protocol)
+                in_pseudo(ip_src, ip_dst, len + protocol)
             }
             NetworkHdr::Ipv6(_) => {
                 /* TODO */
