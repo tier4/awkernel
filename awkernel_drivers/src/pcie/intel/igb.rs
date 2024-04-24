@@ -1625,14 +1625,11 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            match cksum_offset {
-                Some(cksum_offset) => {
-                    core::ptr::write(
-                        dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
-                        cksum_pseudo.to_be(),
-                    );
-                }
-                None => (),
+            if let Some(cksum_offset) = cksum_offset {
+                core::ptr::write(
+                    dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
+                    cksum_pseudo.to_be(),
+                );
             }
             (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_2048 as usize) as u64
         };
