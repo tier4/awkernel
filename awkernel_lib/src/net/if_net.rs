@@ -1,4 +1,3 @@
-use crate::console;
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{collections::BTreeMap, sync::Arc};
 use awkernel_async_lib_verified::ringq::RingQ;

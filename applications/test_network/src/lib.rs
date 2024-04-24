@@ -18,19 +18,19 @@ pub async fn run() {
     )
     .await;
 
-    //awkernel_async_lib::spawn(
-    //"test tcp listen".into(),
-    //tcp_listen_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test tcp listen".into(),
+        tcp_listen_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 
-    //awkernel_async_lib::spawn(
-    //"test tcp connect".into(),
-    //tcp_connect_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test tcp connect".into(),
+        tcp_connect_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 }
 
 async fn tcp_connect_test() {
@@ -99,34 +99,6 @@ async fn udp_test() {
 
     // 10.0.2.2 is the IP address of the Qemu's host.
     let dst_addr = IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2));
-
-    let mut buf = [0u8; 1024 * 2];
-
-    loop {
-        let t0 = awkernel_lib::delay::uptime();
-
-        // Send a UDP packet.
-        if let Err(e) = socket.send(b"Hello Awkernel!", &dst_addr, 26099).await {
-            log::error!("Failed to send a UDP packet: {:?}", e);
-            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-            continue;
-        }
-
-        // Receive a UDP packet.
-        socket.recv(&mut buf).await.unwrap();
-
-        let t1 = awkernel_lib::delay::uptime();
-        let _rtt = t1 - t0;
-
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-    }
-}
-
-#[cfg(todo)]
-async fn ip_multicast_test() {
-    // Create a UDP socket on interface 1.
-    let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
     let mut buf = [0u8; 1024 * 2];
 
