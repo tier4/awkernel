@@ -1,4 +1,5 @@
 //! # Intel Gigabit Ethernet Controller
+
 use crate::pcie::{
     capability::msi::MultipleMessage, intel::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
@@ -1697,6 +1698,7 @@ impl Igb {
             }
 
             let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+
             free -= used;
 
             post = true;

@@ -1,4 +1,3 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{collections::BTreeMap, sync::Arc};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
@@ -7,6 +6,8 @@ use smoltcp::{
     time::Instant,
     wire::HardwareAddress,
 };
+
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr},
