@@ -26,9 +26,14 @@ optional = true
 path = "../applications/test_rpi_hal"
 optional = true
 
+[dependencies.velodyne_icp]
+path = "../applications/velodyne_icp"
+optional = true
+
 [features]
 default = []
-raspi = ["dep:test_rpi_hal"]
+raspi = ["dep:velodyne_icp"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
+velodyne_icp = ["dep:velodyne_icp"]
