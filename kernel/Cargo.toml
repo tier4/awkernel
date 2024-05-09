@@ -60,7 +60,7 @@ version = "0.4.0"
 optional = true
 
 [features]
-default = ["x86"]
+default = ["aarch64_virt"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = [
     "no_std_unwinding",
@@ -92,9 +92,7 @@ raspi = [
     "userland/raspi",
 ]
 
-raspi5 = [
-        "aarch64",
-        "awkernel_drivers/pl011",]
+raspi5 = ["aarch64", "awkernel_drivers/pl011"]
 
 
 aarch64_virt = [

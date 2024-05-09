@@ -20,8 +20,9 @@ use awkernel_lib::{
     arch::aarch64::{current_affinity, get_affinity},
     cpu::NUM_MAX_CPU,
     interrupt::InterruptController,
+    paging::PAGESIZE,
 };
-use core::hint::spin_loop;
+use core::{alloc::Layout, hint::spin_loop};
 
 const NUM_INTS_PER_REG: u16 = 32;
 
@@ -106,6 +107,8 @@ mod registers {
     mmio_rw!(offset 0x0000 => pub GICR_CTRL<GicrCtrl>);
     mmio_rw!(offset 0x0008 => pub GICR_TYPER<u64>);
     mmio_rw!(offset 0x0014 => pub GICR_WAKER<GicrWaker>);
+    mmio_rw!(offset 0x0070 => pub GICR_PROPBASER<u64>);
+    mmio_rw!(offset 0x0078 => pub GICR_PENDBASER<u64>);
 
     // SGI_base
     mmio_rw!(offset 0x0080 => pub GICR_IGROUPR0<u32>);
@@ -117,11 +120,15 @@ mod registers {
     mmio_rw!(offset 0x0C04 => pub GICR_ICFGR1<u32>);
 }
 
-#[derive(Default)]
+const LPI_CFG_TABLE_SZ: usize = 65536;
+const LPI_PEND_TABLE_SZ: usize = 65536 / 8;
+
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
     cpu_gicr: BTreeMap<u64, usize>,
+    lpi_cfg_table: &'static mut [u8; LPI_CFG_TABLE_SZ],
+    lpi_pend_table: &'static mut [u8; LPI_PEND_TABLE_SZ],
 }
 
 const SGI_OFFSET: usize = 0x10000;
@@ -220,6 +227,8 @@ impl GICv3 {
             gicd_base,
             gicr_base,
             cpu_gicr: BTreeMap::new(),
+            lpi_cfg_table: unsafe { init_lpi_cfg_table(gicr_base).unwrap() },
+            lpi_pend_table: unsafe { init_lpi_pend_table(gicr_base).unwrap() },
         };
 
         gic.init_per_cpu();
@@ -441,4 +450,44 @@ impl Iterator for PendingInterruptIterator {
             Some(id)
         }
     }
+}
+
+const NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK: u64 = 0b11 << 7;
+const INNER_SHAREABLE: u64 = 0b01 << 10;
+
+unsafe fn init_lpi_cfg_table(
+    gicr_base: usize,
+) -> Result<&'static mut [u8; LPI_CFG_TABLE_SZ], &'static str> {
+    let layout =
+        Layout::from_size_align(LPI_CFG_TABLE_SZ, PAGESIZE).or(Err("failed to create layout"))?;
+
+    let ptr = alloc::alloc::alloc_zeroed(layout);
+
+    registers::GICR_PROPBASER.write(
+        ptr as u64
+            | INNER_SHAREABLE
+            | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK
+            | 15,
+        gicr_base,
+    );
+
+    Ok(&mut *(ptr as *mut [u8; LPI_CFG_TABLE_SZ]))
+}
+
+unsafe fn init_lpi_pend_table(
+    gicr_base: usize,
+) -> Result<&'static mut [u8; LPI_PEND_TABLE_SZ], &'static str> {
+    let layout =
+        Layout::from_size_align(LPI_PEND_TABLE_SZ, PAGESIZE).or(Err("failed to create layout"))?;
+
+    let ptr = alloc::alloc::alloc_zeroed(layout);
+
+    registers::GICR_PENDBASER.write(
+        ptr as u64
+            | INNER_SHAREABLE
+            | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK,
+        gicr_base,
+    );
+
+    Ok(&mut *(ptr as *mut [u8; LPI_PEND_TABLE_SZ]))
 }
