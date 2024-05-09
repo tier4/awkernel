@@ -77,8 +77,9 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        // TCP and UDP checksum offload is currently not supported
-        // because of bugs in the current implementation.
+        // Note: Awkernel doen't yet support Ipv6.
+        // Additionally, tests for TCP functionality have not yet been conducted.
+        // Checksum offload currently only supports UDPv4.
 
         // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
         //     cap.checksum.tcp = Checksum::Rx;
@@ -87,6 +88,10 @@ impl<'a> Device for NetDriverRef<'a> {
         // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
         //     cap.checksum.udp = Checksum::Rx;
         // }
+
+        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+            cap.checksum.udp = Checksum::Rx;
+        }
 
         cap
     }

@@ -54,7 +54,7 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 5. Enable heap allocator.
 /// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
-    #[cfg(not(feature = "raspi5"))]
+    #[allow(unused_variables)]
     let device_tree = load_device_tree(device_tree_base);
     #[cfg(not(feature = "raspi5"))]
     let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
