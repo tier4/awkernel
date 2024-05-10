@@ -527,7 +527,7 @@ unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
 
     awkernel_lib::paging::unmap(virt_addr);
 
-    awkernel_lib::paging::map(
+    if let Err(e) = awkernel_lib::paging::map(
         virt_addr,
         phy_addr,
         awkernel_lib::paging::Flags {
@@ -537,8 +537,10 @@ unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
             device: false,
             write_through: false,
         },
-    )
-    .or(Err("failed to map"))?;
+    ) {
+        log::error!("failed to map: {e:?}, virt_addr: {virt_addr:?}");
+        return Err("failed to map");
+    }
 
     Ok(())
 }
@@ -548,7 +550,7 @@ unsafe fn disable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
 
     awkernel_lib::paging::unmap(virt_addr);
 
-    awkernel_lib::paging::map(
+    if let Err(e) = awkernel_lib::paging::map(
         virt_addr,
         phy_addr,
         awkernel_lib::paging::Flags {
@@ -558,8 +560,10 @@ unsafe fn disable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
             device: true,
             write_through: false,
         },
-    )
-    .or(Err("failed to map"))?;
+    ) {
+        log::error!("failed to map: {e:?}, virt_addr: {virt_addr:?}");
+        return Err("failed to map");
+    }
 
     Ok(())
 }
