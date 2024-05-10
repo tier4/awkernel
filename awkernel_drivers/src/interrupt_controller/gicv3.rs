@@ -17,12 +17,14 @@
 
 use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
     arch::aarch64::{current_affinity, get_affinity},
     cpu::NUM_MAX_CPU,
+    dma_pool::DMAPool,
     interrupt::InterruptController,
     paging::PAGESIZE,
 };
-use core::{alloc::Layout, hint::spin_loop};
+use core::hint::spin_loop;
 
 const NUM_INTS_PER_REG: u16 = 32;
 
@@ -127,8 +129,8 @@ pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
     cpu_gicr: BTreeMap<u64, usize>,
-    lpi_cfg_table: &'static mut [u8; LPI_CFG_TABLE_SZ],
-    lpi_pend_table: &'static mut [u8; LPI_PEND_TABLE_SZ],
+    lpi_cfg_table: CachedPool<LPI_CFG_TABLE_SZ>,
+    lpi_pend_table: CachedPool<LPI_PEND_TABLE_SZ>,
 }
 
 const SGI_OFFSET: usize = 0x10000;
@@ -455,39 +457,109 @@ impl Iterator for PendingInterruptIterator {
 const NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK: u64 = 0b11 << 7;
 const INNER_SHAREABLE: u64 = 0b01 << 10;
 
+struct CachedPool<const N: usize> {
+    pool: DMAPool<[u8; N]>,
+}
+
+impl<const N: usize> CachedPool<N> {
+    fn new() -> Result<Self, &'static str> {
+        let mut pool =
+            DMAPool::<[u8; N]>::new(0, N / PAGESIZE).ok_or("failed to create dma pool")?;
+
+        let virt_addr = pool.get_virt_addr();
+        for i in 0..pool.get_size() / PAGESIZE {
+            let virt_addr = virt_addr + i * PAGESIZE;
+            unsafe { enable_cache(virt_addr)? };
+        }
+
+        for n in pool.as_mut().iter_mut() {
+            *n = 0;
+        }
+
+        Ok(Self { pool })
+    }
+}
+
+impl<const N: usize> Drop for CachedPool<N> {
+    fn drop(&mut self) {
+        let virt_addr = self.pool.get_virt_addr();
+        for i in 0..self.pool.get_size() / PAGESIZE {
+            let virt_addr = virt_addr + i * PAGESIZE;
+            unsafe { disable_cache(virt_addr).unwrap() };
+        }
+    }
+}
+
 unsafe fn init_lpi_cfg_table(
     gicr_base: usize,
-) -> Result<&'static mut [u8; LPI_CFG_TABLE_SZ], &'static str> {
-    let layout =
-        Layout::from_size_align(LPI_CFG_TABLE_SZ, PAGESIZE).or(Err("failed to create layout"))?;
-
-    let ptr = alloc::alloc::alloc_zeroed(layout);
+) -> Result<CachedPool<LPI_CFG_TABLE_SZ>, &'static str> {
+    let pool = CachedPool::<LPI_CFG_TABLE_SZ>::new()?;
 
     registers::GICR_PROPBASER.write(
-        ptr as u64
+        pool.pool.get_phy_addr().as_usize() as u64
             | INNER_SHAREABLE
             | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK
             | 15,
         gicr_base,
     );
 
-    Ok(&mut *(ptr as *mut [u8; LPI_CFG_TABLE_SZ]))
+    Ok(pool)
 }
 
 unsafe fn init_lpi_pend_table(
     gicr_base: usize,
-) -> Result<&'static mut [u8; LPI_PEND_TABLE_SZ], &'static str> {
-    let layout =
-        Layout::from_size_align(LPI_PEND_TABLE_SZ, PAGESIZE).or(Err("failed to create layout"))?;
-
-    let ptr = alloc::alloc::alloc_zeroed(layout);
+) -> Result<CachedPool<LPI_PEND_TABLE_SZ>, &'static str> {
+    let pool = CachedPool::<LPI_PEND_TABLE_SZ>::new()?;
 
     registers::GICR_PENDBASER.write(
-        ptr as u64
+        pool.pool.get_phy_addr().as_usize() as u64
             | INNER_SHAREABLE
             | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK,
         gicr_base,
     );
 
-    Ok(&mut *(ptr as *mut [u8; LPI_PEND_TABLE_SZ]))
+    Ok(pool)
+}
+
+unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
+    let phy_addr =
+        awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
+
+    awkernel_lib::paging::unmap(virt_addr);
+
+    awkernel_lib::paging::map(
+        virt_addr,
+        phy_addr,
+        awkernel_lib::paging::Flags {
+            execute: false,
+            write: true,
+            cache: true,
+            device: false,
+            write_through: false,
+        },
+    )
+    .or(Err("failed to map"))?;
+
+    Ok(())
+}
+unsafe fn disable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
+    let phy_addr =
+        awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
+
+    awkernel_lib::paging::unmap(virt_addr);
+
+    awkernel_lib::paging::map(
+        virt_addr,
+        phy_addr,
+        awkernel_lib::paging::Flags {
+            execute: false,
+            write: true,
+            cache: false,
+            device: true,
+            write_through: false,
+        },
+    )
+    .or(Err("failed to map"))?;
+
+    Ok(())
 }

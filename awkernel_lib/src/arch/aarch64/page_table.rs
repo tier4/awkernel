@@ -271,12 +271,11 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, &'static str> for PageT
             f |= FLAG_L3_SH_R_N;
         }
 
-        if flags.device {
-            f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH;
-        } else if flags.cache {
-            f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH;
-        } else {
-            f |= FLAG_L3_NS | FLAG_L3_ISH;
+        match (flags.device, flags.cache) {
+            (true, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_OSH,
+            (true, false) => f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH,
+            (false, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH,
+            (false, false) => f |= FLAG_L3_NS | FLAG_L3_ISH,
         }
 
         let e = phy_addr.as_usize() as u64 & !0xfff | f;
