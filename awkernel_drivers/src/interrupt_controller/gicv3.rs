@@ -457,6 +457,7 @@ impl Iterator for PendingInterruptIterator {
 const NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK: u64 = 0b11 << 7;
 const INNER_SHAREABLE: u64 = 0b01 << 10;
 
+/// A cached DMA pool.
 struct CachedPool<const N: usize> {
     pool: DMAPool<[u8; N]>,
 }
@@ -490,6 +491,14 @@ impl<const N: usize> Drop for CachedPool<N> {
     }
 }
 
+/// Initialize the LPI Configuration Table.
+/// Because a continuous block of memory is required for the LPI Configuration Table,
+/// the LPI Configuration Table is created as a DMA pool.
+/// To improve performance, the DMA pool is mapped with the cache enabled.
+///
+/// # Safety
+///
+/// The `gicr_base` must be a valid address.
 unsafe fn init_lpi_cfg_table(
     gicr_base: usize,
 ) -> Result<CachedPool<LPI_CFG_TABLE_SZ>, &'static str> {
@@ -506,6 +515,14 @@ unsafe fn init_lpi_cfg_table(
     Ok(pool)
 }
 
+/// Initialize the LPI Pending Table.
+/// Because a continuous block of memory is required for the LPI Pending Table,
+/// the LPI Pending Table is created as a DMA pool.
+/// To improve performance, the DMA pool is mapped with the cache enabled.
+///
+/// # Safety
+///
+/// The `gicr_base` must be a valid address.
 unsafe fn init_lpi_pend_table(
     gicr_base: usize,
 ) -> Result<CachedPool<LPI_PEND_TABLE_SZ>, &'static str> {
@@ -521,6 +538,11 @@ unsafe fn init_lpi_pend_table(
     Ok(pool)
 }
 
+/// Make the memory region specified by `virt_addr` cacheable.
+///
+/// # Safety
+///
+/// The `virt_addr` must be a valid address.
 unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
     let phy_addr =
         awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
@@ -544,6 +566,12 @@ unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
 
     Ok(())
 }
+
+/// Disable the cache for the memory region specified by `virt_addr`.
+///
+/// # Safety
+///
+/// The `virt_addr` must be a valid address.
 unsafe fn disable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
     let phy_addr =
         awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
