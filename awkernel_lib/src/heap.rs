@@ -165,7 +165,7 @@ impl Talloc {
         Self {
             primary: Allocator::new(),
             backup: BackUpAllocator::new(),
-            flags: unsafe { transmute(flags) },
+            flags: unsafe { transmute::<[i32; NUM_MAX_CPU / 32], [core::sync::atomic::AtomicU32; NUM_MAX_CPU / 32]>(flags) },
             primary_start: AtomicUsize::new(0),
             primary_size: AtomicUsize::new(0),
             backup_start: AtomicUsize::new(0),
