@@ -69,6 +69,10 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     if let Some(leaf) = node.get_leaf_node() {
         for its_node in leaf.nodes().iter() {
             if its_node.name().starts_with("its@") {
+                if !its_node.compatible(&["arm,gic-v3-its"]) {
+                    continue;
+                }
+
                 let mut arr_its_node = node.clone();
                 arr_its_node
                     .push(its_node)
