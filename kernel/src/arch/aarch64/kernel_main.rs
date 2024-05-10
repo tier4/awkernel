@@ -163,7 +163,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         log::info!("Use SP_ELx.");
     }
 
-    // log::info!("{device_tree}");
+    log::info!("{device_tree}");
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

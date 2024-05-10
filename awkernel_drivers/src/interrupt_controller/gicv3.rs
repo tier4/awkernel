@@ -128,9 +128,10 @@ const LPI_PEND_TABLE_SZ: usize = 65536 / 8;
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
+    its_base: Option<usize>,
     cpu_gicr: BTreeMap<u64, usize>,
-    lpi_cfg_table: CachedPool<LPI_CFG_TABLE_SZ>,
-    lpi_pend_table: CachedPool<LPI_PEND_TABLE_SZ>,
+    lpi_cfg_table: Option<CachedPool<LPI_CFG_TABLE_SZ>>,
+    lpi_pend_table: Option<CachedPool<LPI_PEND_TABLE_SZ>>,
 }
 
 const SGI_OFFSET: usize = 0x10000;
@@ -159,18 +160,18 @@ fn cpu_identity() -> u64 {
 }
 
 impl GICv3 {
-    pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
+    pub fn new(gicd_base: usize, gicr_base: usize, its_base: Option<usize>) -> Self {
         let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
         if gicd_ctlr.contains(registers::GicdCtlr::DS) {
             log::info!("GICv3 is non secure mode.");
-            Self::new_non_secure(gicd_base, gicr_base)
+            Self::new_non_secure(gicd_base, gicr_base, its_base)
         } else {
             log::info!("GICv3 is secure mode.");
             unimplemented!();
         }
     }
 
-    fn new_non_secure(gicd_base: usize, gicr_base: usize) -> Self {
+    fn new_non_secure(gicd_base: usize, gicr_base: usize, its_base: Option<usize>) -> Self {
         let typer = registers::GICD_TYPER.read(gicd_base);
 
         // ITLinesNumber, bits [4:0]
@@ -225,12 +226,22 @@ impl GICv3 {
         );
         wait_gicd_rwp(gicd_base);
 
+        let (lpi_cfg_table, lpi_pend_table) = if its_base.is_some() {
+            (
+                Some(unsafe { init_lpi_cfg_table(gicr_base).unwrap() }),
+                Some(unsafe { init_lpi_pend_table(gicr_base).unwrap() }),
+            )
+        } else {
+            (None, None)
+        };
+
         let mut gic = GICv3 {
             gicd_base,
             gicr_base,
+            its_base,
             cpu_gicr: BTreeMap::new(),
-            lpi_cfg_table: unsafe { init_lpi_cfg_table(gicr_base).unwrap() },
-            lpi_pend_table: unsafe { init_lpi_pend_table(gicr_base).unwrap() },
+            lpi_cfg_table,
+            lpi_pend_table,
         };
 
         gic.init_per_cpu();
