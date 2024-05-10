@@ -101,3 +101,4 @@ aarch64_virt = [
     "awkernel_drivers/pl011",
 ]
 spinlock = ["awkernel_lib/spinlock"]
+linux = []
