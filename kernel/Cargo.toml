@@ -94,6 +94,7 @@ raspi = [
 
 raspi5 = [
         "aarch64",
+        "awkernel_drivers/raspi",
         "awkernel_drivers/pl011",]
 
 
