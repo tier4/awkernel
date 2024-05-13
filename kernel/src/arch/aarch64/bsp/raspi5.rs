@@ -1,28 +1,23 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
-use crate::arch::aarch64::bsp::raspi5::uart::unsafe_puts;
-use crate::arch::aarch64::vm::VM;
-use crate::arch::aarch64::vm;
-use crate::config::DMA_SIZE;
-
-use awkernel_drivers::raspi5::*;
-use awkernel_drivers::{
-    ic::{
-        self,
-        raspi::dma::{Dma, MEM_FLAG_DIRECT},
+use crate::{
+    arch::aarch64::{
+        vm::{self, VM},
     },
 };
 
-use awkernel_lib::console::register_unsafe_puts;
-use awkernel_lib::console::unsafe_print_hex_u64;
-use awkernel_lib::err_msg;
-use awkernel_lib::device_tree::prop::Range;
-use awkernel_lib::device_tree::prop::PropertyValue;
-use awkernel_lib::device_tree::traits::HasNamedChildNode;
-use awkernel_lib::addr::phy_addr::PhyAddr;
-use awkernel_lib::addr::virt_addr::VirtAddr;
-use awkernel_lib::addr::Addr;
-use awkernel_lib::paging::PAGESIZE;
+use awkernel_drivers::raspi5::*;
+
+use awkernel_lib::{
+    addr::phy_addr::PhyAddr,
+    console::{register_unsafe_puts, unsafe_puts},
+    device_tree::{
+        prop::{PropertyValue, Range},
+        traits::HasNamedChildNode,
+    },
+    err_msg,
+    paging::PAGESIZE,
+};
 
 pub mod config;
 mod pciebridge;
@@ -32,10 +27,7 @@ pub struct Raspi5 {
     symbols: Option<DeviceTreeNodeRef>,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
-    dma_pool: Option<VirtAddr>,
 }
-
-static mut DMA: Option<Dma> = None;
 
 impl super::SoC for Raspi5 {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
@@ -87,33 +79,11 @@ impl super::SoC for Raspi5 {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
-        if let Some(dma) =
-            ic::raspi::dma::Dma::new(DMA_SIZE as u32, PAGESIZE as u32, MEM_FLAG_DIRECT)
-        {
-            let bus_addr = dma.get_bus_addr() as usize;
-            let phy_addr = bus_addr & 0x3FFFFFFF;
-            let start = PhyAddr::new(phy_addr);
-            let end = PhyAddr::new(phy_addr + DMA_SIZE);
-
-            let _ = vm.remove_heap(start, end);
-            if vm.push_device_range(start, end).is_ok() {
-                unsafe_puts("DMA: BUS address = ");
-                unsafe_print_hex_u64(bus_addr as u64);
-                unsafe_puts(", Physical address = ");
-                unsafe_print_hex_u64(phy_addr as u64 & 0x3FFFFFFF);
-                unsafe_puts("\r\n");
-
-                self.dma_pool = Some(VirtAddr::new(start.as_usize()));
-
-                unsafe {
-                    DMA = Some(dma);
-                }
-            }
-        };
-
         vm.print();
 
-        unsafe_puts("init_vm_end.\r\n");
+        unsafe_puts("Initializing the page table. Wait a moment.\r\n");
+
+        vm.init()?;
 
         Ok(vm)
     }
@@ -129,7 +99,6 @@ impl Raspi5 {
             symbols: None,
             device_tree,
             device_tree_base,
-            dma_pool: None,
         }
     }
 
