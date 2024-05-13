@@ -85,8 +85,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         }
     };
 
-    unsafe_puts("init_virtual_memory() finished \r\n");
-
     let Some(ttbr0) = vm.get_ttbr0_addr() else {
         unsafe_puts("failed to get TTBR0_EL0\r\n");
         wait_forever();
