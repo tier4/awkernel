@@ -1,10 +1,6 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
-use crate::{
-    arch::aarch64::{
-        vm::{self, VM},
-    },
-};
+use crate::arch::aarch64::vm::{self, VM};
 
 use awkernel_drivers::raspi5::*;
 
@@ -41,7 +37,7 @@ impl super::SoC for Raspi5 {
 
     unsafe fn init_virtual_memory(&mut self) -> Result<VM, &'static str> {
         let mut vm = VM::new();
-        
+
         let num_cpus = self
             .device_tree
             .num_cpus()
@@ -108,7 +104,7 @@ impl Raspi5 {
         let symbols = self.device_tree.root().find_child("__symbols__")?;
 
         self.symbols = Some(symbols);
-    
+
         Some(())
     }
 
