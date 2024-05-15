@@ -1,9 +1,9 @@
 [submodule "applications/velodyne_driver"]
 	path = applications/velodyne_driver
 	url = git@github.com:tier4/rust-velodyne-driver.git
-	branch = "no-std"
+	branch = no-std
 
 [submodule "applications/icp"]
 	path = applications/icp
 	url = git@github.com:tier4/icp_rust.git
-	branch = "no-std"
+	branch = no-std
