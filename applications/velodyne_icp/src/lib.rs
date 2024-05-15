@@ -40,15 +40,6 @@ impl PointProcessor for Scan {
     }
 }
 
-impl Scan {
-    fn try_get(&self) -> Option<&Array2<f64>> {
-        if self.packet_index != N_PACKETS_PER_SCAN {
-            return None;
-        }
-        Some(&self.points)
-    }
-}
-
 const SCAN_TOPIC: &str = "scan";
 
 async fn scan_buffer() {
@@ -80,16 +71,12 @@ async fn receive_scan() {
     let config = parse_config(vlp16_config_str).unwrap();
     let calculator = PointCloudCalculator::new(&config);
 
-    let publisher = create_publisher::<Array2<f64>>(SCAN_TOPIC.into(), pubsub::Attribute::default()).unwrap();
-
     let mut scan = Scan::default();
 
     loop {
         socket.recv(&mut buf).await.unwrap();
         calculator.calculate(&mut scan, &buf);
-        if let Some(points) = scan.try_get() {
-            publisher.send(points.clone());
-        };
+        log::info!("scan.points = {}", scan.points);
     }
 }
 
