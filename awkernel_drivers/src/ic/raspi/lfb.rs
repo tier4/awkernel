@@ -7,7 +7,10 @@ use awkernel_lib::{
     paging::PAGESIZE,
 };
 use embedded_graphics::{
+    geometry::Point,
     mono_font::MonoTextStyle,
+    pixelcolor::Rgb888,
+    primitives::{Line, Primitive, PrimitiveStyle},
     text::{Alignment, Text},
     Drawable,
 };
@@ -32,18 +35,18 @@ struct FramebufferInfo {
 
 impl FramebufferInfo {
     #[inline(always)]
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        let pos = (y * self.pitch + x * 4) as usize;
+    fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        let pos = position.y as usize * self.pitch as usize + position.x as usize * 4;
 
         if self.is_rgb {
-            self.framebuffer[pos] = r;
-            self.framebuffer[pos + 1] = g;
-            self.framebuffer[pos + 2] = b;
+            self.framebuffer[pos] = color.r();
+            self.framebuffer[pos + 1] = color.g();
+            self.framebuffer[pos + 2] = color.b();
             self.framebuffer[pos + 3] = 0;
         } else {
-            self.framebuffer[pos] = b;
-            self.framebuffer[pos + 1] = g;
-            self.framebuffer[pos + 2] = r;
+            self.framebuffer[pos] = color.b();
+            self.framebuffer[pos + 1] = color.g();
+            self.framebuffer[pos + 2] = color.r();
             self.framebuffer[pos + 3] = 0;
         }
     }
@@ -161,13 +164,7 @@ impl DrawTarget for FramebufferInfo {
         I: IntoIterator<Item = embedded_graphics_core::Pixel<Self::Color>>,
     {
         for Pixel(coord, color) in pixels {
-            self.set_pixel(
-                coord.x as u32,
-                coord.y as u32,
-                color.r(),
-                color.g(),
-                color.b(),
-            );
+            self.set_pixel(coord, &color);
         }
 
         Ok(())
@@ -202,15 +199,49 @@ impl FrameBuffer for RaspiFrameBuffer {
         text.draw(&mut self.frame_buffer)
     }
 
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        self.frame_buffer.set_pixel(x, y, r, g, b);
+    fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        self.frame_buffer.set_pixel(position, color);
     }
 
-    fn fill(&mut self, r: u8, g: u8, b: u8) {
+    fn fill(&mut self, color: &Rgb888) {
         for y in 0..self.frame_buffer.height {
             for x in 0..self.frame_buffer.width {
-                self.frame_buffer.set_pixel(x, y, r, g, b);
+                self.frame_buffer
+                    .set_pixel(Point::new(x as i32, y as i32), color);
             }
         }
+    }
+
+    fn line(
+        &mut self,
+        start: Point,
+        end: Point,
+        color: &Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), awkernel_lib::graphics::FrameBufferError> {
+        Line::new(start, end)
+            .into_styled(PrimitiveStyle::with_stroke(*color, stroke_width))
+            .draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        color: &Rgb888,
+        stroke_width: u32,
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let circle =
+            embedded_graphics::primitives::Circle::new(top_left, diameter).into_styled(style);
+        circle.draw(&mut self.frame_buffer)?;
+        Ok(())
     }
 }
