@@ -10,6 +10,7 @@ use velodyne_driver::{N_SEQUENCES, CHANNELS_PER_SEQUENCE, PointProcessor};
 use awkernel_async_lib::pubsub::{create_publisher, create_subscriber};
 use awkernel_async_lib::pubsub;
 
+use core::borrow::Borrow;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::net::Ipv4Addr;
@@ -20,6 +21,7 @@ const VLP16_PACKET_DATA_SIZE: usize = 1206;
 
 const PACKETS_PER_SCAN: usize = 75;
 
+#[derive(PartialEq)]
 struct Scan {
     packet_index: usize,
     pub points: [icp::Vector3; PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE],
@@ -39,7 +41,7 @@ impl PointProcessor for Scan {
         assert!(!self.is_full());
 
         let (x, y, z) = point;
-        let index = self.packet_index * PACKETS_PER_SCAN * CHANNELS_PER_SEQUENCE +
+        let index = self.packet_index * N_SEQUENCES * CHANNELS_PER_SEQUENCE +
                     sequence_index * CHANNELS_PER_SEQUENCE + channel;
         self.points[index] = icp::Vector3::new(*x, *y, *z);
     }
@@ -52,26 +54,38 @@ impl Scan {
 
     fn is_full(&self) -> bool {
         self.packet_index == PACKETS_PER_SCAN
-    } 
+    }
 }
 
 const SCAN_TOPIC: &str = "scan";
+
+fn run_icp(transform: &icp::Transform, src_scan: &Arc<Box<Scan>>, dst_scan: &Arc<Box<Scan>>) -> icp::Transform {
+    let src: &Box<Scan> = src_scan.borrow();
+    let dst: &Box<Scan> = dst_scan.borrow();
+    icp::icp_3dscan(transform, &(src.points.to_vec()), &(dst.points.to_vec()))
+}
 
 async fn icp() {
     let subscriber =
         create_subscriber::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default()).unwrap();
 
-    let reference_scan = None;
+    let mut transform = icp::Transform::identity();
+    let mut maybe_reference_scan = None;
     loop {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = subscriber.recv().await;
         let scan: Arc<Box<Scan>> = scan_message.data;
 
-        if reference_scan == None {
-           reference_scan = Some(scan);
+        log::info!("Received a scan message");
+        if let Some(ref reference_scan) = maybe_reference_scan {
+           transform = run_icp(&transform, &scan, &reference_scan);
         }
-    }
 
-    //icp::icp_3dscan(transform, &src, &dst);
+        log::info!("transform.R:");
+        log::info!("{:?}", transform.rot);
+        log::info!("transform.t:");
+        log::info!("{:?}", transform.t);
+        maybe_reference_scan = Some(scan);
+    }
 }
 
 async fn receive_scan_packets() {
@@ -105,9 +119,8 @@ async fn receive_scan_packets() {
         calculator.calculate(scan.as_mut(), &buf);
         scan.increment();
 
-        if scan.is_full() { 
-            log::info!("scan.points = {:?}", scan.points);
-            publisher.send(Arc::new(scan));
+        if scan.is_full() {
+            publisher.send(Arc::new(scan)).await;
             scan = Box::new(Scan::default());
         }
     }
@@ -115,5 +128,5 @@ async fn receive_scan_packets() {
 
 pub async fn run() {
     awkernel_async_lib::spawn("udp".into(), receive_scan_packets(), SchedulerType::FIFO).await;
-    awkernel_async_lib::spawn("icp".into(), receive_scan_packets(), SchedulerType::FIFO).await;
+    awkernel_async_lib::spawn("icp".into(), icp(), SchedulerType::FIFO).await;
 }
