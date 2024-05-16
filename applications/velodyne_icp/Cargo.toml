@@ -14,6 +14,10 @@ default-features = false
 path = "../velodyne_driver"
 default-features = false
 
+[dependencies.icp]
+path = "../icp"
+default-features = false
+
 [dependencies.ndarray]
 version = "0.15.6"
 default-features = false

@@ -1,5 +1,7 @@
 #![no_std]
 
+extern crate alloc;
+
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_async_lib::net::udp::UdpConfig;
 use awkernel_async_lib::net::IpAddr;
@@ -8,49 +10,71 @@ use velodyne_driver::{N_SEQUENCES, CHANNELS_PER_SEQUENCE, PointProcessor};
 use awkernel_async_lib::pubsub::{create_publisher, create_subscriber};
 use awkernel_async_lib::pubsub;
 
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::net::Ipv4Addr;
 
 use ndarray::Array2;
 
 const VLP16_PACKET_DATA_SIZE: usize = 1206;
 
-const N_PACKETS_PER_SCAN: usize = 75;
+const PACKETS_PER_SCAN: usize = 75;
 
 struct Scan {
     packet_index: usize,
-    pub points: Array2<f64>,
+    pub points: [icp::Vector3; PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE],
 }
 
 impl Default for Scan {
     fn default() -> Self {
         Scan {
             packet_index: 0,
-            points: Array2::zeros((N_SEQUENCES * CHANNELS_PER_SEQUENCE, 3)),
+            points: [icp::Vector3::zeros(); PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE],
         }
     }
 }
 
 impl PointProcessor for Scan {
     fn process(&mut self, sequence_index: usize, channel: usize, point: &Point) {
+        assert!(!self.is_full());
+
         let (x, y, z) = point;
-        let index = sequence_index * CHANNELS_PER_SEQUENCE + channel;
-        self.points[[index, 0]] = *x;
-        self.points[[index, 1]] = *y;
-        self.points[[index, 2]] = *z;
+        let index = self.packet_index * PACKETS_PER_SCAN * CHANNELS_PER_SEQUENCE +
+                    sequence_index * CHANNELS_PER_SEQUENCE + channel;
+        self.points[index] = icp::Vector3::new(*x, *y, *z);
     }
+}
+
+impl Scan {
+    fn increment(&mut self) {
+        self.packet_index += 1;
+    }
+
+    fn is_full(&self) -> bool {
+        self.packet_index == PACKETS_PER_SCAN
+    } 
 }
 
 const SCAN_TOPIC: &str = "scan";
 
-async fn scan_buffer() {
+async fn icp() {
     let subscriber =
-        create_subscriber::<Array2<f64>>(SCAN_TOPIC.into(), pubsub::Attribute::default()).unwrap();
+        create_subscriber::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default()).unwrap();
 
+    let reference_scan = None;
     loop {
+        let scan_message: pubsub::Data<Arc<Box<Scan>>> = subscriber.recv().await;
+        let scan: Arc<Box<Scan>> = scan_message.data;
+
+        if reference_scan == None {
+           reference_scan = Some(scan);
+        }
     }
+
+    //icp::icp_3dscan(transform, &src, &dst);
 }
 
-async fn receive_scan() {
+async fn receive_scan_packets() {
      log::info!("Start the connection");
 
      let dst_addr = IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0));
@@ -71,15 +95,25 @@ async fn receive_scan() {
     let config = parse_config(vlp16_config_str).unwrap();
     let calculator = PointCloudCalculator::new(&config);
 
-    let mut scan = Scan::default();
+    let publisher =
+        create_publisher::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default()).unwrap();
+
+    let mut scan = Box::new(Scan::default());
 
     loop {
         socket.recv(&mut buf).await.unwrap();
-        calculator.calculate(&mut scan, &buf);
-        log::info!("scan.points = {}", scan.points);
+        calculator.calculate(scan.as_mut(), &buf);
+        scan.increment();
+
+        if scan.is_full() { 
+            log::info!("scan.points = {:?}", scan.points);
+            publisher.send(Arc::new(scan));
+            scan = Box::new(Scan::default());
+        }
     }
 }
 
 pub async fn run() {
-    awkernel_async_lib::spawn("udp".into(), receive_scan(), SchedulerType::FIFO).await;
+    awkernel_async_lib::spawn("udp".into(), receive_scan_packets(), SchedulerType::FIFO).await;
+    awkernel_async_lib::spawn("icp".into(), receive_scan_packets(), SchedulerType::FIFO).await;
 }
