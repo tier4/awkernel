@@ -175,10 +175,19 @@ fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
         embedded_graphics::text::Alignment::Center,
     )?;
 
+    // Draw a circle.
+    let mut top_left = center;
+
+    top_left.x -= 50;
+    top_left.y += 50;
+
+    graphics::circle(top_left, 20, &white, 4, false)?;
+
+    // Draw a cross.
     let mut start = center;
     let mut end = center;
 
-    start.x -= 100;
+    start.x -= 25;
     start.y += 50;
     end.x = start.x + 20;
     end.y = start.y + 20;
@@ -189,12 +198,31 @@ fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
     end.x -= 20;
     graphics::line(start, end, &white, 4)?;
 
-    let mut top_left = center;
+    // Draw a triangle.
+    let mut vertex_1 = center;
+    let mut vertex_2 = center;
+    let mut vertex_3 = center;
 
-    top_left.x -= 75;
-    top_left.y += 50;
+    vertex_1.x += 15;
+    vertex_1.y += 50;
+    vertex_2.x += 25;
+    vertex_2.y += 70;
+    vertex_3.x += 5;
+    vertex_3.y += 70;
 
-    graphics::circle(top_left, 20, &white, 4, false)?;
+    graphics::triangle(vertex_1, vertex_2, vertex_3, &white, 4, false)?;
+
+    // Draw a rectangle.
+    let mut corner_1 = center;
+    let mut corner_2 = center;
+
+    corner_1.x += 35;
+    corner_1.y += 50;
+
+    corner_2.x += 55;
+    corner_2.y += 70;
+
+    graphics::rectangle(corner_1, corner_2, &white, 4, false)?;
 
     Ok(())
 }

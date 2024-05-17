@@ -43,6 +43,34 @@ pub trait FrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError>;
+
+    fn rectangle(
+        &mut self,
+        corner_1: Point,
+        corner_2: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError>;
+
+    fn triangle(
+        &mut self,
+        vertex_1: Point,
+        vertex_2: Point,
+        vertex_3: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError>;
+
+    fn polyline(
+        &mut self,
+        points: &[Point],
+        color: &Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), FrameBufferError>;
+
+    fn flush(&mut self);
 }
 
 /// # Safety
@@ -124,6 +152,56 @@ pub fn circle(
     unsafe {
         if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
             frame_buffer.circle(top_left, diameter, color, stroke_width, is_filled)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[inline(always)]
+pub fn rectangle(
+    corner_1: Point,
+    corner_2: Point,
+    color: &Rgb888,
+    stroke_width: u32,
+    is_filled: bool,
+) -> Result<(), FrameBufferError> {
+    unsafe {
+        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+            frame_buffer.rectangle(corner_1, corner_2, color, stroke_width, is_filled)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[inline(always)]
+pub fn triangle(
+    vertex_1: Point,
+    vertex_2: Point,
+    vertex_3: Point,
+    color: &Rgb888,
+    stroke_width: u32,
+    is_filled: bool,
+) -> Result<(), FrameBufferError> {
+    unsafe {
+        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+            frame_buffer.triangle(vertex_1, vertex_2, vertex_3, color, stroke_width, is_filled)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[inline(always)]
+pub fn polyline(
+    points: &[Point],
+    color: &Rgb888,
+    stroke_width: u32,
+) -> Result<(), FrameBufferError> {
+    unsafe {
+        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+            frame_buffer.polyline(points, color, stroke_width)?;
         }
     }
 

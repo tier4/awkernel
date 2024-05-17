@@ -4,6 +4,7 @@ use embedded_graphics::{
     draw_target::DrawTarget,
     geometry::{Dimensions, OriginDimensions},
     pixelcolor::RgbColor,
+    primitives::{Polyline, Primitive, PrimitiveStyle},
     text::Text,
     Drawable, Pixel,
 };
@@ -30,25 +31,30 @@ struct X86FrameBufferInner {
 
 impl X86FrameBufferInner {
     #[inline(always)]
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        let x = x as usize;
-        let y = y as usize;
+    fn set_pixel(
+        &mut self,
+        position: embedded_graphics::geometry::Point,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+    ) {
+        let x = position.x as usize;
+        let y = position.y as usize;
         let bytes_per_line = self.info.bytes_per_pixel * self.info.stride;
         let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
 
         match self.info.pixel_format {
             PixelFormat::Rgb => {
-                self.buffer[pos] = r;
-                self.buffer[pos + 1] = g;
-                self.buffer[pos + 2] = b;
+                self.buffer[pos] = color.r();
+                self.buffer[pos + 1] = color.g();
+                self.buffer[pos + 2] = color.b();
             }
             PixelFormat::Bgr => {
-                self.buffer[pos] = b;
-                self.buffer[pos + 1] = g;
-                self.buffer[pos + 2] = r;
+                self.buffer[pos] = color.b();
+                self.buffer[pos + 1] = color.g();
+                self.buffer[pos + 2] = color.r();
             }
             PixelFormat::U8 => {
-                let v = 0.299 * r as f64 + 0.587 * g as f64 + 0.114 * b as f64;
+                let v =
+                    0.299 * color.r() as f64 + 0.587 * color.g() as f64 + 0.114 * color.b() as f64;
                 self.buffer[pos] = v as u8;
             }
             PixelFormat::Unknown {
@@ -56,9 +62,9 @@ impl X86FrameBufferInner {
                 green_position,
                 blue_position,
             } => {
-                self.buffer[pos + red_position as usize] = r;
-                self.buffer[pos + green_position as usize] = g;
-                self.buffer[pos + blue_position as usize] = b;
+                self.buffer[pos + red_position as usize] = color.r();
+                self.buffer[pos + green_position as usize] = color.g();
+                self.buffer[pos + blue_position as usize] = color.b();
             }
             _ => {}
         }
@@ -74,13 +80,7 @@ impl DrawTarget for X86FrameBufferInner {
         I: IntoIterator<Item = embedded_graphics_core::Pixel<Self::Color>>,
     {
         for Pixel(coord, color) in pixels {
-            self.set_pixel(
-                coord.x as u32,
-                coord.y as u32,
-                color.r(),
-                color.g(),
-                color.b(),
-            );
+            self.set_pixel(coord, &color);
         }
 
         Ok(())
@@ -116,15 +116,115 @@ impl FrameBuffer for X86FrameBuffer {
         self.inner.bounding_box()
     }
 
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        self.inner.set_pixel(x, y, r, g, b);
+    fn set_pixel(
+        &mut self,
+        position: embedded_graphics::geometry::Point,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+    ) {
+        self.inner.set_pixel(position, color);
     }
 
-    fn fill(&mut self, r: u8, g: u8, b: u8) {
+    fn fill(&mut self, color: &embedded_graphics::pixelcolor::Rgb888) {
         for y in 0..self.inner.info.height {
             for x in 0..self.inner.info.width {
-                self.inner.set_pixel(x as u32, y as u32, r, g, b);
+                self.inner.set_pixel(
+                    embedded_graphics::geometry::Point::new(x as i32, y as i32),
+                    color,
+                );
             }
         }
+    }
+
+    fn circle(
+        &mut self,
+        top_left: embedded_graphics::prelude::Point,
+        diameter: u32,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let circle =
+            embedded_graphics::primitives::Circle::new(top_left, diameter).into_styled(style);
+        circle.draw(&mut self.inner)?;
+        Ok(())
+    }
+
+    fn line(
+        &mut self,
+        start: embedded_graphics::prelude::Point,
+        end: embedded_graphics::prelude::Point,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), FrameBufferError> {
+        let line = embedded_graphics::primitives::Line::new(start, end)
+            .into_styled(PrimitiveStyle::with_stroke(*color, stroke_width));
+        line.draw(&mut self.inner)?;
+        Ok(())
+    }
+
+    fn rectangle(
+        &mut self,
+        corner_1: embedded_graphics::prelude::Point,
+        corner_2: embedded_graphics::prelude::Point,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let rectangle = embedded_graphics::primitives::Rectangle::with_corners(corner_1, corner_2)
+            .into_styled(style);
+        rectangle.draw(&mut self.inner)?;
+        Ok(())
+    }
+
+    fn triangle(
+        &mut self,
+        vertex_1: embedded_graphics::prelude::Point,
+        vertex_2: embedded_graphics::prelude::Point,
+        vertex_3: embedded_graphics::prelude::Point,
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let triangle = embedded_graphics::primitives::Triangle::new(vertex_1, vertex_2, vertex_3)
+            .into_styled(style);
+        triangle.draw(&mut self.inner)?;
+        Ok(())
+    }
+
+    fn polyline(
+        &mut self,
+        points: &[embedded_graphics::prelude::Point],
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), FrameBufferError> {
+        let style = PrimitiveStyle::with_stroke(*color, stroke_width);
+
+        Polyline::new(&points)
+            .into_styled(style)
+            .draw(&mut self.inner)?;
+
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        todo!()
     }
 }

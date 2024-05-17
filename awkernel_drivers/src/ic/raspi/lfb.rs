@@ -10,7 +10,7 @@ use embedded_graphics::{
     geometry::Point,
     mono_font::MonoTextStyle,
     pixelcolor::Rgb888,
-    primitives::{Line, Primitive, PrimitiveStyle},
+    primitives::{Line, Polyline, Primitive, PrimitiveStyle},
     text::{Alignment, Text},
     Drawable,
 };
@@ -243,5 +243,65 @@ impl FrameBuffer for RaspiFrameBuffer {
             embedded_graphics::primitives::Circle::new(top_left, diameter).into_styled(style);
         circle.draw(&mut self.frame_buffer)?;
         Ok(())
+    }
+
+    fn rectangle(
+        &mut self,
+        corner_1: Point,
+        corner_2: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let rectangle = embedded_graphics::primitives::Rectangle::with_corners(corner_1, corner_2)
+            .into_styled(style);
+        rectangle.draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn triangle(
+        &mut self,
+        vertex_1: Point,
+        vertex_2: Point,
+        vertex_3: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let triangle = embedded_graphics::primitives::Triangle::new(vertex_1, vertex_2, vertex_3)
+            .into_styled(style);
+        triangle.draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn polyline(
+        &mut self,
+        points: &[embedded_graphics::prelude::Point],
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), FrameBufferError> {
+        let style = PrimitiveStyle::with_stroke(*color, stroke_width);
+
+        Polyline::new(&points)
+            .into_styled(style)
+            .draw(&mut self.frame_buffer)?;
+
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        todo!()
     }
 }
