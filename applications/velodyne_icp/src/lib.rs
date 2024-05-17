@@ -15,8 +15,6 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::net::Ipv4Addr;
 
-use ndarray::Array2;
-
 const VLP16_PACKET_DATA_SIZE: usize = 1206;
 
 const PACKETS_PER_SCAN: usize = 75;
@@ -129,4 +127,32 @@ async fn receive_scan_packets() {
 pub async fn run() {
     awkernel_async_lib::spawn("udp".into(), receive_scan_packets(), SchedulerType::FIFO).await;
     awkernel_async_lib::spawn("icp".into(), icp(), SchedulerType::FIFO).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scan() {
+        let mut scan = Scan::default();
+
+        let mut i = 0;
+        for _packet_index in 0..PACKETS_PER_SCAN {
+            for sequence_index in 0..N_SEQUENCES {
+                for channel in 0..CHANNELS_PER_SEQUENCE {
+                    let i_f64 = i as f64;
+                    scan.process(sequence_index, channel, &(i_f64, i_f64, i_f64));
+                    i += 1;
+                }
+            }
+            scan.increment();
+        }
+
+        for i in 0..PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE {
+            let i_f64 = i as f64;
+            let expected = icp::Vector3::new(i_f64, i_f64, i_f64);
+            assert_eq!(scan.points[i], expected);
+        }
+    }
 }

@@ -6,6 +6,10 @@ edition = "2021"
 [dependencies]
 log = "0.4"
 
+[features]
+default = ["std"]
+std = ["awkernel_async_lib/std"]
+
 [dependencies.awkernel_async_lib]
 path = "../../awkernel_async_lib"
 default-features = false
