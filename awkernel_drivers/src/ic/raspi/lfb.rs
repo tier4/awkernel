@@ -337,7 +337,7 @@ impl FrameBuffer for RaspiFrameBuffer {
     }
 
     fn flush(&mut self) {
-        self.inner.init_sub_buffer();
+        self.frame_buffer.init_sub_buffer();
         self.frame_buffer
             .framebuffer
             .copy_from_slice(unsafe { &*self.frame_buffer.sub_buffer });
