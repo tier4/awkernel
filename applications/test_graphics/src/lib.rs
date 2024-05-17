@@ -24,55 +24,53 @@ pub async fn run() {
 }
 
 async fn test_graphics() {
+    // Get the bounding box of the screen.
+    let bbox = bounding_box();
+    let mut x = 20;
+    let mut y = 20;
+    let mut x_direction = 5;
+    let mut y_direction = 5;
+    let radius = 20;
+
+    let text_style = MonoTextStyle::new(&FONT_6X10, Rgb888::WHITE);
+
     loop {
-        // Get the bounding box of the screen.
-        let bbox = bounding_box();
-        let mut x = 20;
-        let mut y = 20;
-        let mut x_direction = 5;
-        let mut y_direction = 5;
-        let radius = 20;
+        // Fill the screen with black
+        fill(&Rgb888::BLACK);
 
-        let text_style = MonoTextStyle::new(&FONT_6X10, Rgb888::WHITE);
+        // Draw a red circle
+        let _ = circle(
+            Point::new(x - radius, y - radius),
+            radius as u32 * 2,
+            &Rgb888::RED,
+            1,
+            true,
+        );
 
-        loop {
-            // Fill the screen with black
-            fill(&Rgb888::BLACK);
+        // Draw a text
+        let _ = draw_mono_text(
+            "Hello, Autoware Kernel!",
+            Point::new(bbox.size.width as i32 / 2, bbox.size.height as i32 - 10),
+            text_style,
+            Alignment::Center,
+        );
 
-            // Draw a red circle
-            let _ = circle(
-                Point::new(x - radius, y - radius),
-                radius as u32 * 2,
-                &Rgb888::RED,
-                1,
-                true,
-            );
+        // Refresh the screen
+        flush();
 
-            // Draw a text
-            let _ = draw_mono_text(
-                "Hello, Autoware Kernel!",
-                Point::new(bbox.size.width as i32 / 2, bbox.size.height as i32 - 10),
-                text_style,
-                Alignment::Center,
-            );
+        // Update the position
+        x += x_direction;
+        y += y_direction;
 
-            // Refresh the screen
-            flush();
-
-            // Update the position
-            x += x_direction;
-            y += y_direction;
-
-            // Bounce the circle off the edges of the screen
-            if x - radius <= 0 || x + radius >= bbox.size.width as i32 {
-                x_direction = -x_direction;
-            }
-            if y - radius <= 0 || y + radius >= bbox.size.height as i32 {
-                y_direction = -y_direction;
-            }
-
-            // Wait for a while
-            awkernel_async_lib::sleep(Duration::from_millis(50)).await;
+        // Bounce the circle off the edges of the screen
+        if x - radius <= 0 || x + radius >= bbox.size.width as i32 {
+            x_direction = -x_direction;
         }
+        if y - radius <= 0 || y + radius >= bbox.size.height as i32 {
+            y_direction = -y_direction;
+        }
+
+        // Wait for a while
+        awkernel_async_lib::sleep(Duration::from_millis(50)).await;
     }
 }

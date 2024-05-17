@@ -1,4 +1,4 @@
-use core::ptr::{null_mut, slice_from_raw_parts_mut};
+use core::ptr::{slice_from_raw_parts_mut, NonNull};
 
 use awkernel_lib::graphics::{FrameBuffer, FrameBufferError};
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
@@ -10,6 +10,8 @@ use embedded_graphics::{
     text::Text,
     Drawable, Pixel,
 };
+
+use alloc::vec;
 
 static mut X86_FRAME_BUFFER: Option<X86FrameBuffer> = None;
 
@@ -23,7 +25,7 @@ pub unsafe fn init(info: FrameBufferInfo, buffer: &'static mut [u8]) {
         inner: X86FrameBufferInner {
             info,
             buffer,
-            sub_buffer: slice_from_raw_parts_mut(null_mut(), 0),
+            sub_buffer: slice_from_raw_parts_mut(NonNull::dangling().as_ptr(), 0),
         },
     });
 
@@ -82,13 +84,12 @@ impl X86FrameBufferInner {
     #[inline(always)]
     fn init_sub_buffer(&mut self) {
         unsafe {
-            if (*self.sub_buffer).len() != 0 {
+            if !(*self.sub_buffer).is_empty() {
                 return;
             }
         }
 
-        let mut buf = alloc::vec::Vec::new();
-        buf.resize(self.buffer.len(), 0);
+        let buf = vec![0; self.buffer.len()];
         self.sub_buffer = buf.leak();
     }
 }
@@ -258,7 +259,7 @@ impl FrameBuffer for X86FrameBuffer {
 
         let style = PrimitiveStyle::with_stroke(*color, stroke_width);
 
-        Polyline::new(&points)
+        Polyline::new(points)
             .into_styled(style)
             .draw(&mut self.inner)?;
 

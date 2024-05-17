@@ -1,5 +1,5 @@
 use core::{
-    ptr::{null_mut, slice_from_raw_parts_mut},
+    ptr::{slice_from_raw_parts_mut, NonNull},
     slice,
 };
 
@@ -22,6 +22,8 @@ use embedded_graphics_core::{
     prelude::{DrawTarget, OriginDimensions, RgbColor},
     Pixel,
 };
+
+use alloc::vec;
 
 static mut RASPI_FRAME_BUFFER: Option<RaspiFrameBuffer> = None;
 
@@ -60,13 +62,12 @@ impl FramebufferInfo {
     #[inline(always)]
     fn init_sub_buffer(&mut self) {
         unsafe {
-            if (*self.sub_buffer).len() != 0 || self.framebuffer_size == 0 {
+            if !(*self.sub_buffer).is_empty() || self.framebuffer_size == 0 {
                 return;
             }
         }
 
-        let mut buf = alloc::vec::Vec::new();
-        buf.resize(self.framebuffer_size, 0);
+        let buf = vec![0; self.framebuffer_size];
         self.sub_buffer = buf.leak();
     }
 }
@@ -149,7 +150,7 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
                 pitch,
                 is_rgb,
                 framebuffer,
-                sub_buffer: slice_from_raw_parts_mut(null_mut(), 0),
+                sub_buffer: slice_from_raw_parts_mut(NonNull::dangling().as_ptr(), 0),
                 framebuffer_size,
             },
         };
@@ -329,7 +330,7 @@ impl FrameBuffer for RaspiFrameBuffer {
 
         let style = PrimitiveStyle::with_stroke(*color, stroke_width);
 
-        Polyline::new(&points)
+        Polyline::new(points)
             .into_styled(style)
             .draw(&mut self.frame_buffer)?;
 

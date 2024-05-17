@@ -125,6 +125,7 @@ mod registers {
 const LPI_CFG_TABLE_SZ: usize = 65536;
 const LPI_PEND_TABLE_SZ: usize = 65536 / 8;
 
+#[allow(dead_code)] // TODO: remove this attribute
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
