@@ -80,6 +80,7 @@ pub unsafe fn set_frame_buffer(frame_buffer: &'static mut dyn FrameBuffer) {
     FRAME_BUFFER = Some(frame_buffer);
 }
 
+/// Draw a text on the frame buffer.
 #[inline(always)]
 pub fn draw_mono_text(
     text: &str,
@@ -96,6 +97,7 @@ pub fn draw_mono_text(
     }
 }
 
+/// Get the bounding box of the frame buffer.
 #[inline(always)]
 pub fn bounding_box() -> Rectangle {
     unsafe {
@@ -107,6 +109,7 @@ pub fn bounding_box() -> Rectangle {
     }
 }
 
+/// Fill the frame buffer with a color.
 #[inline(always)]
 pub fn fill(color: &Rgb888) {
     unsafe {
@@ -116,6 +119,7 @@ pub fn fill(color: &Rgb888) {
     }
 }
 
+/// Set a pixel on the frame buffer.
 #[inline(always)]
 pub fn set_pixel(position: Point, color: &Rgb888) {
     unsafe {
@@ -125,6 +129,7 @@ pub fn set_pixel(position: Point, color: &Rgb888) {
     }
 }
 
+/// Draw a line on the frame buffer.
 #[inline(always)]
 pub fn line(
     start: Point,
@@ -141,6 +146,11 @@ pub fn line(
     Ok(())
 }
 
+/// Draw a circle on the frame buffer.
+///
+/// If `is_filled` is `true`, the `stroke_width` parameter is ignored, and
+/// the circle is filled with the specified color.
+/// Otherwise, the circle is drawn with the specified stroke width.
 #[inline(always)]
 pub fn circle(
     top_left: Point,
@@ -158,6 +168,10 @@ pub fn circle(
     Ok(())
 }
 
+/// Draw a rectangle on the frame buffer.
+///
+/// If `is_filled` is `true`, the `stroke_width` parameter is ignored, and
+/// the rectangle is filled with the specified color.
 #[inline(always)]
 pub fn rectangle(
     corner_1: Point,
@@ -175,6 +189,10 @@ pub fn rectangle(
     Ok(())
 }
 
+/// Draw a triangle on the frame buffer.
+///
+/// If `is_filled` is `true`, the `stroke_width` parameter is ignored, and
+/// the triangle is filled with the specified color.
 #[inline(always)]
 pub fn triangle(
     vertex_1: Point,
@@ -193,6 +211,7 @@ pub fn triangle(
     Ok(())
 }
 
+/// Draw a polygonal line on the frame buffer.
 #[inline(always)]
 pub fn polyline(
     points: &[Point],
@@ -206,4 +225,15 @@ pub fn polyline(
     }
 
     Ok(())
+}
+
+/// Flush the frame buffer.
+/// This function must be called after drawing operations to refresh the screen.
+#[inline(always)]
+pub fn flush() {
+    unsafe {
+        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+            frame_buffer.flush();
+        }
+    }
 }

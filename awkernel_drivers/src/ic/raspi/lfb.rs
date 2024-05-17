@@ -1,4 +1,7 @@
-use core::slice;
+use core::{
+    ptr::{null_mut, slice_from_raw_parts_mut},
+    slice,
+};
 
 use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
 use awkernel_lib::{
@@ -30,6 +33,7 @@ struct FramebufferInfo {
     pitch: u32,
     is_rgb: bool,
     framebuffer: &'static mut [u8],
+    sub_buffer: *mut [u8],
     framebuffer_size: usize,
 }
 
@@ -38,17 +42,32 @@ impl FramebufferInfo {
     fn set_pixel(&mut self, position: Point, color: &Rgb888) {
         let pos = position.y as usize * self.pitch as usize + position.x as usize * 4;
 
+        let buffer = unsafe { &mut *self.sub_buffer };
+
         if self.is_rgb {
-            self.framebuffer[pos] = color.r();
-            self.framebuffer[pos + 1] = color.g();
-            self.framebuffer[pos + 2] = color.b();
-            self.framebuffer[pos + 3] = 0;
+            buffer[pos] = color.r();
+            buffer[pos + 1] = color.g();
+            buffer[pos + 2] = color.b();
+            buffer[pos + 3] = 0;
         } else {
-            self.framebuffer[pos] = color.b();
-            self.framebuffer[pos + 1] = color.g();
-            self.framebuffer[pos + 2] = color.r();
-            self.framebuffer[pos + 3] = 0;
+            buffer[pos] = color.b();
+            buffer[pos + 1] = color.g();
+            buffer[pos + 2] = color.r();
+            buffer[pos + 3] = 0;
         }
+    }
+
+    #[inline(always)]
+    fn init_sub_buffer(&mut self) {
+        unsafe {
+            if (*self.sub_buffer).len() != 0 || self.framebuffer_size == 0 {
+                return;
+            }
+        }
+
+        let mut buf = alloc::vec::Vec::new();
+        buf.resize(self.framebuffer_size, 0);
+        self.sub_buffer = buf.leak();
     }
 }
 
@@ -130,6 +149,7 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
                 pitch,
                 is_rgb,
                 framebuffer,
+                sub_buffer: slice_from_raw_parts_mut(null_mut(), 0),
                 framebuffer_size,
             },
         };
@@ -195,15 +215,20 @@ impl FrameBuffer for RaspiFrameBuffer {
         alignment: Alignment,
     ) -> Result<embedded_graphics_core::prelude::Point, awkernel_lib::graphics::FrameBufferError>
     {
+        self.frame_buffer.init_sub_buffer();
+
         let text = Text::with_alignment(text, position, style, alignment);
         text.draw(&mut self.frame_buffer)
     }
 
     fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        self.frame_buffer.init_sub_buffer();
         self.frame_buffer.set_pixel(position, color);
     }
 
     fn fill(&mut self, color: &Rgb888) {
+        self.frame_buffer.init_sub_buffer();
+
         for y in 0..self.frame_buffer.height {
             for x in 0..self.frame_buffer.width {
                 self.frame_buffer
@@ -219,6 +244,8 @@ impl FrameBuffer for RaspiFrameBuffer {
         color: &Rgb888,
         stroke_width: u32,
     ) -> Result<(), awkernel_lib::graphics::FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
         Line::new(start, end)
             .into_styled(PrimitiveStyle::with_stroke(*color, stroke_width))
             .draw(&mut self.frame_buffer)?;
@@ -233,6 +260,8 @@ impl FrameBuffer for RaspiFrameBuffer {
         stroke_width: u32,
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -253,6 +282,8 @@ impl FrameBuffer for RaspiFrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -274,6 +305,8 @@ impl FrameBuffer for RaspiFrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -292,6 +325,8 @@ impl FrameBuffer for RaspiFrameBuffer {
         color: &embedded_graphics::pixelcolor::Rgb888,
         stroke_width: u32,
     ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
         let style = PrimitiveStyle::with_stroke(*color, stroke_width);
 
         Polyline::new(&points)
@@ -302,6 +337,9 @@ impl FrameBuffer for RaspiFrameBuffer {
     }
 
     fn flush(&mut self) {
-        todo!()
+        self.inner.init_sub_buffer();
+        self.frame_buffer
+            .framebuffer
+            .copy_from_slice(unsafe { &*self.frame_buffer.sub_buffer });
     }
 }

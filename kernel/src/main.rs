@@ -224,5 +224,7 @@ fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
 
     graphics::rectangle(corner_1, corner_2, &white, 4, false)?;
 
+    graphics::flush();
+
     Ok(())
 }

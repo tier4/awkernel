@@ -1,3 +1,5 @@
+use core::ptr::{null_mut, slice_from_raw_parts_mut};
+
 use awkernel_lib::graphics::{FrameBuffer, FrameBufferError};
 use bootloader_api::info::{FrameBufferInfo, PixelFormat};
 use embedded_graphics::{
@@ -15,10 +17,14 @@ static mut X86_FRAME_BUFFER: Option<X86FrameBuffer> = None;
 ///
 /// This function must be called at initialization.
 pub unsafe fn init(info: FrameBufferInfo, buffer: &'static mut [u8]) {
-    log::debug!("Framebuffer initialized: {:?}", info);
+    log::debug!("Frame buffer has been initialized: {:?}", info);
 
     X86_FRAME_BUFFER = Some(X86FrameBuffer {
-        inner: X86FrameBufferInner { info, buffer },
+        inner: X86FrameBufferInner {
+            info,
+            buffer,
+            sub_buffer: slice_from_raw_parts_mut(null_mut(), 0),
+        },
     });
 
     awkernel_lib::graphics::set_frame_buffer(X86_FRAME_BUFFER.as_mut().unwrap());
@@ -27,6 +33,7 @@ pub unsafe fn init(info: FrameBufferInfo, buffer: &'static mut [u8]) {
 struct X86FrameBufferInner {
     info: FrameBufferInfo,
     buffer: &'static mut [u8],
+    sub_buffer: *mut [u8],
 }
 
 impl X86FrameBufferInner {
@@ -41,33 +48,48 @@ impl X86FrameBufferInner {
         let bytes_per_line = self.info.bytes_per_pixel * self.info.stride;
         let pos = y * bytes_per_line + x * self.info.bytes_per_pixel;
 
+        let buffer = unsafe { &mut *self.sub_buffer };
+
         match self.info.pixel_format {
             PixelFormat::Rgb => {
-                self.buffer[pos] = color.r();
-                self.buffer[pos + 1] = color.g();
-                self.buffer[pos + 2] = color.b();
+                buffer[pos] = color.r();
+                buffer[pos + 1] = color.g();
+                buffer[pos + 2] = color.b();
             }
             PixelFormat::Bgr => {
-                self.buffer[pos] = color.b();
-                self.buffer[pos + 1] = color.g();
-                self.buffer[pos + 2] = color.r();
+                buffer[pos] = color.b();
+                buffer[pos + 1] = color.g();
+                buffer[pos + 2] = color.r();
             }
             PixelFormat::U8 => {
                 let v =
                     0.299 * color.r() as f64 + 0.587 * color.g() as f64 + 0.114 * color.b() as f64;
-                self.buffer[pos] = v as u8;
+                buffer[pos] = v as u8;
             }
             PixelFormat::Unknown {
                 red_position,
                 green_position,
                 blue_position,
             } => {
-                self.buffer[pos + red_position as usize] = color.r();
-                self.buffer[pos + green_position as usize] = color.g();
-                self.buffer[pos + blue_position as usize] = color.b();
+                buffer[pos + red_position as usize] = color.r();
+                buffer[pos + green_position as usize] = color.g();
+                buffer[pos + blue_position as usize] = color.b();
             }
             _ => {}
         }
+    }
+
+    #[inline(always)]
+    fn init_sub_buffer(&mut self) {
+        unsafe {
+            if (*self.sub_buffer).len() != 0 {
+                return;
+            }
+        }
+
+        let mut buf = alloc::vec::Vec::new();
+        buf.resize(self.buffer.len(), 0);
+        self.sub_buffer = buf.leak();
     }
 }
 
@@ -108,6 +130,8 @@ impl FrameBuffer for X86FrameBuffer {
         >,
         alignment: embedded_graphics::text::Alignment,
     ) -> Result<embedded_graphics::geometry::Point, FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let text = Text::with_alignment(text, position, style, alignment);
         text.draw(&mut self.inner)
     }
@@ -121,10 +145,14 @@ impl FrameBuffer for X86FrameBuffer {
         position: embedded_graphics::geometry::Point,
         color: &embedded_graphics::pixelcolor::Rgb888,
     ) {
+        self.inner.init_sub_buffer();
+
         self.inner.set_pixel(position, color);
     }
 
     fn fill(&mut self, color: &embedded_graphics::pixelcolor::Rgb888) {
+        self.inner.init_sub_buffer();
+
         for y in 0..self.inner.info.height {
             for x in 0..self.inner.info.width {
                 self.inner.set_pixel(
@@ -143,6 +171,8 @@ impl FrameBuffer for X86FrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -162,9 +192,12 @@ impl FrameBuffer for X86FrameBuffer {
         color: &embedded_graphics::pixelcolor::Rgb888,
         stroke_width: u32,
     ) -> Result<(), FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let line = embedded_graphics::primitives::Line::new(start, end)
             .into_styled(PrimitiveStyle::with_stroke(*color, stroke_width));
         line.draw(&mut self.inner)?;
+
         Ok(())
     }
 
@@ -176,6 +209,8 @@ impl FrameBuffer for X86FrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -185,6 +220,7 @@ impl FrameBuffer for X86FrameBuffer {
         let rectangle = embedded_graphics::primitives::Rectangle::with_corners(corner_1, corner_2)
             .into_styled(style);
         rectangle.draw(&mut self.inner)?;
+
         Ok(())
     }
 
@@ -197,6 +233,8 @@ impl FrameBuffer for X86FrameBuffer {
         stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
         is_filled: bool,
     ) -> Result<(), FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let style = if is_filled {
             PrimitiveStyle::with_fill(*color)
         } else {
@@ -206,6 +244,7 @@ impl FrameBuffer for X86FrameBuffer {
         let triangle = embedded_graphics::primitives::Triangle::new(vertex_1, vertex_2, vertex_3)
             .into_styled(style);
         triangle.draw(&mut self.inner)?;
+
         Ok(())
     }
 
@@ -215,6 +254,8 @@ impl FrameBuffer for X86FrameBuffer {
         color: &embedded_graphics::pixelcolor::Rgb888,
         stroke_width: u32,
     ) -> Result<(), FrameBufferError> {
+        self.inner.init_sub_buffer();
+
         let style = PrimitiveStyle::with_stroke(*color, stroke_width);
 
         Polyline::new(&points)
@@ -225,6 +266,9 @@ impl FrameBuffer for X86FrameBuffer {
     }
 
     fn flush(&mut self) {
-        todo!()
+        self.inner.init_sub_buffer();
+        self.inner
+            .buffer
+            .copy_from_slice(unsafe { &*self.inner.sub_buffer });
     }
 }
