@@ -16,5 +16,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_rpi_hal")]
     test_rpi_hal::run().await; // test for RPi HAL
 
+    #[cfg(feature = "test_graphics")]
+    test_graphics::run().await; // test for graphics
+
     Ok(())
 }

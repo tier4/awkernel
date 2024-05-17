@@ -1,4 +1,7 @@
-use core::slice;
+use core::{
+    ptr::{slice_from_raw_parts_mut, NonNull},
+    slice,
+};
 
 use super::mbox::{Mbox, MboxChannel, MBOX_REQUEST, MBOX_TAG_LAST};
 use awkernel_lib::{
@@ -7,7 +10,10 @@ use awkernel_lib::{
     paging::PAGESIZE,
 };
 use embedded_graphics::{
+    geometry::Point,
     mono_font::MonoTextStyle,
+    pixelcolor::Rgb888,
+    primitives::{Line, Polyline, Primitive, PrimitiveStyle},
     text::{Alignment, Text},
     Drawable,
 };
@@ -16,6 +22,8 @@ use embedded_graphics_core::{
     prelude::{DrawTarget, OriginDimensions, RgbColor},
     Pixel,
 };
+
+use alloc::vec;
 
 static mut RASPI_FRAME_BUFFER: Option<RaspiFrameBuffer> = None;
 
@@ -27,25 +35,40 @@ struct FramebufferInfo {
     pitch: u32,
     is_rgb: bool,
     framebuffer: &'static mut [u8],
+    sub_buffer: *mut [u8],
     framebuffer_size: usize,
 }
 
 impl FramebufferInfo {
     #[inline(always)]
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        let pos = (y * self.pitch + x * 4) as usize;
+    fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        let pos = position.y as usize * self.pitch as usize + position.x as usize * 4;
+
+        let buffer = unsafe { &mut *self.sub_buffer };
 
         if self.is_rgb {
-            self.framebuffer[pos] = r;
-            self.framebuffer[pos + 1] = g;
-            self.framebuffer[pos + 2] = b;
-            self.framebuffer[pos + 3] = 0;
+            buffer[pos] = color.r();
+            buffer[pos + 1] = color.g();
+            buffer[pos + 2] = color.b();
+            buffer[pos + 3] = 0;
         } else {
-            self.framebuffer[pos] = b;
-            self.framebuffer[pos + 1] = g;
-            self.framebuffer[pos + 2] = r;
-            self.framebuffer[pos + 3] = 0;
+            buffer[pos] = color.b();
+            buffer[pos + 1] = color.g();
+            buffer[pos + 2] = color.r();
+            buffer[pos + 3] = 0;
         }
+    }
+
+    #[inline(always)]
+    fn init_sub_buffer(&mut self) {
+        unsafe {
+            if !(*self.sub_buffer).is_empty() || self.framebuffer_size == 0 {
+                return;
+            }
+        }
+
+        let buf = vec![0; self.framebuffer_size];
+        self.sub_buffer = buf.leak();
     }
 }
 
@@ -127,6 +150,7 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
                 pitch,
                 is_rgb,
                 framebuffer,
+                sub_buffer: slice_from_raw_parts_mut(NonNull::dangling().as_ptr(), 0),
                 framebuffer_size,
             },
         };
@@ -161,13 +185,7 @@ impl DrawTarget for FramebufferInfo {
         I: IntoIterator<Item = embedded_graphics_core::Pixel<Self::Color>>,
     {
         for Pixel(coord, color) in pixels {
-            self.set_pixel(
-                coord.x as u32,
-                coord.y as u32,
-                color.r(),
-                color.g(),
-                color.b(),
-            );
+            self.set_pixel(coord, &color);
         }
 
         Ok(())
@@ -198,19 +216,131 @@ impl FrameBuffer for RaspiFrameBuffer {
         alignment: Alignment,
     ) -> Result<embedded_graphics_core::prelude::Point, awkernel_lib::graphics::FrameBufferError>
     {
+        self.frame_buffer.init_sub_buffer();
+
         let text = Text::with_alignment(text, position, style, alignment);
         text.draw(&mut self.frame_buffer)
     }
 
-    fn set_pixel(&mut self, x: u32, y: u32, r: u8, g: u8, b: u8) {
-        self.frame_buffer.set_pixel(x, y, r, g, b);
+    fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        self.frame_buffer.init_sub_buffer();
+        self.frame_buffer.set_pixel(position, color);
     }
 
-    fn fill(&mut self, r: u8, g: u8, b: u8) {
+    fn fill(&mut self, color: &Rgb888) {
+        self.frame_buffer.init_sub_buffer();
+
         for y in 0..self.frame_buffer.height {
             for x in 0..self.frame_buffer.width {
-                self.frame_buffer.set_pixel(x, y, r, g, b);
+                self.frame_buffer
+                    .set_pixel(Point::new(x as i32, y as i32), color);
             }
         }
+    }
+
+    fn line(
+        &mut self,
+        start: Point,
+        end: Point,
+        color: &Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), awkernel_lib::graphics::FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
+        Line::new(start, end)
+            .into_styled(PrimitiveStyle::with_stroke(*color, stroke_width))
+            .draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn circle(
+        &mut self,
+        top_left: Point,
+        diameter: u32,
+        color: &Rgb888,
+        stroke_width: u32,
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let circle =
+            embedded_graphics::primitives::Circle::new(top_left, diameter).into_styled(style);
+        circle.draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn rectangle(
+        &mut self,
+        corner_1: Point,
+        corner_2: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let rectangle = embedded_graphics::primitives::Rectangle::with_corners(corner_1, corner_2)
+            .into_styled(style);
+        rectangle.draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn triangle(
+        &mut self,
+        vertex_1: Point,
+        vertex_2: Point,
+        vertex_3: Point,
+        color: &Rgb888,
+        stroke_width: u32, // if `is_filled` is `true`, this parameter is ignored.
+        is_filled: bool,
+    ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
+        let style = if is_filled {
+            PrimitiveStyle::with_fill(*color)
+        } else {
+            PrimitiveStyle::with_stroke(*color, stroke_width)
+        };
+
+        let triangle = embedded_graphics::primitives::Triangle::new(vertex_1, vertex_2, vertex_3)
+            .into_styled(style);
+        triangle.draw(&mut self.frame_buffer)?;
+        Ok(())
+    }
+
+    fn polyline(
+        &mut self,
+        points: &[embedded_graphics::prelude::Point],
+        color: &embedded_graphics::pixelcolor::Rgb888,
+        stroke_width: u32,
+    ) -> Result<(), FrameBufferError> {
+        self.frame_buffer.init_sub_buffer();
+
+        let style = PrimitiveStyle::with_stroke(*color, stroke_width);
+
+        Polyline::new(points)
+            .into_styled(style)
+            .draw(&mut self.frame_buffer)?;
+
+        Ok(())
+    }
+
+    fn flush(&mut self) {
+        self.frame_buffer.init_sub_buffer();
+        self.frame_buffer
+            .framebuffer
+            .copy_from_slice(unsafe { &*self.frame_buffer.sub_buffer });
     }
 }

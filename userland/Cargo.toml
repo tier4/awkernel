@@ -26,9 +26,14 @@ optional = true
 path = "../applications/test_rpi_hal"
 optional = true
 
+[dependencies.test_graphics]
+path = "../applications/test_graphics"
+optional = true
+
 [features]
-default = []
+default = ["test_graphics"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
+test_graphics = ["dep:test_graphics"]
