@@ -21,7 +21,10 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
-use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
+use crate::{
+    device,
+    pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass},
+};
 
 use self::{
     base_address::{AddressType, BaseAddress},
@@ -567,7 +570,7 @@ fn init<F>(
     };
 
     let mut host_bridge_bus = 0;
-
+    log::info!("init!!!!!!!!!!!!!!!!");
     for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
@@ -593,12 +596,12 @@ fn init<F>(
 
         visited.insert(bus_number);
         check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
+        log::info!("init!!!!!!!!!!!!!!!!1");
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
-
     if let Some(ranges) = ranges {
         bus_tree.init_base_address(ranges);
     }
@@ -692,7 +695,15 @@ impl PCIeInfo {
         device_number: u8,
         function_number: u8,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        log::info!(
+            "bus:{:X} device:{:X} function:{:X}",
+            bus_number,
+            device_number,
+            function_number
+        );
         let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
+        let command_status = config_space.read_u32(registers::STATUS_COMMAND);
+        let command = (command_status & 0xffff) as u16;
 
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -700,12 +711,15 @@ impl PCIeInfo {
         if id == !0 || vendor == !0 {
             return Err(PCIeDeviceErr::InitFailure);
         }
+        log::info!("id:{:X} vendor:{:X}", id, vendor);
+        log::info!("command:{:X}", command);
 
         let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
         let header_type = header_type & 0x7f;
 
         let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
         let revision_id = (cls_rev_id & 0xff) as u8;
+        log::info!("cls_rev_id:{:X} revision_id:{:X}", cls_rev_id, revision_id);
 
         let pcie_class = pcie_class::PCIeClass::from_u8(
             (cls_rev_id >> 24) as u8,
@@ -714,6 +728,8 @@ impl PCIeInfo {
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
         let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
+
+        log::info!("header_type:{}", header_type);
 
         let mut result = PCIeInfo {
             config_space,
@@ -862,10 +878,20 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
+        //if self.device_number == 6 && self.function_number == 0 {
+        //loop {}
+        //}
+
+        log::info!("read_bar");
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
-                let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
+                let bar = read_bar(
+                    &self.config_space,
+                    registers::BAR0 + i * 4,
+                    self.device_number,
+                    self.function_number,
+                );
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -941,6 +967,7 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        log::info!("attach");
         let segment_group = self.segment_group;
         let bus_number = self.bus_number;
         let device_number = self.device_number;
@@ -954,6 +981,10 @@ impl PCIeInfo {
                 #[cfg(feature = "igb")]
                 if intel::igb::match_device(self.vendor, self.id) {
                     return intel::igb::attach(self);
+                }
+
+                if intel::ixgbe::match_device(self.vendor, self.id) {
+                    return intel::ixgbe::attach(self);
                 }
 
                 // Example of the driver for Intel E1000e.
@@ -1003,8 +1034,14 @@ const BAR_IO_ADDR_MASK: u32 = !0b11;
 const BAR_MEM_ADDR_MASK: u32 = !0b1111;
 
 /// Read the base address of `addr`.
-fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
+fn read_bar(
+    config_space: &ConfigSpace,
+    offset: usize,
+    device_num: u8,
+    function_num: u8,
+) -> BaseAddress {
     let bar = config_space.read_u32(offset);
+    log::info!("bar:{:X}", bar);
 
     if (bar & BAR_IO) == 1 {
         // I/O space
@@ -1048,19 +1085,26 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
         } else if bar_type == BAR_TYPE_64 {
             let high_offset = offset + 4;
             let high_bar = config_space.read_u32(high_offset);
+            log::info!("high_bar:{:X}", high_bar);
 
             let size = {
                 let high_bar = config_space.read_u32(high_offset);
 
+                config_space.write_u32(4, 0x04);
                 config_space.write_u32(!0, offset);
                 config_space.write_u32(!0, high_offset);
 
                 let low_size = config_space.read_u32(offset);
                 let high_size = config_space.read_u32(high_offset);
-
+                log::info!("low_size:{:X}", low_size);
+                log::info!("high_size:{:X}", high_size);
+                //if device_num == 7 && function_num == 0 {
+                //loop {}
+                //}
                 config_space.write_u32(bar, offset);
                 config_space.write_u32(high_bar, high_offset);
 
+                config_space.write_u32(6, 0x04);
                 (!((high_size as u64) << 32 | ((low_size & BAR_MEM_ADDR_MASK) as u64)) + 1) as usize
             };
 

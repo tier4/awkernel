@@ -254,6 +254,7 @@ fn kernel_main2(
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi).is_err() {
         // fallback
+        log::info!("init_with_acpi error!!");
         awkernel_drivers::pcie::init_with_io();
     }
 

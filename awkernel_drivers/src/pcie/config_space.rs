@@ -93,6 +93,7 @@ impl ConfigSpace {
         match self {
             #[allow(unused_variables)]
             Self::IO(base) => {
+                log::info!("mmio!");
                 #[cfg(feature = "x86")]
                 {
                     let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);

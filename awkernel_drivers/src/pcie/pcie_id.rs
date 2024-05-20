@@ -5,3 +5,4 @@ pub enum PCIeID {
 }
 
 pub const INTEL_VENDOR_ID: u16 = 0x8086;
+pub const IXGBE_INTEL_VENDOR_ID: u16 = INTEL_VENDOR_ID;
