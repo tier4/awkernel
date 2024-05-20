@@ -1,4 +1,4 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
@@ -16,6 +16,12 @@ use self::{
 
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
+
+#[cfg(loom)]
+use crate::sync::rwlock_dummy::RwLock;
+
+#[cfg(not(loom))]
+use crate::sync::rwlock::RwLock;
 
 pub mod ether;
 pub mod ethertypes;
