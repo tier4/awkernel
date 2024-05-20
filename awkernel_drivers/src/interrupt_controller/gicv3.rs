@@ -11,9 +11,9 @@
 //!
 //! # References
 //!
-//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c
-//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3_its.c
-//! - https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.txt
+//! - <https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c>
+//! - <https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3_its.c>
+//! - <https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.txt>
 
 use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::{

@@ -28,7 +28,7 @@ It can execute async/await applications in kernel space safely.
 - [ ] Frame buffer
   - [ ] AArch64 virt
   - [x] Raspberry Pi 3 and 4
-  - [ ] x86_64
+  - [x] x86_64
 - [ ] Diagnostics
 - [ ] Measurement
 - [ ] Power Management
@@ -61,7 +61,7 @@ It can execute async/await applications in kernel space safely.
   - [x] genet for Raspberry Pi
 - Networking
   - [x] IPv4
-  - [x] IPv6
+  - [ ] IPv6
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
@@ -69,7 +69,7 @@ It can execute async/await applications in kernel space safely.
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
-    - [ ] UDP checksum
+    - [x] UDP checksum
     - [ ] TCP checksum
     - [ ] VLAN hardware tagging
 - [ ] XHCI
@@ -128,6 +128,38 @@ graph TD;
 ```
 
 Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
+
+---
+
+## Documents
+
+### Raspi
+
+```text
+$ cargo doc_raspi
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### AArch64 Qemu Virt
+
+``` text
+$ cargo doc_aarch64_virt
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### x86_64
+
+```text
+$ make kernel/asm/x86
+$ cargo doc_x86
+$ ls target/x86_64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
 
 ---
 
@@ -321,4 +353,22 @@ $ make run-std RELEASE=1
 ```text
 $ make qemu-raspi3
 $ telnet localhost 5556
+```
+
+---
+
+## Test
+
+Unit tests by using Rust's mechanism can be executed as follows.
+
+```text
+$ make test
+```
+
+Some mechanisms which use atomic instructions are verified by using [loom](https://github.com/tokio-rs/loom),
+and these verifications are executed as follows.
+It will takes several minutes.
+
+```text
+$ make loom
 ```

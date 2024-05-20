@@ -195,12 +195,14 @@ impl<'a, T: Send> AsRef<T> for RwLockWriteGuard<'a, T> {
 unsafe impl<T: Send> Sync for RwLock<T> {}
 unsafe impl<T: Send> Send for RwLock<T> {}
 
+#[cfg(not(loom))]
 impl<'a, T: Send> AsMut<T> for RwLockReadGuard<'a, T> {
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *self.rwlock.data.get() }
     }
 }
 
+#[cfg(not(loom))]
 impl<'a, T: Send> AsRef<T> for RwLockReadGuard<'a, T> {
     fn as_ref(&self) -> &T {
         unsafe { &*self.rwlock.data.get() }
