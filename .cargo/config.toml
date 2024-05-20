@@ -21,6 +21,10 @@ check_rv32 = "check --package awkernel --no-default-features --features rv32 --t
 check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
 check_std = "check --package awkernel --no-default-features --features std"
 
+doc_raspi = "doc --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_aarch64_virt = "doc --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_x86 = "doc --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
