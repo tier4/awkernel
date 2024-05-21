@@ -9,5 +9,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
 
     velodyne_icp::run().await;
 
+    #[cfg(feature = "test_graphics")]
+    test_graphics::run().await; // test for graphics
+
     Ok(())
 }

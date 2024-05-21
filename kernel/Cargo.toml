@@ -92,9 +92,7 @@ raspi = [
     "userland/raspi",
 ]
 
-raspi5 = [
-        "aarch64",
-        "awkernel_drivers/pl011",]
+raspi5 = ["aarch64", "awkernel_drivers/raspi", "awkernel_drivers/pl011"]
 
 
 aarch64_virt = [
@@ -103,3 +101,4 @@ aarch64_virt = [
     "awkernel_drivers/pl011",
 ]
 spinlock = ["awkernel_lib/spinlock"]
+linux = []

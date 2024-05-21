@@ -87,20 +87,25 @@ pub(super) fn read_aligned_be_number(data: &[u8], index: usize, block_size: usiz
             Ok(Addr::U32(num as u64))
         }
         2 => {
-            let bytes = &data
-                .get(locate_block(index)..locate_block(index + block_size))
-                .ok_or(DeviceTreeError::ParsingFailed)?;
-            let num = u64::from_be_bytes([
-                *safe_index(bytes, 0)?,
-                *safe_index(bytes, 1)?,
-                *safe_index(bytes, 2)?,
-                *safe_index(bytes, 3)?,
-                *safe_index(bytes, 4)?,
-                *safe_index(bytes, 5)?,
-                *safe_index(bytes, 6)?,
-                *safe_index(bytes, 7)?,
-            ]);
-            Ok(Addr::U64(num))
+            if locate_block(index + block_size) > data.len() {
+                let num = read_aligned_be_u32(data, index)?;
+                Ok(Addr::U32(num as u64))
+            } else {
+                let bytes = &data
+                    .get(locate_block(index)..locate_block(index + block_size))
+                    .ok_or(DeviceTreeError::ParsingFailed)?;
+                let num = u64::from_be_bytes([
+                    *safe_index(bytes, 0)?,
+                    *safe_index(bytes, 1)?,
+                    *safe_index(bytes, 2)?,
+                    *safe_index(bytes, 3)?,
+                    *safe_index(bytes, 4)?,
+                    *safe_index(bytes, 5)?,
+                    *safe_index(bytes, 6)?,
+                    *safe_index(bytes, 7)?,
+                ]);
+                Ok(Addr::U64(num))
+            }
         }
         3 => {
             let bytes = &data

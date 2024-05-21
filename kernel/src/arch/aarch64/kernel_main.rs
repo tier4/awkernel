@@ -54,12 +54,8 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 5. Enable heap allocator.
 /// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
-    #[allow(unused_variables)]
     let device_tree = load_device_tree(device_tree_base);
-    #[cfg(not(feature = "raspi5"))]
     let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
-    #[cfg(feature = "raspi5")]
-    let mut initializer = super::bsp::SoCInitializer::new(device_tree_base);
 
     // 1. Initialize device (UART, etc.).
     if initializer.init_device().is_err() {
@@ -163,7 +159,7 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         log::info!("Use SP_ELx.");
     }
 
-    // log::info!("{device_tree}");
+    log::info!("{device_tree}");
 
     log::info!("Waking non-primary CPUs up.");
     PRIMARY_INITIALIZED.store(true, Ordering::SeqCst);

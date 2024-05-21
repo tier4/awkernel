@@ -95,6 +95,7 @@ pub trait Mapper {
 
 /// Return the physical address of `vm_addr`.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
     ArchImpl::vm_to_phy(vm_addr)
 }
@@ -107,6 +108,7 @@ pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
 /// - `flag` must be reasonable.
 /// - `phy_addr` must be being unmapped.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<(), MapError> {
     ArchImpl::map(vm_addr, phy_addr, flags)
 }
@@ -118,6 +120,7 @@ pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<
 /// - Virtual memory must be enabled.
 /// - `vm_addr` must be being mapped.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub unsafe fn unmap(vm_addr: VirtAddr) {
     ArchImpl::unmap(vm_addr)
 }
