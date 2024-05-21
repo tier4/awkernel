@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 log = "0.4"
+embedded-graphics = "0.8"
 
 [features]
 default = []
@@ -12,6 +13,10 @@ std = ["awkernel_async_lib/std"]
 
 [dependencies.awkernel_async_lib]
 path = "../../awkernel_async_lib"
+default-features = false
+
+[dependencies.awkernel_lib]
+path = "../../awkernel_lib"
 default-features = false
 
 [dependencies.velodyne_driver]
