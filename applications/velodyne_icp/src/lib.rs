@@ -22,14 +22,14 @@ const PACKETS_PER_SCAN: usize = 75;
 #[derive(PartialEq)]
 struct Scan {
     packet_index: usize,
-    pub points: [icp::Vector3; PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE],
+    pub points: [icp::Vector2; PACKETS_PER_SCAN * N_SEQUENCES],
 }
 
 impl Default for Scan {
     fn default() -> Self {
         Scan {
             packet_index: 0,
-            points: [icp::Vector3::zeros(); PACKETS_PER_SCAN * N_SEQUENCES * CHANNELS_PER_SEQUENCE],
+            points: [icp::Vector2::zeros(); PACKETS_PER_SCAN * N_SEQUENCES],
         }
     }
 }
@@ -37,11 +37,13 @@ impl Default for Scan {
 impl PointProcessor for Scan {
     fn process(&mut self, sequence_index: usize, channel: usize, point: &Point) {
         assert!(!self.is_full());
+        if channel != 1 {
+            return;
+        }
 
-        let (x, y, z) = point;
-        let index = self.packet_index * N_SEQUENCES * CHANNELS_PER_SEQUENCE +
-                    sequence_index * CHANNELS_PER_SEQUENCE + channel;
-        self.points[index] = icp::Vector3::new(*x, *y, *z);
+        let (x, y, _z) = point;
+        let index = self.packet_index * N_SEQUENCES + sequence_index;
+        self.points[index] = icp::Vector2::new(*x, *y);
     }
 }
 
@@ -60,7 +62,7 @@ const SCAN_TOPIC: &str = "scan";
 fn run_icp(transform: &icp::Transform, src_scan: &Arc<Box<Scan>>, dst_scan: &Arc<Box<Scan>>) -> icp::Transform {
     let src: &Box<Scan> = src_scan.borrow();
     let dst: &Box<Scan> = dst_scan.borrow();
-    icp::icp_3dscan(transform, &(src.points.to_vec()), &(dst.points.to_vec()))
+    icp::icp_2dscan(transform, &src.points, &dst.points)
 }
 
 async fn icp() {
@@ -73,7 +75,6 @@ async fn icp() {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = subscriber.recv().await;
         let scan: Arc<Box<Scan>> = scan_message.data;
 
-        log::info!("Received a scan message");
         if let Some(ref reference_scan) = maybe_reference_scan {
            transform = run_icp(&transform, &scan, &reference_scan);
         }
