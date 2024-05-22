@@ -1,7 +1,7 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
 use crate::{
-    arch::aarch64::vm::{self,MemoryRange, VM},
+    arch::aarch64::vm::{self, MemoryRange, VM},
     config::DMA_SIZE,
 };
 
