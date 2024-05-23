@@ -1,11 +1,14 @@
 use super::{DeviceTreeNodeRef, DeviceTreeRef, StaticArrayedNode};
 
-use crate::arch::aarch64::vm::{self, VM};
+use crate::{
+    arch::aarch64::vm::{self, MemoryRange, VM},
+    config::DMA_SIZE,
+};
 
 use awkernel_drivers::raspi5::*;
 
 use awkernel_lib::{
-    addr::phy_addr::PhyAddr,
+    addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
     console::{register_unsafe_puts, unsafe_puts},
     device_tree::{
         prop::{PropertyValue, Range},
@@ -23,6 +26,7 @@ pub struct Raspi5 {
     symbols: Option<DeviceTreeNodeRef>,
     device_tree: DeviceTreeRef,
     device_tree_base: usize,
+    dma_pool: Option<VirtAddr>,
 }
 
 impl super::SoC for Raspi5 {
@@ -75,6 +79,17 @@ impl super::SoC for Raspi5 {
             PhyAddr::new(vm::get_kernel_start() as usize),
         );
 
+        // Allocate a memory region for the DMA pool.
+        if let Some(dma_start) = vm.find_heap(
+            DMA_SIZE,
+            MemoryRange::new(PhyAddr::new(0), PhyAddr::new(!0)),
+        ) {
+            let dma_end = dma_start + DMA_SIZE;
+            vm.remove_heap(dma_start, dma_end)?;
+            vm.push_device_range(dma_start, dma_end)?;
+            self.dma_pool = Some(VirtAddr::new(dma_start.as_usize()));
+        }
+
         vm.print();
 
         unsafe_puts("Initializing the page table. Wait a moment.\r\n");
@@ -95,6 +110,7 @@ impl Raspi5 {
             symbols: None,
             device_tree,
             device_tree_base,
+            dma_pool: None,
         }
     }
 
