@@ -372,3 +372,11 @@ It will takes several minutes.
 ```text
 $ make loom
 ```
+
+## Publications
+
+[Publications](./PUBLICATIONS.md)
+
+## Verification
+
+[Verification Result](./VERIFICATION.md)
