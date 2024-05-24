@@ -42,6 +42,14 @@ struct FramebufferInfo {
 impl FramebufferInfo {
     #[inline(always)]
     fn set_pixel(&mut self, position: Point, color: &Rgb888) {
+        if position.y < 0
+            || position.y >= self.height as i32
+            || position.x < 0
+            || position.x >= self.width as i32
+        {
+            return;
+        }
+
         let pos = position.y as usize * self.pitch as usize + position.x as usize * 4;
 
         let buffer = unsafe { &mut *self.sub_buffer };
