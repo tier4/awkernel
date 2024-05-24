@@ -45,6 +45,14 @@ impl X86FrameBufferInner {
         position: embedded_graphics::geometry::Point,
         color: &embedded_graphics::pixelcolor::Rgb888,
     ) {
+        if position.x < 0
+            || position.x >= self.info.width as i32
+            || position.y < 0
+            || position.y >= self.info.height as i32
+        {
+            return;
+        }
+
         let x = position.x as usize;
         let y = position.y as usize;
         let bytes_per_line = self.info.bytes_per_pixel * self.info.stride;
