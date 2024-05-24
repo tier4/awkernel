@@ -1,14 +1,14 @@
 use core::fmt::Arguments;
 
 use super::{
-    ixgbe_hw::{self, EepromType, IxgbeEepromInfo, IxgbeMediaType},
+    ixgbe_hw::{self, IxgbeEepromInfo, IxgbeBusInfo,},
     ixgbe_regs::*,
     Ixgbe,
     IxgbeDriverErr::{self, *},
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::wait_microsec;
-use ixgbe_hw::{IxgbeHw, MacType};
+use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode};
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -75,58 +75,82 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
  // all on chip counters, initializes receive address registers, multicast
  // table, VLAN filter table, calls routine to set up link and flow control
  // settings, and leaves transmit and receive units disabled and uninitialized
-pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(ops: &T,info: &PCIeInfo, hw: &IxgbeHw){
+pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(ops: &T,info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::MacType::*;
 	/* Set the media type */
 	hw.phy.media_type = ops.mac_get_media_type();
 
 	/* PHY ops initialization must be done in reset_hw() */
 
 	/* Clear the VLAN filter table */
-	ops.mac_clear_vfta(hw);
+	ops.mac_clear_vfta(info, hw);
 
 	/* Clear statistics registers */
-	hw->mac.ops.clear_hw_cntrs(hw);
+	ops.mac_clear_hw_cntrs(info, hw);
 
 	/* Set No Snoop Disable */
-	ctrl_ext = IXGBE_READ_REG(hw, IXGBE_CTRL_EXT);
+	let mut ctrl_ext = ixgbe_hw::read_reg(info, IXGBE_CTRL_EXT)?;
 	ctrl_ext |= IXGBE_CTRL_EXT_NS_DIS;
-	IXGBE_WRITE_REG(hw, IXGBE_CTRL_EXT, ctrl_ext);
-	IXGBE_WRITE_FLUSH(hw);
+	ixgbe_hw::write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
+	ixgbe_hw::write_flush(info);
 
-	/* Setup flow control */
-	if (hw->mac.ops.setup_fc) {
-		ret_val = hw->mac.ops.setup_fc(hw);
-		if (ret_val != IXGBE_SUCCESS) {
-			DEBUGOUT1("Flow control setup failed, returning %d\n", ret_val);
-			return ret_val;
-		}
-	}
+	// Setup flow control 
+    ops.mac_setup_fc(info,hw)?;
 
-	/* Cache bit indicating need for crosstalk fix */
-	switch (hw->mac.type) {
-	case ixgbe_mac_82599EB:
-	case ixgbe_mac_X550EM_x:
-	case ixgbe_mac_X550EM_a:
-		hw->mac.ops.get_device_caps(hw, &device_caps);
-		if (device_caps & IXGBE_DEVICE_CAPS_NO_CROSSTALK_WR)
-			hw->need_crosstalk_fix = FALSE;
-		else
-			hw->need_crosstalk_fix = TRUE;
-		break;
-	default:
-		hw->need_crosstalk_fix = FALSE;
-		break;
-	}
+	// Cache bit indicating need for crosstalk fix 
+	let crosstalk_fix = match hw.mac.mac_type {
+	IxgbeMac82599EB |IxgbeMacX550EMX | IxgbeMacX550EMA => {
+		let device_caps = ops.mac_get_device_caps(info)?;
+		if device_caps & IXGBE_DEVICE_CAPS_NO_CROSSTALK_WR != 0 {
+			false
+        } else {
+			true
+        }
+    },
+	_ => 
+		false
+	};
+
+    hw.crosstalk_fix = crosstalk_fix;
 
 	/* Clear adapter stopped flag */
-	hw->adapter_stopped = FALSE;
+	hw.adapter_stopped = false;
 
-	return IXGBE_SUCCESS;
+    Ok(())
 }
 
+ // start_hw_gen2 - Init sequence for common device family
+ // Performs the init sequence common to the second generation
+ // of 10 GbE devices.
+ // Devices in the second generation:
+ //    82599
+ //    X540
+pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw)-> Result<(), IxgbeDriverErr>{
+	/* Clear the rate limiters */
+    for i in 0..hw.mac.max_tx_queues {
+		ixgbe_hw::write_reg(info, IXGBE_RTTDQSEL, i)?;
+		ixgbe_hw::write_reg(info, IXGBE_RTTBCNRC, 0)?;
+	}
+	ixgbe_hw::write_flush(info);
 
+	/* Disable relaxed ordering */
+    let mut regval;
+    for i in 0..hw.mac.max_tx_queues {
+		regval = ixgbe_hw::read_reg(info, IXGBE_DCA_TXCTRL_82599(i as usize))?;
+		regval &= !IXGBE_DCA_TXCTRL_DESC_WRO_EN;
+		ixgbe_hw::write_reg(info, IXGBE_DCA_TXCTRL_82599(i as usize), regval)?;
+    }
 
-// ixgbe_validate_mac_addr - Validate MAC address
+    for i in 0..hw.mac.max_rx_queues {
+		regval = ixgbe_hw::read_reg(info, IXGBE_DCA_RXCTRL(i as usize))?;
+		regval &= !(IXGBE_DCA_RXCTRL_DATA_WRO_EN | IXGBE_DCA_RXCTRL_HEAD_WRO_EN);
+		ixgbe_hw::write_reg(info, IXGBE_DCA_RXCTRL(i as usize), regval)?;
+	}
+
+    Ok(())
+}
+
+// validate_mac_addr - Validate MAC address
 // Tests a MAC address to ensure it is a valid Individual Address
 fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
     /* Make sure it is not a multicast address */
@@ -150,9 +174,6 @@ fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
 
     status
 }
-
-// ixgbe_validate_mac_addr - Validate MAC address
-// Tests a MAC address to ensure it is a valid Individual Address
 
 // pcie_timeout_poll - Return number of times to poll for completion
 // System-wide timeout range is encoded in PCIe Device Control2 register.
@@ -241,6 +262,264 @@ fn disable_pcie_master(info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), Ixgb
     log::error!("PCIe transaction pending bit also did not clear.\n");
     Err(MasterRequestsPending)
 }
+
+ // set_pci_config_data - Generic store PCI bus info
+ // Stores the PCI bus info (speed, width, type) within the ixgbe_hw structure
+fn set_pci_config_data<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw, link_status: u16)->Result<IxgbeBusInfo,IxgbeDriverErr>{
+    use ixgbe_hw::{BusType::*, BusSpeed::*, BusWidth::*};
+
+    let mut bus_type = hw.bus.bus_type;
+	if bus_type == IxgbeBusTypeUnknown {
+        bus_type = IxgbeBusTypePciExpress;
+    }
+
+	let width = match link_status as u32 & IXGBE_PCI_LINK_WIDTH {
+	IXGBE_PCI_LINK_WIDTH_1 => IxgbeBusWidthPcieX1,
+    IXGBE_PCI_LINK_WIDTH_2 => IxgbeBusWidthPcieX2,
+	IXGBE_PCI_LINK_WIDTH_4 => IxgbeBusWidthPcieX4,
+	IXGBE_PCI_LINK_WIDTH_8 => IxgbeBusWidthPcieX8,
+	_ => IxgbeBusWidthUnknown,
+	};
+
+	let speed =  match link_status as u32 & IXGBE_PCI_LINK_SPEED {
+	IXGBE_PCI_LINK_SPEED_2500 => IxgbeBusSpeed2500,
+	IXGBE_PCI_LINK_SPEED_5000 => IxgbeBusSpeed5000,
+	IXGBE_PCI_LINK_SPEED_8000 => IxgbeBusSpeed8000,
+	_ => IxgbeBusSpeedUnknown,
+	};
+
+	let (func, lan_id, instance_id) = ops.mac_set_lan_id_multi_port_pcie(info, hw)?;
+    let businfo = IxgbeBusInfo { speed, width, bus_type, func, lan_id, instance_id };
+
+    Ok(businfo)
+}
+
+ // device_supports_autoneg_fc - Check if device supports autonegotiation
+ // This function returns TRUE if the device supports flow control
+ // autonegotiation, and FALSE if it does not.
+fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool,IxgbeDriverErr>{
+    use ixgbe_hw::MediaType::*;
+
+	let supported = match hw.phy.media_type {
+    IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
+		/* flow control autoneg black list */
+		match info.id {
+		IXGBE_DEV_ID_X550EM_A_SFP | IXGBE_DEV_ID_X550EM_A_SFP_N | IXGBE_DEV_ID_X550EM_A_QSFP | IXGBE_DEV_ID_X550EM_A_QSFP_N =>
+			false,
+		_ => {
+            let (speed, link_up) = ops.mac_check_link(info, hw, false)?;
+            if link_up {
+                if speed == IXGBE_LINK_SPEED_1GB_FULL {
+                    true
+                }else{
+                    false
+                }
+            }else{
+                true
+            }
+        }
+        }
+    }
+	IxgbeMediaTypeBackplane => {
+		if info.id == IXGBE_DEV_ID_X550EM_X_XFI {
+            false
+        } else {
+            true
+        }
+    },
+	IxgbeMediaTypeCopper => {
+		/* only some copper devices support flow control autoneg */
+		match info.id {
+		IXGBE_DEV_ID_82599_T3_LOM | IXGBE_DEV_ID_X540T | IXGBE_DEV_ID_X540T1 | IXGBE_DEV_ID_X540_BYPASS | IXGBE_DEV_ID_X550T | IXGBE_DEV_ID_X550T1 |
+IXGBE_DEV_ID_X550EM_X_10G_T | IXGBE_DEV_ID_X550EM_A_10G_T | IXGBE_DEV_ID_X550EM_A_1G_T | IXGBE_DEV_ID_X550EM_A_1G_T_L => true,
+		_ => false,
+		}
+    },
+    _ => false,
+	};
+
+	if !supported {
+		log::error!("Device {:?} does not support flow control autoneg", info.id);
+	}
+
+    Ok(supported)
+}
+
+fn need_crosstalk_fix<T: IxgbeOperations + ?Sized >(ops: &T, hw: &IxgbeHw) -> bool {
+    use ixgbe_hw::MediaType::*;
+	/* Does FW say we need the fix */
+	if !hw.crosstalk_fix {
+		return false;
+    }
+
+	/* Only consider SFP+ PHYs i.e. media type fiber */
+	match ops.mac_get_media_type() {
+	IxgbeMediaTypeFiber | IxgbeMediaTypeFiberQsfp => true,
+	_ =>  false,
+    }
+}
+
+fn fc_autoneg_fiber(info: &PCIeInfo, hw:&mut IxgbeHw)->Result<(), IxgbeDriverErr>{
+	// On multispeed fiber at 1g, bail out if
+	// - link is up but AN did not complete, or if
+	// - link is up and AN completed but timed out
+    let linkstat = ixgbe_hw::read_reg(info, IXGBE_PCS1GLSTA)?;
+    if (linkstat & IXGBE_PCS1GLSTA_AN_COMPLETE == 0) || (linkstat & IXGBE_PCS1GLSTA_AN_TIMED_OUT != 0) {
+        log::debug!("Auto-Negotiation did not complete or timed out");
+        return Err(FcNotNegotiated);
+    }
+
+	let pcs_anadv_reg = ixgbe_hw::read_reg(info, IXGBE_PCS1GANA)?;
+	let pcs_lpab_reg = ixgbe_hw::read_reg(info, IXGBE_PCS1GANLP)?;
+
+
+	negotiate_fc(hw, pcs_anadv_reg, pcs_lpab_reg, IXGBE_PCS1GANA_SYM_PAUSE,IXGBE_PCS1GANA_ASM_PAUSE, IXGBE_PCS1GANA_SYM_PAUSE, IXGBE_PCS1GANA_ASM_PAUSE)
+}
+
+ // fc_autoneg_backplane - Enable flow control IEEE clause 37
+ // Enable flow control according to IEEE clause 37.
+fn fc_autoneg_backplane(info:&PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+	 // On backplane, bail out if
+	 // - backplane autoneg was not completed, or if
+	 // - we are 82599 and link partner is not AN enabled
+	let links = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+	if (links & IXGBE_LINKS_KX_AN_COMP) == 0 {
+		log::debug!("Auto-Negotiation did not complete");
+		return Err(FcNotNegotiated);
+	}
+
+	if hw.mac.mac_type == MacType::IxgbeMac82599EB {
+		let links2 = ixgbe_hw::read_reg(info, IXGBE_LINKS2)?;
+		if (links2 & IXGBE_LINKS2_AN_SUPPORTED) == 0 {
+			log::debug!("Link partner is not AN enabled");
+		    return Err(FcNotNegotiated);
+		}
+	}
+
+	// Read the 10g AN autoc and LP ability registers and resolve
+	// local flow control settings accordingly
+	let autoc_reg = ixgbe_hw::read_reg(info, IXGBE_AUTOC)?;
+	let anlp1_reg = ixgbe_hw::read_reg(info, IXGBE_ANLP1)?;
+
+	negotiate_fc(hw, autoc_reg, anlp1_reg, IXGBE_AUTOC_SYM_PAUSE, IXGBE_AUTOC_ASM_PAUSE, IXGBE_ANLP1_SYM_PAUSE, IXGBE_ANLP1_ASM_PAUSE)
+
+}
+
+// fc_autoneg_copper - Enable flow control IEEE clause 37
+// Enable flow control according to IEEE clause 37.
+fn fc_autoneg_copper<T: IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+
+	let technology_ability_reg = ops.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_ADVT, IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+	let lp_technology_ability_reg = ops.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_LP, IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+	negotiate_fc(hw, technology_ability_reg as u32, lp_technology_ability_reg as u32, IXGBE_TAF_SYM_PAUSE, IXGBE_TAF_ASM_PAUSE, IXGBE_TAF_SYM_PAUSE, IXGBE_TAF_ASM_PAUSE)
+}
+
+// negotiate_fc - Negotiate flow control
+// Find the intersection between advertised settings and link partner's
+// advertised settings
+fn negotiate_fc(hw: &mut IxgbeHw, adv_reg: u32, lp_reg: u32, adv_sym :u32, adv_asm: u32, lp_sym: u32, lp_asm: u32) -> Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::FcMode::*;
+    
+	if (adv_reg == 0) ||  (lp_reg == 0) {
+		log::error!("Local or link partner's advertised flow control settings are NULL. Local: {:?}, link partner: {:?}", adv_reg, lp_reg);
+		return Err(FcNotNegotiated);
+	}
+
+	if (adv_reg & adv_sym != 0) && (lp_reg & lp_sym != 0) {
+		/*
+		 * Now we need to check if the user selected Rx ONLY
+		 * of pause frames.  In this case, we had to advertise
+		 * FULL flow control because we could not advertise RX
+		 * ONLY. Hence, we must now check to see if we need to
+		 * turn OFF the TRANSMISSION of PAUSE frames.
+		 */
+		if hw.fc.requested_mode == IxgbeFcFull {
+			hw.fc.current_mode = IxgbeFcFull;
+			log::debug!("Flow Control = FULL.");
+		} else {
+			hw.fc.current_mode = IxgbeFcRxPause;
+			log::debug!("Flow Control=RX PAUSE frames only");
+		}
+	} else if (adv_reg & adv_sym == 0) && (adv_reg & adv_asm != 0) && (lp_reg & lp_sym != 0) && (lp_reg & lp_asm != 0) {
+		hw.fc.current_mode = IxgbeFcTxPause;
+		log::debug!("Flow Control = TX PAUSE frames only.");
+	} else if (adv_reg & adv_sym != 0) && (adv_reg & adv_asm != 0) && (lp_reg & lp_sym == 0) && (lp_reg & lp_asm != 0) {
+		hw.fc.current_mode = IxgbeFcRxPause;
+		log::debug!("Flow Control = RX PAUSE frames only.");
+	} else {
+		hw.fc.current_mode = IxgbeFcNone;
+		log::debug!("Flow Control = NONE.");
+	}
+    Ok(())
+}
+
+ // probe_phy - Probe a single address for a PHY
+ // Returns TRUE if PHY found
+fn probe_phy<T: IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw , phy_addr: u16) -> Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::PhyType::*;
+	validate_phy_addr(ops, info, hw, phy_addr as u32)?;
+
+	get_phy_id(ops, info, hw)?;
+
+	hw.phy.phy_type = get_phy_type_from_id(hw.phy.id);
+
+	if hw.phy.phy_type == IxgbePhyUnknown {
+		let ext_ability = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_EXT_ABILITY, IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+		if (ext_ability as u32 & (IXGBE_MDIO_PHY_10GBASET_ABILITY | IXGBE_MDIO_PHY_1000BASET_ABILITY)) != 0 {
+			hw.phy.phy_type = IxgbePhyCuUnknown;
+             }
+		else{
+			hw.phy.phy_type = IxgbePhyGeneric;
+        }
+	}
+
+    Ok(())
+}
+
+//  validate_phy_addr - Determines phy address is valid
+fn validate_phy_addr<T: IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, hw: &mut IxgbeHw, phy_addr: u32) -> Result<(), IxgbeDriverErr>{
+	hw.phy.addr = phy_addr;
+	let phy_id = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_ID_HIGH, IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+
+	if phy_id != 0xFFFF && phy_id != 0x0 {
+        return Ok(());
+    }
+
+	return Err(PhyAddrInvalid);
+}
+
+//  get_phy_id - Get the phy type
+fn get_phy_id<T: IxgbeOperations + ?Sized >(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(), IxgbeDriverErr>{
+	let phy_id_high = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_ID_HIGH,
+				      IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+
+	hw.phy.id = (phy_id_high << 16) as u32;
+	let phy_id_low = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_ID_LOW, IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+
+	hw.phy.id |= (phy_id_low & IXGBE_PHY_REVISION_MASK) as u32;
+	hw.phy.revision = (phy_id_low & !IXGBE_PHY_REVISION_MASK) as u32;
+    Ok(())
+}
+
+// get_phy_type_from_id - Get the phy type
+fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType
+{
+    use ixgbe_hw::PhyType::*;
+
+	let phy_type = match phy_id {
+	TN1010_PHY_ID => IxgbePhyTn,
+	X550_PHY_ID2 | X550_PHY_ID3 | X540_PHY_ID => IxgbePhyAq,
+	QT2022_PHY_ID => IxgbePhyQt,
+    ATH_PHY_ID => IxgbePhyNl,
+	X557_PHY_ID | X557_PHY_ID2 => IxgbePhyX550emExtT,
+	IXGBE_M88E1500_E_PHY_ID | IXGBE_M88E1543_E_PHY_ID => IxgbePhyExt1gT,
+	_ => IxgbePhyUnknown,
+	};
+
+    phy_type
+}
+
 
 // Eeprom Helper Functions
 fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverErr> {
@@ -417,7 +696,7 @@ pub trait IxgbeOperations: Send {
     // MAC Operations
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         let ret = match self.mac_reset_hw(info, hw) {
-            Ok(()) | Err(SfpNotPresent) => self.start_hw(info, hw)?,
+            Ok(()) | Err(SfpNotPresent) => self.mac_start_hw(info, hw),
             Err(e) => Err(e),
         };
 
@@ -428,9 +707,9 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    fn mac_start_hw(&self, info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr>;
+    fn mac_start_hw(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>;
 
-    fn mac_get_media_type(&self)->Result<IxgbeMediaType, IxgbeDriverErr>;
+    fn mac_get_media_type(&self)-> MediaType;
 
     // clear_vfta- Clear VLAN filter table
     // Clears the VLAN filer table, and the VMDq index associated with the filter
@@ -448,16 +727,17 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
- // clear_hw_cntrs - Generic clear hardware counters
+ // mac_clear_hw_cntrs - Generic clear hardware counters
  // Clears all hardware statistics counters by reading them from the hardware
  // Statistics counters are clear on read.
-fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverErr>{
-    use ixgbe_hw::{read_reg,write_reg};
+fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),IxgbeDriverErr>{
+    use ixgbe_hw::{MacType::*,read_reg};
+
 	read_reg(info, IXGBE_CRCERRS)?;
 	read_reg(info, IXGBE_ILLERRC)?;
 	read_reg(info, IXGBE_ERRBC)?;
 	read_reg(info, IXGBE_MSPDC)?;
-	for _ in 0..8 {
+	for i in 0..8 {
 		read_reg(info, IXGBE_MPC(i));
     
     }
@@ -468,93 +748,150 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
 	read_reg(info, IXGBE_LXONTXC)?;
 	read_reg(info, IXGBE_LXOFFTXC)?;
 
-	if (hw->mac.type >= ixgbe_mac_82599EB) {
-		IXGBE_READ_REG(hw, IXGBE_LXONRXCNT);
-		IXGBE_READ_REG(hw, IXGBE_LXOFFRXCNT);
+	if hw.mac.mac_type >= IxgbeMac82599EB {
+		read_reg(info, IXGBE_LXONRXCNT)?;
+		read_reg(info, IXGBE_LXOFFRXCNT)?;
 	} else {
-		IXGBE_READ_REG(hw, IXGBE_LXONRXC);
-		IXGBE_READ_REG(hw, IXGBE_LXOFFRXC);
+		read_reg(info, IXGBE_LXONRXC)?;
+		read_reg(info, IXGBE_LXOFFRXC)?;
 	}
 
-	for (i = 0; i < 8; i++) {
-		IXGBE_READ_REG(hw, IXGBE_PXONTXC(i));
-		IXGBE_READ_REG(hw, IXGBE_PXOFFTXC(i));
-		if (hw->mac.type >= ixgbe_mac_82599EB) {
-			IXGBE_READ_REG(hw, IXGBE_PXONRXCNT(i));
-			IXGBE_READ_REG(hw, IXGBE_PXOFFRXCNT(i));
+    for i in 0..8 {
+		read_reg(info, IXGBE_PXONTXC(i))?;
+		read_reg(info, IXGBE_PXOFFTXC(i))?;
+		if hw.mac.mac_type >= IxgbeMac82599EB {
+			read_reg(info, IXGBE_PXONRXCNT(i))?;
+			read_reg(info, IXGBE_PXOFFRXCNT(i))?;
 		} else {
-			IXGBE_READ_REG(hw, IXGBE_PXONRXC(i));
-			IXGBE_READ_REG(hw, IXGBE_PXOFFRXC(i));
+			read_reg(info, IXGBE_PXONRXC(i))?;
+			read_reg(info, IXGBE_PXOFFRXC(i))?;
 		}
 	}
-	if (hw->mac.type >= ixgbe_mac_82599EB)
-		for (i = 0; i < 8; i++)
-			IXGBE_READ_REG(hw, IXGBE_PXON2OFFCNT(i));
-	IXGBE_READ_REG(hw, IXGBE_PRC64);
-	IXGBE_READ_REG(hw, IXGBE_PRC127);
-	IXGBE_READ_REG(hw, IXGBE_PRC255);
-	IXGBE_READ_REG(hw, IXGBE_PRC511);
-	IXGBE_READ_REG(hw, IXGBE_PRC1023);
-	IXGBE_READ_REG(hw, IXGBE_PRC1522);
-	IXGBE_READ_REG(hw, IXGBE_GPRC);
-	IXGBE_READ_REG(hw, IXGBE_BPRC);
-	IXGBE_READ_REG(hw, IXGBE_MPRC);
-	IXGBE_READ_REG(hw, IXGBE_GPTC);
-	IXGBE_READ_REG(hw, IXGBE_GORCL);
-	IXGBE_READ_REG(hw, IXGBE_GORCH);
-	IXGBE_READ_REG(hw, IXGBE_GOTCL);
-	IXGBE_READ_REG(hw, IXGBE_GOTCH);
-	if (hw->mac.type == ixgbe_mac_82598EB)
-		for (i = 0; i < 8; i++)
-			IXGBE_READ_REG(hw, IXGBE_RNBC(i));
-	IXGBE_READ_REG(hw, IXGBE_RUC);
-	IXGBE_READ_REG(hw, IXGBE_RFC);
-	IXGBE_READ_REG(hw, IXGBE_ROC);
-	IXGBE_READ_REG(hw, IXGBE_RJC);
-	IXGBE_READ_REG(hw, IXGBE_MNGPRC);
-	IXGBE_READ_REG(hw, IXGBE_MNGPDC);
-	IXGBE_READ_REG(hw, IXGBE_MNGPTC);
-	IXGBE_READ_REG(hw, IXGBE_TORL);
-	IXGBE_READ_REG(hw, IXGBE_TORH);
-	IXGBE_READ_REG(hw, IXGBE_TPR);
-	IXGBE_READ_REG(hw, IXGBE_TPT);
-	IXGBE_READ_REG(hw, IXGBE_PTC64);
-	IXGBE_READ_REG(hw, IXGBE_PTC127);
-	IXGBE_READ_REG(hw, IXGBE_PTC255);
-	IXGBE_READ_REG(hw, IXGBE_PTC511);
-	IXGBE_READ_REG(hw, IXGBE_PTC1023);
-	IXGBE_READ_REG(hw, IXGBE_PTC1522);
-	IXGBE_READ_REG(hw, IXGBE_MPTC);
-	IXGBE_READ_REG(hw, IXGBE_BPTC);
-	for (i = 0; i < 16; i++) {
-		IXGBE_READ_REG(hw, IXGBE_QPRC(i));
-		IXGBE_READ_REG(hw, IXGBE_QPTC(i));
-		if (hw->mac.type >= ixgbe_mac_82599EB) {
-			IXGBE_READ_REG(hw, IXGBE_QBRC_L(i));
-			IXGBE_READ_REG(hw, IXGBE_QBRC_H(i));
-			IXGBE_READ_REG(hw, IXGBE_QBTC_L(i));
-			IXGBE_READ_REG(hw, IXGBE_QBTC_H(i));
-			IXGBE_READ_REG(hw, IXGBE_QPRDC(i));
+	if hw.mac.mac_type >= IxgbeMac82599EB{
+        for i in 0..8{
+			read_reg(info, IXGBE_PXON2OFFCNT(i));
+        }
+    }
+
+	read_reg(info, IXGBE_PRC64)?;
+	read_reg(info, IXGBE_PRC127)?;
+	read_reg(info, IXGBE_PRC255)?;
+	read_reg(info, IXGBE_PRC511)?;
+	read_reg(info, IXGBE_PRC1023)?;
+	read_reg(info, IXGBE_PRC1522)?;
+	read_reg(info, IXGBE_GPRC)?;
+	read_reg(info, IXGBE_BPRC)?;
+	read_reg(info, IXGBE_MPRC)?;
+	read_reg(info, IXGBE_GPTC)?;
+	read_reg(info, IXGBE_GORCL)?;
+	read_reg(info, IXGBE_GORCH)?;
+	read_reg(info, IXGBE_GOTCL)?;
+	read_reg(info, IXGBE_GOTCH)?;
+
+	if hw.mac.mac_type == IxgbeMac82598EB {
+        for i in 0..8{
+			read_reg(info, IXGBE_RNBC(i));
+        }
+    }
+
+	read_reg(info, IXGBE_RUC)?;
+	read_reg(info, IXGBE_RFC)?;
+	read_reg(info, IXGBE_ROC)?;
+	read_reg(info, IXGBE_RJC)?;
+	read_reg(info, IXGBE_MNGPRC)?;
+	read_reg(info, IXGBE_MNGPDC)?;
+	read_reg(info, IXGBE_MNGPTC)?;
+	read_reg(info, IXGBE_TORL)?;
+	read_reg(info, IXGBE_TORH)?;
+	read_reg(info, IXGBE_TPR)?;
+	read_reg(info, IXGBE_TPT)?;
+	read_reg(info, IXGBE_PTC64)?;
+	read_reg(info, IXGBE_PTC127)?;
+	read_reg(info, IXGBE_PTC255)?;
+	read_reg(info, IXGBE_PTC511)?;
+	read_reg(info, IXGBE_PTC1023)?;
+	read_reg(info, IXGBE_PTC1522)?;
+	read_reg(info, IXGBE_MPTC)?;
+	read_reg(info, IXGBE_BPTC)?;
+    for i in 0..16{
+		read_reg(info, IXGBE_QPRC(i))?;
+		read_reg(info, IXGBE_QPTC(i))?;
+		if hw.mac.mac_type >= IxgbeMac82599EB {
+			read_reg(info, IXGBE_QBRC_L(i))?;
+			read_reg(info, IXGBE_QBRC_H(i))?;
+			read_reg(info, IXGBE_QBTC_L(i))?;
+			read_reg(info, IXGBE_QBTC_H(i))?;
+			read_reg(info, IXGBE_QPRDC(i))?;
 		} else {
-			IXGBE_READ_REG(hw, IXGBE_QBRC(i));
-			IXGBE_READ_REG(hw, IXGBE_QBTC(i));
+			read_reg(info, IXGBE_QBRC(i))?;
+			read_reg(info, IXGBE_QBTC(i))?;
 		}
 	}
 
-	if (hw->mac.type == ixgbe_mac_X550 || hw->mac.type == ixgbe_mac_X540) {
-		if (hw->phy.id == 0)
-			ixgbe_identify_phy(hw);
-		hw->phy.ops.read_reg(hw, IXGBE_PCRC8ECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE, &i);
-		hw->phy.ops.read_reg(hw, IXGBE_PCRC8ECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE, &i);
-		hw->phy.ops.read_reg(hw, IXGBE_LDPCECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE, &i);
-		hw->phy.ops.read_reg(hw, IXGBE_LDPCECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE, &i);
+	if hw.mac.mac_type == IxgbeMacX550 || hw.mac.mac_type == IxgbeMacX540 {
+		if hw.phy.id == 0 {
+            // Does not use the return value.
+            // https://github.com/openbsd/src/blob/c04d1b34942009a09b1284605d539f1382aa35bb/sys/dev/pci/ixgbe.c#L657
+			let _ = self.identify_phy(info, hw);
+        }
+		self.phy_read_reg(info, hw, IXGBE_PCRC8ECL,
+				     IXGBE_MDIO_PCS_DEV_TYPE);
+		self.phy_read_reg(info, hw, IXGBE_PCRC8ECH,
+				     IXGBE_MDIO_PCS_DEV_TYPE);
+		self.phy_read_reg(info, hw, IXGBE_LDPCECL,
+				     IXGBE_MDIO_PCS_DEV_TYPE);
+		self.phy_read_reg(info, hw, IXGBE_LDPCECH,
+				     IXGBE_MDIO_PCS_DEV_TYPE);
 	}
 
-	return IXGBE_SUCCESS;
+    Ok(())
+}
+
+// identify_phy_generic - Get physical layer module
+// Determines the physical layer module found on the current adapter.
+fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::PhyType::*;
+
+	if hw.phy.phy_semaphore_mask == 0 {
+		if hw.bus.lan_id != 0{
+			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
+        } else {
+			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
+        }
+	}
+
+	if hw.phy.phy_type != IxgbePhyUnknown{
+		return Ok(());
+    }
+
+	let phy_addr;
+	if hw.phy.nw_mng_if_sel != 0 {
+		phy_addr = (hw.phy.nw_mng_if_sel &
+			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
+			   IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
+		return probe_phy(self, info, hw, phy_addr as u16);
+	}
+
+	let mut status = Err(PhyAddrInvalid);
+    for phy_addr in 0..IXGBE_MAX_PHY_ADDR {
+        match probe_phy(self, info, hw, phy_addr) {
+            Ok(()) => {
+                status = Ok(());
+                break;
+            }
+            Err(e) => {continue;}
+        }
+	}
+
+	/* Certain media types do not have a phy so an address will not
+	 * be found and the code will take this path.  Caller has to
+	 * decide if it is an error or not.
+	 */
+	if status != Ok(()){
+		hw.phy.addr = 0;
+    }
+
+    status
 }
 
 
@@ -648,7 +985,6 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
         self.mac_clear_vmdq(info, hw.mac.num_rar_entries, 0, IXGBE_CLEAR_VMDQ_ALL);
 
         hw.addr_ctrl.overflow_promisc = 0;
-
         hw.addr_ctrl.rar_used_count = 1;
 
         /* Zero out the other receive addresses. */
@@ -706,7 +1042,7 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
         info: &PCIeInfo,
         num_rar_entries: u32,
         index: u32,
-        addr: &mut [u8],
+        addr: &[u8],
         vmdq: u32,
         enable_addr: u32,
     ) -> Result<(), IxgbeDriverErr> {
@@ -843,12 +1179,423 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
         Ok(())
     }
 
+ // setup_fc_generic - Set up flow control
+ // Called at init time to set up flow control.
+    fn mac_setup_fc(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),IxgbeDriverErr>{
+        use ixgbe_hw::{FcMode::*, MediaType::*};
+    /* Validate the requested mode */
+	if hw.fc.strict_ieee && hw.fc.requested_mode == IxgbeFcRxPause {
+        return Err(InvalidLinkSettings);
+	}
+
+	/*
+	 * 10gig parts do not have a word in the EEPROM to determine the
+	 * default flow control setting, so we explicitly set it to full.
+	 */
+	if hw.fc.requested_mode == IxgbeFcDefault{
+		hw.fc.requested_mode = IxgbeFcFull;
+    }
+
+	/*
+	 * Set up the 1G and 10G flow control advertisement registers so the
+	 * HW will be able to do fc autoneg once the cable is plugged in.  If
+	 * we link at 10G, the 1G advertisement is harmless and vice versa.
+	 */
+    let mut reg;
+    let mut reg_bp;
+    let mut reg_cu;
+	(reg, reg_bp, reg_cu) = match hw.phy.media_type {
+	IxgbeMediaTypeBackplane =>
+		/* some MAC's need RMW protection on AUTOC */
+		(0, self.mac_prot_autoc_read(info)?, 0),
+		/* only backplane uses autoc so fall though */
+	IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber =>
+		(ixgbe_hw::read_reg(info, IXGBE_PCS1GANA)?, 0, 0),
+	IxgbeMediaTypeCopper =>
+		(0,0,self.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_ADVT,
+				     IXGBE_MDIO_AUTO_NEG_DEV_TYPE)? as u32),
+	_ => (0,0,0),
+    };
+    	/*
+	 * The possible values of fc.requested_mode are:
+	 * 0: Flow control is completely disabled
+	 * 1: Rx flow control is enabled (we can receive pause frames,
+	 *    but not send pause frames).
+	 * 2: Tx flow control is enabled (we can send pause frames but
+	 *    we do not support receiving pause frames).
+	 * 3: Both Rx and Tx flow control (symmetric) are enabled.
+	 * other: Invalid.
+	 */
+	(reg, reg_bp, reg_cu) = match hw.fc.requested_mode {
+	IxgbeFcNone => {
+		/* Flow control completely disabled by software override. */
+		reg &= !(IXGBE_PCS1GANA_SYM_PAUSE | IXGBE_PCS1GANA_ASM_PAUSE);
+		match hw.phy.media_type {
+        IxgbeMediaTypeBackplane =>
+			(reg, reg_bp & !(IXGBE_AUTOC_SYM_PAUSE |
+				    IXGBE_AUTOC_ASM_PAUSE), reg_cu),
+		IxgbeMediaTypeCopper =>
+			(reg, reg_bp, reg_cu & !(IXGBE_TAF_SYM_PAUSE | IXGBE_TAF_ASM_PAUSE)),
+        _ => (reg, reg_bp, reg_cu),
+        }
+    }
+	IxgbeFcTxPause => {
+		/*
+		 * Tx Flow control is enabled, and Rx Flow control is
+		 * disabled by software override.
+		 */
+		reg |= IXGBE_PCS1GANA_ASM_PAUSE;
+		reg &= !IXGBE_PCS1GANA_SYM_PAUSE;
+		match hw.phy.media_type {
+        IxgbeMediaTypeBackplane =>
+			(reg, (reg_bp | IXGBE_AUTOC_ASM_PAUSE) & IXGBE_AUTOC_SYM_PAUSE, reg_cu),
+		IxgbeMediaTypeCopper =>
+			(reg, reg_bp, (reg_cu | IXGBE_TAF_ASM_PAUSE) & !IXGBE_TAF_SYM_PAUSE),
+        _ => (reg, reg_bp, reg_cu),
+        }
+    }
+	IxgbeFcRxPause |
+		/*
+		 * Rx Flow control is enabled and Tx Flow control is
+		 * disabled by software override. Since there really
+		 * isn't a way to advertise that we are capable of RX
+		 * Pause ONLY, we will advertise that we support both
+		 * symmetric and asymmetric Rx PAUSE, as such we fall
+		 * through to the fc_full statement.  Later, we will
+		 * disable the adapter's ability to send PAUSE frames.
+		 */
+	IxgbeFcFull => {
+		/* Flow control (both Rx and Tx) is enabled by SW override. */
+		reg |= IXGBE_PCS1GANA_SYM_PAUSE | IXGBE_PCS1GANA_ASM_PAUSE;
+		match hw.phy.media_type {
+        IxgbeMediaTypeBackplane =>
+			(reg, reg_bp | IXGBE_AUTOC_SYM_PAUSE | IXGBE_AUTOC_ASM_PAUSE, reg_cu),
+		IxgbeMediaTypeCopper =>
+			(reg, reg_bp, reg_cu | IXGBE_TAF_SYM_PAUSE | IXGBE_TAF_ASM_PAUSE),
+        _ => (reg, reg_bp, reg_cu),
+        }
+    }
+	_ =>{
+        log::error!("Flow control param set incorrectly\n");
+        return Err(Config);
+    }
+    
+	};
+
+	if hw.mac.mac_type < MacType::IxgbeMacX540 {
+		/*
+		 * Enable auto-negotiation between the MAC & PHY;
+		 * the MAC will advertise clause 37 flow control.
+		 */
+		ixgbe_hw::write_reg(info, IXGBE_PCS1GANA, reg);
+		reg = ixgbe_hw::read_reg(info, IXGBE_PCS1GLCTL)?;
+
+		/* Disable AN timeout */
+		if hw.fc.strict_ieee {
+			reg &= !IXGBE_PCS1GLCTL_AN_1G_TIMEOUT_EN;
+        }
+
+		ixgbe_hw::write_reg(info, IXGBE_PCS1GLCTL, reg)?;
+	}
+
+	/*
+	 * AUTOC restart handles negotiation of 1G and 10G on backplane
+	 * and copper. There is no need to set the PCS1GCTL register.
+	 *
+	 */
+	if hw.phy.media_type == IxgbeMediaTypeBackplane {
+		reg_bp |= IXGBE_AUTOC_AN_RESTART;
+		self.mac_prot_autoc_write(info, reg_bp)?;
+	} else if (hw.phy.media_type == IxgbeMediaTypeCopper) && device_supports_autoneg_fc(self,info, hw)? {
+		self.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_ADVT, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, reg_cu as u16)?;
+	}
+
+    Ok(())
+    }
+
+ // fc_enable - Enable flow control
+ // Enable flow control according to the current settings.
+    fn mac_fc_enable(&self, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        use ixgbe_hw::FcMode::*;
+
+
+        // Validate the water mark configuration 
+        if hw.fc.pause_time == 0{
+            return Err(InvalidLinkSettings);
+        }
+
+ 	    // Low water mark of zero causes XOFF floods 
+        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
+            if (hw.fc.current_mode == IxgbeFcTxPause || hw.fc.current_mode == IxgbeFcFull) && (hw.fc.high_water[i] != 0 ){
+                if (hw.fc.low_water[i] == 0) || (hw.fc.low_water[i] >= hw.fc.high_water[i]){
+                    log::debug!("Invalid water mark configuration");
+                    return Err(InvalidLinkSettings);
+                }
+            }
+        }
+
+        // Negotiate the fc mode to use
+        self.mac_fc_autoneg(info, hw)?;
+
+        // Disable any previous flow control settings 
+        let mut mflcn_reg = ixgbe_hw::read_reg(info, IXGBE_MFLCN)?;
+        mflcn_reg &= !(IXGBE_MFLCN_RPFCE_MASK | IXGBE_MFLCN_RFCE);
+
+        let mut fccfg_reg = ixgbe_hw::read_reg(info, IXGBE_FCCFG)?;
+        fccfg_reg &= !(IXGBE_FCCFG_TFCE_802_3X | IXGBE_FCCFG_TFCE_PRIORITY);
+
+	    // The possible values of fc.current_mode are:
+	    // 0: Flow control is completely disabled
+	    // 1: Rx flow control is enabled (we can receive pause frames,
+	    //    but not send pause frames).
+	    // 2: Tx flow control is enabled (we can send pause frames but
+	    //    we do not support receiving pause frames).
+	    // 3: Both Rx and Tx flow control (symmetric) are enabled.
+	    // other: Invalid.
+	    (mflcn_reg, fccfg_reg) = match hw.fc.current_mode {
+		 // Flow control is disabled by software override or autoneg.
+		 // The code below will actually disable it in the HW.
+	    IxgbeFcNone => (mflcn_reg, fccfg_reg),
+		 // Rx Flow control is enabled and Tx Flow control is
+		 // disabled by software override. Since there really
+		 // isn't a way to advertise that we are capable of RX
+		 // Pause ONLY, we will advertise that we support both
+		 // symmetric and asymmetric Rx PAUSE.  Later, we will
+		 // disable the adapter's ability to send PAUSE frames.
+	    IxgbeFcRxPause => (mflcn_reg | IXGBE_MFLCN_RFCE, fccfg_reg),
+		// Tx Flow control is enabled, and Rx Flow control is
+		// disabled by software override.
+	    IxgbeFcTxPause=> (mflcn_reg, fccfg_reg | IXGBE_FCCFG_TFCE_802_3X),
+		// Flow control (both Rx and Tx) is enabled by SW override.
+	    IxgbeFcFull => (mflcn_reg | IXGBE_MFLCN_RFCE, fccfg_reg | IXGBE_FCCFG_TFCE_802_3X),
+        _ =>  {
+		    log::error!( "Flow control param set incorrectly");
+            return Err(Config);
+            }
+	    };
+
+        // Set 802.3x based flow control settings. 
+	    mflcn_reg |= IXGBE_MFLCN_DPF;
+	    ixgbe_hw::write_reg(info, IXGBE_MFLCN, mflcn_reg)?;
+	    ixgbe_hw::write_reg(info, IXGBE_FCCFG, fccfg_reg)?;
+
+
+	    // Set up and enable Rx high/low water mark thresholds, enable XON. 
+        let mut fcrtl;
+        let mut fcrth;
+        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
+		    if (hw.fc.current_mode == IxgbeFcTxPause || hw.fc.current_mode == IxgbeFcFull) &&
+		        hw.fc.high_water[i] != 0 {
+			    fcrtl = (hw.fc.low_water[i] << 10) | IXGBE_FCRTL_XONE;
+			    ixgbe_hw::write_reg(info, IXGBE_FCRTL_82599(i), fcrtl)?;
+			    fcrth = (hw.fc.high_water[i] << 10) | IXGBE_FCRTH_FCEN;
+		    } else {
+			    ixgbe_hw::write_reg(info, IXGBE_FCRTL_82599(i), 0)?;
+			    // In order to prevent Tx hangs when the internal Tx
+			    // switch is enabled we must set the high water mark
+			    // to the Rx packet buffer size - 24KB.  This allows
+			    // the Tx switch to function even under heavy Rx
+			    // workloads.
+			    fcrth = ixgbe_hw::read_reg(info, IXGBE_RXPBSIZE(i))? - 0x6000;
+		    }
+
+		    ixgbe_hw::write_reg(info, IXGBE_FCRTH_82599(i), fcrth)?;
+
+
+	    // Configure pause time (2 TCs per register) 
+	    let reg = (uint32_t)hw.fc.pause_time * 0x00010001;
+        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
+		    ixgbe_hw::write_reg(info, IXGBE_FCTTV(i), reg)?;
+        }
+
+	    // Configure flow control refresh threshold value 
+	    ixgbe_hw::write_reg(info, IXGBE_FCRTV, hw.fc.pause_time / 2)?;
+
+        Ok(())    
+    }
+
+    // fc_autoneg - Configure flow control
+    // Compares our advertised flow control capabilities to those advertised by
+    // our link partner, and determines the proper flow control mode to use.
+    fn mac_fc_autoneg(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(), IxgbeDriverErr>{
+        use ixgbe_hw::MediaType::*;
+
+	    // AN should have completed when the cable was plugged in.
+	    // Look for reasons to bail out.  Bail out if:
+	    //- FC autoneg is disabled, or if
+	    //- link is not up.
+	    if hw.fc.disable_fc_autoneg {
+            log::error!("Flow control autoneg is disabled");
+            hw.fc.fc_was_autonegged = false;
+            hw.fc.current_mode = hw.fc.requested_mode;
+            return Err(FcNotNegotiated);
+	    }
+
+        let (speed, link_up) = self.mac_check_link(info, hw, false)?;
+        if !link_up {
+            log::error!("The link is down");
+            hw.fc.fc_was_autonegged = false;
+            hw.fc.current_mode = hw.fc.requested_mode;
+            return Err(FcNotNegotiated);
+        }
+
+        match hw.phy.media_type {
+    	    /* Autoneg flow control on fiber adapters */
+            IxgbeMediaTypeFiber | IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp => {
+                if speed == IXGBE_LINK_SPEED_1GB_FULL {
+                    fc_autoneg_fiber(info, hw)?;
+                } else {
+                    return Err(FcNotNegotiated);
+                }
+            }
+	        /* Autoneg flow control on backplane adapters */
+            IxgbeMediaTypeBackplane => {
+                fc_autoneg_backplane(info, hw);
+            }
+	        /* Autoneg flow control on copper adapters */
+            IxgbeMediaTypeCopper => {
+                if device_supports_autoneg_fc(self, info, hw)? {
+                    fc_autoneg_copper(self, info, hw);
+                }else{
+                    return Err(FcNotNegotiated);
+                }
+            }
+            _ => (),
+        }
+
+        hw.fc.fc_was_autonegged = true;
+
+        Ok(())
+
+    }
+
+ // check_mink - Determine link and speed status
+ // Reads the links register to determine if link is up and the current speed
+fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(LinkSpeed, bool), IxgbeDriverErr>{
+    use ixgbe_hw::{MacType::*, LinkSpeed::*,};
+
+	/* If Crosstalk fix enabled do the sanity check of making sure
+	 * the SFP+ cage is full.
+	 */
+	if need_crosstalk_fix(self, hw) {
+		let sfp_cage_full = match hw.mac.mac_type {
+		IxgbeMac82599EB =>
+			ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP2,
+		IxgbeMacX550EMX | IxgbeMacX550EMA =>
+			ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP0,
+		_ => 0, /* sanity check - No SFP+ devices here */
+		};
+
+		if sfp_cage_full == 0 {
+            return Ok((IxgbeLinkSpeed, false));
+		}
+	}
+
+	/* clear the old state */
+	let links_orig = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+
+	let mut links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+
+	if links_orig != links_reg {
+		log::debug!("LINKS changed from {:?} to {:?}\n",
+			  links_orig, links_reg);
+	}
+
+    let mut link_up = false;
+	if link_up_wait_to_complete {
+        for _ in 0..hw.mac.max_link_up_time {
+            if links_reg & IXGBE_LINKS_UP != 0 {
+                link_up = true;
+                break;
+            }else{
+                link_up = false;
+            }
+            wait_microsec(100);
+            links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+        }
+	} else {
+		if links_reg & IXGBE_LINKS_UP != 0 {
+		    link_up = true;
+        } else{
+			link_up = false;
+        }
+	}
+
+    let speed = match links_reg & IXGBE_LINKS_SPEED_82599 {
+	IXGBE_LINKS_SPEED_10G_82599 => {
+		if hw.mac.mac_type >= IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0{
+            IxgbeLinkSpeed2_5GBFull
+        }else{
+            IxgbeLinkSpeed10GBFull
+		}
+    },
+	IXGBE_LINKS_SPEED_1G_82599 => IXGBE_LINK_SPEED_1GB_FULL,
+	IXGBE_LINKS_SPEED_100_82599 =>{
+		if hw.mac.mac_type == IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0 {
+            IxgbeLinkSpeed5GBFull
+		}else{
+            IxgbeLinkSpeed100Full
+        }
+    },
+	IXGBE_LINKS_SPEED_10_X550EM_A => {
+		if info.id == IXGBE_DEV_ID_X550EM_A_1G_T || info.id == IXGBE_DEV_ID_X550EM_A_1G_T_L {
+            IxgbeLinkSpeed10Full
+        } else {
+            IxgbeLinkSpeedUnknown
+        }
+    },
+	_ => IxgbeLinkSpeedUnknown
+	};
+
+    Ok((speed, link_up))
+}
+
+
+    fn mac_prot_autoc_read(&self, info: &PCIeInfo) -> Result<u32, IxgbeDriverErr>{
+        ixgbe_hw::read_reg(info, IXGBE_AUTOC)
+    }
+
+    fn mac_prot_autoc_write(&self, info: &PCIeInfo, reg_val: u32) -> Result<(), IxgbeDriverErr>{
+        ixgbe_hw::write_reg(info, IXGBE_AUTOC, reg_val)
+    }
+
+    fn mac_get_device_caps(&self, info: &PCIeInfo) ->Result<u32,IxgbeDriverErr>{
+        ixgbe_hw::read_reg(info, IXGBE_DEVICE_CAPS)
+    }
+
+// set_lan_id_multi_port_pcie - Set LAN id for PCIe multiple port devices
+// Determines the LAN function id by reading memory-mapped registers and swaps
+// the port value if requested, and set MAC instance for devices that share
+// CS4227.
+// Doesn't suport X550EM_a currently
+fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(u16,u8,u16),IxgbeDriverErr>{
+
+	let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
+	let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
+	let lan_id = func as u8;
+
+	/* check for a port swap */
+	reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?; 
+	if reg & IXGBE_FACTPS_LFS != 0 {
+		func ^= 0x1;
+    }
+
+	/* Get MAC instance from EEPROM for configuring CS4227 */
+    let mut ee_ctrl_4 = [0;1];
+    let mut instance_id = 0;
+	if info.id == IXGBE_DEV_ID_X550EM_A_SFP {
+		self.read_eerd(info,&mut hw.eeprom,IXGBE_EEPROM_CTRL_4, &mut ee_ctrl_4)?;
+		instance_id = (ee_ctrl_4[0] & IXGBE_EE_CTRL_4_INST_ID) >>
+				   IXGBE_EE_CTRL_4_INST_ID_SHIFT;
+	}
+
+    Ok((func, lan_id, instance_id))
+}
+
+
     //fn disable_mc(&PCIeInfo, ) -> Result<(), IxgbeDriverErr>{
     //if ()
     //}
-
-    // ixgbe_get_bus_info_generic()
-    //fn mac_get_bus_info(&self, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr>;
 
     // ixgbe_acquire_swhw_sync() For X540 ixgbe_acquire_swfw_sync_X540()
     // Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
@@ -901,24 +1648,35 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
         Ok(())
     }
 
+  // get_bus_info - Generic set PCI bus info
+  // Gets the PCI bus info (speed, width, type) then calls helper function to
+  // store this data within the ixgbe_hw structure.
+    fn mac_get_bus_info(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<IxgbeBusInfo, IxgbeDriverErr>{
+        let Some(cap) = info.get_pcie_cap_mut() else {
+            return Err(NotPciExpress);
+        };
+        let val = cap.get_link_status_control();
+        let link_status = (val.bits() & 0xFFFF) as u16;
+
+        set_pci_config_data(self, info, hw, link_status)
+    }
+
     // PHY Operations
 
     // ixgbe_read_phy_reg_generic()
     fn phy_read_reg(
         &self,
         info: &PCIeInfo,
-        //hw: &IxgbeHw,
-        phy_addr: u32,
-        phy_semaphore_mask: u32,
+        hw: &IxgbeHw,
         reg_addr: u32,
         device_type: u32,
     ) -> Result<u16, IxgbeDriverErr> {
         let status;
-        let gssr = phy_semaphore_mask;
+        let gssr = hw.phy.phy_semaphore_mask;
 
         self.mac_acquire_swfw_sync(info, gssr)?;
 
-        status = self.phy_read_reg_mdi(info, phy_addr, reg_addr, device_type)?;
+        status = self.phy_read_reg_mdi(info, hw, reg_addr, device_type)?;
 
         self.mac_release_swfw_sync(info, gssr)?;
 
@@ -928,20 +1686,17 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
     fn phy_write_reg(
         &self,
         info: &PCIeInfo,
-        //hw: &IxgbeHw,
-        phy_addr: u32,
-        phy_semaphore_mask: u32,
+        hw: &IxgbeHw,
         reg_addr: u32,
         device_type: u32,
         phy_data: u16,
     ) -> Result<(), IxgbeDriverErr> {
         let status;
-        //let gssr = hw.phy.phy_semaphore_mask;
-        let gssr = phy_semaphore_mask;
+        let gssr = hw.phy.phy_semaphore_mask;
 
         self.mac_acquire_swfw_sync(info, gssr)?;
 
-        status = self.write_reg_mdi(info, phy_addr, reg_addr, device_type, phy_data);
+        status = self.write_reg_mdi(info, hw, reg_addr, device_type, phy_data);
 
         status
     }
@@ -949,14 +1704,13 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
     fn phy_read_reg_mdi(
         &self,
         info: &PCIeInfo,
-        //hw: &IxgbeHw,
-        phy_addr: u32,
+        hw: &IxgbeHw,
         reg_addr: u32,
         device_type: u32,
     ) -> Result<u16, IxgbeDriverErr> {
         let mut command: u32 = (reg_addr << IXGBE_MSCA_NP_ADDR_SHIFT)
             | (device_type << IXGBE_MSCA_DEV_TYPE_SHIFT)
-            | (phy_addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
+            | (hw.phy.addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
             | (IXGBE_MSCA_ADDR_CYCLE | IXGBE_MSCA_MDI_COMMAND) as u32;
 
         ixgbe_hw::write_reg(info, IXGBE_MSCA, command)?;
@@ -969,7 +1723,7 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
 
         command = (reg_addr << IXGBE_MSCA_NP_ADDR_SHIFT)
             | (device_type << IXGBE_MSCA_DEV_TYPE_SHIFT)
-            | (phy_addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
+            | (hw.phy.addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
             | (IXGBE_MSCA_READ | IXGBE_MSCA_MDI_COMMAND) as u32;
 
         ixgbe_hw::write_reg(info, IXGBE_MSCA, command)?;
@@ -990,8 +1744,7 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
     fn write_reg_mdi(
         &self,
         info: &PCIeInfo,
-        phy_addr: u32,
-        //hw: &IxgbeHw,
+        hw: &IxgbeHw,
         reg_addr: u32,
         device_type: u32,
         phy_data: u16,
@@ -1001,7 +1754,7 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
 
         let mut command = (reg_addr << IXGBE_MSCA_NP_ADDR_SHIFT)
             | (device_type << IXGBE_MSCA_DEV_TYPE_SHIFT)
-            | (phy_addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
+            | (hw.phy.addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
             | (IXGBE_MSCA_ADDR_CYCLE | IXGBE_MSCA_MDI_COMMAND) as u32;
 
         ixgbe_hw::write_reg(info, IXGBE_MSCA, command)?;
@@ -1014,7 +1767,7 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
 
         command = (reg_addr << IXGBE_MSCA_NP_ADDR_SHIFT)
             | (device_type << IXGBE_MSCA_DEV_TYPE_SHIFT)
-            | (phy_addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
+            | (hw.phy.addr << IXGBE_MSCA_PHY_ADDR_SHIFT)
             | (IXGBE_MSCA_WRITE | IXGBE_MSCA_MDI_COMMAND) as u32;
 
         ixgbe_hw::write_reg(info, IXGBE_MSCA, command)?;
@@ -1029,12 +1782,10 @@ fn clear_hw_cntrs(&self, info: &PCIeInfo, hw: &IxgbeHw)->Result<(),IxgbeDriverEr
     }
 
     //fn set_phy_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr>;
-    fn set_phy_power(
+    fn phy_set_power(
         &self,
         info: &PCIeInfo,
-        mac_type: &MacType,
-        phy_addr: u32,
-        phy_semaphore_mask: u32,
+        hw: &IxgbeHw,
         on: bool,
     ) -> Result<(), IxgbeDriverErr>;
 

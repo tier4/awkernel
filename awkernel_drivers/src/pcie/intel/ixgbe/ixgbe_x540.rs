@@ -1,6 +1,6 @@
 use super::{
-    ixgbe_hw::{self, IxgbeMediaType},
-    ixgbe_operations::{self, IxgbeOperations},
+    ixgbe_hw,
+    ixgbe_operations::{self, start_hw_gen2, start_hw_generic, IxgbeOperations},
     ixgbe_regs::*,
     Ixgbe, IxgbeDriverErr,
 };
@@ -126,38 +126,30 @@ impl IxgbeOperations for IxgbeX540 {
         status
     }
 
-    fn mac_start_hw(&self, info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
+    fn mac_start_hw(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         start_hw_generic(self, info, hw)?;
-        start_hw_generic2(info, hw)?;
+        start_hw_gen2(info, hw)?;
+
+        Ok(())
     }
 
-    fn mac_get_media_type(&self) -> Result<MediaType, IxgbeDriverErr> {
-        Ok(MediaType::IxgbeMediaTypeCopper)
+    fn mac_get_media_type(&self) -> MediaType {
+        MediaType::IxgbeMediaTypeCopper
     }
 
     // PHY Operations
     // Using copper phy
-    fn set_phy_power(
-        &self,
-        info: &PCIeInfo,
-        //hw: &IxgbeHw,
-        mac_type: &MacType,
-        phy_addr: u32,
-        phy_semaphore_mask: u32,
-        on: bool,
-    ) -> Result<(), IxgbeDriverErr> {
-        let status;
+    fn phy_set_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr> {
         let mut reg;
 
         // What is this for?
-        if !on && mng_present(info, mac_type)? {
+        if !on && mng_present(info, &hw.mac.mac_type)? {
             return Ok(()); // Don't know if this is correct.
         }
 
         reg = self.phy_read_reg(
             info,
-            phy_addr,
-            phy_semaphore_mask,
+            hw,
             IXGBE_MDIO_VENDOR_SPECIFIC_1_CONTROL,
             IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
         )?;
@@ -165,22 +157,21 @@ impl IxgbeOperations for IxgbeX540 {
         if on {
             reg &= !(IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16);
         } else {
-            if check_reset_blocked(info, mac_type)? {
+            if check_reset_blocked(info, &hw.mac.mac_type)? {
                 return Ok(()); // Not sure if this is correct.
             }
             reg |= IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16;
         }
 
-        status = self.phy_write_reg(
+        self.phy_write_reg(
             info,
-            phy_addr,
-            phy_semaphore_mask,
+            hw,
             IXGBE_MDIO_VENDOR_SPECIFIC_1_CONTROL,
             IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
             reg,
-        );
+        )?;
 
-        status
+        Ok(())
     }
 
     // EEPROM Operations

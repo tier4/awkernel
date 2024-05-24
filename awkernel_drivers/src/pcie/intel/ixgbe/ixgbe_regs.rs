@@ -1,6 +1,81 @@
 pub const DEFAULT_TXD: usize = 256;
 pub const DEFAULT_RXD: usize = 256;
 
+pub const IXGBE_DEV_ID_82598: u16 = 0x10B6;
+pub const IXGBE_DEV_ID_82598_BX: u16 = 0x1508;
+pub const IXGBE_DEV_ID_82598AF_DUAL_PORT: u16 = 0x10C6;
+pub const IXGBE_DEV_ID_82598AF_SINGLE_PORT: u16 = 0x10C7;
+pub const IXGBE_DEV_ID_82598AT: u16 = 0x10C8;
+pub const IXGBE_DEV_ID_82598AT2: u16 = 0x150B;
+pub const IXGBE_DEV_ID_82598AT_DUAL_PORT: u16 = 0x10D7;
+pub const IXGBE_DEV_ID_82598EB_SFP_LOM: u16 = 0x10DB;
+pub const IXGBE_DEV_ID_82598EB_CX4: u16 = 0x10DD;
+pub const IXGBE_DEV_ID_82598_CX4_DUAL_PORT: u16 = 0x10EC;
+pub const IXGBE_DEV_ID_82598_DA_DUAL_PORT: u16 = 0x10F1;
+pub const IXGBE_DEV_ID_82598_SR_DUAL_PORT_EM: u16 = 0x10E1;
+pub const IXGBE_DEV_ID_82598EB_XF_LR: u16 = 0x10F4;
+pub const IXGBE_DEV_ID_82599_KX4: u16 = 0x10F7;
+pub const IXGBE_DEV_ID_82599_KX4_MEZZ: u16 = 0x1514;
+pub const IXGBE_DEV_ID_82599_KR: u16 = 0x1517;
+pub const IXGBE_DEV_ID_82599_COMBO_BACKPLANE: u16 = 0x10F8;
+pub const IXGBE_SUBDEV_ID_82599_KX4_KR_MEZZ: u16 = 0x000C;
+pub const IXGBE_DEV_ID_82599_CX4: u16 = 0x10F9;
+pub const IXGBE_DEV_ID_82599_SFP: u16 = 0x10FB;
+pub const IXGBE_SUBDEV_ID_82599_SFP: u16 = 0x11A9;
+pub const IXGBE_SUBDEV_ID_82599_SFP_WOL0: u16 = 0x1071;
+pub const IXGBE_SUBDEV_ID_82599_RNDC: u16 = 0x1F72;
+pub const IXGBE_SUBDEV_ID_82599_560FLR: u16 = 0x17D0;
+pub const IXGBE_SUBDEV_ID_82599_ECNA_DP: u16 = 0x0470;
+pub const IXGBE_SUBDEV_ID_82599_SP_560FLR: u16 = 0x211B;
+pub const IXGBE_SUBDEV_ID_82599_LOM_SNAP6: u16 = 0x2159;
+pub const IXGBE_SUBDEV_ID_82599_SFP_1OCP: u16 = 0x000D;
+pub const IXGBE_SUBDEV_ID_82599_SFP_2OCP: u16 = 0x0008;
+pub const IXGBE_SUBDEV_ID_82599_SFP_LOM_OEM1: u16 = 0x8976;
+pub const IXGBE_SUBDEV_ID_82599_SFP_LOM_OEM2: u16 = 0x06EE;
+pub const IXGBE_DEV_ID_82599_BACKPLANE_FCOE: u16 = 0x152A;
+pub const IXGBE_DEV_ID_82599_SFP_FCOE: u16 = 0x1529;
+pub const IXGBE_DEV_ID_82599_SFP_EM: u16 = 0x1507;
+pub const IXGBE_DEV_ID_82599_SFP_SF2: u16 = 0x154D;
+pub const IXGBE_DEV_ID_82599_SFP_SF_QP: u16 = 0x154A;
+pub const IXGBE_DEV_ID_82599_QSFP_SF_QP: u16 = 0x1558;
+pub const IXGBE_DEV_ID_82599EN_SFP: u16 = 0x1557;
+pub const IXGBE_SUBDEV_ID_82599EN_SFP_OCP1: u16 = 0x0001;
+pub const IXGBE_DEV_ID_82599_XAUI_LOM: u16 = 0x10FC;
+pub const IXGBE_DEV_ID_82599_T3_LOM: u16 = 0x151C;
+pub const IXGBE_DEV_ID_82599_VF: u16 = 0x10ED;
+pub const IXGBE_DEV_ID_82599_VF_HV: u16 = 0x152E;
+pub const IXGBE_DEV_ID_82599_BYPASS: u16 = 0x155D;
+pub const IXGBE_DEV_ID_X540T: u16 = 0x1528;
+pub const IXGBE_DEV_ID_X540_VF: u16 = 0x1515;
+pub const IXGBE_DEV_ID_X540_VF_HV: u16 = 0x1530;
+pub const IXGBE_DEV_ID_X540_BYPASS: u16 = 0x155C;
+pub const IXGBE_DEV_ID_X540T1: u16 = 0x1560;
+pub const IXGBE_DEV_ID_X550T: u16 = 0x1563;
+pub const IXGBE_DEV_ID_X550T1: u16 = 0x15D1;
+pub const IXGBE_DEV_ID_X550EM_A_KR: u16 = 0x15C2;
+pub const IXGBE_DEV_ID_X550EM_A_KR_L: u16 = 0x15C3;
+pub const IXGBE_DEV_ID_X550EM_A_SFP_N: u16 = 0x15C4;
+pub const IXGBE_DEV_ID_X550EM_A_SGMII: u16 = 0x15C6;
+pub const IXGBE_DEV_ID_X550EM_A_SGMII_L: u16 = 0x15C7;
+pub const IXGBE_DEV_ID_X550EM_A_10G_T: u16 = 0x15C8;
+pub const IXGBE_DEV_ID_X550EM_A_QSFP: u16 = 0x15CA;
+pub const IXGBE_DEV_ID_X550EM_A_QSFP_N: u16 = 0x15CC;
+pub const IXGBE_DEV_ID_X550EM_A_SFP: u16 = 0x15CE;
+pub const IXGBE_DEV_ID_X550EM_A_1G_T: u16 = 0x15E4;
+pub const IXGBE_DEV_ID_X550EM_A_1G_T_L: u16 = 0x15E5;
+pub const IXGBE_DEV_ID_X550EM_X_KX4: u16 = 0x15AA;
+pub const IXGBE_DEV_ID_X550EM_X_KR: u16 = 0x15AB;
+pub const IXGBE_DEV_ID_X550EM_X_SFP: u16 = 0x15AC;
+pub const IXGBE_DEV_ID_X550EM_X_10G_T: u16 = 0x15AD;
+pub const IXGBE_DEV_ID_X550EM_X_1G_T: u16 = 0x15AE;
+pub const IXGBE_DEV_ID_X550EM_X_XFI: u16 = 0x15B0;
+pub const IXGBE_DEV_ID_X550_VF_HV: u16 = 0x1564;
+pub const IXGBE_DEV_ID_X550_VF: u16 = 0x1565;
+pub const IXGBE_DEV_ID_X550EM_A_VF: u16 = 0x15C5;
+pub const IXGBE_DEV_ID_X550EM_A_VF_HV: u16 = 0x15B4;
+pub const IXGBE_DEV_ID_X550EM_X_VF: u16 = 0x15A8;
+pub const IXGBE_DEV_ID_X550EM_X_VF_HV: u16 = 0x15A9;
+
 // General Registers
 pub const IXGBE_CTRL: usize = 0x00000;
 pub const IXGBE_STATUS: usize = 0x00008;
@@ -1320,18 +1395,18 @@ pub const IXGBE_CTRL_RST: u32 = 0x04000000; // Reset (SW)
 pub const IXGBE_CTRL_RST_MASK: u32 = IXGBE_CTRL_LNK_RST | IXGBE_CTRL_RST;
 
 // FACTPS
-pub const IXGBE_FACTPS_MNGCG: usize = 0x20000000; // Manageability Clock Gated
-pub const IXGBE_FACTPS_LFS: usize = 0x40000000; // LAN Function Select
+pub const IXGBE_FACTPS_MNGCG: u32 = 0x20000000; // Manageability Clock Gated
+pub const IXGBE_FACTPS_LFS: u32 = 0x40000000; // LAN Function Select
 
 // MHADD Bit Masks
 pub const IXGBE_MHADD_MFS_MASK: usize = 0xFFFF0000;
 pub const IXGBE_MHADD_MFS_SHIFT: usize = 16;
 
 // Extended Device Control
-pub const IXGBE_CTRL_EXT_PFRSTD: usize = 0x00004000; // Physical Function Reset Done
-pub const IXGBE_CTRL_EXT_NS_DIS: usize = 0x00010000; // No Snoop disable
-pub const IXGBE_CTRL_EXT_RO_DIS: usize = 0x00020000; // Relaxed Ordering disable
-pub const IXGBE_CTRL_EXT_DRV_LOAD: usize = 0x10000000; // Driver loaded bit for FW
+pub const IXGBE_CTRL_EXT_PFRSTD: u32 = 0x00004000; // Physical Function Reset Done
+pub const IXGBE_CTRL_EXT_NS_DIS: u32 = 0x00010000; // No Snoop disable
+pub const IXGBE_CTRL_EXT_RO_DIS: u32 = 0x00020000; // Relaxed Ordering disable
+pub const IXGBE_CTRL_EXT_DRV_LOAD: u32 = 0x10000000; // Driver loaded bit for FW
 
 // Direct Cache Access (DCA) definitions
 pub const IXGBE_DCA_CTRL_DCA_ENABLE: usize = 0x00000000; // DCA Enable
@@ -1340,23 +1415,23 @@ pub const IXGBE_DCA_CTRL_DCA_DISABLE: usize = 0x00000001; // DCA Disable
 pub const IXGBE_DCA_CTRL_DCA_MODE_CB1: usize = 0x00; // DCA Mode CB1
 pub const IXGBE_DCA_CTRL_DCA_MODE_CB2: usize = 0x02; // DCA Mode CB2
 
-pub const IXGBE_DCA_RXCTRL_CPUID_MASK: usize = 0x0000001F; // Rx CPUID Mask
-pub const IXGBE_DCA_RXCTRL_CPUID_MASK_82599: usize = 0xFF000000; // Rx CPUID Mask
-pub const IXGBE_DCA_RXCTRL_CPUID_SHIFT_82599: usize = 24; // Rx CPUID Shift
-pub const IXGBE_DCA_RXCTRL_DESC_DCA_EN: usize = 1 << 5; // Rx Desc enable
-pub const IXGBE_DCA_RXCTRL_HEAD_DCA_EN: usize = 1 << 6; // Rx Desc header enable
-pub const IXGBE_DCA_RXCTRL_DATA_DCA_EN: usize = 1 << 7; // Rx Desc payload enable
-pub const IXGBE_DCA_RXCTRL_DESC_RRO_EN: usize = 1 << 9; // Rx read Desc Relax Order
-pub const IXGBE_DCA_RXCTRL_DATA_WRO_EN: usize = 1 << 13; // Rx write data Relax Order
-pub const IXGBE_DCA_RXCTRL_HEAD_WRO_EN: usize = 1 << 15; // Rx write header RO
+pub const IXGBE_DCA_RXCTRL_CPUID_MASK: u32 = 0x0000001F; // Rx CPUID Mask
+pub const IXGBE_DCA_RXCTRL_CPUID_MASK_82599: u32 = 0xFF000000; // Rx CPUID Mask
+pub const IXGBE_DCA_RXCTRL_CPUID_SHIFT_82599: u32 = 24; // Rx CPUID Shift
+pub const IXGBE_DCA_RXCTRL_DESC_DCA_EN: u32 = 1 << 5; // Rx Desc enable
+pub const IXGBE_DCA_RXCTRL_HEAD_DCA_EN: u32 = 1 << 6; // Rx Desc header enable
+pub const IXGBE_DCA_RXCTRL_DATA_DCA_EN: u32 = 1 << 7; // Rx Desc payload enable
+pub const IXGBE_DCA_RXCTRL_DESC_RRO_EN: u32 = 1 << 9; // Rx read Desc Relax Order
+pub const IXGBE_DCA_RXCTRL_DATA_WRO_EN: u32 = 1 << 13; // Rx write data Relax Order
+pub const IXGBE_DCA_RXCTRL_HEAD_WRO_EN: u32 = 1 << 15; // Rx write header RO
 
-pub const IXGBE_DCA_TXCTRL_CPUID_MASK: usize = 0x0000001F; // Tx CPUID Mask
-pub const IXGBE_DCA_TXCTRL_CPUID_MASK_82599: usize = 0xFF000000; // Tx CPUID Mask
-pub const IXGBE_DCA_TXCTRL_CPUID_SHIFT_82599: usize = 24; // Tx CPUID Shift
-pub const IXGBE_DCA_TXCTRL_DESC_DCA_EN: usize = 1 << 5; // DCA Tx Desc enable
-pub const IXGBE_DCA_TXCTRL_DESC_RRO_EN: usize = 1 << 9; // Tx read Desc Relax Order
-pub const IXGBE_DCA_TXCTRL_DESC_WRO_EN: usize = 1 << 11; // Tx Desc writeback RO bit
-pub const IXGBE_DCA_TXCTRL_DATA_RRO_EN: usize = 1 << 13; // Tx read data Relax Order
+pub const IXGBE_DCA_TXCTRL_CPUID_MASK: u32 = 0x0000001F; // Tx CPUID Mask
+pub const IXGBE_DCA_TXCTRL_CPUID_MASK_82599: u32 = 0xFF000000; // Tx CPUID Mask
+pub const IXGBE_DCA_TXCTRL_CPUID_SHIFT_82599: u32 = 24; // Tx CPUID Shift
+pub const IXGBE_DCA_TXCTRL_DESC_DCA_EN: u32 = 1 << 5; // DCA Tx Desc enable
+pub const IXGBE_DCA_TXCTRL_DESC_RRO_EN: u32 = 1 << 9; // Tx read Desc Relax Order
+pub const IXGBE_DCA_TXCTRL_DESC_WRO_EN: u32 = 1 << 11; // Tx Desc writeback RO bit
+pub const IXGBE_DCA_TXCTRL_DATA_RRO_EN: u32 = 1 << 13; // Tx read data Relax Order
 
 // MSCA Bit Masks
 pub const IXGBE_MSCA_NP_ADDR_MASK: usize = 0x0000FFFF; // MDI Addr (new protocol)
@@ -1519,8 +1594,8 @@ pub const IXGBE_MII_AUTONEG_COMPLETE: u32 = 0x20;
 pub const IXGBE_MII_AUTONEG_LINK_UP: u32 = 0x04;
 pub const IXGBE_MII_AUTONEG_REG: u32 = 0x0;
 
-pub const IXGBE_PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
-pub const IXGBE_MAX_PHY_ADDR: u32 = 32;
+pub const IXGBE_PHY_REVISION_MASK: u16 = 0xFFFFFFF0;
+pub const IXGBE_MAX_PHY_ADDR: u16 = 32;
 
 // PHY IDs
 pub const TN1010_PHY_ID: u32 = 0x00A19410;
@@ -2205,10 +2280,10 @@ pub const IXGBE_PBANUM1_PTR: u16 = 0x16;
 pub const IXGBE_ALT_MAC_ADDR_PTR: u16 = 0x37;
 pub const IXGBE_FREE_SPACE_PTR: u16 = 0x3E;
 
-pub const IXGBE_SAN_MAC_ADDR_PTR: u32 = 0x28;
-pub const IXGBE_DEVICE_CAPS: u32 = 0x2C;
-pub const IXGBE_82599_SERIAL_NUMBER_MAC_ADDR: u32 = 0x11;
-pub const IXGBE_X550_SERIAL_NUMBER_MAC_ADDR: u32 = 0x04;
+pub const IXGBE_SAN_MAC_ADDR_PTR: usize = 0x28;
+pub const IXGBE_DEVICE_CAPS: usize = 0x2C;
+pub const IXGBE_82599_SERIAL_NUMBER_MAC_ADDR: usize = 0x11;
+pub const IXGBE_X550_SERIAL_NUMBER_MAC_ADDR: usize = 0x04;
 
 pub const IXGBE_PCIE_MSIX_82599_CAPS: u32 = 0x72;
 pub const IXGBE_MAX_MSIX_VECTORS_82599: u32 = 0x40;
@@ -2405,6 +2480,70 @@ pub const IXGBE_TSSDP_TS_SDP0_SEL_MASK: u32 = 0x000000C0;
 pub const IXGBE_TSSDP_TS_SDP0_CLK0: u32 = 0x00000080;
 pub const IXGBE_TSSDP_TS_SDP0_EN: u32 = 0x00000100;
 
+// TSYNCTXCTL constants
+pub const IXGBE_TSYNCTXCTL_VALID: u32 = 0x00000001; // Tx timestamp valid
+pub const IXGBE_TSYNCTXCTL_ENABLED: u32 = 0x00000010; // Tx timestamping enabled
+
+// TSYNCRXCTL constants
+pub const IXGBE_TSYNCRXCTL_VALID: u32 = 0x00000001; // Rx timestamp valid
+pub const IXGBE_TSYNCRXCTL_TYPE_MASK: u32 = 0x0000000E; // Rx type mask
+pub const IXGBE_TSYNCRXCTL_TYPE_L2_V2: u32 = 0x00;
+pub const IXGBE_TSYNCRXCTL_TYPE_L4_V1: u32 = 0x02;
+pub const IXGBE_TSYNCRXCTL_TYPE_L2_L4_V2: u32 = 0x04;
+pub const IXGBE_TSYNCRXCTL_TYPE_ALL: u32 = 0x08;
+pub const IXGBE_TSYNCRXCTL_TYPE_EVENT_V2: u32 = 0x0A;
+pub const IXGBE_TSYNCRXCTL_ENABLED: u32 = 0x00000010; // Rx Timestamping enabled
+pub const IXGBE_TSYNCRXCTL_TSIP_UT_EN: u32 = 0x00800000; // Rx Timestamp in Packet
+pub const IXGBE_TSYNCRXCTL_TSIP_UP_MASK: u32 = 0xFF000000; // Rx Timestamp UP Mask
+
+// TSIM constants
+pub const IXGBE_TSIM_SYS_WRAP: u32 = 0x00000001;
+pub const IXGBE_TSIM_TXTS: u32 = 0x00000002;
+pub const IXGBE_TSIM_TADJ: u32 = 0x00000080;
+
+// TSICR constants (reused from TSIM)
+pub const IXGBE_TSICR_SYS_WRAP: u32 = IXGBE_TSIM_SYS_WRAP;
+pub const IXGBE_TSICR_TXTS: u32 = IXGBE_TSIM_TXTS;
+pub const IXGBE_TSICR_TADJ: u32 = IXGBE_TSIM_TADJ;
+
+// RXMTRL constants
+pub const IXGBE_RXMTRL_V1_CTRLT_MASK: u32 = 0x000000FF;
+pub const IXGBE_RXMTRL_V1_SYNC_MSG: u32 = 0x00;
+pub const IXGBE_RXMTRL_V1_DELAY_REQ_MSG: u32 = 0x01;
+pub const IXGBE_RXMTRL_V1_FOLLOWUP_MSG: u32 = 0x02;
+pub const IXGBE_RXMTRL_V1_DELAY_RESP_MSG: u32 = 0x03;
+pub const IXGBE_RXMTRL_V1_MGMT_MSG: u32 = 0x04;
+
+pub const IXGBE_RXMTRL_V2_MSGID_MASK: u32 = 0x0000FF00;
+pub const IXGBE_RXMTRL_V2_SYNC_MSG: u32 = 0x0000;
+pub const IXGBE_RXMTRL_V2_DELAY_REQ_MSG: u32 = 0x0100;
+pub const IXGBE_RXMTRL_V2_PDELAY_REQ_MSG: u32 = 0x0200;
+pub const IXGBE_RXMTRL_V2_PDELAY_RESP_MSG: u32 = 0x0300;
+pub const IXGBE_RXMTRL_V2_FOLLOWUP_MSG: u32 = 0x0800;
+pub const IXGBE_RXMTRL_V2_DELAY_RESP_MSG: u32 = 0x0900;
+pub const IXGBE_RXMTRL_V2_PDELAY_FOLLOWUP_MSG: u32 = 0x0A00;
+pub const IXGBE_RXMTRL_V2_ANNOUNCE_MSG: u32 = 0x0B00;
+pub const IXGBE_RXMTRL_V2_SIGNALLING_MSG: u32 = 0x0C00;
+pub const IXGBE_RXMTRL_V2_MGMT_MSG: u32 = 0x0D00;
+
+// FCTRL constants
+pub const IXGBE_FCTRL_SBP: u32 = 0x00000002; // Store Bad Packet
+pub const IXGBE_FCTRL_MPE: u32 = 0x00000100; // Multicast Promiscuous Ena
+pub const IXGBE_FCTRL_UPE: u32 = 0x00000200; // Unicast Promiscuous Ena
+pub const IXGBE_FCTRL_BAM: u32 = 0x00000400; // Broadcast Accept Mode
+pub const IXGBE_FCTRL_PMCF: u32 = 0x00001000; // Pass MAC Control Frames
+pub const IXGBE_FCTRL_DPF: u32 = 0x00002000; // Discard Pause Frame
+pub const IXGBE_FCTRL_RPFCE: u32 = 0x00004000; // Receive Priority Flow Control Enable
+pub const IXGBE_FCTRL_RFCE: u32 = 0x00008000; // Receive Flow Control Ena
+
+// MFLCN constants
+pub const IXGBE_MFLCN_PMCF: u32 = 0x00000001; // Pass MAC Control Frames
+pub const IXGBE_MFLCN_DPF: u32 = 0x00000002; // Discard Pause Frame
+pub const IXGBE_MFLCN_RPFCE: u32 = 0x00000004; // Receive Priority FC Enable
+pub const IXGBE_MFLCN_RFCE: u32 = 0x00000008; // Receive FC Enable
+pub const IXGBE_MFLCN_RPFCE_MASK: u32 = 0x00000FF4; // Rx Priority FC bitmap mask
+pub const IXGBE_MFLCN_RPFCE_SHIFT: u32 = 4; // Rx Priority FC bitmap shift
+
 // Multiple Receive Queue Control
 pub const IXGBE_MRQC_RSSEN: u32 = 0x00000001; // RSS Enable
 pub const IXGBE_MRQC_MRQE_MASK: u32 = 0xF; // Bits 3:0
@@ -2469,38 +2608,1157 @@ pub const IXGBE_MTQC_64VF: u32 = 0x4; // 2 TX Queues per pool with 64 VFs
 pub const IXGBE_MTQC_4TC_4TQ: u32 = 0x8; // 4 TC if RT_ENA and VT_ENA
 pub const IXGBE_MTQC_8TC_8TQ: u32 = 0xC; // 8 TC if RT_ENA or 8 TQ if VT_ENA
 
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
-//
+// Receive Descriptor bit definitions
+pub const IXGBE_RXD_STAT_DD: u32 = 0x01; // Descriptor Done
+pub const IXGBE_RXD_STAT_EOP: u32 = 0x02; // End of Packet
+pub const IXGBE_RXD_STAT_FLM: u32 = 0x04; // FDir Match
+pub const IXGBE_RXD_STAT_VP: u32 = 0x08; // IEEE VLAN Packet
+pub const IXGBE_RXDADV_NEXTP_MASK: u32 = 0x000FFFF0; // Next Descriptor Index
+pub const IXGBE_RXDADV_NEXTP_SHIFT: u32 = 0x00000004;
+pub const IXGBE_RXD_STAT_UDPCS: u32 = 0x10; // UDP checksum calculated
+pub const IXGBE_RXD_STAT_L4CS: u32 = 0x20; // L4 checksum calculated
+pub const IXGBE_RXD_STAT_IPCS: u32 = 0x40; // IP checksum calculated
+pub const IXGBE_RXD_STAT_PIF: u32 = 0x80; // Passed in-exact filter
+pub const IXGBE_RXD_STAT_CRCV: u32 = 0x100; // Speculative CRC Valid
+pub const IXGBE_RXD_STAT_OUTERIPCS: u32 = 0x100; // Cloud IP checksum calculated
+pub const IXGBE_RXD_STAT_VEXT: u32 = 0x200; // 1st VLAN found
+pub const IXGBE_RXD_STAT_UDPV: u32 = 0x400; // Valid UDP checksum
+pub const IXGBE_RXD_STAT_DYNINT: u32 = 0x800; // Packet caused INT via DYNINT
+pub const IXGBE_RXD_STAT_LLINT: u32 = 0x800; // Packet caused Low Latency Interrupt
+pub const IXGBE_RXD_STAT_TSIP: u32 = 0x08000; // Time Stamp in packet buffer
+pub const IXGBE_RXD_STAT_TS: u32 = 0x10000; // Time Stamp
+pub const IXGBE_RXD_STAT_SECP: u32 = 0x20000; // Security Processing
+pub const IXGBE_RXD_STAT_LB: u32 = 0x40000; // Loopback Status
+pub const IXGBE_RXD_STAT_ACK: u32 = 0x8000; // ACK Packet indication
+pub const IXGBE_RXD_ERR_CE: u32 = 0x01; // CRC Error
+pub const IXGBE_RXD_ERR_LE: u32 = 0x02; // Length Error
+pub const IXGBE_RXD_ERR_PE: u32 = 0x08; // Packet Error
+pub const IXGBE_RXD_ERR_OSE: u32 = 0x10; // Oversize Error
+pub const IXGBE_RXD_ERR_USE: u32 = 0x20; // Undersize Error
+pub const IXGBE_RXD_ERR_TCPE: u32 = 0x40; // TCP/UDP Checksum Error
+pub const IXGBE_RXD_ERR_IPE: u32 = 0x80; // IP Checksum Error
+pub const IXGBE_RXDADV_ERR_MASK: u32 = 0xfff00000; // RDESC.ERRORS mask
+pub const IXGBE_RXDADV_ERR_SHIFT: u32 = 20; // RDESC.ERRORS shift
+pub const IXGBE_RXDADV_ERR_OUTERIPER: u32 = 0x04000000; // CRC IP Header error
+pub const IXGBE_RXDADV_ERR_RXE: u32 = 0x20000000; // Any MAC Error
+pub const IXGBE_RXDADV_ERR_FCEOFE: u32 = 0x80000000; // FCEOFe/IPE
+pub const IXGBE_RXDADV_ERR_FCERR: u32 = 0x00700000; // FCERR/FDIRERR
+pub const IXGBE_RXDADV_ERR_FDIR_LEN: u32 = 0x00100000; // FDIR Length error
+pub const IXGBE_RXDADV_ERR_FDIR_DROP: u32 = 0x00200000; // FDIR Drop error
+pub const IXGBE_RXDADV_ERR_FDIR_COLL: u32 = 0x00400000; // FDIR Collision error
+pub const IXGBE_RXDADV_ERR_HBO: u32 = 0x00800000; // Header Buffer Overflow
+pub const IXGBE_RXDADV_ERR_CE: u32 = 0x01000000; // CRC Error
+pub const IXGBE_RXDADV_ERR_LE: u32 = 0x02000000; // Length Error
+pub const IXGBE_RXDADV_ERR_PE: u32 = 0x08000000; // Packet Error
+pub const IXGBE_RXDADV_ERR_OSE: u32 = 0x10000000; // Oversize Error
+pub const IXGBE_RXDADV_ERR_USE: u32 = 0x20000000; // Undersize Error
+pub const IXGBE_RXDADV_ERR_TCPE: u32 = 0x40000000; // TCP/UDP Checksum Error
+pub const IXGBE_RXDADV_ERR_IPE: u32 = 0x80000000; // IP Checksum Error
+
+// VLAN ID, Priority, and CFI Masks and Shifts
+pub const IXGBE_RXD_VLAN_ID_MASK: u32 = 0x0FFF; // VLAN ID is in lower 12 bits
+pub const IXGBE_RXD_PRI_MASK: u32 = 0xE000; // Priority is in upper 3 bits
+pub const IXGBE_RXD_PRI_SHIFT: u32 = 13;
+pub const IXGBE_RXD_CFI_MASK: u32 = 0x1000; // CFI is bit 12
+pub const IXGBE_RXD_CFI_SHIFT: u32 = 12;
+
+// RXDADV Stat Definitions
+pub const IXGBE_RXDADV_STAT_DD: u32 = IXGBE_RXD_STAT_DD; // Done
+pub const IXGBE_RXDADV_STAT_EOP: u32 = IXGBE_RXD_STAT_EOP; // End of Packet
+pub const IXGBE_RXDADV_STAT_FLM: u32 = IXGBE_RXD_STAT_FLM; // FDir Match
+pub const IXGBE_RXDADV_STAT_VP: u32 = IXGBE_RXD_STAT_VP; // IEEE VLAN Packet
+pub const IXGBE_RXDADV_STAT_MASK: u32 = 0x000fffff; // Stat/NEXTP: bit 0-19
+pub const IXGBE_RXDADV_STAT_FCEOFS: u32 = 0x00000040; // FCoE EOF/SOF Stat
+pub const IXGBE_RXDADV_STAT_FCSTAT: u32 = 0x00000030; // FCoE Pkt Stat
+pub const IXGBE_RXDADV_STAT_FCSTAT_NOMTCH: u32 = 0x00000000; // No Ctxt Match
+pub const IXGBE_RXDADV_STAT_FCSTAT_NODDP: u32 = 0x00000010; // Ctxt w/o DDP
+pub const IXGBE_RXDADV_STAT_FCSTAT_FCPRSP: u32 = 0x00000020; // Recv. FCP_RSP
+pub const IXGBE_RXDADV_STAT_FCSTAT_DDP: u32 = 0x00000030; // Ctxt w/ DDP
+pub const IXGBE_RXDADV_STAT_TS: u32 = 0x00010000; // IEEE1588 Time Stamp
+pub const IXGBE_RXDADV_STAT_TSIP: u32 = 0x00008000; // Time Stamp in packet buffer
+
+// PSRTYPE Bit Definitions
+pub const IXGBE_PSRTYPE_TCPHDR: u32 = 0x00000010;
+pub const IXGBE_PSRTYPE_UDPHDR: u32 = 0x00000020;
+pub const IXGBE_PSRTYPE_IPV4HDR: u32 = 0x00000100;
+pub const IXGBE_PSRTYPE_IPV6HDR: u32 = 0x00000200;
+pub const IXGBE_PSRTYPE_L2HDR: u32 = 0x00001000;
+
+// SRRCTL Bit Definitions
+pub const IXGBE_SRRCTL_BSIZEPKT_SHIFT: u32 = 10;
+pub const IXGBE_SRRCTL_BSIZEHDRSIZE_SHIFT: u32 = 2;
+pub const IXGBE_SRRCTL_RDMTS_SHIFT: u32 = 22;
+pub const IXGBE_SRRCTL_RDMTS_MASK: u32 = 0x01C00000;
+pub const IXGBE_SRRCTL_DROP_EN: u32 = 0x10000000;
+pub const IXGBE_SRRCTL_BSIZEPKT_MASK: u32 = 0x0000007F;
+pub const IXGBE_SRRCTL_BSIZEHDR_MASK: u32 = 0x00003F00;
+pub const IXGBE_SRRCTL_DESCTYPE_LEGACY: u32 = 0x00000000;
+pub const IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF: u32 = 0x02000000;
+pub const IXGBE_SRRCTL_DESCTYPE_HDR_SPLIT: u32 = 0x04000000;
+pub const IXGBE_SRRCTL_DESCTYPE_HDR_REPLICATION_LARGE_PKT: u32 = 0x08000000;
+pub const IXGBE_SRRCTL_DESCTYPE_HDR_SPLIT_ALWAYS: u32 = 0x0A000000;
+pub const IXGBE_SRRCTL_DESCTYPE_MASK: u32 = 0x0E000000;
+
+// Receive Descriptor Packet Split Header Status
+pub const IXGBE_RXDPS_HDRSTAT_HDRSP: u32 = 0x00008000;
+pub const IXGBE_RXDPS_HDRSTAT_HDRLEN_MASK: u32 = 0x000003FF;
+
+// Receive Descriptor Advanced Definitions
+pub const IXGBE_RXDADV_RSSTYPE_MASK: u32 = 0x0000000F;
+pub const IXGBE_RXDADV_PKTTYPE_MASK: u32 = 0x0000FFF0;
+pub const IXGBE_RXDADV_PKTTYPE_MASK_EX: u32 = 0x0001FFF0;
+pub const IXGBE_RXDADV_HDRBUFLEN_MASK: u32 = 0x00007FE0;
+pub const IXGBE_RXDADV_RSCCNT_MASK: u32 = 0x001E0000;
+pub const IXGBE_RXDADV_RSCCNT_SHIFT: u32 = 17;
+pub const IXGBE_RXDADV_HDRBUFLEN_SHIFT: u32 = 5;
+pub const IXGBE_RXDADV_SPLITHEADER_EN: u32 = 0x00001000;
+pub const IXGBE_RXDADV_SPH: u32 = 0x8000;
+
+// RSS Hash Results Types
+pub const IXGBE_RXDADV_RSSTYPE_NONE: u32 = 0x00000000;
+pub const IXGBE_RXDADV_RSSTYPE_IPV4_TCP: u32 = 0x00000001;
+pub const IXGBE_RXDADV_RSSTYPE_IPV4: u32 = 0x00000002;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6_TCP: u32 = 0x00000003;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6_EX: u32 = 0x00000004;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6: u32 = 0x00000005;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6_TCP_EX: u32 = 0x00000006;
+pub const IXGBE_RXDADV_RSSTYPE_IPV4_UDP: u32 = 0x00000007;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6_UDP: u32 = 0x00000008;
+pub const IXGBE_RXDADV_RSSTYPE_IPV6_UDP_EX: u32 = 0x00000009;
+
+// RSS Packet Types
+pub const IXGBE_RXDADV_PKTTYPE_NONE: u32 = 0x00000000;
+pub const IXGBE_RXDADV_PKTTYPE_IPV4: u32 = 0x00000010; // IPv4 hdr present
+pub const IXGBE_RXDADV_PKTTYPE_IPV4_EX: u32 = 0x00000020; // IPv4 hdr + extensions
+pub const IXGBE_RXDADV_PKTTYPE_IPV6: u32 = 0x00000040; // IPv6 hdr present
+pub const IXGBE_RXDADV_PKTTYPE_IPV6_EX: u32 = 0x00000080; // IPv6 hdr + extensions
+pub const IXGBE_RXDADV_PKTTYPE_TCP: u32 = 0x00000100; // TCP hdr present
+pub const IXGBE_RXDADV_PKTTYPE_UDP: u32 = 0x00000200; // UDP hdr present
+pub const IXGBE_RXDADV_PKTTYPE_SCTP: u32 = 0x00000400; // SCTP hdr present
+pub const IXGBE_RXDADV_PKTTYPE_NFS: u32 = 0x00000800; // NFS hdr present
+pub const IXGBE_RXDADV_PKTTYPE_GENEVE: u32 = 0x00000800; // GENEVE hdr present
+pub const IXGBE_RXDADV_PKTTYPE_VXLAN: u32 = 0x00000800; // VXLAN hdr present
+pub const IXGBE_RXDADV_PKTTYPE_TUNNEL: u32 = 0x00010000; // Tunnel type
+pub const IXGBE_RXDADV_PKTTYPE_IPSEC_ESP: u32 = 0x00001000; // IPSec ESP
+pub const IXGBE_RXDADV_PKTTYPE_IPSEC_AH: u32 = 0x00002000; // IPSec AH
+pub const IXGBE_RXDADV_PKTTYPE_LINKSEC: u32 = 0x00004000; // LinkSec Encap
+pub const IXGBE_RXDADV_PKTTYPE_ETQF: u32 = 0x00008000; // PKTTYPE is ETQF index
+pub const IXGBE_RXDADV_PKTTYPE_ETQF_MASK: u32 = 0x00000070; // ETQF has 8 indices
+pub const IXGBE_RXDADV_PKTTYPE_ETQF_SHIFT: u32 = 4; // Right-shift 4 bits
+
+pub const IXGBE_MCSTCTRL_MFE: u32 = 0x4;
+
+// Number of Transmit and Receive Descriptors must be a multiple of 8
+pub const IXGBE_REQ_TX_DESCRIPTOR_MULTIPLE: u32 = 8;
+pub const IXGBE_REQ_RX_DESCRIPTOR_MULTIPLE: u32 = 8;
+pub const IXGBE_REQ_TX_BUFFER_GRANULARITY: u32 = 1024;
+
+// Vlan-specific macros
+pub const IXGBE_RX_DESC_SPECIAL_VLAN_MASK: u32 = 0x0FFF; // VLAN ID in lower 12 bits
+pub const IXGBE_RX_DESC_SPECIAL_PRI_MASK: u32 = 0xE000; // Priority in upper 3 bits
+pub const IXGBE_RX_DESC_SPECIAL_PRI_SHIFT: u32 = 0x000D; // Priority in upper 3 of 16
+pub const IXGBE_TX_DESC_SPECIAL_PRI_SHIFT: u32 = IXGBE_RX_DESC_SPECIAL_PRI_SHIFT;
+
+// SR-IOV specific macros
+pub const IXGBE_MBVFICR_INDEX: fn(vf_number: u32) -> u32 = |vf_number| vf_number >> 4;
+pub const IXGBE_MBVFICR: fn(i: u32) -> u32 = |i| 0x00710 + (i * 4);
+pub const IXGBE_VFLRE: fn(i: u32) -> u32 = |i| (i & 1 != 0).then(|| 0x001C0).unwrap_or(0x00600);
+pub const IXGBE_VFLREC: fn(i: u32) -> u32 = |i| 0x00700 + (i * 4);
+
+// Translated register #defines
+pub const IXGBE_PVFCTRL: fn(p: u32) -> u32 = |p| 0x00300 + (4 * p);
+pub const IXGBE_PVFSTATUS: fn(p: u32) -> u32 = |p| 0x00008 + (0 * p);
+pub const IXGBE_PVFLINKS: fn(p: u32) -> u32 = |p| 0x042A4 + (0 * p);
+pub const IXGBE_PVFRTIMER: fn(p: u32) -> u32 = |p| 0x00048 + (0 * p);
+pub const IXGBE_PVFMAILBOX: fn(p: u32) -> u32 = |p| 0x04C00 + (4 * p);
+pub const IXGBE_PVFRXMEMWRAP: fn(p: u32) -> u32 = |p| 0x03190 + (0 * p);
+pub const IXGBE_PVTEICR: fn(p: u32) -> u32 = |p| 0x00B00 + (4 * p);
+pub const IXGBE_PVTEICS: fn(p: u32) -> u32 = |p| 0x00C00 + (4 * p);
+pub const IXGBE_PVTEIMS: fn(p: u32) -> u32 = |p| 0x00D00 + (4 * p);
+pub const IXGBE_PVTEIMC: fn(p: u32) -> u32 = |p| 0x00E00 + (4 * p);
+pub const IXGBE_PVTEIAC: fn(p: u32) -> u32 = |p| 0x00F00 + (4 * p);
+pub const IXGBE_PVTEIAM: fn(p: u32) -> u32 = |p| 0x04D00 + (4 * p);
+pub const IXGBE_PVTEITR: fn(p: u32) -> u32 = |p| {
+    (p < 24)
+        .then(|| 0x00820 + (p * 4))
+        .unwrap_or(0x012300 + ((p - 24) * 4))
+};
+pub const IXGBE_PVTIVAR: fn(p: u32) -> u32 = |p| 0x12500 + (4 * p);
+pub const IXGBE_PVTIVAR_MISC: fn(p: u32) -> u32 = |p| 0x04E00 + (4 * p);
+pub const IXGBE_PVTRSCINT: fn(p: u32) -> u32 = |p| 0x12000 + (4 * p);
+pub const IXGBE_VFPBACL: fn(p: u32) -> u32 = |p| 0x110C8 + (4 * p);
+
+pub const IXGBE_PVFRDBAL: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01000 + (0x40 * p)
+    } else {
+        0x0D000 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFRDBAH: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01004 + (0x40 * p)
+    } else {
+        0x0D004 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFRDLEN: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01008 + (0x40 * p)
+    } else {
+        0x0D008 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFRDH: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01010 + (0x40 * p)
+    } else {
+        0x0D010 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFRDT: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01018 + (0x40 * p)
+    } else {
+        0x0D018 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFRXDCTL: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01028 + (0x40 * p)
+    } else {
+        0x0D028 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFSRRCTL: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x01014 + (0x40 * p)
+    } else {
+        0x0D014 + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFPSRTYPE: fn(p: u32) -> u32 = |p| 0x0EA00 + (4 * p);
+
+pub const IXGBE_PVFTDBAL: fn(p: u32) -> u32 = |p| 0x06000 + (0x40 * p);
+pub const IXGBE_PVFTDBAH: fn(p: u32) -> u32 = |p| 0x06004 + (0x40 * p);
+pub const IXGBE_PVFTDLEN: fn(p: u32) -> u32 = |p| 0x06008 + (0x40 * p);
+pub const IXGBE_PVFTDH: fn(p: u32) -> u32 = |p| 0x06010 + (0x40 * p);
+pub const IXGBE_PVFTDT: fn(p: u32) -> u32 = |p| 0x06018 + (0x40 * p);
+pub const IXGBE_PVFTXDCTL: fn(p: u32) -> u32 = |p| 0x06028 + (0x40 * p);
+pub const IXGBE_PVFTDWBAL: fn(p: u32) -> u32 = |p| 0x06038 + (0x40 * p);
+pub const IXGBE_PVFTDWBAH: fn(p: u32) -> u32 = |p| 0x0603C + (0x40 * p);
+
+pub const IXGBE_PVFDCA_RXCTRL: fn(p: u32) -> u32 = |p| {
+    if p < 64 {
+        0x0100C + (0x40 * p)
+    } else {
+        0x0D00C + (0x40 * (p - 64))
+    }
+};
+
+pub const IXGBE_PVFDCA_TXCTRL: fn(p: u32) -> u32 = |p| 0x0600C + (0x40 * p);
+pub const IXGBE_PVFGPRC: fn(x: u32) -> u32 = |x| 0x0101C + (0x40 * x);
+pub const IXGBE_PVFGPTC: fn(x: u32) -> u32 = |x| 0x08300 + (0x04 * x);
+pub const IXGBE_PVFGORC_LSB: fn(x: u32) -> u32 = |x| 0x01020 + (0x40 * x);
+pub const IXGBE_PVFGORC_MSB: fn(x: u32) -> u32 = |x| 0x0D020 + (0x40 * x);
+pub const IXGBE_PVFGOTC_LSB: fn(x: u32) -> u32 = |x| 0x08400 + (0x08 * x);
+pub const IXGBE_PVFGOTC_MSB: fn(x: u32) -> u32 = |x| 0x08404 + (0x08 * x);
+pub const IXGBE_PVFMPRC: fn(x: u32) -> u32 = |x| 0x0D01C + (0x40 * x);
+
+// Macro functions for accessing specific fields
+pub const IXGBE_PVFTDWBALn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+    |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDWBAL((q_per_pool * vf_number) + vf_q_index);
+
+pub const IXGBE_PVFTDWBAHn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+    |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDWBAH((q_per_pool * vf_number) + vf_q_index);
+
+pub const IXGBE_PVFTDHn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+    |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDH((q_per_pool * vf_number) + vf_q_index);
+
+pub const IXGBE_PVFTDTn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+    |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDT((q_per_pool * vf_number) + vf_q_index);
+
+// Enum for flow director buffer allocation sizes
+#[repr(u32)]
+enum IxgbeFdirPballocType {
+    None = 0,
+    K64 = 1,
+    K128 = 2,
+    K256 = 3,
+}
+
+// Flow Director register values
+pub const IXGBE_FDIRCTRL_PBALLOC_64K: u32 = 0x00000001;
+pub const IXGBE_FDIRCTRL_PBALLOC_128K: u32 = 0x00000002;
+pub const IXGBE_FDIRCTRL_PBALLOC_256K: u32 = 0x00000003;
+pub const IXGBE_FDIRCTRL_INIT_DONE: u32 = 0x00000008;
+pub const IXGBE_FDIRCTRL_PERFECT_MATCH: u32 = 0x00000010;
+pub const IXGBE_FDIRCTRL_REPORT_STATUS: u32 = 0x00000020;
+pub const IXGBE_FDIRCTRL_REPORT_STATUS_ALWAYS: u32 = 0x00000080;
+pub const IXGBE_FDIRCTRL_DROP_Q_SHIFT: u32 = 8;
+pub const IXGBE_FDIRCTRL_DROP_Q_MASK: u32 = 0x00007F00;
+pub const IXGBE_FDIRCTRL_FLEX_SHIFT: u32 = 16;
+pub const IXGBE_FDIRCTRL_DROP_NO_MATCH: u32 = 0x00008000;
+pub const IXGBE_FDIRCTRL_FILTERMODE_SHIFT: u32 = 21;
+pub const IXGBE_FDIRCTRL_FILTERMODE_MACVLAN: u32 = 0x0001; // 001b
+pub const IXGBE_FDIRCTRL_FILTERMODE_CLOUD: u32 = 0x0002; // 010b
+pub const IXGBE_FDIRCTRL_SEARCHLIM: u32 = 0x00800000;
+pub const IXGBE_FDIRCTRL_FILTERMODE_MASK: u32 = 0x00E00000;
+pub const IXGBE_FDIRCTRL_MAX_LENGTH_SHIFT: u32 = 24;
+pub const IXGBE_FDIRCTRL_FULL_THRESH_MASK: u32 = 0xF0000000;
+pub const IXGBE_FDIRCTRL_FULL_THRESH_SHIFT: u32 = 28;
+
+pub const IXGBE_FDIRTCPM_DPORTM_SHIFT: u32 = 16;
+pub const IXGBE_FDIRUDPM_DPORTM_SHIFT: u32 = 16;
+pub const IXGBE_FDIRIP6M_DIPM_SHIFT: u32 = 16;
+pub const IXGBE_FDIRM_VLANID: u32 = 0x00000001;
+pub const IXGBE_FDIRM_VLANP: u32 = 0x00000002;
+pub const IXGBE_FDIRM_POOL: u32 = 0x00000004;
+pub const IXGBE_FDIRM_L4P: u32 = 0x00000008;
+pub const IXGBE_FDIRM_FLEX: u32 = 0x00000010;
+pub const IXGBE_FDIRM_DIPv6: u32 = 0x00000020;
+pub const IXGBE_FDIRM_L3P: u32 = 0x00000040;
+
+pub const IXGBE_FDIRIP6M_INNER_MAC: u32 = 0x03F0; // bit 9:4
+pub const IXGBE_FDIRIP6M_TUNNEL_TYPE: u32 = 0x0800; // bit 11
+pub const IXGBE_FDIRIP6M_TNI_VNI: u32 = 0xF000; // bit 15:12
+pub const IXGBE_FDIRIP6M_TNI_VNI_24: u32 = 0x1000; // bit 12
+pub const IXGBE_FDIRIP6M_ALWAYS_MASK: u32 = 0x040F; // bit 10, 3:0
+
+pub const IXGBE_FDIRFREE_FREE_MASK: u32 = 0xFFFF;
+pub const IXGBE_FDIRFREE_FREE_SHIFT: u32 = 0;
+pub const IXGBE_FDIRFREE_COLL_MASK: u32 = 0x7FFF0000;
+pub const IXGBE_FDIRFREE_COLL_SHIFT: u32 = 16;
+pub const IXGBE_FDIRLEN_MAXLEN_MASK: u32 = 0x3F;
+pub const IXGBE_FDIRLEN_MAXLEN_SHIFT: u32 = 0;
+pub const IXGBE_FDIRLEN_MAXHASH_MASK: u32 = 0x7FFF0000;
+pub const IXGBE_FDIRLEN_MAXHASH_SHIFT: u32 = 16;
+pub const IXGBE_FDIRUSTAT_ADD_MASK: u32 = 0xFFFF;
+pub const IXGBE_FDIRUSTAT_ADD_SHIFT: u32 = 0;
+pub const IXGBE_FDIRUSTAT_REMOVE_MASK: u32 = 0xFFFF0000;
+pub const IXGBE_FDIRUSTAT_REMOVE_SHIFT: u32 = 16;
+pub const IXGBE_FDIRFSTAT_FADD_MASK: u32 = 0x00FF;
+pub const IXGBE_FDIRFSTAT_FADD_SHIFT: u32 = 0;
+pub const IXGBE_FDIRFSTAT_FREMOVE_MASK: u32 = 0xFF00;
+pub const IXGBE_FDIRFSTAT_FREMOVE_SHIFT: u32 = 8;
+pub const IXGBE_FDIRPORT_DESTINATION_SHIFT: u32 = 16;
+pub const IXGBE_FDIRVLAN_FLEX_SHIFT: u32 = 16;
+pub const IXGBE_FDIRHASH_BUCKET_VALID_SHIFT: u32 = 15;
+pub const IXGBE_FDIRHASH_SIG_SW_INDEX_SHIFT: u32 = 16;
+
+pub const IXGBE_FDIRCMD_CMD_MASK: u32 = 0x00000003;
+pub const IXGBE_FDIRCMD_CMD_ADD_FLOW: u32 = 0x00000001;
+pub const IXGBE_FDIRCMD_CMD_REMOVE_FLOW: u32 = 0x00000002;
+pub const IXGBE_FDIRCMD_CMD_QUERY_REM_FILT: u32 = 0x00000003;
+pub const IXGBE_FDIRCMD_FILTER_VALID: u32 = 0x00000004;
+pub const IXGBE_FDIRCMD_FILTER_UPDATE: u32 = 0x00000008;
+pub const IXGBE_FDIRCMD_IPv6DMATCH: u32 = 0x00000010;
+pub const IXGBE_FDIRCMD_L4TYPE_UDP: u32 = 0x00000020;
+pub const IXGBE_FDIRCMD_L4TYPE_TCP: u32 = 0x00000040;
+pub const IXGBE_FDIRCMD_L4TYPE_SCTP: u32 = 0x00000060;
+pub const IXGBE_FDIRCMD_IPV6: u32 = 0x00000080;
+pub const IXGBE_FDIRCMD_CLEARHT: u32 = 0x00000100;
+pub const IXGBE_FDIRCMD_DROP: u32 = 0x00000200;
+pub const IXGBE_FDIRCMD_INT: u32 = 0x00000400;
+pub const IXGBE_FDIRCMD_LAST: u32 = 0x00000800;
+pub const IXGBE_FDIRCMD_COLLISION: u32 = 0x00001000;
+pub const IXGBE_FDIRCMD_QUEUE_EN: u32 = 0x00008000;
+pub const IXGBE_FDIRCMD_FLOW_TYPE_SHIFT: u32 = 5;
+pub const IXGBE_FDIRCMD_RX_QUEUE_SHIFT: u32 = 16;
+pub const IXGBE_FDIRCMD_TUNNEL_FILTER_SHIFT: u32 = 23;
+pub const IXGBE_FDIRCMD_VT_POOL_SHIFT: u32 = 24;
+pub const IXGBE_FDIR_INIT_DONE_POLL: u32 = 10;
+pub const IXGBE_FDIRCMD_CMD_POLL: u32 = 10;
+pub const IXGBE_FDIRCMD_TUNNEL_FILTER: u32 = 0x00800000;
+pub const IXGBE_FDIR_DROP_QUEUE: u32 = 127;
+
+/* Manageability Host Interface defines */
+pub const IXGBE_HI_MAX_BLOCK_BYTE_LENGTH: u32 = 1792; /* Num of bytes in range */
+pub const IXGBE_HI_MAX_BLOCK_DWORD_LENGTH: u32 = 448; /* Num of dwords in range */
+pub const IXGBE_HI_COMMAND_TIMEOUT: u32 = 500; /* Process HI command limit */
+pub const IXGBE_HI_FLASH_ERASE_TIMEOUT: u32 = 1000; /* Process Erase command limit */
+pub const IXGBE_HI_FLASH_UPDATE_TIMEOUT: u32 = 5000; /* Process Update command limit */
+pub const IXGBE_HI_FLASH_APPLY_TIMEOUT: u32 = 0; /* Process Apply command limit */
+pub const IXGBE_HI_PHY_MGMT_REQ_TIMEOUT: u32 = 2000; /* Wait up to 2 seconds */
+
+/* CEM Support */
+pub const FW_CEM_HDR_LEN: u32 = 0x4;
+pub const FW_CEM_CMD_DRIVER_INFO: u32 = 0xDD;
+pub const FW_CEM_CMD_DRIVER_INFO_LEN: u32 = 0x5;
+pub const FW_CEM_CMD_RESERVED: u32 = 0x0;
+pub const FW_CEM_UNUSED_VER: u32 = 0x0;
+pub const FW_CEM_MAX_RETRIES: u32 = 3;
+pub const FW_CEM_RESP_STATUS_SUCCESS: u32 = 0x1;
+pub const FW_CEM_DRIVER_VERSION_SIZE: u32 = 39; /* +9 would send 48 bytes to fw */
+pub const FW_READ_SHADOW_RAM_CMD: u32 = 0x31;
+pub const FW_READ_SHADOW_RAM_LEN: u32 = 0x6;
+pub const FW_WRITE_SHADOW_RAM_CMD: u32 = 0x33;
+pub const FW_WRITE_SHADOW_RAM_LEN: u32 = 0xA; /* 8 plus 1 WORD to write */
+pub const FW_SHADOW_RAM_DUMP_CMD: u32 = 0x36;
+pub const FW_SHADOW_RAM_DUMP_LEN: u32 = 0;
+pub const FW_DEFAULT_CHECKSUM: u32 = 0xFF; /* checksum always 0xFF */
+pub const FW_NVM_DATA_OFFSET: u32 = 3;
+pub const FW_MAX_READ_BUFFER_SIZE: u32 = 1024;
+pub const FW_DISABLE_RXEN_CMD: u32 = 0xDE;
+pub const FW_DISABLE_RXEN_LEN: u32 = 0x1;
+pub const FW_PHY_MGMT_REQ_CMD: u32 = 0x20;
+pub const FW_PHY_TOKEN_REQ_CMD: u32 = 0xA;
+pub const FW_PHY_TOKEN_REQ_LEN: u32 = 2;
+pub const FW_PHY_TOKEN_REQ: u32 = 0;
+pub const FW_PHY_TOKEN_REL: u32 = 1;
+pub const FW_PHY_TOKEN_OK: u32 = 1;
+pub const FW_PHY_TOKEN_RETRY: u32 = 0x80;
+pub const FW_PHY_TOKEN_DELAY: u32 = 5; /* milliseconds */
+pub const FW_PHY_TOKEN_WAIT: u32 = 5; /* seconds */
+pub const FW_PHY_TOKEN_RETRIES: u32 = (FW_PHY_TOKEN_WAIT * 1000) / FW_PHY_TOKEN_DELAY;
+pub const FW_INT_PHY_REQ_CMD: u32 = 0xB;
+pub const FW_INT_PHY_REQ_LEN: u32 = 10;
+pub const FW_INT_PHY_REQ_READ: u32 = 0;
+pub const FW_INT_PHY_REQ_WRITE: u32 = 1;
+pub const FW_PHY_ACT_REQ_CMD: u32 = 5;
+pub const FW_PHY_ACT_DATA_COUNT: u32 = 4;
+pub const FW_PHY_ACT_REQ_LEN: u32 = 4 + 4 * FW_PHY_ACT_DATA_COUNT;
+pub const FW_PHY_ACT_INIT_PHY: u32 = 1;
+pub const FW_PHY_ACT_SETUP_LINK: u32 = 2;
+pub const FW_PHY_ACT_LINK_SPEED_10: u32 = 1 << 0;
+pub const FW_PHY_ACT_LINK_SPEED_100: u32 = 1 << 1;
+pub const FW_PHY_ACT_LINK_SPEED_1G: u32 = 1 << 2;
+pub const FW_PHY_ACT_LINK_SPEED_2_5G: u32 = 1 << 3;
+pub const FW_PHY_ACT_LINK_SPEED_5G: u32 = 1 << 4;
+pub const FW_PHY_ACT_LINK_SPEED_10G: u32 = 1 << 5;
+pub const FW_PHY_ACT_LINK_SPEED_20G: u32 = 1 << 6;
+pub const FW_PHY_ACT_LINK_SPEED_25G: u32 = 1 << 7;
+pub const FW_PHY_ACT_LINK_SPEED_40G: u32 = 1 << 8;
+pub const FW_PHY_ACT_LINK_SPEED_50G: u32 = 1 << 9;
+pub const FW_PHY_ACT_LINK_SPEED_100G: u32 = 1 << 10;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_SHIFT: u32 = 16;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_MASK: u32 = 3 << FW_PHY_ACT_SETUP_LINK_PAUSE_SHIFT;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_NONE: u32 = 0;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_TX: u32 = 1;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_RX: u32 = 2;
+pub const FW_PHY_ACT_SETUP_LINK_PAUSE_RXTX: u32 = 3;
+pub const FW_PHY_ACT_SETUP_LINK_LP: u32 = 1 << 18;
+pub const FW_PHY_ACT_SETUP_LINK_HP: u32 = 1 << 19;
+pub const FW_PHY_ACT_SETUP_LINK_EEE: u32 = 1 << 20;
+pub const FW_PHY_ACT_SETUP_LINK_AN: u32 = 1 << 22;
+pub const FW_PHY_ACT_SETUP_LINK_RSP_DOWN: u32 = 1 << 0;
+pub const FW_PHY_ACT_GET_LINK_INFO: u32 = 3;
+pub const FW_PHY_ACT_GET_LINK_INFO_EEE: u32 = 1 << 19;
+pub const FW_PHY_ACT_GET_LINK_INFO_FC_TX: u32 = 1 << 20;
+pub const FW_PHY_ACT_GET_LINK_INFO_FC_RX: u32 = 1 << 21;
+pub const FW_PHY_ACT_GET_LINK_INFO_POWER: u32 = 1 << 22;
+pub const FW_PHY_ACT_GET_LINK_INFO_AN_COMPLETE: u32 = 1 << 24;
+pub const FW_PHY_ACT_GET_LINK_INFO_TEMP: u32 = 1 << 25;
+pub const FW_PHY_ACT_GET_LINK_INFO_LP_FC_TX: u32 = 1 << 28;
+pub const FW_PHY_ACT_GET_LINK_INFO_LP_FC_RX: u32 = 1 << 29;
+pub const FW_PHY_ACT_FORCE_LINK_DOWN: u32 = 4;
+pub const FW_PHY_ACT_FORCE_LINK_DOWN_OFF: u32 = 1 << 0;
+pub const FW_PHY_ACT_PHY_SW_RESET: u32 = 5;
+pub const FW_PHY_ACT_PHY_HW_RESET: u32 = 6;
+pub const FW_PHY_ACT_GET_PHY_INFO: u32 = 7;
+pub const FW_PHY_ACT_UD_2: u32 = 0x1002;
+pub const FW_PHY_ACT_UD_2_10G_KR_EEE: u32 = 1 << 6;
+pub const FW_PHY_ACT_UD_2_10G_KX4_EEE: u32 = 1 << 5;
+pub const FW_PHY_ACT_UD_2_1G_KX_EEE: u32 = 1 << 4;
+pub const FW_PHY_ACT_UD_2_10G_T_EEE: u32 = 1 << 3;
+pub const FW_PHY_ACT_UD_2_1G_T_EEE: u32 = 1 << 2;
+pub const FW_PHY_ACT_UD_2_100M_TX_EEE: u32 = 1 << 1;
+pub const FW_PHY_ACT_RETRIES: u32 = 50;
+pub const FW_PHY_INFO_SPEED_MASK: u32 = 0xFFF;
+pub const FW_PHY_INFO_ID_HI_MASK: u32 = 0xFFFF0000;
+pub const FW_PHY_INFO_ID_LO_MASK: u32 = 0x0000FFFF;
+
+/* Adv Transmit Descriptor Config Masks */
+pub const IXGBE_ADVTXD_DTALEN_MASK: u32 = 0x0000FFFF; /* Data buf length(bytes) */
+pub const IXGBE_ADVTXD_MAC_LINKSEC: u32 = 0x00040000; /* Insert LinkSec */
+pub const IXGBE_ADVTXD_MAC_TSTAMP: u32 = 0x00080000; /* IEEE1588 time stamp */
+pub const IXGBE_ADVTXD_IPSEC_SA_INDEX_MASK: u32 = 0x000003FF; /* IPSec SA index */
+pub const IXGBE_ADVTXD_IPSEC_ESP_LEN_MASK: u32 = 0x000001FF; /* IPSec ESP length */
+pub const IXGBE_ADVTXD_DTYP_MASK: u32 = 0x00F00000; /* DTYP mask */
+pub const IXGBE_ADVTXD_DTYP_CTXT: u32 = 0x00200000; /* Adv Context Desc */
+pub const IXGBE_ADVTXD_DTYP_DATA: u32 = 0x00300000; /* Adv Data Descriptor */
+pub const IXGBE_ADVTXD_DCMD_EOP: u32 = IXGBE_TXD_CMD_EOP; /* End of Packet */
+pub const IXGBE_ADVTXD_DCMD_IFCS: u32 = IXGBE_TXD_CMD_IFCS; /* Insert FCS */
+pub const IXGBE_ADVTXD_DCMD_RS: u32 = IXGBE_TXD_CMD_RS; /* Report Status */
+pub const IXGBE_ADVTXD_DCMD_DDTYP_ISCSI: u32 = 0x10000000; /* DDP hdr type or iSCSI */
+pub const IXGBE_ADVTXD_DCMD_DEXT: u32 = IXGBE_TXD_CMD_DEXT; /* Desc ext 1=Adv */
+pub const IXGBE_ADVTXD_DCMD_VLE: u32 = IXGBE_TXD_CMD_VLE; /* VLAN pkt enable */
+pub const IXGBE_ADVTXD_DCMD_TSE: u32 = 0x80000000; /* TCP Seg enable */
+pub const IXGBE_ADVTXD_STAT_DD: u32 = IXGBE_TXD_STAT_DD; /* Descriptor Done */
+pub const IXGBE_ADVTXD_STAT_SN_CRC: u32 = 0x00000002; /* NXTSEQ/SEED pres in WB */
+pub const IXGBE_ADVTXD_STAT_RSV: u32 = 0x0000000C; /* STA Reserved */
+pub const IXGBE_ADVTXD_IDX_SHIFT: u32 = 4; /* Adv desc Index shift */
+pub const IXGBE_ADVTXD_CC: u32 = 0x00000080; /* Check Context */
+pub const IXGBE_ADVTXD_POPTS_SHIFT: u32 = 8; /* Adv desc POPTS shift */
+pub const IXGBE_ADVTXD_POPTS_IXSM: u32 = IXGBE_TXD_POPTS_IXSM << IXGBE_ADVTXD_POPTS_SHIFT;
+pub const IXGBE_ADVTXD_POPTS_TXSM: u32 = IXGBE_TXD_POPTS_TXSM << IXGBE_ADVTXD_POPTS_SHIFT;
+pub const IXGBE_ADVTXD_POPTS_ISCO_1ST: u32 = 0x00000000; /* 1st TSO of iSCSI PDU */
+pub const IXGBE_ADVTXD_POPTS_ISCO_MDL: u32 = 0x00000800; /* Middle TSO of iSCSI PDU */
+pub const IXGBE_ADVTXD_POPTS_ISCO_LAST: u32 = 0x00001000; /* Last TSO of iSCSI PDU */
+
+/* 1st&Last TSO-full iSCSI PDU */
+pub const IXGBE_ADVTXD_POPTS_ISCO_FULL: u32 = 0x00001800;
+pub const IXGBE_ADVTXD_POPTS_RSV: u32 = 0x00002000; /* POPTS Reserved */
+pub const IXGBE_ADVTXD_PAYLEN_MASK: u32 = 0x0003FFFF; /* Adv desc PAYLEN */
+pub const IXGBE_ADVTXD_PAYLEN_SHIFT: u32 = 14; /* Adv desc PAYLEN shift */
+pub const IXGBE_ADVTXD_MACLEN_SHIFT: u32 = 9; /* Adv ctxt desc mac len shift */
+pub const IXGBE_ADVTXD_VLAN_SHIFT: u32 = 16; /* Adv ctxt vlan tag shift */
+pub const IXGBE_ADVTXD_TUCMD_IPV4: u32 = 0x00000400; /* IP Packet Type: 1=IPv4 */
+pub const IXGBE_ADVTXD_TUCMD_IPV6: u32 = 0x00000000; /* IP Packet Type: 0=IPv6 */
+pub const IXGBE_ADVTXD_TUCMD_L4T_UDP: u32 = 0x00000000; /* L4 Packet TYPE of UDP */
+pub const IXGBE_ADVTXD_TUCMD_L4T_TCP: u32 = 0x00000800; /* L4 Packet TYPE of TCP */
+pub const IXGBE_ADVTXD_TUCMD_L4T_SCTP: u32 = 0x00001000; /* L4 Packet TYPE of SCTP */
+pub const IXGBE_ADVTXD_TUCMD_L4T_RSV: u32 = 0x00001800; /* RSV L4 Packet TYPE */
+pub const IXGBE_ADVTXD_TUCMD_MKRREQ: u32 = 0x00002000; /* req Markers and CRC */
+pub const IXGBE_ADVTXD_POPTS_IPSEC: u32 = 0x00000400; /* IPSec offload request */
+pub const IXGBE_ADVTXD_TUCMD_IPSEC_TYPE_ESP: u32 = 0x00002000; /* IPSec Type ESP */
+pub const IXGBE_ADVTXD_TUCMD_IPSEC_ENCRYPT_EN: u32 = 0x00004000; /* ESP Encrypt Enable */
+pub const IXGBE_ADVTXT_TUCMD_FCOE: u32 = 0x00008000; /* FCoE Frame Type */
+pub const IXGBE_ADVTXD_FCOEF_EOF_MASK: u32 = 0x3 << 10; /* FC EOF index */
+pub const IXGBE_ADVTXD_FCOEF_SOF: u32 = (1 << 2) << 10; /* FC SOF index */
+pub const IXGBE_ADVTXD_FCOEF_PARINC: u32 = (1 << 3) << 10; /* Rel_Off in F_CTL */
+pub const IXGBE_ADVTXD_FCOEF_ORIE: u32 = (1 << 4) << 10; /* Orientation End */
+pub const IXGBE_ADVTXD_FCOEF_ORIS: u32 = (1 << 5) << 10; /* Orientation Start */
+pub const IXGBE_ADVTXD_FCOEF_EOF_N: u32 = 0x0 << 10; /* 00: EOFn */
+pub const IXGBE_ADVTXD_FCOEF_EOF_T: u32 = 0x1 << 10; /* 01: EOFt */
+pub const IXGBE_ADVTXD_FCOEF_EOF_NI: u32 = 0x2 << 10; /* 10: EOFni */
+pub const IXGBE_ADVTXD_FCOEF_EOF_A: u32 = 0x3 << 10; /* 11: EOFa */
+pub const IXGBE_ADVTXD_L4LEN_SHIFT: u32 = 8; /* Adv ctxt L4LEN shift */
+pub const IXGBE_ADVTXD_MSS_SHIFT: u32 = 16; /* Adv ctxt MSS shift */
+
+pub const IXGBE_ADVTXD_OUTER_IPLEN: u32 = 16; /* Adv ctxt OUTERIPLEN shift */
+pub const IXGBE_ADVTXD_TUNNEL_LEN: u32 = 24; /* Adv ctxt TUNNELLEN shift */
+pub const IXGBE_ADVTXD_TUNNEL_TYPE_SHIFT: u32 = 16; /* Adv Tx Desc Tunnel Type shift */
+pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT: u32 = 17; /* Adv Tx Desc OUTERIPCS Shift */
+pub const IXGBE_ADVTXD_TUNNEL_TYPE_NVGRE: u32 = 1; /* Adv Tx Desc Tunnel Type NVGRE */
+/* Adv Tx Desc OUTERIPCS Shift for X550EM_a */
+pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT_X550EM_a: u32 = 26;
+
+/* Autonegotiation advertised speeds */
+pub type IxgbeAutonegAdvertised = u32;
+/* Link speed */
+//pub const IXGBE_LINK_SPEED_82598_AUTONEG: u32 =
+//IXGBE_LINK_SPEED_1GB_FULL | IXGBE_LINK_SPEED_10GB_FULL;
+//pub const IXGBE_LINK_SPEED_82599_AUTONEG: u32 =
+//IXGBE_LINK_SPEED_100_FULL | IXGBE_LINK_SPEED_1GB_FULL | IXGBE_LINK_SPEED_10GB_FULL;
+
+/* Physical layer type */
+pub type IxgbePhysicalLayer = u64;
+pub const IXGBE_PHYSICAL_LAYER_UNKNOWN: u64 = 0;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_T: u64 = 0x00001;
+pub const IXGBE_PHYSICAL_LAYER_1000BASE_T: u64 = 0x00002;
+pub const IXGBE_PHYSICAL_LAYER_100BASE_TX: u64 = 0x00004;
+pub const IXGBE_PHYSICAL_LAYER_SFP_PLUS_CU: u64 = 0x00008;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_LR: u64 = 0x00010;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_LRM: u64 = 0x00020;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_SR: u64 = 0x00040;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_KX4: u64 = 0x00080;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_CX4: u64 = 0x00100;
+pub const IXGBE_PHYSICAL_LAYER_1000BASE_KX: u64 = 0x00200;
+pub const IXGBE_PHYSICAL_LAYER_1000BASE_BX: u64 = 0x00400;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_KR: u64 = 0x00800;
+pub const IXGBE_PHYSICAL_LAYER_10GBASE_XAUI: u64 = 0x01000;
+pub const IXGBE_PHYSICAL_LAYER_SFP_ACTIVE_DA: u64 = 0x02000;
+pub const IXGBE_PHYSICAL_LAYER_1000BASE_SX: u64 = 0x04000;
+pub const IXGBE_PHYSICAL_LAYER_10BASE_T: u64 = 0x08000;
+pub const IXGBE_PHYSICAL_LAYER_2500BASE_KX: u64 = 0x10000;
+pub const IXGBE_PHYSICAL_LAYER_1000BASE_LX: u64 = 0x20000;
+
+/* Flow Control Data Sheet defined values
+ * Calculation and defines taken from 802.1bb Annex O
+ */
+
+/* BitTimes (BT) conversion */
+pub const fn IXGBE_BT2KB(bt: u32) -> u32 {
+    (bt + (8 * 1024 - 1)) / (8 * 1024)
+}
+
+pub const fn IXGBE_B2BT(bt: u32) -> u32 {
+    bt * 8
+}
+
+/* Calculate Delay to respond to PFC */
+pub const IXGBE_PFC_D: u32 = 672;
+
+/* Calculate Cable Delay */
+pub const IXGBE_CABLE_DC: u32 = 5556; /* Delay Copper */
+pub const IXGBE_CABLE_DO: u32 = 5000; /* Delay Optical */
+
+/* Calculate Interface Delay X540 */
+pub const IXGBE_PHY_DC: u32 = 25600; /* Delay 10G BASET */
+pub const IXGBE_MAC_DC: u32 = 8192; /* Delay Copper XAUI interface */
+pub const IXGBE_XAUI_DC: u32 = 2 * 2048; /* Delay Copper Phy */
+
+pub const IXGBE_ID_X540: u32 = IXGBE_MAC_DC + IXGBE_XAUI_DC + IXGBE_PHY_DC;
+
+/* Calculate Interface Delay 82598, 82599 */
+pub const IXGBE_PHY_D: u32 = 12800;
+pub const IXGBE_MAC_D: u32 = 4096;
+pub const IXGBE_XAUI_D: u32 = 2 * 1024;
+
+pub const IXGBE_ID: u32 = IXGBE_MAC_D + IXGBE_XAUI_D + IXGBE_PHY_D;
+
+/* Calculate Delay incurred from higher layer */
+pub const IXGBE_HD: u32 = 6144;
+
+/* Calculate PCI Bus delay for low thresholds */
+pub const IXGBE_PCI_DELAY: u32 = 10000;
+
+pub const fn IXGBE_DV_X540(max_frame_link: u32, max_frame_tc: u32) -> u32 {
+    (36 * (IXGBE_B2BT(max_frame_link)
+        + IXGBE_PFC_D
+        + (2 * IXGBE_CABLE_DC)
+        + (2 * IXGBE_ID_X540)
+        + IXGBE_HD)
+        / 25
+        + 1)
+        + 2 * IXGBE_B2BT(max_frame_tc)
+}
+
+pub const fn IXGBE_DV(max_frame_link: u32, max_frame_tc: u32) -> u32 {
+    (36 * (IXGBE_B2BT(max_frame_link)
+        + IXGBE_PFC_D
+        + (2 * IXGBE_CABLE_DC)
+        + (2 * IXGBE_ID)
+        + IXGBE_HD)
+        / 25
+        + 1)
+        + 2 * IXGBE_B2BT(max_frame_tc)
+}
+
+pub const fn IXGBE_LOW_DV_X540(max_frame_tc: u32) -> u32 {
+    2 * IXGBE_B2BT(max_frame_tc) + (36 * IXGBE_PCI_DELAY / 25) + 1
+}
+
+pub const fn IXGBE_LOW_DV(max_frame_tc: u32) -> u32 {
+    2 * IXGBE_LOW_DV_X540(max_frame_tc)
+}
+
+/* Software ATR hash keys */
+pub const IXGBE_ATR_BUCKET_HASH_KEY: u32 = 0x3DAD14E2;
+pub const IXGBE_ATR_SIGNATURE_HASH_KEY: u32 = 0x174D3614;
+
+/* Software ATR input stream values and masks */
+pub const IXGBE_ATR_HASH_MASK: u32 = 0x7fff;
+pub const IXGBE_ATR_L4TYPE_MASK: u32 = 0x3;
+pub const IXGBE_ATR_L4TYPE_UDP: u32 = 0x1;
+pub const IXGBE_ATR_L4TYPE_TCP: u32 = 0x2;
+pub const IXGBE_ATR_L4TYPE_SCTP: u32 = 0x3;
+pub const IXGBE_ATR_L4TYPE_IPV6_MASK: u32 = 0x4;
+pub const IXGBE_ATR_L4TYPE_TUNNEL_MASK: u32 = 0x10;
+
+pub const IXGBE_VFMAILBOX_SIZE: u32 = 16; // 16 32 bit words - 64 bytes
+pub const IXGBE_ERR_MBX: i32 = -100;
+
+pub const IXGBE_VFMAILBOX: u32 = 0x002FC;
+pub const IXGBE_VFMBMEM: u32 = 0x00200;
+
+/* Define mailbox register bits */
+pub const IXGBE_VFMAILBOX_REQ: u32 = 0x00000001; // Request for PF Ready bit
+pub const IXGBE_VFMAILBOX_ACK: u32 = 0x00000002; // Ack PF message received
+pub const IXGBE_VFMAILBOX_VFU: u32 = 0x00000004; // VF owns the mailbox buffer
+pub const IXGBE_VFMAILBOX_PFU: u32 = 0x00000008; // PF owns the mailbox buffer
+pub const IXGBE_VFMAILBOX_PFSTS: u32 = 0x00000010; // PF wrote a message in the MB
+pub const IXGBE_VFMAILBOX_PFACK: u32 = 0x00000020; // PF ack the previous VF msg
+pub const IXGBE_VFMAILBOX_RSTI: u32 = 0x00000040; // PF has reset indication
+pub const IXGBE_VFMAILBOX_RSTD: u32 = 0x00000080; // PF has indicated reset done
+pub const IXGBE_VFMAILBOX_R2C_BITS: u32 = 0x000000B0; // All read to clear bits
+
+pub const IXGBE_PFMAILBOX_STS: u32 = 0x00000001; // Initiate message send to VF
+pub const IXGBE_PFMAILBOX_ACK: u32 = 0x00000002; // Ack message recv'd from VF
+pub const IXGBE_PFMAILBOX_VFU: u32 = 0x00000004; // VF owns the mailbox buffer
+pub const IXGBE_PFMAILBOX_PFU: u32 = 0x00000008; // PF owns the mailbox buffer
+pub const IXGBE_PFMAILBOX_RVFU: u32 = 0x00000010; // Reset VFU - used when VF stuck
+
+pub const IXGBE_MBVFICR_VFREQ_MASK: u32 = 0x0000FFFF; // bits for VF messages
+pub const IXGBE_MBVFICR_VFREQ_VF1: u32 = 0x00000001; // bit for VF 1 message
+pub const IXGBE_MBVFICR_VFACK_MASK: u32 = 0xFFFF0000; // bits for VF acks
+pub const IXGBE_MBVFICR_VFACK_VF1: u32 = 0x00010000; // bit for VF 1 ack
+
+/* If it's a IXGBE_VF_* msg then it originates in the VF and is sent to the
+ * PF. The reverse is TRUE if it is IXGBE_PF_*.
+ * Message ACK's are the value or'd with 0xF0000000
+ */
+pub const IXGBE_VT_MSGTYPE_ACK: u32 = 0x80000000; // Messages below or'd with this are the ACK
+pub const IXGBE_VT_MSGTYPE_NACK: u32 = 0x40000000; // Messages below or'd with this are the NACK
+pub const IXGBE_VT_MSGTYPE_CTS: u32 = 0x20000000; // Indicates that VF is still clear to send requests
+pub const IXGBE_VT_MSGINFO_SHIFT: u32 = 16;
+/* bits 23:16 are used for extra info for certain messages */
+pub const IXGBE_VT_MSGINFO_MASK: u32 = 0xFF << IXGBE_VT_MSGINFO_SHIFT;
+
+/* mailbox API, legacy requests */
+pub const IXGBE_VF_RESET: u32 = 0x01; // VF requests reset
+pub const IXGBE_VF_SET_MAC_ADDR: u32 = 0x02; // VF requests PF to set MAC addr
+pub const IXGBE_VF_SET_MULTICAST: u32 = 0x03; // VF requests PF to set MC addr
+pub const IXGBE_VF_SET_VLAN: u32 = 0x04; // VF requests PF to set VLAN
+
+/* mailbox API, version 1.0 VF requests */
+pub const IXGBE_VF_SET_LPE: u32 = 0x05; // VF requests PF to set VMOLR.LPE
+pub const IXGBE_VF_SET_MACVLAN: u32 = 0x06; // VF requests PF for unicast filter
+pub const IXGBE_VF_API_NEGOTIATE: u32 = 0x08; // negotiate API version
+
+/* mailbox API, version 1.1 VF requests */
+pub const IXGBE_VF_GET_QUEUES: u32 = 0x09; // get queue configuration
+
+/* mailbox API, version 1.2 VF requests */
+pub const IXGBE_VF_GET_RETA: u32 = 0x0A; // VF request for RETA
+pub const IXGBE_VF_GET_RSS_KEY: u32 = 0x0B; // get RSS key
+pub const IXGBE_VF_UPDATE_XCAST_MODE: u32 = 0x0C;
+
+/* GET_QUEUES return data indices within the mailbox */
+pub const IXGBE_VF_TX_QUEUES: u32 = 1; // number of Tx queues supported
+pub const IXGBE_VF_RX_QUEUES: u32 = 2; // number of Rx queues supported
+pub const IXGBE_VF_TRANS_VLAN: u32 = 3; // Indication of port vlan
+pub const IXGBE_VF_DEF_QUEUE: u32 = 4; // Default queue offset
+
+/* length of permanent address message returned from PF */
+pub const IXGBE_VF_PERMADDR_MSG_LEN: u32 = 4;
+/* word in permanent address message with the current multicast type */
+pub const IXGBE_VF_MC_TYPE_WORD: u32 = 3;
+
+pub const IXGBE_PF_CONTROL_MSG: u32 = 0x0100; // PF control message
+
+/* mailbox API, version 2.0 VF requests */
+pub const IXGBE_VF_ENABLE_MACADDR: u32 = 0x0A; // enable MAC address
+pub const IXGBE_VF_DISABLE_MACADDR: u32 = 0x0B; // disable MAC address
+pub const IXGBE_VF_GET_MACADDRS: u32 = 0x0C; // get all configured MAC addrs
+pub const IXGBE_VF_SET_MCAST_PROMISC: u32 = 0x0D; // enable multicast promiscuous
+pub const IXGBE_VF_GET_MTU: u32 = 0x0E; // get bounds on MTU
+pub const IXGBE_VF_SET_MTU: u32 = 0x0F; // set a specific MTU
+
+/* mailbox API, version 2.0 PF requests */
+pub const IXGBE_PF_TRANSPARENT_VLAN: u32 = 0x0101; // enable transparent vlan
+
+pub const IXGBE_VF_MBX_INIT_TIMEOUT: u32 = 2000; // number of retries on mailbox
+pub const IXGBE_VF_MBX_INIT_DELAY: u32 = 500; // microseconds between retries
+
+pub const BYPASS_PAGE_CTL0: u32 = 0x00000000;
+pub const BYPASS_PAGE_CTL1: u32 = 0x40000000;
+pub const BYPASS_PAGE_CTL2: u32 = 0x80000000;
+pub const BYPASS_PAGE_M: u32 = 0xc0000000;
+pub const BYPASS_WE: u32 = 0x20000000;
+
+pub const BYPASS_AUTO: u32 = 0x0;
+pub const BYPASS_NOP: u32 = 0x0;
+pub const BYPASS_NORM: u32 = 0x1;
+pub const BYPASS_BYPASS: u32 = 0x2;
+pub const BYPASS_ISOLATE: u32 = 0x3;
+
+pub const BYPASS_EVENT_MAIN_ON: u32 = 0x1;
+pub const BYPASS_EVENT_AUX_ON: u32 = 0x2;
+pub const BYPASS_EVENT_MAIN_OFF: u32 = 0x3;
+pub const BYPASS_EVENT_AUX_OFF: u32 = 0x4;
+pub const BYPASS_EVENT_WDT_TO: u32 = 0x5;
+pub const BYPASS_EVENT_USR: u32 = 0x6;
+
+pub const BYPASS_MODE_OFF_M: u32 = 0x00000003;
+pub const BYPASS_STATUS_OFF_M: u32 = 0x0000000c;
+pub const BYPASS_AUX_ON_M: u32 = 0x00000030;
+pub const BYPASS_MAIN_ON_M: u32 = 0x000000c0;
+pub const BYPASS_MAIN_OFF_M: u32 = 0x00000300;
+pub const BYPASS_AUX_OFF_M: u32 = 0x00000c00;
+pub const BYPASS_WDTIMEOUT_M: u32 = 0x00003000;
+pub const BYPASS_WDT_ENABLE_M: u32 = 0x00004000;
+pub const BYPASS_WDT_VALUE_M: u32 = 0x00070000;
+
+pub const BYPASS_MODE_OFF_SHIFT: u32 = 0;
+pub const BYPASS_STATUS_OFF_SHIFT: u32 = 2;
+pub const BYPASS_AUX_ON_SHIFT: u32 = 4;
+pub const BYPASS_MAIN_ON_SHIFT: u32 = 6;
+pub const BYPASS_MAIN_OFF_SHIFT: u32 = 8;
+pub const BYPASS_AUX_OFF_SHIFT: u32 = 10;
+pub const BYPASS_WDTIMEOUT_SHIFT: u32 = 12;
+pub const BYPASS_WDT_ENABLE_SHIFT: u32 = 14;
+pub const BYPASS_WDT_TIME_SHIFT: u32 = 16;
+
+pub const BYPASS_WDT_1: u32 = 0x0;
+pub const BYPASS_WDT_1_5: u32 = 0x1;
+pub const BYPASS_WDT_2: u32 = 0x2;
+pub const BYPASS_WDT_3: u32 = 0x3;
+pub const BYPASS_WDT_4: u32 = 0x4;
+pub const BYPASS_WDT_8: u32 = 0x5;
+pub const BYPASS_WDT_16: u32 = 0x6;
+pub const BYPASS_WDT_32: u32 = 0x7;
+pub const BYPASS_WDT_OFF: u32 = 0xffff;
+
+pub const BYPASS_CTL1_TIME_M: u32 = 0x01ffffff;
+pub const BYPASS_CTL1_VALID_M: u32 = 0x02000000;
+pub const BYPASS_CTL1_OFFTRST_M: u32 = 0x04000000;
+pub const BYPASS_CTL1_WDT_PET_M: u32 = 0x08000000;
+
+pub const BYPASS_CTL1_VALID: u32 = 0x02000000;
+pub const BYPASS_CTL1_OFFTRST: u32 = 0x04000000;
+pub const BYPASS_CTL1_WDT_PET: u32 = 0x08000000;
+
+pub const BYPASS_CTL2_DATA_M: u32 = 0x000000ff;
+pub const BYPASS_CTL2_OFFSET_M: u32 = 0x0000ff00;
+pub const BYPASS_CTL2_RW_M: u32 = 0x00010000;
+pub const BYPASS_CTL2_HEAD_M: u32 = 0x0ff00000;
+
+pub const BYPASS_CTL2_OFFSET_SHIFT: u32 = 8;
+pub const BYPASS_CTL2_HEAD_SHIFT: u32 = 20;
+
+pub const BYPASS_CTL2_RW: u32 = 0x00010000;
+
+pub const BYPASS_MAX_LOGS: u32 = 43;
+pub const BYPASS_LOG_SIZE: u32 = 5;
+pub const BYPASS_LOG_LINE_SIZE: u32 = 37;
+
+pub const BYPASS_EEPROM_VER_ADD: u32 = 0x02;
+
+pub const BYPASS_LOG_TIME_M: u32 = 0x01ffffff;
+pub const BYPASS_LOG_TIME_VALID_M: u32 = 0x02000000;
+pub const BYPASS_LOG_HEAD_M: u32 = 0x04000000;
+pub const BYPASS_LOG_CLEAR_M: u32 = 0x08000000;
+pub const BYPASS_LOG_EVENT_M: u32 = 0xf0000000;
+pub const BYPASS_LOG_ACTION_M: u32 = 0x03;
+
+pub const BYPASS_LOG_EVENT_SHIFT: u32 = 28;
+pub const BYPASS_LOG_CLEAR_SHIFT: u32 = 24;
+
+pub const fn IXGBE_FUSES0_GROUP(i: u32) -> u32 {
+    0x11158 + (i * 4)
+}
+pub const IXGBE_FUSES0_300MHZ: u32 = 1 << 5;
+pub const IXGBE_FUSES0_REV_MASK: u32 = 3 << 6;
+
+pub const fn IXGBE_KRM_PORT_CAR_GEN_CTRL(p: bool) -> u32 {
+    if p {
+        0x8010
+    } else {
+        0x4010
+    }
+}
+pub const fn IXGBE_KRM_LINK_S1(p: bool) -> u32 {
+    if p {
+        0x8200
+    } else {
+        0x4200
+    }
+}
+pub const fn IXGBE_KRM_LINK_CTRL_1(p: bool) -> u32 {
+    if p {
+        0x820C
+    } else {
+        0x420C
+    }
+}
+pub const fn IXGBE_KRM_AN_CNTL_1(p: bool) -> u32 {
+    if p {
+        0x822C
+    } else {
+        0x422C
+    }
+}
+pub const fn IXGBE_KRM_AN_CNTL_4(p: bool) -> u32 {
+    if p {
+        0x8238
+    } else {
+        0x4238
+    }
+}
+pub const fn IXGBE_KRM_AN_CNTL_8(p: bool) -> u32 {
+    if p {
+        0x8248
+    } else {
+        0x4248
+    }
+}
+pub const fn IXGBE_KRM_PCS_KX_AN(p: bool) -> u32 {
+    if p {
+        0x9918
+    } else {
+        0x5918
+    }
+}
+pub const fn IXGBE_KRM_PCS_KX_AN_LP(p: bool) -> u32 {
+    if p {
+        0x991C
+    } else {
+        0x591C
+    }
+}
+pub const fn IXGBE_KRM_SGMII_CTRL(p: bool) -> u32 {
+    if p {
+        0x82A0
+    } else {
+        0x42A0
+    }
+}
+pub const fn IXGBE_KRM_LP_BASE_PAGE_HIGH(p: bool) -> u32 {
+    if p {
+        0x836C
+    } else {
+        0x436C
+    }
+}
+pub const fn IXGBE_KRM_DSP_TXFFE_STATE_4(p: bool) -> u32 {
+    if p {
+        0x8634
+    } else {
+        0x4634
+    }
+}
+pub const fn IXGBE_KRM_DSP_TXFFE_STATE_5(p: bool) -> u32 {
+    if p {
+        0x8638
+    } else {
+        0x4638
+    }
+}
+pub const fn IXGBE_KRM_RX_TRN_LINKUP_CTRL(p: bool) -> u32 {
+    if p {
+        0x8B00
+    } else {
+        0x4B00
+    }
+}
+pub const fn IXGBE_KRM_PMD_DFX_BURNIN(p: bool) -> u32 {
+    if p {
+        0x8E00
+    } else {
+        0x4E00
+    }
+}
+pub const fn IXGBE_KRM_PMD_FLX_MASK_ST20(p: bool) -> u32 {
+    if p {
+        0x9054
+    } else {
+        0x5054
+    }
+}
+pub const fn IXGBE_KRM_TX_COEFF_CTRL_1(p: bool) -> u32 {
+    if p {
+        0x9520
+    } else {
+        0x5520
+    }
+}
+pub const fn IXGBE_KRM_RX_ANA_CTL(p: bool) -> u32 {
+    if p {
+        0x9A00
+    } else {
+        0x5A00
+    }
+}
+
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SFI_10G_DA: u32 = !(0x3 << 20);
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SFI_10G_SR: u32 = 1u32 << 20;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SFI_10G_LR: u32 = 0x2 << 20;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SGMII_EN: u32 = 1u32 << 25;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_AN37_EN: u32 = 1u32 << 26;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_AN_EN: u32 = 1u32 << 27;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_10M: u32 = !(0x7 << 28);
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_100M: u32 = 1u32 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_1G: u32 = 0x2 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_10G: u32 = 0x3 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_AN: u32 = 0x4 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_2_5G: u32 = 0x7 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_SPEED_MASK: u32 = 0x7 << 28;
+pub const IXGBE_KRM_PMD_FLX_MASK_ST20_FW_AN_RESTART: u32 = 1u32 << 31;
+
+pub const IXGBE_KRM_PORT_CAR_GEN_CTRL_NELB_32B: u32 = 1 << 9;
+pub const IXGBE_KRM_PORT_CAR_GEN_CTRL_NELB_KRPCS: u32 = 1 << 11;
+
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_MASK: u32 = 0x7 << 8;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_1G: u32 = 2 << 8;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_FORCE_SPEED_10G: u32 = 4 << 8;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_SGMII_EN: u32 = 1 << 12;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_CLAUSE_37_EN: u32 = 1 << 13;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_FEC_REQ: u32 = 1 << 14;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_CAP_FEC: u32 = 1 << 15;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_CAP_KX: u32 = 1 << 16;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_CAP_KR: u32 = 1 << 18;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_EEE_CAP_KX: u32 = 1 << 24;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_EEE_CAP_KR: u32 = 1 << 26;
+pub const IXGBE_KRM_LINK_S1_MAC_AN_COMPLETE: u32 = 1 << 28;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_ENABLE: u32 = 1 << 29;
+pub const IXGBE_KRM_LINK_CTRL_1_TETH_AN_RESTART: u32 = 1u32 << 31;
+
+pub const IXGBE_KRM_AN_CNTL_1_SYM_PAUSE: u32 = 1 << 28;
+pub const IXGBE_KRM_AN_CNTL_1_ASM_PAUSE: u32 = 1 << 29;
+pub const IXGBE_KRM_PCS_KX_AN_SYM_PAUSE: u32 = 1 << 1;
+pub const IXGBE_KRM_PCS_KX_AN_ASM_PAUSE: u32 = 1 << 2;
+pub const IXGBE_KRM_PCS_KX_AN_LP_SYM_PAUSE: u32 = 1 << 2;
+pub const IXGBE_KRM_PCS_KX_AN_LP_ASM_PAUSE: u32 = 1 << 3;
+pub const IXGBE_KRM_AN_CNTL_4_ECSR_AN37_OVER_73: u32 = 1 << 29;
+pub const IXGBE_KRM_AN_CNTL_8_LINEAR: u32 = 1 << 0;
+pub const IXGBE_KRM_AN_CNTL_8_LIMITING: u32 = 1 << 1;
+
+pub const IXGBE_KRM_LP_BASE_PAGE_HIGH_SYM_PAUSE: u32 = 1 << 10;
+pub const IXGBE_KRM_LP_BASE_PAGE_HIGH_ASM_PAUSE: u32 = 1 << 11;
+
+pub const IXGBE_KRM_SGMII_CTRL_MAC_TAR_FORCE_100_D: u32 = 1 << 12;
+pub const IXGBE_KRM_SGMII_CTRL_MAC_TAR_FORCE_10_D: u32 = 1 << 19;
+
+pub const IXGBE_KRM_DSP_TXFFE_STATE_C0_EN: u32 = 1 << 6;
+pub const IXGBE_KRM_DSP_TXFFE_STATE_CP1_CN1_EN: u32 = 1 << 15;
+pub const IXGBE_KRM_DSP_TXFFE_STATE_CO_ADAPT_EN: u32 = 1 << 16;
+
+pub const IXGBE_KRM_RX_TRN_LINKUP_CTRL_CONV_WO_PROTOCOL: u32 = 1 << 4;
+pub const IXGBE_KRM_RX_TRN_LINKUP_CTRL_PROTOCOL_BYPASS: u32 = 1 << 2;
+
+pub const IXGBE_KRM_PMD_DFX_BURNIN_TX_RX_KR_LB_MASK: u32 = 0x3 << 16;
+
+pub const IXGBE_KRM_TX_COEFF_CTRL_1_CMINUS1_OVRRD_EN: u32 = 1 << 1;
+pub const IXGBE_KRM_TX_COEFF_CTRL_1_CPLUS1_OVRRD_EN: u32 = 1 << 2;
+pub const IXGBE_KRM_TX_COEFF_CTRL_1_CZERO_EN: u32 = 1 << 3;
+pub const IXGBE_KRM_TX_COEFF_CTRL_1_OVRRD_EN: u32 = 1u32 << 31;
+
+pub const IXGBE_SB_IOSF_INDIRECT_CTRL: u32 = 0x00011144;
+pub const IXGBE_SB_IOSF_INDIRECT_DATA: u32 = 0x00011148;
+
+pub const IXGBE_SB_IOSF_CTRL_ADDR_SHIFT: u32 = 0;
+pub const IXGBE_SB_IOSF_CTRL_ADDR_MASK: u32 = 0xFF;
+pub const IXGBE_SB_IOSF_CTRL_RESP_STAT_SHIFT: u32 = 18;
+pub const IXGBE_SB_IOSF_CTRL_RESP_STAT_MASK: u32 = 0x3 << IXGBE_SB_IOSF_CTRL_RESP_STAT_SHIFT;
+pub const IXGBE_SB_IOSF_CTRL_CMPL_ERR_SHIFT: u32 = 20;
+pub const IXGBE_SB_IOSF_CTRL_CMPL_ERR_MASK: u32 = 0xFF << IXGBE_SB_IOSF_CTRL_CMPL_ERR_SHIFT;
+pub const IXGBE_SB_IOSF_CTRL_TARGET_SELECT_SHIFT: u32 = 28;
+pub const IXGBE_SB_IOSF_CTRL_TARGET_SELECT_MASK: u32 = 0x7;
+pub const IXGBE_SB_IOSF_CTRL_BUSY_SHIFT: u32 = 31;
+pub const IXGBE_SB_IOSF_CTRL_BUSY: u32 = 1 << IXGBE_SB_IOSF_CTRL_BUSY_SHIFT;
+pub const IXGBE_SB_IOSF_TARGET_KR_PHY: u32 = 0;
+
+pub const IXGBE_NW_MNG_IF_SEL: u32 = 0x00011178;
+pub const IXGBE_NW_MNG_IF_SEL_MDIO_ACT: u32 = 1u32 << 1;
+pub const IXGBE_NW_MNG_IF_SEL_MDIO_IF_MODE: u32 = 1u32 << 2;
+pub const IXGBE_NW_MNG_IF_SEL_EN_SHARED_MDIO: u32 = 1u32 << 13;
+pub const IXGBE_NW_MNG_IF_SEL_PHY_SPEED_10M: u32 = 1u32 << 17;
+pub const IXGBE_NW_MNG_IF_SEL_PHY_SPEED_100M: u32 = 1u32 << 18;
+pub const IXGBE_NW_MNG_IF_SEL_PHY_SPEED_1G: u32 = 1u32 << 19;
+pub const IXGBE_NW_MNG_IF_SEL_PHY_SPEED_2_5G: u32 = 1u32 << 20;
+pub const IXGBE_NW_MNG_IF_SEL_PHY_SPEED_10G: u32 = 1u32 << 21;
+pub const IXGBE_NW_MNG_IF_SEL_SGMII_ENABLE: u32 = 1u32 << 25;
+pub const IXGBE_NW_MNG_IF_SEL_INT_PHY_MODE: u32 = 1 << 24;
+pub const IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT: u32 = 3;
+pub const IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD: u32 = 0x1F << IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
+
+/* PHY */
+pub const IXGBE_I2C_EEPROM_DEV_ADDR: u32 = 0xA0;
+pub const IXGBE_I2C_EEPROM_DEV_ADDR2: u32 = 0xA2;
+pub const IXGBE_I2C_EEPROM_BANK_LEN: u32 = 0xFF;
+
+/* EEPROM byte offsets */
+pub const IXGBE_SFF_IDENTIFIER: u32 = 0x0;
+pub const IXGBE_SFF_IDENTIFIER_SFP: u32 = 0x3;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE0: u32 = 0x25;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE1: u32 = 0x26;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE2: u32 = 0x27;
+pub const IXGBE_SFF_1GBE_COMP_CODES: u32 = 0x6;
+pub const IXGBE_SFF_10GBE_COMP_CODES: u32 = 0x3;
+pub const IXGBE_SFF_CABLE_TECHNOLOGY: u32 = 0x8;
+pub const IXGBE_SFF_CABLE_SPEC_COMP: u32 = 0x3C;
+pub const IXGBE_SFF_SFF_8472_SWAP: u32 = 0x5C;
+pub const IXGBE_SFF_SFF_8472_COMP: u32 = 0x5E;
+pub const IXGBE_SFF_SFF_8472_OSCB: u32 = 0x6E;
+pub const IXGBE_SFF_SFF_8472_ESCB: u32 = 0x76;
+pub const IXGBE_SFF_IDENTIFIER_QSFP_PLUS: u32 = 0xD;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE0: u32 = 0xA5;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE1: u32 = 0xA6;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE2: u32 = 0xA7;
+pub const IXGBE_SFF_QSFP_CONNECTOR: u32 = 0x82;
+pub const IXGBE_SFF_QSFP_10GBE_COMP: u32 = 0x83;
+pub const IXGBE_SFF_QSFP_1GBE_COMP: u32 = 0x86;
+pub const IXGBE_SFF_QSFP_CABLE_LENGTH: u32 = 0x92;
+pub const IXGBE_SFF_QSFP_DEVICE_TECH: u32 = 0x93;
+
+/* Bitmasks */
+pub const IXGBE_SFF_DA_PASSIVE_CABLE: u32 = 0x4;
+pub const IXGBE_SFF_DA_ACTIVE_CABLE: u32 = 0x8;
+pub const IXGBE_SFF_DA_SPEC_ACTIVE_LIMITING: u32 = 0x4;
+pub const IXGBE_SFF_1GBASESX_CAPABLE: u32 = 0x1;
+pub const IXGBE_SFF_1GBASELX_CAPABLE: u32 = 0x2;
+pub const IXGBE_SFF_1GBASET_CAPABLE: u32 = 0x8;
+pub const IXGBE_SFF_10GBASESR_CAPABLE: u32 = 0x10;
+pub const IXGBE_SFF_10GBASELR_CAPABLE: u32 = 0x20;
+pub const IXGBE_SFF_DA_BAD_HP_CABLE: u32 = 0x80;
+pub const IXGBE_SFF_SOFT_RS_SELECT_MASK: u32 = 0x8;
+pub const IXGBE_SFF_SOFT_RS_SELECT_10G: u32 = 0x8;
+pub const IXGBE_SFF_SOFT_RS_SELECT_1G: u32 = 0x0;
+pub const IXGBE_SFF_ADDRESSING_MODE: u32 = 0x4;
+pub const IXGBE_SFF_QSFP_DA_ACTIVE_CABLE: u32 = 0x1;
+pub const IXGBE_SFF_QSFP_DA_PASSIVE_CABLE: u32 = 0x8;
+pub const IXGBE_SFF_QSFP_CONNECTOR_NOT_SEPARABLE: u32 = 0x23;
+pub const IXGBE_SFF_QSFP_TRANSMITER_850NM_VCSEL: u32 = 0x0;
+pub const IXGBE_I2C_EEPROM_READ_MASK: u32 = 0x100;
+pub const IXGBE_I2C_EEPROM_STATUS_MASK: u32 = 0x3;
+pub const IXGBE_I2C_EEPROM_STATUS_NO_OPERATION: u32 = 0x0;
+pub const IXGBE_I2C_EEPROM_STATUS_PASS: u32 = 0x1;
+pub const IXGBE_I2C_EEPROM_STATUS_FAIL: u32 = 0x2;
+pub const IXGBE_I2C_EEPROM_STATUS_IN_PROGRESS: u32 = 0x3;
+
+pub const IXGBE_CS4227: u32 = 0xBE; /* CS4227 address */
+pub const IXGBE_CS4227_GLOBAL_ID_LSB: u32 = 0;
+pub const IXGBE_CS4227_GLOBAL_ID_MSB: u32 = 1;
+pub const IXGBE_CS4227_SCRATCH: u32 = 2;
+pub const IXGBE_CS4227_GLOBAL_ID_VALUE: u32 = 0x03E5;
+pub const IXGBE_CS4227_EFUSE_PDF_SKU: u32 = 0x19F;
+pub const IXGBE_CS4223_SKU_ID: u32 = 0x0010; /* Quad port */
+pub const IXGBE_CS4227_SKU_ID: u32 = 0x0014; /* Dual port */
+pub const IXGBE_CS4227_RESET_PENDING: u32 = 0x1357;
+pub const IXGBE_CS4227_RESET_COMPLETE: u32 = 0x5AA5;
+pub const IXGBE_CS4227_RETRIES: u32 = 15;
+pub const IXGBE_CS4227_EFUSE_STATUS: u32 = 0x0181;
+pub const IXGBE_CS4227_LINE_SPARE22_MSB: u32 = 0x12AD; /* Reg to program speed */
+pub const IXGBE_CS4227_LINE_SPARE24_LSB: u32 = 0x12B0; /* Reg to program EDC */
+pub const IXGBE_CS4227_HOST_SPARE22_MSB: u32 = 0x1AAD; /* Reg to program speed */
+pub const IXGBE_CS4227_HOST_SPARE24_LSB: u32 = 0x1AB0; /* Reg to program EDC */
+pub const IXGBE_CS4227_EEPROM_STATUS: u32 = 0x5001;
+pub const IXGBE_CS4227_EEPROM_LOAD_OK: u32 = 0x0001;
+pub const IXGBE_CS4227_SPEED_1G: u32 = 0x8000;
+pub const IXGBE_CS4227_SPEED_10G: u32 = 0;
+pub const IXGBE_CS4227_EDC_MODE_CX1: u32 = 0x0002;
+pub const IXGBE_CS4227_EDC_MODE_SR: u32 = 0x0004;
+pub const IXGBE_CS4227_EDC_MODE_DIAG: u32 = 0x0008;
+pub const IXGBE_CS4227_RESET_HOLD: u32 = 500; /* microseconds */
+pub const IXGBE_CS4227_RESET_DELAY: u32 = 450; /* milliseconds */
+pub const IXGBE_CS4227_CHECK_DELAY: u32 = 30; /* milliseconds */
+pub const IXGBE_PE: u32 = 0xE0; /* Port expander address */
+pub const IXGBE_PE_OUTPUT: u32 = 1; /* Output register offset */
+pub const IXGBE_PE_CONFIG: u32 = 3; /* Config register offset */
+pub const IXGBE_PE_BIT1: u32 = 1 << 1;
+
+/* Flow control defines */
+pub const IXGBE_TAF_SYM_PAUSE: u32 = 0x400;
+pub const IXGBE_TAF_ASM_PAUSE: u32 = 0x800;
+
+/* Bit-shift macros */
+pub const IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT: u32 = 24;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT: u32 = 16;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT: u32 = 8;
+
+/* Vendor OUIs: format of OUI is 0x[byte0][byte1][byte2][00] */
+pub const IXGBE_SFF_VENDOR_OUI_TYCO: u32 = 0x00407600;
+pub const IXGBE_SFF_VENDOR_OUI_FTL: u32 = 0x00906500;
+pub const IXGBE_SFF_VENDOR_OUI_AVAGO: u32 = 0x00176A00;
+pub const IXGBE_SFF_VENDOR_OUI_INTEL: u32 = 0x001B2100;
+
+/* I2C SDA and SCL timing parameters for standard mode */
+pub const IXGBE_I2C_T_HD_STA: u32 = 4;
+pub const IXGBE_I2C_T_LOW: u32 = 5;
+pub const IXGBE_I2C_T_HIGH: u32 = 4;
+pub const IXGBE_I2C_T_SU_STA: u32 = 5;
+pub const IXGBE_I2C_T_HD_DATA: u32 = 5;
+pub const IXGBE_I2C_T_SU_DATA: u32 = 1;
+pub const IXGBE_I2C_T_RISE: u32 = 1;
+pub const IXGBE_I2C_T_FALL: u32 = 1;
+pub const IXGBE_I2C_T_SU_STO: u32 = 4;
+pub const IXGBE_I2C_T_BUF: u32 = 5;
+
+pub const IXGBE_SFP_DETECT_RETRIES: u32 = 10;
+
+pub const IXGBE_TN_LASI_STATUS_REG: u32 = 0x9005;
+pub const IXGBE_TN_LASI_STATUS_TEMP_ALARM: u32 = 0x0008;
+
+/* SFP+ SFF-8472 Compliance */
+pub const IXGBE_SFF_SFF_8472_UNSUP: u32 = 0x00;
+
 pub const IXGBE_FLAGS_DOUBLE_RESET_REQUIRED: u8 = 0x01;

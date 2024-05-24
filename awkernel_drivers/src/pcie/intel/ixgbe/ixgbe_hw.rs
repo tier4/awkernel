@@ -13,81 +13,6 @@ use super::{
     IxgbeDriverErr,
 };
 
-const IXGBE_DEV_ID_82598: u16 = 0x10B6;
-const IXGBE_DEV_ID_82598_BX: u16 = 0x1508;
-const IXGBE_DEV_ID_82598AF_DUAL_PORT: u16 = 0x10C6;
-const IXGBE_DEV_ID_82598AF_SINGLE_PORT: u16 = 0x10C7;
-const IXGBE_DEV_ID_82598AT: u16 = 0x10C8;
-const IXGBE_DEV_ID_82598AT2: u16 = 0x150B;
-const IXGBE_DEV_ID_82598AT_DUAL_PORT: u16 = 0x10D7;
-const IXGBE_DEV_ID_82598EB_SFP_LOM: u16 = 0x10DB;
-const IXGBE_DEV_ID_82598EB_CX4: u16 = 0x10DD;
-const IXGBE_DEV_ID_82598_CX4_DUAL_PORT: u16 = 0x10EC;
-const IXGBE_DEV_ID_82598_DA_DUAL_PORT: u16 = 0x10F1;
-const IXGBE_DEV_ID_82598_SR_DUAL_PORT_EM: u16 = 0x10E1;
-const IXGBE_DEV_ID_82598EB_XF_LR: u16 = 0x10F4;
-const IXGBE_DEV_ID_82599_KX4: u16 = 0x10F7;
-const IXGBE_DEV_ID_82599_KX4_MEZZ: u16 = 0x1514;
-const IXGBE_DEV_ID_82599_KR: u16 = 0x1517;
-const IXGBE_DEV_ID_82599_COMBO_BACKPLANE: u16 = 0x10F8;
-const IXGBE_SUBDEV_ID_82599_KX4_KR_MEZZ: u16 = 0x000C;
-const IXGBE_DEV_ID_82599_CX4: u16 = 0x10F9;
-const IXGBE_DEV_ID_82599_SFP: u16 = 0x10FB;
-const IXGBE_SUBDEV_ID_82599_SFP: u16 = 0x11A9;
-const IXGBE_SUBDEV_ID_82599_SFP_WOL0: u16 = 0x1071;
-const IXGBE_SUBDEV_ID_82599_RNDC: u16 = 0x1F72;
-const IXGBE_SUBDEV_ID_82599_560FLR: u16 = 0x17D0;
-const IXGBE_SUBDEV_ID_82599_ECNA_DP: u16 = 0x0470;
-const IXGBE_SUBDEV_ID_82599_SP_560FLR: u16 = 0x211B;
-const IXGBE_SUBDEV_ID_82599_LOM_SNAP6: u16 = 0x2159;
-const IXGBE_SUBDEV_ID_82599_SFP_1OCP: u16 = 0x000D;
-const IXGBE_SUBDEV_ID_82599_SFP_2OCP: u16 = 0x0008;
-const IXGBE_SUBDEV_ID_82599_SFP_LOM_OEM1: u16 = 0x8976;
-const IXGBE_SUBDEV_ID_82599_SFP_LOM_OEM2: u16 = 0x06EE;
-const IXGBE_DEV_ID_82599_BACKPLANE_FCOE: u16 = 0x152A;
-const IXGBE_DEV_ID_82599_SFP_FCOE: u16 = 0x1529;
-const IXGBE_DEV_ID_82599_SFP_EM: u16 = 0x1507;
-const IXGBE_DEV_ID_82599_SFP_SF2: u16 = 0x154D;
-const IXGBE_DEV_ID_82599_SFP_SF_QP: u16 = 0x154A;
-const IXGBE_DEV_ID_82599_QSFP_SF_QP: u16 = 0x1558;
-const IXGBE_DEV_ID_82599EN_SFP: u16 = 0x1557;
-const IXGBE_SUBDEV_ID_82599EN_SFP_OCP1: u16 = 0x0001;
-const IXGBE_DEV_ID_82599_XAUI_LOM: u16 = 0x10FC;
-const IXGBE_DEV_ID_82599_T3_LOM: u16 = 0x151C;
-const IXGBE_DEV_ID_82599_VF: u16 = 0x10ED;
-const IXGBE_DEV_ID_82599_VF_HV: u16 = 0x152E;
-const IXGBE_DEV_ID_82599_BYPASS: u16 = 0x155D;
-const IXGBE_DEV_ID_X540T: u16 = 0x1528;
-const IXGBE_DEV_ID_X540_VF: u16 = 0x1515;
-const IXGBE_DEV_ID_X540_VF_HV: u16 = 0x1530;
-const IXGBE_DEV_ID_X540_BYPASS: u16 = 0x155C;
-const IXGBE_DEV_ID_X540T1: u16 = 0x1560;
-const IXGBE_DEV_ID_X550T: u16 = 0x1563;
-const IXGBE_DEV_ID_X550T1: u16 = 0x15D1;
-const IXGBE_DEV_ID_X550EM_A_KR: u16 = 0x15C2;
-const IXGBE_DEV_ID_X550EM_A_KR_L: u16 = 0x15C3;
-const IXGBE_DEV_ID_X550EM_A_SFP_N: u16 = 0x15C4;
-const IXGBE_DEV_ID_X550EM_A_SGMII: u16 = 0x15C6;
-const IXGBE_DEV_ID_X550EM_A_SGMII_L: u16 = 0x15C7;
-const IXGBE_DEV_ID_X550EM_A_10G_T: u16 = 0x15C8;
-const IXGBE_DEV_ID_X550EM_A_QSFP: u16 = 0x15CA;
-const IXGBE_DEV_ID_X550EM_A_QSFP_N: u16 = 0x15CC;
-const IXGBE_DEV_ID_X550EM_A_SFP: u16 = 0x15CE;
-const IXGBE_DEV_ID_X550EM_A_1G_T: u16 = 0x15E4;
-const IXGBE_DEV_ID_X550EM_A_1G_T_L: u16 = 0x15E5;
-const IXGBE_DEV_ID_X550EM_X_KX4: u16 = 0x15AA;
-const IXGBE_DEV_ID_X550EM_X_KR: u16 = 0x15AB;
-const IXGBE_DEV_ID_X550EM_X_SFP: u16 = 0x15AC;
-const IXGBE_DEV_ID_X550EM_X_10G_T: u16 = 0x15AD;
-const IXGBE_DEV_ID_X550EM_X_1G_T: u16 = 0x15AE;
-const IXGBE_DEV_ID_X550EM_X_XFI: u16 = 0x15B0;
-const IXGBE_DEV_ID_X550_VF_HV: u16 = 0x1564;
-const IXGBE_DEV_ID_X550_VF: u16 = 0x1565;
-const IXGBE_DEV_ID_X550EM_A_VF: u16 = 0x15C5;
-const IXGBE_DEV_ID_X550EM_A_VF_HV: u16 = 0x15B4;
-const IXGBE_DEV_ID_X550EM_X_VF: u16 = 0x15A8;
-const IXGBE_DEV_ID_X550EM_X_VF_HV: u16 = 0x15A9;
-
 pub const IXGBE_DEVICES: [(u16, u16); 74] = [
     (IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598),
     (IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598_BX),
@@ -242,12 +167,37 @@ pub struct IxgbeMacInfo {
     pub arc_subsystem_valid: bool,
     pub flags: u8,
     pub set_lben: bool,
+    pub max_link_up_time: u32,
+}
+
+pub struct IxgbeAddrFilterInfo {
+    pub num_mc_addrs: u32,
+    pub rar_used_count: u32,
+    pub mta_in_use: u32,
+    pub overflow_promisc: u32,
+    pub user_set_promisc: bool,
+}
+
+pub struct IxgbeFcInfo {
+    pub high_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS], // Flow Ctrl High-water
+    pub low_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS],  // Flow Ctrl Low-water
+    pub pause_time: u16,                                // Flow Control Pause timer
+    //pub send_xon: bool,                                 // Flow control send XON
+    pub strict_ieee: bool,        // Strict IEEE mode
+    pub disable_fc_autoneg: bool, // Do not autonegotiate FC
+    pub fc_was_autonegged: bool,  // Is current_mode the result of autonegging?
+    pub current_mode: FcMode,     // FC mode in effect
+    pub requested_mode: FcMode,   // FC mode requested by caller
 }
 
 pub struct IxgbePhyInfo {
-    pub phy_semaphore_mask: u32,
+    pub id: u32,
+    pub phy_type: PhyType,
+    pub addr: u32,
+    pub revision: u32,
     pub media_type: MediaType,
-    //pub addr: u32,
+    pub phy_semaphore_mask: u32,
+    pub nw_mng_if_sel: u32,
 }
 
 pub struct IxgbeEepromInfo {
@@ -259,21 +209,24 @@ pub struct IxgbeEepromInfo {
     pub ctrl_word_3: u16,
 }
 
-pub struct IxgbeAddrFilterInfo {
-    pub num_mc_addrs: u32,
-    pub rar_used_count: u32,
-    pub mta_in_use: u32,
-    pub overflow_promisc: u32,
-    pub user_set_promisc: bool,
+pub struct IxgbeBusInfo {
+    pub speed: BusSpeed,
+    pub width: BusWidth,
+    pub bus_type: BusType,
+    pub func: u16,
+    pub lan_id: u8,
+    pub instance_id: u16,
 }
 
 pub struct IxgbeHw {
-    //pub ops: Box<dyn IxgbeOperations>,
     pub mac: IxgbeMacInfo,
+    pub addr_ctrl: IxgbeAddrFilterInfo,
+    pub fc: IxgbeFcInfo,
     pub phy: IxgbePhyInfo,
     pub eeprom: IxgbeEepromInfo,
-    pub addr_ctrl: IxgbeAddrFilterInfo,
+    pub bus: IxgbeBusInfo,
     pub adapter_stopped: bool,
+    pub crosstalk_fix: bool,
 }
 
 impl IxgbeHw {
@@ -296,8 +249,6 @@ impl IxgbeHw {
         // ixgbe_allocate_pci_resources()
         // pci_conf_read() pci_mapreg_map()はinfo.map_bar()？ hw.hw_addrはいらなそう. sc->num_queuesやsc->hw.backはどこで利用する? msi,msixの設定 -> IxgbeInner new()
 
-        // ixgbe_allocate_queues(): -> IxgbeInner new()
-
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
         ops = get_operations(&mac_type)?; // init_shared_code();
@@ -314,20 +265,11 @@ impl IxgbeHw {
             IxgbeMacX540 => ixgbe_x540::set_mac_val(info)?,
             _ => (0, 0, 0, 0, 0, 0, 0, false),
         };
+        let max_link_up_time = IXGBE_LINK_UP_TIME;
 
         let eeprom = ops.validate_eeprom_checksum(info)?;
 
-        // TODO: ixgbe_allocate_msix() or ixgbe_allocate_legacy()
-
         // TODO: hw.mac.ops.enable_tx_laser() for 82599 SFP+ fiber
-
-        // ixgbe_setup_interface(): -> IxgbeInner new()
-
-        // hw->mac.ops.get_bus_info(hw)
-
-        // sc->fc = ixgbe_fc_full; Do we really need this?
-
-        // ctrl_ext = IXGBE_READ_REG()....WRITE_REG(): -> IxgbeInner new()
 
         Ok((
             Self {
@@ -346,13 +288,8 @@ impl IxgbeHw {
                     arc_subsystem_valid,
                     flags: 0,
                     set_lben: false,
+                    max_link_up_time,
                 },
-                phy: IxgbePhyInfo {
-                    phy_semaphore_mask: 0,
-                    media_type: MediaType::IxgbeMediaTypeUnknown,
-                    //addr: phy_addr,
-                },
-                eeprom,
                 addr_ctrl: IxgbeAddrFilterInfo {
                     num_mc_addrs: 0,
                     rar_used_count: 0,
@@ -360,10 +297,62 @@ impl IxgbeHw {
                     overflow_promisc: 0,
                     user_set_promisc: false,
                 },
+                fc: IxgbeFcInfo {
+                    // TODO: Need to check if this is initialized in OpenBSD
+                    high_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
+                    low_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
+                    pause_time: 0,
+                    strict_ieee: false, // TODO: Need to check if this is initialized in OpenBSD
+                    disable_fc_autoneg: false,
+                    fc_was_autonegged: false,
+                    current_mode: FcMode::IxgbeFcNone,
+                    requested_mode: FcMode::IxgbeFcNone, // TODO: Need to check if this is initialized in OpenB
+                },
+                phy: IxgbePhyInfo {
+                    id: 0,
+                    phy_type: PhyType::IxgbePhyUnknown,
+                    addr: 0,
+                    revision: 0,
+                    media_type: MediaType::IxgbeMediaTypeUnknown,
+                    phy_semaphore_mask: 0,
+                    nw_mng_if_sel: 0, // TODO: Need to check if this is initialized in OpenBSD
+                },
+                eeprom,
+                bus: IxgbeBusInfo {
+                    speed: BusSpeed::IxgbeBusSpeedUnknown,
+                    width: BusWidth::IxgbeBusWidthUnknown,
+                    bus_type: BusType::IxgbeBusTypeUnknown,
+                    func: 0,
+                    lan_id: 0,
+                    instance_id: 0,
+                }, // TODO: Need to check if this is initialized in OpenBSD
                 adapter_stopped: false,
+                crosstalk_fix: false,
             },
             ops,
         ))
+    }
+
+    //pub fn set_legacy_irq(&mut self, legacy_irq: bool) {
+    //self.legacy_irq = legacy_irq;
+    //}
+
+    #[inline(always)]
+    pub fn get_mac_type(&self) -> MacType {
+        self.mac.mac_type
+    }
+
+    //pub fn get_max_frame_size(&self) -> u32 {
+    //self.max_frame_size
+    //}
+    /* Set an initial default flow control value */
+
+    pub fn get_mac_addr(&self) -> [u8; IXGBE_ETH_LENGTH_OF_ADDRESS] {
+        self.mac.addr
+    }
+
+    pub fn get_media_type(&self) -> MediaType {
+        self.phy.media_type
     }
 }
 
@@ -390,6 +379,40 @@ pub enum MacType {
     IxgbeMacX550EMAVf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum PhyType {
+    IxgbePhyUnknown = 0,
+    IxgbePhyNone,
+    IxgbePhyTn,
+    IxgbePhyAq,
+    IxgbePhyX550emKr,
+    IxgbePhyX550emKx4,
+    IxgbePhyX550emXfi,
+    IxgbePhyX550emExtT,
+    IxgbePhyExt1gT,
+    IxgbePhyCuUnknown,
+    IxgbePhyQt,
+    IxgbePhyXaui,
+    IxgbePhyNl,
+    IxgbePhySfpPassiveTyco,
+    IxgbePhySfpPassiveUnknown,
+    IxgbePhySfpActiveUnknown,
+    IxgbePhySfpAvago,
+    IxgbePhySfpFtl,
+    IxgbePhySfpFtlActive,
+    IxgbePhySfpUnknown,
+    IxgbePhySfpIntel,
+    IxgbePhyQsfpPassiveUnknown,
+    IxgbePhyQsfpActiveUnknown,
+    IxgbePhyQsfpIntel,
+    IxgbePhyQsfpUnknown,
+    IxgbePhySfpUnsupported, /*Enforce bit set with unsupported module*/
+    IxgbePhySgmii,
+    IxgbePhyFw,
+    IxgbePhyGeneric,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum MediaType {
     IxgbeMediaTypeUnknown = 0,
     IxgbeMediaTypeFiber,
@@ -399,6 +422,77 @@ pub enum MediaType {
     IxgbeMediaTypeBackplane,
     IxgbeMediaTypeCx4,
     IxgbeMediaTypeVirtual,
+}
+
+// Flow Control Settings
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum FcMode {
+    IxgbeFcNone = 0,
+    IxgbeFcRxPause,
+    IxgbeFcTxPause,
+    IxgbeFcFull,
+    IxgbeFcDefault,
+}
+
+// PCI bus types
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum BusType {
+    IxgbeBusTypeUnknown = 0,
+    IxgbeBusTypePci,
+    IxgbeBusTypePcix,
+    IxgbeBusTypePciExpress,
+    IxgbeBusTypeInternal,
+    IxgbeBusTypeReserved,
+}
+
+// PCI bus speeds
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum BusSpeed {
+    IxgbeBusSpeedUnknown = 0,
+    IxgbeBusSpeed33 = 33,
+    IxgbeBusSpeed66 = 66,
+    IxgbeBusSpeed100 = 100,
+    IxgbeBusSpeed120 = 120,
+    IxgbeBusSpeed133 = 133,
+    IxgbeBusSpeed2500 = 2500,
+    IxgbeBusSpeed5000 = 5000,
+    IxgbeBusSpeed8000 = 8000,
+    IxgbeBusSpeedReserved,
+}
+
+// PCI bus widths
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum BusWidth {
+    IxgbeBusWidthUnknown = 0,
+    IxgbeBusWidthPcieX1 = 1,
+    IxgbeBusWidthPcieX2 = 2,
+    IxgbeBusWidthPcieX4 = 4,
+    IxgbeBusWidthPcieX8 = 8,
+    IxgbeBusWidth32 = 32,
+    IxgbeBusWidth64 = 64,
+    IxgbeBusWidthReserved,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum LinkSpeed {
+    IxgbeLinkSpeedUnknown = 0,
+    IxgbeLinkSpeed10Full = 0x0002,
+    IxgbeLinkSpeed100Full = 0x0008,
+    IxgbeLinkSpeed1GBFull = 0x0020,
+    IxgbeLinkSpeed2_5GBFull = 0x0400,
+    IxgbeLinkSpeed5GBFull = 0x0800,
+    IxgbeLinkSpeed10GBFull = 0x0080,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum LinkState {
+    LinkStateUnown = 0,  /* link unknown */
+    LinkStateInvalid,    /* link invalid */
+    LinkStateDown,       /* link is down */
+    LinkStateKaliveDown, /* keepalive reports down */
+    LinkStateUp,         /* link is up */
+    LinkStateHalfDuplex, /* link is up and half duplex */
+    LinkStateFullDuplex, /* link is up and full duplex */
 }
 
 #[inline(always)]
