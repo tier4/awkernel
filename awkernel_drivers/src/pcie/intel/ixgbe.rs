@@ -85,6 +85,8 @@ pub struct Tx {
     write_buf: Option<DMAPool<TxBuffer>>,
 }
 pub struct Rx {
+    rx_desc_head: u32,
+    rx_desc_tail: usize,
     rx_desc_ring: DMAPool<TxRing>,
     read_buf: Option<DMAPool<RxBuffer>>,
 }
@@ -132,6 +134,7 @@ struct RxWb {
 union AdvRxDesc {
     read: RxRead,
     wb: RxWb,
+    data: [u64; 2],
 }
 
 struct AdvTxContextDescriptor {
@@ -402,6 +405,10 @@ impl IxgbeInner {
         self.ops.mac_init_hw(&mut self.info, &mut self.hw)?;
         self.initialize_transmit_units()?;
 
+        // Prepare receive descriptors and buffers
+        self.setup_receive_structures(que)?;
+        self.initialize_receive_unit(que)?;
+
         Ok(())
     }
 
@@ -576,6 +583,181 @@ impl IxgbeInner {
 
         Ok(())
     }
+
+    fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        for que in que.iter() {
+            let mut node = MCSNode::new();
+            let mut rx = que.rx.lock(&mut node);
+
+            rx.rx_desc_tail = 0;
+            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
+
+            let rx_desc_ring = rx.rx_desc_ring.as_mut();
+
+            let rx_buffer_size = RXBUFFER_2048 as usize * MAX_RXD;
+            let read_buf = DMAPool::new(
+                self.info.get_segment_group() as usize,
+                rx_buffer_size / PAGESIZE,
+            )
+            .ok_or(IgbDriverErr::DMAPool)?;
+
+            let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+
+            for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+                desc.data = [0; 2];
+                desc.read.pkt_addr = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
+            }
+
+            rx.read_buf = Some(read_buf);
+        }
+
+        Ok(())
+    }
+
+    fn initialize_receive_unit(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+
+        // Make sure receives are disabled while
+        // setting up the descriptor ring
+        self.ops.mac_disable_rx(&self.info, &mut self.hw);
+
+        // Enable broadcasts
+        let mut fctrl = ixgbe_hw::read_reg(&self.info, offset)?;
+        fctrl |= IXGBE_FCTRL_BAM;
+        if hw.mac.mac_type == IxgbeMac82598EB {
+            fctrl |= IXGBE_FCTRL_DPF;
+            fctrl |= IXGBE_FCTRL_PMCF;
+        }
+        ixgbe_hw::write_reg(&self.info, IXGBE_FCTRL, fctrl)?;
+
+        let mut hlreg = ixgbe_hw::read_reg(&self.info, IXGBE_HLREG0)?;
+        // Always enable jumbo frame reception
+        hlreg |= IXGBE_HLREG0_JUMBOEN;
+        // Always enable CRC stripping
+        hlreg |= IXGBE_HLREG0_RXCRCSTRP;
+        ixgbe_hw::write_reg(&self.info, IXGBE_HLREG0, hlreg)?;
+
+        for que in que.iter() {
+            let mut node = MCSNode::new();
+            let rx = que.rx.lock(&mut node);
+
+            // Setup the Base and Length of the Rx Descriptor Ring
+            ixgbe_hw::write_reg(
+                &self.info,
+                IXGBE_RDBAL(i),
+                rx.rx_desc_ring.get_phy_addr().as_usize() as u32,
+            )?;
+            ixgbe_hw::write_reg(
+                &self.info,
+                IXGBE_RDBAH(i),
+                (rx.rx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
+            )?;
+            ixgbe_hw::write_reg(
+                &self.info,
+                IXGBE_RDLEN(i),
+                rx.rx_desc_ring.get_size() as u32,
+            )?;
+
+            // Set up the SRRCTL register
+            let mut srrctl = bufsz | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF;
+            ixgbe_hw::write_reg(&self.info, IXGBE_SRRCTL(i), srrctl)?;
+
+            // Setup the HW Rx Head and Tail Descriptor Pointers
+            ixgbe_hw::write_reg(&self.info, IXGBE_RDH(i), 0)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(i), 0)?;
+        }
+
+        if self.hw.mac.mac_type != IxgbeMac82598EB {
+            let psrtype = IXGBE_PSRTYPE_TCPHDR
+                | IXGBE_PSRTYPE_UDPHDR
+                | IXGBE_PSRTYPE_IPV4HDR
+                | IXGBE_PSRTYPE_IPV6HDR;
+            ixgbe_hw::write_reg(&self.info, IXGBE_PSRTYPE(0), psrtype)?;
+        }
+
+        let mut rxcsum = ixgbe_hw::read_reg(info, IXGBE_RXCSUM)?;
+        rxcsum &= !IXGBE_RXCSUM_PCSD;
+
+        self.initialize_rss_mapping();
+        // Setup RSS
+        let que_num = get_num_queues(&self.hw);
+        if que_num > 1 {
+            // RSS and RX IPP Checksum are mutually exclusive
+            rxcsum |= IXGBE_RXCSUM_PCSD;
+        }
+
+        // Map QPRC/QPRDC/QPTC on a per queue basis
+        self.map_queue_statistics();
+
+        if rxcsum & IXGBE_RXCSUM_PCSD == 0 {
+            rscsum |= IXGBE_RXCSUM_IPPCSE;
+        }
+        ixgbe_hw::write_reg(&self.info, IXGBE_RXCSUM, rxcsum)?;
+
+        Ok(())
+    }
+
+    fn initialize_rss_mapping(&self) {
+        use ixgbe_hw::MacType::*;
+
+        // set up random bits
+        let mut rng = SmallRng::from_entropy();
+        let mut rss_keys = [0u32; 10];
+        for i in 0..10 {
+            rss_keys[i] = rng.gen::<u32>();
+        }
+
+        // Set multiplier for RETA setup and table size based on MAC
+        let index_mult = match hw.mac.mac_type {
+            IxgbeMac82598EB => 0x11,
+            _ => 0x1,
+        };
+        let table_size = match hw.mac.mac_type {
+            IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => 512,
+            _ => 128,
+        };
+
+        // Set up the redirection table
+        let mut j = 0;
+        let que_num = get_num_queues(&self.hw);
+        let mut queue_id = 0;
+        let mut reta = 0;
+        for i in 0..table_size {
+            if j == que_num {
+                j = 0;
+            }
+            queue_id = j * index_mult;
+            // The low 8 bits are for hash value (n+0);
+            // The next 8 bits are for hash value (n+1), etc.
+            reta = reta >> 8;
+            reta = reta | ((queue_id as u32) << 24);
+            if (i & 3) == 3 {
+                if i < 128 {
+                    ixgbe_hw::write_reg(&self.info, IXGBE_RETA(i >> 2), reta)?;
+                } else {
+                    ixgbe_hw::write_reg(&self.info, IXGBE_ERETA((i >> 2) - 32), reta)?;
+                }
+                reta = 0;
+            }
+        }
+
+        // Now fill our hash function seeds
+        for i in 0..10 {
+            ixgbe_hw::write_reg(&self.info, IXGBE_RSSRK(i), rss_key[i])?;
+        }
+
+        // Disable UDP - IP fragments aren't currently being handled
+        // and so we end up with a mix of 2-tuple and 4-tuple
+        // traffic.
+        let mrqc = IXGBE_MRQC_RSSEN
+            | IXGBE_MRQC_RSS_FIELD_IPV4
+            | IXGBE_MRQC_RSS_FIELD_IPV4_TCP
+            | IXGBE_MRQC_RSS_FIELD_IPV6_EX_TCP
+            | IXGBE_MRQC_RSS_FIELD_IPV6_EX
+            | IXGBE_MRQC_RSS_FIELD_IPV6
+            | IXGBE_MRQC_RSS_FIELD_IPV6_TCP;
+        ixgbe_hw::write_reg(&self.info, IXGBE_MRQC, mrqc)?;
+    }
 }
 
 impl Ixgbe {
@@ -666,6 +848,7 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
+        txd_cmd: IXGBE_TXD_CMD_IFCS,
         write_buf: None,
     };
 
