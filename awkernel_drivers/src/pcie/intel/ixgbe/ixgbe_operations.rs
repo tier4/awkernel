@@ -8,7 +8,7 @@ use super::{
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::wait_microsec;
-use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode};
+use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode, LinkSpeed};
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -298,7 +298,7 @@ fn set_pci_config_data<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw
  // This function returns TRUE if the device supports flow control
  // autonegotiation, and FALSE if it does not.
 fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool,IxgbeDriverErr>{
-    use ixgbe_hw::MediaType::*;
+    use ixgbe_hw::{MediaType::*, LinkSpeed::*,};
 
 	let supported = match hw.phy.media_type {
     IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
@@ -309,7 +309,7 @@ fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeI
 		_ => {
             let (speed, link_up) = ops.mac_check_link(info, hw, false)?;
             if link_up {
-                if speed == IXGBE_LINK_SPEED_1GB_FULL {
+                if speed == IxgbeLinkSpeed1GBFull {
                     true
                 }else{
                     false
@@ -454,6 +454,61 @@ fn negotiate_fc(hw: &mut IxgbeHw, adv_reg: u32, lp_reg: u32, adv_sym :u32, adv_a
     Ok(())
 }
 
+// set_mta - Set bit-vector in multicast table
+// // Sets the bit-vector in the multicast table.
+pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]){
+    hw.addr_ctrl.mta_in_use += 1;
+    let vector = mta_vector(hw, mc_addr);
+	// The MTA is a register array of 128 32-bit registers. It is treated
+	// like an array of 4096 bits.  We want to set bit
+	// BitArray[vector_value]. So we figure out what register the bit is
+	// in, read it, OR in the new bit, then write back the new value.  The
+	// register is determined by the upper 7 bits of the vector value and
+	// the bit within that register are determined by the lower 5 bits of
+	// the value.
+    let vector_reg = (vector >> 5) & 0x7F;
+    let vector_bit = vector & 0x1F;
+    hw.mac.mta_shadow[vector_reg as usize] |= 1 << vector_bit;
+    ()
+}
+
+// mta_vector - Determines bit-vector in multicast table to set
+// // Extracts the 12 bits, from a multicast address, to determine which
+// bit-vector to set in the multicast table. The hardware uses 12 bits, from
+// incoming rx multicast addresses, to determine the bit-vector to check in
+// the MTA. Which of the 4 combination, of 12-bits, the hardware uses is set
+// by the MO field of the MCSTCTRL. The MO field is set during initialization
+// to mc_filter_type.
+pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
+	let mut vector = match hw.mac.mc_filter_type {
+	    0 => {
+        // use bits [47:36] of the address
+		    (mc_addr[4] >> 4) as u16 | ((mc_addr[5] as u16) << 4)
+        },
+	    1 => {
+        // use bits [46:35] of the address
+		    (mc_addr[4] >> 3) as u16 | ((mc_addr[5] as u16) << 5)
+        },
+	    2 => {
+        // use bits [45:34] of the address
+		    (mc_addr[4] >> 2) as u16 | ((mc_addr[5] as u16) << 6)
+        },
+	    3 => {
+        // use bits [43:32] of the address 
+		    (mc_addr[4]) as u16 | ((mc_addr[5] as u16) << 8)
+        },
+	    _ => {
+        // Invalid mc_filter_type
+		    log::debug!("MC filter type param set incorrectly\n");
+		    panic!("incorrect multicast filter type");
+	    },
+    };
+
+	// vector can only be 12-bits or boundary will be exceeded
+	vector &= 0xFFF;
+	vector
+}
+
  // probe_phy - Probe a single address for a PHY
  // Returns TRUE if PHY found
 fn probe_phy<T: IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw , phy_addr: u16) -> Result<(), IxgbeDriverErr>{
@@ -494,11 +549,11 @@ fn get_phy_id<T: IxgbeOperations + ?Sized >(ops: &T, info: &PCIeInfo, hw: &mut I
 	let phy_id_high = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_ID_HIGH,
 				      IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
 
-	hw.phy.id = (phy_id_high << 16) as u32;
+	hw.phy.id = (phy_id_high as u32) << 16;
 	let phy_id_low = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_ID_LOW, IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
 
-	hw.phy.id |= (phy_id_low & IXGBE_PHY_REVISION_MASK) as u32;
-	hw.phy.revision = (phy_id_low & !IXGBE_PHY_REVISION_MASK) as u32;
+	hw.phy.id |= phy_id_low as u32 & IXGBE_PHY_REVISION_MASK;
+	hw.phy.revision = phy_id_low as u32 & !IXGBE_PHY_REVISION_MASK;
     Ok(())
 }
 
@@ -1400,16 +1455,16 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 		    }
 
 		    ixgbe_hw::write_reg(info, IXGBE_FCRTH_82599(i), fcrth)?;
-
+        }
 
 	    // Configure pause time (2 TCs per register) 
-	    let reg = (uint32_t)hw.fc.pause_time * 0x00010001;
+	    let reg = hw.fc.pause_time as u32 * 0x00010001;
         for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
 		    ixgbe_hw::write_reg(info, IXGBE_FCTTV(i), reg)?;
         }
 
 	    // Configure flow control refresh threshold value 
-	    ixgbe_hw::write_reg(info, IXGBE_FCRTV, hw.fc.pause_time / 2)?;
+	    ixgbe_hw::write_reg(info, IXGBE_FCRTV, hw.fc.pause_time as u32 / 2)?;
 
         Ok(())    
     }
@@ -1442,16 +1497,16 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         match hw.phy.media_type {
     	    /* Autoneg flow control on fiber adapters */
             IxgbeMediaTypeFiber | IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp => {
-                if speed == IXGBE_LINK_SPEED_1GB_FULL {
+                if speed == ixgbe_hw::LinkSpeed::IxgbeLinkSpeed1GBFull {
                     fc_autoneg_fiber(info, hw)?;
                 } else {
                     return Err(FcNotNegotiated);
                 }
-            }
+            },
 	        /* Autoneg flow control on backplane adapters */
             IxgbeMediaTypeBackplane => {
                 fc_autoneg_backplane(info, hw);
-            }
+            },
 	        /* Autoneg flow control on copper adapters */
             IxgbeMediaTypeCopper => {
                 if device_supports_autoneg_fc(self, info, hw)? {
@@ -1459,7 +1514,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
                 }else{
                     return Err(FcNotNegotiated);
                 }
-            }
+            },
             _ => (),
         }
 
@@ -1487,7 +1542,7 @@ fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete
 		};
 
 		if sfp_cage_full == 0 {
-            return Ok((IxgbeLinkSpeed, false));
+            return Ok((IxgbeLinkSpeedUnknown, false));
 		}
 	}
 
@@ -1529,7 +1584,7 @@ fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete
             IxgbeLinkSpeed10GBFull
 		}
     },
-	IXGBE_LINKS_SPEED_1G_82599 => IXGBE_LINK_SPEED_1GB_FULL,
+	IXGBE_LINKS_SPEED_1G_82599 => IxgbeLinkSpeed1GBFull,
 	IXGBE_LINKS_SPEED_100_82599 =>{
 		if hw.mac.mac_type == IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0 {
             IxgbeLinkSpeed5GBFull

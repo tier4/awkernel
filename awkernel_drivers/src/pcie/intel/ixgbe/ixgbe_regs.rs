@@ -1,5 +1,12 @@
 pub const DEFAULT_TXD: usize = 256;
+pub const PERFORM_TXD: usize = 4096;
+pub const MAX_TXD: usize = 4096;
 pub const DEFAULT_RXD: usize = 256;
+pub const PERFORM_RXD: usize = 256;
+pub const MIN_RXD: usize = 256;
+pub const IXGBE_VFTA_SIZE: usize = 128;
+
+pub const IXGBE_MAX_FRAME_SIZE: usize = 9216;
 
 pub const IXGBE_DEV_ID_82598: u16 = 0x10B6;
 pub const IXGBE_DEV_ID_82598_BX: u16 = 0x1508;
@@ -382,7 +389,7 @@ pub const IXGBE_PSRTYPE: fn(u32) -> u32 = |i| {
     }
 };
 // Array of 4096 1-bit vlan filters
-pub const IXGBE_VFTA: fn(u32) -> u32 = |i| 0x0A000 + (i * 4);
+pub const IXGBE_VFTA: fn(usize) -> usize = |i| 0x0A000 + (i * 4);
 // Array of 4096 4-bit vlan vmdq indices
 pub const IXGBE_VFTAVIND: fn(usize, usize) -> usize = |j, i| 0x0A200 + (j * 0x200) + (i * 4);
 pub const IXGBE_FCTRL: usize = 0x05080;
@@ -1399,8 +1406,8 @@ pub const IXGBE_FACTPS_MNGCG: u32 = 0x20000000; // Manageability Clock Gated
 pub const IXGBE_FACTPS_LFS: u32 = 0x40000000; // LAN Function Select
 
 // MHADD Bit Masks
-pub const IXGBE_MHADD_MFS_MASK: usize = 0xFFFF0000;
-pub const IXGBE_MHADD_MFS_SHIFT: usize = 16;
+pub const IXGBE_MHADD_MFS_MASK: u32 = 0xFFFF0000;
+pub const IXGBE_MHADD_MFS_SHIFT: u32 = 16;
 
 // Extended Device Control
 pub const IXGBE_CTRL_EXT_PFRSTD: u32 = 0x00004000; // Physical Function Reset Done
@@ -1594,7 +1601,7 @@ pub const IXGBE_MII_AUTONEG_COMPLETE: u32 = 0x20;
 pub const IXGBE_MII_AUTONEG_LINK_UP: u32 = 0x04;
 pub const IXGBE_MII_AUTONEG_REG: u32 = 0x0;
 
-pub const IXGBE_PHY_REVISION_MASK: u16 = 0xFFFFFFF0;
+pub const IXGBE_PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
 pub const IXGBE_MAX_PHY_ADDR: u16 = 32;
 
 // PHY IDs

@@ -151,12 +151,15 @@ fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<MacType, IxgbeDriverErr>
     Ok(result)
 }
 
+pub const IXGBE_MAX_MTA: usize = 128;
+
 #[derive(Debug, Clone, Copy)]
 pub struct IxgbeMacInfo {
     pub mac_type: MacType,
     pub addr: [u8; IXGBE_ETH_LENGTH_OF_ADDRESS],
     pub perm_addr: [u8; IXGBE_ETH_LENGTH_OF_ADDRESS],
     pub mc_filter_type: i32,
+    pub mta_shadow: [u32; IXGBE_MAX_MTA],
     pub mcft_size: u32,
     pub vft_size: u32,
     pub num_rar_entries: u32,
@@ -277,6 +280,7 @@ impl IxgbeHw {
                     mac_type,
                     addr: [0; IXGBE_ETH_LENGTH_OF_ADDRESS],
                     perm_addr: [0; IXGBE_ETH_LENGTH_OF_ADDRESS],
+                    mta_shadow: [0; IXGBE_MAX_MTA],
                     mc_filter_type: 0,
                     mcft_size,
                     vft_size,

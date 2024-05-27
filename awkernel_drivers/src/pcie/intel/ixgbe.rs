@@ -16,6 +16,7 @@ use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     console,
+    delay::wait_microsec,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -44,6 +45,9 @@ use core::{
     mem,
 };
 use memoffset::offset_of;
+use rand::rngs::SmallRng;
+use rand::Rng;
+use rand::SeedableRng;
 
 mod ixgbe_hw;
 mod ixgbe_operations;
@@ -66,6 +70,8 @@ enum QueueStatus {
     IxgbeQueueHung,
 }
 
+pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
+
 const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
 const MAXMCLBYTES: u32 = 64 * 1024;
@@ -87,7 +93,7 @@ pub struct Tx {
 pub struct Rx {
     rx_desc_head: u32,
     rx_desc_tail: usize,
-    rx_desc_ring: DMAPool<TxRing>,
+    rx_desc_ring: DMAPool<RxRing>,
     read_buf: Option<DMAPool<RxBuffer>>,
 }
 
@@ -132,9 +138,9 @@ struct RxWb {
 }
 
 union AdvRxDesc {
+    data: [u64; 2],
     read: RxRead,
     wb: RxWb,
-    data: [u64; 2],
 }
 
 struct AdvTxContextDescriptor {
@@ -156,6 +162,8 @@ struct IxgbeInner {
     //smart_speed: u32,
     pcie_int: PCIeInt,
     multicast_addr: BTreeSet<[u8; 6]>,
+    max_frame_size: u16,
+    shadow_vfta: [u32; IXGBE_VFTA_SIZE],
 
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     //msix_mask: u32,
@@ -349,6 +357,7 @@ impl IxgbeInner {
             // flags |= NetFlags::LR0;
             capabilities |= NetCapabilities::LRO;
         }
+        let max_frame_size = IXGBE_MAX_FRAME_SIZE as u16;
 
         // Get the PCI-E bus info and determine LAN ID
         let businfo = ops.mac_get_bus_info(&mut info, &mut hw)?;
@@ -373,6 +382,7 @@ impl IxgbeInner {
             link_state: ixgbe_hw::LinkState::LinkStateDown,
             pcie_int,
             multicast_addr: BTreeSet::new(),
+            max_frame_size,
             irq_to_rx_tx_link,
             is_poll_mode,
         };
@@ -387,13 +397,13 @@ impl IxgbeInner {
 
         // reprogram the RAR[0] in case user changed it.
         self.ops.mac_set_rar(
-            info,
-            hw.mac.num_rar_entries,
+            &self.info,
+            self.hw.mac.num_rar_entries,
             0,
-            hw.mac.addr,
+            &self.hw.mac.addr,
             0,
             IXGBE_RAH_AV,
-        );
+        )?;
         self.hw.addr_ctrl.rar_used_count = 1;
 
         if let Err(e) = self.setup_transmit_structures(que) {
@@ -403,11 +413,71 @@ impl IxgbeInner {
         }
 
         self.ops.mac_init_hw(&mut self.info, &mut self.hw)?;
-        self.initialize_transmit_units()?;
+        self.initialize_transmit_unit(que)?;
 
         // Prepare receive descriptors and buffers
-        self.setup_receive_structures(que)?;
+        if let Err(e) = self.setup_receive_structures(que) {
+            log::error!("Could not setup receieve structures");
+            self.stop(que)?;
+            return Err(e);
+        }
+
+        // Configure RX settings
         self.initialize_receive_unit(que)?;
+
+        // Enable SDP & MSIX interrupts based on adapter
+        self.config_gpie()?;
+
+        // Program promiscuous mode and multicast filters.
+        self.iff()?;
+
+        // Set MRU size
+        let mut mhadd = ixgbe_hw::read_reg(&self.info, IXGBE_MHADD)?;
+        mhadd &= !IXGBE_MHADD_MFS_MASK;
+        mhadd |= (self.max_frame_size as u32) << IXGBE_MHADD_MFS_SHIFT;
+        ixgbe_hw::write_reg(&self.info, IXGBE_MHADD, mhadd)?;
+
+        let que_num = get_num_queues(&self.hw);
+        // Now enable all the queues
+        for i in 0..que_num {
+            let mut txdctl = ixgbe_hw::read_reg(&self.info, IXGBE_TXDCTL(i))?;
+            txdctl |= IXGBE_TXDCTL_ENABLE;
+            // Set WTHRESH to 8, burst writeback
+            txdctl |= 8 << 16;
+            // When the internal queue falls below PTHRESH (16),
+            // start prefetching as long as there are at least
+            // HTHRESH (1) buffers ready.
+            txdctl |= (16 << 0) | (1 << 8);
+            ixgbe_hw::write_reg(&self.info, IXGBE_TXDCTL(i), txdctl)?;
+        }
+
+        for que in que.iter() {
+            let mut node = MCSNode::new();
+            let rx = que.rx.lock(&mut node);
+
+            let mut rxdctl = ixgbe_hw::read_reg(&self.info, IXGBE_RXDCTL(que.me))?;
+            if self.hw.mac.mac_type == IxgbeMac82598EB {
+                // PTHRESH = 21
+                // HTHRESH = 4
+                // WTHRESH = 8
+                rxdctl &= !0x3FFFFF;
+                rxdctl |= 0x080420;
+            }
+            rxdctl |= IXGBE_RXDCTL_ENABLE;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RXDCTL(que.me), rxdctl)?;
+            for _ in 0..10 {
+                if ixgbe_hw::read_reg(&self.info, IXGBE_RXDCTL(que.me))? & IXGBE_RXDCTL_ENABLE != 0
+                {
+                    break;
+                } else {
+                    wait_microsec(1);
+                }
+            }
+            ixgbe_hw::write_flush(&self.info)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_tail as u32)?;
+        }
+
+        self.setup_vlan_hw_support()?;
 
         Ok(())
     }
@@ -417,9 +487,9 @@ impl IxgbeInner {
 
         self.disable_intr()?;
 
-        self.ops.mac_reset_hw(&mut self.info, &mut self.hw);
+        self.ops.mac_reset_hw(&mut self.info, &mut self.hw)?;
         self.hw.adapter_stopped = false;
-        self.ops.mac_stop_adapter(&mut self.info, &mut self.hw);
+        self.ops.mac_stop_adapter(&mut self.info, &mut self.hw)?;
 
         self.ops.mac_set_rar(
             &self.info,
@@ -428,7 +498,7 @@ impl IxgbeInner {
             &self.hw.mac.addr,
             0,
             IXGBE_RAH_AV,
-        );
+        )?;
 
         //// let hardware know driver is unloading
         //let mut ctrl_ext = ixgbe_hw::read_reg(&self.info, IXGBE_CTRL_EXT)?;
@@ -437,11 +507,11 @@ impl IxgbeInner {
 
         for que in que.iter() {
             let mut node = MCSNode::new();
-            let mut tx = que.txr.lock(&mut node);
+            let mut tx = que.tx.lock(&mut node);
             tx.write_buf = None;
 
             let mut node = MCSNode::new();
-            let mut rx = que.rxr.lock(&mut node);
+            let mut rx = que.rx.lock(&mut node);
             rx.read_buf = None;
         }
 
@@ -529,50 +599,52 @@ impl IxgbeInner {
             // Setup descriptor base address
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_TDBAL(i),
+                IXGBE_TDBAL(que.me),
                 tx.tx_desc_ring.get_phy_addr().as_usize() as u32,
             )?;
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_TDBAH(i),
+                IXGBE_TDBAH(que.me),
                 (tx.tx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
             )?;
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_TDLEN(i),
+                IXGBE_TDLEN(que.me),
                 tx.tx_desc_ring.get_size() as u32,
             )?;
 
             // Setup the HW Tx Head and Tail descriptor pointers
-            ixgbe_hw::write_reg(&self.info, IXGBE_TDH(i), 0);
-            ixgbe_hw::write_reg(&self.info, IXGBE_TDT(i), 0);
+            ixgbe_hw::write_reg(&self.info, IXGBE_TDH(que.me), 0);
+            ixgbe_hw::write_reg(&self.info, IXGBE_TDT(que.me), 0);
 
             // Setup Transmit Descriptor Cmd Settings
             tx.txd_cmd = IXGBE_TXD_CMD_IFCS;
 
             let mut txctrl = match self.hw.mac.mac_type {
-                IxgbeMac82598EB => ixgbe_hw::read_reg(&self.info, IXGBE_DCA_TXCTRL(i))?,
-                _ => ixgbe_hw::read_reg(&self.info, IXGBE_DCA_TXCTRL_82599(i))?,
+                IxgbeMac82598EB => ixgbe_hw::read_reg(&self.info, IXGBE_DCA_TXCTRL(que.me))?,
+                _ => ixgbe_hw::read_reg(&self.info, IXGBE_DCA_TXCTRL_82599(que.me))?,
             };
 
             txctrl &= !(IXGBE_DCA_TXCTRL_DESC_WRO_EN);
 
             match self.hw.mac.mac_type {
-                IxgbeMac82599EB => ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL(i), txctrl)?,
-                _ => ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL_82599(i), txctrl)?,
+                IxgbeMac82599EB => {
+                    ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL(que.me), txctrl)?
+                }
+                _ => ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL_82599(que.me), txctrl)?,
             }
         }
 
         if self.hw.mac.mac_type != IxgbeMac82598EB {
             let mut dmatxctl = ixgbe_hw::read_reg(&self.info, IXGBE_DMATXCTL)?;
-            dmatxctl |= IXGBE_DMATXCTL_TE;
+            dmatxctl |= IXGBE_DMATXCTL_TE as u32;
             ixgbe_hw::write_reg(&self.info, IXGBE_DMATXCTL, dmatxctl)?;
             // Disable arbiter to set MTQC
             let mut rttdcs = ixgbe_hw::read_reg(&self.info, IXGBE_RTTDCS)?;
-            rttdcs |= IXGBE_RTTDCS_ARBDIS;
+            rttdcs |= IXGBE_RTTDCS_ARBDIS as u32;
             ixgbe_hw::write_reg(&self.info, IXGBE_RTTDCS, rttdcs)?;
             ixgbe_hw::write_reg(&self.info, IXGBE_MTQC, IXGBE_MTQC_64Q_1PB)?;
-            rttdcs &= !IXGBE_RTTDCS_ARBDIS;
+            rttdcs &= !IXGBE_RTTDCS_ARBDIS as u32;
             ixgbe_hw::write_reg(&self.info, IXGBE_RTTDCS, rttdcs)?;
         }
 
@@ -594,18 +666,18 @@ impl IxgbeInner {
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
-            let rx_buffer_size = RXBUFFER_2048 as usize * MAX_RXD;
+            let rx_buffer_size = MCLBYTES as usize * DEFAULT_RXD;
             let read_buf = DMAPool::new(
                 self.info.get_segment_group() as usize,
                 rx_buffer_size / PAGESIZE,
             )
-            .ok_or(IgbDriverErr::DMAPool)?;
+            .ok_or(IxgbeDriverErr::DMAPool)?;
 
             let buf_phy_addr = read_buf.get_phy_addr().as_usize();
 
             for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
                 desc.data = [0; 2];
-                desc.read.pkt_addr = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
+                desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
             }
 
             rx.read_buf = Some(read_buf);
@@ -614,7 +686,7 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn initialize_receive_unit(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn initialize_receive_unit(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
         // Make sure receives are disabled while
@@ -622,9 +694,9 @@ impl IxgbeInner {
         self.ops.mac_disable_rx(&self.info, &mut self.hw);
 
         // Enable broadcasts
-        let mut fctrl = ixgbe_hw::read_reg(&self.info, offset)?;
+        let mut fctrl = ixgbe_hw::read_reg(&self.info, IXGBE_FCTRL)?;
         fctrl |= IXGBE_FCTRL_BAM;
-        if hw.mac.mac_type == IxgbeMac82598EB {
+        if self.hw.mac.mac_type == IxgbeMac82598EB {
             fctrl |= IXGBE_FCTRL_DPF;
             fctrl |= IXGBE_FCTRL_PMCF;
         }
@@ -637,6 +709,7 @@ impl IxgbeInner {
         hlreg |= IXGBE_HLREG0_RXCRCSTRP;
         ixgbe_hw::write_reg(&self.info, IXGBE_HLREG0, hlreg)?;
 
+        let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEHDRSIZE_SHIFT;
         for que in que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
@@ -644,27 +717,27 @@ impl IxgbeInner {
             // Setup the Base and Length of the Rx Descriptor Ring
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_RDBAL(i),
+                IXGBE_RDBAL(que.me),
                 rx.rx_desc_ring.get_phy_addr().as_usize() as u32,
             )?;
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_RDBAH(i),
+                IXGBE_RDBAH(que.me),
                 (rx.rx_desc_ring.get_phy_addr().as_usize() as u64 >> 32) as u32,
             )?;
             ixgbe_hw::write_reg(
                 &self.info,
-                IXGBE_RDLEN(i),
+                IXGBE_RDLEN(que.me),
                 rx.rx_desc_ring.get_size() as u32,
             )?;
 
             // Set up the SRRCTL register
             let mut srrctl = bufsz | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF;
-            ixgbe_hw::write_reg(&self.info, IXGBE_SRRCTL(i), srrctl)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_SRRCTL(que.me), srrctl)?;
 
             // Setup the HW Rx Head and Tail Descriptor Pointers
-            ixgbe_hw::write_reg(&self.info, IXGBE_RDH(i), 0)?;
-            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(i), 0)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RDH(que.me), 0)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), 0)?;
         }
 
         if self.hw.mac.mac_type != IxgbeMac82598EB {
@@ -672,13 +745,13 @@ impl IxgbeInner {
                 | IXGBE_PSRTYPE_UDPHDR
                 | IXGBE_PSRTYPE_IPV4HDR
                 | IXGBE_PSRTYPE_IPV6HDR;
-            ixgbe_hw::write_reg(&self.info, IXGBE_PSRTYPE(0), psrtype)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_PSRTYPE(0) as usize, psrtype)?;
         }
 
-        let mut rxcsum = ixgbe_hw::read_reg(info, IXGBE_RXCSUM)?;
+        let mut rxcsum = ixgbe_hw::read_reg(&self.info, IXGBE_RXCSUM)?;
         rxcsum &= !IXGBE_RXCSUM_PCSD;
 
-        self.initialize_rss_mapping();
+        self.initialize_rss_mapping()?;
         // Setup RSS
         let que_num = get_num_queues(&self.hw);
         if que_num > 1 {
@@ -687,32 +760,34 @@ impl IxgbeInner {
         }
 
         // Map QPRC/QPRDC/QPTC on a per queue basis
-        self.map_queue_statistics();
+        self.map_queue_statistics()?;
 
         if rxcsum & IXGBE_RXCSUM_PCSD == 0 {
-            rscsum |= IXGBE_RXCSUM_IPPCSE;
+            rxcsum |= IXGBE_RXCSUM_IPPCSE;
         }
         ixgbe_hw::write_reg(&self.info, IXGBE_RXCSUM, rxcsum)?;
 
         Ok(())
     }
 
-    fn initialize_rss_mapping(&self) {
+    fn initialize_rss_mapping(&self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
         // set up random bits
-        let mut rng = SmallRng::from_entropy();
+        let seed = [0x12u8; 32]; // 適当なシード値
+        let mut rng = SmallRng::from_seed(seed);
         let mut rss_keys = [0u32; 10];
         for i in 0..10 {
             rss_keys[i] = rng.gen::<u32>();
+            //rss_keys[i] = 0;
         }
 
         // Set multiplier for RETA setup and table size based on MAC
-        let index_mult = match hw.mac.mac_type {
+        let index_mult = match self.hw.mac.mac_type {
             IxgbeMac82598EB => 0x11,
             _ => 0x1,
         };
-        let table_size = match hw.mac.mac_type {
+        let table_size = match self.hw.mac.mac_type {
             IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => 512,
             _ => 128,
         };
@@ -743,7 +818,7 @@ impl IxgbeInner {
 
         // Now fill our hash function seeds
         for i in 0..10 {
-            ixgbe_hw::write_reg(&self.info, IXGBE_RSSRK(i), rss_key[i])?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_RSSRK(i), rss_keys[i])?;
         }
 
         // Disable UDP - IP fragments aren't currently being handled
@@ -757,6 +832,147 @@ impl IxgbeInner {
             | IXGBE_MRQC_RSS_FIELD_IPV6
             | IXGBE_MRQC_RSS_FIELD_IPV6_TCP;
         ixgbe_hw::write_reg(&self.info, IXGBE_MRQC, mrqc)?;
+
+        Ok(())
+    }
+
+    fn map_queue_statistics(&self) -> Result<(), IxgbeDriverErr> {
+        let mut r;
+        for i in 0..32 {
+            // Queues 0-15 are mapped 1:1
+            // Queue 0 -> Counter 0
+            // Queue 1 -> Counter 1
+            // Queue 2 -> Counter 2....
+            // Queues 16-127 are mapped to Counter 0
+            if i < 4 {
+                r = i * 4 + 0;
+                r |= (i * 4 + 1) << 8;
+                r |= (i * 4 + 2) << 16;
+                r |= (i * 4 + 3) << 24;
+            } else {
+                r = 0;
+            }
+            ixgbe_hw::write_reg(&self.info, IXGBE_RQSMR(i), r as u32)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_TQSM(i), r as u32)?;
+        }
+        Ok(())
+    }
+
+    fn config_gpie(&self) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+
+        let mut gpie = ixgbe_hw::read_reg(&self.info, IXGBE_GPIE)?;
+
+        // Fan Failure Interrupt
+        if self.info.id == IXGBE_DEV_ID_82598AT {
+            gpie |= IXGBE_SDP1_GPIEN;
+        }
+
+        if self.hw.mac.mac_type == IxgbeMac82599EB {
+            // Add for Module detection
+            gpie |= IXGBE_SDP2_GPIEN;
+
+            // Media ready
+            if self.info.id != IXGBE_DEV_ID_82599_QSFP_SF_QP {
+                gpie |= IXGBE_SDP1_GPIEN;
+            }
+
+            // Set LL interval to max to reduce the number of low latency
+            // interrupts hitting the card when the ring is getting full.
+            gpie |= 0xf << IXGBE_GPIE_LLI_DELAY_SHIFT;
+        }
+
+        match self.hw.mac.mac_type {
+            IxgbeMacX540 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
+                // Thermal Failure Detection (X540)
+                // Link Detection (X552 SFP+, X552/X557-AT)
+                gpie |= IXGBE_SDP0_GPIEN_X540;
+
+                // Set LL interval to max to reduce the number of low latency
+                // interrupts hitting the card when the ring is getting full.
+                gpie |= 0xf << IXGBE_GPIE_LLI_DELAY_SHIFT;
+            }
+            _ => (),
+        }
+
+        /* Enable Enhanced MSIX mode */
+        gpie |= IXGBE_GPIE_MSIX_MODE;
+        gpie |= IXGBE_GPIE_EIAME | IXGBE_GPIE_PBA_SUPPORT | IXGBE_GPIE_OCD;
+
+        ixgbe_hw::write_reg(&self.info, IXGBE_GPIE, gpie)?;
+
+        Ok(())
+    }
+
+    fn iff(&mut self) -> Result<(), IxgbeDriverErr> {
+        let mut fctrl = ixgbe_hw::read_reg(&self.info, IXGBE_FCTRL)?;
+        fctrl &= !(IXGBE_FCTRL_MPE | IXGBE_FCTRL_UPE);
+        self.flags &= !NetFlags::ALLMULTI;
+
+        if self.flags.contains(NetFlags::PROMISC)
+            || self.multicast_addr.len() > MAX_NUM_MULTICAST_ADDRESSES
+        {
+            self.flags |= NetFlags::ALLMULTI;
+            fctrl |= IXGBE_FCTRL_MPE;
+            if self.flags.contains(NetFlags::PROMISC) {
+                fctrl |= IXGBE_FCTRL_UPE;
+            }
+        } else {
+            // Clear mta_shadow
+            self.hw.mac.mta_shadow.fill(0);
+
+            // Update mta_shadow
+            for mc_addr in self.multicast_addr.iter() {
+                log::debug!("Adding the multicast addresses");
+                ixgbe_operations::set_mta(&mut self.hw, mc_addr);
+            }
+            // Enable mta
+            for i in 0..self.hw.mac.mcft_size as usize {
+                ixgbe_hw::write_reg_array(
+                    &self.info,
+                    IXGBE_MTA(0) as usize,
+                    i,
+                    self.hw.mac.mta_shadow[i],
+                )?;
+            }
+            if self.hw.addr_ctrl.mta_in_use > 0 {
+                ixgbe_hw::write_reg(
+                    &self.info,
+                    IXGBE_MCSTCTRL,
+                    IXGBE_MCSTCTRL_MFE | self.hw.mac.mc_filter_type as u32,
+                )?;
+            }
+        }
+
+        ixgbe_hw::write_reg(&self.info, IXGBE_FCTRL, fctrl)
+    }
+
+    fn setup_vlan_hw_support(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+        // A soft reset zero's out the VFTA, so
+        // we need to repopulate it now.
+        for i in 0..IXGBE_VFTA_SIZE {
+            if self.shadow_vfta[i] != 0 {
+                ixgbe_hw::write_reg(&self.info, IXGBE_VFTA(i), self.shadow_vfta[i])?;
+            }
+        }
+
+        let mut ctrl = ixgbe_hw::read_reg(&self.info, IXGBE_VLNCTRL)?;
+
+        if self.hw.mac.mac_type == IxgbeMac82598EB {
+            ctrl |= IXGBE_VLNCTRL_VME;
+        }
+        ixgbe_hw::write_reg(&self.info, IXGBE_VLNCTRL, ctrl)?;
+
+        // On 82599 the VLAN enable is per/queue in RXDCTL
+        if self.hw.mac.mac_type != IxgbeMac82598EB {
+            for q in que.iter() {
+                ctrl = ixgbe_hw::read_reg(&self.info, IXGBE_RXDCTL(q.me))?;
+                ctrl |= IXGBE_RXDCTL_VME;
+                ixgbe_hw::write_reg(&self.info, IXGBE_RXDCTL(q.me), ctrl)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -853,6 +1069,8 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
     };
 
     let rx = Rx {
+        rx_desc_head: 0,
+        rx_desc_tail: 0,
         rx_desc_ring,
         read_buf: None,
     };
