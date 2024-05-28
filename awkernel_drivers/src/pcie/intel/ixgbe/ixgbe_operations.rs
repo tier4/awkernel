@@ -890,13 +890,13 @@ fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),Ixgbe
 			let _ = self.identify_phy(info, hw);
         }
 		self.phy_read_reg(info, hw, IXGBE_PCRC8ECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE);
+				     IXGBE_MDIO_PCS_DEV_TYPE)?;
 		self.phy_read_reg(info, hw, IXGBE_PCRC8ECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE);
+				     IXGBE_MDIO_PCS_DEV_TYPE)?;
 		self.phy_read_reg(info, hw, IXGBE_LDPCECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE);
+				     IXGBE_MDIO_PCS_DEV_TYPE)?;
 		self.phy_read_reg(info, hw, IXGBE_LDPCECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE);
+				     IXGBE_MDIO_PCS_DEV_TYPE)?;
 	}
 
     Ok(())
@@ -934,7 +934,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
                 status = Ok(());
                 break;
             }
-            Err(e) => {continue;}
+            Err(_) => {continue;}
         }
 	}
 
@@ -1037,15 +1037,15 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         }
 
         // clear VMDq pool/queue selection for RAR 0
-        self.mac_clear_vmdq(info, hw.mac.num_rar_entries, 0, IXGBE_CLEAR_VMDQ_ALL);
+        self.mac_clear_vmdq(info, hw.mac.num_rar_entries, 0, IXGBE_CLEAR_VMDQ_ALL)?;
 
         hw.addr_ctrl.overflow_promisc = 0;
         hw.addr_ctrl.rar_used_count = 1;
 
         /* Zero out the other receive addresses. */
         for i in 0..hw.mac.num_rar_entries {
-            ixgbe_hw::write_reg(info, IXGBE_RAL(i) as usize, 0);
-            ixgbe_hw::write_reg(info, IXGBE_RAH(i) as usize, 0);
+            ixgbe_hw::write_reg(info, IXGBE_RAL(i) as usize, 0)?;
+            ixgbe_hw::write_reg(info, IXGBE_RAH(i) as usize, 0)?;
         }
 
         /* Clear the MTA */
@@ -1085,7 +1085,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         ixgbe_hw::write_reg(info, IXGBE_RAH(index) as usize, rar_high)?;
 
         /* clear VMDq pool/queue selection for this RAR */
-        self.mac_clear_vmdq(info, num_rar_entries, index, IXGBE_CLEAR_VMDQ_ALL);
+        self.mac_clear_vmdq(info, num_rar_entries, index, IXGBE_CLEAR_VMDQ_ALL)?;
 
         Ok(())
     }
@@ -1108,7 +1108,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         }
 
         // setup VMDq pool selection before this RAR gets enabled
-        self.mac_set_vmdq(info, num_rar_entries, index, vmdq);
+        self.mac_set_vmdq(info, num_rar_entries, index, vmdq)?;
 
         // HW expects these in little endian so we reverse the byte
         // order from network order (big endian) to little endian
@@ -1151,11 +1151,11 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         if vmdq < 32 {
             mpsar = ixgbe_hw::read_reg(info, IXGBE_MPSAR_LO(rar) as usize)?;
             mpsar |= 1 << vmdq;
-            ixgbe_hw::write_reg(info, IXGBE_MPSAR_LO(rar) as usize, mpsar);
+            ixgbe_hw::write_reg(info, IXGBE_MPSAR_LO(rar) as usize, mpsar)?;
         } else {
             mpsar = ixgbe_hw::read_reg(info, IXGBE_MPSAR_HI(rar) as usize)?;
             mpsar |= 1 << (vmdq - 32);
-            ixgbe_hw::write_reg(info, IXGBE_MPSAR_HI(rar) as usize, mpsar);
+            ixgbe_hw::write_reg(info, IXGBE_MPSAR_HI(rar) as usize, mpsar)?;
         }
 
         Ok(())
@@ -1200,7 +1200,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 
         // was that the last pool using this rar?
         if mpsar_lo == 0 && mpsar_hi == 0 && rar != 0 {
-            self.mac_clear_rar(info, num_rar_entries, rar);
+            self.mac_clear_rar(info, num_rar_entries, rar)?;
         }
 
         Ok(())
@@ -1322,7 +1322,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 		 * Enable auto-negotiation between the MAC & PHY;
 		 * the MAC will advertise clause 37 flow control.
 		 */
-		ixgbe_hw::write_reg(info, IXGBE_PCS1GANA, reg);
+		ixgbe_hw::write_reg(info, IXGBE_PCS1GANA, reg)?;
 		reg = ixgbe_hw::read_reg(info, IXGBE_PCS1GLCTL)?;
 
 		/* Disable AN timeout */
@@ -1485,12 +1485,12 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
             },
 	        /* Autoneg flow control on backplane adapters */
             IxgbeMediaTypeBackplane => {
-                fc_autoneg_backplane(info, hw);
+                fc_autoneg_backplane(info, hw)?;
             },
 	        /* Autoneg flow control on copper adapters */
             IxgbeMediaTypeCopper => {
                 if device_supports_autoneg_fc(self, info, hw)? {
-                    fc_autoneg_copper(self, info, hw);
+                    fc_autoneg_copper(self, info, hw)?;
                 }else{
                     return Err(FcNotNegotiated);
                 }
@@ -1700,7 +1700,7 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
     fn mac_enable_rx(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
         use ixgbe_hw::MacType::*;
         let rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
-        ixgbe_hw::write_reg(info, IXGBE_RXCTRL, (rxctrl | IXGBE_RXCTRL_RXEN))?;
+        ixgbe_hw::write_reg(info, IXGBE_RXCTRL, rxctrl | IXGBE_RXCTRL_RXEN)?;
         if hw.mac.mac_type != IxgbeMac82598EB {
             if hw.mac.set_lben {
                 let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;

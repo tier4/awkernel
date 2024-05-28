@@ -367,7 +367,7 @@ impl IxgbeInner {
         // let hardware know driver is loaded
         let mut ctrl_ext = ixgbe_hw::read_reg(&info, IXGBE_CTRL_EXT)?;
         ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
-        ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext);
+        ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext)?;
 
         let ixgbe = Self {
             info,
@@ -483,9 +483,10 @@ impl IxgbeInner {
             rxctrl |= IXGBE_RXCTRL_DMBYPS;
         }
         rxctrl |= IXGBE_RXCTRL_RXEN;
-        self.ops.mac_enable_rx_dma(&self.info, &mut self.hw, rxctrl);
+        self.ops
+            .mac_enable_rx_dma(&self.info, &mut self.hw, rxctrl)?;
         // Set up MSI/X routing
-        self.configure_ivars(que);
+        self.configure_ivars(que)?;
         /* Set up auto-mask */
         if self.hw.mac.mac_type == IxgbeMac82598EB {
             ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
@@ -493,6 +494,26 @@ impl IxgbeInner {
             ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(0), 0xFFFFFFFF)?;
             ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(1), 0xFFFFFFFF)?;
         }
+
+        // Check on any SFP devices that need to be kick-started
+        if self.hw.phy.phy_type == ixgbe_hw::PhyType::IxgbePhyNone {
+            self.ops.identify_phy(&self.info, &mut self.hw)?;
+            // We may be better to print error message specifically for Err(SfpNotSupported) as OpenBSD does.
+        }
+
+        /* Setup interrupt moderation */
+        let mut itr = (4000000 / IXGBE_INTS_PER_SEC) & 0xff8;
+        if self.hw.mac.mac_type != IxgbeMac82598EB {
+            itr |= IXGBE_EITR_LLI_MOD | IXGBE_EITR_CNT_WDIS;
+        }
+        ixgbe_hw::write_reg(&self.info, IXGBE_EITR(0), itr)?;
+
+        /* Set moderation on the Link interrupt */
+        let linkvec = que.len();
+        ixgbe_hw::write_reg(&self.info, IXGBE_EITR(linkvec), IXGBE_LINK_ITR)?;
+
+        /* Enable power to the phy */
+        self.ops.phy_set_power(&self.info, &self.hw, true)?;
 
         Ok(())
     }
@@ -629,8 +650,8 @@ impl IxgbeInner {
             )?;
 
             // Setup the HW Tx Head and Tail descriptor pointers
-            ixgbe_hw::write_reg(&self.info, IXGBE_TDH(que.me), 0);
-            ixgbe_hw::write_reg(&self.info, IXGBE_TDT(que.me), 0);
+            ixgbe_hw::write_reg(&self.info, IXGBE_TDH(que.me), 0)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_TDT(que.me), 0)?;
 
             // Setup Transmit Descriptor Cmd Settings
             tx.txd_cmd = IXGBE_TXD_CMD_IFCS;
@@ -706,7 +727,7 @@ impl IxgbeInner {
 
         // Make sure receives are disabled while
         // setting up the descriptor ring
-        self.ops.mac_disable_rx(&self.info, &mut self.hw);
+        self.ops.mac_disable_rx(&self.info, &mut self.hw)?;
 
         // Enable broadcasts
         let mut fctrl = ixgbe_hw::read_reg(&self.info, IXGBE_FCTRL)?;
@@ -747,7 +768,7 @@ impl IxgbeInner {
             )?;
 
             // Set up the SRRCTL register
-            let mut srrctl = bufsz | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF;
+            let srrctl = bufsz | IXGBE_SRRCTL_DESCTYPE_ADV_ONEBUF;
             ixgbe_hw::write_reg(&self.info, IXGBE_SRRCTL(que.me), srrctl)?;
 
             // Setup the HW Rx Head and Tail Descriptor Pointers
@@ -810,7 +831,7 @@ impl IxgbeInner {
         // Set up the redirection table
         let mut j = 0;
         let que_num = get_num_queues(&self.hw);
-        let mut queue_id = 0;
+        let mut queue_id;
         let mut reta = 0;
         for i in 0..table_size {
             if j == que_num {

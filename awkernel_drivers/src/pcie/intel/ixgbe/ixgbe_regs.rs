@@ -250,9 +250,9 @@ pub const IXGBE_EITR: fn(usize) -> usize = |i| {
         0x012300 + ((i - 24) * 4)
     }
 };
-pub const IXGBE_EITR_ITR_INT_MASK: usize = 0x00000FF8;
-pub const IXGBE_EITR_LLI_MOD: usize = 0x00008000;
-pub const IXGBE_EITR_CNT_WDIS: usize = 0x80000000;
+pub const IXGBE_EITR_ITR_INT_MASK: u32 = 0x00000FF8;
+pub const IXGBE_EITR_LLI_MOD: u32 = 0x00008000;
+pub const IXGBE_EITR_CNT_WDIS: u32 = 0x80000000;
 pub const IXGBE_IVAR: fn(usize) -> usize = |i| 0x00900 + (i * 4); // 24 at 0x900-0x960
 pub const IXGBE_IVAR_MISC: usize = 0x00A00; // misc MSI-X interrupt causes
 pub const IXGBE_EITRSEL: usize = 0x00894;
