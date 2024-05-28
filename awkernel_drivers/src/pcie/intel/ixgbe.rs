@@ -159,12 +159,10 @@ struct IxgbeInner {
     link_active: bool,
     link_speed: ixgbe_hw::LinkSpeed,
     link_state: ixgbe_hw::LinkState,
-    //smart_speed: u32,
     pcie_int: PCIeInt,
     multicast_addr: BTreeSet<[u8; 6]>,
     max_frame_size: u16,
-    shadow_vfta: [u32; IXGBE_VFTA_SIZE],
-
+    //shadow_vfta: [u32; IXGBE_VFTA_SIZE],
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     //msix_mask: u32,
     is_poll_mode: bool,
@@ -477,7 +475,24 @@ impl IxgbeInner {
             ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_tail as u32)?;
         }
 
-        self.setup_vlan_hw_support()?;
+        self.setup_vlan_hw_support(que)?;
+
+        // Enable Receive engine
+        let mut rxctrl = ixgbe_hw::read_reg(&self.info, IXGBE_RXCTRL)?;
+        if self.hw.mac.mac_type == IxgbeMac82598EB {
+            rxctrl |= IXGBE_RXCTRL_DMBYPS;
+        }
+        rxctrl |= IXGBE_RXCTRL_RXEN;
+        self.ops.mac_enable_rx_dma(&self.info, &mut self.hw, rxctrl);
+        // Set up MSI/X routing
+        self.configure_ivars(que);
+        /* Set up auto-mask */
+        if self.hw.mac.mac_type == IxgbeMac82598EB {
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
+        } else {
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(0), 0xFFFFFFFF)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(1), 0xFFFFFFFF)?;
+        }
 
         Ok(())
     }
@@ -949,15 +964,9 @@ impl IxgbeInner {
 
     fn setup_vlan_hw_support(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
-        // A soft reset zero's out the VFTA, so
-        // we need to repopulate it now.
-        for i in 0..IXGBE_VFTA_SIZE {
-            if self.shadow_vfta[i] != 0 {
-                ixgbe_hw::write_reg(&self.info, IXGBE_VFTA(i), self.shadow_vfta[i])?;
-            }
-        }
-
         let mut ctrl = ixgbe_hw::read_reg(&self.info, IXGBE_VLNCTRL)?;
+
+        // TODO: The functionality for VLAN filtering using VFTA is not currently supported
 
         if self.hw.mac.mac_type == IxgbeMac82598EB {
             ctrl |= IXGBE_VLNCTRL_VME;
@@ -972,6 +981,75 @@ impl IxgbeInner {
                 ixgbe_hw::write_reg(&self.info, IXGBE_RXDCTL(q.me), ctrl)?;
             }
         }
+        Ok(())
+    }
+
+    fn configure_ivars(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        let newitr = (4000000 / IXGBE_INTS_PER_SEC) & 0x0FF8;
+
+        for q in que.iter() {
+            let i = q.me as u8;
+            // First the RX queue entry
+            self.set_ivar(i, q.me as u8, 0)?;
+            // ... and the TX
+            self.set_ivar(i, q.me as u8, 1)?;
+            // Set an Initial EITR value
+            ixgbe_hw::write_reg(&self.info, IXGBE_EITR(q.me), newitr)?;
+        }
+
+        let linkvec = que.len() as u8;
+        /* For the Link interrupt */
+        self.set_ivar(1, linkvec, -1)?;
+
+        Ok(())
+    }
+
+    // Setup the correct IVAR register for a particular MSIX interrupt
+    //   (yes this is all very magic and confusing :)
+    //  - entry is the register array entry
+    //  - vector is the MSIX vector for this queue
+    //  - rx_tx_misc is RX/TX/MISC
+    fn set_ivar(&self, entryy: u8, vectorr: u8, rx_tx_misc: i8) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+
+        let mut vector = vectorr;
+        let mut entry = entryy;
+
+        vector |= IXGBE_IVAR_ALLOC_VAL;
+        match self.hw.mac.mac_type {
+            IxgbeMac82598EB => {
+                if rx_tx_misc == -1 {
+                    entry = IXGBE_IVAR_OTHER_CAUSES_INDEX;
+                } else {
+                    entry += rx_tx_misc as u8 * 64;
+                }
+                let index = (entry >> 2) & 0x1F;
+                let mut ivar = ixgbe_hw::read_reg(&self.info, IXGBE_IVAR(index as usize))?;
+                ivar &= !((0xFF as u32) << (8 * (entry & 0x3)));
+                ivar |= (vector as u32) << (8 * (entry & 0x3));
+                ixgbe_hw::write_reg(&self.info, IXGBE_IVAR(index as usize), ivar)?;
+            }
+            IxgbeMac82599EB | IxgbeMacX540 | IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
+                if rx_tx_misc == -1 {
+                    /* MISC IVAR */
+                    let index = (entry & 1) * 8;
+                    let mut ivar = ixgbe_hw::read_reg(&self.info, IXGBE_IVAR_MISC)?;
+                    ivar &= !((0xFF as u32) << index);
+                    ivar |= (vector as u32) << index;
+                    ixgbe_hw::write_reg(&self.info, IXGBE_IVAR_MISC, ivar)?;
+                } else {
+                    /* RX/TX IVARS */
+                    let index = (16 * (entry & 1)) + (8 * rx_tx_misc as u8);
+                    let mut ivar =
+                        ixgbe_hw::read_reg(&self.info, IXGBE_IVAR((entry >> 1) as usize))?;
+                    ivar &= !((0xFF as u32) << index);
+                    ivar |= (vector as u32) << index;
+                    ixgbe_hw::write_reg(&self.info, IXGBE_IVAR((entry >> 1) as usize), ivar)?;
+                }
+            }
+            _ => (),
+        }
+
         Ok(())
     }
 }

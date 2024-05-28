@@ -8,6 +8,12 @@ pub const IXGBE_VFTA_SIZE: usize = 128;
 
 pub const IXGBE_MAX_FRAME_SIZE: usize = 9216;
 
+/*
+ * Interrupt Moderation parameters
+ */
+pub const IXGBE_INTS_PER_SEC: u32 = 8000;
+pub const IXGBE_LINK_ITR: u32 = 1000;
+
 pub const IXGBE_DEV_ID_82598: u16 = 0x10B6;
 pub const IXGBE_DEV_ID_82598_BX: u16 = 0x1508;
 pub const IXGBE_DEV_ID_82598AF_DUAL_PORT: u16 = 0x10C6;
@@ -506,7 +512,7 @@ pub const IXGBE_DMATXCTL_MDP_EN: usize = 0x20; // Bit 5
 pub const IXGBE_DMATXCTL_MBINTEN: usize = 0x40; // Bit 6
 pub const IXGBE_DMATXCTL_VT_SHIFT: usize = 16; // VLAN EtherType
 
-pub const IXGBE_PFDTXGSWC_VT_LBEN: usize = 0x1; // Local L2 VT switch enable
+pub const IXGBE_PFDTXGSWC_VT_LBEN: u32 = 0x1; // Local L2 VT switch enable
 
 // Anti-spoofing defines
 pub const IXGBE_SPOOF_MACAS_MASK: usize = 0xFF;
@@ -1966,12 +1972,12 @@ pub fn ixgbe_ivar_rx_queue(i: u32) -> u32 {
 pub fn ixgbe_ivar_tx_queue(i: u32) -> u32 {
     64 + i
 }
-pub const IXGBE_IVAR_TCP_TIMER_INDEX: u32 = 96; // 0 based index
-pub const IXGBE_IVAR_OTHER_CAUSES_INDEX: u32 = 97; // 0 based index
+pub const IXGBE_IVAR_TCP_TIMER_INDEX: u8 = 96; // 0 based index
+pub const IXGBE_IVAR_OTHER_CAUSES_INDEX: u8 = 97; // 0 based index
 pub fn ixgbe_msix_vector(i: u32) -> u32 {
     0 + i
 }
-pub const IXGBE_IVAR_ALLOC_VAL: u32 = 0x80; // Interrupt Allocation valid
+pub const IXGBE_IVAR_ALLOC_VAL: u8 = 0x80; // Interrupt Allocation valid
 
 // ETYPE Queue Filter/Select Bit Masks
 pub const IXGBE_MAX_ETQF_FILTERS: u32 = 8;

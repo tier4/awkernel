@@ -770,7 +770,7 @@ pub trait IxgbeOperations: Send {
     // Clears the VLAN filer table, and the VMDq index associated with the filter
     fn mac_clear_vfta(&self, info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
         for offset in 0..hw.mac.vft_size {
-            ixgbe_hw::write_reg(info, IXGBE_VFTA(offset) as usize, 0)?;
+            ixgbe_hw::write_reg(info, IXGBE_VFTA(offset as usize),0)?;
         }
 
         for offset in 0..IXGBE_VLVF_ENTRIES {
@@ -1214,28 +1214,8 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         Ok(())
     }
 
-    fn mac_disable_rx(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
-        let mut rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
-
-        if rxctrl & IXGBE_RXCTRL_RXEN != 0 {
-            let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;
-            if pfdtxgswc & IXGBE_PFDTXGSWC_VT_LBEN as u32 != 0 {
-                pfdtxgswc &= !(IXGBE_PFDTXGSWC_VT_LBEN as u32);
-                ixgbe_hw::write_reg(info, IXGBE_PFDTXGSWC, pfdtxgswc)?;
-                hw.mac.set_lben = true;
-            } else {
-                hw.mac.set_lben = false;
-            }
-
-            rxctrl &= !IXGBE_RXCTRL_RXEN;
-            ixgbe_hw::write_reg(info, IXGBE_RXCTRL, rxctrl)?;
-        }
-
-        Ok(())
-    }
-
- // setup_fc_generic - Set up flow control
- // Called at init time to set up flow control.
+    // setup_fc_generic - Set up flow control
+    // Called at init time to set up flow control.
     fn mac_setup_fc(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),IxgbeDriverErr>{
         use ixgbe_hw::{FcMode::*, MediaType::*};
     /* Validate the requested mode */
@@ -1715,6 +1695,51 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
 
         set_pci_config_data(self, info, hw, link_status)
     }
+
+
+    fn mac_enable_rx(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        use ixgbe_hw::MacType::*;
+        let rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
+        ixgbe_hw::write_reg(info, IXGBE_RXCTRL, (rxctrl | IXGBE_RXCTRL_RXEN))?;
+        if hw.mac.mac_type != IxgbeMac82598EB {
+            if hw.mac.set_lben {
+                let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;
+                pfdtxgswc |= IXGBE_PFDTXGSWC_VT_LBEN as u32;
+                ixgbe_hw::write_reg(info, IXGBE_PFDTXGSWC, pfdtxgswc)?;
+                hw.mac.set_lben = false;
+            }
+        }
+        Ok(())
+    }
+    fn mac_disable_rx(&self, info:&PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        use ixgbe_hw::MacType::*;
+        let mut rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
+        if rxctrl & IXGBE_RXCTRL_RXEN != 0 {
+            if hw.mac.mac_type != IxgbeMac82598EB {
+                let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;
+                if pfdtxgswc & IXGBE_PFDTXGSWC_VT_LBEN != 0 {
+                    pfdtxgswc &= !IXGBE_PFDTXGSWC_VT_LBEN;
+                    ixgbe_hw::write_reg(info, IXGBE_PFDTXGSWC, pfdtxgswc)?;
+                    hw.mac.set_lben = true;
+                } else {
+                    hw.mac.set_lben = false;
+                }
+            }
+            rxctrl &= !IXGBE_RXCTRL_RXEN;
+            ixgbe_hw::write_reg(info, IXGBE_RXCTRL, rxctrl)?;
+        }
+        Ok(())
+    }
+    fn mac_enable_rx_dma(&self, info: &PCIeInfo, hw: &mut IxgbeHw, regval: u32) -> Result<(), IxgbeDriverErr>{
+        if regval & IXGBE_RXCTRL_RXEN != 0 {
+            self.mac_enable_rx(info, hw)?;
+        } else {
+            self.mac_disable_rx(info, hw)?;
+        }
+        Ok(())
+    }
+
+
 
     // PHY Operations
 
