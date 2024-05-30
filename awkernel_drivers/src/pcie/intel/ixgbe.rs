@@ -157,7 +157,7 @@ struct IxgbeInner {
     flags: NetFlags,
     capabilities: NetCapabilities,
     link_active: bool,
-    link_speed: ixgbe_hw::LinkSpeed,
+    link_speed: u32,
     link_state: ixgbe_hw::LinkState,
     pcie_int: PCIeInt,
     multicast_addr: BTreeSet<[u8; 6]>,
@@ -376,7 +376,7 @@ impl IxgbeInner {
             flags,
             capabilities,
             link_active: false,
-            link_speed: ixgbe_hw::LinkSpeed::IxgbeLinkSpeedUnknown,
+            link_speed: IXGBE_LINK_SPEED_UNKNOWN,
             link_state: ixgbe_hw::LinkState::LinkStateDown,
             pcie_int,
             multicast_addr: BTreeSet::new(),
@@ -501,19 +501,21 @@ impl IxgbeInner {
             // We may be better to print error message specifically for Err(SfpNotSupported) as OpenBSD does.
         }
 
-        /* Setup interrupt moderation */
+        // Setup interrupt moderation
         let mut itr = (4000000 / IXGBE_INTS_PER_SEC) & 0xff8;
         if self.hw.mac.mac_type != IxgbeMac82598EB {
             itr |= IXGBE_EITR_LLI_MOD | IXGBE_EITR_CNT_WDIS;
         }
         ixgbe_hw::write_reg(&self.info, IXGBE_EITR(0), itr)?;
 
-        /* Set moderation on the Link interrupt */
+        // Set moderation on the Link interrupt
         let linkvec = que.len();
         ixgbe_hw::write_reg(&self.info, IXGBE_EITR(linkvec), IXGBE_LINK_ITR)?;
 
-        /* Enable power to the phy */
+        // Enable power to the phy
         self.ops.phy_set_power(&self.info, &self.hw, true)?;
+
+        self.config_link();
 
         Ok(())
     }
@@ -575,7 +577,7 @@ impl IxgbeInner {
     }
 
     fn update_link_status(&mut self) -> Result<(), IxgbeDriverErr> {
-        use ixgbe_hw::{LinkSpeed::*, LinkState::*};
+        use ixgbe_hw::LinkState::*;
 
         let (speed, link_up) = self.ops.mac_check_link(&self.info, &self.hw, false)?;
         self.link_speed = speed;
@@ -1072,6 +1074,40 @@ impl IxgbeInner {
         }
 
         Ok(())
+    }
+
+    fn config_link(&mut self) -> Result<(), IxgbeDriverErr> {
+        if self.is_sfp(&self.hw) {
+            // TODO:
+            return Err(IxgbeDriverErr::NotSupported);
+        } else {
+            let (speed, link_up) = self.ops.mac_check_link(&self.info, &self.hw, false)?;
+            self.link_active = link_up;
+            let autoneg = self.hw.phy.autoneg_advertised;
+            if autoneg == IXGBE_LINK_SPEED_UNKNOWN {
+                self.ops.mac_get_link_capabilities()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn is_sfp(&self, hw: &IxgbeHw) -> bool {
+        use ixgbe_hw::PhyType::*;
+
+        match hw.phy.phy_type {
+            IxgbePhySfpAvago
+            | IxgbePhySfpFtl
+            | IxgbePhySfpIntel
+            | IxgbePhySfpUnknown
+            | IxgbePhySfpPassiveTyco
+            | IxgbePhySfpPassiveUnknown
+            | IxgbePhyQsfpPassiveUnknown
+            | IxgbePhyQsfpActiveUnknown
+            | IxgbePhyQsfpIntel
+            | IxgbePhyQsfpUnknown => true,
+            _ => false,
+        }
     }
 }
 

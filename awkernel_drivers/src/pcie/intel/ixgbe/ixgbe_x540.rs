@@ -137,7 +137,12 @@ impl IxgbeOperations for IxgbeX540 {
         MediaType::IxgbeMediaTypeCopper
     }
 
+    fn mac_get_link_capabilities(&self) -> Result<(), IxgbeDriverErr> {
+        get_copper_link_capabilities();
+    }
+
     // PHY Operations
+
     // Using copper phy
     fn phy_set_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr> {
         let mut reg;

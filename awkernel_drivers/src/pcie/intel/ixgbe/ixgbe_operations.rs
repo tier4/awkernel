@@ -8,7 +8,7 @@ use super::{
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::wait_microsec;
-use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode, LinkSpeed};
+use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode};
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -298,7 +298,7 @@ fn set_pci_config_data<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw
  // This function returns TRUE if the device supports flow control
  // autonegotiation, and FALSE if it does not.
 fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool,IxgbeDriverErr>{
-    use ixgbe_hw::{MediaType::*, LinkSpeed::*,};
+    use ixgbe_hw::MediaType::*;
 
 	let supported = match hw.phy.media_type {
     IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
@@ -309,7 +309,7 @@ fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeI
 		_ => {
             let (speed, link_up) = ops.mac_check_link(info, hw, false)?;
             if link_up {
-                if speed == IxgbeLinkSpeed1GBFull {
+                if speed == IXGBE_LINK_SPEED_1GB_FULL{
                     true
                 }else{
                     false
@@ -508,6 +508,52 @@ pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
 	vector &= 0xFFF;
 	vector
 }
+
+// get_copper_link_capabilities - Determines link capabilities
+fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u32,bool), IxgbeDriverErr>{
+
+    if hw.phy.speeds_supported == IXGBE_LINK_SPEED_UNKNOWN {
+        get_copper_speeds_supported(ops, info, hw)?;
+    }
+
+    let speed = hw.phy.speeds_supported;
+
+    Ok((speed, true))
+}
+
+// get_copper_speeds_supported - Get copper link speeds from phy
+// Determines the supported link capabilities by reading the PHY auto
+// negotiation register.
+fn get_copper_speeds_supported<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::MacType::*;
+
+	let speed_ability = ops.phy_read_reg(info, hw, IXGBE_MDIO_PHY_SPEED_ABILITY,
+				      IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+
+	if speed_ability & IXGBE_MDIO_PHY_SPEED_10G as u16 != 0 {
+		hw.phy.speeds_supported |= IXGBE_LINK_SPEED_10GB_FULL;
+    }
+	if speed_ability & IXGBE_MDIO_PHY_SPEED_1G as u16 != 0 {
+		hw.phy.speeds_supported |= IXGBE_LINK_SPEED_1GB_FULL;
+    }
+	if speed_ability & IXGBE_MDIO_PHY_SPEED_100M as u16 != 0 {
+		hw.phy.speeds_supported |= IXGBE_LINK_SPEED_100_FULL;
+    }
+
+	match hw.mac.mac_type {
+	IxgbeMacX550 => {
+		hw.phy.speeds_supported |= IXGBE_LINK_SPEED_2_5GB_FULL;
+		hw.phy.speeds_supported |= IXGBE_LINK_SPEED_5GB_FULL;
+    }
+	IxgbeMacX550EMX | IxgbeMacX550EMA => 
+		hw.phy.speeds_supported &= !IXGBE_LINK_SPEED_100_FULL,
+    _ => (),
+
+	}
+
+    Ok(())
+}
+
 
  // probe_phy - Probe a single address for a PHY
  // Returns TRUE if PHY found
@@ -938,10 +984,9 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         }
 	}
 
-	/* Certain media types do not have a phy so an address will not
-	 * be found and the code will take this path.  Caller has to
-	 * decide if it is an error or not.
-	 */
+	//  Certain media types do not have a phy so an address will not
+	// be found and the code will take this path.  Caller has to
+	// decide if it is an error or not.
 	if status != Ok(()){
 		hw.phy.addr = 0;
     }
@@ -1477,7 +1522,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         match hw.phy.media_type {
     	    /* Autoneg flow control on fiber adapters */
             IxgbeMediaTypeFiber | IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp => {
-                if speed == ixgbe_hw::LinkSpeed::IxgbeLinkSpeed1GBFull {
+                if speed == IXGBE_LINK_SPEED_1GB_FULL{
                     fc_autoneg_fiber(info, hw)?;
                 } else {
                     return Err(FcNotNegotiated);
@@ -1506,8 +1551,8 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 
  // check_mink - Determine link and speed status
  // Reads the links register to determine if link is up and the current speed
-fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(LinkSpeed, bool), IxgbeDriverErr>{
-    use ixgbe_hw::{MacType::*, LinkSpeed::*,};
+fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(u32, bool), IxgbeDriverErr>{
+    use ixgbe_hw::MacType::*;
 
 	/* If Crosstalk fix enabled do the sanity check of making sure
 	 * the SFP+ cage is full.
@@ -1522,7 +1567,7 @@ fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete
 		};
 
 		if sfp_cage_full == 0 {
-            return Ok((IxgbeLinkSpeedUnknown, false));
+            return Ok((IXGBE_LINK_SPEED_UNKNOWN, false));
 		}
 	}
 
@@ -1559,27 +1604,27 @@ fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete
     let speed = match links_reg & IXGBE_LINKS_SPEED_82599 {
 	IXGBE_LINKS_SPEED_10G_82599 => {
 		if hw.mac.mac_type >= IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0{
-            IxgbeLinkSpeed2_5GBFull
+            IXGBE_LINK_SPEED_2_5GB_FULL
         }else{
-            IxgbeLinkSpeed10GBFull
+            IXGBE_LINK_SPEED_10GB_FULL
 		}
     },
-	IXGBE_LINKS_SPEED_1G_82599 => IxgbeLinkSpeed1GBFull,
+	IXGBE_LINKS_SPEED_1G_82599 => IXGBE_LINK_SPEED_1GB_FULL,
 	IXGBE_LINKS_SPEED_100_82599 =>{
 		if hw.mac.mac_type == IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0 {
-            IxgbeLinkSpeed5GBFull
+            IXGBE_LINK_SPEED_5GB_FULL
 		}else{
-            IxgbeLinkSpeed100Full
+            IXGBE_LINK_SPEED_100_FULL
         }
     },
 	IXGBE_LINKS_SPEED_10_X550EM_A => {
 		if info.id == IXGBE_DEV_ID_X550EM_A_1G_T || info.id == IXGBE_DEV_ID_X550EM_A_1G_T_L {
-            IxgbeLinkSpeed10Full
+            IXGBE_LINK_SPEED_10_FULL
         } else {
-            IxgbeLinkSpeedUnknown
+            IXGBE_LINK_SPEED_UNKNOWN
         }
     },
-	_ => IxgbeLinkSpeedUnknown
+	_ => IXGBE_LINK_SPEED_UNKNOWN
 	};
 
     Ok((speed, link_up))
@@ -1738,6 +1783,8 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
         }
         Ok(())
     }
+
+    fn mac_get_link_capabilities(&self) -> Result<(), IxgbeDriverErr>;
 
 
 

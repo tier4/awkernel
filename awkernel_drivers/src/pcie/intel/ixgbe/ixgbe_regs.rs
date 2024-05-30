@@ -3157,6 +3157,13 @@ pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT_X550EM_a: u32 = 26;
 /* Autonegotiation advertised speeds */
 pub type IxgbeAutonegAdvertised = u32;
 /* Link speed */
+pub const IXGBE_LINK_SPEED_UNKNOWN: u32 = 0;
+pub const IXGBE_LINK_SPEED_10_FULL: u32 = 0x0002;
+pub const IXGBE_LINK_SPEED_100_FULL: u32 = 0x0008;
+pub const IXGBE_LINK_SPEED_1GB_FULL: u32 = 0x0020;
+pub const IXGBE_LINK_SPEED_2_5GB_FULL: u32 = 0x0400;
+pub const IXGBE_LINK_SPEED_5GB_FULL: u32 = 0x0800;
+pub const IXGBE_LINK_SPEED_10GB_FULL: u32 = 0x0080;
 //pub const IXGBE_LINK_SPEED_82598_AUTONEG: u32 =
 //IXGBE_LINK_SPEED_1GB_FULL | IXGBE_LINK_SPEED_10GB_FULL;
 //pub const IXGBE_LINK_SPEED_82599_AUTONEG: u32 =

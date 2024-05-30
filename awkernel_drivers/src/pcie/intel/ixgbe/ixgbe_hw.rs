@@ -200,6 +200,8 @@ pub struct IxgbePhyInfo {
     pub revision: u32,
     pub media_type: MediaType,
     pub phy_semaphore_mask: u32,
+    pub autoneg_advertised: u32,
+    pub speeds_supported: u32,
     pub nw_mng_if_sel: u32,
 }
 
@@ -319,6 +321,7 @@ impl IxgbeHw {
                     revision: 0,
                     media_type: MediaType::IxgbeMediaTypeUnknown,
                     phy_semaphore_mask: 0,
+                    autoneg_advertised: IXGBE_LINK_SPEED_UNKNOWN,
                     nw_mng_if_sel: 0, // TODO: Need to check if this is initialized in OpenBSD
                 },
                 eeprom,
@@ -475,17 +478,6 @@ pub enum BusWidth {
     IxgbeBusWidth32 = 32,
     IxgbeBusWidth64 = 64,
     IxgbeBusWidthReserved,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
-pub enum LinkSpeed {
-    IxgbeLinkSpeedUnknown = 0,
-    IxgbeLinkSpeed10Full = 0x0002,
-    IxgbeLinkSpeed100Full = 0x0008,
-    IxgbeLinkSpeed1GBFull = 0x0020,
-    IxgbeLinkSpeed2_5GBFull = 0x0400,
-    IxgbeLinkSpeed5GBFull = 0x0800,
-    IxgbeLinkSpeed10GBFull = 0x0080,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
