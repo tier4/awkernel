@@ -185,12 +185,12 @@ pub struct IxgbeFcInfo {
     pub high_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS], // Flow Ctrl High-water
     pub low_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS],  // Flow Ctrl Low-water
     pub pause_time: u16,                                // Flow Control Pause timer
-    //pub send_xon: bool,                                 // Flow control send XON
-    pub strict_ieee: bool,        // Strict IEEE mode
-    pub disable_fc_autoneg: bool, // Do not autonegotiate FC
-    pub fc_was_autonegged: bool,  // Is current_mode the result of autonegging?
-    pub current_mode: FcMode,     // FC mode in effect
-    pub requested_mode: FcMode,   // FC mode requested by caller
+    pub send_xon: bool,                                 // Flow control send XON
+    pub strict_ieee: bool,                              // Strict IEEE mode
+    pub disable_fc_autoneg: bool,                       // Do not autonegotiate FC
+    pub fc_was_autonegged: bool, // Is current_mode the result of autonegging?
+    pub current_mode: FcMode,    // FC mode in effect
+    pub requested_mode: FcMode,  // FC mode requested by caller
 }
 
 pub struct IxgbePhyInfo {
@@ -308,6 +308,7 @@ impl IxgbeHw {
                     high_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
                     low_water: [0; IXGBE_DCB_MAX_TRAFFIC_CLASS],
                     pause_time: 0,
+                    send_xon: false,
                     strict_ieee: false, // TODO: Need to check if this is initialized in OpenBSD
                     disable_fc_autoneg: false,
                     fc_was_autonegged: false,
@@ -322,6 +323,7 @@ impl IxgbeHw {
                     media_type: MediaType::IxgbeMediaTypeUnknown,
                     phy_semaphore_mask: 0,
                     autoneg_advertised: IXGBE_LINK_SPEED_UNKNOWN,
+                    speeds_supported: IXGBE_LINK_SPEED_UNKNOWN,
                     nw_mng_if_sel: 0, // TODO: Need to check if this is initialized in OpenBSD
                 },
                 eeprom,

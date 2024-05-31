@@ -21,8 +21,7 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN,
-            ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN, ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN
         },
         in_cksum::in_pseudo,
         ip::Ip,
@@ -76,7 +75,7 @@ const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
 const MAXMCLBYTES: u32 = 64 * 1024;
 
-type TxRing = [AdvTxDesc; DEFAULT_TXD];
+type TxRing = [TxDescriptor; DEFAULT_TXD];
 type TxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_TXD];
 
 type RxRing = [AdvRxDesc; DEFAULT_RXD];
@@ -104,7 +103,7 @@ pub struct Queue {
 }
 
 #[derive(Clone, Copy)]
-struct TxRead {
+struct AdvTxDesc {
     buffer_addr: u64, // Address of descriptor's data buf
     cmd_type_len: u32,
     olinfo_status: u32,
@@ -117,10 +116,10 @@ struct TxWb {
     status: u32,
 }
 
-union AdvTxDesc {
-    read: TxRead,
-    wb: TxWb,
-}
+//union AdvTxDesc {
+    //read: TxRead,
+    //wb: TxWb,
+//}
 
 #[derive(Clone, Copy)]
 struct RxRead {
@@ -143,11 +142,17 @@ union AdvRxDesc {
     wb: RxWb,
 }
 
+#[derive(Clone, Copy)]
 struct AdvTxContextDescriptor {
     vlan_macip_lens: u32,
     seqnum_seed: u32,
     type_tucmd_mlhl: u32,
     mss_l4len_idx: u32,
+}
+
+union TxDescriptor {
+    adv_tx: AdvTxDesc,
+    adv_ctx: AdvTxContextDescriptor,
 }
 
 struct IxgbeInner {
@@ -166,6 +171,7 @@ struct IxgbeInner {
     irq_to_rx_tx_link: BTreeMap<u16, IRQRxTxLink>,
     //msix_mask: u32,
     is_poll_mode: bool,
+    num_segs: u16,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -198,17 +204,14 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     //// Read capabilities of PCIe.
     info.read_capability();
 
-    log::info!("attach!!!!!!!!!!!!!!!!!!!");
-
     let ixgbe = Ixgbe::new(info)?;
 
-    //let result = Arc::new(ixgbe);
+    let result = Arc::new(ixgbe);
 
-    //awkernel_lib::net::add_interface(result.clone(), None);
+    awkernel_lib::net::add_interface(result.clone(), None);
 
-    //Ok(result)
     console::print("attached!!!!!!!!!!!!!\n");
-    Err(PCIeDeviceErr::NotImplemented)
+    Ok(result)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -309,6 +312,9 @@ impl IxgbeInner {
             que.push(allocate_queue(&info, i)?);
         }
 
+        // ixgbe_identify_hardware()
+        let num_segs = IXGBE_82599_SCATTER;
+
         let mut irq_to_rx_tx_link = BTreeMap::new();
 
         let mut que = Vec::new();
@@ -383,6 +389,7 @@ impl IxgbeInner {
             max_frame_size,
             irq_to_rx_tx_link,
             is_poll_mode,
+            num_segs,
         };
 
         Ok((ixgbe, que))
@@ -487,7 +494,7 @@ impl IxgbeInner {
             .mac_enable_rx_dma(&self.info, &mut self.hw, rxctrl)?;
         // Set up MSI/X routing
         self.configure_ivars(que)?;
-        /* Set up auto-mask */
+        // Set up auto-mask
         if self.hw.mac.mac_type == IxgbeMac82598EB {
             ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
         } else {
@@ -515,7 +522,20 @@ impl IxgbeInner {
         // Enable power to the phy
         self.ops.phy_set_power(&self.info, &self.hw, true)?;
 
-        self.config_link();
+        // Config/Enable Link
+        self.config_link()?;
+
+        // Hardware Packet Buffer & Flow Control setup
+        self.config_delay_values()?;
+
+        // Initialize the FC settings
+        self.ops.mac_start_hw(&self.info, &mut self.hw)?;
+
+        // And now turn on interrupts
+        self.enable_intr()?;
+        self.enable_queues(que)?;
+
+        self.flags |= NetFlags::RUNNING;
 
         Ok(())
     }
@@ -587,7 +607,7 @@ impl IxgbeInner {
         if link_up {
             link_state = LinkStateFullDuplex;
             // Update any Flow Control changes
-            self.ops.mac_fc_enable(&self.info, &mut self.hw)?;
+            let _ = self.ops.mac_fc_enable(&self.info, &mut self.hw);
         }
 
         if self.link_state != link_state {
@@ -616,9 +636,9 @@ impl IxgbeInner {
             let buf_phy_addr = write_buf.get_phy_addr().as_usize();
 
             for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.read.buffer_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
-                desc.read.cmd_type_len = 0;
-                desc.read.olinfo_status = 0;
+                desc.adv_tx.buffer_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+                desc.adv_tx.cmd_type_len = 0;
+                desc.adv_tx.olinfo_status = 0;
             }
 
             tx.write_buf = Some(write_buf);
@@ -1079,14 +1099,22 @@ impl IxgbeInner {
     fn config_link(&mut self) -> Result<(), IxgbeDriverErr> {
         if self.is_sfp(&self.hw) {
             // TODO:
+            log::info!("sfp is not supported");
             return Err(IxgbeDriverErr::NotSupported);
         } else {
             let (speed, link_up) = self.ops.mac_check_link(&self.info, &self.hw, false)?;
             self.link_active = link_up;
-            let autoneg = self.hw.phy.autoneg_advertised;
+            self.link_speed = speed; // According to FreeBSD
+
+            let mut autoneg = self.hw.phy.autoneg_advertised;
+            let _negotiate;
             if autoneg == IXGBE_LINK_SPEED_UNKNOWN {
-                self.ops.mac_get_link_capabilities()?;
+                (autoneg, _negotiate) = self
+                    .ops
+                    .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
+            self.ops
+                .mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1109,6 +1137,118 @@ impl IxgbeInner {
             _ => false,
         }
     }
+
+    // Requires sc->max_frame_size to be set.
+    fn config_delay_values(&mut self) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+        let frame = self.max_frame_size as u32;
+
+        // Calculate High Water
+        let high_tmp = match self.hw.mac.mac_type {
+            IxgbeMacX540 | IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
+                IXGBE_DV_X540(frame, frame)
+            }
+            _ => IXGBE_DV(frame, frame),
+        };
+        let size = IXGBE_BT2KB(high_tmp);
+        let rxpb = ixgbe_hw::read_reg(&self.info, IXGBE_RXPBSIZE(0))? >> 10;
+        self.hw.fc.high_water[0] = rxpb - size;
+
+        /* low_Now calculate Low Water */
+        let tmp = match self.hw.mac.mac_type {
+            IxgbeMacX540 | IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
+                IXGBE_LOW_DV_X540(frame)
+            }
+            _ => IXGBE_LOW_DV(frame),
+        };
+        self.hw.fc.low_water[0] = IXGBE_BT2KB(tmp);
+
+        self.hw.fc.pause_time = IXGBE_FC_PAUSE;
+        self.hw.fc.send_xon = true;
+
+        Ok(())
+    }
+
+    fn enable_intr(&self) -> Result<(), IxgbeDriverErr> {
+        use ixgbe_hw::MacType::*;
+
+        let mut mask = IXGBE_EIMS_ENABLE_MASK & !IXGBE_EIMS_RTX_QUEUE;
+        // Enable Fan Failure detection
+        if self.info.id == IXGBE_DEV_ID_82598AT {
+            mask |= IXGBE_EIMS_GPI_SDP1;
+        }
+
+        match self.hw.mac.mac_type {
+            IxgbeMac82599EB => {
+                mask |= IXGBE_EIMS_ECC;
+                // Temperature sensor on some adapters
+                mask |= IXGBE_EIMS_GPI_SDP0;
+                // SFP+ (RX_LOS_N & MOD_ABS_N)
+                mask |= IXGBE_EIMS_GPI_SDP1;
+                mask |= IXGBE_EIMS_GPI_SDP2;
+            }
+            IxgbeMacX540 => {
+                mask |= IXGBE_EIMS_ECC;
+                // Detect if Thermal Sensor is enabled
+                let fwsm = ixgbe_hw::read_reg(&self.info, IXGBE_FWSM)?;
+                if fwsm & IXGBE_FWSM_TS_ENABLED != 0 {
+                    mask |= IXGBE_EIMS_TS;
+                }
+            }
+            IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
+                mask |= IXGBE_EIMS_ECC;
+                /* MAC thermal sensor is automatically enabled */
+                mask |= IXGBE_EIMS_TS;
+                /* Some devices use SDP0 for important information */
+                if self.info.id == IXGBE_DEV_ID_X550EM_X_SFP
+                    || self.info.id == IXGBE_DEV_ID_X550EM_X_10G_T
+                {
+                    mask |= IXGBE_EIMS_GPI_SDP0_X540;
+                }
+            }
+            _ => (),
+        }
+
+        ixgbe_hw::write_reg(&self.info, IXGBE_EIMS, mask)?;
+
+        // With MSI-X we use auto clear
+        mask = IXGBE_EIMS_ENABLE_MASK;
+        // Don't autoclear Link
+        mask &= !IXGBE_EIMS_OTHER;
+        mask &= !IXGBE_EIMS_LSC;
+        ixgbe_hw::write_reg(&self.info, IXGBE_EIAC, mask)?;
+
+        ixgbe_hw::write_flush(&self.info)?;
+
+        Ok(())
+    }
+
+    fn enable_queues(&self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        for q in que.iter() {
+            self.enable_queue(q.me as u32)?;
+        }
+        Ok(())
+    }
+
+    // MSIX Interrupt Handlers
+    fn enable_queue(&self, vector: u32) -> Result<(), IxgbeDriverErr> {
+        let queue = 1u64 << vector;
+        if self.hw.mac.mac_type == MacType::IxgbeMac82598EB {
+            let mask = (IXGBE_EIMS_RTX_QUEUE as u64 & queue) as u32;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIMS, mask)?;
+        } else {
+            let mask_low = (queue & 0xFFFFFFFF as u64) as u32;
+            if mask_low != 0 {
+                ixgbe_hw::write_reg(&self.info, IXGBE_EIMS_EX(0), mask_low)?;
+            }
+            let mask_high = (queue >> 32) as u32;
+            if mask_high != 0 {
+                ixgbe_hw::write_reg(&self.info, IXGBE_EIMS_EX(1), mask_high)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Ixgbe {
@@ -1122,10 +1262,167 @@ impl Ixgbe {
 
         Ok(ixgbe)
     }
+
+// Advanced Context Descriptor setup for VLAN or CSUM
+// Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32, cmd_type_len: u32, mss_l4len_idx: u32)`.
+fn ixgbe_tx_offload(&self, ether_frame: &EtherFrameRef) -> Result<(), IxgbeDriverErr>{
+   let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
+
+        // Depend on whether doing TSO or not
+        // Indicate the whole packet as payload when not doing TSO
+	    // olinfo_status |= mp->m_pkthdr.len << IXGBE_ADVTXD_PAYLEN_SHIFT;
+
+	*vlan_macip_lens |= (sizeof(*ext.eh) << IXGBE_ADVTXD_MACLEN_SHIFT);
+
+	if (ext.ip4) {
+		if (ISSET(mp->m_pkthdr.csum_flags, M_IPV4_CSUM_OUT)) {
+			*olinfo_status |= IXGBE_TXD_POPTS_IXSM << 8;
+			offload = 1;
+		}
+
+		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_IPV4;
+#ifdef INET6
+	} else if (ext.ip6) {
+		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_IPV6;
+#endif
+	} else {
+		if (mp->m_pkthdr.csum_flags & M_TCP_TSO)
+			tcpstat_inc(tcps_outbadtso);
+		return offload;
+	}
+
+	*vlan_macip_lens |= ext.iphlen;
+
+	if (ext.tcp) {
+		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_TCP;
+		if (ISSET(mp->m_pkthdr.csum_flags, M_TCP_CSUM_OUT)) {
+			*olinfo_status |= IXGBE_TXD_POPTS_TXSM << 8;
+			offload = 1;
+		}
+	} else if (ext.udp) {
+		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_UDP;
+		if (ISSET(mp->m_pkthdr.csum_flags, M_UDP_CSUM_OUT)) {
+			*olinfo_status |= IXGBE_TXD_POPTS_TXSM << 8;
+			offload = 1;
+		}
+	}
+
+	if (mp->m_pkthdr.csum_flags & M_TCP_TSO) {
+		if (ext.tcp) {
+			uint32_t hdrlen, thlen, paylen, outlen;
+
+			thlen = ext.tcphlen;
+
+			outlen = mp->m_pkthdr.ph_mss;
+			*mss_l4len_idx |= outlen << IXGBE_ADVTXD_MSS_SHIFT;
+			*mss_l4len_idx |= thlen << IXGBE_ADVTXD_L4LEN_SHIFT;
+
+			hdrlen = sizeof(*ext.eh) + ext.iphlen + thlen;
+			paylen = mp->m_pkthdr.len - hdrlen;
+			CLR(*olinfo_status, IXGBE_ADVTXD_PAYLEN_MASK
+			    << IXGBE_ADVTXD_PAYLEN_SHIFT);
+			*olinfo_status |= paylen << IXGBE_ADVTXD_PAYLEN_SHIFT;
+
+			*cmd_type_len |= IXGBE_ADVTXD_DCMD_TSE;
+			offload = 1;
+
+			tcpstat_add(tcps_outpkttso,
+			    (paylen + outlen - 1) / outlen);
+		} else
+			tcpstat_inc(tcps_outbadtso);
+	}
+
+	return offload;
+}
+
+    fn tx_ctx_setup(
+        &self,
+        me: usize,
+        tx: &mut Tx,
+        ether_frame: &EtherFrameRef,
+        head: usize,
+    ) -> Result<(i32, u32, u32), IxgbeDriverErr> {
+
+        let (offload, vlan_macip_lens, mut type_tucmd_mlhl, olinfo_status, cmd_type_len, mss_l4len_idx) = tx_offload(ether_frame);
+
+        if !offload {
+            return Ok((0,0,0));
+        }
+
+        // TODO: Configuration for VLAN when VLANTAG is set
+
+	    type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        // Now copy bits into descriptor
+        desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
+        desc.adv_ctx.type_tucmd_mlhl= u32::to_le(type_tucmd_mlhl);
+        desc.adv_ctx.seqnum_seed = u32::to_le(0);
+        desc.adv_ctx.mss_l4len_idx = u32::to_le(mss_l4len_idx);
+
+        Ok((1, 0, 0))
+    }
+
+    // This routine maps the mbufs to tx descriptors, allowing the
+    // TX engine to transmit the packets.
+    fn encap(
+        &self,
+        mac_type: MacType,
+        me: usize,
+        tx: &mut Tx,
+        ether_frame: &EtherFrameRef,
+    ) -> Result<usize, IxgbeDriverErr> {
+        let len = ether_frame.data.len();
+        if len > MCLBYTES as usize {
+            return Err(IxgbeDriverErr::InvalidPacket);
+        }
+
+        let mut head = tx.tx_desc_head;
+
+        let (ntxc, cmd_type_len, olinfo_status) = self.tx_ctx_setup(me, tx, ether_frame, head)?;
+        Ok(0)
+    }
+
+    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
+        let inner = self.inner.read();
+
+        if !inner.link_active {
+            return Ok(());
+        }
+
+        let mut node = MCSNode::new();
+        let mut tx = self.que[que_id].tx.lock(&mut node);
+
+        let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
+
+        let head = tx.tx_desc_head;
+        let mut free = tx.tx_desc_tail;
+        if free <= head {
+            free += sc_tx_slots;
+        }
+        free -= head;
+
+        let mut post = false;
+        for ether_frame in ether_frames.iter() {
+            // Check that we have the minimal number of TX descriptors.
+            // use 2 because cksum setup can use an extra slot
+            if free <= inner.num_segs as usize + 2 {
+                break;
+            }
+
+            let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+
+            free -= used;
+
+            post = true;
+        }
+
+        Ok(())
+    }
 }
 
 fn allocate_msix(
-    hw: &ixgbe_hw::IxgbeHw,
+    _hw: &ixgbe_hw::IxgbeHw,
     info: &mut PCIeInfo,
     que: &[Queue],
 ) -> Result<PCIeInt, IxgbeDriverErr> {
@@ -1184,7 +1481,7 @@ fn allocate_msix(
 // Allocate memory for the transmit and receive rings, and then
 // the descriptors associated with each, called only once at attach.
 fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
-    let tx_size = core::mem::size_of::<AdvTxDesc>() * DEFAULT_TXD;
+    let tx_size = core::mem::size_of::<TxDescriptor>() * DEFAULT_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
 
     let rx_size = core::mem::size_of::<AdvRxDesc>() * DEFAULT_RXD;
@@ -1254,28 +1551,34 @@ impl NetDevice for Ixgbe {
     }
 
     fn link_status(&self) -> LinkStatus {
-        //let inner = self.inner.read();
-        //if inner.link_active {
-        //if inner.link_duplex == igb_hw::Duplex::Full {
-        //LinkStatus::UpFullDuplex
-        //} else {
-        //LinkStatus::UpHalfDuplex
-        //}
-        //} else {
-        LinkStatus::Down
-        //}
+        let inner = self.inner.read();
+        if inner.link_active {
+            if inner.link_state == ixgbe_hw::LinkState::LinkStateFullDuplex {
+                LinkStatus::UpFullDuplex
+            } else {
+                LinkStatus::UpHalfDuplex
+            }
+        } else {
+            LinkStatus::Down
+        }
     }
 
     fn link_speed(&self) -> u64 {
-        //let inner = self.inner.read();
+        let inner = self.inner.read();
 
-        //match inner.link_speed {
-        //igb_hw::Speed::S10Mbps => 10,
-        //igb_hw::Speed::S100Mbps => 100,
-        //igb_hw::Speed::S1000Mbps => 1000,
-        //igb_hw::Speed::None => 0,
-        //}
-        0
+        let speed = match inner.link_speed {
+            speed if speed & IXGBE_LINK_SPEED_10GB_FULL != 0 => 10000,
+            speed if speed & IXGBE_LINK_SPEED_5GB_FULL != 0 => 5000,
+            speed if speed & IXGBE_LINK_SPEED_2_5GB_FULL != 0 => 2500,
+            speed if speed & IXGBE_LINK_SPEED_1GB_FULL != 0 => 1000,
+            speed if speed & IXGBE_LINK_SPEED_100_FULL != 0 => 100,
+            speed if speed & IXGBE_LINK_SPEED_10_FULL != 0 => 10,
+            _ => 0,
+        };
+
+        log::info!("speed: {:?}", speed);
+
+        speed
     }
 
     fn mac_address(&self) -> [u8; 6] {
@@ -1321,9 +1624,8 @@ impl NetDevice for Ixgbe {
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
-        //let frames = [data];
-        //self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
-        Ok(())
+        let frames = [data];
+        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
     }
 
     fn up(&self) -> Result<(), NetDevError> {
@@ -1332,12 +1634,17 @@ impl NetDevice for Ixgbe {
         if !inner.flags.contains(NetFlags::UP) {
             if let Err(err_init) = inner.init(&self.que) {
                 if let Err(err_stop) = inner.stop(&self.que) {
-                    log::error!("igb: stop failed: {:?}", err_stop);
+                    log::error!("ixgbe: stop failed: {:?}", err_stop);
                 }
 
-                log::error!("igb: init failed: {:?}", err_init);
+                log::error!("ixgbe: init failed: {:?}", err_init);
                 Err(NetDevError::DeviceError)
             } else {
+                if inner.link_active {
+                    log::info!("ACTIVE!!!!!!!!!!!!");
+                } else {
+                    log::info!("NoT ACTIVE!!!!!!!!!!!!");
+                }
                 inner.flags.insert(NetFlags::UP);
                 Ok(())
             }
@@ -1347,20 +1654,19 @@ impl NetDevice for Ixgbe {
     }
 
     fn down(&self) -> Result<(), NetDevError> {
-        //let mut inner = self.inner.write();
+        let mut inner = self.inner.write();
 
-        //if inner.flags.contains(NetFlags::UP) {
-        //if let Err(e) = inner.stop(true, &self.que) {
-        //log::error!("igb: stop failed: {:?}", e);
-        //Err(NetDevError::DeviceError)
-        //} else {
-        //inner.flags.remove(NetFlags::UP);
-        //Ok(())
-        //}
-        //} else {
-        //Err(NetDevError::AlreadyDown)
-        //}
-        Ok(())
+        if inner.flags.contains(NetFlags::UP) {
+            if let Err(e) = inner.stop(&self.que) {
+                log::error!("ixgbe: stop failed: {:?}", e);
+                Err(NetDevError::DeviceError)
+            } else {
+                inner.flags.remove(NetFlags::UP);
+                Ok(())
+            }
+        } else {
+            Err(NetDevError::AlreadyDown)
+        }
     }
 
     fn interrupt(&self, irq: u16) -> Result<(), NetDevError> {

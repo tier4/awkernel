@@ -8,7 +8,7 @@ use super::{
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::wait_microsec;
-use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType, FcMode};
+use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType};
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -83,16 +83,16 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(ops: &T,info: &PCIeInfo, hw
 	/* PHY ops initialization must be done in reset_hw() */
 
 	/* Clear the VLAN filter table */
-	ops.mac_clear_vfta(info, hw);
+	ops.mac_clear_vfta(info, hw)?;
 
 	/* Clear statistics registers */
-	ops.mac_clear_hw_cntrs(info, hw);
+	ops.mac_clear_hw_cntrs(info, hw)?;
 
 	/* Set No Snoop Disable */
 	let mut ctrl_ext = ixgbe_hw::read_reg(info, IXGBE_CTRL_EXT)?;
 	ctrl_ext |= IXGBE_CTRL_EXT_NS_DIS;
 	ixgbe_hw::write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
-	ixgbe_hw::write_flush(info);
+	ixgbe_hw::write_flush(info)?;
 
 	// Setup flow control 
     ops.mac_setup_fc(info,hw)?;
@@ -131,7 +131,7 @@ pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw)-> Result<(), IxgbeDriverErr>
 		ixgbe_hw::write_reg(info, IXGBE_RTTDQSEL, i)?;
 		ixgbe_hw::write_reg(info, IXGBE_RTTBCNRC, 0)?;
 	}
-	ixgbe_hw::write_flush(info);
+	ixgbe_hw::write_flush(info)?;
 
 	/* Disable relaxed ordering */
     let mut regval;
@@ -510,7 +510,7 @@ pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
 }
 
 // get_copper_link_capabilities - Determines link capabilities
-fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u32,bool), IxgbeDriverErr>{
+pub fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u32,bool), IxgbeDriverErr>{
 
     if hw.phy.speeds_supported == IXGBE_LINK_SPEED_UNKNOWN {
         get_copper_speeds_supported(ops, info, hw)?;
@@ -621,6 +621,25 @@ fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType
     phy_type
 }
 
+// check_reset_blocked - check status of MNG FW veto bit
+// This function checks the MMNGC.MNG_VETO bit to see if there are
+// any constraints on link from manageability.  For MAC's that don't
+// have this bit just return faluse since the link can not be blocked
+// via this method.
+fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr>{
+	// If we don't have this bit, it can't be blocking
+	if hw.mac.mac_type == MacType::IxgbeMac82598EB{
+		return Ok(false);
+    }
+
+	let mmngc = ixgbe_hw::read_reg(info, IXGBE_MMNGC)?;
+	if mmngc & IXGBE_MMNGC_MNG_VETO != 0 {
+		log::error!("MNG_VETO bit detected.\n");
+		return Ok(true);
+	}
+
+    Ok(false)
+}
 
 // Eeprom Helper Functions
 fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverErr> {
@@ -804,7 +823,7 @@ pub trait IxgbeOperations: Send {
         ret
     }
 
-    fn mac_reset_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
+    fn mac_reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         Ok(())
     }
 
@@ -839,7 +858,7 @@ fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),Ixgbe
 	read_reg(info, IXGBE_ERRBC)?;
 	read_reg(info, IXGBE_MSPDC)?;
 	for i in 0..8 {
-		read_reg(info, IXGBE_MPC(i));
+		read_reg(info, IXGBE_MPC(i))?;
     
     }
 
@@ -870,7 +889,7 @@ fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),Ixgbe
 	}
 	if hw.mac.mac_type >= IxgbeMac82599EB{
         for i in 0..8{
-			read_reg(info, IXGBE_PXON2OFFCNT(i));
+			read_reg(info, IXGBE_PXON2OFFCNT(i))?;
         }
     }
 
@@ -891,7 +910,7 @@ fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),Ixgbe
 
 	if hw.mac.mac_type == IxgbeMac82598EB {
         for i in 0..8{
-			read_reg(info, IXGBE_RNBC(i));
+			read_reg(info, IXGBE_RNBC(i))?;
         }
     }
 
@@ -1265,6 +1284,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         use ixgbe_hw::{FcMode::*, MediaType::*};
     /* Validate the requested mode */
 	if hw.fc.strict_ieee && hw.fc.requested_mode == IxgbeFcRxPause {
+        log::info!("mac_setup_fc()");
         return Err(InvalidLinkSettings);
 	}
 
@@ -1401,6 +1421,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 
         // Validate the water mark configuration 
         if hw.fc.pause_time == 0{
+            log::info!("mac_fc_enable()");
             return Err(InvalidLinkSettings);
         }
 
@@ -1784,9 +1805,15 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
         Ok(())
     }
 
-    fn mac_get_link_capabilities(&self) -> Result<(), IxgbeDriverErr>;
+    fn mac_get_link_capabilities(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u32,bool), IxgbeDriverErr>;
 
-
+    fn mac_setup_link(
+        &self,
+        info: &PCIeInfo,
+        hw: &mut IxgbeHw,
+        speed: u32,
+        autoneg_wait_to_complete: bool,
+    ) -> Result<(), IxgbeDriverErr>;
 
     // PHY Operations
 
@@ -1916,9 +1943,118 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
         on: bool,
     ) -> Result<(), IxgbeDriverErr>;
 
+    // setup_phy_link_speed - Sets the auto advertised capabilities
+    fn phy_setup_link_speed(&self, info:&PCIeInfo, hw:&mut IxgbeHw, speed:u32, _autoneg_wait_to_complete: bool) ->Result<(), IxgbeDriverErr>{
+	    // Clear autoneg_advertised and set new values based on input link
+	    // speed.
+	    hw.phy.autoneg_advertised = 0;
+
+	    if speed & IXGBE_LINK_SPEED_10GB_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_10GB_FULL;
+        }
+
+	    if speed & IXGBE_LINK_SPEED_5GB_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_5GB_FULL;
+        }
+
+	    if speed & IXGBE_LINK_SPEED_2_5GB_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_2_5GB_FULL;
+        }
+
+	    if speed & IXGBE_LINK_SPEED_1GB_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_1GB_FULL;
+        }
+
+	    if speed & IXGBE_LINK_SPEED_100_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_100_FULL;
+        }
+
+	    if speed & IXGBE_LINK_SPEED_10_FULL != 0 {
+		    hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_10_FULL;
+        }
+
+	    // Setup link based on the new speed settings
+	    self.phy_setup_link(info, hw)?;
+
+            Ok(())
+    }
+
+    // setup_phy_link - Set and restart auto-neg
+    // Restart auto-negotiation and PHY and waits for completion.
+    fn phy_setup_link(&self, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+
+        let (speed_supported, _autoneg) = get_copper_link_capabilities(self, info, hw)?;
+
+        // Set or unset auto-negotiation 10G advertisement
+    	let mut autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
+			     IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    	autoneg_reg &= !IXGBE_MII_10GBASE_T_ADVERTISE;
+	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_10GB_FULL != 0) &&
+	    (speed_supported & IXGBE_LINK_SPEED_10GB_FULL != 0){
+    		autoneg_reg |= IXGBE_MII_10GBASE_T_ADVERTISE;
+        }
+
+	    self.phy_write_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
+			      IXGBE_MDIO_AUTO_NEG_DEV_TYPE,
+			      autoneg_reg)?;
+
+	    autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG,
+			        IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+	    if hw.mac.mac_type == MacType::IxgbeMacX550 {
+		    // Set or unset auto-negotiation 5G advertisement
+		    autoneg_reg &= !IXGBE_MII_5GBASE_T_ADVERTISE;
+		    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_5GB_FULL != 0) &&
+		        (speed_supported & IXGBE_LINK_SPEED_5GB_FULL != 0) {
+			        autoneg_reg |= IXGBE_MII_5GBASE_T_ADVERTISE;
+                }
+
+		    // Set or unset auto-negotiation 2.5G advertisement
+		    autoneg_reg &= !IXGBE_MII_2_5GBASE_T_ADVERTISE;
+		    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_2_5GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_2_5GB_FULL != 0){
+			        autoneg_reg |= IXGBE_MII_2_5GBASE_T_ADVERTISE;
+            }
+	    }
+
+	    // Set or unset auto-negotiation 1G advertisement
+	    autoneg_reg &= !IXGBE_MII_1GBASE_T_ADVERTISE;
+	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_1GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_1GB_FULL != 0) {
+		        autoneg_reg |= IXGBE_MII_1GBASE_T_ADVERTISE;
+        }
+
+	    self.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+	    // Set or unset auto-negotiation 100M advertisement
+	    autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    	autoneg_reg &= !(IXGBE_MII_100BASE_T_ADVERTISE | IXGBE_MII_100BASE_T_ADVERTISE_HALF);
+	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_100_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_100_FULL != 0) {
+		    autoneg_reg |= IXGBE_MII_100BASE_T_ADVERTISE;
+        }
+
+	    self.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+	    // Blocked by MNG FW so don't reset PHY
+    	if check_reset_blocked(info, hw)? {
+		    return Ok(());
+        }
+
+	    // Restart PHY auto-negotiation.
+	    autoneg_reg =  self.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL,
+			        IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+	    autoneg_reg |= IXGBE_MII_RESTART;
+
+	    self.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+        Ok(())
+    }
+
+
     // EEPROM Operations
 
-    fn init_params(&self, info: &PCIeInfo) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
+    fn init_params(&self, _info: &PCIeInfo) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
         Err(NotSupported)
     }
 

@@ -4,13 +4,32 @@ pub const MAX_TXD: usize = 4096;
 pub const DEFAULT_RXD: usize = 256;
 pub const PERFORM_RXD: usize = 256;
 pub const MIN_RXD: usize = 256;
-pub const IXGBE_VFTA_SIZE: usize = 128;
 
 pub const IXGBE_MAX_FRAME_SIZE: usize = 9216;
 
-/*
- * Interrupt Moderation parameters
- */
+// Flow control constants
+pub const IXGBE_FC_PAUSE: u16 = 0xFFFF;
+pub const IXGBE_FC_HI: u32 = 0x20000;
+pub const IXGBE_FC_LO: u32 = 0x10000;
+
+/* Defines for printing debug information */
+pub const DEBUG_INIT: u32 = 0;
+pub const DEBUG_IOCTL: u32 = 0;
+pub const DEBUG_HW: u32 = 0;
+
+pub const MAX_NUM_MULTICAST_ADDRESSES: u16 = 128;
+pub const IXGBE_82598_SCATTER: u16 = 100;
+pub const IXGBE_82599_SCATTER: u16 = 32;
+pub const MSIX_82598_BAR: u16 = 3;
+pub const MSIX_82599_BAR: u16 = 4;
+pub const IXGBE_TSO_SIZE: u32 = 262140;
+pub const IXGBE_TX_BUFFER_SIZE: u32 = 1514;
+pub const IXGBE_RX_HDR: u16 = 128;
+pub const IXGBE_VFTA_SIZE: usize = 128;
+pub const IXGBE_BR_SIZE: usize = 4096;
+pub const IXGBE_QUEUE_MIN_FREE: u16 = 32;
+
+// Interrupt Moderation parameters
 pub const IXGBE_INTS_PER_SEC: u32 = 8000;
 pub const IXGBE_LINK_ITR: u32 = 1000;
 
@@ -1031,7 +1050,7 @@ pub const IXGBE_BMCIP_IPADDR_VALID: usize = 0x00000002;
 
 // Firmware Semaphore Register
 pub const IXGBE_FWSM_MODE_MASK: usize = 0xE;
-pub const IXGBE_FWSM_TS_ENABLED: usize = 0x1;
+pub const IXGBE_FWSM_TS_ENABLED: u32 = 0x1;
 pub const IXGBE_FWSM_FW_MODE_PT: usize = 0x4;
 
 // ARC Subsystem registers
@@ -1595,16 +1614,16 @@ pub const IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG: u32 = 0x20; // 10G Control Reg
 pub const IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG: u32 = 0xC400; // 1G Provisioning 1
 pub const IXGBE_MII_AUTONEG_XNP_TX_REG: u32 = 0x17; // 1G XNP Transmit
 pub const IXGBE_MII_AUTONEG_ADVERTISE_REG: u32 = 0x10; // 100M Advertisement
-pub const IXGBE_MII_10GBASE_T_ADVERTISE: u32 = 0x1000; // full duplex, bit:12
-pub const IXGBE_MII_1GBASE_T_ADVERTISE_XNP_TX: u32 = 0x4000; // full duplex, bit:14
-pub const IXGBE_MII_1GBASE_T_ADVERTISE: u32 = 0x8000; // full duplex, bit:15
-pub const IXGBE_MII_2_5GBASE_T_ADVERTISE: u32 = 0x0400;
-pub const IXGBE_MII_5GBASE_T_ADVERTISE: u32 = 0x0800;
-pub const IXGBE_MII_100BASE_T_ADVERTISE: u32 = 0x0100; // full duplex, bit:8
-pub const IXGBE_MII_100BASE_T_ADVERTISE_HALF: u32 = 0x0080; // half duplex, bit:7
-pub const IXGBE_MII_RESTART: u32 = 0x200;
-pub const IXGBE_MII_AUTONEG_COMPLETE: u32 = 0x20;
-pub const IXGBE_MII_AUTONEG_LINK_UP: u32 = 0x04;
+pub const IXGBE_MII_10GBASE_T_ADVERTISE: u16 = 0x1000; // full duplex, bit:12
+pub const IXGBE_MII_1GBASE_T_ADVERTISE_XNP_TX: u16 = 0x4000; // full duplex, bit:14
+pub const IXGBE_MII_1GBASE_T_ADVERTISE: u16 = 0x8000; // full duplex, bit:15
+pub const IXGBE_MII_2_5GBASE_T_ADVERTISE: u16 = 0x0400;
+pub const IXGBE_MII_5GBASE_T_ADVERTISE: u16 = 0x0800;
+pub const IXGBE_MII_100BASE_T_ADVERTISE: u16 = 0x0100; // full duplex, bit:8
+pub const IXGBE_MII_100BASE_T_ADVERTISE_HALF: u16 = 0x0080; // half duplex, bit:7
+pub const IXGBE_MII_RESTART: u16 = 0x200;
+pub const IXGBE_MII_AUTONEG_COMPLETE: u16 = 0x20;
+pub const IXGBE_MII_AUTONEG_LINK_UP: u16 = 0x04;
 pub const IXGBE_MII_AUTONEG_REG: u32 = 0x0;
 
 pub const IXGBE_PHY_REVISION_MASK: u32 = 0xFFFFFFF0;
@@ -2886,16 +2905,16 @@ pub const IXGBE_PVFGOTC_MSB: fn(x: u32) -> u32 = |x| 0x08404 + (0x08 * x);
 pub const IXGBE_PVFMPRC: fn(x: u32) -> u32 = |x| 0x0D01C + (0x40 * x);
 
 // Macro functions for accessing specific fields
-pub const IXGBE_PVFTDWBALn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+pub const IXGBE_PVFTDWBALN: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
     |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDWBAL((q_per_pool * vf_number) + vf_q_index);
 
-pub const IXGBE_PVFTDWBAHn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+pub const IXGBE_PVFTDWBAHN: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
     |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDWBAH((q_per_pool * vf_number) + vf_q_index);
 
-pub const IXGBE_PVFTDHn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+pub const IXGBE_PVFTDHN: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
     |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDH((q_per_pool * vf_number) + vf_q_index);
 
-pub const IXGBE_PVFTDTn: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
+pub const IXGBE_PVFTDTN: fn(q_per_pool: u32, vf_number: u32, vf_q_index: u32) -> u32 =
     |q_per_pool, vf_number, vf_q_index| IXGBE_PVFTDT((q_per_pool * vf_number) + vf_q_index);
 
 // Enum for flow director buffer allocation sizes
@@ -2936,7 +2955,7 @@ pub const IXGBE_FDIRM_VLANP: u32 = 0x00000002;
 pub const IXGBE_FDIRM_POOL: u32 = 0x00000004;
 pub const IXGBE_FDIRM_L4P: u32 = 0x00000008;
 pub const IXGBE_FDIRM_FLEX: u32 = 0x00000010;
-pub const IXGBE_FDIRM_DIPv6: u32 = 0x00000020;
+pub const IXGBE_FDIRM_DIPV6: u32 = 0x00000020;
 pub const IXGBE_FDIRM_L3P: u32 = 0x00000040;
 
 pub const IXGBE_FDIRIP6M_INNER_MAC: u32 = 0x03F0; // bit 9:4
@@ -2972,7 +2991,7 @@ pub const IXGBE_FDIRCMD_CMD_REMOVE_FLOW: u32 = 0x00000002;
 pub const IXGBE_FDIRCMD_CMD_QUERY_REM_FILT: u32 = 0x00000003;
 pub const IXGBE_FDIRCMD_FILTER_VALID: u32 = 0x00000004;
 pub const IXGBE_FDIRCMD_FILTER_UPDATE: u32 = 0x00000008;
-pub const IXGBE_FDIRCMD_IPv6DMATCH: u32 = 0x00000010;
+pub const IXGBE_FDIRCMD_IPV6DMATCH: u32 = 0x00000010;
 pub const IXGBE_FDIRCMD_L4TYPE_UDP: u32 = 0x00000020;
 pub const IXGBE_FDIRCMD_L4TYPE_TCP: u32 = 0x00000040;
 pub const IXGBE_FDIRCMD_L4TYPE_SCTP: u32 = 0x00000060;
@@ -3152,7 +3171,7 @@ pub const IXGBE_ADVTXD_TUNNEL_TYPE_SHIFT: u32 = 16; /* Adv Tx Desc Tunnel Type s
 pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT: u32 = 17; /* Adv Tx Desc OUTERIPCS Shift */
 pub const IXGBE_ADVTXD_TUNNEL_TYPE_NVGRE: u32 = 1; /* Adv Tx Desc Tunnel Type NVGRE */
 /* Adv Tx Desc OUTERIPCS Shift for X550EM_a */
-pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT_X550EM_a: u32 = 26;
+pub const IXGBE_ADVTXD_OUTERIPCS_SHIFT_X550EM_A: u32 = 26;
 
 /* Autonegotiation advertised speeds */
 pub type IxgbeAutonegAdvertised = u32;
@@ -3196,10 +3215,12 @@ pub const IXGBE_PHYSICAL_LAYER_1000BASE_LX: u64 = 0x20000;
  */
 
 /* BitTimes (BT) conversion */
+#[allow(non_snake_case)]
 pub const fn IXGBE_BT2KB(bt: u32) -> u32 {
     (bt + (8 * 1024 - 1)) / (8 * 1024)
 }
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_B2BT(bt: u32) -> u32 {
     bt * 8
 }
@@ -3231,6 +3252,7 @@ pub const IXGBE_HD: u32 = 6144;
 /* Calculate PCI Bus delay for low thresholds */
 pub const IXGBE_PCI_DELAY: u32 = 10000;
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_DV_X540(max_frame_link: u32, max_frame_tc: u32) -> u32 {
     (36 * (IXGBE_B2BT(max_frame_link)
         + IXGBE_PFC_D
@@ -3242,6 +3264,7 @@ pub const fn IXGBE_DV_X540(max_frame_link: u32, max_frame_tc: u32) -> u32 {
         + 2 * IXGBE_B2BT(max_frame_tc)
 }
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_DV(max_frame_link: u32, max_frame_tc: u32) -> u32 {
     (36 * (IXGBE_B2BT(max_frame_link)
         + IXGBE_PFC_D
@@ -3253,10 +3276,12 @@ pub const fn IXGBE_DV(max_frame_link: u32, max_frame_tc: u32) -> u32 {
         + 2 * IXGBE_B2BT(max_frame_tc)
 }
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_LOW_DV_X540(max_frame_tc: u32) -> u32 {
     2 * IXGBE_B2BT(max_frame_tc) + (36 * IXGBE_PCI_DELAY / 25) + 1
 }
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_LOW_DV(max_frame_tc: u32) -> u32 {
     2 * IXGBE_LOW_DV_X540(max_frame_tc)
 }
@@ -3443,12 +3468,14 @@ pub const BYPASS_LOG_ACTION_M: u32 = 0x03;
 pub const BYPASS_LOG_EVENT_SHIFT: u32 = 28;
 pub const BYPASS_LOG_CLEAR_SHIFT: u32 = 24;
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_FUSES0_GROUP(i: u32) -> u32 {
     0x11158 + (i * 4)
 }
 pub const IXGBE_FUSES0_300MHZ: u32 = 1 << 5;
 pub const IXGBE_FUSES0_REV_MASK: u32 = 3 << 6;
 
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_PORT_CAR_GEN_CTRL(p: bool) -> u32 {
     if p {
         0x8010
@@ -3456,6 +3483,7 @@ pub const fn IXGBE_KRM_PORT_CAR_GEN_CTRL(p: bool) -> u32 {
         0x4010
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_LINK_S1(p: bool) -> u32 {
     if p {
         0x8200
@@ -3463,6 +3491,7 @@ pub const fn IXGBE_KRM_LINK_S1(p: bool) -> u32 {
         0x4200
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_LINK_CTRL_1(p: bool) -> u32 {
     if p {
         0x820C
@@ -3470,6 +3499,7 @@ pub const fn IXGBE_KRM_LINK_CTRL_1(p: bool) -> u32 {
         0x420C
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_AN_CNTL_1(p: bool) -> u32 {
     if p {
         0x822C
@@ -3477,6 +3507,7 @@ pub const fn IXGBE_KRM_AN_CNTL_1(p: bool) -> u32 {
         0x422C
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_AN_CNTL_4(p: bool) -> u32 {
     if p {
         0x8238
@@ -3484,6 +3515,7 @@ pub const fn IXGBE_KRM_AN_CNTL_4(p: bool) -> u32 {
         0x4238
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_AN_CNTL_8(p: bool) -> u32 {
     if p {
         0x8248
@@ -3491,6 +3523,7 @@ pub const fn IXGBE_KRM_AN_CNTL_8(p: bool) -> u32 {
         0x4248
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_PCS_KX_AN(p: bool) -> u32 {
     if p {
         0x9918
@@ -3498,6 +3531,7 @@ pub const fn IXGBE_KRM_PCS_KX_AN(p: bool) -> u32 {
         0x5918
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_PCS_KX_AN_LP(p: bool) -> u32 {
     if p {
         0x991C
@@ -3505,6 +3539,7 @@ pub const fn IXGBE_KRM_PCS_KX_AN_LP(p: bool) -> u32 {
         0x591C
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_SGMII_CTRL(p: bool) -> u32 {
     if p {
         0x82A0
@@ -3512,6 +3547,7 @@ pub const fn IXGBE_KRM_SGMII_CTRL(p: bool) -> u32 {
         0x42A0
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_LP_BASE_PAGE_HIGH(p: bool) -> u32 {
     if p {
         0x836C
@@ -3519,6 +3555,7 @@ pub const fn IXGBE_KRM_LP_BASE_PAGE_HIGH(p: bool) -> u32 {
         0x436C
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_DSP_TXFFE_STATE_4(p: bool) -> u32 {
     if p {
         0x8634
@@ -3526,6 +3563,7 @@ pub const fn IXGBE_KRM_DSP_TXFFE_STATE_4(p: bool) -> u32 {
         0x4634
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_DSP_TXFFE_STATE_5(p: bool) -> u32 {
     if p {
         0x8638
@@ -3533,6 +3571,7 @@ pub const fn IXGBE_KRM_DSP_TXFFE_STATE_5(p: bool) -> u32 {
         0x4638
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_RX_TRN_LINKUP_CTRL(p: bool) -> u32 {
     if p {
         0x8B00
@@ -3540,6 +3579,7 @@ pub const fn IXGBE_KRM_RX_TRN_LINKUP_CTRL(p: bool) -> u32 {
         0x4B00
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_PMD_DFX_BURNIN(p: bool) -> u32 {
     if p {
         0x8E00
@@ -3547,6 +3587,7 @@ pub const fn IXGBE_KRM_PMD_DFX_BURNIN(p: bool) -> u32 {
         0x4E00
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_PMD_FLX_MASK_ST20(p: bool) -> u32 {
     if p {
         0x9054
@@ -3554,6 +3595,7 @@ pub const fn IXGBE_KRM_PMD_FLX_MASK_ST20(p: bool) -> u32 {
         0x5054
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_TX_COEFF_CTRL_1(p: bool) -> u32 {
     if p {
         0x9520
@@ -3561,6 +3603,7 @@ pub const fn IXGBE_KRM_TX_COEFF_CTRL_1(p: bool) -> u32 {
         0x5520
     }
 }
+#[allow(non_snake_case)]
 pub const fn IXGBE_KRM_RX_ANA_CTL(p: bool) -> u32 {
     if p {
         0x9A00

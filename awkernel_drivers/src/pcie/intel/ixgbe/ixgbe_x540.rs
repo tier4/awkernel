@@ -10,6 +10,7 @@ use awkernel_lib::{delay::wait_microsec, sanity::check};
 use ixgbe_hw::{
     EepromType, IxgbeEepromInfo, IxgbeHw, IxgbeMacInfo, IxgbePhyInfo, MacType, MediaType,
 };
+use ixgbe_operations::get_copper_link_capabilities;
 
 const IXGBE_X540_MAX_TX_QUEUES: u32 = 128;
 const IXGBE_X540_MAX_RX_QUEUES: u32 = 128;
@@ -75,7 +76,7 @@ impl IxgbeOperations for IxgbeX540 {
         ixgbe_operations::clear_tx_pending(info, hw)?;
 
         let mut ctrl;
-        let mut status = Ok(());
+        let mut status;
         'double_reset: loop {
             status = Ok(());
             self.mac_acquire_swfw_sync(info, hw.phy.phy_semaphore_mask)?;
@@ -115,7 +116,6 @@ impl IxgbeOperations for IxgbeX540 {
 
         // Store the permanent mac address
         self.mac_get_mac_addr(info, &mut hw.mac.perm_addr)?;
-        log::debug!("After get_mac_addr() IxgbeMacInfo:{:?}", hw.mac);
 
         // Store MAC address from RAR0, clear receive address registers, and
         // clear the multicast table.  Also reset num_rar_entries to 128,
@@ -137,8 +137,23 @@ impl IxgbeOperations for IxgbeX540 {
         MediaType::IxgbeMediaTypeCopper
     }
 
-    fn mac_get_link_capabilities(&self) -> Result<(), IxgbeDriverErr> {
-        get_copper_link_capabilities();
+    fn mac_get_link_capabilities(
+        &self,
+        info: &PCIeInfo,
+        hw: &mut IxgbeHw,
+    ) -> Result<(u32, bool), IxgbeDriverErr> {
+        get_copper_link_capabilities(self, info, hw)
+    }
+
+    // setup_mac_link_X540 - Sets the auto advertised capabilities
+    fn mac_setup_link(
+        &self,
+        info: &PCIeInfo,
+        hw: &mut IxgbeHw,
+        speed: u32,
+        autoneg_wait_to_complete: bool,
+    ) -> Result<(), IxgbeDriverErr> {
+        self.phy_setup_link_speed(info, hw, speed, autoneg_wait_to_complete)
     }
 
     // PHY Operations
