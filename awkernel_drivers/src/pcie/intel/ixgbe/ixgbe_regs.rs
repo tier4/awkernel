@@ -2610,8 +2610,8 @@ pub const IXGBE_QDE_WRITE: u32 = 0x00010000;
 pub const IXGBE_QDE_READ: u32 = 0x00020000;
 
 // TX Descriptor packet option bits
-pub const IXGBE_TXD_POPTS_IXSM: u32 = 0x01; // Insert IP checksum
-pub const IXGBE_TXD_POPTS_TXSM: u32 = 0x02; // Insert TCP/UDP checksum
+pub const IXGBE_TXD_PORTS_IXSM: u32 = 0x01; // Insert IP checksum
+pub const IXGBE_TXD_PORTS_TXSM: u32 = 0x02; // Insert TCP/UDP checksum
 
 // TX Descriptor command bits
 pub const IXGBE_TXD_CMD_EOP: u32 = 0x01000000; // End of Packet
@@ -3129,8 +3129,8 @@ pub const IXGBE_ADVTXD_STAT_RSV: u32 = 0x0000000C; /* STA Reserved */
 pub const IXGBE_ADVTXD_IDX_SHIFT: u32 = 4; /* Adv desc Index shift */
 pub const IXGBE_ADVTXD_CC: u32 = 0x00000080; /* Check Context */
 pub const IXGBE_ADVTXD_POPTS_SHIFT: u32 = 8; /* Adv desc POPTS shift */
-pub const IXGBE_ADVTXD_POPTS_IXSM: u32 = IXGBE_TXD_POPTS_IXSM << IXGBE_ADVTXD_POPTS_SHIFT;
-pub const IXGBE_ADVTXD_POPTS_TXSM: u32 = IXGBE_TXD_POPTS_TXSM << IXGBE_ADVTXD_POPTS_SHIFT;
+pub const IXGBE_ADVTXD_POPTS_IXSM: u32 = IXGBE_TXD_PORTS_IXSM << IXGBE_ADVTXD_POPTS_SHIFT;
+pub const IXGBE_ADVTXD_POPTS_TXSM: u32 = IXGBE_TXD_PORTS_TXSM << IXGBE_ADVTXD_POPTS_SHIFT;
 pub const IXGBE_ADVTXD_POPTS_ISCO_1ST: u32 = 0x00000000; /* 1st TSO of iSCSI PDU */
 pub const IXGBE_ADVTXD_POPTS_ISCO_MDL: u32 = 0x00000800; /* Middle TSO of iSCSI PDU */
 pub const IXGBE_ADVTXD_POPTS_ISCO_LAST: u32 = 0x00001000; /* Last TSO of iSCSI PDU */
