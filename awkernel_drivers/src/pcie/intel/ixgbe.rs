@@ -1,8 +1,8 @@
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, intel::ixgbe::ixgbe_hw::MacType, PCIeDevice, PCIeDeviceErr,
-    PCIeInfo,
+    capability::msi::MultipleMessage, intel::ixgbe::ixgbe_hw::MacType,
+    registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE, PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{
     borrow::Cow,
@@ -21,7 +21,8 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN, ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN
+            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr,
+            ETHER_CRC_LEN, ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
         in_cksum::in_pseudo,
         ip::Ip,
@@ -47,6 +48,7 @@ use memoffset::offset_of;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
+use smoltcp::wire::ArpPacket;
 
 mod ixgbe_hw;
 mod ixgbe_operations;
@@ -117,8 +119,8 @@ struct TxWb {
 }
 
 //union AdvTxDesc {
-    //read: TxRead,
-    //wb: TxWb,
+//read: TxRead,
+//wb: TxWb,
 //}
 
 #[derive(Clone, Copy)]
@@ -307,7 +309,7 @@ impl IxgbeInner {
 
         // Allocate our TX/RX Queues
         let mut que = Vec::new();
-        let que_num = get_num_queues(&hw);
+        let que_num = get_num_queues(&hw.mac.mac_type);
         for i in 0..que_num {
             que.push(allocate_queue(&info, i)?);
         }
@@ -316,8 +318,6 @@ impl IxgbeInner {
         let num_segs = IXGBE_82599_SCATTER;
 
         let mut irq_to_rx_tx_link = BTreeMap::new();
-
-        let mut que = Vec::new();
 
         let mut is_poll_mode = true; // TODO
 
@@ -357,7 +357,7 @@ impl IxgbeInner {
             | NetCapabilities::TSOv4
             | NetCapabilities::TSOv6;
 
-        if MacType::IxgbeMac82598EB <= hw.get_mac_type() {
+        if MacType::IxgbeMac82598EB != hw.get_mac_type() {
             // flags |= NetFlags::LR0;
             capabilities |= NetCapabilities::LRO;
         }
@@ -442,7 +442,7 @@ impl IxgbeInner {
         mhadd |= (self.max_frame_size as u32) << IXGBE_MHADD_MFS_SHIFT;
         ixgbe_hw::write_reg(&self.info, IXGBE_MHADD, mhadd)?;
 
-        let que_num = get_num_queues(&self.hw);
+        let que_num = get_num_queues(&self.hw.mac.mac_type);
         // Now enable all the queues
         for i in 0..que_num {
             let mut txdctl = ixgbe_hw::read_reg(&self.info, IXGBE_TXDCTL(i))?;
@@ -811,7 +811,7 @@ impl IxgbeInner {
 
         self.initialize_rss_mapping()?;
         // Setup RSS
-        let que_num = get_num_queues(&self.hw);
+        let que_num = get_num_queues(&self.hw.mac.mac_type);
         if que_num > 1 {
             // RSS and RX IPP Checksum are mutually exclusive
             rxcsum |= IXGBE_RXCSUM_PCSD;
@@ -852,7 +852,7 @@ impl IxgbeInner {
 
         // Set up the redirection table
         let mut j = 0;
-        let que_num = get_num_queues(&self.hw);
+        let que_num = get_num_queues(&self.hw.mac.mac_type);
         let mut queue_id;
         let mut reta = 0;
         for i in 0..table_size {
@@ -1113,8 +1113,8 @@ impl IxgbeInner {
                     .ops
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
-            self.ops
-                .mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
+            //self.ops
+            //.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1263,115 +1263,114 @@ impl Ixgbe {
         Ok(ixgbe)
     }
 
-// Advanced Context Descriptor setup for VLAN or CSUM
-// Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32, cmd_type_len: u32, mss_l4len_idx: u32)`.
-fn ixgbe_tx_offload(&self, ether_frame: &EtherFrameRef) -> Result<(), IxgbeDriverErr>{
-   let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
+    // Advanced Context Descriptor setup for VLAN or CSUM
+    // Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32)`.
+    fn tx_offload(
+        &self,
+        ether_frame: &EtherFrameRef,
+    ) -> Result<(bool, u32, u32, u32), IxgbeDriverErr> {
+        let mut vlan_macip_lens = 0;
+        let mut olinfo_status = 0;
+        let mut offload = false;
+
+        let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
 
         // Depend on whether doing TSO or not
         // Indicate the whole packet as payload when not doing TSO
-	    // olinfo_status |= mp->m_pkthdr.len << IXGBE_ADVTXD_PAYLEN_SHIFT;
+        olinfo_status |= (ether_frame.data.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
 
-	*vlan_macip_lens |= (sizeof(*ext.eh) << IXGBE_ADVTXD_MACLEN_SHIFT);
+        vlan_macip_lens |=
+            (core::mem::size_of::<EtherHeader>() as u32) << IXGBE_ADVTXD_MACLEN_SHIFT;
 
-	if (ext.ip4) {
-		if (ISSET(mp->m_pkthdr.csum_flags, M_IPV4_CSUM_OUT)) {
-			*olinfo_status |= IXGBE_TXD_POPTS_IXSM << 8;
-			offload = 1;
-		}
+        let (iphlen, mut type_tucmd_mlhl) = match ext.network {
+            NetworkHdr::Ipv4(ip) => {
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::IPV4_CSUM_OUT)
+                {
+                    olinfo_status |= IXGBE_TXD_PORTS_IXSM << 8;
+                    offload = true;
+                }
+                ((ip.header_len() as u32), IXGBE_ADVTXD_TUCMD_IPV4)
+            }
+            NetworkHdr::Ipv6(_ip) => (
+                core::mem::size_of::<Ip6Hdr>() as u32,
+                IXGBE_ADVTXD_TUCMD_IPV6,
+            ),
+            _ => {
+                return Ok((offload, vlan_macip_lens, 0, olinfo_status));
+            }
+        };
 
-		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_IPV4;
-#ifdef INET6
-	} else if (ext.ip6) {
-		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_IPV6;
-#endif
-	} else {
-		if (mp->m_pkthdr.csum_flags & M_TCP_TSO)
-			tcpstat_inc(tcps_outbadtso);
-		return offload;
-	}
+        vlan_macip_lens |= iphlen;
 
-	*vlan_macip_lens |= ext.iphlen;
+        match ext.transport {
+            TransportHdr::Tcp(_tcp) => {
+                type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_TCP;
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::TCP_CSUM_OUT)
+                {
+                    olinfo_status |= IXGBE_TXD_PORTS_TXSM << 8;
+                    offload = true;
+                }
+            }
+            TransportHdr::Udp(_udp) => {
+                type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_UDP;
+                if ether_frame
+                    .csum_flags
+                    .contains(PacketHeaderFlags::UDP_CSUM_OUT)
+                {
+                    olinfo_status |= IXGBE_TXD_PORTS_TXSM << 8;
+                    offload = true;
+                }
+            }
+            _ => (),
+        }
 
-	if (ext.tcp) {
-		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_TCP;
-		if (ISSET(mp->m_pkthdr.csum_flags, M_TCP_CSUM_OUT)) {
-			*olinfo_status |= IXGBE_TXD_POPTS_TXSM << 8;
-			offload = 1;
-		}
-	} else if (ext.udp) {
-		*type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_UDP;
-		if (ISSET(mp->m_pkthdr.csum_flags, M_UDP_CSUM_OUT)) {
-			*olinfo_status |= IXGBE_TXD_POPTS_TXSM << 8;
-			offload = 1;
-		}
-	}
+        // TODO:: TCP_TSO
 
-	if (mp->m_pkthdr.csum_flags & M_TCP_TSO) {
-		if (ext.tcp) {
-			uint32_t hdrlen, thlen, paylen, outlen;
+        Ok((offload, vlan_macip_lens, type_tucmd_mlhl, olinfo_status))
+    }
 
-			thlen = ext.tcphlen;
-
-			outlen = mp->m_pkthdr.ph_mss;
-			*mss_l4len_idx |= outlen << IXGBE_ADVTXD_MSS_SHIFT;
-			*mss_l4len_idx |= thlen << IXGBE_ADVTXD_L4LEN_SHIFT;
-
-			hdrlen = sizeof(*ext.eh) + ext.iphlen + thlen;
-			paylen = mp->m_pkthdr.len - hdrlen;
-			CLR(*olinfo_status, IXGBE_ADVTXD_PAYLEN_MASK
-			    << IXGBE_ADVTXD_PAYLEN_SHIFT);
-			*olinfo_status |= paylen << IXGBE_ADVTXD_PAYLEN_SHIFT;
-
-			*cmd_type_len |= IXGBE_ADVTXD_DCMD_TSE;
-			offload = 1;
-
-			tcpstat_add(tcps_outpkttso,
-			    (paylen + outlen - 1) / outlen);
-		} else
-			tcpstat_inc(tcps_outbadtso);
-	}
-
-	return offload;
-}
-
+    // Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
     fn tx_ctx_setup(
         &self,
-        me: usize,
         tx: &mut Tx,
         ether_frame: &EtherFrameRef,
         head: usize,
-    ) -> Result<(i32, u32, u32), IxgbeDriverErr> {
+    ) -> Result<(u32, u32, u32), IxgbeDriverErr> {
+        let mut cmd_type_len = 0;
 
-        let (offload, vlan_macip_lens, mut type_tucmd_mlhl, olinfo_status, cmd_type_len, mss_l4len_idx) = tx_offload(ether_frame);
-
-        if !offload {
-            return Ok((0,0,0));
-        }
+        let (mut offload, mut vlan_macip_lens, mut type_tucmd_mlhl, olinfo_status) =
+            self.tx_offload(ether_frame)?;
 
         // TODO: Configuration for VLAN when VLANTAG is set
+        if let Some(vlan) = ether_frame.vlan {
+            vlan_macip_lens |= (vlan as u32) << IXGBE_ADVTXD_VLAN_SHIFT;
+            cmd_type_len |= IXGBE_ADVTXD_DCMD_VLE;
+            offload |= true;
+        }
 
-	    type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
+        if !offload {
+            return Ok((0, cmd_type_len, olinfo_status));
+        }
+
+        type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
         // Now copy bits into descriptor
         desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
-        desc.adv_ctx.type_tucmd_mlhl= u32::to_le(type_tucmd_mlhl);
+        desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
         desc.adv_ctx.seqnum_seed = u32::to_le(0);
-        desc.adv_ctx.mss_l4len_idx = u32::to_le(mss_l4len_idx);
+        desc.adv_ctx.mss_l4len_idx = u32::to_le(0); // mss_l4_len_idx
 
-        Ok((1, 0, 0))
+        Ok((1, cmd_type_len, olinfo_status))
     }
 
     // This routine maps the mbufs to tx descriptors, allowing the
     // TX engine to transmit the packets.
-    fn encap(
-        &self,
-        mac_type: MacType,
-        me: usize,
-        tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
-    ) -> Result<usize, IxgbeDriverErr> {
+    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
         let len = ether_frame.data.len();
         if len > MCLBYTES as usize {
             return Err(IxgbeDriverErr::InvalidPacket);
@@ -1379,8 +1378,40 @@ fn ixgbe_tx_offload(&self, ether_frame: &EtherFrameRef) -> Result<(), IxgbeDrive
 
         let mut head = tx.tx_desc_head;
 
-        let (ntxc, cmd_type_len, olinfo_status) = self.tx_ctx_setup(me, tx, ether_frame, head)?;
-        Ok(0)
+        let (ntxc, mut cmd_type_len, olinfo_status) = self.tx_ctx_setup(tx, ether_frame, head)?;
+
+        // Basic descriptor defines
+        cmd_type_len |= IXGBE_ADVTXD_DTYP_DATA | IXGBE_ADVTXD_DCMD_IFCS | IXGBE_ADVTXD_DCMD_DEXT;
+
+        let tx_slots = tx.tx_desc_ring.as_ref().len();
+
+        head += ntxc as usize;
+        if head == tx_slots {
+            head = 0;
+        }
+        let addr = unsafe {
+            let write_buf = tx.write_buf.as_mut().unwrap();
+            let dst = &mut write_buf.as_mut()[head];
+            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            // TODO: Checksum offloading
+            (write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
+        };
+
+        let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        desc.adv_tx.buffer_addr = u64::to_le(addr);
+        desc.adv_tx.cmd_type_len = u32::to_le(
+            tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
+        );
+        desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
+
+        head += 1;
+        if head == tx_slots {
+            head = 0;
+        }
+
+        tx.tx_desc_head = head;
+
+        Ok(ntxc as usize + 1)
     }
 
     fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
@@ -1410,12 +1441,18 @@ fn ixgbe_tx_offload(&self, ether_frame: &EtherFrameRef) -> Result<(), IxgbeDrive
                 break;
             }
 
-            let used = self.encap(inner.hw.get_mac_type(), que_id, &mut tx, ether_frame)?;
+            let used = self.encap(&mut tx, ether_frame)?;
 
             free -= used;
 
             post = true;
         }
+
+        if post {
+            ixgbe_hw::write_reg(&inner.info, IXGBE_TDT(que_id), tx.tx_desc_head as u32)?;
+        }
+
+        drop(inner);
 
         Ok(())
     }

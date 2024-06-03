@@ -978,10 +978,10 @@ impl PCIeInfo {
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
-                #[cfg(feature = "igb")]
-                if intel::igb::match_device(self.vendor, self.id) {
-                    return intel::igb::attach(self);
-                }
+                //#[cfg(feature = "igb")]
+                //if intel::igb::match_device(self.vendor, self.id) {
+                //return intel::igb::attach(self);
+                //}
 
                 if intel::ixgbe::match_device(self.vendor, self.id) {
                     return intel::ixgbe::attach(self);
