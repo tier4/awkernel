@@ -319,8 +319,6 @@ impl IxgbeInner {
 
         let mut irq_to_rx_tx_link = BTreeMap::new();
 
-        let mut que = Vec::new();
-
         let mut is_poll_mode = true; // TODO
 
         // Allocate MSI-X or MSI
@@ -359,7 +357,7 @@ impl IxgbeInner {
             | NetCapabilities::TSOv4
             | NetCapabilities::TSOv6;
 
-        if MacType::IxgbeMac82598EB <= hw.get_mac_type() {
+        if MacType::IxgbeMac82598EB != hw.get_mac_type() {
             // flags |= NetFlags::LR0;
             capabilities |= NetCapabilities::LRO;
         }
@@ -1115,8 +1113,8 @@ impl IxgbeInner {
                     .ops
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
-            self.ops
-                .mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
+            //self.ops
+            //.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1277,6 +1275,10 @@ impl Ixgbe {
 
         let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
 
+        // Depend on whether doing TSO or not
+        // Indicate the whole packet as payload when not doing TSO
+        olinfo_status |= (ether_frame.data.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
+
         vlan_macip_lens |=
             (core::mem::size_of::<EtherHeader>() as u32) << IXGBE_ADVTXD_MACLEN_SHIFT;
 
@@ -1296,7 +1298,7 @@ impl Ixgbe {
                 IXGBE_ADVTXD_TUCMD_IPV6,
             ),
             _ => {
-                return Ok((offload, 0, 0, 0));
+                return Ok((offload, vlan_macip_lens, 0, olinfo_status));
             }
         };
 
@@ -1328,14 +1330,10 @@ impl Ixgbe {
 
         // TODO:: TCP_TSO
 
-        // Depend on whether doing TSO or not
-        // Indicate the whole packet as payload when not doing TSO
-        olinfo_status |= (ether_frame.data.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
-
         Ok((offload, vlan_macip_lens, type_tucmd_mlhl, olinfo_status))
     }
 
-    // Return `(cmd_type_len: u32, olinfo_status: u32)`.
+    // Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
     fn tx_ctx_setup(
         &self,
         tx: &mut Tx,
@@ -1355,7 +1353,7 @@ impl Ixgbe {
         }
 
         if !offload {
-            return Ok((0, 0, 0));
+            return Ok((0, cmd_type_len, olinfo_status));
         }
 
         type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
@@ -1401,7 +1399,9 @@ impl Ixgbe {
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
         desc.adv_tx.buffer_addr = u64::to_le(addr);
-        desc.adv_tx.cmd_type_len = u32::to_le(cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS);
+        desc.adv_tx.cmd_type_len = u32::to_le(
+            tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
+        );
         desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
 
         head += 1;

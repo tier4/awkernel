@@ -542,7 +542,8 @@ fn get_operations(mac_type: &MacType) -> Result<Box<dyn IxgbeOperations>, IxgbeD
 pub fn get_num_queues(mac_type: &MacType) -> usize {
     match mac_type {
         MacType::IxgbeMac82598EB => 8,
-        _ => 16,
+        //_ => 16,
+        _ => 1,
     }
 }
 
