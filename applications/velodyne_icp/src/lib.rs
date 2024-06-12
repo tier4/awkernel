@@ -28,19 +28,17 @@ const PACKETS_PER_SCAN: usize = 75;
 
 const SCREEN_SCALE: f64 = 25.;
 
-const N_USED_CHANNELS: usize = 1;
-
 #[derive(PartialEq)]
 struct Scan {
     packet_index: usize,
-    pub points: [icp::Vector2; PACKETS_PER_SCAN * N_SEQUENCES * N_USED_CHANNELS],
+    pub points: [icp::Vector3; PACKETS_PER_SCAN * N_SEQUENCES],
 }
 
 impl Default for Scan {
     fn default() -> Self {
         Scan {
             packet_index: 0,
-            points: [icp::Vector2::zeros(); PACKETS_PER_SCAN * N_SEQUENCES * N_USED_CHANNELS],
+            points: [icp::Vector3::zeros(); PACKETS_PER_SCAN * N_SEQUENCES],
         }
     }
 }
@@ -48,18 +46,13 @@ impl Default for Scan {
 impl PointProcessor for Scan {
     fn process(&mut self, sequence_index: usize, channel: usize, point: &velodyne_driver::Point) {
         assert!(!self.is_full());
-
-        let c = if channel == 1 {
-            0
-        } else {
+        if channel != 1 {
             return;
-        };
-
-        let (x, y, _z) = point;
-        let index = self.packet_index * N_SEQUENCES * N_USED_CHANNELS
-            + sequence_index * N_USED_CHANNELS
-            + c;
-        self.points[index] = icp::Vector2::new(*x, *y);
+        }
+        let (x, y, z) = point;
+        let index = self.packet_index * N_SEQUENCES
+            + sequence_index;
+        self.points[index] = icp::Vector3::new(*x, *y, *z);
     }
 }
 
@@ -83,7 +76,7 @@ fn run_icp(
 ) -> icp::Transform {
     let src: &Box<Scan> = src_scan.borrow();
     let dst: &Box<Scan> = dst_scan.borrow();
-    icp::icp_2dscan(prior, &src.points, &dst.points)
+    icp::icp_3dscan(prior, &src.points, &dst.points)
 }
 
 async fn icp() {
@@ -141,6 +134,10 @@ fn is_out_of_screen(
     p.x < 0 || screen.size.width as i32 <= p.x || p.y < 0 || screen.size.height as i32 <= p.y
 }
 
+fn get_xy(p: &icp::Vector3) -> icp::Vector2 {
+    icp::Vector2::new(p[0], p[1])
+}
+
 fn draw_scan_points(
     scan: &Arc<Box<Scan>>,
     transform: &icp::Transform,
@@ -149,7 +146,7 @@ fn draw_scan_points(
     let offset = screen_center(&screen_bbox);
     let inv_transform = transform.inverse();
     for p in scan.points.iter() {
-        let b = inv_transform.transform(&p);
+        let b = inv_transform.transform(&get_xy(p));
         let x = b[(0, 0)];
         let y = b[(1, 0)];
         let point = to_screen_coordinate(&(x, y), SCREEN_SCALE, &offset);
