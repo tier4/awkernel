@@ -24,6 +24,8 @@ use core::net::Ipv4Addr;
 
 const VLP16_PACKET_DATA_SIZE: usize = 1206;
 
+// We can caputure only about four degrees per packet so we need to collect 75 packets to capture
+// 360 degree scan
 const PACKETS_PER_SCAN: usize = 75;
 
 const SCREEN_SCALE: f64 = 25.;
@@ -46,12 +48,13 @@ impl Default for Scan {
 impl PointProcessor for Scan {
     fn process(&mut self, sequence_index: usize, channel: usize, point: &velodyne_driver::Point) {
         assert!(!self.is_full());
+        // Temporarily use only channel 1 in 16 scans to reduce the number of input 3D points for ICP
+        // TODO Optimze ICP for speed up and use the whole input point cloud
         if channel != 1 {
             return;
         }
         let (x, y, z) = point;
-        let index = self.packet_index * N_SEQUENCES
-            + sequence_index;
+        let index = self.packet_index * N_SEQUENCES + sequence_index;
         self.points[index] = icp::Vector3::new(*x, *y, *z);
     }
 }
@@ -79,6 +82,7 @@ fn run_icp(
     icp::icp_3dscan(prior, &src.points, &dst.points)
 }
 
+// Run ICP (Iterative Closest Point)
 async fn icp() {
     let scan_subscriber =
         create_subscriber::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default())
@@ -89,21 +93,22 @@ async fn icp() {
     )
     .unwrap();
 
-    let mut transform = icp::Transform::identity();
-    let mut maybe_reference_scan = None;
+    let identity = icp::Transform::identity();
+    let mut maybe_src_scan = None;
     loop {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
-        let scan: Arc<Box<Scan>> = scan_message.data;
+        let dst_scan: Arc<Box<Scan>> = scan_message.data;
 
-        if let Some(ref reference_scan) = maybe_reference_scan {
-            transform = run_icp(&transform, &reference_scan, &scan);
+        // Regard the previous scan as src and the current scan as dst
+        if let Some(ref src_scan) = maybe_src_scan {
+            let transform = run_icp(&identity, &src_scan, &dst_scan);
             transform_publisher
                 .send(Arc::new(Box::new(transform)))
                 .await;
             continue;
         }
 
-        maybe_reference_scan = Some(scan);
+        maybe_src_scan = Some(dst_scan);
     }
 }
 
@@ -212,6 +217,7 @@ async fn draw() {
     let screen_bbox = graphics::bounding_box();
     let offset = screen_center(&screen_bbox);
 
+    let mut transform = icp::Transform::identity();
     let mut trajectory = Trajectory::new();
     loop {
         graphics::fill(&Rgb888::WHITE);
@@ -219,10 +225,13 @@ async fn draw() {
         let scan: Arc<Box<Scan>> = scan_message.data;
 
         let transform_message = transform_subscriber.recv().await;
-        let transform: Arc<Box<icp::Transform>> = transform_message.data;
+        let dtransform: Arc<Box<icp::Transform>> = transform_message.data;
 
-        draw_axes(&transform, &screen_bbox);
-        draw_scan_points(&scan, &transform, &screen_bbox);
+        // NOTE: The order of multiplication is important. 
+        // In this case we need to multiply the incremental tranform from the left.
+        transform = **dtransform * transform;
+        draw_axes(&transform.inverse(), &screen_bbox);
+        draw_scan_points(&scan, &transform.inverse(), &screen_bbox);
 
         let (x, y) = (transform.t[0], transform.t[1]);
         let curr = to_screen_coordinate(&(x, y), SCREEN_SCALE, &offset);
@@ -243,6 +252,7 @@ async fn draw() {
 async fn receive_scan_packets() {
     log::info!("Start the connection");
 
+    // See velodyne manual for this IP addr configuration
     let dst_addr = IpAddr::new_v4(Ipv4Addr::new(0, 0, 0, 0));
 
     let udp_config = UdpConfig {
@@ -269,9 +279,11 @@ async fn receive_scan_packets() {
 
     loop {
         socket.recv(&mut buf).await.unwrap();
+        // Calculate the point cloud from the packet
         calculator.calculate(scan.as_mut(), &buf);
-        scan.increment();
 
+        // Publish the point cloud if we get the whole 360 degree scan
+        scan.increment();
         if scan.is_full() {
             scan_publisher.send(Arc::new(scan)).await;
             scan = Box::new(Scan::default());
@@ -279,6 +291,7 @@ async fn receive_scan_packets() {
     }
 }
 
+// Launched first
 pub async fn run() {
     awkernel_async_lib::spawn("draw".into(), draw(), SchedulerType::FIFO).await;
     awkernel_async_lib::spawn(
