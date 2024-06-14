@@ -96,21 +96,22 @@ impl RRScheduler {
 
         for cpu_id in 1..num_cpu() {
             if let Some(task_id) = get_current_task(cpu_id) {
-                if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
-                    if let Some(scheduler_type) = get_scheduler_type_by_task_id(task_id) {
-                        let elapsed = awkernel_lib::delay::uptime() - last_executed;
+                if let (Some(last_executed), Some(scheduler_type)) = (
+                    get_last_executed_by_task_id(task_id),
+                    get_scheduler_type_by_task_id(task_id),
+                ) {
+                    let elapsed = awkernel_lib::delay::uptime() - last_executed;
 
-                        if scheduler_type == SchedulerType::RR
+                    if scheduler_type == SchedulerType::RR
                             // Omit checking for a task that has not been started yet
                             && last_executed != 0
                             // Compare the elapsed time with the time quantum 
                             && elapsed > self.interval
-                        {
-                            awkernel_lib::interrupt::send_ipi(
-                                preempt_irq,
-                                get_raw_cpu_id(cpu_id) as u32,
-                            );
-                        }
+                    {
+                        awkernel_lib::interrupt::send_ipi(
+                            preempt_irq,
+                            get_raw_cpu_id(cpu_id) as u32,
+                        );
                     }
                 }
             }
