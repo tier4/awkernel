@@ -308,17 +308,6 @@ pub fn get_current_task(cpu_id: usize) -> Option<u32> {
 }
 
 #[inline(always)]
-pub fn get_current_task_ref(cpu_id: usize) -> Option<Arc<Task>> {
-    let mut node = MCSNode::new();
-    let tasks = TASKS.lock(&mut node);
-    if let Some(task_id) = get_current_task(cpu_id) {
-        tasks.id_to_task.get(&task_id).cloned()
-    } else {
-        None
-    }
-}
-
-#[inline(always)]
 fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
@@ -666,6 +655,30 @@ pub fn get_num_preemption() -> usize {
 #[inline(always)]
 pub fn get_raw_cpu_id(cpu_id: usize) -> usize {
     CPUID_TO_RAWCPUID[cpu_id].load(Ordering::Relaxed)
+}
+
+#[inline(always)]
+pub fn get_last_executed_by_task_id(task_id: u32) -> Option<u64> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_last_executed()
+    })
+}
+
+#[inline(always)]
+pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).map(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_scheduler_type()
+    })
 }
 
 pub fn panicking() {
