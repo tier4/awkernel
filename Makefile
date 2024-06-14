@@ -20,6 +20,10 @@ else ifeq ($(BSP),raspi4)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
+else ifeq ($(BSP),raspi5)
+	RUSTC_MISC_ARGS = -C target-cpu=cortex-a76
+	INITADDR = 0x80000
+	AARCH64_OPT = $(OPT) --features raspi5
 else ifeq ($(BSP),aarch64_virt)
 	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x40080000
@@ -51,7 +55,7 @@ AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 
-RUSTV=nightly-2024-03-09
+RUSTV=nightly-2024-05-08
 
 all: aarch64 x86_64 riscv32 std
 
@@ -60,6 +64,7 @@ check: check_aarch64 check_x86_64 check_std check_riscv32
 clippy:
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
+	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
 	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_std
@@ -107,6 +112,9 @@ gdb-raspi3:
 
 QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 $(QEMU_AARCH64_ARGS)
 QEMU_AARCH64_VIRT_ARGS+= -m 1G -smp cpus=4
+QEMU_AARCH64_VIRT_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
+QEMU_AARCH64_VIRT_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
+QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)

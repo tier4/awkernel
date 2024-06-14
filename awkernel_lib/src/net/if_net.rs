@@ -77,8 +77,9 @@ impl<'a> Device for NetDriverRef<'a> {
             cap.checksum.ipv4 = Checksum::Rx;
         }
 
-        // TCP and UDP checksum offload is currently not supported
-        // because of bugs in the current implementation.
+        // Note: Awkernel doen't yet support Ipv6.
+        // Additionally, tests for TCP functionality have not yet been conducted.
+        // Checksum offload currently only supports UDPv4.
 
         // if capabilities.contains(NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_TCPv6) {
         //     cap.checksum.tcp = Checksum::Rx;
@@ -87,6 +88,10 @@ impl<'a> Device for NetDriverRef<'a> {
         // if capabilities.contains(NetCapabilities::CSUM_UDPv4 | NetCapabilities::CSUM_UDPv6) {
         //     cap.checksum.udp = Checksum::Rx;
         // }
+
+        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+            cap.checksum.udp = Checksum::Rx;
+        }
 
         cap
     }
@@ -135,6 +140,7 @@ pub(super) struct IfNet {
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
+    tick_driver: Option<NetDriver>,
 }
 
 pub(super) struct IfNetInner {
@@ -218,6 +224,19 @@ impl IfNet {
             None
         };
 
+        let tick_driver = if net_device.tick_msec().is_some() {
+            let tx_ringq = Mutex::new(RingQ::new(512));
+            tx_only_ringq.push(tx_ringq);
+
+            Some(NetDriver {
+                inner: net_device.clone(),
+                rx_que_id: 0,
+                rx_ringq: Mutex::new(RingQ::new(512)),
+            })
+        } else {
+            None
+        };
+
         // Create a SocketSet.
         let socket_set = SocketSet::new(vec![]);
 
@@ -235,6 +254,7 @@ impl IfNet {
             tx_only_ringq,
             is_poll_mode,
             poll_driver,
+            tick_driver,
         }
     }
 
@@ -259,8 +279,6 @@ impl IfNet {
             let mut inner = self.inner.lock(&mut node);
 
             let (interface, socket_set) = inner.split();
-
-            // device_ref.tx_packet_header_flags(),
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
@@ -350,7 +368,22 @@ impl IfNet {
             return false;
         };
 
-        self.poll_rx(ref_net_driver)
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver)
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
+    pub fn tick_rx_poll_mode(&self) {
+        let Some(ref_net_driver) = self.tick_driver.as_ref() else {
+            return;
+        };
+
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver);
+        }
     }
 
     /// If some packets are processed, return true.
@@ -361,7 +394,11 @@ impl IfNet {
             return false;
         };
 
-        self.poll_rx(ref_net_driver)
+        if ref_net_driver.inner.can_send() {
+            self.poll_rx(ref_net_driver)
+        } else {
+            false
+        }
     }
 }
 

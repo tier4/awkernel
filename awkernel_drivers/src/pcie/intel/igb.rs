@@ -1,7 +1,7 @@
 //! # Intel Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, net::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
+    capability::msi::MultipleMessage, intel::igb::igb_hw::MacType, PCIeDevice, PCIeDeviceErr,
     PCIeInfo,
 };
 use alloc::{
@@ -19,14 +19,15 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN, ETHER_HDR_LEN,
-            ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_CRC_LEN,
+            ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
         },
+        in_cksum::in_pseudo,
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevError, NetDevice, NetFlags,
-            PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
+            NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -1264,16 +1265,9 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let mut data: Vec<u8> = Vec::with_capacity(len);
-
-                    #[allow(clippy::uninit_vec)]
-                    unsafe {
-                        data.set_len(len);
-
-                        let read_buf = rx.read_buf.as_ref().unwrap();
-                        let src = &read_buf.as_ref()[i];
-                        core::ptr::copy_nonoverlapping(src.as_ptr(), data.as_mut_ptr(), len);
-                    }
+                    let read_buf = rx.read_buf.as_ref().unwrap();
+                    let src = &read_buf.as_ref()[i];
+                    let data = src[0..len].to_vec();
 
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 };
@@ -1302,13 +1296,31 @@ impl Igb {
         todo!()
     }
 
-    /// Return `(used, lower, upper)`.
+    // TODO: Ipv6
+    fn calc_pseudo_cksum(&self, ext: &EtherExtracted) -> u16 {
+        match ext.network {
+            NetworkHdr::Ipv4(ip_hdr) => {
+                let ip_src = ip_hdr.ip_src.swap_bytes();
+                let ip_dst = ip_hdr.ip_dst.swap_bytes();
+                let len = ip_hdr.ip_len.swap_bytes() as u32 - core::mem::size_of::<Ip>() as u32;
+                let protocol = ip_hdr.ip_p.swap_bytes() as u32;
+                in_pseudo(ip_src, ip_dst, len + protocol)
+            }
+            NetworkHdr::Ipv6(_) => {
+                /* TODO */
+                0
+            }
+            NetworkHdr::None => 0,
+        }
+    }
+
+    /// Return `(used, lower, upper, cksum, cksum_offset)`.
     fn transmit_checksum_setup(
         &self,
         tx: &mut Tx,
         ether_frame: &EtherFrameRef,
         head: usize,
-    ) -> Result<(usize, u32, u32), IgbDriverErr> {
+    ) -> Result<(usize, u32, u32, u16, Option<u8>), IgbDriverErr> {
         let txd_upper;
         let txd_lower;
 
@@ -1316,17 +1328,23 @@ impl Igb {
         if !(matches!(ext.network, NetworkHdr::Ipv4(_))
             && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
         {
-            return Ok((0, 0, 0));
+            return Ok((0, 0, 0, 0, None));
         }
 
+        let cksum;
+        let cksum_offset;
         if ether_frame
             .csum_flags
             .contains(PacketHeaderFlags::TCP_CSUM_OUT)
         {
             txd_upper = TXD32_POPTS_TXSM << 8;
             txd_lower = TXD32_CMD_DEXT | TXD32_DTYP_D;
+            cksum = self.calc_pseudo_cksum(&ext);
+            cksum_offset = ETHER_HDR_LEN as u8
+                + core::mem::size_of::<Ip>() as u8
+                + offset_of!(TCPHdr, th_sum) as u8;
             if tx.active_checksum_context == ActiveChecksumContext::TcpIP {
-                return Ok((0, txd_lower, txd_upper));
+                return Ok((0, txd_lower, txd_upper, cksum, Some(cksum_offset)));
             } else {
                 tx.active_checksum_context = ActiveChecksumContext::TcpIP;
             }
@@ -1334,15 +1352,19 @@ impl Igb {
             .csum_flags
             .contains(PacketHeaderFlags::UDP_CSUM_OUT)
         {
+            cksum = self.calc_pseudo_cksum(&ext);
+            cksum_offset = ETHER_HDR_LEN as u8
+                + core::mem::size_of::<Ip>() as u8
+                + offset_of!(UDPHdr, uh_sum) as u8;
             txd_upper = TXD32_POPTS_TXSM << 8;
             txd_lower = TXD32_CMD_DEXT | TXD32_DTYP_D;
             if tx.active_checksum_context == ActiveChecksumContext::UdpIP {
-                return Ok((0, txd_lower, txd_upper));
+                return Ok((0, txd_lower, txd_upper, cksum, Some(cksum_offset)));
             } else {
                 tx.active_checksum_context = ActiveChecksumContext::UdpIP;
             }
         } else {
-            return Ok((0, 0, 0));
+            return Ok((0, 0, 0, 0, None));
         }
 
         let mut cmd = 0;
@@ -1372,10 +1394,11 @@ impl Igb {
         txd.context_desc.data = 0;
         txd.context_desc.cmd_and_length = u32::to_le(cmd | TXD32_CMD_DEXT | TXD32_CMD_IFCS);
 
-        Ok((1, txd_lower, txd_upper))
+        Ok((1, txd_lower, txd_upper, cksum, Some(cksum_offset)))
     }
 
-    /// Return `(used, lower, upper)`.
+    /// Return `(used, lower, upper, cksum, cksum_offset)`.
+    /// TODO: cksum, cksum_offset
     fn tx_ctx_setup(
         &self,
         mac_type: MacType,
@@ -1383,7 +1406,7 @@ impl Igb {
         tx: &mut Tx,
         ether_frame: &EtherFrameRef,
         head: usize,
-    ) -> Result<(usize, u32, u32), IgbDriverErr> {
+    ) -> Result<(usize, u32, u32, u16, Option<u8>), IgbDriverErr> {
         let mut olinfo_status = 0;
         let mut cmd_type_len = 0;
         let mut vlan_macip_lens = 0;
@@ -1463,7 +1486,7 @@ impl Igb {
         olinfo_status |= (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
 
         if !off {
-            return Ok((0, cmd_type_len, olinfo_status));
+            return Ok((0, cmd_type_len, olinfo_status, 0, None));
         }
 
         mss_l4len_idx |= paylen << 16;
@@ -1479,7 +1502,7 @@ impl Igb {
         desc.adv_ctx.mss_l4len_idx = u32::to_le(mss_l4len_idx);
         desc.adv_ctx.launch_time_or_seqnum_seed = 0;
 
-        Ok((1, cmd_type_len, olinfo_status))
+        Ok((1, cmd_type_len, olinfo_status, 0, None))
     }
 
     fn link_intr_msix(&self) -> Result<(), IgbDriverErr> {
@@ -1580,14 +1603,15 @@ impl Igb {
 
         let mut head = tx.tx_desc_head;
 
-        let (mut used, txd_lower, txd_upper) = if mac_type as u32 >= MacType::Em82575 as u32
+        let (mut used, txd_lower, txd_upper, cksum_pseudo, cksum_offset) = if mac_type as u32
+            >= MacType::Em82575 as u32
             && mac_type as u32 <= MacType::EmI210 as u32
         {
             self.tx_ctx_setup(mac_type, me, tx, ether_frame, head)?
         } else if mac_type as u32 >= MacType::Em82543 as u32 {
             self.transmit_checksum_setup(tx, ether_frame, head)?
         } else {
-            (0, 0, 0)
+            (0, 0, 0, 0, None)
         };
 
         let tx_slots = tx.tx_desc_ring.as_ref().len();
@@ -1601,6 +1625,12 @@ impl Igb {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            if let Some(cksum_offset) = cksum_offset {
+                core::ptr::write(
+                    dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
+                    cksum_pseudo.to_be(),
+                );
+            }
             (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_2048 as usize) as u64
         };
 
@@ -2007,9 +2037,17 @@ impl NetDevice for Igb {
         inner.capabilities
     }
 
-    fn link_up(&self) -> bool {
+    fn link_status(&self) -> LinkStatus {
         let inner = self.inner.read();
-        inner.link_active
+        if inner.link_active {
+            if inner.link_duplex == igb_hw::Duplex::Full {
+                LinkStatus::UpFullDuplex
+            } else {
+                LinkStatus::UpHalfDuplex
+            }
+        } else {
+            LinkStatus::Down
+        }
     }
 
     fn link_speed(&self) -> u64 {
@@ -2021,12 +2059,6 @@ impl NetDevice for Igb {
             igb_hw::Speed::S1000Mbps => 1000,
             igb_hw::Speed::None => 0,
         }
-    }
-
-    fn full_duplex(&self) -> bool {
-        let inner = self.inner.read();
-
-        inner.link_duplex == igb_hw::Duplex::Full
     }
 
     fn mac_address(&self) -> [u8; 6] {
@@ -2059,7 +2091,15 @@ impl NetDevice for Igb {
 
     fn can_send(&self) -> bool {
         let inner = self.inner.read();
-        inner.flags.contains(NetFlags::RUNNING)
+        if !inner.flags.contains(NetFlags::RUNNING) {
+            return false;
+        }
+
+        if !inner.link_active {
+            return false;
+        };
+
+        true
     }
 
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
@@ -2177,6 +2217,33 @@ impl NetDevice for Igb {
         } else {
             false
         }
+    }
+
+    fn tick(&self) -> Result<(), NetDevError> {
+        let inner = self.inner.read();
+
+        if inner.is_poll_mode {
+            return Ok(());
+        }
+
+        let mut irqs = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            if *irq != 0 {
+                irqs.push(*irq);
+            }
+        }
+
+        drop(inner);
+
+        for irq in irqs {
+            let _ = self.intr(irq);
+        }
+
+        Ok(())
+    }
+
+    fn tick_msec(&self) -> Option<u64> {
+        Some(200)
     }
 }
 

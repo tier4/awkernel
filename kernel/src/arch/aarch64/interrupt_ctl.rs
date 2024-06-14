@@ -2,6 +2,7 @@ use super::bsp::StaticArrayedNode;
 use alloc::boxed::Box;
 use awkernel_lib::{err_msg, interrupt::register_interrupt_controller};
 
+#[allow(dead_code)]
 pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     match irc_ctl {
         "brcm,bcm2836-armctrl-ic" => get_irq_bcm2836(interrupts),
@@ -10,6 +11,7 @@ pub fn get_irq(irc_ctl: &str, interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
     let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
@@ -22,6 +24,7 @@ fn get_irq_bcm2836(interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
     let int0 = interrupts.first()?;
     let int1 = interrupts.get(1)?;
@@ -33,6 +36,7 @@ fn get_irq_gicv2(interrupts: &[u64]) -> Option<u16> {
     }
 }
 
+#[allow(dead_code)]
 fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let gicd_base = node
         .get_address(0)
@@ -52,6 +56,7 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let gicd_base = node
         .get_address(0)
@@ -60,7 +65,31 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
         .get_address(1)
         .or(Err(err_msg!("could not find GICR_BASE")))? as usize;
 
-    let gic = awkernel_drivers::interrupt_controller::gicv3::GICv3::new(gicd_base, gicr_base);
+    let mut its_base = None;
+    if let Some(leaf) = node.get_leaf_node() {
+        for its_node in leaf.nodes().iter() {
+            if its_node.name().starts_with("its@") {
+                if !its_node.compatible(&["arm,gic-v3-its"]) {
+                    continue;
+                }
+
+                let mut arr_its_node = node.clone();
+                arr_its_node
+                    .push(its_node)
+                    .or(Err(err_msg!("could not push the ITS node")))?;
+
+                match arr_its_node.get_address(0) {
+                    Ok(addr) => its_base = Some(addr as usize),
+                    Err(e) => log::error!("{e:?}: ITS node has no address"),
+                }
+
+                break;
+            }
+        }
+    }
+
+    let gic =
+        awkernel_drivers::interrupt_controller::gicv3::GICv3::new(gicd_base, gicr_base, its_base);
 
     register_interrupt_controller(Box::new(gic));
 
@@ -68,9 +97,14 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     log::info!("GICD_BASE = 0x{gicd_base:016x}");
     log::info!("GICR_BASE = 0x{gicr_base:016x}");
 
+    if let Some(its_base) = its_base {
+        log::info!("ITS_BASE  = 0x{its_base:016x}");
+    }
+
     Ok(())
 }
 
+#[allow(dead_code)]
 fn init_bcm2836(
     node: &StaticArrayedNode,
     local_intc_node: &StaticArrayedNode,
@@ -94,6 +128,7 @@ fn init_bcm2836(
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn init_interrupt_controller(
     irc_ctl: &str,
     intc_node: &StaticArrayedNode,

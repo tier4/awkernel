@@ -12,6 +12,7 @@ pub mod console;
 pub mod cpu;
 pub mod delay;
 pub mod device_tree;
+pub mod graphics;
 pub mod interrupt;
 pub mod local_heap;
 pub mod logger;

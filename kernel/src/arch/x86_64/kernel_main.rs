@@ -260,6 +260,20 @@ fn kernel_main2(
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
 
+    if let Some(framebuffer) = boot_info.framebuffer.take() {
+        let info = framebuffer.info();
+        let buffer = framebuffer.into_buffer();
+
+        log::info!(
+            "Framebuffer: width = {}, height = {}, pixel_format = {:?}",
+            info.width,
+            info.height,
+            info.pixel_format
+        );
+
+        unsafe { awkernel_drivers::ic::x86_64::lfb::init(info, buffer) };
+    }
+
     BSP_READY.store(true, Ordering::SeqCst);
 
     while BOOTED_APS.load(Ordering::Relaxed) != 0 {

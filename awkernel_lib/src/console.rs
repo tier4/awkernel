@@ -211,8 +211,7 @@ pub fn acknowledge_recv_interrupt() {
 pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let c = CONSOLE.console.lock(&mut node);
-
-    c.as_ref().map(|console| console.irq_id())
+    c.as_ref().as_ref().map(|console| console.irq_id())
 }
 
 /// Read a byte.

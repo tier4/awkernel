@@ -3,19 +3,20 @@ use core::{future::Future, task::Poll, time::Duration};
 use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
     future::FutureExt, pubsub, scheduler::SchedulerType, select_biased, session_types::*,
-    task::TaskResult,
 };
 
 const NETWORK_SERVICE_RENDEZVOUS: &str = "/awkernel/network_service";
 
+const GARBAGE_COLLECTOR_NAME: &str = "[Awkernel] TCP garbage collector";
+
 type ProtoInterruptHandler = Recv<(), Send<(), Eps>>;
 type ChanProtoInterruptHandlerDual = Chan<(), <ProtoInterruptHandler as HasDual>::Dual>;
 
-pub async fn run() -> TaskResult {
+pub async fn run() {
     log::info!("Starting {}.", crate::NETWORK_SERVICE_NAME);
 
     awkernel_async_lib::spawn(
-        "TCP garbage collector".into(),
+        GARBAGE_COLLECTOR_NAME.into(),
         tcp_garbage_collector(),
         SchedulerType::FIFO,
     )
@@ -23,10 +24,18 @@ pub async fn run() -> TaskResult {
 
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
+    let mut ch_tick_handlers = BTreeMap::new();
 
     for if_status in awkernel_lib::net::get_all_interface() {
+        log::info!("Waking {} up.", if_status.device_name);
         if awkernel_lib::net::up(if_status.interface_id).is_ok() {
-            spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
+            spawn_handlers(
+                if_status,
+                &mut ch_irq_handlers,
+                &mut ch_poll_handlers,
+                &mut ch_tick_handlers,
+            )
+            .await;
         }
     }
 
@@ -54,7 +63,13 @@ pub async fn run() -> TaskResult {
                     continue;
                 };
 
-                spawn_handlers(if_status, &mut ch_irq_handlers, &mut ch_poll_handlers).await;
+                spawn_handlers(
+                    if_status,
+                    &mut ch_irq_handlers,
+                    &mut ch_poll_handlers,
+                    &mut ch_tick_handlers,
+                )
+                .await;
             }
             ("down", id) => {
                 let Ok(if_status) = awkernel_lib::net::get_interface(id) else {
@@ -90,6 +105,7 @@ async fn spawn_handlers(
     if_status: awkernel_lib::net::IfStatus,
     ch_irq_handlers: &mut BTreeMap<u16, ChanProtoInterruptHandlerDual>,
     ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
+    ch_tick_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
 ) {
     for irq in if_status.irqs {
         let (server, client) = session_channel::<ProtoInterruptHandler>();
@@ -122,6 +138,24 @@ async fn spawn_handlers(
         awkernel_async_lib::spawn(
             name.into(),
             poll_handler(if_status.interface_id, server),
+            SchedulerType::FIFO,
+        )
+        .await;
+    }
+
+    if let Some(tick_msec) = if_status.tick_msec {
+        let (server, client) = session_channel::<ProtoInterruptHandler>();
+        ch_tick_handlers.insert(if_status.interface_id, client);
+
+        let name = format!(
+            "{}:{}: tick = {tick_msec} [msec]",
+            crate::NETWORK_SERVICE_NAME,
+            if_status.device_name,
+        );
+
+        awkernel_async_lib::spawn(
+            name.into(),
+            tick_handler(if_status.interface_id, tick_msec, server),
             SchedulerType::FIFO,
         )
         .await;
@@ -271,5 +305,27 @@ async fn poll_handler(interface_id: u64, ch: Chan<(), ProtoInterruptHandler>) {
 
         awkernel_lib::net::poll_interface(interface_id);
         awkernel_async_lib::r#yield().await;
+    }
+}
+
+// Tick
+async fn tick_handler(interface_id: u64, tick: u64, ch: Chan<(), ProtoInterruptHandler>) {
+    let mut ch = ch.recv().boxed().fuse();
+
+    loop {
+        awkernel_lib::net::tick_interface(interface_id);
+
+        let mut sleeper = awkernel_async_lib::sleep(Duration::from_millis(tick))
+            .boxed()
+            .fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = sleeper => {},
+        }
     }
 }

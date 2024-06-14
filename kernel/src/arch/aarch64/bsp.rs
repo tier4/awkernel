@@ -4,6 +4,7 @@
 //! - `aarch64_virt` is for Qemu's AArch64 generic virtual platform.
 
 use awkernel_lib::{
+    addr::virt_addr::VirtAddr,
     device_tree::{
         node::{ArrayedNode, DeviceTreeNode},
         DeviceTree,
@@ -29,6 +30,12 @@ pub mod aarch64_virt;
 #[cfg(feature = "aarch64_virt")]
 pub use aarch64_virt::AArch64Virt as SoCInitializer;
 
+#[cfg(feature = "raspi5")]
+pub mod raspi5;
+
+#[cfg(feature = "raspi5")]
+pub use raspi5::Raspi5 as SoCInitializer;
+
 #[cfg(feature = "raspi")]
 pub mod raspi;
 
@@ -47,9 +54,20 @@ pub trait SoC {
     ///
     /// Return the size of heap memory if the virtual memory is
     /// successfully initialized.
-    unsafe fn init_virtual_memory(&self) -> Result<VM, &'static str>;
+    unsafe fn init_virtual_memory(&mut self) -> Result<VM, &'static str>;
 
     /// Initialize the AWkernel.
     /// This method will be invoked after `init_device()` and `init_virtual_memory()`.
     unsafe fn init(&self) -> Result<(), &'static str>;
+
+    /// Return the segment group and the address of the DMA pool.
+    #[allow(unused_variables)]
+    fn get_dma_pool(&self, segment: usize) -> Option<VirtAddr> {
+        None
+    }
+
+    /// Get the number of segments.
+    fn get_segment_count(&self) -> usize {
+        1
+    }
 }

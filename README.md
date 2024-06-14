@@ -28,7 +28,7 @@ It can execute async/await applications in kernel space safely.
 - [ ] Frame buffer
   - [ ] AArch64 virt
   - [x] Raspberry Pi 3 and 4
-  - [ ] x86_64
+  - [x] x86_64
 - [ ] Diagnostics
 - [ ] Measurement
 - [ ] Power Management
@@ -58,10 +58,10 @@ It can execute async/await applications in kernel space safely.
   - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
   - [ ] Intel 10Gb Ethernet Controller (X520 Series)
   - [ ] Mellanox ConnectX-5 series
-  - [ ] genet for Raspberry Pi
+  - [x] genet for Raspberry Pi
 - Networking
   - [x] IPv4
-  - [x] IPv6
+  - [ ] IPv6
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
@@ -69,7 +69,7 @@ It can execute async/await applications in kernel space safely.
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
-    - [ ] UDP checksum
+    - [x] UDP checksum
     - [ ] TCP checksum
     - [ ] VLAN hardware tagging
 - [ ] XHCI
@@ -84,8 +84,8 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-03-09
-$ rustup default nightly-2024-03-09
+$ rustup toolchain install nightly-2024-05-08
+$ rustup default nightly-2024-05-08
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
@@ -131,6 +131,38 @@ Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers
 
 ---
 
+## Documents
+
+### Raspi
+
+```text
+$ cargo doc_raspi
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### AArch64 Qemu Virt
+
+``` text
+$ cargo doc_aarch64_virt
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### x86_64
+
+```text
+$ make kernel/asm/x86
+$ cargo doc_x86
+$ ls target/x86_64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+---
+
 ## x86_64
 
 ### Compile
@@ -145,12 +177,6 @@ Release build.
 
 ```text
 $ make x86_64 RELEASE=1
-```
-
-If you want to use UEFI, make `x86_64_uefi.img` as follows.
-
-```text
-$ make x86_64_uefi.img
 ```
 
 ### Boot
@@ -250,6 +276,24 @@ $ make aarch64 BSP=raspi4 RELEASE=1
 
 ---
 
+## Raspberry Pi 5 (AArch64)
+
+### Compile
+
+Specify `Release=1`.
+
+```text
+$ make aarch64 BSP=raspi5 RELEASE=1
+```
+
+### Boot
+
+- Serial
+  - 8N1: eight data bits, no parity, one stop bit
+  - Speed: 115200
+
+---
+
 ## RISC-V (32bit, Qemu)
 
 ### Compile
@@ -310,3 +354,29 @@ $ make run-std RELEASE=1
 $ make qemu-raspi3
 $ telnet localhost 5556
 ```
+
+---
+
+## Test
+
+Unit tests by using Rust's mechanism can be executed as follows.
+
+```text
+$ make test
+```
+
+Some mechanisms which use atomic instructions are verified by using [loom](https://github.com/tokio-rs/loom),
+and these verifications are executed as follows.
+It will takes several minutes.
+
+```text
+$ make loom
+```
+
+## Publications
+
+[Publications](./PUBLICATIONS.md)
+
+## Verification
+
+[Verification Result](./VERIFICATION.md)

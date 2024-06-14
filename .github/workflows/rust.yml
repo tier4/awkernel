@@ -20,9 +20,9 @@ jobs:
     - uses: actions/checkout@v3
 
     - name: Install Rust nightly
-      run: rustup toolchain install nightly-2024-03-09
+      run: rustup toolchain install nightly-2024-05-08
     - name: Use Rust nightly
-      run: rustup default nightly-2024-03-09
+      run: rustup default nightly-2024-05-08
     - name: Add Rust components
       run: rustup component add rust-src llvm-tools-preview clippy rustfmt
     - name: Add Rust targets
@@ -35,6 +35,8 @@ jobs:
 
     - name: Build aarch64_virt
       run: make check_aarch64 BSP=aarch64_virt
+    - name: Build aarch64 raspi5
+      run: make check_aarch64 BSP=raspi5
     - name: Build aarch64 raspi4
       run: make check_aarch64 BSP=raspi4
     - name: Build aarch64 raspi3
@@ -48,6 +50,8 @@ jobs:
       run: cargo clippy_aarch64_virt -- --deny warnings
     - name: Clippy raspi
       run: cargo clippy_raspi -- --deny warnings
+    - name: Cliipy raspi5
+      run: cargo clippy_raspi5 -- --deny warnings
     - name: Clippy x86_64
       run: cargo clippy_x86 -- --deny warnings
     - name: Clippy std

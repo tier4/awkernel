@@ -197,3 +197,17 @@ impl<'a, T: Send> DerefMut for MCSLockGuard<'a, T> {
         unsafe { &mut *self.mcs_lock.data.get() }
     }
 }
+
+#[cfg(not(loom))]
+impl<'a, T: Send> AsMut<T> for MCSLockGuard<'a, T> {
+    fn as_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.mcs_lock.data.get() }
+    }
+}
+
+#[cfg(not(loom))]
+impl<'a, T: Send> AsRef<T> for MCSLockGuard<'a, T> {
+    fn as_ref(&self) -> &T {
+        unsafe { &*self.mcs_lock.data.get() }
+    }
+}

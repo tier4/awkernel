@@ -10,6 +10,7 @@ test_awkernel_drivers = "test --package awkernel_drivers --no-default-features -
 
 clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_raspi = "clippy --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_raspi5 = "clippy --package awkernel --no-default-features --features raspi5 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_aarch64_virt = "clippy --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_std = "clippy --package awkernel --no-default-features --features std"
 clippy_rv32 = "clippy --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
@@ -19,6 +20,10 @@ check_x86 = "check --package awkernel --no-default-features --features x86 --tar
 check_rv32 = "check --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
 check_std = "check --package awkernel --no-default-features --features std"
+
+doc_raspi = "doc --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_aarch64_virt = "doc --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+doc_x86 = "doc --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]

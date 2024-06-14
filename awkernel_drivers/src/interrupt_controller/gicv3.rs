@@ -11,15 +11,18 @@
 //!
 //! # References
 //!
-//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c
-//! - https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3_its.c
-//! - https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.txt
+//! - <https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3.c>
+//! - <https://github.com/NetBSD/src/blob/netbsd-9/sys/arch/arm/cortex/gicv3_its.c>
+//! - <https://www.kernel.org/doc/Documentation/devicetree/bindings/interrupt-controller/arm%2Cgic-v3.txt>
 
 use alloc::{boxed::Box, collections::BTreeMap};
 use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
     arch::aarch64::{current_affinity, get_affinity},
     cpu::NUM_MAX_CPU,
+    dma_pool::DMAPool,
     interrupt::InterruptController,
+    paging::PAGESIZE,
 };
 use core::hint::spin_loop;
 
@@ -86,6 +89,8 @@ mod registers {
         }
     }
 
+    pub const _GICD_TYPER_LPIS: u32 = 1 << 17;
+
     // GICD_base
     mmio_rw!(offset 0x0000 => pub GICD_CTLR<GicdCtlr>); // Single security mode.
     mmio_rw!(offset 0x0000 => pub GICD_CTLR_SECURE<GicdCtlrSecure>); // Secure mode.
@@ -104,6 +109,8 @@ mod registers {
     mmio_rw!(offset 0x0000 => pub GICR_CTLR<GicrCtlr>);
     mmio_rw!(offset 0x0008 => pub GICR_TYPER<u64>);
     mmio_rw!(offset 0x0014 => pub GICR_WAKER<GicrWaker>);
+    mmio_rw!(offset 0x0070 => pub GICR_PROPBASER<u64>);
+    mmio_rw!(offset 0x0078 => pub GICR_PENDBASER<u64>);
 
     // SGI_base
     mmio_rw!(offset 0x0080 => pub GICR_IGROUPR0<u32>);
@@ -115,11 +122,17 @@ mod registers {
     mmio_rw!(offset 0x0C04 => pub GICR_ICFGR1<u32>);
 }
 
-#[derive(Default)]
+const LPI_CFG_TABLE_SZ: usize = 65536;
+const LPI_PEND_TABLE_SZ: usize = 65536 / 8;
+
+#[allow(dead_code)] // TODO: remove this attribute
 pub struct GICv3 {
     gicd_base: usize,
     gicr_base: usize,
+    its_base: Option<usize>,
     cpu_gicr: BTreeMap<u64, usize>,
+    lpi_cfg_table: Option<CachedPool<LPI_CFG_TABLE_SZ>>,
+    lpi_pend_table: Option<CachedPool<LPI_PEND_TABLE_SZ>>,
 }
 
 const SGI_OFFSET: usize = 0x10000;
@@ -148,18 +161,18 @@ fn cpu_identity() -> u64 {
 }
 
 impl GICv3 {
-    pub fn new(gicd_base: usize, gicr_base: usize) -> Self {
+    pub fn new(gicd_base: usize, gicr_base: usize, its_base: Option<usize>) -> Self {
         let gicd_ctlr = registers::GICD_CTLR.read(gicd_base);
         if gicd_ctlr.contains(registers::GicdCtlr::DS) {
             log::info!("GICv3 is non secure mode.");
-            Self::new_non_secure(gicd_base, gicr_base)
+            Self::new_non_secure(gicd_base, gicr_base, its_base)
         } else {
             log::info!("GICv3 is secure mode.");
             unimplemented!();
         }
     }
 
-    fn new_non_secure(gicd_base: usize, gicr_base: usize) -> Self {
+    fn new_non_secure(gicd_base: usize, gicr_base: usize, its_base: Option<usize>) -> Self {
         let typer = registers::GICD_TYPER.read(gicd_base);
 
         // ITLinesNumber, bits [4:0]
@@ -214,10 +227,22 @@ impl GICv3 {
         );
         wait_gicd_rwp(gicd_base);
 
+        let (lpi_cfg_table, lpi_pend_table) = if its_base.is_some() {
+            (
+                Some(unsafe { init_lpi_cfg_table(gicr_base).unwrap() }),
+                Some(unsafe { init_lpi_pend_table(gicr_base).unwrap() }),
+            )
+        } else {
+            (None, None)
+        };
+
         let mut gic = GICv3 {
             gicd_base,
             gicr_base,
+            its_base,
             cpu_gicr: BTreeMap::new(),
+            lpi_cfg_table,
+            lpi_pend_table,
         };
 
         gic.init_per_cpu();
@@ -439,4 +464,146 @@ impl Iterator for PendingInterruptIterator {
             Some(id)
         }
     }
+}
+
+const NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK: u64 = 0b11 << 7;
+const INNER_SHAREABLE: u64 = 0b01 << 10;
+
+/// A cached DMA pool.
+struct CachedPool<const N: usize> {
+    pool: DMAPool<[u8; N]>,
+}
+
+impl<const N: usize> CachedPool<N> {
+    fn new() -> Result<Self, &'static str> {
+        let mut pool =
+            DMAPool::<[u8; N]>::new(0, N / PAGESIZE).ok_or("failed to create dma pool")?;
+
+        let virt_addr = pool.get_virt_addr();
+        for i in 0..pool.get_size() / PAGESIZE {
+            let virt_addr = virt_addr + i * PAGESIZE;
+            unsafe { enable_cache(virt_addr)? };
+        }
+
+        for n in pool.as_mut().iter_mut() {
+            *n = 0;
+        }
+
+        Ok(Self { pool })
+    }
+}
+
+impl<const N: usize> Drop for CachedPool<N> {
+    fn drop(&mut self) {
+        let virt_addr = self.pool.get_virt_addr();
+        for i in 0..self.pool.get_size() / PAGESIZE {
+            let virt_addr = virt_addr + i * PAGESIZE;
+            unsafe { disable_cache(virt_addr).unwrap() };
+        }
+    }
+}
+
+/// Initialize the LPI Configuration Table.
+/// Because a continuous block of memory is required for the LPI Configuration Table,
+/// the LPI Configuration Table is created as a DMA pool.
+/// To improve performance, the DMA pool is mapped with the cache enabled.
+///
+/// # Safety
+///
+/// The `gicr_base` must be a valid address.
+unsafe fn init_lpi_cfg_table(
+    gicr_base: usize,
+) -> Result<CachedPool<LPI_CFG_TABLE_SZ>, &'static str> {
+    let pool = CachedPool::<LPI_CFG_TABLE_SZ>::new()?;
+
+    registers::GICR_PROPBASER.write(
+        pool.pool.get_phy_addr().as_usize() as u64
+            | INNER_SHAREABLE
+            | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK
+            | 15,
+        gicr_base,
+    );
+
+    Ok(pool)
+}
+
+/// Initialize the LPI Pending Table.
+/// Because a continuous block of memory is required for the LPI Pending Table,
+/// the LPI Pending Table is created as a DMA pool.
+/// To improve performance, the DMA pool is mapped with the cache enabled.
+///
+/// # Safety
+///
+/// The `gicr_base` must be a valid address.
+unsafe fn init_lpi_pend_table(
+    gicr_base: usize,
+) -> Result<CachedPool<LPI_PEND_TABLE_SZ>, &'static str> {
+    let pool = CachedPool::<LPI_PEND_TABLE_SZ>::new()?;
+
+    registers::GICR_PENDBASER.write(
+        pool.pool.get_phy_addr().as_usize() as u64
+            | INNER_SHAREABLE
+            | NORMAL_INNER_CACHEABLE_READ_ALLOCATE_WRITE_ALLOCATE_WRITE_BACK,
+        gicr_base,
+    );
+
+    Ok(pool)
+}
+
+/// Make the memory region specified by `virt_addr` cacheable.
+///
+/// # Safety
+///
+/// The `virt_addr` must be a valid address.
+unsafe fn enable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
+    let phy_addr =
+        awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
+
+    awkernel_lib::paging::unmap(virt_addr);
+
+    if let Err(e) = awkernel_lib::paging::map(
+        virt_addr,
+        phy_addr,
+        awkernel_lib::paging::Flags {
+            execute: false,
+            write: true,
+            cache: true,
+            device: false,
+            write_through: false,
+        },
+    ) {
+        log::error!("failed to map: {e:?}, virt_addr: {virt_addr:?}");
+        return Err("failed to map");
+    }
+
+    Ok(())
+}
+
+/// Disable the cache for the memory region specified by `virt_addr`.
+///
+/// # Safety
+///
+/// The `virt_addr` must be a valid address.
+unsafe fn disable_cache(virt_addr: VirtAddr) -> Result<(), &'static str> {
+    let phy_addr =
+        awkernel_lib::paging::vm_to_phy(virt_addr).ok_or("failed to translate VM to Phy")?;
+
+    awkernel_lib::paging::unmap(virt_addr);
+
+    if let Err(e) = awkernel_lib::paging::map(
+        virt_addr,
+        phy_addr,
+        awkernel_lib::paging::Flags {
+            execute: false,
+            write: true,
+            cache: false,
+            device: true,
+            write_through: false,
+        },
+    ) {
+        log::error!("failed to map: {e:?}, virt_addr: {virt_addr:?}");
+        return Err("failed to map");
+    }
+
+    Ok(())
 }

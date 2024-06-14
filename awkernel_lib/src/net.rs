@@ -1,4 +1,4 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{
     borrow::Cow,
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
@@ -10,16 +10,23 @@ use smoltcp::wire::{IpAddress, IpCidr};
 
 use self::{
     if_net::IfNet,
-    net_device::{NetCapabilities, NetDevice},
+    net_device::{LinkStatus, NetCapabilities, NetDevice},
     tcp::TcpPort,
 };
 
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
+#[cfg(loom)]
+use crate::sync::rwlock_dummy::RwLock;
+
+#[cfg(not(loom))]
+use crate::sync::rwlock::RwLock;
+
 pub mod ether;
 pub mod ethertypes;
 mod if_net;
+pub mod in_cksum;
 pub mod ip;
 pub mod ip_addr;
 pub mod ipv6;
@@ -43,6 +50,7 @@ pub enum NetManagerError {
     InvalidPort,
     InvalidState,
     NoAvailablePort,
+    InterfaceIsNotReady,
 }
 
 #[derive(Debug)]
@@ -51,14 +59,14 @@ pub struct IfStatus {
     pub device_name: Cow<'static, str>,
     pub ipv4_addrs: Vec<(Ipv4Addr, u8)>,
     pub ipv4_gateway: Option<Ipv4Addr>,
-    pub link_up: bool,
     pub link_speed_mbs: u64,
-    pub full_duplex: bool,
+    pub link_status: LinkStatus,
     pub mac_address: [u8; 6],
     pub irqs: Vec<u16>,
     pub rx_irq_to_que_id: BTreeMap<u16, usize>,
     pub capabilities: NetCapabilities,
     pub poll_mode: bool,
+    pub tick_msec: Option<u64>,
 }
 
 impl Display for IfStatus {
@@ -75,7 +83,7 @@ impl Display for IfStatus {
 
         write!(
             f,
-            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link up: {}, Link speed: {} Mbps, Full duplex: {}\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
+            "[{}] {}:\r\n    IPv4 address: {}\r\n    IPv4 gateway: {}\r\n    MAC address: {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\r\n    Link status: {}, Link speed: {} Mbps\r\n    Capabilities: {}\r\n    IRQs: {:?}\r\n    Poll mode: {}",
             self.interface_id,
             self.device_name,
             ipv4_addr,
@@ -86,9 +94,8 @@ impl Display for IfStatus {
             self.mac_address[3],
             self.mac_address[4],
             self.mac_address[5],
-            self.link_up,
+            self.link_status,
             self.link_speed_mbs,
-            self.full_duplex,
             self.capabilities,
             self.irqs,
             self.poll_mode
@@ -298,9 +305,8 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
     let inner = &if_net.net_device;
 
     let mac_address = inner.mac_address();
-    let link_up = inner.link_up();
     let link_speed_mbs = inner.link_speed();
-    let full_duplex = inner.full_duplex();
+    let link_status = inner.link_status();
 
     let mut ipv4_addrs = Vec::new();
 
@@ -328,19 +334,21 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let capabilities = inner.capabilities();
 
+    let tick_msec = inner.tick_msec();
+
     let if_status = IfStatus {
         interface_id,
         device_name: inner.device_short_name(),
         ipv4_addrs,
         ipv4_gateway: None,
-        link_up,
+        link_status,
         link_speed_mbs,
-        full_duplex,
         mac_address,
         irqs,
         rx_irq_to_que_id,
         capabilities,
         poll_mode,
+        tick_msec,
     };
 
     Ok(if_status)
@@ -365,7 +373,7 @@ enum IRQWaker {
     Interrupted,
 }
 
-pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
+pub fn add_interface(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) {
     let mut net_manager = NET_MANAGER.write();
 
     if net_manager.interface_id == u64::MAX {
@@ -375,7 +383,7 @@ pub fn add_interface(inner: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>)
     let id = net_manager.interface_id;
     net_manager.interface_id += 1;
 
-    let if_net = Arc::new(IfNet::new(inner, vlan));
+    let if_net = Arc::new(IfNet::new(net_device, vlan));
 
     net_manager.interfaces.insert(id, if_net);
 }
@@ -484,6 +492,26 @@ pub fn register_waker_for_poll(interface_id: u64, waker: core::task::Waker) -> b
             true
         }
     }
+}
+
+/// Because some devices need to poll the network device to process some events,
+/// this function should be called by the network service.
+///
+/// Usually, `poll_interface()` is for receiving and reading packets,
+/// and `tick_interface()` is for updating status.
+pub fn tick_interface(interface_id: u64) {
+    let interface = {
+        let net_manager = NET_MANAGER.read();
+
+        let Some(interface) = net_manager.interfaces.get(&interface_id) else {
+            return;
+        };
+
+        interface.clone()
+    };
+
+    let _ = interface.net_device.tick();
+    interface.tick_rx_poll_mode();
 }
 
 /// If some packets are processed, true is returned.

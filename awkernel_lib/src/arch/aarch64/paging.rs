@@ -24,7 +24,14 @@ impl crate::paging::Mapper for super::AArch64 {
 
         let mut page_table = get_page_table(VirtAddr::new(vm_addr));
 
-        let mut f = FLAG_L3_AF | FLAG_L3_ISH | FLAG_L3_ATTR_MEM | 0b11;
+        let mut f = FLAG_L3_AF | 0b11;
+
+        match (flags.device, flags.cache) {
+            (true, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_OSH,
+            (true, false) => f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH,
+            (false, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH,
+            (false, false) => f |= FLAG_L3_NS | FLAG_L3_ISH,
+        }
 
         if !flags.execute {
             f |= FLAG_L3_XN | FLAG_L3_PXN;

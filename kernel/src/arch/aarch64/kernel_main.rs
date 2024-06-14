@@ -8,14 +8,14 @@
 use super::bsp::DeviceTreeRef;
 use crate::{
     arch::aarch64::bsp::SoC,
-    config::{BACKUP_HEAP_SIZE, HEAP_START},
+    config::{BACKUP_HEAP_SIZE, DMA_SIZE, HEAP_START},
     kernel_info::KernelInfo,
 };
 use awkernel_aarch64::{dsb_ish, dsb_ishst, dsb_sy, isb, tlbi_vmalle1is};
 use awkernel_lib::{
     console::{unsafe_print_hex_u32, unsafe_puts},
     delay::wait_forever,
-    heap,
+    dma_pool, heap,
 };
 use core::{
     arch::asm,
@@ -125,6 +125,12 @@ unsafe fn primary_cpu(device_tree_base: usize) {
 
     heap::TALLOC.use_primary_then_backup(); // use backup allocator
 
+    for i in 0..initializer.get_segment_count() {
+        if let Some(dma_pool) = initializer.get_dma_pool(i) {
+            dma_pool::init_dma_pool(i, dma_pool, DMA_SIZE);
+        }
+    }
+
     // 6. Board specific initialization (Interrupt controller, PCIe, etc).
     if let Err(msg) = initializer.init() {
         unsafe_puts("failed init()\r\n");
@@ -163,27 +169,6 @@ unsafe fn primary_cpu(device_tree_base: usize) {
         cpu_id: 0,
     };
 
-    #[cfg(feature = "raspi")]
-    if let Some(framebuffer) = awkernel_drivers::framebuffer::rpi::lfb::get_framebuffer_info() {
-        use embedded_graphics::{
-            mono_font::{ascii::FONT_10X20, MonoTextStyle},
-            prelude::*,
-            text::{Alignment, Text},
-        };
-        use embedded_graphics_core::pixelcolor::Rgb888;
-
-        let character_style = MonoTextStyle::new(&FONT_10X20, Rgb888::new(255, 255, 255));
-
-        let text = "Welcome to Autoware Kernel v0.1";
-        let _ = Text::with_alignment(
-            text,
-            framebuffer.bounding_box().center() + Point::new(0, 15),
-            character_style,
-            Alignment::Center,
-        )
-        .draw(framebuffer);
-    }
-
     crate::main::<()>(kernel_info);
 }
 
@@ -218,7 +203,7 @@ unsafe fn non_primary_cpu() {
 
     // 2. Wait until the primary CPU is enabled.
     while !PRIMARY_INITIALIZED.load(Ordering::SeqCst) {
-        core::hint::spin_loop();
+        awkernel_lib::delay::wait_millisec(1);
     }
 
     // 3. Initialization for non-primary CPUs.
@@ -236,6 +221,7 @@ unsafe fn non_primary_cpu() {
     crate::main::<()>(kernel_info);
 }
 
+#[allow(dead_code)]
 unsafe fn load_device_tree(device_tree_base: usize) -> DeviceTreeRef {
     if let Ok(tree) = awkernel_lib::device_tree::from_address(device_tree_base) {
         tree

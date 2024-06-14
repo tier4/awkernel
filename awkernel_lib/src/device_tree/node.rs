@@ -103,6 +103,53 @@ impl<'a, A: Allocator + Clone> DeviceTreeNode<'a, A> {
     pub fn get_property(&'a self, property: &str) -> Option<&'a NodeProperty<'a, A>> {
         self.props().iter().find(|p| p.name() == property)
     }
+
+    /// Check if the node is compatible with the given names
+    pub fn compatible(&self, names: &[&str]) -> bool {
+        let Some(prop) = self.get_property("compatible") else {
+            return false;
+        };
+
+        match prop.value() {
+            PropertyValue::String(s) => names.iter().any(|n| n == s),
+            PropertyValue::Strings(v) => {
+                for name in names {
+                    if v.iter().any(|s| s == name) {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    /// Get the node by phandle.
+    pub fn get_node_by_phandle(&'a self, phandle: u32) -> Option<&'a DeviceTreeNode<'a, A>> {
+        for node in self.nodes() {
+            if let Some(prop) = node.get_property("phandle") {
+                match prop.value() {
+                    PropertyValue::Integer(v) => {
+                        if *v as u32 == phandle {
+                            return Some(node);
+                        }
+                    }
+                    PropertyValue::PHandle(v) => {
+                        if *v == phandle {
+                            return Some(node);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(n) = node.get_node_by_phandle(phandle) {
+                return Some(n);
+            }
+        }
+
+        None
+    }
 }
 
 /// Parse properties and nodes
@@ -218,6 +265,7 @@ impl<'a, A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'a, A> {
 
 const ARRAYED_NODE_SIZE: usize = 8;
 
+#[derive(Clone)]
 pub struct ArrayedNode<'a, A: Allocator + Clone> {
     array: [Option<&'a DeviceTreeNode<'a, A>>; ARRAYED_NODE_SIZE],
     index: usize,
@@ -316,7 +364,7 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
                     leaf = Some(tail);
                 } else {
                     let n = node.as_ref().unwrap();
-                    if let Some(ranges) = n.props().iter().find(|p| p.name() == "ranges") {
+                    if let Some(ranges) = n.get_property("ranges") {
                         match ranges.value() {
                             PropertyValue::Ranges(rgs) => {
                                 // `base_addr` must be in the ranges,
@@ -331,6 +379,7 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
                                 // Invalid address.
                                 return Err(DeviceTreeError::MemoryAccessFailed);
                             }
+                            PropertyValue::None => (),
                             _ => return Err(DeviceTreeError::InvalidSemantics), // Must be ranges.
                         }
                     }

@@ -41,8 +41,7 @@ pub fn reset() {
 pub fn irq_id() -> Option<u16> {
     let mut node = MCSNode::new();
     let guard = TIMER.lock(&mut node);
-
-    guard.as_ref().map(|timer| timer.irq_id())
+    guard.as_ref().as_ref().map(|timer| timer.irq_id())
 }
 
 /// Disable the timer interrupt.

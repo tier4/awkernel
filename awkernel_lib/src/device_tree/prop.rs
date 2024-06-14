@@ -15,6 +15,7 @@ use super::utils::{safe_index, Addr};
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
+#[derive(Debug, Clone)]
 pub struct Range {
     pub range: (Addr, Addr, Addr),
 }
@@ -95,7 +96,7 @@ impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
     }
 }
 
-/// A property of [crate::node::DeviceTreeNode]
+/// A property of [crate::device_tree::node::DeviceTreeNode].
 pub struct NodeProperty<'a, A: Allocator + Clone> {
     pub(super) block_count: usize,
     name: &'a str,

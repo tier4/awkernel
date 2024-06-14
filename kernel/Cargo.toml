@@ -60,7 +60,7 @@ version = "0.4.0"
 optional = true
 
 [features]
-default = ["aarch64"]
+default = ["x86"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = [
     "no_std_unwinding",
@@ -91,9 +91,14 @@ raspi = [
     "awkernel_drivers/pl011",
     "userland/raspi",
 ]
+
+raspi5 = ["aarch64", "awkernel_drivers/raspi", "awkernel_drivers/pl011"]
+
+
 aarch64_virt = [
     "aarch64",
     "awkernel_drivers/all_pcie",
     "awkernel_drivers/pl011",
 ]
 spinlock = ["awkernel_lib/spinlock"]
+linux = []
