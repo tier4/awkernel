@@ -150,8 +150,8 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
 /// This function should be called from only Autoware Kernel.
 /// So, do not call this from userland.
 pub fn wake_task() {
-    // Checks whether each task is not running beyond the quantum time and preempt if it is
-    crate::scheduler::rr::SCHEDULER.check_quantum_time_for_rr_tasks();
+    // Check whether each running task exceeds the time quantum.
+    crate::scheduler::rr::SCHEDULER.check_time_quantum();
 
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
