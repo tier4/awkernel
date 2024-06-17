@@ -1107,7 +1107,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
         hw.addr_ctrl.rar_used_count = 1;
 
         /* Zero out the other receive addresses. */
-        for i in 0..hw.mac.num_rar_entries {
+        for i in 1..hw.mac.num_rar_entries {
             ixgbe_hw::write_reg(info, IXGBE_RAL(i) as usize, 0)?;
             ixgbe_hw::write_reg(info, IXGBE_RAH(i) as usize, 0)?;
         }
@@ -1816,6 +1816,10 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
     ) -> Result<(), IxgbeDriverErr>;
 
     // PHY Operations
+
+    fn phy_handle_phy(&self) -> (){
+        ()
+    }
 
     // ixgbe_read_phy_reg_generic()
     fn phy_read_reg(
