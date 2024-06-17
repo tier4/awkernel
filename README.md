@@ -89,6 +89,7 @@ $ rustup default nightly-2024-05-08
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
+$ cargo install mdbook
 ```
 
 ## Crates
@@ -132,6 +133,11 @@ Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers
 ---
 
 ## Documents
+
+```text
+$ make docs
+$ ls docs/book/index.html
+```
 
 ### Raspi
 
@@ -380,3 +386,4 @@ $ make loom
 ## Verification
 
 [Verification Result](./VERIFICATION.md)
+

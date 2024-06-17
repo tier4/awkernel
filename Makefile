@@ -204,6 +204,10 @@ check_std: FORCE
 run-std:
 	cargo +$(RUSTV) run --package awkernel --no-default-features --features std $(OPT)
 
+# Docs
+docs: FORCE
+	mdbook build -d ../docs ./mdbook
+
 # Test
 
 test: FORCE
