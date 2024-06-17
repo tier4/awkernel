@@ -206,7 +206,7 @@ run-std:
 
 # Docs
 docs: FORCE
-	cd docs && mdbook build
+	mdbook build -d ../docs ./mdbook
 
 # Test
 
