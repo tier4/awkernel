@@ -3,7 +3,7 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{
     get_current_task, get_last_executed_by_task_id, get_raw_cpu_id, get_scheduler_type_by_task_id,
-    State,
+    set_need_sched, State,
 };
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::{
@@ -108,6 +108,8 @@ impl RRScheduler {
                             // Compare the elapsed time with the time quantum 
                             && elapsed > self.interval
                     {
+                        set_need_sched(task_id);
+
                         awkernel_lib::interrupt::send_ipi(
                             preempt_irq,
                             get_raw_cpu_id(cpu_id) as u32,

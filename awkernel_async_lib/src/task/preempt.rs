@@ -157,6 +157,18 @@ unsafe fn do_preemption() {
         return;
     };
 
+    {
+        let mut node = MCSNode::new();
+        let tasks = super::TASKS.lock(&mut node);
+        let task = tasks.id_to_task.get(&task_id.0).unwrap();
+
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        if !info.need_sched {
+            return;
+        }
+    }
+
     // If there is a task to be invoked next, execute the task.
     if let Some(next) = super::get_next_task() {
         let current_task = {
