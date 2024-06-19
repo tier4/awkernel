@@ -1,1 +1,1 @@
-# Architecture Abstraction Trait
+# Architecture Abstraction

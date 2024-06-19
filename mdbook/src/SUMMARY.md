@@ -1,10 +1,9 @@
 # Summary
 
-[Introduction](README.md)
-
+- [Introduction](README.md)
 - [Internal](./internal/README.md)
   - [Boot](./internal/boot.md)
-  - [Architecture Abstraction Trait](./internal/arch/README.md)
+  - [Architecture Abstraction](./internal/arch/README.md)
     - [Delay](./internal/arch/delay.md)
     - [CPU](./internal/arch/cpu.md)
     - [Interrupt](./internal/arch/interrupt.md)
