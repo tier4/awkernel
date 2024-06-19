@@ -473,6 +473,12 @@ pub fn run_main() {
                         not(feature = "std")
                     ))]
                     {
+                        {
+                            let mut node = MCSNode::new();
+                            let mut info = task.info.lock(&mut node);
+                            info.need_sched = false;
+                        }
+
                         awkernel_lib::interrupt::enable();
                     }
 
@@ -679,6 +685,18 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
         let info = task.info.lock(&mut node);
         info.get_scheduler_type()
     })
+}
+
+#[inline(always)]
+pub fn set_need_sched(task_id: u32) {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    if let Some(task) = tasks.id_to_task.get(&task_id) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.need_sched = true;
+    }
 }
 
 pub fn panicking() {
