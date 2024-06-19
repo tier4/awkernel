@@ -56,10 +56,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_async_lib::task::preemption,
         );
 
-        // Test for IPI.
-        #[cfg(all(any(feature = "aarch64", feature = "x86"), not(feature = "std")))]
-        let mut send_ipi = awkernel_lib::delay::uptime();
-
         // Set-up timer interrupt.
         #[cfg(not(feature = "std"))]
         if let Some(irq) = awkernel_lib::timer::irq_id() {
@@ -116,23 +112,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     awkernel_lib::interrupt::disable();
                 } else {
                     awkernel_lib::delay::wait_microsec(10);
-                }
-            }
-
-            // Test for IPI.
-            #[cfg(all(any(feature = "aarch64", feature = "x86"), not(feature = "std")))]
-            {
-                let now = awkernel_lib::delay::uptime();
-                if now >= send_ipi {
-                    let dur = 20_000; // 20[ms]
-                    if now - send_ipi >= dur {
-                        // Send IPI to all CPUs except for primary CPU.
-                        awkernel_lib::interrupt::send_ipi_broadcast_without_self(
-                            config::PREEMPT_IRQ,
-                        );
-
-                        send_ipi = now;
-                    }
                 }
             }
         }
