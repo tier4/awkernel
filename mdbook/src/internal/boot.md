@@ -8,7 +8,14 @@ The primary core calls `kernel_main` of `x86_64` first, which
 is called by UEFI.
 
 1. [kernel_main:kernel/arch/x86_64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs)
-2. [main:kernel/main](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+1. [kernel_main2:kernel/arch/x86_64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs)
+2. [main:kernel/main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+
+```mermaid
+graph TD;
+    kernel_main:kernel_main.rs-->kernel_main2:kernel_main.rs;
+    kernel_main2:kernel_main.rs-->main:main.rs;
+```
 
 During the primary core is booting,
 it wakes up non-primary cores by sending ACPI's IPIs.
@@ -18,9 +25,15 @@ it wakes up non-primary cores by sending ACPI's IPIs.
 Non-primary cores calls `_start_cpu` defined in `mpboot.S` first, and it then calls `non_primary_kernel_main`.
 It eventually calls `main` like the primary core.
 
-1. [_start_cpu:kernel/asm/x86/mpboot.s](https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S)
+1. [_start_cpu:kernel/asm/x86/mpboot.S](https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S)
 2. [non_primary_kernel_main:kernel/arch/x86_64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs)
-3. [main:kernel/main](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+3. [main:kernel/main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+
+```mermaid
+graph TD;
+    _start_cpu:mpboot.S-->non_primary_kernel_main:kernel_main.rs;
+    non_primary_kernel_main:kernel_main.rs-->main:main.rs;
+```
 
 ## AArch64
 
@@ -36,4 +49,13 @@ Eventually, `main` is called.
 3. The primary core calls `primary_cpu` and non-primary cores call `non_primary_cpu`.
     1. [primary_cpu:kernel/arch/aarch64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs)
     2. [non_primary_cpu:kernel/arch/aarch64/kernel_main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs)
-4. [main:kernel/main](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+4. [main:kernel/main.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs)
+
+```mermaid
+graph TD;
+    _start:boot.S-->kernel_main:kernel_main.rs;
+    kernel_main:kernel_main.rs-->primary_cpu:kernel_main.rs;
+    kernel_main:kernel_main.rs-->non_primary_cpu:kernel_main.rs;
+    primary_cpu:kernel_main.rs-->main:kernel/main.rs;
+    non_primary_cpu:kernel_main.rs-->main:kernel/main.rs;
+```

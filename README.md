@@ -89,7 +89,9 @@ $ rustup default nightly-2024-05-08
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
-$ cargo install mdbook
+$ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+$ cargo binstall mdbook
+$ cargo binstall mdbook-mermaid
 ```
 
 ## Crates

@@ -1,18 +1,17 @@
 <!DOCTYPE HTML>
-<html lang="en" class="sidebar-visible no-js light">
+<html lang="en" class="light" dir="ltr">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
         <title>Awkernel</title>
-        <meta name="robots" content="noindex" />
+        <meta name="robots" content="noindex">
 
 
         <!-- Custom HTML head -->
         
-        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#ffffff" />
+        <meta name="theme-color" content="#ffffff">
 
         <link rel="icon" href="favicon.svg">
         <link rel="shortcut icon" href="favicon.png">
@@ -33,15 +32,16 @@
         <!-- Custom theme stylesheets -->
 
     </head>
-    <body>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
         <!-- Provide site root to javascript -->
-        <script type="text/javascript">
+        <script>
             var path_to_root = "";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
-        <script type="text/javascript">
+        <script>
             try {
                 var theme = localStorage.getItem('mdbook-theme');
                 var sidebar = localStorage.getItem('mdbook-sidebar');
@@ -57,50 +57,81 @@
         </script>
 
         <!-- Set the theme before any content is loaded, prevents flash -->
-        <script type="text/javascript">
+        <script>
             var theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
             var html = document.querySelector('html');
-            html.classList.remove('no-js')
             html.classList.remove('light')
             html.classList.add(theme);
-            html.classList.add('js');
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
         </script>
 
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
         <!-- Hide / unhide sidebar before it is displayed -->
-        <script type="text/javascript">
-            var html = document.querySelector('html');
-            var sidebar = 'hidden';
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
             }
-            html.classList.remove('sidebar-visible');
-            html.classList.add("sidebar-" + sidebar);
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
                 <ol class="chapter"><li class="chapter-item expanded affix "><a href="index.html">Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">1.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">1.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">1.2.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">1.3.</strong> PCIe</a></li></ol></li></ol>
             </div>
-            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
         </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
 
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
                                 <div id="menu-bar-hover-placeholder"></div>
-                <div id="menu-bar" class="menu-bar sticky bordered">
+                <div id="menu-bar" class="menu-bar sticky">
                     <div class="left-buttons">
-                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
                             <i class="fa fa-bars"></i>
-                        </button>
+                        </label>
                         <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
-                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
@@ -133,7 +164,7 @@
                 </div>
 
                 <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
-                <script type="text/javascript">
+                <script>
                     document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
                     document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
                     Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
@@ -152,18 +183,27 @@
 is called by UEFI.</p>
 <ol>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main:kernel/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main2:kernel/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main.rs</a></li>
 </ol>
+<pre class="mermaid">graph TD;
+    kernel_main:kernel_main.rs--&gt;kernel_main2:kernel_main.rs;
+    kernel_main2:kernel_main.rs--&gt;main:main.rs;
+</pre>
 <p>During the primary core is booting,
 it wakes up non-primary cores by sending ACPI's IPIs.</p>
 <h3 id="non-primary-cores"><a class="header" href="#non-primary-cores">Non-primary Cores</a></h3>
 <p>Non-primary cores calls <code>_start_cpu</code> defined in <code>mpboot.S</code> first, and it then calls <code>non_primary_kernel_main</code>.
 It eventually calls <code>main</code> like the primary core.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S">_start_cpu:kernel/asm/x86/mpboot.s</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S">_start_cpu:kernel/asm/x86/mpboot.S</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">non_primary_kernel_main:kernel/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main.rs</a></li>
 </ol>
+<pre class="mermaid">graph TD;
+    _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
+    non_primary_kernel_main:kernel_main.rs--&gt;main:main.rs;
+</pre>
 <h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
 <h3 id="primary-and-non-primary-cores"><a class="header" href="#primary-and-non-primary-cores">Primary and Non-primary Cores</a></h3>
 <p><code>_start</code> defined in <code>boot.S</code> is the entry point for both the primary and non-primary cores.
@@ -179,8 +219,15 @@ Eventually, <code>main</code> is called.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">non_primary_cpu:kernel/arch/aarch64/kernel_main.rs</a></li>
 </ol>
 </li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main.rs</a></li>
 </ol>
+<pre class="mermaid">graph TD;
+    _start:boot.S--&gt;kernel_main:kernel_main.rs;
+    kernel_main:kernel_main.rs--&gt;primary_cpu:kernel_main.rs;
+    kernel_main:kernel_main.rs--&gt;non_primary_cpu:kernel_main.rs;
+    primary_cpu:kernel_main.rs--&gt;main:kernel/main.rs;
+    non_primary_cpu:kernel_main.rs--&gt;main:kernel/main.rs;
+</pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
 
@@ -204,26 +251,29 @@ Eventually, <code>main</code> is called.</p>
 
 
 
-        <script type="text/javascript">
+        <script>
             window.playground_copyable = true;
         </script>
 
 
-        <script src="elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="mark.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="searcher.js" type="text/javascript" charset="utf-8"></script>
+        <script src="elasticlunr.min.js"></script>
+        <script src="mark.min.js"></script>
+        <script src="searcher.js"></script>
 
-        <script src="clipboard.min.js" type="text/javascript" charset="utf-8"></script>
-        <script src="highlight.js" type="text/javascript" charset="utf-8"></script>
-        <script src="book.js" type="text/javascript" charset="utf-8"></script>
+        <script src="clipboard.min.js"></script>
+        <script src="highlight.js"></script>
+        <script src="book.js"></script>
 
         <!-- Custom JS scripts -->
+        <script src="mermaid.min.js"></script>
+        <script src="mermaid-init.js"></script>
 
-        <script type="text/javascript">
+        <script>
         window.addEventListener('load', function() {
             window.setTimeout(window.print, 100);
         });
         </script>
 
+    </div>
     </body>
 </html>
