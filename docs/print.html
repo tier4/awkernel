@@ -164,6 +164,23 @@ It eventually calls <code>main</code> like the primary core.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">non_primary_kernel_main:kernel/arch/x86_64/kernel_main.rs</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main</a></li>
 </ol>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<h3 id="primary-and-non-primary-cores"><a class="header" href="#primary-and-non-primary-cores">Primary and Non-primary Cores</a></h3>
+<p><code>_start</code> defined in <code>boot.S</code> is the entry point for both the primary and non-primary cores.
+<code>_start</code> eventually calls <code>kernel_main</code> in <code>kernel_main.rs</code>.
+After that, the primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
+Eventually, <code>main</code> is called.</p>
+<ol>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/aarch64/boot.S">_start:kernel/asm/aarch64/boot.S</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel_main:kernel/arch/aarch64/kernel_main.rs</a></li>
+<li>The primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
+<ol>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">primary_cpu:kernel/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">non_primary_cpu:kernel/arch/aarch64/kernel_main.rs</a></li>
+</ol>
+</li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/main</a></li>
+</ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
 
