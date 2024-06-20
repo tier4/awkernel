@@ -221,7 +221,7 @@ $ make aarch64 BSP=aarch64_virt RELEASE=1
 ### Boot
 
 ```text
-$ make qemu-aarch64_virt
+$ make qemu-aarch64-virt
 ```
 
 ### GDB
