@@ -60,3 +60,5 @@ dkms.conf
 **/target
 **/*.rs.bk
 **/Cargo.lock
+
+.ovfmpath/

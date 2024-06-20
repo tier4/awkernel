@@ -114,7 +114,7 @@ QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 $(QEMU_AARCH64_ARG
 QEMU_AARCH64_VIRT_ARGS+= -m 1G -smp cpus=4
 QEMU_AARCH64_VIRT_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
 QEMU_AARCH64_VIRT_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
-QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
+QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap -nographic
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
