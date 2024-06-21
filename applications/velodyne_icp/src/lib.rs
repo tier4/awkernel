@@ -33,14 +33,14 @@ const SCREEN_SCALE: f64 = 25.;
 #[derive(PartialEq)]
 struct Scan {
     packet_index: usize,
-    pub points: [icp::Vector3; PACKETS_PER_SCAN * N_SEQUENCES],
+    pub points: [icp::Vector2; PACKETS_PER_SCAN * N_SEQUENCES],
 }
 
 impl Default for Scan {
     fn default() -> Self {
         Scan {
             packet_index: 0,
-            points: [icp::Vector3::zeros(); PACKETS_PER_SCAN * N_SEQUENCES],
+            points: [icp::Vector2::zeros(); PACKETS_PER_SCAN * N_SEQUENCES],
         }
     }
 }
@@ -53,9 +53,9 @@ impl PointProcessor for Scan {
         if channel != 1 {
             return;
         }
-        let (x, y, z) = point;
+        let (x, y, _z) = point;
         let index = self.packet_index * N_SEQUENCES + sequence_index;
-        self.points[index] = icp::Vector3::new(*x, *y, *z);
+        self.points[index] = icp::Vector2::new(*x, *y);
     }
 }
 
@@ -73,13 +73,13 @@ const POSITION_TOPIC: &str = "position";
 const SCAN_TOPIC: &str = "scan";
 
 fn run_icp(
-    prior: &icp::Transform,
     src_scan: &Arc<Box<Scan>>,
     dst_scan: &Arc<Box<Scan>>,
 ) -> icp::Transform {
+    let identity = icp::Transform::identity();
     let src: &Box<Scan> = src_scan.borrow();
     let dst: &Box<Scan> = dst_scan.borrow();
-    icp::icp_3dscan(prior, &src.points, &dst.points)
+    icp::icp_2dscan(&identity, &src.points, &dst.points)
 }
 
 // Run ICP (Iterative Closest Point)
@@ -93,22 +93,23 @@ async fn icp() {
     )
     .unwrap();
 
-    let identity = icp::Transform::identity();
-    let mut maybe_src_scan = None;
+    let mut maybe_dst_scan = None;
     loop {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
-        let dst_scan: Arc<Box<Scan>> = scan_message.data;
+        let src_scan: Arc<Box<Scan>> = scan_message.data;
 
-        // Regard the previous scan as src and the current scan as dst
-        if let Some(ref src_scan) = maybe_src_scan {
-            let transform = run_icp(&identity, &src_scan, &dst_scan);
+        if let Some(ref dst_scan) = maybe_dst_scan {
+            let dtransform = run_icp(&src_scan, &dst_scan);
+            log::info!("dtransform.R = ");
+            log::info!("{}", dtransform.rot.matrix());
+            log::info!("dtransform.t = ");
+            log::info!("{}", dtransform.t);
             transform_publisher
-                .send(Arc::new(Box::new(transform)))
+                .send(Arc::new(Box::new(dtransform)))
                 .await;
-            continue;
         }
 
-        maybe_src_scan = Some(dst_scan);
+        maybe_dst_scan = Some(src_scan);
     }
 }
 
@@ -149,9 +150,8 @@ fn draw_scan_points(
     screen_bbox: &embedded_graphics::primitives::Rectangle,
 ) {
     let offset = screen_center(&screen_bbox);
-    let inv_transform = transform.inverse();
     for p in scan.points.iter() {
-        let b = inv_transform.transform(&get_xy(p));
+        let b = transform.transform(&p);
         let x = b[(0, 0)];
         let y = b[(1, 0)];
         let point = to_screen_coordinate(&(x, y), SCREEN_SCALE, &offset);
@@ -166,8 +166,8 @@ fn draw_scan_points(
 
 fn draw_axes(transform: &icp::Transform, screen_bbox: &embedded_graphics::primitives::Rectangle) {
     let t = transform.t;
-    let x = transform.transform(&icp::Vector2::new(1.0, 0.));
-    let y = transform.transform(&icp::Vector2::new(0., 1.0));
+    let x = transform.transform(&icp::Vector2::new(1.0, 0.0));
+    let y = transform.transform(&icp::Vector2::new(0.0, 1.0));
 
     let offset = screen_center(&screen_bbox);
     let origin = to_screen_coordinate(&(t[0], t[1]), SCREEN_SCALE, &offset);
@@ -224,14 +224,11 @@ async fn draw() {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
         let scan: Arc<Box<Scan>> = scan_message.data;
 
-        let transform_message = transform_subscriber.recv().await;
-        let dtransform: Arc<Box<icp::Transform>> = transform_message.data;
-
-        // NOTE: The order of multiplication is important. 
-        // In this case we need to multiply the incremental tranform from the left.
+        let dtransform_message = transform_subscriber.recv().await;
+        let dtransform: Arc<Box<icp::Transform>> = dtransform_message.data;
         transform = **dtransform * transform;
-        draw_axes(&transform.inverse(), &screen_bbox);
-        draw_scan_points(&scan, &transform.inverse(), &screen_bbox);
+        draw_axes(&transform, &screen_bbox);
+        draw_scan_points(&scan, &transform, &screen_bbox);
 
         let (x, y) = (transform.t[0], transform.t[1]);
         let curr = to_screen_coordinate(&(x, y), SCREEN_SCALE, &offset);
