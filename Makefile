@@ -17,7 +17,7 @@ ifeq ($(BSP),raspi3)
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi4)
-	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72 -C target-feature=aarch64
+	RUSTC_MISC_ARGS = -C target-cpu=cortex-a72
 	INITADDR = 0x80000
 	AARCH64_OPT = $(OPT) --features raspi
 else ifeq ($(BSP),raspi5)
