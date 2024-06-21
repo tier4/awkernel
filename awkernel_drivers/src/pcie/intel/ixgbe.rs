@@ -1,7 +1,7 @@
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
-    capability::msi::MultipleMessage, intel::ixgbe::ixgbe_hw::MacType,
+    self, capability::msi::MultipleMessage, intel::ixgbe::ixgbe_hw::MacType,
     registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE, PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{
@@ -348,7 +348,6 @@ impl IxgbeInner {
                 }
                 _ => unreachable!(),
             }
-
             is_poll_mode = false;
             pcie_int
         } else {
@@ -828,6 +827,7 @@ impl IxgbeInner {
         rxcsum &= !IXGBE_RXCSUM_PCSD;
 
         self.initialize_rss_mapping()?;
+
         // Setup RSS
         let que_num = get_num_queues(&self.hw.mac.mac_type);
         if que_num > 1 {
@@ -889,6 +889,7 @@ impl IxgbeInner {
                 }
                 reta = 0;
             }
+            j += 1;
         }
 
         // Now fill our hash function seeds
@@ -1048,13 +1049,20 @@ impl IxgbeInner {
         let newitr = (4000000 / IXGBE_INTS_PER_SEC) & 0x0FF8;
 
         for q in que.iter() {
-            log::info!("configure_ivars() que.me: {:?}", q.me);
             let i = q.me as u8;
             // First the RX queue entry
-            self.set_ivar(i, q.me as u8, 0)?;
-            // ... and the TX
-            self.set_ivar(i, q.me as u8, 1)?;
-            // Set an Initial EITR value
+            if i == 0 {
+                self.set_ivar(i, q.me as u8, 0)?;
+                self.set_ivar(i, 1 as u8, 1)?;
+            } else if i == 1 {
+                self.set_ivar(i, q.me as u8, 0)?;
+            } else {
+                // First the RX queue entry
+                self.set_ivar(i, q.me as u8, 0)?;
+                // ... and the TX
+                self.set_ivar(i, q.me as u8, 1)?;
+                // Set an Initial EITR value
+            }
             ixgbe_hw::write_reg(&self.info, IXGBE_EITR(q.me), newitr)?;
         }
 
@@ -1507,6 +1515,7 @@ impl Ixgbe {
                     let read_buf = rx.read_buf.as_ref().unwrap();
                     let src = &read_buf.as_ref()[i];
                     let data = src[0..len as usize].to_vec();
+                    log::debug!("que_id: {}", que_id);
                     log::debug!("etherframe: {:02x?}", &data[0..len as usize]);
 
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
@@ -1697,10 +1706,6 @@ impl Ixgbe {
         desc.adv_ctx.seqnum_seed = u32::to_le(0);
         desc.adv_ctx.mss_l4len_idx = u32::to_le(0); // mss_l4_len_idx
 
-        unsafe {
-            log::info!("desc.adv_ctx:{:x?}", desc.adv_ctx);
-        }
-
         Ok((1, cmd_type_len, olinfo_status, cksum_pseudo, cksum_offset))
     }
 
@@ -1749,6 +1754,11 @@ impl Ixgbe {
             tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
         );
         desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
+
+        unsafe {
+            log::debug!("adv_tx.buffer_addr:{:x}", desc.adv_tx.cmd_type_len);
+            log::debug!("adv_tx.buffer_addr:{:x}", desc.adv_tx.olinfo_status);
+        }
 
         head += 1;
         if head == tx_slots {
@@ -1831,6 +1841,9 @@ fn allocate_msix(
                 q.me,
             )
             .or(Err(IxgbeDriverErr::InitializeInterrupt))?;
+        if let IRQ::Basic(irq) = irq_rxtx {
+            log::info!("q.me:{}, irq:{}", q.me, irq);
+        }
         irq_rxtx.enable();
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
@@ -1960,8 +1973,6 @@ impl NetDevice for Ixgbe {
             _ => 0,
         };
 
-        log::info!("speed: {:?}", speed);
-
         speed
     }
 
@@ -2023,11 +2034,7 @@ impl NetDevice for Ixgbe {
                 log::error!("ixgbe: init failed: {:?}", err_init);
                 Err(NetDevError::DeviceError)
             } else {
-                if inner.link_active {
-                    log::info!("ACTIVE!!!!!!!!!!!!");
-                } else {
-                    log::info!("NoT ACTIVE!!!!!!!!!!!!");
-                }
+                log::info!("ixgbe: link_active {}", inner.link_active);
                 inner.flags.insert(NetFlags::UP);
                 Ok(())
             }
@@ -2069,8 +2076,20 @@ impl NetDevice for Ixgbe {
         result
     }
 
-    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
-        Some(0) // Use only one queue
+    fn rx_irq_to_que_id(&self, irq: u16) -> Option<usize> {
+        let inner = self.inner.read();
+
+        for key in inner.irq_to_rx_tx_link.keys() {
+            if *key == irq {
+                if let IRQRxTxLink::RxTx(que_id) = inner.irq_to_rx_tx_link[key] {
+                    return Some(que_id);
+                } else {
+                    return None;
+                }
+            }
+        }
+
+        None
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
