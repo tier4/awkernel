@@ -14,13 +14,11 @@ use awkernel_lib::graphics;
 use velodyne_driver::{parse_config, PointCloudCalculator};
 use velodyne_driver::{PointProcessor, CHANNELS_PER_SEQUENCE, N_SEQUENCES};
 
-use embedded_graphics::geometry;
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::RgbColor;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::borrow::Borrow;
 use core::marker::{Send, Sync};
 use core::net::Ipv4Addr;
 
@@ -72,7 +70,8 @@ impl Scan {
 }
 
 const POSITION_TOPIC: &str = "position";
-const SCAN_TOPIC: &str = "scan";
+const SRC_SCAN_TOPIC: &str = "scan";
+const DST_SCAN_TOPIC: &str = "target_scan";
 
 fn create_default_publisher<T: Send + Sync + 'static>(
     topic_name: &'static str,
@@ -88,7 +87,8 @@ fn create_default_subscriber<T: Send + Sync + 'static>(
 
 // Run ICP (Iterative Closest Point)
 async fn icp() {
-    let scan_subscriber = create_default_subscriber::<Scan>(SCAN_TOPIC);
+    let scan_subscriber = create_default_subscriber::<Scan>(SRC_SCAN_TOPIC);
+    let dst_scan_publisher = create_default_publisher::<Scan>(DST_SCAN_TOPIC);
     let transform_publisher = create_default_publisher::<icp::Transform>(POSITION_TOPIC);
 
     // Regard the first arriving scan as the target point cloud and
@@ -96,13 +96,14 @@ async fn icp() {
     // every iteration.
     let mut maybe_icp: Option<icp::Icp2d> = None;
     let mut transform = icp::Transform::identity();
-    let mut dst_scan: Arc<Box<Scan>>;
+    let mut dst_scan: Arc<Box<Scan>> = Arc::default();
     loop {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
         let scan: Arc<Box<Scan>> = scan_message.data;
 
         if let Some(ref icp) = maybe_icp {
             transform = icp.estimate(&scan.points, &transform, 3);
+            dst_scan_publisher.send(dst_scan.clone()).await;
             transform_publisher
                 .send(Arc::new(Box::new(transform)))
                 .await;
@@ -150,6 +151,7 @@ fn draw_scan_points(
     scan: &Arc<Box<Scan>>,
     transform: &icp::Transform,
     screen_bbox: &embedded_graphics::primitives::Rectangle,
+    color: &Rgb888,
 ) {
     let offset = screen_center(&screen_bbox);
     for p in scan.points.iter() {
@@ -162,7 +164,7 @@ fn draw_scan_points(
             continue;
         }
 
-        let _ = graphics::circle(point, 1, &Rgb888::BLACK, 1, true);
+        let _ = graphics::circle(point, 1, &color, 1, true);
     }
 }
 
@@ -207,8 +209,11 @@ impl Trajectory {
 }
 
 async fn draw() {
-    let scan_subscriber = create_default_subscriber::<Scan>(SCAN_TOPIC);
+    let src_scan_subscriber = create_default_subscriber::<Scan>(SRC_SCAN_TOPIC);
+    let dst_scan_subscriber = create_default_subscriber::<Scan>(DST_SCAN_TOPIC);
     let transform_subscriber = create_default_subscriber::<icp::Transform>(POSITION_TOPIC);
+
+    let identity = icp::Transform::identity();
 
     let screen_bbox = graphics::bounding_box();
     let offset = screen_center(&screen_bbox);
@@ -216,13 +221,19 @@ async fn draw() {
     let mut trajectory = Trajectory::new();
     loop {
         graphics::fill(&Rgb888::WHITE);
-        let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
-        let scan: Arc<Box<Scan>> = scan_message.data;
 
         let transform_message = transform_subscriber.recv().await;
         let transform: Arc<Box<icp::Transform>> = transform_message.data;
         draw_axes(&transform, &screen_bbox);
-        draw_scan_points(&scan, &transform, &screen_bbox);
+
+        let src_scan_message: pubsub::Data<Arc<Box<Scan>>> = src_scan_subscriber.recv().await;
+        let dst_scan_message: pubsub::Data<Arc<Box<Scan>>> = dst_scan_subscriber.recv().await;
+
+        let src_scan: Arc<Box<Scan>> = src_scan_message.data;
+        let dst_scan: Arc<Box<Scan>> = dst_scan_message.data;
+
+        draw_scan_points(&src_scan, &transform, &screen_bbox, &Rgb888::YELLOW);
+        draw_scan_points(&dst_scan, &identity, &screen_bbox, &Rgb888::BLACK);
 
         let (x, y) = (transform.t[0], transform.t[1]);
         let curr = to_screen_coordinate(&(x, y), SCREEN_SCALE, &offset);
@@ -262,7 +273,7 @@ async fn receive_scan_packets() {
     let config = parse_config(vlp16_config_str).unwrap();
     let calculator = PointCloudCalculator::new(&config);
 
-    let scan_publisher = create_default_publisher::<Scan>(SCAN_TOPIC);
+    let scan_publisher = create_default_publisher::<Scan>(SRC_SCAN_TOPIC);
 
     let mut scan = Box::new(Scan::default());
 
