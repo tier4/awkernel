@@ -4,6 +4,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
+use awkernel_async_lib::pubsub::{Publisher, Subscriber};
 use awkernel_async_lib::net::udp::UdpConfig;
 use awkernel_async_lib::net::IpAddr;
 use awkernel_async_lib::pubsub;
@@ -19,6 +20,7 @@ use embedded_graphics::prelude::RgbColor;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
+use core::marker::{Send, Sync};
 use core::borrow::Borrow;
 use core::net::Ipv4Addr;
 
@@ -72,16 +74,18 @@ impl Scan {
 const POSITION_TOPIC: &str = "position";
 const SCAN_TOPIC: &str = "scan";
 
+fn create_default_publisher<T: Send + Sync + 'static>(topic_name: &'static str) -> Publisher<Arc<Box<T>>> {
+    create_publisher::<Arc<Box<T>>>(topic_name.into(), pubsub::Attribute::default()).unwrap()
+}
+
+fn create_default_subscriber<T: Send + Sync + 'static>(topic_name: &'static str) -> Subscriber<Arc<Box<T>>> {
+    create_subscriber::<Arc<Box<T>>>(topic_name.into(), pubsub::Attribute::default()).unwrap()
+}
+
 // Run ICP (Iterative Closest Point)
 async fn icp() {
-    let scan_subscriber =
-        create_subscriber::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default())
-            .unwrap();
-    let transform_publisher = create_publisher::<Arc<Box<icp::Transform>>>(
-        POSITION_TOPIC.into(),
-        pubsub::Attribute::default(),
-    )
-    .unwrap();
+    let scan_subscriber = create_default_subscriber::<Scan>(SCAN_TOPIC);
+    let transform_publisher = create_default_publisher::<icp::Transform>(POSITION_TOPIC);
 
     // Regard the first arriving scan as the target point cloud and
     // estimate the transform from a received scan to the target point cloud in
@@ -199,14 +203,8 @@ impl Trajectory {
 }
 
 async fn draw() {
-    let scan_subscriber =
-        create_subscriber::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default())
-            .unwrap();
-    let transform_subscriber = create_subscriber::<Arc<Box<icp::Transform>>>(
-        POSITION_TOPIC.into(),
-        pubsub::Attribute::default(),
-    )
-    .unwrap();
+    let scan_subscriber = create_default_subscriber::<Scan>(SCAN_TOPIC);
+    let transform_subscriber = create_default_subscriber::<icp::Transform>(POSITION_TOPIC);
 
     let screen_bbox = graphics::bounding_box();
     let offset = screen_center(&screen_bbox);
@@ -260,9 +258,7 @@ async fn receive_scan_packets() {
     let config = parse_config(vlp16_config_str).unwrap();
     let calculator = PointCloudCalculator::new(&config);
 
-    let scan_publisher =
-        create_publisher::<Arc<Box<Scan>>>(SCAN_TOPIC.into(), pubsub::Attribute::default())
-            .unwrap();
+    let scan_publisher = create_default_publisher::<Scan>(SCAN_TOPIC);
 
     let mut scan = Box::new(Scan::default());
 
