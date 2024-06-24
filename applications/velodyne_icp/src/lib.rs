@@ -4,11 +4,11 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-use awkernel_async_lib::pubsub::{Publisher, Subscriber};
 use awkernel_async_lib::net::udp::UdpConfig;
 use awkernel_async_lib::net::IpAddr;
 use awkernel_async_lib::pubsub;
 use awkernel_async_lib::pubsub::{create_publisher, create_subscriber};
+use awkernel_async_lib::pubsub::{Publisher, Subscriber};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::graphics;
 use velodyne_driver::{parse_config, PointCloudCalculator};
@@ -20,8 +20,8 @@ use embedded_graphics::prelude::RgbColor;
 
 use alloc::boxed::Box;
 use alloc::sync::Arc;
-use core::marker::{Send, Sync};
 use core::borrow::Borrow;
+use core::marker::{Send, Sync};
 use core::net::Ipv4Addr;
 
 const VLP16_PACKET_DATA_SIZE: usize = 1206;
@@ -74,11 +74,15 @@ impl Scan {
 const POSITION_TOPIC: &str = "position";
 const SCAN_TOPIC: &str = "scan";
 
-fn create_default_publisher<T: Send + Sync + 'static>(topic_name: &'static str) -> Publisher<Arc<Box<T>>> {
+fn create_default_publisher<T: Send + Sync + 'static>(
+    topic_name: &'static str,
+) -> Publisher<Arc<Box<T>>> {
     create_publisher::<Arc<Box<T>>>(topic_name.into(), pubsub::Attribute::default()).unwrap()
 }
 
-fn create_default_subscriber<T: Send + Sync + 'static>(topic_name: &'static str) -> Subscriber<Arc<Box<T>>> {
+fn create_default_subscriber<T: Send + Sync + 'static>(
+    topic_name: &'static str,
+) -> Subscriber<Arc<Box<T>>> {
     create_subscriber::<Arc<Box<T>>>(topic_name.into(), pubsub::Attribute::default()).unwrap()
 }
 
@@ -105,7 +109,7 @@ async fn icp() {
             continue;
         }
 
-        dst_scan = scan;   // keep the reference so that the scan will not be freed
+        dst_scan = scan; // keep the reference so that the scan will not be freed
         let icp = icp::Icp2d::new(&dst_scan.points);
         maybe_icp = Some(icp);
     }
