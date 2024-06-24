@@ -3,12 +3,18 @@
 Build and execute.
 
 ```text
-$ docker compose build
-$ docker compose up -d
+(host)$ docker compose build
+(host)$ docker compose up -d
 ```
 
 Attach.
 
 ```text
-$ docker exec -it  docker-awkernel-1 /bin/zsh
+(host)$ docker exec -it  docker-awkernel-image-1 /bin/zsh
+```
+
+Compile.
+
+```text
+(docker)$ make aarch64 BSP=aarch64_virt
 ```

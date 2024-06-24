@@ -438,6 +438,10 @@ pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
 }
 
+pub fn get_preempt_irq() -> u16 {
+    PREEMPT_IRQ.load(Ordering::Relaxed)
+}
+
 pub fn sanity_check() {
     if INTERRUPT_CONTROLLER.read().is_none() {
         log::warn!("interrupt::INTERRUPT_CONTROLLER is not yet initialized.")

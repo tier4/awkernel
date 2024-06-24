@@ -89,6 +89,9 @@ $ rustup default nightly-2024-05-08
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
+$ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+$ cargo binstall mdbook
+$ cargo binstall mdbook-mermaid
 ```
 
 ## Crates
@@ -132,6 +135,11 @@ Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers
 ---
 
 ## Documents
+
+```text
+$ make docs
+$ ls docs/book/index.html
+```
 
 ### Raspi
 
@@ -213,7 +221,7 @@ $ make aarch64 BSP=aarch64_virt RELEASE=1
 ### Boot
 
 ```text
-$ make qemu-aarch64_virt
+$ make qemu-aarch64-virt
 ```
 
 ### GDB
@@ -380,3 +388,4 @@ $ make loom
 ## Verification
 
 [Verification Result](./VERIFICATION.md)
+
