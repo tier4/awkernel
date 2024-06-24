@@ -124,7 +124,9 @@ fn to_screen_coordinate(
     let (x, y) = point;
     let u = (x * scale) as i32;
     let v = (y * scale) as i32;
-    embedded_graphics::prelude::Point::new(u, v) + *offset
+
+    // Invert Y-axis since y value increses as the screen coordinate goes down
+    embedded_graphics::prelude::Point::new(u, -v) + *offset
 }
 
 fn screen_center(
