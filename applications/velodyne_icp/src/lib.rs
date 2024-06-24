@@ -72,16 +72,6 @@ impl Scan {
 const POSITION_TOPIC: &str = "position";
 const SCAN_TOPIC: &str = "scan";
 
-fn run_icp(
-    src_scan: &Arc<Box<Scan>>,
-    dst_scan: &Arc<Box<Scan>>,
-) -> icp::Transform {
-    let identity = icp::Transform::identity();
-    let src: &Box<Scan> = src_scan.borrow();
-    let dst: &Box<Scan> = dst_scan.borrow();
-    icp::icp_2dscan(&identity, &src.points, &dst.points)
-}
-
 // Run ICP (Iterative Closest Point)
 async fn icp() {
     let scan_subscriber =
@@ -93,23 +83,27 @@ async fn icp() {
     )
     .unwrap();
 
-    let mut maybe_dst_scan = None;
+    // Regard the first arriving scan as the target point cloud and
+    // estimate the transform from a received scan to the target point cloud in
+    // every iteration.
+    let mut maybe_icp: Option<icp::Icp2d> = None;
+    let mut transform = icp::Transform::identity();
+    let mut dst_scan: Arc<Box<Scan>>;
     loop {
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
-        let src_scan: Arc<Box<Scan>> = scan_message.data;
+        let scan: Arc<Box<Scan>> = scan_message.data;
 
-        if let Some(ref dst_scan) = maybe_dst_scan {
-            let dtransform = run_icp(&src_scan, &dst_scan);
-            log::info!("dtransform.R = ");
-            log::info!("{}", dtransform.rot.matrix());
-            log::info!("dtransform.t = ");
-            log::info!("{}", dtransform.t);
+        if let Some(ref icp) = maybe_icp {
+            transform = icp.estimate(&scan.points, &transform, 3);
             transform_publisher
-                .send(Arc::new(Box::new(dtransform)))
+                .send(Arc::new(Box::new(transform)))
                 .await;
+            continue;
         }
 
-        maybe_dst_scan = Some(src_scan);
+        dst_scan = scan;   // keep the reference so that the scan will not be freed
+        let icp = icp::Icp2d::new(&dst_scan.points);
+        maybe_icp = Some(icp);
     }
 }
 
@@ -217,16 +211,14 @@ async fn draw() {
     let screen_bbox = graphics::bounding_box();
     let offset = screen_center(&screen_bbox);
 
-    let mut transform = icp::Transform::identity();
     let mut trajectory = Trajectory::new();
     loop {
         graphics::fill(&Rgb888::WHITE);
         let scan_message: pubsub::Data<Arc<Box<Scan>>> = scan_subscriber.recv().await;
         let scan: Arc<Box<Scan>> = scan_message.data;
 
-        let dtransform_message = transform_subscriber.recv().await;
-        let dtransform: Arc<Box<icp::Transform>> = dtransform_message.data;
-        transform = **dtransform * transform;
+        let transform_message = transform_subscriber.recv().await;
+        let transform: Arc<Box<icp::Transform>> = transform_message.data;
         draw_axes(&transform, &screen_bbox);
         draw_scan_points(&scan, &transform, &screen_bbox);
 
