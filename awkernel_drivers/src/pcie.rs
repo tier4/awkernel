@@ -9,7 +9,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    addr::virt_addr::VirtAddr,
+    addr::{virt_addr::VirtAddr, Addr},
     paging::{self, MapError, PAGESIZE},
     sync::{mcs::MCSNode, mutex::Mutex},
 };
@@ -29,13 +29,15 @@ use self::{
     pcie_device_tree::PCIeRange,
 };
 
+use awkernel_lib::console::unsafe_print_hex_u64;
+use awkernel_lib::console::unsafe_puts;
+
 pub mod pcie_device_tree;
 
 mod base_address;
 mod capability;
 mod config_space;
 pub mod intel;
-pub mod raspi5;
 pub mod pcie_class;
 pub mod pcie_id;
 
@@ -52,7 +54,6 @@ pub enum PCIeDeviceErr {
     Interrupt,
     NotImplemented,
     BARFailure,
-    RevisionIDMismatch,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -153,7 +154,6 @@ pub(crate) mod registers {
     pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     pub const BAR0: usize = 0x10;
-    pub const BAR1: usize = 0x14;
 }
 
 /// Initialize the PCIe with ACPI.
@@ -447,14 +447,37 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
+// #[inline]
+// fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
+// where
+//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+// {
+//     for device in 0..32 {
+//         check_device(bus, device, bus_tree, visited, f);
+//     }
+// }
+
+// #[inline]
+// fn check_device<F>(
+//     bus: &mut PCIeBus,
+//     device: u8,
+//     bus_tree: &mut PCIeTree,
+//     visited: &mut BTreeSet<u8>,
+//     f: &F,
+// ) where
+//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+// {
+//     for function in 0..8 {
+//         check_function(bus, device, function, bus_tree, visited, f);
+//     }
+// }
 #[inline]
 fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    for device in 0..32 {
-        check_device(bus, device, bus_tree, visited, f);
-    }
+    let device = 0;
+    check_device(bus, device, bus_tree, visited, f);
 }
 
 #[inline]
@@ -467,9 +490,8 @@ fn check_device<F>(
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    for function in 0..8 {
-        check_function(bus, device, function, bus_tree, visited, f);
-    }
+    let function = 0;
+    check_function(bus, device, function, bus_tree, visited, f);
 }
 
 fn check_function<F>(
@@ -483,26 +505,59 @@ fn check_function<F>(
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
+    unsafe {
+        unsafe_puts("check_function1.\r\n");
+    }
     let offset =
         (bus.bus_number as usize) << 20 | (device as usize) << 15 | (function as usize) << 12;
 
+    unsafe {
+        unsafe_puts("\r\n bus_number.\r\n");
+        unsafe_print_hex_u64(bus.bus_number as u64);
+        unsafe_puts("\r\n device.\r\n");
+        unsafe_print_hex_u64(device as u64);
+        unsafe_puts("\r\n function.\r\n");
+        unsafe_print_hex_u64(function as u64);
+    }
+
+    unsafe {
+        unsafe_puts("check_function2.\r\n");
+    }
     let addr = if let Some(base_address) = bus.base_address {
         base_address + offset
     } else {
         VirtAddr::new(0)
     };
-
+    unsafe {
+        unsafe_print_hex_u64(offset as u64);
+    }
+    unsafe {
+        unsafe_puts("check_function3.\r\n");
+    }
     if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
         if matches!(
             info.pcie_class,
             PCIeClass::BridgeDevice(PCIeBridgeSubClass::PCItoPCI)
         ) {
+            unsafe {
+                unsafe_puts("check_function4.\r\n");
+            }
             let secondary_bus = info.get_secondary_bus().unwrap();
-
+            unsafe {
+                unsafe_puts("\r\nsecondary_bus.\r\n");
+                unsafe_print_hex_u64(secondary_bus as u64);
+            }
+            // let secondary_bus = 1;
             if secondary_bus < bus.bus_number {
+                unsafe {
+                    unsafe_puts("check_function41.\r\n");
+                }
                 // If the secondary bus number is less than the current bus number,
                 // it means that the bus has already been visited.
                 if let Some(grandchild) = bus_tree.tree.remove(&secondary_bus) {
+                    unsafe {
+                        unsafe_puts("check_function42.\r\n");
+                    }
                     let mut bus_child = PCIeBus::new(
                         bus.segment_group,
                         secondary_bus,
@@ -513,8 +568,14 @@ where
                     bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
                 }
             } else if secondary_bus == bus.bus_number {
+                unsafe {
+                    unsafe_puts("check_function43.\r\n");
+                }
                 log::warn!("PCIe: Secondary bus number is same as the current bus number.");
             } else if !visited.contains(&secondary_bus) {
+                unsafe {
+                    unsafe_puts("check_function5.\r\n");
+                }
                 // If the secondary bus number is greater than the current bus number,
                 // it means that the bus may has not been visited yet.
                 let mut bus_child = PCIeBus::new(
@@ -531,11 +592,17 @@ where
                 bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
         } else {
+            unsafe {
+                unsafe_puts("check_function6.\r\n");
+            }
             bus.devices.push(ChildDevice::Unattached(Box::new(info)));
         }
 
         true
     } else {
+        unsafe {
+            unsafe_puts("check_function7.\r\n");
+        }
         false
     }
 }
@@ -571,7 +638,7 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    for bus_number in 0..=255 {
+    for bus_number in 0..=1 {
         if visited.contains(&bus_number) {
             continue;
         }
@@ -583,21 +650,57 @@ fn init<F>(
         } else {
             VirtAddr::new(0)
         };
+        unsafe {
+            // You first need to check if there is a value in base_address using `if let Some(...)`
+            if let Some(base_addr) = base_address {
+                unsafe_puts("\r\nbase address.\r\n");
+                let base = base_addr.as_usize(); // Make sure such a method exists in VirtAddr definition
+
+                unsafe_print_hex_u64(segment_group as u64);
+                unsafe_print_hex_u64(base as u64);
+            } else {
+                // Handle the case where base_address is None if necessary
+                unsafe_print_hex_u64(segment_group as u64);
+                unsafe_puts("No base address available.\r\n");
+            }
+        }
 
         if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
+            unsafe {
+                unsafe_puts("2222222221.\r\n");
+            }
+
             if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
+                unsafe {
+                    unsafe_puts("2222222223.\r\n");
+                }
                 host_bridge_bus = bus_number;
             }
         } else {
+            unsafe {
+                unsafe_puts("2222222224.\r\n");
+            }
             continue;
         };
-
+        unsafe {
+            unsafe_puts("2222222225.\r\n");
+        }
         let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
-
+        unsafe {
+            unsafe_puts("2222222226.\r\n");
+        }
         visited.insert(bus_number);
+        unsafe {
+            unsafe_puts("2222222227.\r\n");
+        }
         check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
-
+        unsafe {
+            unsafe_puts("2222222228.\r\n");
+        }
         bus_tree.tree.insert(bus_number, Box::new(bus));
+        unsafe {
+            unsafe_puts("2222222229.\r\n");
+        }
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
@@ -787,6 +890,10 @@ impl PCIeInfo {
             let val = self
                 .config_space
                 .read_u32(registers::SECONDARY_LATENCY_TIMER_BUS_NUMBER);
+            unsafe {
+                unsafe_puts("\r\nsecondary_bus val.\r\n");
+                unsafe_print_hex_u64(val as u64);
+            }
             Some((val >> 8) as u8)
         } else {
             None
@@ -962,10 +1069,6 @@ impl PCIeInfo {
                 // Example of the driver for Intel E1000e.
                 if intel::e1000e_example::match_device(self.vendor, self.id) {
                     return intel::e1000e_example::attach(self);
-                }
-
-                if raspi5::rp1::match_device(self.vendor, self.id) {
-                    return raspi5::rp1::attach(self);
                 }
             }
             _ => (),
