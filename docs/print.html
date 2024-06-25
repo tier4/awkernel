@@ -183,9 +183,9 @@
 <p>The primary core calls <code>kernel_main</code> of <code>x86_64</code> first, which
 is called by UEFI.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main2:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>kernel_main</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>kernel_main2</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     kernel_main:kernel_main.rs--&gt;kernel_main2:kernel_main.rs;
@@ -197,9 +197,9 @@ it wakes up non-primary cores by sending ACPI's IPIs.</p>
 <p>Non-primary cores calls <code>_start_cpu</code> defined in <code>mpboot.S</code> first, and it then calls <code>non_primary_kernel_main</code>.
 It eventually calls <code>main</code> like the primary core.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S">_start_cpu:kernel/asm/x86/mpboot.S</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">non_primary_kernel_main:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S"><code>_start_cpu</code>:kernel/asm/x86/mpboot.S</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>non_primary_kernel_main</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
@@ -212,15 +212,15 @@ It eventually calls <code>main</code> like the primary core.</p>
 After that, the primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
 Eventually, <code>main</code> is called.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/aarch64/boot.S">_start:kernel/asm/aarch64/boot.S</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel_main:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/aarch64/boot.S"><code>_start</code>:kernel/asm/aarch64/boot.S</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>kernel_main</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
 <li>The primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">primary_cpu:kernel/src/arch/aarch64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">non_primary_cpu:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>primary_cpu</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>non_primary_cpu</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
 </ol>
 </li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     _start:boot.S--&gt;kernel_main:kernel_main.rs;
@@ -237,9 +237,9 @@ and non-primary cores execute async/await tasks.</p>
 <code>wake_task</code> and <code>poll</code> functions defined in
 <code>awkernel_async_lib</code> and <code>awkernel_lib</code>,</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">wake_task:awkernel_async_lib/src/scheduler.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/net.rs">poll:awkernel_lib/src/net.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs"><code>wake_task</code>:awkernel_async_lib/src/scheduler.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/net.rs"><code>poll</code>:awkernel_lib/src/net.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     main:kernel/src/main.rs--&gt;wake_task:awkernel_async_lib/src/scheduler.rs;
@@ -256,10 +256,10 @@ the controllers.</p>
 <code>run</code> initializes variables regarding preemption by calling <code>preempt::init</code>.
 After that, it calls <code>run_main</code> to execute async/await tasks.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">run:awkernel_async_lib/src/task.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task/preempt.rs">init:awkernel_async_lib/src/task/preempt.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">run_main:awkernel_async_lib/src/task.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs"><code>run</code>:awkernel_async_lib/src/task.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task/preempt.rs"><code>init</code>:awkernel_async_lib/src/task/preempt.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs"><code>run_main</code>:awkernel_async_lib/src/task.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     main:kernel/src/main.rs--&gt;run:awkernel_async_lib/src/task.rs;
@@ -269,6 +269,52 @@ After that, it calls <code>run_main</code> to execute async/await tasks.</p>
 <p><code>run_main</code> executes async/await tasks,
 and it will be explained in Sec. <a href="internal/./scheduler.html">Scheduler</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="architecture-abstraction"><a class="header" href="#architecture-abstraction">Architecture Abstraction</a></h1>
+<p>Awkernel abstracts the architecture-specific details of the underlying hardware using the <code>Arch</code> trait,
+which is defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch.rs">awkernel_lib/src/arch.rs</a>.
+The <code>Arch</code> trait requires the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[allow(dead_code)]
+#[cfg(not(feature = "std"))]
+trait Arch:
+    super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::paging::Mapper
+{
+}
+
+#[allow(dead_code)]
+#[cfg(feature = "std")]
+trait Arch: super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU {}
+<span class="boring">}</span></code></pre></pre>
+<pre class="mermaid">graph LR;
+    Arch:awkernel_lib/src/arch.rs--&gt;Delay:awkernel_lib/src/delay.rs;
+    Arch:awkernel_lib/src/arch.rs--&gt;Interrupt:awkernel_lib/src/interrupt.rs;
+    Arch:awkernel_lib/src/arch.rs--&gt;CPU:awkernel_lib/src/cpu.rs;
+    Arch:awkernel_lib/src/arch.rs--&gt;Mapper:awkernel_lib/src/paging.rs;
+</pre>
+<p>The <code>Delay</code> trait provides a way to wait for a certain amount of time and to get the time.
+The <code>Interrupt</code> trait provides a way to enable and disable interrupts.
+The <code>CPU</code> trait provides a way to get the current CPU ID.
+The <code>Mapper</code> trait provides a way to map and unmap virtual memory regions.</p>
+<p>For the <code>std</code> environment, the <code>Arch</code> trait does not require the <code>Mapper</code> trait because user space applications do not need to manage memory mappings.</p>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> struct implements the <code>Arch</code> trait.
+In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
+<ul>
+<li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a></li>
+<li><code>Interrupt</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/interrupt.rs">awkernel_lib/src/arch/x86_64/interrupt.rs</a></li>
+<li><code>CPU</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a></li>
+<li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a></li>
+</ul>
+<h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
+<p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> struct implements the <code>Arch</code> trait.
+In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
+<ul>
+<li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a></li>
+<li><code>Interrupt</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs">awkernel_lib/src/arch/aarch64/interrupt.rs</a></li>
+<li><code>CPU</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/cpu.rs">awkernel_lib/src/arch/aarch64/cpu.rs</a></li>
+<li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a></li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="delay"><a class="header" href="#delay">Delay</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="cpu"><a class="header" href="#cpu">CPU</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt"><a class="header" href="#interrupt">Interrupt</a></h1>

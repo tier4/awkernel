@@ -180,9 +180,9 @@
 <p>The primary core calls <code>kernel_main</code> of <code>x86_64</code> first, which
 is called by UEFI.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel_main2:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>kernel_main</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>kernel_main2</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     kernel_main:kernel_main.rs--&gt;kernel_main2:kernel_main.rs;
@@ -194,9 +194,9 @@ it wakes up non-primary cores by sending ACPI's IPIs.</p>
 <p>Non-primary cores calls <code>_start_cpu</code> defined in <code>mpboot.S</code> first, and it then calls <code>non_primary_kernel_main</code>.
 It eventually calls <code>main</code> like the primary core.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S">_start_cpu:kernel/asm/x86/mpboot.S</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">non_primary_kernel_main:kernel/src/arch/x86_64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/x86/mpboot.S"><code>_start_cpu</code>:kernel/asm/x86/mpboot.S</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>non_primary_kernel_main</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
@@ -209,15 +209,15 @@ It eventually calls <code>main</code> like the primary core.</p>
 After that, the primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
 Eventually, <code>main</code> is called.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/aarch64/boot.S">_start:kernel/asm/aarch64/boot.S</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel_main:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/asm/aarch64/boot.S"><code>_start</code>:kernel/asm/aarch64/boot.S</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>kernel_main</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
 <li>The primary core calls <code>primary_cpu</code> and non-primary cores call <code>non_primary_cpu</code>.
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">primary_cpu:kernel/src/arch/aarch64/kernel_main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">non_primary_cpu:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>primary_cpu</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs"><code>non_primary_cpu</code>:kernel/src/arch/aarch64/kernel_main.rs</a></li>
 </ol>
 </li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     _start:boot.S--&gt;kernel_main:kernel_main.rs;
@@ -234,9 +234,9 @@ and non-primary cores execute async/await tasks.</p>
 <code>wake_task</code> and <code>poll</code> functions defined in
 <code>awkernel_async_lib</code> and <code>awkernel_lib</code>,</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">wake_task:awkernel_async_lib/src/scheduler.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/net.rs">poll:awkernel_lib/src/net.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs"><code>wake_task</code>:awkernel_async_lib/src/scheduler.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/net.rs"><code>poll</code>:awkernel_lib/src/net.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     main:kernel/src/main.rs--&gt;wake_task:awkernel_async_lib/src/scheduler.rs;
@@ -253,10 +253,10 @@ the controllers.</p>
 <code>run</code> initializes variables regarding preemption by calling <code>preempt::init</code>.
 After that, it calls <code>run_main</code> to execute async/await tasks.</p>
 <ol>
-<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs">main:kernel/src/main.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">run:awkernel_async_lib/src/task.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task/preempt.rs">init:awkernel_async_lib/src/task/preempt.rs</a></li>
-<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">run_main:awkernel_async_lib/src/task.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs"><code>run</code>:awkernel_async_lib/src/task.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task/preempt.rs"><code>init</code>:awkernel_async_lib/src/task/preempt.rs</a></li>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs"><code>run_main</code>:awkernel_async_lib/src/task.rs</a></li>
 </ol>
 <pre class="mermaid">graph TD;
     main:kernel/src/main.rs--&gt;run:awkernel_async_lib/src/task.rs;
