@@ -1,8 +1,11 @@
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
-    self, capability::msi::MultipleMessage, intel::ixgbe::ixgbe_hw::MacType,
-    registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE, PCIeDevice, PCIeDeviceErr, PCIeInfo,
+    self,
+    capability::{msi::MultipleMessage, msix::Msix},
+    intel::ixgbe::ixgbe_hw::MacType,
+    registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE,
+    PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{
     borrow::Cow,
@@ -350,7 +353,20 @@ impl IxgbeInner {
             }
             is_poll_mode = false;
             pcie_int
+        } else if let Ok(pcie_int) = allocate_msi(&mut info) {
+            match &pcie_int {
+                PCIeInt::Msi(irq) => {
+                    let irq = irq.get_irq();
+                    irq_to_rx_tx_link.insert(irq, IRQRxTxLink::Legacy(0));
+                }
+                _ => unreachable!(),
+            }
+
+            is_poll_mode = false;
+            pcie_int
         } else {
+            irq_to_rx_tx_link.insert(0, IRQRxTxLink::Legacy(0));
+            is_poll_mode = true;
             PCIeInt::None
         };
 
@@ -508,15 +524,21 @@ impl IxgbeInner {
         self.ops
             .mac_enable_rx_dma(&self.info, &mut self.hw, rxctrl)?;
 
-        // TODO: MSI
         // Set up MSI/X routing
-        self.configure_ivars(que)?;
-        // Set up auto-mask
-        if self.hw.mac.mac_type == IxgbeMac82598EB {
-            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            self.configure_ivars(que)?;
+            // Set up auto-mask
+            if self.hw.mac.mac_type == IxgbeMac82598EB {
+                ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
+            } else {
+                ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(0), 0xFFFFFFFF)?;
+                ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(1), 0xFFFFFFFF)?;
+            }
         } else {
-            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(0), 0xFFFFFFFF)?;
-            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM_EX(1), 0xFFFFFFFF)?;
+            // Simple settings for Legacy/MSI
+            self.set_ivar(0, 0, 0)?;
+            self.set_ivar(0, 0, 1)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAM, IXGBE_EICS_RTX_QUEUE)?;
         }
 
         // Check on any SFP devices that need to be kick-started
@@ -532,9 +554,11 @@ impl IxgbeInner {
         }
         ixgbe_hw::write_reg(&self.info, IXGBE_EITR(0), itr)?;
 
-        // Set moderation on the Link interrupt
-        let linkvec = que.len();
-        ixgbe_hw::write_reg(&self.info, IXGBE_EITR(linkvec), IXGBE_LINK_ITR)?;
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            // Set moderation on the Link interrupt
+            let linkvec = que.len();
+            ixgbe_hw::write_reg(&self.info, IXGBE_EITR(linkvec), IXGBE_LINK_ITR)?;
+        }
 
         // Enable power to the phy
         self.ops.phy_set_power(&self.info, &self.hw, true)?;
@@ -596,18 +620,16 @@ impl IxgbeInner {
     }
 
     fn disable_intr(&self) -> Result<(), IxgbeDriverErr> {
-        match self.pcie_int {
-            PCIeInt::MsiX(_) => {
-                ixgbe_hw::write_reg(&self.info, IXGBE_EIAC, 0)?;
-                if self.hw.get_mac_type() == MacType::IxgbeMac82598EB {
-                    ixgbe_hw::write_reg(&self.info, IXGBE_EIMC, u32::MAX)?;
-                } else {
-                    ixgbe_hw::write_reg(&self.info, IXGBE_EIMC, 0xFFFF0000)?;
-                    ixgbe_hw::write_reg(&self.info, IXGBE_EIMC_EX(0), u32::MAX)?;
-                    ixgbe_hw::write_reg(&self.info, IXGBE_EIMC_EX(1), u32::MAX)?;
-                }
-            }
-            _ => (),
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAC, 0)?;
+        }
+
+        if self.hw.get_mac_type() == MacType::IxgbeMac82598EB {
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIMC, u32::MAX)?;
+        } else {
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIMC, 0xFFFF0000)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIMC_EX(0), u32::MAX)?;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIMC_EX(1), u32::MAX)?;
         }
 
         ixgbe_hw::write_flush(&self.info)
@@ -971,9 +993,11 @@ impl IxgbeInner {
             _ => (),
         }
 
-        /* Enable Enhanced MSIX mode */
-        gpie |= IXGBE_GPIE_MSIX_MODE;
-        gpie |= IXGBE_GPIE_EIAME | IXGBE_GPIE_PBA_SUPPORT | IXGBE_GPIE_OCD;
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            /* Enable Enhanced MSIX mode */
+            gpie |= IXGBE_GPIE_MSIX_MODE;
+            gpie |= IXGBE_GPIE_EIAME | IXGBE_GPIE_PBA_SUPPORT | IXGBE_GPIE_OCD;
+        }
 
         ixgbe_hw::write_reg(&self.info, IXGBE_GPIE, gpie)?;
 
@@ -1240,11 +1264,13 @@ impl IxgbeInner {
         ixgbe_hw::write_reg(&self.info, IXGBE_EIMS, mask)?;
 
         // With MSI-X we use auto clear
-        mask = IXGBE_EIMS_ENABLE_MASK;
-        // Don't autoclear Link
-        mask &= !IXGBE_EIMS_OTHER;
-        mask &= !IXGBE_EIMS_LSC;
-        ixgbe_hw::write_reg(&self.info, IXGBE_EIAC, mask)?;
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            mask = IXGBE_EIMS_ENABLE_MASK;
+            // Don't autoclear Link
+            mask &= !IXGBE_EIMS_OTHER;
+            mask &= !IXGBE_EIMS_LSC;
+            ixgbe_hw::write_reg(&self.info, IXGBE_EIAC, mask)?;
+        }
 
         ixgbe_hw::write_flush(&self.info)?;
 
@@ -1302,22 +1328,20 @@ impl Ixgbe {
 
         match reason {
             IRQRxTxLink::Legacy(que_id) => {
-                //if inner.flags.contains(NetFlags::RUNNING) {
-                //drop(inner);
-                //self.rx_recv(que_id)?;
-                ////TODO: self.txeof(que_id)?;
-                //} else {
-                //drop(inner);
-                //}
+                self.intr_legacy_and_link()?;
 
-                //if reg_icr & (ICR_RXSEQ | ICR_LSC) != 0 {
-                //let mut inner = self.inner.write();
-                //inner.hw.set_get_link_status(true);
-                //inner.check_for_link()?;
-                //inner.update_link_status()?;
-                //}
+                if inner.flags.contains(NetFlags::RUNNING) {
+                    drop(inner);
+                    self.rx_recv(que_id)?;
+                    self.txeof(que_id)?;
+                } else {
+                    drop(inner);
+                }
+
+                let inner = self.inner.read();
+                inner.enable_queues(&self.que)?;
+                drop(inner);
                 log::info!("intr() Legacy");
-                ()
             }
             IRQRxTxLink::RxTx(que_id) => {
                 if inner.flags.contains(NetFlags::RUNNING) {
@@ -1348,28 +1372,38 @@ impl Ixgbe {
             }
             IRQRxTxLink::Link => {
                 drop(inner);
-                self.link_intr()?;
+                self.intr_legacy_and_link()?;
             }
         }
 
         Ok(())
     }
 
-    fn link_intr(&self) -> Result<(), IxgbeDriverErr> {
-        self.intr_legacy_and_link()
-    }
-
     fn intr_legacy_and_link(&self) -> Result<(), IxgbeDriverErr> {
         let mut inner = self.inner.write();
         // MSIX  TODO: MSI
-        // Pause other interrupts
-        ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
-        // First get the cause
-        let mut reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
-        /* Be sure the queue bits are not cleared */
-        reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
-        /* Clear interrupt with write */
-        ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
+        let mut reg_eicr;
+
+        match inner.pcie_int {
+            PCIeInt::MsiX(_) => {
+                // Pause other interrupts
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
+                // First get the cause
+                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
+                /* Be sure the queue bits are not cleared */
+                reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
+                /* Clear interrupt with write */
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
+            }
+            _ => {
+                // For Msi and Legacy
+                reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICR)?;
+                if reg_eicr == 0 {
+                    inner.enable_intr()?;
+                    inner.enable_queues(&self.que)?;
+                }
+            }
+        }
 
         // Link status change
         if reg_eicr & IXGBE_EICR_LSC != 0 {
@@ -1874,6 +1908,41 @@ fn allocate_msix(
     Ok(PCIeInt::MsiX(irqs))
 }
 
+fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
+    info.disable_legacy_interrupt();
+    if let Some(msix) = info.get_msix_mut() {
+        msix.disable();
+    }
+
+    let segment_number = info.get_segment_group() as usize;
+    let irq_name = format!("{}-{}", DEVICE_SHORT_NAME, info.get_bfd());
+
+    if let Some(msi) = info.get_msi_mut() {
+        msi.disable();
+
+        let mut irq = msi
+            .register_handler(
+                irq_name.into(),
+                Box::new(|irq| {
+                    awkernel_lib::net::net_interrupt(irq);
+                }),
+                segment_number,
+                awkernel_lib::cpu::raw_cpu_id() as u32,
+            )
+            .or(Err(IxgbeDriverErr::InitializeInterrupt))?;
+
+        msi.set_multiple_message_enable(MultipleMessage::One)
+            .or(Err(IxgbeDriverErr::InitializeInterrupt))?;
+
+        irq.enable();
+        msi.enable();
+
+        Ok(PCIeInt::Msi(irq))
+    } else {
+        Err(IxgbeDriverErr::InitializeInterrupt)
+    }
+}
+
 // Allocate memory for the transmit and receive rings, and then
 // the descriptors associated with each, called only once at attach.
 fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
@@ -2151,24 +2220,24 @@ impl NetDevice for Ixgbe {
     }
 
     fn tick(&self) -> Result<(), NetDevError> {
-        //let inner = self.inner.read();
+        let inner = self.inner.read();
 
-        //if inner.is_poll_mode {
-        //return Ok(());
-        //}
+        if inner.is_poll_mode {
+            return Ok(());
+        }
 
-        //let mut irqs = Vec::new();
-        //for irq in inner.irq_to_rx_tx_link.keys() {
-        //if *irq != 0 {
-        //irqs.push(*irq);
-        //}
-        //}
+        let mut irqs = Vec::new();
+        for irq in inner.irq_to_rx_tx_link.keys() {
+            if *irq != 0 {
+                irqs.push(*irq);
+            }
+        }
 
-        //drop(inner);
+        drop(inner);
 
-        //for irq in irqs {
-        //let _ = self.intr(irq);
-        //}
+        for irq in irqs {
+            let _ = self.intr(irq);
+        }
 
         Ok(())
     }
