@@ -32,35 +32,6 @@ impl ConfigSpace {
         Some(*base + offset)
     }
 
-    pub fn read_u8(&self, offset: usize) -> u8 {
-        match self {
-            #[allow(unused_variables)]
-            Self::IO(base) => {
-                #[cfg(feature = "x86")]
-                {
-                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
-                    let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
-
-                    let addr = *base | ((offset as u32) & 0xfc);
-                    unsafe {
-                        port1.write(addr);
-                        let tmp: u32 = port2.read();
-                        (tmp >> (((offset as u32 & 3) * 8)) & 0xff) as u8
-                    }
-                }
-
-                #[cfg(not(feature = "x86"))]
-                {
-                    unreachable!()
-                }
-            }
-            Self::Mmio(base) => {
-                let addr = *base + offset;
-                unsafe { read_volatile(addr.as_ptr()) }
-            }
-        }
-    }
-
     pub fn read_u16(&self, offset: usize) -> u16 {
         match self {
             #[allow(unused_variables)]
@@ -142,8 +113,8 @@ impl ConfigSpace {
                 }
             }
             Self::Mmio(base) => {
-                let addr = (*base + offset) as *mut u8;
-                unsafe { write_volatile(addr, data) }
+                let addr = *base + offset;
+                unsafe { write_volatile(addr.as_mut_ptr(), data) }
             }
         }
     }
@@ -175,8 +146,8 @@ impl ConfigSpace {
                 }
             }
             Self::Mmio(base) => {
-                let addr = (*base + offset) as *mut u16;
-                unsafe { write_volatile(addr, data) }
+                let addr = *base + offset;
+                unsafe { write_volatile(addr.as_mut_ptr(), data) }
             }
         }
     }

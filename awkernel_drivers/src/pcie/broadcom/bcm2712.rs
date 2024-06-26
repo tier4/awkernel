@@ -20,7 +20,7 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::BROADCOM_VENDOR_ID && id == BCM2712_ID
 }
 
-pub fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     // Map the memory regions of MMIO.
     if let Err(e) = info.map_bar() {
         log::warn!("Failed to map the memory regions of MMIO: {e:?}");
@@ -29,6 +29,10 @@ pub fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeD
 
     // Read capabilities of PCIe.
     info.read_capability();
+
+    if info.get_revision_id() as u32 != 0x060400 {
+        return Err(PCIeDeviceErr::RevisionIDMismatch);
+    }
 
     let bcm2712 = BCM2712::new(info);
     let result = Arc::new(bcm2712);
@@ -46,14 +50,11 @@ pub struct BCM2712 {
 }
 
 impl BCM2712 {
-    pub fn new(info: PCIeInfo) -> Self {
-        if info.get_revision_id() != 0x060400 {
-            return Err(PCIeDeviceErr::RevisionIDMismatch);
-        }
+    pub fn new(mut info: PCIeInfo) -> Self {
 
         info.config_space.write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
 
-        info.config_space.write_u8(pci_bus2(1) PCI_SECONDARY_BUS);
+        info.config_space.write_u8(pci_bus2(1), PCI_SECONDARY_BUS);
         info.config_space.write_u8(pci_bus2(1), PCI_SECONDARY_BUS);
 
         info.config_space.write_u16((MEM_PCIE_RANGE_PCIE_START >> 16) as u16, PCI_MEMORY_BASE);

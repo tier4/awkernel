@@ -38,6 +38,8 @@ mod base_address;
 mod capability;
 mod config_space;
 pub mod intel;
+pub mod raspi;
+pub mod broadcom;
 pub mod pcie_class;
 pub mod pcie_id;
 
@@ -54,6 +56,7 @@ pub enum PCIeDeviceErr {
     Interrupt,
     NotImplemented,
     BARFailure,
+    RevisionIDMismatch,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -92,6 +95,9 @@ impl fmt::Display for PCIeDeviceErr {
             }
             Self::BARFailure => {
                 write!(f, "Failed to read the base address register.")
+            }
+            Self::RevisionIDMismatch => {
+                write!(f, "Revision ID mismatch.")
             }
         }
     }
@@ -154,6 +160,7 @@ pub(crate) mod registers {
     pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     pub const BAR0: usize = 0x10;
+    pub const BAR1: usize = 0x14;
 }
 
 /// Initialize the PCIe with ACPI.
@@ -1069,6 +1076,14 @@ impl PCIeInfo {
                 // Example of the driver for Intel E1000e.
                 if intel::e1000e_example::match_device(self.vendor, self.id) {
                     return intel::e1000e_example::attach(self);
+                }
+
+                if raspi::rp1::match_device(self.vendor, self.id) {
+                    return raspi::rp1::attach(self);
+                }
+
+                if broadcom::bcm2712::match_device(self.vendor, self.id) {
+                    return broadcom::bcm2712::attach(self);
                 }
             }
             _ => (),

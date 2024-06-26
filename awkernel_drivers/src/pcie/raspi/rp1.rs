@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, sync::Arc};
 use crate::pcie::{pcie_id, registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 const RP1_ID: u16 = 0x0001;
@@ -19,7 +19,7 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::RASPI_VENDOR_ID && id == RP1_ID
 }
 
-pub fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     // Map the memory regions of MMIO.
     if let Err(e) = info.map_bar() {
         log::warn!("Failed to map the memory regions of MMIO: {e:?}");
@@ -28,6 +28,10 @@ pub fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeD
 
     // Read capabilities of PCIe.
     info.read_capability();
+
+    if info.get_revision_id() as u32 != 0x20000 {
+        return Err(PCIeDeviceErr::RevisionIDMismatch);
+    }
 
     let rp1 = RP1::new(info);
     let result = Arc::new(rp1);
@@ -40,20 +44,16 @@ pub struct RP1 {
 }
 
 impl RP1 {
-    pub fn new(info: PCIeInfo) -> Self {
-        if info.get_revision_id() != 0x20000 {
-            return Err(PCIeDeviceErr::RevisionIDMismatch);
-        }
-
+    pub fn new(mut info: PCIeInfo) -> Self {
         info.config_space.write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
 
-        info.config_space.write_u32(lower_32_bits(registers::MEM_PCIE_RANGE_PCIE_START) | registers::PCI_BASE_ADDRESS_MEM_TYPE_64, registers::BAR0);
+        info.config_space.write_u32(lower_32_bits(MEM_PCIE_RANGE_PCIE_START) | PCI_BASE_ADDRESS_MEM_TYPE_64, registers::BAR0);
 
-        info.config_space.write_u32(upper_32_bits(registers::MEM_PCIE_RANGE_PCIE_START), registers::BAR1);
+        info.config_space.write_u32(upper_32_bits(MEM_PCIE_RANGE_PCIE_START), registers::BAR1);
 
-        let uch_int_pin = info.config_space.get_interrupt_pin();
+        let uch_int_pin = info.get_interrupt_pin();
         if uch_int_pin != 0 {
-            info.config_space.write_u8(1, registers::PCI_INTERRUPT_PIN);
+            info.config_space.write_u8(1, PCI_INTERRUPT_PIN as usize);
         }
 
         let mut csr = info.read_status_command();
