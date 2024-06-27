@@ -12,7 +12,7 @@ use awkernel_async_lib::pubsub::{Publisher, Subscriber};
 use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::graphics;
 use velodyne_driver::{parse_config, PointCloudCalculator};
-use velodyne_driver::{PointProcessor, CHANNELS_PER_SEQUENCE, N_SEQUENCES};
+use velodyne_driver::{PointProcessor, N_SEQUENCES};
 
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::RgbColor;
@@ -145,6 +145,8 @@ fn is_out_of_screen(
     p.x < 0 || screen.size.width as i32 <= p.x || p.y < 0 || screen.size.height as i32 <= p.y
 }
 
+// Function to extract a 2D point from a 3D point
+#[allow(dead_code)]
 fn get_xy(p: &icp::Vector3) -> icp::Vector2 {
     icp::Vector2::new(p[0], p[1])
 }
@@ -307,6 +309,7 @@ pub async fn run() {
 
 #[cfg(test)]
 mod tests {
+    use velodyne_driver::CHANNELS_PER_SEQUENCE;
     use super::*;
 
     #[test]
