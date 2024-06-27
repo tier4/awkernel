@@ -203,7 +203,7 @@ The <code>Mapper</code> trait provides a way to map and unmap virtual memory reg
 <p>For the <code>std</code> environment, the <code>Arch</code> trait does not require the <code>Mapper</code> trait because user space applications do not need to manage memory mappings.</p>
 <h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
 <h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
-<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> struct implements the <code>Arch</code> trait.
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
 <li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a></li>
@@ -212,7 +212,7 @@ In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code
 <li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a></li>
 </ul>
 <h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
-<p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> struct implements the <code>Arch</code> trait.
+<p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
 <li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a></li>
