@@ -44,7 +44,7 @@ impl super::SoC for Raspi5 {
     unsafe fn init_device(&mut self) -> Result<(), &'static str> {
         self.init_symbols()
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
-        // self.init_pcie_bridge();
+        self.init_pcie_bridge();
         self.init_uart();
         self.get_pcie_mem();
         // self.init_gpio();
