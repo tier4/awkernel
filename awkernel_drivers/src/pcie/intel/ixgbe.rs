@@ -338,7 +338,7 @@ impl IxgbeInner {
 
         let mut irq_to_rx_tx_link = BTreeMap::new();
 
-        let mut is_poll_mode = true; // TODO
+        let is_poll_mode;
 
         // Allocate MSI-X or MSI
         let pcie_int = if let Ok(pcie_int) = allocate_msix(&hw, &mut info, &que) {
@@ -848,7 +848,9 @@ impl IxgbeInner {
         let mut rxcsum = ixgbe_hw::read_reg(&self.info, IXGBE_RXCSUM)?;
         rxcsum &= !IXGBE_RXCSUM_PCSD;
 
-        self.initialize_rss_mapping()?;
+        if let PCIeInt::MsiX(_) = self.pcie_int {
+            self.initialize_rss_mapping()?;
+        }
 
         // Setup RSS
         let que_num = get_num_queues(&self.hw.mac.mac_type);
@@ -1075,18 +1077,10 @@ impl IxgbeInner {
         for q in que.iter() {
             let i = q.me as u8;
             // First the RX queue entry
-            if i == 0 {
-                self.set_ivar(i, q.me as u8, 0)?;
-                self.set_ivar(i, 1 as u8, 1)?;
-            } else if i == 1 {
-                self.set_ivar(i, q.me as u8, 0)?;
-            } else {
-                // First the RX queue entry
-                self.set_ivar(i, q.me as u8, 0)?;
-                // ... and the TX
-                self.set_ivar(i, q.me as u8, 1)?;
-                // Set an Initial EITR value
-            }
+            self.set_ivar(i, q.me as u8, 0)?;
+            // ... and the TX
+            self.set_ivar(i, q.me as u8, 1)?;
+            // Set an Initial EITR value
             ixgbe_hw::write_reg(&self.info, IXGBE_EITR(q.me), newitr)?;
         }
 
@@ -1165,8 +1159,8 @@ impl IxgbeInner {
                     .ops
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
-            //self.ops
-            //.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
+            //TODO: Consider whether this is necessary.
+            // self.ops.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1328,8 +1322,10 @@ impl Ixgbe {
 
         match reason {
             IRQRxTxLink::Legacy(que_id) => {
+                drop(inner);
                 self.intr_legacy_and_link()?;
 
+                let inner = self.inner.read();
                 if inner.flags.contains(NetFlags::RUNNING) {
                     drop(inner);
                     self.rx_recv(que_id)?;
@@ -1341,7 +1337,6 @@ impl Ixgbe {
                 let inner = self.inner.read();
                 inner.enable_queues(&self.que)?;
                 drop(inner);
-                log::info!("intr() Legacy");
             }
             IRQRxTxLink::RxTx(que_id) => {
                 if inner.flags.contains(NetFlags::RUNNING) {
@@ -1381,7 +1376,6 @@ impl Ixgbe {
 
     fn intr_legacy_and_link(&self) -> Result<(), IxgbeDriverErr> {
         let mut inner = self.inner.write();
-        // MSIX  TODO: MSI
         let mut reg_eicr;
 
         match inner.pcie_int {
@@ -1756,7 +1750,7 @@ impl Ixgbe {
 
         let mut head = tx.tx_desc_head;
 
-        let (ntxc, mut cmd_type_len, olinfo_status, cksum_pseudo, cksum_offset) =
+        let (ntxc, mut cmd_type_len, olinfo_status, _cksum_pseudo, _cksum_offset) =
             self.tx_ctx_setup(tx, ether_frame, head)?;
 
         // Basic descriptor defines
@@ -1875,9 +1869,6 @@ fn allocate_msix(
                 q.me,
             )
             .or(Err(IxgbeDriverErr::InitializeInterrupt))?;
-        if let IRQ::Basic(irq) = irq_rxtx {
-            log::info!("q.me:{}, irq:{}", q.me, irq);
-        }
         irq_rxtx.enable();
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
@@ -2161,7 +2152,7 @@ impl NetDevice for Ixgbe {
         None
     }
 
-    fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
         //let restart;
 
         //{
@@ -2179,7 +2170,7 @@ impl NetDevice for Ixgbe {
         Ok(())
     }
 
-    fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
+    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
         //let restart;
 
         //{

@@ -90,7 +90,7 @@ pub const IXGBE_DEVICES: [(u16, u16); 74] = [
     (IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_VF_HV),
 ];
 
-fn get_mac_type(device: u16, info: &PCIeInfo) -> Result<MacType, IxgbeDriverErr> {
+fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
     use MacType::*;
 
     let result = match device {
@@ -238,21 +238,14 @@ impl IxgbeHw {
     pub fn new(info: &mut PCIeInfo) -> Result<(Self, Box<dyn IxgbeOperations>), IxgbeDriverErr> {
         use MacType::*;
 
-        let mac_type = get_mac_type(info.get_id(), info)?;
+        let mac_type = get_mac_type(info.get_id())?;
         let ops;
 
         // Doesn't seem to require check_pci_express since all the ixgbe devices support PCI Express
         // https://github.com/openbsd/src/blob/82673a188a32931f4005a3ede8f05d97542feb17/sys/dev/pci/ixgbe.c#L715
 
-        // TODO? : get_hw_info() swfwhw_semaphore_present, swfw_sync_present, eeprom_semaphore_presentのbool値の取得
-
-        // TODO: Might need to set ixgbe_smart_speed as in https://github.com/openbsd/src/blob/82673a188a32931f4005a3ede8f05d97542feb17/sys/dev/pci/if_ix.c#L1703
+        // TODO: Need to set ixgbe_smart_speed for 82599EB
         // ⇔ OpenBSD ixgbe_identify_hardware()
-
-        // set the number of the descriptors allocated by the driver DEFAULT_TXD, DEFAULT_RXD
-
-        // ixgbe_allocate_pci_resources()
-        // pci_conf_read() pci_mapreg_map()はinfo.map_bar()？ hw.hw_addrはいらなそう. sc->num_queuesやsc->hw.backはどこで利用する? msi,msixの設定 -> IxgbeInner new()
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
