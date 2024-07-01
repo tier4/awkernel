@@ -7,7 +7,7 @@ use super::{
     IxgbeDriverErr::{self, *},
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
-use awkernel_lib::delay::wait_microsec;
+use awkernel_lib::delay::{wait_microsec, wait_millisec};
 use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType};
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
@@ -31,7 +31,7 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
 
     // Wait for a last completion before clearing buffers
     ixgbe_hw::write_flush(info)?;
-    wait_microsec(3);
+    wait_millisec(3);
 
     // Before proceeding, make sure that the PCIe block does not have
     // transactions pending.
@@ -678,7 +678,7 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
     let mut eerd;
 
     if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
-        (eeprom.eeprom_type, eeprom.semaphore_delay, eeprom.word_size) = ops.init_params(info)?;
+        (eeprom.eeprom_type, eeprom.semaphore_delay, eeprom.word_size) = ops.eeprom_init_params(info)?;
     }
 
     if words == 0 {
@@ -717,17 +717,18 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
 }
 
 // Sets the hardware semaphores so EEPROM access can occur for bit-bang method
-// TODO: Currently not available for X550EM_a: Should define IXGBE_BY_MAC to get the address for arbitrary NIC
 fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let timeout: u32 = 2000;
     let mut swsm;
     let mut status: Result<(), IxgbeDriverErr> = Err(Eeprom);
     let mut i = 0;
 
+    let swsm_offset = get_swsm_offset(info.get_id())?;
+    log::info!("ixgbe: swsm_offset {:x}",swsm_offset);
     // Get SMBI software semaphore between device drivers first
     while i < timeout {
         // If the SMBI bit is 0 when we read it, then the bit will be set and we have the semaphore
-        swsm = ixgbe_hw::read_reg(info, IXGBE_SWSM)?;
+        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
         if !(swsm & IXGBE_SWSM_SMBI) != 0 {
             status = Ok(());
             break;
@@ -742,7 +743,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
         awkernel_lib::delay::wait_microsec(50);
 
         // one last try
-        swsm = ixgbe_hw::read_reg(info, IXGBE_SWSM)?;
+        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
         if !(swsm & IXGBE_SWSM_SMBI) != 0 {
             status = Ok(());
         }
@@ -752,14 +753,14 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     if status.is_ok() {
         i = 0;
         while i < timeout {
-            swsm = ixgbe_hw::read_reg(info, IXGBE_SWSM)?;
+            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
 
             // Set the SW EEPROM semaphore bit to request access
             swsm |= IXGBE_SWSM_SWESMBI;
-            ixgbe_hw::write_reg(info, IXGBE_SWSM, swsm)?;
+            ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
 
             // If we set the bit successfully then we got the semaphore.
-            swsm = ixgbe_hw::read_reg(info, IXGBE_SWSM)?;
+            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
             if swsm & IXGBE_SWSM_SWESMBI != 0 {
                 break;
             }
@@ -785,13 +786,14 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
 // This function clears hardware semaphore bits.
 fn release_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let mut swsm;
+    let swsm_offset = get_swsm_offset(info.get_id())?;
 
-    swsm = ixgbe_hw::read_reg(info, IXGBE_SWSM)?;
+    swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
 
     // Release both semaphores by writing 0 to the bits SWESMBI and SMBI
     swsm &= !(IXGBE_SWSM_SWESMBI | IXGBE_SWSM_SMBI);
 
-    ixgbe_hw::write_reg(info, IXGBE_SWSM, swsm)?;
+    ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
     ixgbe_hw::write_flush(info)
 }
 
@@ -809,10 +811,161 @@ fn check_address_cycle_complete(info: &PCIeInfo) -> Result<u32, IxgbeDriverErr> 
     Ok(command)
 }
 
-pub trait IxgbeOperations: Send {
-    //fn get_self() -> Self;
-    //fn new() -> Self;
+// hic_unlocked - Issue command to manageability block unlocked
+//  Communicates with the manageability block. On success return IXGBE_SUCCESS
+// else returns semaphore error when encountering an error acquiring
+// semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
+// This function assumes that the IXGBE_GSSR_SW_MNG_SM semaphore is held
+// by the caller.
+pub fn hic_unlocked(info: &PCIeInfo, buffer: &[u32], length: u32, timeout: u32) -> Result<(), IxgbeDriverErr>{
 
+	if (length == 0) || (length > IXGBE_HI_MAX_BLOCK_BYTE_LENGTH) {
+		log::debug!("Buffer length failure buffersize={}.", length);
+		return Err(IxgbeDriverErr::HostInterfaceCommand);
+	}
+
+	// Set bit 9 of FWSTS clearing FW reset indication
+	let fwsts = ixgbe_hw::read_reg(info, IXGBE_FWSTS)?;
+	ixgbe_hw::write_reg(info, IXGBE_FWSTS, fwsts | IXGBE_FWSTS_FWRI)?;
+
+	// Check that the host interface is enabled.
+	let mut hicr = ixgbe_hw::read_reg(info, IXGBE_HICR)?;
+	if (hicr & IXGBE_HICR_EN as u32) == 0 {
+		log::debug!("IXGBE_HOST_EN bit disabled.\n");
+		return Err(IxgbeDriverErr::HostInterfaceCommand);
+	}
+
+	// Calculate length in DWORDs. We must be DWORD aligned 
+	if length % (core::mem::size_of::<u32>() as u32) != 0 {
+		log::debug!("Buffer length failure, not aligned to dword");
+		return Err(InvalidArgument);
+	}
+
+	let dword_len = (length >> 2) as usize;
+
+	// The device driver writes the relevant command block
+	// into the ram area.
+	for i in 0..dword_len {
+		ixgbe_hw::write_reg_array(info, IXGBE_FLEX_MNG,
+				      i , u32::to_le(buffer[i]))?;
+    } 
+
+	// Setting this bit tells the ARC that a new command is pending.
+	ixgbe_hw::write_reg(info, IXGBE_HICR, hicr | IXGBE_HICR_C)?;
+
+    let mut ended_by_break = false;
+    for _ in 0..timeout {
+		hicr = ixgbe_hw::read_reg(info, IXGBE_HICR)?;
+		if hicr & IXGBE_HICR_C == 0 {
+            ended_by_break = true;
+            break;
+        }
+		wait_millisec(1);
+    }
+
+	// Check command completion
+	if (timeout != 0 && ended_by_break == false) ||
+	    (ixgbe_hw::read_reg(info, IXGBE_HICR)? & IXGBE_HICR_SV) == 0 {
+		log::error!("Command has failed with no status valid.");
+		return Err(HostInterfaceCommand);
+	}
+
+    Ok(())
+
+}
+
+ // host_interface_command - Issue command to manageability block
+ // Needed because FW structures are big endian and decoding of
+ // these fields can be 8 bit or 16 bit based on command. Decoding
+ // is not easily understood without making a table of commands.
+ // So we will leave this up to the caller to read back the data
+ // in these cases.
+ // Communicates with the manageability block. On success return IXGBE_SUCCESS
+ // else returns semaphore error when encountering an error acquiring
+ // semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
+pub fn host_interface_command<T:IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, buffer: &[u32], length: u32, timeout: u32, return_data: bool) -> Result<Option<[u32;4]>, IxgbeDriverErr>{
+	let mut hdr_size = core::mem::size_of::<IxgbeHicHdr>();
+
+    let mut dword_len;
+	log::debug!("ixgbe: host_interface_command");
+
+	if length == 0 || length > IXGBE_HI_MAX_BLOCK_BYTE_LENGTH {
+		log::debug!("ixgbe: Buffer length failure buffersize={}.\n", length);
+		return Err(IxgbeDriverErr::HostInterfaceCommand);
+	}
+
+	// Take management host interface semaphore
+	ops.mac_acquire_swfw_sync(info, IXGBE_GSSR_SW_MNG_SM)?;
+
+	if let Err(e) = hic_unlocked(info, buffer, length, timeout){
+        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
+        return Err(e);
+    }
+
+	if !return_data {
+        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
+        return Ok(None);
+    }
+
+	// Calculate length in DWORDs
+	dword_len = hdr_size >> 2;
+
+    let mut ret_buffer = [0;4];
+	// first pull in the header so we know the buffer length 
+    let mut bi = 0;
+    while bi < dword_len {
+		ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
+        bi += 1;
+    }
+
+    let resp = IxgbeHicHdr {
+        cmd: (ret_buffer[0] & 0xFF) as u8,
+        buf_len: ((ret_buffer[0] >> 8) & 0xFF) as u8,
+        cmd_or_resp: ((ret_buffer[0] >> 16) & 0xFF) as u8,
+        checksum: ((ret_buffer[0] >> 24) & 0xFF) as u8,
+    };
+
+	 // If there is any thing in data position pull it in
+	 // Read Flash command requires reading buffer length from
+	 // two byes instead of one byte
+    let buf_len;
+
+	if resp.cmd == 0x30 {
+        while bi < dword_len + 2{
+			ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info,IXGBE_FLEX_MNG, bi)?);
+            bi += 1;
+		}
+		buf_len = (((resp.cmd_or_resp as u16) << 3) & 0xF00) | (resp.buf_len as u16);
+		hdr_size += 2 << 2;
+	} else {
+		buf_len = resp.buf_len as u16;
+	}
+	if buf_len == 0 {
+        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
+        return Ok(None)
+    }
+
+	if (length as usize) < buf_len as usize + hdr_size {
+		log::debug!("Buffer not large enough for reply message.\n");
+        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
+        return Err(HostInterfaceCommand)
+	}
+
+	// Calculate length in DWORDs, add 3 for odd lengths 
+    dword_len = (buf_len as usize + 3) >> 2;
+
+	// Pull in the rest of the buffer (bi is where we left off) 
+    while bi < dword_len {
+		ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
+        bi += 1;
+	}
+
+	ops.mac_release_swfw_sync(info, IXGBE_GSSR_SW_MNG_SM)?;
+
+    Ok(Some(ret_buffer))
+}
+
+pub trait IxgbeOperations: Send {
     // MAC Operations
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         let ret = match self.mac_reset_hw(info, hw) {
@@ -847,173 +1000,171 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
- // mac_clear_hw_cntrs - Generic clear hardware counters
- // Clears all hardware statistics counters by reading them from the hardware
- // Statistics counters are clear on read.
-fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),IxgbeDriverErr>{
-    use ixgbe_hw::{MacType::*,read_reg};
+    // mac_clear_hw_cntrs - Generic clear hardware counters
+    // Clears all hardware statistics counters by reading them from the hardware
+    // Statistics counters are clear on read.
+    fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(),IxgbeDriverErr>{
+        use ixgbe_hw::{MacType::*,read_reg};
 
-	read_reg(info, IXGBE_CRCERRS)?;
-	read_reg(info, IXGBE_ILLERRC)?;
-	read_reg(info, IXGBE_ERRBC)?;
-	read_reg(info, IXGBE_MSPDC)?;
-	for i in 0..8 {
-		read_reg(info, IXGBE_MPC(i))?;
+	    read_reg(info, IXGBE_CRCERRS)?;
+	    read_reg(info, IXGBE_ILLERRC)?;
+	    read_reg(info, IXGBE_ERRBC)?;
+	    read_reg(info, IXGBE_MSPDC)?;
+	    for i in 0..8 {
+		    read_reg(info, IXGBE_MPC(i))?;
     
-    }
-
-	read_reg(info, IXGBE_MLFC)?;
-	read_reg(info, IXGBE_MRFC)?;
-	read_reg(info, IXGBE_RLEC)?;
-	read_reg(info, IXGBE_LXONTXC)?;
-	read_reg(info, IXGBE_LXOFFTXC)?;
-
-	if hw.mac.mac_type >= IxgbeMac82599EB {
-		read_reg(info, IXGBE_LXONRXCNT)?;
-		read_reg(info, IXGBE_LXOFFRXCNT)?;
-	} else {
-		read_reg(info, IXGBE_LXONRXC)?;
-		read_reg(info, IXGBE_LXOFFRXC)?;
-	}
-
-    for i in 0..8 {
-		read_reg(info, IXGBE_PXONTXC(i))?;
-		read_reg(info, IXGBE_PXOFFTXC(i))?;
-		if hw.mac.mac_type >= IxgbeMac82599EB {
-			read_reg(info, IXGBE_PXONRXCNT(i))?;
-			read_reg(info, IXGBE_PXOFFRXCNT(i))?;
-		} else {
-			read_reg(info, IXGBE_PXONRXC(i))?;
-			read_reg(info, IXGBE_PXOFFRXC(i))?;
-		}
-	}
-	if hw.mac.mac_type >= IxgbeMac82599EB{
-        for i in 0..8{
-			read_reg(info, IXGBE_PXON2OFFCNT(i))?;
         }
-    }
 
-	read_reg(info, IXGBE_PRC64)?;
-	read_reg(info, IXGBE_PRC127)?;
-	read_reg(info, IXGBE_PRC255)?;
-	read_reg(info, IXGBE_PRC511)?;
-	read_reg(info, IXGBE_PRC1023)?;
-	read_reg(info, IXGBE_PRC1522)?;
-	read_reg(info, IXGBE_GPRC)?;
-	read_reg(info, IXGBE_BPRC)?;
-	read_reg(info, IXGBE_MPRC)?;
-	read_reg(info, IXGBE_GPTC)?;
-	read_reg(info, IXGBE_GORCL)?;
-	read_reg(info, IXGBE_GORCH)?;
-	read_reg(info, IXGBE_GOTCL)?;
-	read_reg(info, IXGBE_GOTCH)?;
+	    read_reg(info, IXGBE_MLFC)?;
+	    read_reg(info, IXGBE_MRFC)?;
+	    read_reg(info, IXGBE_RLEC)?;
+	    read_reg(info, IXGBE_LXONTXC)?;
+	    read_reg(info, IXGBE_LXOFFTXC)?;
 
-	if hw.mac.mac_type == IxgbeMac82598EB {
-        for i in 0..8{
-			read_reg(info, IXGBE_RNBC(i))?;
-        }
-    }
+	    if hw.mac.mac_type >= IxgbeMac82599EB {
+		    read_reg(info, IXGBE_LXONRXCNT)?;
+		    read_reg(info, IXGBE_LXOFFRXCNT)?;
+	    } else {
+		    read_reg(info, IXGBE_LXONRXC)?;
+		    read_reg(info, IXGBE_LXOFFRXC)?;
+	    }
 
-	read_reg(info, IXGBE_RUC)?;
-	read_reg(info, IXGBE_RFC)?;
-	read_reg(info, IXGBE_ROC)?;
-	read_reg(info, IXGBE_RJC)?;
-	read_reg(info, IXGBE_MNGPRC)?;
-	read_reg(info, IXGBE_MNGPDC)?;
-	read_reg(info, IXGBE_MNGPTC)?;
-	read_reg(info, IXGBE_TORL)?;
-	read_reg(info, IXGBE_TORH)?;
-	read_reg(info, IXGBE_TPR)?;
-	read_reg(info, IXGBE_TPT)?;
-	read_reg(info, IXGBE_PTC64)?;
-	read_reg(info, IXGBE_PTC127)?;
-	read_reg(info, IXGBE_PTC255)?;
-	read_reg(info, IXGBE_PTC511)?;
-	read_reg(info, IXGBE_PTC1023)?;
-	read_reg(info, IXGBE_PTC1522)?;
-	read_reg(info, IXGBE_MPTC)?;
-	read_reg(info, IXGBE_BPTC)?;
-    for i in 0..16{
-		read_reg(info, IXGBE_QPRC(i))?;
-		read_reg(info, IXGBE_QPTC(i))?;
-		if hw.mac.mac_type >= IxgbeMac82599EB {
-			read_reg(info, IXGBE_QBRC_L(i))?;
-			read_reg(info, IXGBE_QBRC_H(i))?;
-			read_reg(info, IXGBE_QBTC_L(i))?;
-			read_reg(info, IXGBE_QBTC_H(i))?;
-			read_reg(info, IXGBE_QPRDC(i))?;
-		} else {
-			read_reg(info, IXGBE_QBRC(i))?;
-			read_reg(info, IXGBE_QBTC(i))?;
-		}
-	}
-
-	if hw.mac.mac_type == IxgbeMacX550 || hw.mac.mac_type == IxgbeMacX540 {
-		if hw.phy.id == 0 {
-            // Does not use the return value.
-            // https://github.com/openbsd/src/blob/c04d1b34942009a09b1284605d539f1382aa35bb/sys/dev/pci/ixgbe.c#L657
-			let _ = self.identify_phy(info, hw);
-        }
-		self.phy_read_reg(info, hw, IXGBE_PCRC8ECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE)?;
-		self.phy_read_reg(info, hw, IXGBE_PCRC8ECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE)?;
-		self.phy_read_reg(info, hw, IXGBE_LDPCECL,
-				     IXGBE_MDIO_PCS_DEV_TYPE)?;
-		self.phy_read_reg(info, hw, IXGBE_LDPCECH,
-				     IXGBE_MDIO_PCS_DEV_TYPE)?;
-	}
-
-    Ok(())
-}
-
-// identify_phy_generic - Get physical layer module
-// Determines the physical layer module found on the current adapter.
-fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
-    use ixgbe_hw::PhyType::*;
-
-	if hw.phy.phy_semaphore_mask == 0 {
-		if hw.bus.lan_id != 0{
-			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
-        } else {
-			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
-        }
-	}
-
-	if hw.phy.phy_type != IxgbePhyUnknown{
-		return Ok(());
-    }
-
-	let phy_addr;
-	if hw.phy.nw_mng_if_sel != 0 {
-		phy_addr = (hw.phy.nw_mng_if_sel &
-			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
-			   IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
-		return probe_phy(self, info, hw, phy_addr as u16);
-	}
-
-	let mut status = Err(PhyAddrInvalid);
-    for phy_addr in 0..IXGBE_MAX_PHY_ADDR {
-        match probe_phy(self, info, hw, phy_addr) {
-            Ok(()) => {
-                status = Ok(());
-                break;
+        for i in 0..8 {
+		    read_reg(info, IXGBE_PXONTXC(i))?;
+		    read_reg(info, IXGBE_PXOFFTXC(i))?;
+		    if hw.mac.mac_type >= IxgbeMac82599EB {
+			    read_reg(info, IXGBE_PXONRXCNT(i))?;
+			    read_reg(info, IXGBE_PXOFFRXCNT(i))?;
+		    } else {
+			    read_reg(info, IXGBE_PXONRXC(i))?;
+			    read_reg(info, IXGBE_PXOFFRXC(i))?;
+		    }
+	    }
+	    if hw.mac.mac_type >= IxgbeMac82599EB{
+            for i in 0..8{
+			    read_reg(info, IXGBE_PXON2OFFCNT(i))?;
             }
-            Err(_) => {continue;}
         }
-	}
 
-	//  Certain media types do not have a phy so an address will not
-	// be found and the code will take this path.  Caller has to
-	// decide if it is an error or not.
-	if status != Ok(()){
-		hw.phy.addr = 0;
+	    read_reg(info, IXGBE_PRC64)?;
+	    read_reg(info, IXGBE_PRC127)?;
+	    read_reg(info, IXGBE_PRC255)?;
+	    read_reg(info, IXGBE_PRC511)?;
+	    read_reg(info, IXGBE_PRC1023)?;
+	    read_reg(info, IXGBE_PRC1522)?;
+	    read_reg(info, IXGBE_GPRC)?;
+	    read_reg(info, IXGBE_BPRC)?;
+	    read_reg(info, IXGBE_MPRC)?;
+	    read_reg(info, IXGBE_GPTC)?;
+	    read_reg(info, IXGBE_GORCL)?;
+	    read_reg(info, IXGBE_GORCH)?;
+	    read_reg(info, IXGBE_GOTCL)?;
+	    read_reg(info, IXGBE_GOTCH)?;
+
+	    if hw.mac.mac_type == IxgbeMac82598EB {
+            for i in 0..8{
+			    read_reg(info, IXGBE_RNBC(i))?;
+            }
+        }
+
+	    read_reg(info, IXGBE_RUC)?;
+	    read_reg(info, IXGBE_RFC)?;
+	    read_reg(info, IXGBE_ROC)?;
+	    read_reg(info, IXGBE_RJC)?;
+	    read_reg(info, IXGBE_MNGPRC)?;
+	    read_reg(info, IXGBE_MNGPDC)?;
+	    read_reg(info, IXGBE_MNGPTC)?;
+	    read_reg(info, IXGBE_TORL)?;
+	    read_reg(info, IXGBE_TORH)?;
+	    read_reg(info, IXGBE_TPR)?;
+	    read_reg(info, IXGBE_TPT)?;
+	    read_reg(info, IXGBE_PTC64)?;
+	    read_reg(info, IXGBE_PTC127)?;
+	    read_reg(info, IXGBE_PTC255)?;
+	    read_reg(info, IXGBE_PTC511)?;
+	    read_reg(info, IXGBE_PTC1023)?;
+	    read_reg(info, IXGBE_PTC1522)?;
+	    read_reg(info, IXGBE_MPTC)?;
+	    read_reg(info, IXGBE_BPTC)?;
+        for i in 0..16{
+		    read_reg(info, IXGBE_QPRC(i))?;
+		    read_reg(info, IXGBE_QPTC(i))?;
+		    if hw.mac.mac_type >= IxgbeMac82599EB {
+			    read_reg(info, IXGBE_QBRC_L(i))?;
+			    read_reg(info, IXGBE_QBRC_H(i))?;
+			    read_reg(info, IXGBE_QBTC_L(i))?;
+			    read_reg(info, IXGBE_QBTC_H(i))?;
+			    read_reg(info, IXGBE_QPRDC(i))?;
+		    } else {
+			    read_reg(info, IXGBE_QBRC(i))?;
+			    read_reg(info, IXGBE_QBTC(i))?;
+		    }
+	    }
+
+	    if hw.mac.mac_type == IxgbeMacX550 || hw.mac.mac_type == IxgbeMacX540 {
+		    if hw.phy.id == 0 {
+                // Does not use the return value.
+                // https://github.com/openbsd/src/blob/c04d1b34942009a09b1284605d539f1382aa35bb/sys/dev/pci/ixgbe.c#L657
+			    let _ = self.identify_phy(info, hw);
+            }
+		    self.phy_read_reg(info, hw, IXGBE_PCRC8ECL,
+				        IXGBE_MDIO_PCS_DEV_TYPE)?;
+		    self.phy_read_reg(info, hw, IXGBE_PCRC8ECH,
+				        IXGBE_MDIO_PCS_DEV_TYPE)?;
+		    self.phy_read_reg(info, hw, IXGBE_LDPCECL,
+				        IXGBE_MDIO_PCS_DEV_TYPE)?;
+		    self.phy_read_reg(info, hw, IXGBE_LDPCECH,
+				        IXGBE_MDIO_PCS_DEV_TYPE)?;
+	    }
+
+        Ok(())
     }
 
-    status
-}
+    // identify_phy_generic - Get physical layer module
+    // Determines the physical layer module found on the current adapter.
+    fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
+        use ixgbe_hw::PhyType::*;
 
+	    if hw.phy.phy_semaphore_mask == 0 {
+		    if hw.bus.lan_id != 0{
+			    hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
+            } else {
+			    hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
+            }
+	    }
 
+	    if hw.phy.phy_type != IxgbePhyUnknown{
+		    return Ok(());
+        }
+
+	    let phy_addr;
+	    if hw.phy.nw_mng_if_sel != 0 {
+		    phy_addr = (hw.phy.nw_mng_if_sel &
+			        IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
+			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
+		    return probe_phy(self, info, hw, phy_addr as u16);
+	    }
+
+	    let mut status = Err(PhyAddrInvalid);
+        for phy_addr in 0..IXGBE_MAX_PHY_ADDR {
+            match probe_phy(self, info, hw, phy_addr) {
+                Ok(()) => {
+                    status = Ok(());
+                    break;
+                }
+                Err(_) => {continue;}
+            }
+	    }
+
+	    //  Certain media types do not have a phy so an address will not
+	    // be found and the code will take this path.  Caller has to
+	    // decide if it is an error or not.
+	    if status != Ok(()){
+		    hw.phy.addr = 0;
+        }
+
+        status
+    }
 
     fn mac_get_mac_addr(&self, info: &PCIeInfo, mac_addr: &mut [u8]) -> Result<(), IxgbeDriverErr> {
         let rar_high = ixgbe_hw::read_reg(info, IXGBE_RAH(0) as usize)?;
@@ -1065,7 +1216,7 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 
         /* flush all queues disables */
         ixgbe_hw::write_flush(info)?;
-        wait_microsec(2);
+        wait_millisec(2);
 
         /*
          * Prevent the PCI-E bus from hanging by disabling PCI-E master
@@ -1413,8 +1564,8 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
     Ok(())
     }
 
- // fc_enable - Enable flow control
- // Enable flow control according to the current settings.
+    // fc_enable - Enable flow control
+    // Enable flow control according to the current settings.
     fn mac_fc_enable(&self, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
         use ixgbe_hw::FcMode::*;
 
@@ -1570,86 +1721,86 @@ fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriv
 
     }
 
- // check_mink - Determine link and speed status
- // Reads the links register to determine if link is up and the current speed
-fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(u32, bool), IxgbeDriverErr>{
-    use ixgbe_hw::MacType::*;
+    // check_mink - Determine link and speed status
+    // Reads the links register to determine if link is up and the current speed
+    fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(u32, bool), IxgbeDriverErr>{
+        use ixgbe_hw::MacType::*;
 
-	/* If Crosstalk fix enabled do the sanity check of making sure
-	 * the SFP+ cage is full.
-	 */
-	if need_crosstalk_fix(self, hw) {
-		let sfp_cage_full = match hw.mac.mac_type {
-		IxgbeMac82599EB =>
-			ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP2,
-		IxgbeMacX550EMX | IxgbeMacX550EMA =>
-			ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP0,
-		_ => 0, /* sanity check - No SFP+ devices here */
-		};
+	    /* If Crosstalk fix enabled do the sanity check of making sure
+	    * the SFP+ cage is full.
+	    */
+	    if need_crosstalk_fix(self, hw) {
+		    let sfp_cage_full = match hw.mac.mac_type {
+		    IxgbeMac82599EB =>
+			    ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP2,
+		    IxgbeMacX550EMX | IxgbeMacX550EMA =>
+			    ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP0,
+		    _ => 0, /* sanity check - No SFP+ devices here */
+		    };
 
-		if sfp_cage_full == 0 {
-            return Ok((IXGBE_LINK_SPEED_UNKNOWN, false));
-		}
-	}
+		    if sfp_cage_full == 0 {
+                return Ok((IXGBE_LINK_SPEED_UNKNOWN, false));
+		    }
+	    }
 
-	/* clear the old state */
-	let links_orig = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+	    /* clear the old state */
+	    let links_orig = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
 
-	let mut links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+	    let mut links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
 
-	if links_orig != links_reg {
-		log::debug!("LINKS changed from {:?} to {:?}\n",
-			  links_orig, links_reg);
-	}
+	    if links_orig != links_reg {
+		    log::debug!("LINKS changed from {:?} to {:?}\n",
+			    links_orig, links_reg);
+	    }
 
-    let mut link_up = false;
-	if link_up_wait_to_complete {
-        for _ in 0..hw.mac.max_link_up_time {
-            if links_reg & IXGBE_LINKS_UP != 0 {
-                link_up = true;
-                break;
-            }else{
-                link_up = false;
+        let mut link_up = false;
+	    if link_up_wait_to_complete {
+            for _ in 0..hw.mac.max_link_up_time {
+                if links_reg & IXGBE_LINKS_UP != 0 {
+                    link_up = true;
+                    break;
+                }else{
+                    link_up = false;
+                }
+                wait_millisec(100);
+                links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
             }
-            wait_microsec(100);
-            links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
-        }
-	} else {
-		if links_reg & IXGBE_LINKS_UP != 0 {
-		    link_up = true;
-        } else{
-			link_up = false;
-        }
-	}
+	    } else {
+		    if links_reg & IXGBE_LINKS_UP != 0 {
+		        link_up = true;
+            } else{
+			    link_up = false;
+            }
+	    }
 
-    let speed = match links_reg & IXGBE_LINKS_SPEED_82599 {
-	IXGBE_LINKS_SPEED_10G_82599 => {
-		if hw.mac.mac_type >= IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0{
-            IXGBE_LINK_SPEED_2_5GB_FULL
-        }else{
-            IXGBE_LINK_SPEED_10GB_FULL
-		}
-    },
-	IXGBE_LINKS_SPEED_1G_82599 => IXGBE_LINK_SPEED_1GB_FULL,
-	IXGBE_LINKS_SPEED_100_82599 =>{
-		if hw.mac.mac_type == IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0 {
-            IXGBE_LINK_SPEED_5GB_FULL
-		}else{
-            IXGBE_LINK_SPEED_100_FULL
-        }
-    },
-	IXGBE_LINKS_SPEED_10_X550EM_A => {
-		if info.id == IXGBE_DEV_ID_X550EM_A_1G_T || info.id == IXGBE_DEV_ID_X550EM_A_1G_T_L {
-            IXGBE_LINK_SPEED_10_FULL
-        } else {
-            IXGBE_LINK_SPEED_UNKNOWN
-        }
-    },
-	_ => IXGBE_LINK_SPEED_UNKNOWN
-	};
+        let speed = match links_reg & IXGBE_LINKS_SPEED_82599 {
+	    IXGBE_LINKS_SPEED_10G_82599 => {
+		    if hw.mac.mac_type >= IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0{
+                IXGBE_LINK_SPEED_2_5GB_FULL
+            }else{
+                IXGBE_LINK_SPEED_10GB_FULL
+		    }
+        },
+	    IXGBE_LINKS_SPEED_1G_82599 => IXGBE_LINK_SPEED_1GB_FULL,
+	    IXGBE_LINKS_SPEED_100_82599 =>{
+		    if hw.mac.mac_type == IxgbeMacX550 && links_reg & IXGBE_LINKS_SPEED_NON_STD != 0 {
+                IXGBE_LINK_SPEED_5GB_FULL
+		    }else{
+                IXGBE_LINK_SPEED_100_FULL
+            }
+        },
+	    IXGBE_LINKS_SPEED_10_X550EM_A => {
+		    if info.id == IXGBE_DEV_ID_X550EM_A_1G_T || info.id == IXGBE_DEV_ID_X550EM_A_1G_T_L {
+                IXGBE_LINK_SPEED_10_FULL
+            } else {
+                IXGBE_LINK_SPEED_UNKNOWN
+            }
+        },
+	    _ => IXGBE_LINK_SPEED_UNKNOWN
+	    };
 
-    Ok((speed, link_up))
-}
+        Ok((speed, link_up))
+    }
 
 
     fn mac_prot_autoc_read(&self, info: &PCIeInfo) -> Result<u32, IxgbeDriverErr>{
@@ -1664,34 +1815,34 @@ fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete
         ixgbe_hw::read_reg(info, IXGBE_DEVICE_CAPS)
     }
 
-// set_lan_id_multi_port_pcie - Set LAN id for PCIe multiple port devices
-// Determines the LAN function id by reading memory-mapped registers and swaps
-// the port value if requested, and set MAC instance for devices that share
-// CS4227.
-// Doesn't suport X550EM_a currently
-fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(u16,u8,u16),IxgbeDriverErr>{
+    // set_lan_id_multi_port_pcie - Set LAN id for PCIe multiple port devices
+    // Determines the LAN function id by reading memory-mapped registers and swaps
+    // the port value if requested, and set MAC instance for devices that share
+    // CS4227.
+    // Doesn't suport X550EM_a currently
+    fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(u16,u8,u16),IxgbeDriverErr>{
 
-	let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
-	let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
-	let lan_id = func as u8;
+	    let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
+	    let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
+	    let lan_id = func as u8;
 
-	/* check for a port swap */
-	reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?; 
-	if reg & IXGBE_FACTPS_LFS != 0 {
-		func ^= 0x1;
+	    /* check for a port swap */
+	    reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?; 
+	    if reg & IXGBE_FACTPS_LFS != 0 {
+		    func ^= 0x1;
+        }
+
+	    /* Get MAC instance from EEPROM for configuring CS4227 */
+        let mut ee_ctrl_4 = [0;1];
+        let mut instance_id = 0;
+	    if info.id == IXGBE_DEV_ID_X550EM_A_SFP {
+		    self.eeprom_read(info,  &mut hw.eeprom,IXGBE_EEPROM_CTRL_4, &mut ee_ctrl_4)?;
+		    instance_id = (ee_ctrl_4[0] & IXGBE_EE_CTRL_4_INST_ID) >>
+				    IXGBE_EE_CTRL_4_INST_ID_SHIFT;
+	    }
+
+        Ok((func, lan_id, instance_id))
     }
-
-	/* Get MAC instance from EEPROM for configuring CS4227 */
-    let mut ee_ctrl_4 = [0;1];
-    let mut instance_id = 0;
-	if info.id == IXGBE_DEV_ID_X550EM_A_SFP {
-		self.read_eerd(info,&mut hw.eeprom,IXGBE_EEPROM_CTRL_4, &mut ee_ctrl_4)?;
-		instance_id = (ee_ctrl_4[0] & IXGBE_EE_CTRL_4_INST_ID) >>
-				   IXGBE_EE_CTRL_4_INST_ID_SHIFT;
-	}
-
-    Ok((func, lan_id, instance_id))
-}
 
 
     //fn disable_mc(&PCIeInfo, ) -> Result<(), IxgbeDriverErr>{
@@ -1701,6 +1852,7 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
     // ixgbe_acquire_swhw_sync() For X540 ixgbe_acquire_swfw_sync_X540()
     // Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
     fn mac_acquire_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
+        log::info!("mac_acquire_swfw_sync");
         let mut gssr = 0;
         let timeout = 200;
         let swmask = mask;
@@ -1720,7 +1872,7 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
                 return Ok(());
             } else {
                 release_eeprom_semaphore(info)?;
-                awkernel_lib::delay::wait_microsec(5);
+                awkernel_lib::delay::wait_millisec(5);
             }
         }
 
@@ -1729,7 +1881,7 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
             self.mac_release_swfw_sync(info, gssr & (fwmask | swmask))?;
         }
 
-        awkernel_lib::delay::wait_microsec(5);
+        awkernel_lib::delay::wait_millisec(5);
         Err(SwfwSync)
     }
 
@@ -1855,6 +2007,8 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
         self.mac_acquire_swfw_sync(info, gssr)?;
 
         status = self.write_reg_mdi(info, hw, reg_addr, device_type, phy_data);
+
+        self.mac_release_swfw_sync(info, gssr)?;
 
         status
     }
@@ -2058,11 +2212,11 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
 
     // EEPROM Operations
 
-    fn init_params(&self, _info: &PCIeInfo) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
+    fn eeprom_init_params(&self, _info: &PCIeInfo) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
         Err(NotSupported)
     }
 
-    fn read_eerd(
+    fn eeprom_read(
         &self,
         info: &PCIeInfo,
         eeprom: &mut IxgbeEepromInfo,
@@ -2073,9 +2227,9 @@ fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Res
         Ok(ret)
     }
 
-    fn validate_eeprom_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr>;
+    fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr>;
 
-    fn calc_eeprom_checksum(
+    fn eeprom_calc_checksum(
         &self,
         info: &PCIeInfo,
         eeprom: &mut IxgbeEepromInfo,
