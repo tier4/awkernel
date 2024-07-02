@@ -23,6 +23,14 @@ The `raw_cpu_id` method returns the ID of the CPU without any modification.
 The ID is unique for each CPU,
 but it may not be in the range of `0` to `num_cpu() - 1`.
 
+There are functions regarding CPU in [awkernel_lib/src/cpu.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs) as follows.
+
+|  function             | description |
+|-----------------------|-------------|
+| `cpu_id() -> usize ` | Return the ID of the CPU. |
+| `raw_cpu_id() -> usize` | Return the ID of the CPU without any modification. |
+| `num_cpu() -> usize` | Return the number of CPUs. |
+
 # Implementation
 
 ## x86_64

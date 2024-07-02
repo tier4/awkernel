@@ -194,6 +194,13 @@ is also defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel
 <p>The <code>raw_cpu_id</code> method returns the ID of the CPU without any modification.
 The ID is unique for each CPU,
 but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.</p>
+<p>There are functions regarding CPU in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs">awkernel_lib/src/cpu.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>cpu_id() -&gt; usize </code></td><td>Return the ID of the CPU.</td></tr>
+<tr><td><code>raw_cpu_id() -&gt; usize</code></td><td>Return the ID of the CPU without any modification.</td></tr>
+<tr><td><code>num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
+</tbody></table>
+</div>
 <h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
 <h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>CPU</code> trait in
