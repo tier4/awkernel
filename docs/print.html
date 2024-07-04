@@ -298,7 +298,7 @@ The <code>Mapper</code> trait provides a way to map and unmap virtual memory reg
 <p>For the <code>std</code> environment, the <code>Arch</code> trait does not require the <code>Mapper</code> trait because user space applications do not need to manage memory mappings.</p>
 <h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
 <h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
-<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> struct implements the <code>Arch</code> trait.
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
 <li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a></li>
@@ -307,7 +307,7 @@ In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code
 <li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a></li>
 </ul>
 <h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
-<p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> struct implements the <code>Arch</code> trait.
+<p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
 <li><code>Delay</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a></li>
@@ -316,8 +316,313 @@ In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code
 <li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="delay"><a class="header" href="#delay">Delay</a></h1>
+<p>The <code>Delay</code> trait provides a way to wait for a certain amount of time and to get the time.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/delay.rs">awkernel_lib/src/delay.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Delay {
+    /// Wait interrupt.
+    fn wait_interrupt();
+
+    /// Wait microseconds.
+    fn wait_microsec(usec: u64);
+
+    /// Never return.
+    fn wait_forever() -&gt; ! {
+        loop {
+            Self::wait_interrupt();
+        }
+    }
+
+    /// Wait milliseconds.
+    fn wait_millisec(msec: u64) {
+        assert!(msec &lt; u64::MAX / 1000);
+        Self::wait_microsec(msec * 1000);
+    }
+
+    /// Wait seconds.
+    fn wait_sec(sec: u64) {
+        assert!(sec &lt; u64::MAX / 1_000_000);
+        Self::wait_microsec(sec * 1000 * 1000);
+    }
+
+    /// This function returns uptime in microseconds.
+    fn uptime() -&gt; u64;
+
+    /// Return CPU cycle counter.
+    fn cpu_counter() -&gt; u64;
+
+    /// Pause a CPU during busy loop to reduce CPU power consumption.
+    fn pause() {
+        core::hint::spin_loop();
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the <code>Delay</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/delay.rs">awkernel_lib/src/delay.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn wait_interrupt()</code></td><td>Wait interrupt.</td></tr>
+<tr><td><code>fn wait_microsec(usec: u64)</code></td><td>Wait microseconds.</td></tr>
+<tr><td><code>fn wait_millisec(msec: u64)</code></td><td>Wait milliseconds.</td></tr>
+<tr><td><code>fn wait_sec(sec: u64)</code></td><td>Wait seconds.</td></tr>
+<tr><td><code>fn wait_forever() -&gt; !</code></td><td>Never return.</td></tr>
+<tr><td><code>fn uptime() -&gt; u64</code></td><td>Return uptime in microseconds.</td></tr>
+<tr><td><code>fn cpu_counter() -&gt; u64</code></td><td>Return CPU cycle counter.</td></tr>
+<tr><td><code>fn pause()</code></td><td>Pause a CPU during busy loop to reduce CPU power consumption.</td></tr>
+</tbody></table>
+</div>
+<h1 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h1>
+<h2 id="x86_64-2"><a class="header" href="#x86_64-2">x86_64</a></h2>
+<p>For x86_64, the the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Delay</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Delay for super::X86 {
+    fn wait_interrupt() {
+        unsafe { core::arch::asm!("hlt") };
+    }
+
+    fn wait_microsec(usec: u64) {
+        let start = uptime();
+        loop {
+            let diff = uptime() - start;
+            if diff &gt;= usec {
+                break;
+            }
+
+            core::hint::spin_loop();
+        }
+    }
+
+    fn uptime() -&gt; u64 {
+        let base = HPET_BASE.load(Ordering::Relaxed);
+        let hz = HPET_COUNTER_HZ.load(Ordering::Relaxed);
+        let start = HPET_COUNTER_START.load(Ordering::Relaxed);
+
+        if hz == 0 {
+            0
+        } else {
+            let now = HPET_MAIN_COUNTER.read(base);
+            let diff = now - start;
+
+            diff * 1_000_000 / hz
+        }
+    }
+
+    fn cpu_counter() -&gt; u64 {
+        unsafe { core::arch::x86_64::_rdtsc() }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Awkernel currently uses High Precision Event Timer (HPET) to get uptime in microseconds.
+So, if you want to use Awkernel on KVM, you need to enable HPET in the virtual machine settings.
+To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.</p>
+<h2 id="aarch64-2"><a class="header" href="#aarch64-2">AArch64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Delay</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Delay for super::AArch64 {
+    fn wait_interrupt() {
+        unsafe { core::arch::asm!("wfi") };
+    }
+
+    fn wait_microsec(usec: u64) {
+        let frq = awkernel_aarch64::cntfrq_el0::get();
+        let t = awkernel_aarch64::cntvct_el0::get();
+
+        let end = t + ((frq / 1000) * usec) / 1000;
+
+        while awkernel_aarch64::cntvct_el0::get() &lt; end {
+            awkernel_aarch64::isb();
+        }
+    }
+
+    fn uptime() -&gt; u64 {
+        let start = unsafe { read_volatile(addr_of!(COUNT_START)) };
+
+        let frq = awkernel_aarch64::cntfrq_el0::get();
+        let now = awkernel_aarch64::cntvct_el0::get();
+
+        let diff = now - start;
+
+        diff * 1_000_000 / frq
+    }
+
+    fn cpu_counter() -&gt; u64 {
+        awkernel_aarch64::pmccntr_el0::get()
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>To get uptime in microseconds, Awkernel uses the counter-timer frequency register (CNTFRQ_EL0) and the counter-timer virtual count register (CNTVCT_EL0) of AArch64.
+To get the cpu cycle counter, Awkernel uses the performance monitors cycle count register (PMCCNTR_EL0).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="cpu"><a class="header" href="#cpu">CPU</a></h1>
+<p>The <code>CPU</code> trait provides a way to get the current CPU ID.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs">awkernel_lib/src/cpu.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait CPU {
+    /// CPU ID returns the ID of the CPU.
+    /// The ID is unique for each CPU and starts from 0 to `num_cpu() - 1`.
+    fn cpu_id() -&gt; usize;
+
+    /// Raw CPU ID returns the ID of the CPU without any modification.
+    fn raw_cpu_id() -&gt; usize;
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>cpu_id</code> method returns the current CPU ID.
+The ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
+The <code>num_cpu</code> function, which returns the number of CPUs,
+is also defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs">awkernel_lib/src/cpu.rs</a>.</p>
+<p>The <code>raw_cpu_id</code> method returns the ID of the CPU without any modification.
+The ID is unique for each CPU,
+but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.</p>
+<p>There are functions regarding CPU in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs">awkernel_lib/src/cpu.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>cpu_id() -&gt; usize </code></td><td>Return the ID of the CPU.</td></tr>
+<tr><td><code>raw_cpu_id() -&gt; usize</code></td><td>Return the ID of the CPU without any modification.</td></tr>
+<tr><td><code>num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
+</tbody></table>
+</div>
+<h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
+<h2 id="x86_64-3"><a class="header" href="#x86_64-3">x86_64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>CPU</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl CPU for super::X86 {
+    fn cpu_id() -&gt; usize {
+        let cpuid_leaf_1 = unsafe { core::arch::x86_64::__cpuid(1) };
+
+        // Check if x2APIC is supported
+        if (cpuid_leaf_1.ecx &amp; (1 &lt;&lt; 21)) != 0 {
+            // Get x2APIC ID from leaf 1FH or leaf 0BH (1FH is preferred)
+            let max_leaf = unsafe { core::arch::x86_64::__cpuid(0) }.eax;
+            let edx = if max_leaf &gt;= 0x1F {
+                unsafe { core::arch::x86_64::__cpuid(0x1F).edx }
+            } else {
+                unsafe { core::arch::x86_64::__cpuid(0x0B).edx }
+            };
+            edx as usize
+        } else {
+            (cpuid_leaf_1.ebx &gt;&gt; 24 &amp; 0xff) as usize
+        }
+    }
+
+    fn raw_cpu_id() -&gt; usize {
+        Self::cpu_id()
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Awkernel uses <code>core::arch::x86_64::__cpuid</code> to get the CPU ID.
+It assumes that the CPU ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
+If you find any hardware that does not follow this assumption,
+please let us know or send us a PR.</p>
+<h2 id="aarch64-3"><a class="header" href="#aarch64-3">AArch64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>CPU</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/cpu.rs">awkernel_lib/src/arch/aarch64/cpu.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl CPU for super::AArch64 {
+    fn cpu_id() -&gt; usize {
+        let mpidr = mpidr_el1::get();
+
+        let aff0 = mpidr &amp; 0xff;
+        let aff1 = (mpidr &gt;&gt; 8) &amp; 0xff;
+        let aff2 = (mpidr &gt;&gt; 16) &amp; 0xff;
+        let aff3 = (mpidr &gt;&gt; 32) &amp; 0xff;
+
+        let result =
+            unsafe { aff0 + AFF0_MAX * aff1 + AFF0_X_AFF1 * aff2 + AFF0_X_AFF1_X_AFF2 * aff3 };
+
+        result as usize
+    }
+
+    fn raw_cpu_id() -&gt; usize {
+        mpidr_el1::get() as usize
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>For AArch64, Awkernel calculates the CPU ID based on the <code>MPIDR_EL1</code> register and the affinity information variables.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt"><a class="header" href="#interrupt">Interrupt</a></h1>
+<p>The <code>Interrupt</code> trait provides a way to enable and disable interrupts.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Interrupt {
+    fn get_flag() -&gt; usize;
+    fn disable();
+    fn enable();
+    fn set_flag(flag: usize);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>get_flag</code> and <code>set_flag</code> methods get and set the interrupt flag.
+These methods are used to save and restore the interrupt flag when enabling and disabling interrupts and used in the <code>InterruptGuard</code> structure.</p>
+<h1 id="interrupt-guard"><a class="header" href="#interrupt-guard">Interrupt Guard</a></h1>
+<p>The <code>InterruptGuard</code> structure  defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> is used to disable interrupts in a scope.
+After the scope, interrupts are enabled automatically as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>{
+    use awkernel_lib::interrupt::InterruptGuard;
+    let _int_guard = InterruptGuard::new();
+    // interrupts are disabled.
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are <code>enable</code> and <code>disable</code> functions in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.
+You can use these functions rather than using the <code>InterruptGuard</code>.</p>
+<h1 id="implementation-3"><a class="header" href="#implementation-3">Implementation</a></h1>
+<h2 id="x86_64-4"><a class="header" href="#x86_64-4">x86_64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Interrupt</code> trait in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/interrupt.rs">awkernel_lib/src/arch/x86_64/interrupt.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Interrupt for super::X86 {
+    fn get_flag() -&gt; usize {
+        if x86_64::instructions::interrupts::are_enabled() {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn disable() {
+        x86_64::instructions::interrupts::disable();
+    }
+
+    fn enable() {
+        x86_64::instructions::interrupts::enable();
+    }
+
+    fn set_flag(flag: usize) {
+        if flag == 0 {
+            x86_64::instructions::interrupts::disable();
+        } else {
+            x86_64::instructions::interrupts::enable();
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>For x86_64, Awkernel uses the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate to enable and disable interrupts.</p>
+<h2 id="aarch64-4"><a class="header" href="#aarch64-4">AArch64</a></h2>
+<p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Interrupt</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs">awkernel_lib/src/arch/aarch64/interrupt.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Interrupt for super::AArch64 {
+    fn get_flag() -&gt; usize {
+        awkernel_aarch64::daif::get() as usize
+    }
+
+    fn disable() {
+        unsafe { core::arch::asm!("msr daifset, #0b0010",) };
+    }
+
+    fn enable() {
+        unsafe { core::arch::asm!("msr daifclr, #0b0010",) };
+    }
+
+    fn set_flag(flag: usize) {
+        unsafe { awkernel_aarch64::daif::set(flag as u64) };
+    }
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>

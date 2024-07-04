@@ -36,7 +36,7 @@ For the `std` environment, the `Arch` trait does not require the `Mapper` trait 
 
 ## x86_64
 
-For x86_64, the [`X86`:awkernel_lib/src/arch/x86_64.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs) struct implements the `Arch` trait.
+For x86_64, the [`X86`:awkernel_lib/src/arch/x86_64.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs) structure implements the `Arch` trait.
 In addition, it implements the `Delay`, `Interrupt`, `CPU`, and `Mapper` traits as follows.
 
 - `Delay`: [awkernel_lib/src/arch/x86_64/delay.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs)
@@ -46,8 +46,7 @@ In addition, it implements the `Delay`, `Interrupt`, `CPU`, and `Mapper` traits 
 
 ## AArch64
 
-
-For AArch64, the [`AArch64`:awkernel_lib/src/arch/aarch64.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) struct implements the `Arch` trait.
+For AArch64, the [`AArch64`:awkernel_lib/src/arch/aarch64.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs) structure implements the `Arch` trait.
 In addition, it implements the `Delay`, `Interrupt`, `CPU`, and `Mapper` traits as follows.
 
 - `Delay`: [awkernel_lib/src/arch/aarch64/delay.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs)
