@@ -35,13 +35,13 @@ use awkernel_lib::console::unsafe_puts;
 pub mod pcie_device_tree;
 
 mod base_address;
+pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
-pub mod raspi;
-pub mod broadcom;
 pub mod pcie_class;
 pub mod pcie_id;
+pub mod raspi;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -483,8 +483,9 @@ fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeS
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    let device = 0;
-    check_device(bus, device, bus_tree, visited, f);
+    for device in 0..1 {
+        check_device(bus, device, bus_tree, visited, f);
+    }
 }
 
 #[inline]

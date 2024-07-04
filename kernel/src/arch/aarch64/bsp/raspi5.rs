@@ -74,7 +74,7 @@ impl super::SoC for Raspi5 {
 
         // PCIe regions.
         if let Some((base, size)) = self.pcie_reg {
-            vm.push_device_range(base, base + size + 0x300000)?;
+            vm.push_device_range(base, base + size)?;
         }
 
         // Add heap memory regions.
