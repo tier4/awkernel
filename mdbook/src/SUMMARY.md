@@ -8,6 +8,7 @@
     - [CPU](./internal/arch/cpu.md)
     - [Interrupt](./internal/arch/interrupt.md)
     - [Mapper (Virtual Memory Management)](./internal/arch/mapper.md)
+  - [Page Table](./internal/page_table.md)
   - [Context Switch](./internal/context_switch.md)
   - [Interrupt Controller](./internal/interrupt_controller.md)
   - [Memory Allocator](./internal/memory_allocator.md)
