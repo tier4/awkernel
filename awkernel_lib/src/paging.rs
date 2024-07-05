@@ -60,7 +60,7 @@ pub struct Flags {
     pub write: bool,         // writable
     pub cache: bool,         // enable cache
     pub write_through: bool, // write back if disabled
-    pub device: bool,        // this page is MMIO, ignored on x86
+    pub device: bool,        // this page is for MMIO, ignored on x86
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
