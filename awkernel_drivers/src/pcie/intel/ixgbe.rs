@@ -56,6 +56,7 @@ use smoltcp::wire::ArpPacket;
 mod ixgbe_hw;
 mod ixgbe_operations;
 mod ixgbe_x540;
+mod ixgbe_x550;
 
 #[allow(dead_code)]
 mod ixgbe_regs;
@@ -311,8 +312,6 @@ enum PCIeInt {
 
 impl From<IxgbeDriverErr> for PCIeDeviceErr {
     fn from(value: IxgbeDriverErr) -> Self {
-        log::error!("ixgbe: {:?}", value);
-
         match value {
             IxgbeDriverErr::NotImplemented => PCIeDeviceErr::NotImplemented,
             IxgbeDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
@@ -372,8 +371,10 @@ impl IxgbeInner {
 
         //ixgbe_init_hw();
         ops.mac_init_hw(&mut info, &mut hw)?;
+        log::debug!("mac_init_hw() done");
 
         ops.phy_set_power(&info, &hw, true)?;
+        log::debug!("phy_set_power() done");
 
         // setup interface
         // TODO: Check if these are correct
@@ -397,6 +398,7 @@ impl IxgbeInner {
         // Get the PCI-E bus info and determine LAN ID
         let businfo = ops.mac_get_bus_info(&mut info, &mut hw)?;
         hw.bus = businfo;
+        log::debug!("mac_get_bus_info() done");
 
         // Set an initial default flow control value
         hw.fc.requested_mode = ixgbe_hw::FcMode::IxgbeFcFull;

@@ -1,3 +1,6 @@
+use super::ixgbe_hw::{get_mac_type, MacType};
+use super::IxgbeDriverErr;
+
 pub const DEFAULT_TXD: usize = 256;
 pub const PERFORM_TXD: usize = 4096;
 pub const MAX_TXD: usize = 4096;
@@ -1062,12 +1065,12 @@ pub const IXGBE_SWSR: usize = 0x15F10;
 pub const IXGBE_HFDR: usize = 0x15FE8;
 pub const IXGBE_FLEX_MNG: usize = 0x15800; /* 0x15800 - 0x15EFC */
 
-pub const IXGBE_HICR_EN: usize = 0x01; /* Enable bit - RO */
+pub const IXGBE_HICR_EN: u32 = 0x01; /* Enable bit - RO */
 // Driver sets this bit when done to put command in RAM
-pub const IXGBE_HICR_C: usize = 0x02;
-pub const IXGBE_HICR_SV: usize = 0x04; /* Status Validity */
-pub const IXGBE_HICR_FW_RESET_ENABLE: usize = 0x40;
-pub const IXGBE_HICR_FW_RESET: usize = 0x80;
+pub const IXGBE_HICR_C: u32 = 0x02;
+pub const IXGBE_HICR_SV: u32 = 0x04; /* Status Validity */
+pub const IXGBE_HICR_FW_RESET_ENABLE: u32 = 0x40;
+pub const IXGBE_HICR_FW_RESET: u32 = 0x80;
 
 // PCI-E registers
 pub const IXGBE_GCR: usize = 0x11000;
@@ -2271,7 +2274,7 @@ pub const IXGBE_EEC_SIZE: u32 = 0x00007800; // EEPROM Size
 pub const IXGBE_EERD_MAX_ADDR: u32 = 0x00003FFF; // EERD allows 14 bits for addr.
 
 pub const IXGBE_EEC_SIZE_SHIFT: u32 = 11;
-pub const IXGBE_EEPROM_WORD_SIZE_SHIFT: u32 = 6;
+pub const IXGBE_EEPROM_WORD_SIZE_SHIFT: u16 = 6;
 pub const IXGBE_EEPROM_OPCODE_BITS: u32 = 8;
 
 // FLA Register
@@ -3045,18 +3048,18 @@ pub const FW_CEM_CMD_RESERVED: u32 = 0x0;
 pub const FW_CEM_UNUSED_VER: u32 = 0x0;
 pub const FW_CEM_MAX_RETRIES: u32 = 3;
 pub const FW_CEM_RESP_STATUS_SUCCESS: u32 = 0x1;
-pub const FW_CEM_DRIVER_VERSION_SIZE: u32 = 39; /* +9 would send 48 bytes to fw */
-pub const FW_READ_SHADOW_RAM_CMD: u32 = 0x31;
-pub const FW_READ_SHADOW_RAM_LEN: u32 = 0x6;
+pub const FW_CEM_DRIVER_VERSION_SIZE: usize = 39; /* +9 would send 48 bytes to fw */
+pub const FW_READ_SHADOW_RAM_CMD: u8 = 0x31;
+pub const FW_READ_SHADOW_RAM_LEN: u8 = 0x6;
 pub const FW_WRITE_SHADOW_RAM_CMD: u32 = 0x33;
 pub const FW_WRITE_SHADOW_RAM_LEN: u32 = 0xA; /* 8 plus 1 WORD to write */
 pub const FW_SHADOW_RAM_DUMP_CMD: u32 = 0x36;
 pub const FW_SHADOW_RAM_DUMP_LEN: u32 = 0;
-pub const FW_DEFAULT_CHECKSUM: u32 = 0xFF; /* checksum always 0xFF */
-pub const FW_NVM_DATA_OFFSET: u32 = 3;
-pub const FW_MAX_READ_BUFFER_SIZE: u32 = 1024;
-pub const FW_DISABLE_RXEN_CMD: u32 = 0xDE;
-pub const FW_DISABLE_RXEN_LEN: u32 = 0x1;
+pub const FW_DEFAULT_CHECKSUM: u8 = 0xFF; /* checksum always 0xFF */
+pub const FW_NVM_DATA_OFFSET: usize = 3;
+pub const FW_MAX_READ_BUFFER_SIZE: u16 = 1024;
+pub const FW_DISABLE_RXEN_CMD: u8 = 0xDE;
+pub const FW_DISABLE_RXEN_LEN: u8 = 0x1;
 pub const FW_PHY_MGMT_REQ_CMD: u32 = 0x20;
 pub const FW_PHY_TOKEN_REQ_CMD: u32 = 0xA;
 pub const FW_PHY_TOKEN_REQ_LEN: u32 = 2;
@@ -3072,8 +3075,8 @@ pub const FW_INT_PHY_REQ_LEN: u32 = 10;
 pub const FW_INT_PHY_REQ_READ: u32 = 0;
 pub const FW_INT_PHY_REQ_WRITE: u32 = 1;
 pub const FW_PHY_ACT_REQ_CMD: u32 = 5;
-pub const FW_PHY_ACT_DATA_COUNT: u32 = 4;
-pub const FW_PHY_ACT_REQ_LEN: u32 = 4 + 4 * FW_PHY_ACT_DATA_COUNT;
+pub const FW_PHY_ACT_DATA_COUNT: usize = 4;
+pub const FW_PHY_ACT_REQ_LEN: usize = 4 + 4 * FW_PHY_ACT_DATA_COUNT;
 pub const FW_PHY_ACT_INIT_PHY: u32 = 1;
 pub const FW_PHY_ACT_SETUP_LINK: u32 = 2;
 pub const FW_PHY_ACT_LINK_SPEED_10: u32 = 1 << 0;
@@ -3842,3 +3845,374 @@ pub const IXGBE_TN_LASI_STATUS_TEMP_ALARM: u32 = 0x0008;
 pub const IXGBE_SFF_SFF_8472_UNSUP: u32 = 0x00;
 
 pub const IXGBE_FLAGS_DOUBLE_RESET_REQUIRED: u8 = 0x01;
+
+#[repr(C, packed)]
+pub struct IxgbeHicHdr {
+    pub cmd: u8,
+    pub buf_len: u8,
+    pub cmd_or_resp: u8,
+    pub checksum: u8,
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct IxgbeHicHdr2Req {
+    pub cmd: u8,
+    pub buf_lenh: u8,
+    pub buf_lenl: u8,
+    pub checksum: u8,
+}
+
+#[repr(C, packed)]
+#[derive(Clone, Copy)]
+pub struct IxgbeHicHdr2Rsp {
+    pub cmd: u8,
+    pub buf_lenl: u8,
+    pub buf_lenh_status: u8, // 7-5: high bits of buf_len, 4-0: status
+    pub checksum: u8,
+}
+
+#[repr(C, packed)]
+pub union IxgbeHicHdr2 {
+    pub req: IxgbeHicHdr2Req,
+    pub rsp: IxgbeHicHdr2Rsp,
+}
+
+#[repr(C, packed)]
+struct IxgbeHicDrvInfo {
+    hdr: IxgbeHicHdr,
+    port_num: u8,
+    ver_sub: u8,
+    ver_build: u8,
+    ver_min: u8,
+    ver_maj: u8,
+    pad: u8,   // end spacing to ensure length is mult. of dword
+    pad2: u16, // end spacing to ensure length is mult. of dword2
+}
+
+#[repr(C, packed)]
+struct IxgbeHicDrvInfo2 {
+    hdr: IxgbeHicHdr,
+    port_num: u8,
+    ver_sub: u8,
+    ver_build: u8,
+    ver_min: u8,
+    ver_maj: u8,
+    driver_string: [u8; FW_CEM_DRIVER_VERSION_SIZE],
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicReadShadowRam {
+    pub hdr: IxgbeHicHdr2,
+    pub address: u32,
+    pub length: u16,
+    pub pad2: u16,
+    pub data: u16,
+    pub pad3: u16,
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicWriteShadowRam {
+    hdr: IxgbeHicHdr2,
+    address: u32,
+    length: u16,
+    pad2: u16,
+    data: u16,
+    pad3: u16,
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicDisableRxen {
+    pub hdr: IxgbeHicHdr,
+    pub port_number: u8,
+    pub pad2: u8,
+    pub pad3: u16,
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicPhyTokenReq {
+    hdr: IxgbeHicHdr,
+    port_number: u8,
+    command_type: u8,
+    pad: u16,
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicInternalPhyReq {
+    hdr: IxgbeHicHdr,
+    port_number: u8,
+    command_type: u8,
+    address: u16, // __be16 in C, needs appropriate conversion when used
+    rsv1: u16,
+    write_data: u32, // __be32 in C, needs appropriate conversion when used
+    pad: u16,
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicInternalPhyResp {
+    hdr: IxgbeHicHdr,
+    read_data: u32, // __be32 in C, needs appropriate conversion when used
+}
+
+#[repr(C, packed)]
+pub struct IxgbeHicPhyActivityReq {
+    hdr: IxgbeHicHdr,
+    port_number: u8,
+    pad: u8,
+    activity_id: u16, // __le16 in C, needs appropriate conversion when used
+    data: [u32; FW_PHY_ACT_DATA_COUNT], // __be32 in C, needs appropriate conversion when used
+}
+
+#[repr(C, packed)]
+struct IxgbeHicPhyActivityResp {
+    hdr: IxgbeHicHdr,
+    data: [u32; FW_PHY_ACT_DATA_COUNT], // __be32 in C, needs appropriate conversion when used
+}
+
+pub fn get_i2c_clk_in_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_clk_in = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_CLK_IN,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_CLK_IN_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_CLK_IN_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_CLK_IN_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_CLK_IN_X550EM_A,
+    };
+
+    Ok(i2c_clk_in)
+}
+
+pub fn get_i2c_clk_out_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_clk_out = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_CLK_OUT,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_CLK_OUT_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_CLK_OUT_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_CLK_OUT_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_CLK_OUT_X550EM_A,
+    };
+
+    Ok(i2c_clk_out)
+}
+
+pub fn get_i2c_data_in_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_data_in = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_DATA_IN,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_DATA_IN_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_DATA_IN_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_DATA_IN_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_DATA_IN_X550EM_A,
+    };
+
+    Ok(i2c_data_in)
+}
+
+pub fn get_i2c_data_out_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_data_out = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_DATA_OUT,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_DATA_OUT_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_DATA_OUT_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_DATA_OUT_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_DATA_OUT_X550EM_A,
+    };
+
+    Ok(i2c_data_out)
+}
+
+pub fn get_i2c_data_oe_n_en_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_data_oe_n_en = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_DATA_OE_N_EN,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_DATA_OE_N_EN_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_DATA_OE_N_EN_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_DATA_OE_N_EN_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_DATA_OE_N_EN_X550EM_A,
+    };
+
+    Ok(i2c_data_oe_n_en)
+}
+
+pub fn get_i2c_bb_en_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_bb_en = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_BB_EN,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_BB_EN_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_BB_EN_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_BB_EN_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_BB_EN_X550EM_A,
+    };
+
+    Ok(i2c_bb_en)
+}
+
+pub fn get_i2c_clk_oe_n_en_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2c_clk_oe_n_en = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2C_CLK_OE_N_EN,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2C_CLK_OE_N_EN_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2C_CLK_OE_N_EN_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2C_CLK_OE_N_EN_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2C_CLK_OE_N_EN_X550EM_A,
+    };
+
+    Ok(i2c_clk_oe_n_en)
+}
+
+pub fn get_i2cctl_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let i2cctl = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_I2CCTL_82599,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_I2CCTL_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_I2CCTL_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_I2CCTL_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_I2CCTL_X550EM_A,
+    };
+
+    Ok(i2cctl)
+}
+
+pub fn get_eec_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let eec = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_EEC,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_EEC_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_EEC_X550,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_EEC_X550EM_A,
+    };
+
+    Ok(eec)
+}
+
+pub fn get_fla_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let fla = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FLA,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FLA_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FLA_X540,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FLA_X550EM_A,
+    };
+
+    Ok(fla)
+}
+
+pub fn get_grc_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let grc = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_GRC,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_GRC_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_GRC_X550,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_GRC_X550EM_A,
+    };
+
+    Ok(grc)
+}
+
+pub fn get_sramrel_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let sramrel = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SRAMREL,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SRAMREL_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SRAMREL_X550,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SRAMREL_X550EM_A,
+    };
+
+    Ok(sramrel)
+}
+
+pub fn get_factps_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let factps = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FACTPS,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FACTPS_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_FACTPS_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FACTPS_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FACTPS_X550EM_A,
+    };
+
+    Ok(factps)
+}
+
+pub fn get_swsm_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let swsm = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SWSM,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SWSM_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_SWSM_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SWSM_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SWSM_X550EM_A,
+    };
+
+    Ok(swsm)
+}
+
+pub fn get_fwsm_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let fwsm = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_FWSM,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_FWSM_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_FWSM_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_FWSM_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_FWSM_X550EM_A,
+    };
+
+    Ok(fwsm)
+}
+
+pub fn get_swfw_sync_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let swfw_sync = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_SWFW_SYNC,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_SWFW_SYNC_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_SWFW_SYNC_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_SWFW_SYNC_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_SWFW_SYNC_X550EM_A,
+    };
+
+    Ok(swfw_sync)
+}
+
+pub fn get_ciaa_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let ciaa = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_CIAA_82599,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_CIAA_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_CIAA_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_CIAA_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_CIAA_X550EM_A,
+    };
+
+    Ok(ciaa)
+}
+
+pub fn get_ciad_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
+    use MacType::*;
+
+    let ciad = match get_mac_type(device)? {
+        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_CIAD_82599,
+        IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_CIAD_X540,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_CIAD_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_CIAD_X550EM_X,
+        IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_CIAD_X550EM_A,
+    };
+
+    Ok(ciad)
+}

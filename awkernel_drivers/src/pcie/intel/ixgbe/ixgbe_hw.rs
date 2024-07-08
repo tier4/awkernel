@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 
 use super::{
     ixgbe_operations::IxgbeOperations, ixgbe_regs::*, ixgbe_x540, ixgbe_x540::IxgbeX540,
-    IxgbeDriverErr,
+    ixgbe_x550, ixgbe_x550::IxgbeX550, IxgbeDriverErr,
 };
 
 pub const IXGBE_DEVICES: [(u16, u16); 74] = [
@@ -90,7 +90,7 @@ pub const IXGBE_DEVICES: [(u16, u16); 74] = [
     (IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_VF_HV),
 ];
 
-fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
+pub fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
     use MacType::*;
 
     let result = match device {
@@ -146,7 +146,10 @@ fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
         IXGBE_DEV_ID_X550_VF | IXGBE_DEV_ID_X550_VF_HV => IxgbeMacX550Vf,
         IXGBE_DEV_ID_X550EM_X_VF | IXGBE_DEV_ID_X550EM_X_VF_HV => IxgbeMacX550EMXVf,
         IXGBE_DEV_ID_X550EM_A_VF | IXGBE_DEV_ID_X550EM_A_VF_HV => IxgbeMacX550EMAVf,
-        _ => return Err(IxgbeDriverErr::UnknownDeviceID),
+        _ => {
+            log::debug!("ixgbe: get_mac_type UnknownDeviceId");
+            return Err(IxgbeDriverErr::UnknownDeviceID);
+        }
     };
     Ok(result)
 }
@@ -239,7 +242,6 @@ impl IxgbeHw {
         use MacType::*;
 
         let mac_type = get_mac_type(info.get_id())?;
-        let ops;
 
         // Doesn't seem to require check_pci_express since all the ixgbe devices support PCI Express
         // https://github.com/openbsd/src/blob/82673a188a32931f4005a3ede8f05d97542feb17/sys/dev/pci/ixgbe.c#L715
@@ -249,7 +251,12 @@ impl IxgbeHw {
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
-        ops = get_operations(&mac_type)?; // init_shared_code();
+        // let hardware know driver is loaded
+        let mut ctrl_ext = read_reg(info, IXGBE_CTRL_EXT)?;
+        ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
+        write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
+
+        let ops = get_operations(&mac_type)?; // init_shared_code();
         let (
             mcft_size,
             vft_size,
@@ -261,11 +268,12 @@ impl IxgbeHw {
             arc_subsystem_valid,
         ) = match mac_type {
             IxgbeMacX540 => ixgbe_x540::set_mac_val(info)?,
+            IxgbeMacX550 => ixgbe_x550::set_mac_val(info)?,
             _ => (0, 0, 0, 0, 0, 0, 0, false),
         };
         let max_link_up_time = IXGBE_LINK_UP_TIME;
 
-        let eeprom = ops.validate_eeprom_checksum(info)?;
+        let eeprom = ops.eeprom_validate_checksum(info)?;
 
         // TODO: hw.mac.ops.enable_tx_laser() for 82599 SFP+ fiber
 
@@ -334,10 +342,6 @@ impl IxgbeHw {
             ops,
         ))
     }
-
-    //pub fn set_legacy_irq(&mut self, legacy_irq: bool) {
-    //self.legacy_irq = legacy_irq;
-    //}
 
     #[inline(always)]
     pub fn get_mac_type(&self) -> MacType {
@@ -528,6 +532,7 @@ pub fn write_flush(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
 fn get_operations(mac_type: &MacType) -> Result<Box<dyn IxgbeOperations>, IxgbeDriverErr> {
     match mac_type {
         MacType::IxgbeMacX540 => Ok(ixgbe_x540::get_self()),
+        MacType::IxgbeMacX550 => Ok(ixgbe_x550::get_self()),
         _ => Err(IxgbeDriverErr::NotImplemented),
     }
 }
@@ -538,58 +543,3 @@ pub fn get_num_queues(mac_type: &MacType) -> usize {
         _ => 16,
     }
 }
-
-// set_phy_power()
-//hw.phy.phy_semaphore_mask, hw.phy.addr
-//let mut phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
-//let mut phy_id_high = 0;
-//let mut phy_addr = 0;
-//let mut flag = 0;
-//for try_phy_addr in 0..IXGBE_MAX_PHY_ADDR {
-//phy_id_high = ops.phy_read_reg(
-//info,
-//try_phy_addr,
-//phy_semaphore_mask,
-//IXGBE_MDIO_PHY_ID_HIGH,
-//IXGBE_MDIO_PMA_PMD_DEV_TYPE,
-//)?;
-//if phy_id_high != 0xFFFF && phy_id_high != 0x0 {
-//phy_addr = try_phy_addr;
-//flag = 1;
-//break;
-//}
-//}
-
-//if flag == 0 {
-//log::error!("phy_addr1 not found!!!!");
-//} else {
-//log::info!("phy_addr1 found!!!!:{}", phy_addr);
-//log::info!("phy_id_high1 found!!!!:{}", phy_id_high);
-//}
-
-//phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
-//phy_id_high = 0;
-//phy_addr = 0;
-//flag = 0;
-//for try_phy_addr in 0..IXGBE_MAX_PHY_ADDR {
-//phy_id_high = ops.phy_read_reg(
-//info,
-//try_phy_addr,
-//phy_semaphore_mask,
-//IXGBE_MDIO_PHY_ID_HIGH,
-//IXGBE_MDIO_PMA_PMD_DEV_TYPE,
-//)?;
-//if phy_id_high != 0xFFFF && phy_id_high != 0x0 {
-//phy_addr = try_phy_addr;
-//flag = 1;
-//break;
-//}
-//}
-
-//if flag == 0 {
-//log::error!("phy_addr0 not found!!!!");
-//} else {
-//log::info!("phy_addr0 found!!!!:{}", phy_addr);
-//log::info!("phy_id_high0 found!!!!:{}", phy_id_high);
-//}
-//ops.set_phy_power(info, &mac_type, phy_addr, phy_semaphore_mask, true)?; //- ixgbe_set_copper_phy_power() Do we really need this?(for min impl)
