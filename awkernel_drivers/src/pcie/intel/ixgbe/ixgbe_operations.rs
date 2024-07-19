@@ -1,14 +1,15 @@
-use core::fmt::Arguments;
-
 use super::{
     ixgbe_hw::{self, IxgbeEepromInfo, IxgbeBusInfo,},
     ixgbe_regs::*,
-    Ixgbe,
     IxgbeDriverErr::{self, *},
 };
-use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
+use crate::{if_media::Media, pcie::{capability::pcie_cap::PCIeCap, intel::ixgbe::Ixgbe, PCIeInfo}};
+use acpi::address;
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
-use ixgbe_hw::{IxgbeHw, MacType, EepromType, MediaType};
+use embedded_hal::i2c;
+use ixgbe_hw::{IxgbeHw, PhyType, MacType, EepromType, MediaType, SfpType};
+
+
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -78,7 +79,7 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
 pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(ops: &T,info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(), IxgbeDriverErr>{
     use ixgbe_hw::MacType::*;
 	/* Set the media type */
-	hw.phy.media_type = ops.mac_get_media_type();
+	hw.phy.media_type = ops.mac_get_media_type(info, hw);
 
 	/* PHY ops initialization must be done in reset_hw() */
 
@@ -288,7 +289,7 @@ fn set_pci_config_data<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw
 	_ => IxgbeBusSpeedUnknown,
 	};
 
-	let (func, lan_id, instance_id) = ops.mac_set_lan_id_multi_port_pcie(info, hw)?;
+	let (func, lan_id, instance_id) = ops.mac_set_lan_id(info, hw)?;
     let businfo = IxgbeBusInfo { speed, width, bus_type, func, lan_id, instance_id };
 
     Ok(businfo)
@@ -297,7 +298,7 @@ fn set_pci_config_data<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw
  // device_supports_autoneg_fc - Check if device supports autonegotiation
  // This function returns TRUE if the device supports flow control
  // autonegotiation, and FALSE if it does not.
-fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool,IxgbeDriverErr>{
+fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<bool,IxgbeDriverErr>{
     use ixgbe_hw::MediaType::*;
 
 	let supported = match hw.phy.media_type {
@@ -345,15 +346,15 @@ IXGBE_DEV_ID_X550EM_X_10G_T | IXGBE_DEV_ID_X550EM_A_10G_T | IXGBE_DEV_ID_X550EM_
     Ok(supported)
 }
 
-fn need_crosstalk_fix<T: IxgbeOperations + ?Sized >(ops: &T, hw: &IxgbeHw) -> bool {
+fn need_crosstalk_fix<T: IxgbeOperations + ?Sized >(ops: &T, info:&PCIeInfo, hw: &mut IxgbeHw) -> bool {
     use ixgbe_hw::MediaType::*;
-	/* Does FW say we need the fix */
+	// Does FW say we need the fix
 	if !hw.crosstalk_fix {
 		return false;
     }
 
-	/* Only consider SFP+ PHYs i.e. media type fiber */
-	match ops.mac_get_media_type() {
+	// Only consider SFP+ PHYs i.e. media type fiber
+	match ops.mac_get_media_type(info, hw) {
 	IxgbeMediaTypeFiber | IxgbeMediaTypeFiberQsfp => true,
 	_ =>  false,
     }
@@ -509,6 +510,179 @@ pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
 	vector
 }
 
+// mng_present - returns TRUE when management capability is present
+pub fn mng_present(info:&PCIeInfo, hw:&IxgbeHw)->Result<bool, IxgbeDriverErr>{
+    let fwsm;
+    let fwsm_offset = get_fwsm_offset(info.get_id())?;
+
+	if hw.mac.mac_type < MacType::IxgbeMac82599EB{
+		return Ok(false);
+    }
+
+	fwsm = ixgbe_hw::read_reg(info, fwsm_offset)?;
+
+	Ok(fwsm & IXGBE_FWSM_FW_MODE_PT!= 0)
+}
+ 
+// disable_tx_laser_multispeed_fiber - Disable Tx laser
+// // The base drivers may require better control over SFP+ module
+// PHY states.  This includes selectively shutting down the Tx
+// laser on the PHY, effectively halting physical link.
+pub fn disable_tx_laser_multispeed_fiber(info: &PCIeInfo, hw:&IxgbeHw)->Result<(), IxgbeDriverErr>{
+	let mut esdp_reg = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
+
+	// Blocked by MNG FW so bail 
+	if check_reset_blocked(info, hw)?{
+		return Ok(());
+    }
+
+	// Disable Tx laser; allow 100us to go dark per spec
+	esdp_reg |= IXGBE_ESDP_SDP3;
+	ixgbe_hw::write_reg(info, IXGBE_ESDP, esdp_reg)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(100);
+
+    Ok(())
+}
+
+ // enable_tx_laser_multispeed_fiber - Enable Tx laser
+ // The base drivers may require better control over SFP+ module
+ // PHY states.  This includes selectively turning on the Tx
+ // laser on the PHY, effectively starting physical link.
+pub fn enable_tx_laser_multispeed_fiber(info:&PCIeInfo)->Result<(), IxgbeDriverErr>{
+	let mut esdp_reg = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
+
+	// Enable Tx laser; allow 100ms to light up 
+	esdp_reg &= !IXGBE_ESDP_SDP3;
+	ixgbe_hw::write_reg(info, IXGBE_ESDP, esdp_reg)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(100);
+
+    Ok(())
+}
+
+// flap_tx_laser - Flap Tx laser
+//
+// When the driver changes the link speeds that it can support,
+// it sets autotry_restart to TRUE to indicate that we need to
+// initiate a new autotry session with the link partner.  To do
+// so, we set the speed then disable and re-enable the Tx laser, to
+// alert the link partner that it also needs to restart autotry on its
+// end.  This is consistent with TRUE clause 37 autoneg, which also
+// involves a loss of signal.
+fn flap_tx_laser_multispeed_fiber(info: &PCIeInfo, hw:&mut IxgbeHw)->Result<(),IxgbeDriverErr>{
+	log::debug!("ixgbe_flap_tx_laser_multispeed_fiber");
+
+	// Blocked by MNG FW so bail
+	if check_reset_blocked(info, hw)?{
+        return Ok(());
+    }
+
+	if hw.mac.autotry_restart {
+		disable_tx_laser_multispeed_fiber(info, hw)?;
+		enable_tx_laser_multispeed_fiber(info)?;
+		hw.mac.autotry_restart = false;
+	}
+
+    Ok(())
+}
+
+// get_sfp_init_sequence_offsets - Provides offset of PHY init sequence
+// Checks the MAC's EEPROM to see if it supports a given SFP+ module type, if
+// so it returns the offsets to the phy init sequence block.
+pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized >(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u16, u16), IxgbeDriverErr>{
+    use SfpType::*;
+	let mut sfp_type = hw.phy.sfp_type;
+
+	if sfp_type == IxgbeSfpTypeUnknown {
+        return Err(IxgbeDriverErr::SfpNotSupported);
+    }
+
+	if sfp_type == IxgbeSfpTypeNotPresent {
+        return Err(IxgbeDriverErr::SfpNotPresent);
+    }
+
+	if (info.get_id() == IXGBE_DEV_ID_82598_SR_DUAL_PORT_EM) && (hw.phy.sfp_type == IxgbeSfpTypeDaCu) {
+        return Err(IxgbeDriverErr::SfpNotSupported);
+    }
+
+	//  Limiting active cables and 1G Phys must be initialized as SR modules
+	if sfp_type == IxgbeSfpTypeDaActLmtCore0 ||
+	    sfp_type == IxgbeSfpType1gLxCore0 ||
+	    sfp_type == IxgbeSfpType1gCuCore0 ||
+	    sfp_type == IxgbeSfpType1gSxCore0 {
+		sfp_type = IxgbeSfpTypeSrlrCore0;
+    } else if  sfp_type == IxgbeSfpTypeDaActLmtCore1 ||
+		sfp_type == IxgbeSfpType1gLxCore1 ||
+		sfp_type == IxgbeSfpType1gCuCore1 ||
+		sfp_type == IxgbeSfpType1gSxCore1 {
+		sfp_type = IxgbeSfpTypeSrlrCore1;
+    }
+
+	// Read offset to PHY init contents
+    let mut list_offset = [0;1];
+	if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, IXGBE_PHY_INIT_OFFSET_NL, &mut list_offset) {
+		log::error!( "eeprom read at offset {} failed", IXGBE_PHY_INIT_OFFSET_NL);
+        return Err(SfpNoInitSeqPresent);
+	}
+
+	if (list_offset[0] == 0) || (list_offset[0] == 0xFFFF){
+        return Err(IxgbeDriverErr::SfpNoInitSeqPresent);
+    }
+
+	// Shift offset to first ID word
+	list_offset[0] += 1;
+
+	// Find the matching SFP ID in the EEPROM
+	// and program the init sequence
+    let mut sfp_id = [0;1];
+	if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id){
+        log::error!("eeprom read at offset {} failed", list_offset[0]);
+	    return Err(IxgbeDriverErr::Phy);
+    }
+     
+    let mut data_offset = [0;1];
+	while sfp_id[0] != IXGBE_PHY_INIT_END_NL { 
+        let sfp_id_sfptype = SfpType::try_from(sfp_id[0])?;
+		if sfp_id_sfptype == sfp_type {
+			list_offset[0] += 1;
+			if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut data_offset){
+                log::error!("eeprom read at offset {} failed", list_offset[0]);
+	            return Err(IxgbeDriverErr::Phy);
+            }
+
+			if (data_offset[0] == 0) || (data_offset[0] == 0xFFFF) {
+				log::debug!("SFP+ module not supported\n");
+				return Err(IxgbeDriverErr::SfpNotSupported);
+			} else {
+				break;
+			}
+		} else {
+			list_offset[0] += 2;
+			if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id){
+                log::error!("eeprom read at offset {} failed", list_offset[0]);
+	            return Err(IxgbeDriverErr::Phy);
+            }
+		}
+	}
+
+	// the 82598EB SFP+ card officially supports only direct attached cables
+	// but works fine with optical SFP+ modules as well. Even though the
+	// EEPROM has no matching ID for them. So just accept the module.
+	if sfp_id[0] == IXGBE_PHY_INIT_END_NL && hw.mac.mac_type == MacType::IxgbeMac82598EB {
+		// refetch offset for the first phy entry
+		ops.eeprom_read(info,&mut hw.eeprom, IXGBE_PHY_INIT_OFFSET_NL, &mut list_offset)?;
+		list_offset[0] += 2;
+		ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut data_offset)?;
+	} else if sfp_id[0] == IXGBE_PHY_INIT_END_NL {
+		log::debug!("No matching SFP+ module found\n");
+		return Err(IxgbeDriverErr::SfpNotSupported);
+	}
+
+    Ok((list_offset[0], data_offset[0]))
+}
+
+
 // get_copper_link_capabilities - Determines link capabilities
 pub fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(u32,bool), IxgbeDriverErr>{
 
@@ -552,8 +726,212 @@ fn get_copper_speeds_supported<T: IxgbeOperations + ?Sized>(ops: &T, info: &PCIe
 	}
 
     Ok(())
+
+
 }
 
+// stop_mac_link_on_d3_82599 - Disables link on D3
+// Disables link during D3 power down sequence.
+pub fn stop_mac_link_on_d3_82599<T: IxgbeOperations + ?Sized>(
+    ops: &T,
+    info: &PCIeInfo,
+    hw: &mut IxgbeHw,
+) -> Result<(), IxgbeDriverErr> {
+    let mut ee_ctrl_2 = [0; 1];
+    ops.eeprom_read(info, &mut hw.eeprom, IXGBE_EEPROM_CTRL_2, &mut ee_ctrl_2)?;
+
+    if !mng_present(info, hw)? && (ee_ctrl_2[0] & IXGBE_EEPROM_CCD_BIT != 0) {
+        let mut autoc2_reg = ixgbe_hw::read_reg(info, IXGBE_AUTOC2)?;
+        autoc2_reg |= IXGBE_AUTOC2_LINK_DISABLE_ON_D3_MASK;
+        ixgbe_hw::write_reg(info, IXGBE_AUTOC2, autoc2_reg)?;
+    }
+
+    Ok(())
+}
+
+// set_soft_rate_select_speed - Set module link speed
+//  Set module link speed via the soft rate select.
+pub fn set_soft_rate_select_speed<T: IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &IxgbeHw, speed: u32)->Result<(), IxgbeDriverErr>{
+
+	let rs = match speed {
+	    IXGBE_LINK_SPEED_10GB_FULL => IXGBE_SFF_SOFT_RS_SELECT_10G, // one bit mask same as setting on
+	    IXGBE_LINK_SPEED_1GB_FULL =>  IXGBE_SFF_SOFT_RS_SELECT_1G,
+	    _ =>  {
+            log::debug!("Invalid fixed module speed\n");
+		    return Ok(());
+	    }
+    };
+
+    // Set RS0
+	let mut eeprom_data = match ops.phy_read_i2c_byte(info, hw, IXGBE_SFF_SFF_8472_OSCB, IXGBE_I2C_EEPROM_DEV_ADDR2) {
+        Ok(data) => data,
+        Err(e) => {
+		    log::debug!("Failed to read Rx Rate Select RS0\n");
+            return Err(e);
+        }
+    };
+
+	eeprom_data = (eeprom_data & !IXGBE_SFF_SOFT_RS_SELECT_MASK) | rs;
+
+	if let Err(e) = ops.phy_write_i2c_byte(info, hw, IXGBE_SFF_SFF_8472_OSCB, IXGBE_I2C_EEPROM_DEV_ADDR2, eeprom_data){
+		log::debug!("Failed to write Rx Rate Select RS0\n");
+        return Err(e);
+    }
+
+	/* Set RS1 */
+	let mut eeprom_data = match ops.phy_read_i2c_byte(info, hw, IXGBE_SFF_SFF_8472_ESCB, IXGBE_I2C_EEPROM_DEV_ADDR2) {
+        Ok(data) => data,
+        Err(e) => {
+		    log::debug!("Failed to read Rx Rate Select RS1\n");
+            return Err(e);
+        }
+    };
+
+	eeprom_data = (eeprom_data & !IXGBE_SFF_SOFT_RS_SELECT_MASK) | rs;
+
+	if let Err(e) = ops.phy_write_i2c_byte(info, hw, IXGBE_SFF_SFF_8472_ESCB, IXGBE_I2C_EEPROM_DEV_ADDR2, eeprom_data){
+		log::debug!("Failed to write Rx Rate Select RS1\n");
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+// setup_mac_link_multispeed_fiber - Set MAC link speed
+// Set the link speed in the MAC and/or PHY register and restarts link.
+pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw, mut speed: u32, autoneg_wait_to_complete: bool)->Result<(), IxgbeDriverErr>{
+    fn out(hw:&mut IxgbeHw, speed: u32, status:Result<(), IxgbeDriverErr>)->Result<(),IxgbeDriverErr>{
+        hw.phy.autoneg_advertised = 0;
+        if speed & IXGBE_LINK_SPEED_10GB_FULL != 0 {
+            hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_10GB_FULL;
+        }
+        if speed & IXGBE_LINK_SPEED_1GB_FULL != 0 {
+            hw.phy.autoneg_advertised |= IXGBE_LINK_SPEED_10GB_FULL;
+        }
+        status
+    }
+
+    use MediaType::*;
+
+	// Mask off requested but non-supported speeds
+	let (link_speed, _autoneg) = ops.mac_get_link_capabilities(info, hw)?;
+
+	speed &= link_speed;
+
+	//  Try each speed one by one, highest priority first.  We do this in
+	// software because 10Gb fiber doesn't support speed autonegotiation.
+	let mut speedcnt = 0;
+    let mut highest_link_speed = IXGBE_LINK_SPEED_UNKNOWN;
+	if speed & IXGBE_LINK_SPEED_10GB_FULL != 0 {
+		speedcnt += 1;
+		highest_link_speed = IXGBE_LINK_SPEED_10GB_FULL;
+
+		// Set the module link speed
+		match hw.phy.media_type {
+		IxgbeMediaTypeFiberFixed |IxgbeMediaTypeFiber => {
+			ops.mac_set_rate_select_speed(info, hw,IXGBE_LINK_SPEED_10GB_FULL)?;
+
+        }
+		IxgbeMediaTypeFiberQsfp => (), // QSFP module automatically detects MAC link speed
+		_ => {log::debug!("Unexpected media type.\n");
+        ()}
+		}
+
+		/* Allow module to change analog characteristics (1G->10G) */
+		wait_microsec(40);
+
+		ops.mac_setup_mac_link(info, hw,
+						    IXGBE_LINK_SPEED_10GB_FULL,
+						    autoneg_wait_to_complete)?;
+
+		// Flap the Tx laser if it has not already been done
+		flap_tx_laser_multispeed_fiber(info,hw)?;
+
+		// Wait for the controller to acquire link.  Per IEEE 802.3ap,
+		// Section 73.10.2, we may have to wait up to 500ms if KR is
+		// attempted.  82599 uses the same timing for 10g SFI.
+        for _ in 0..5 {
+			// Wait for the link partner to also set speed
+			wait_millisec(100);
+
+			// If we have link, just jump out
+			let (link_speed, link_up) = ops.mac_check_link(info, hw,false)?;
+
+			if link_up {
+                return out(hw,link_speed,Ok(()));
+            }
+		}
+	}
+
+	if speed & IXGBE_LINK_SPEED_1GB_FULL != 0 {
+		speedcnt += 1;
+		if highest_link_speed == IXGBE_LINK_SPEED_UNKNOWN{
+			highest_link_speed = IXGBE_LINK_SPEED_1GB_FULL;
+        }
+
+		// Set the module link speed
+		match hw.phy.media_type {
+		IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiber => {
+			ops.mac_set_rate_select_speed(info, hw, IXGBE_LINK_SPEED_1GB_FULL)?;
+        }
+		IxgbeMediaTypeFiberQsfp => (), /* QSFP module automatically detects link speed */
+		_ => {log::debug!("Unexpected media type.\n");}
+		}
+
+		// Allow module to change analog characteristics (10G->1G)
+		wait_millisec(40);
+
+		ops.mac_setup_mac_link(info, hw, IXGBE_LINK_SPEED_1GB_FULL, autoneg_wait_to_complete)?;
+
+		// Flap the Tx laser if it has not already been done
+        if hw.mac.mac_type == MacType::IxgbeMac82599EB {
+		    flap_tx_laser_multispeed_fiber(info, hw)?;
+        }
+
+		// Wait for the link partner to also set speed
+		wait_millisec(100);
+
+		// If we have link, just jump out
+		let (link_speed, link_up) = ops.mac_check_link(info, hw, false)?;
+
+		if link_up {
+            return out(hw, link_speed, Ok(()));
+        }
+	}
+
+	// We didn't get link.  Configure back to the highest speed we tried,
+	// (if there was more than one).  We call ourselves back with just the
+	// single highest speed that the user requested.
+	if speedcnt > 1 {
+		let status = setup_mac_link_multispeed_fiber(ops, info, hw, highest_link_speed, autoneg_wait_to_complete);
+        return out(hw, speed, status);
+    }
+
+    out(hw, speed, Ok(()))
+}
+
+// mng_enabled - Is the manageability engine enabled?
+// Returns TRUE if the manageability engine is enabled.
+pub fn mng_enabled(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr>{
+	let fwsm = ixgbe_hw::read_reg(info, get_fwsm_offset(info.get_id())?)?;
+	if (fwsm & IXGBE_FWSM_MODE_MASK) != IXGBE_FWSM_FW_MODE_PT {
+        return Ok(false);
+    }
+
+	let manc = ixgbe_hw::read_reg(info, IXGBE_MANC)?;
+	if manc & IXGBE_MANC_RCV_TCO_EN == 0 {
+        return Ok(false);
+    }
+
+	if hw.mac.mac_type <= MacType::IxgbeMacX540 {
+		let factps = ixgbe_hw::read_reg(info, get_factps_offset(info.get_id())?)?;
+		if factps & IXGBE_FACTPS_MNGCG != 0 {
+            return Ok(false);
+        }
+	}
+
+	Ok(true)
+}
 
  // probe_phy - Probe a single address for a PHY
  // Returns TRUE if PHY found
@@ -621,12 +999,1081 @@ fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType
     phy_type
 }
 
+pub fn phy_identify_phy_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
+    use ixgbe_hw::PhyType::*;
+
+	if hw.phy.phy_semaphore_mask == 0 {
+		if hw.bus.lan_id != 0{
+			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
+        } else {
+			hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
+        }
+	}
+
+	if hw.phy.phy_type != IxgbePhyUnknown{
+		return Ok(());
+    }
+
+	let phy_addr;
+	if hw.phy.nw_mng_if_sel != 0 {
+		phy_addr = (hw.phy.nw_mng_if_sel &
+			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
+			IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
+		return probe_phy(ops, info, hw, phy_addr as u16);
+	}
+
+	let mut status = Err(PhyAddrInvalid);
+    for phy_addr in 0..IXGBE_MAX_PHY_ADDR {
+        match probe_phy(ops, info, hw, phy_addr) {
+            Ok(()) => {
+                status = Ok(());
+                break;
+            }
+            Err(_) => {continue;}
+        }
+	}
+
+	//  Certain media types do not have a phy so an address will not
+	// be found and the code will take this path.  Caller has to
+	// decide if it is an error or not.
+	if status != Ok(()){
+		hw.phy.addr = 0;
+    }
+
+    status
+}
+
+// phy_identify_module_generic - Identifies module type
+// Determines HW type and calls appropriate function.
+pub fn phy_identify_module_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+    use MediaType::*;
+
+	match ops.mac_get_media_type(info, hw) {
+	IxgbeMediaTypeFiber => {
+		identify_sfp_module_generic(ops, info, hw)
+    },
+	IxgbeMediaTypeFiberQsfp => {
+        identify_qsfp_module_generic(ops, info, hw)
+    },
+    _ => {
+		hw.phy.sfp_type = SfpType::IxgbeSfpTypeNotPresent;
+        Err(IxgbeDriverErr::SfpNotPresent)
+    },
+	}
+}
+
+
+// ixgbe_identify_sfp_module_generic - Identifies SFP modules
+// Searches for and identifies the SFP module and assigns appropriate PHY type.
+fn identify_sfp_module_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+    fn handle_phy_read_i2c_eeprom_error(hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
+        hw.phy.sfp_type = SfpType::IxgbeSfpTypeNotPresent;
+        if hw.phy.phy_type != PhyType::IxgbePhyNl {
+            hw.phy.id = 0;
+            hw.phy.phy_type = PhyType::IxgbePhyUnknown;
+        }
+        Err(IxgbeDriverErr::SfpNotPresent)
+    }
+    use MediaType::*; 
+    use SfpType::*;
+    use PhyType::*;
+
+	let stored_sfp_type = hw.phy.sfp_type;
+
+	if ops.mac_get_media_type(info, hw) != IxgbeMediaTypeFiber {
+		hw.phy.sfp_type = IxgbeSfpTypeNotPresent;
+        return Err(IxgbeDriverErr::SfpNotPresent);
+	}
+
+	// LAN ID is needed for I2C access
+    let (func, lan_id, instance_id) = ops.mac_set_lan_id(info, hw)?;
+    hw.bus.func = func;
+    hw.bus.lan_id = lan_id;
+    hw.bus.instance_id = instance_id;
+
+
+	let identifier = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_IDENTIFIER){
+        Ok(ret) => ret,
+        Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+    };
+
+	if identifier != IXGBE_SFF_IDENTIFIER_SFP {
+		hw.phy.phy_type = IxgbePhySfpUnsupported;
+		return Err(IxgbeDriverErr::SfpNotSupported);
+	} else {
+	    let comp_codes_1g = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_1GBE_COMP_CODES){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+	    let comp_codes_10g = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_10GBE_COMP_CODES){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+	    let cable_tech = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_CABLE_TECHNOLOGY){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+		 /* ID Module
+		  * =========
+		  * 0   SFP_DA_CU
+		  * 1   SFP_SR
+		  * 2   SFP_LR
+		  * 3   SFP_DA_CORE0 - 82599-specific
+		  * 4   SFP_DA_CORE1 - 82599-specific
+		  * 5   SFP_SR/LR_CORE0 - 82599-specific
+		  * 6   SFP_SR/LR_CORE1 - 82599-specific
+		  * 7   SFP_act_lmt_DA_CORE0 - 82599-specific
+		  * 8   SFP_act_lmt_DA_CORE1 - 82599-specific
+		  * 9   SFP_1g_cu_CORE0 - 82599-specific
+		  * 10  SFP_1g_cu_CORE1 - 82599-specific
+		  * 11  SFP_1g_sx_CORE0 - 82599-specific
+		  * 12  SFP_1g_sx_CORE1 - 82599-specific
+		  */
+		if hw.mac.mac_type == MacType::IxgbeMac82598EB {
+			if cable_tech & IXGBE_SFF_DA_PASSIVE_CABLE != 0 {
+				hw.phy.sfp_type = IxgbeSfpTypeDaCu;
+            } else if comp_codes_10g & IXGBE_SFF_10GBASESR_CAPABLE != 0 {
+				hw.phy.sfp_type = IxgbeSfpTypeSr;
+            } else if comp_codes_10g & IXGBE_SFF_10GBASELR_CAPABLE != 0 {
+				hw.phy.sfp_type = IxgbeSfpTypeLr;
+            } else if comp_codes_10g & IXGBE_SFF_DA_BAD_HP_CABLE != 0 {
+				hw.phy.sfp_type = IxgbeSfpTypeDaCu;
+            } else {
+				hw.phy.sfp_type = IxgbeSfpTypeUnknown;
+            }
+		} else {
+			if cable_tech & IXGBE_SFF_DA_PASSIVE_CABLE != 0 {
+				if hw.bus.lan_id == 0 {
+					hw.phy.sfp_type = IxgbeSfpTypeDaCuCore0;
+                } else {
+					hw.phy.sfp_type = IxgbeSfpTypeDaCuCore1;
+                }
+			} else if cable_tech & IXGBE_SFF_DA_ACTIVE_CABLE != 0 {
+	            let cable_spec = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_CABLE_SPEC_COMP){
+                    Ok(ret) => ret,
+                    Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+                };
+				if cable_spec & IXGBE_SFF_DA_SPEC_ACTIVE_LIMITING != 0 {
+					if hw.bus.lan_id == 0 {
+						hw.phy.sfp_type = IxgbeSfpTypeDaActLmtCore0;
+                    } else {
+						hw.phy.sfp_type = IxgbeSfpTypeDaActLmtCore1;
+                    }
+				} else {
+					hw.phy.sfp_type = IxgbeSfpTypeUnknown;
+				}
+			} else if comp_codes_10g & (IXGBE_SFF_10GBASESR_CAPABLE | IXGBE_SFF_10GBASELR_CAPABLE) != 0 {
+				if hw.bus.lan_id == 0 {
+					hw.phy.sfp_type = IxgbeSfpTypeSrlrCore0;
+                } else {
+                    hw.phy.sfp_type = IxgbeSfpTypeSrlrCore1;
+                }
+			} else if comp_codes_1g & IXGBE_SFF_1GBASET_CAPABLE != 0 {
+				if hw.bus.lan_id == 0{
+					hw.phy.sfp_type = IxgbeSfpType1gCuCore0;
+                } else {
+					hw.phy.sfp_type = IxgbeSfpType1gCuCore1;
+                }
+			} else if comp_codes_1g & IXGBE_SFF_1GBASESX_CAPABLE != 0 {
+				if hw.bus.lan_id == 0{
+					hw.phy.sfp_type = IxgbeSfpType1gSxCore0;
+                } else {
+					hw.phy.sfp_type = IxgbeSfpType1gSxCore1;
+                }
+			} else if comp_codes_1g & IXGBE_SFF_1GBASELX_CAPABLE != 0 {
+				if hw.bus.lan_id == 0{
+					hw.phy.sfp_type = IxgbeSfpType1gLxCore0;
+                } else {
+					hw.phy.sfp_type = IxgbeSfpType1gLxCore1;
+                }
+			} else {
+				hw.phy.sfp_type = IxgbeSfpTypeUnknown;
+			}
+		}
+
+		if hw.phy.sfp_type != stored_sfp_type {
+			hw.phy.sfp_setup_needed = true;
+        }
+
+		// Determine if the SFP+ PHY is dual speed or not.
+		hw.phy.multispeed_fiber = false;
+		if ((comp_codes_1g & IXGBE_SFF_1GBASESX_CAPABLE != 0) && (comp_codes_10g & IXGBE_SFF_10GBASESR_CAPABLE != 0)) ||
+		   ((comp_codes_1g & IXGBE_SFF_1GBASELX_CAPABLE != 0) && (comp_codes_10g & IXGBE_SFF_10GBASELR_CAPABLE != 0)) {
+			hw.phy.multispeed_fiber = true;
+        }
+
+		// Determine PHY vendor
+        let mut oui_bytes = [0;3];
+		if hw.phy.phy_type != IxgbePhyNl {
+			hw.phy.id = identifier as u32;
+	        oui_bytes[0] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_VENDOR_OUI_BYTE0){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+
+	        oui_bytes[1] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_VENDOR_OUI_BYTE1){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+
+	        oui_bytes[2] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_VENDOR_OUI_BYTE2){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+            
+			let vendor_oui =
+			  ((oui_bytes[0] as u32) << IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT) |
+			   ((oui_bytes[1] as u32) << IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT) |
+			   ((oui_bytes[2] as u32) << IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT);
+
+			match vendor_oui {
+			IXGBE_SFF_VENDOR_OUI_TYCO => {
+				if cable_tech & IXGBE_SFF_DA_PASSIVE_CABLE != 0 {
+					hw.phy.phy_type = IxgbePhySfpPassiveTyco;
+                }
+            }
+			IXGBE_SFF_VENDOR_OUI_FTL => {
+				if cable_tech & IXGBE_SFF_DA_ACTIVE_CABLE != 0 {
+					hw.phy.phy_type = IxgbePhySfpFtlActive;
+                } else {
+					hw.phy.phy_type = IxgbePhySfpFtl;
+                }
+            }
+			IXGBE_SFF_VENDOR_OUI_AVAGO => hw.phy.phy_type = IxgbePhySfpAvago,
+			IXGBE_SFF_VENDOR_OUI_INTEL => hw.phy.phy_type = IxgbePhySfpIntel,
+			_ => hw.phy.phy_type = IxgbePhySfpUnknown,
+			}
+		}
+
+		// Allow any DA cable vendor
+		if cable_tech & (IXGBE_SFF_DA_PASSIVE_CABLE | IXGBE_SFF_DA_ACTIVE_CABLE) != 0 {
+			if cable_tech & IXGBE_SFF_DA_PASSIVE_CABLE != 0 {
+				hw.phy.phy_type = IxgbePhySfpPassiveUnknown;
+            } else if cable_tech & IXGBE_SFF_DA_ACTIVE_CABLE != 0 {
+				hw.phy.phy_type = IxgbePhySfpActiveUnknown;
+            }
+            return Ok(());
+		}
+
+		// Verify supported 1G SFP modules
+        match hw.phy.sfp_type {
+            IxgbeSfpType1gCuCore0 | 
+            IxgbeSfpType1gCuCore1 |
+            IxgbeSfpType1gLxCore0 |
+            IxgbeSfpType1gLxCore1 |
+            IxgbeSfpType1gSxCore0 |
+            IxgbeSfpType1gSxCore1 => (),
+            _ => {
+                if comp_codes_10g == 0 {
+                    hw.phy.phy_type = IxgbePhySfpUnsupported;
+                    return Err(IxgbeDriverErr::SfpNotSupported);
+                }
+            },
+        }
+
+		// We do not limit the definition of "supported SFP modules"
+		// to the vendor/make whitelist.
+	}
+
+    Ok(())
+}
+
+
+// identify_qsfp_module_generic - Identifies QSFP modules
+// Searches for and identifies the QSFP module and assigns appropriate PHY type
+fn identify_qsfp_module_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+    use MediaType::*; 
+    use SfpType::*;
+    use PhyType::*;
+    fn handle_phy_read_i2c_eeprom_error(hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
+        hw.phy.sfp_type = SfpType::IxgbeSfpTypeNotPresent;
+        hw.phy.id = 0;
+        hw.phy.phy_type = PhyType::IxgbePhyUnknown;
+        Err(IxgbeDriverErr::SfpNotPresent)
+    }
+
+	let stored_sfp_type = hw.phy.sfp_type;
+    if ops.mac_get_media_type(info, hw) != IxgbeMediaTypeFiberQsfp {
+		hw.phy.sfp_type = IxgbeSfpTypeNotPresent;
+        return Err(IxgbeDriverErr::SfpNotPresent);
+	}
+
+	// LAN ID is needed for I2C access
+    let (func, lan_id, instance_id) = ops.mac_set_lan_id(info, hw)?;
+    hw.bus.func = func;
+    hw.bus.lan_id = lan_id;
+    hw.bus.instance_id = instance_id;
+
+	let identifier = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_IDENTIFIER){
+        Ok(ret) => ret,
+        Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+    };
+
+
+	if identifier != IXGBE_SFF_IDENTIFIER_QSFP_PLUS {
+		hw.phy.phy_type = IxgbePhySfpUnsupported;
+		return Err(IxgbeDriverErr::SfpNotSupported);
+	}
+
+	hw.phy.id = identifier as u32;
+
+	let comp_codes_10g = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_10GBE_COMP){
+        Ok(ret) => ret,
+        Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+    };
+
+
+	let comp_codes_1g = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_1GBE_COMP){
+        Ok(ret) => ret,
+        Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+    };
+
+	if comp_codes_10g & IXGBE_SFF_QSFP_DA_PASSIVE_CABLE != 0 {
+		hw.phy.phy_type = IxgbePhyQsfpPassiveUnknown;
+		if hw.bus.lan_id == 0 {
+		    hw.phy.sfp_type = IxgbeSfpTypeDaCuCore0;
+        } else {
+			hw.phy.sfp_type = IxgbeSfpTypeDaCuCore1;
+        }
+	} else if comp_codes_10g & (IXGBE_SFF_10GBASESR_CAPABLE | IXGBE_SFF_10GBASELR_CAPABLE) != 0 {
+		if hw.bus.lan_id == 0 {
+			hw.phy.sfp_type = IxgbeSfpTypeSrlrCore0;
+        } else {
+			hw.phy.sfp_type = IxgbeSfpTypeSrlrCore1;
+        }
+	} else {
+        let mut active_cable = false;
+		if comp_codes_10g & IXGBE_SFF_QSFP_DA_ACTIVE_CABLE != 0 {
+			active_cable = true;
+        }
+
+		if !active_cable {
+			// check for active DA cables that pre-date
+			// SFF-8436 v3.6 
+	        let connector = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_CONNECTOR){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+
+	        let cable_length = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_CABLE_LENGTH){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+
+	        let device_tech = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_DEVICE_TECH){
+                Ok(ret) => ret,
+                Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+            };
+			if (connector == IXGBE_SFF_QSFP_CONNECTOR_NOT_SEPARABLE) && (cable_length > 0) && ((device_tech >> 4) == IXGBE_SFF_QSFP_TRANSMITER_850NM_VCSEL){
+				active_cable = true;
+
+            }
+		}
+
+		if active_cable {
+			hw.phy.phy_type = IxgbePhyQsfpActiveUnknown;
+			if hw.bus.lan_id == 0 {
+				hw.phy.sfp_type = IxgbeSfpTypeDaActLmtCore0;
+            } else {
+				hw.phy.sfp_type = IxgbeSfpTypeDaActLmtCore1;
+            }
+		} else {
+			// unsupported module type
+			hw.phy.phy_type = IxgbePhySfpUnsupported;
+            return Err(SfpNotSupported);
+		}
+	}
+
+	if hw.phy.sfp_type != stored_sfp_type {
+		hw.phy.sfp_setup_needed = true;
+    }
+
+	// Determine if the QSFP+ PHY is dual speed or not. 
+	hw.phy.multispeed_fiber = false;
+	if ((comp_codes_1g & IXGBE_SFF_1GBASESX_CAPABLE != 0) &&
+	   (comp_codes_10g & IXGBE_SFF_10GBASESR_CAPABLE != 0)) ||
+	   ((comp_codes_1g & IXGBE_SFF_1GBASELX_CAPABLE != 0) &&
+	   (comp_codes_10g & IXGBE_SFF_10GBASELR_CAPABLE != 0)){
+		hw.phy.multispeed_fiber = true;
+       }
+
+	// Determine PHY vendor for optical modules
+	let mut oui_bytes = [0;3];
+	if comp_codes_10g & (IXGBE_SFF_10GBASESR_CAPABLE | IXGBE_SFF_10GBASELR_CAPABLE) != 0 {
+	    oui_bytes[0] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_VENDOR_OUI_BYTE0){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+	    oui_bytes[1] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_VENDOR_OUI_BYTE1){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+	    oui_bytes[2] = match ops.phy_read_i2c_eeprom(info, hw, IXGBE_SFF_QSFP_VENDOR_OUI_BYTE2){
+            Ok(ret) => ret,
+            Err(_) =>  return handle_phy_read_i2c_eeprom_error(hw)
+        };
+
+    	let vendor_oui =
+		  ((oui_bytes[0] as u32 ) << IXGBE_SFF_VENDOR_OUI_BYTE0_SHIFT) |
+		   ((oui_bytes[1] as u32 ) << IXGBE_SFF_VENDOR_OUI_BYTE1_SHIFT) |
+		   ((oui_bytes[2] as u32 ) << IXGBE_SFF_VENDOR_OUI_BYTE2_SHIFT);
+
+		if vendor_oui == IXGBE_SFF_VENDOR_OUI_INTEL {
+			hw.phy.phy_type = IxgbePhyQsfpIntel;
+        } else {
+			hw.phy.phy_type = IxgbePhyQsfpUnknown;
+        }
+
+		// We do not limit the definition of "supported QSFP modules"
+		// to the vendor/make whitelist.
+	}
+    Ok(())
+}
+
+// i2c_bus_clear - Clears the I2C bus
+// Clears the I2C bus by sending nine clock pulses.
+// Used when data line is stuck low.
+fn i2c_bus_clear(info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+
+	i2c_start(info)?;
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+
+	i2cctl = set_i2c_data(info, i2cctl, true)?;
+
+    for _ in 0..9{
+		i2cctl = raise_i2c_clk(info, i2cctl)?;
+
+		// Min high period of clock is 4us 
+		wait_microsec(IXGBE_I2C_T_HIGH);
+
+		i2cctl = lower_i2c_clk(info, i2cctl)?;
+
+		// Min low period of clock is 4.7us
+		wait_microsec(IXGBE_I2C_T_LOW);
+	}
+
+	i2c_start(info)?;
+
+	// Put the i2c bus back to default state
+	i2c_stop(info)?;
+
+    Ok(())
+}
+
+// read_i2c_byte_generic_int - Reads 8 bit word over I2C
+// Performs byte read operation to SFP module's EEPROM over I2C interface at
+// a specified device address.
+pub fn read_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8, lock: bool)->Result<u8,IxgbeDriverErr>{
+    fn goto_fail<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, retry: u32, max_retry: u32, swfw_mask: u32, lock: bool) -> Result<bool, IxgbeDriverErr> {
+	    i2c_bus_clear(info)?;
+	    if lock {
+		    ops.mac_release_swfw_sync(info, swfw_mask)?;
+		    wait_millisec(100);
+	    }
+	    let retry_bool = if retry < max_retry {
+		    log::debug!("I2C byte read error - Retrying.\n");
+            true
+        } else {
+		    log::debug!("I2C byte read error.\n");
+            false
+        };
+
+        Ok(retry_bool)
+    }
+
+
+    let mut max_retry = 10;
+	if hw.mac.mac_type >= MacType::IxgbeMacX550 {
+		max_retry = 3;
+    }
+	if is_sfp_probe(hw, byte_offset, dev_addr){
+		max_retry = IXGBE_SFP_DETECT_RETRIES;
+    }
+
+    let mut retry = 0;
+	let swfw_mask = hw.phy.phy_semaphore_mask;
+    let status;
+	loop {
+		if lock {
+            if let Err(_) = ops.mac_acquire_swfw_sync(info, swfw_mask){
+			    return Err(IxgbeDriverErr::SwfwSync);
+            }
+        }
+
+		i2c_start(info)?;
+
+		// Device Address and write indication
+		if let Err(e) = clock_out_i2c_byte(info, dev_addr){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+
+
+		if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = clock_out_i2c_byte(info, byte_offset){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		i2c_start(info)?;
+
+		// Device Address and read indication
+		if let Err(e) = clock_out_i2c_byte(info, dev_addr | 0x1){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+        let data;
+		match clock_in_i2c_byte(info) {
+            Ok(ret) => {
+                data = ret;
+            },
+            Err(e) => {
+                retry += 1;
+                match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                    true => continue,
+                    false => {
+                        status = Err(e);
+                        break;
+                    }
+                }
+            },
+        }
+
+		if let Err(e) = clock_out_i2c_bit(info, true){
+            retry += 1;
+            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		i2c_stop(info)?;
+		if lock{
+			ops.mac_release_swfw_sync(info, swfw_mask)?;
+        }
+		return Ok(data);
+	} 
+
+	status
+}
+
+// write_i2c_byte_generic_int - Writes 8 bit word over I2C
+// Performs byte write operation to SFP module's EEPROM over I2C interface at
+// a specified device address.
+// 
+pub fn write_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8, data:u8, lock: bool)->Result<(),IxgbeDriverErr>{
+    fn goto_fail(info: &PCIeInfo, retry: u32, max_retry: u32) -> Result<bool, IxgbeDriverErr> {
+	    i2c_bus_clear(info)?;
+	    let retry_bool = if retry < max_retry {
+		    log::debug!("I2C byte read error - Retrying.\n");
+            true
+        } else {
+		    log::debug!("I2C byte read error.\n");
+            false
+        };
+        Ok(retry_bool)
+    }
+
+	let swfw_mask = hw.phy.phy_semaphore_mask;
+	if lock {
+        if let Err(_) = ops.mac_acquire_swfw_sync(info, swfw_mask) {
+    		return Err(IxgbeDriverErr::SwfwSync);
+        }
+    }
+
+	let max_retry = 1;
+	let mut retry = 0;
+    let status;
+	loop {
+		i2c_start(info)?;
+
+		if let Err(e) = clock_out_i2c_byte(info, dev_addr){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+        if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = clock_out_i2c_byte(info, byte_offset){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)? {
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+        if let Err(e) = clock_out_i2c_byte(info, data){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		if let Err(e) = get_i2c_ack(info){
+            retry += 1;
+            match goto_fail(info, retry, max_retry)?{
+                true => continue,
+                false => {
+                    status = Err(e);
+                    break;
+                }
+            }
+        }
+
+		i2c_stop(info)?;
+		if lock {
+			ops.mac_release_swfw_sync(info, swfw_mask)?;
+        }
+
+        return Ok(());
+	}
+
+	if lock {
+		ops.mac_release_swfw_sync(info, swfw_mask)?;
+    }
+
+	status
+}
+
+// is_sfp_probe - Returns TRUE if SFP is being detected
+fn is_sfp_probe(hw: &IxgbeHw, offset:u8, addr:u8)->bool{
+    use SfpType::*;
+
+	if addr == IXGBE_I2C_EEPROM_DEV_ADDR && offset == IXGBE_SFF_IDENTIFIER && hw.phy.sfp_type == IxgbeSfpTypeNotPresent{
+		return true;
+    }
+	return false;
+}
+
+// i2c_start - Sets I2C start condition
+// Sets I2C start condition (High -> Low on SDA while SCL is High)
+// Set bit-bang mode on X550 hardware.
+fn i2c_start(info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	let bb_en_bit = get_i2c_bb_en_offset(info.get_id())?;
+
+	i2cctl |= bb_en_bit as u32;
+
+	// Start condition must begin with data and clock high
+	i2cctl = set_i2c_data(info, i2cctl, true)?;
+	i2cctl = raise_i2c_clk(info, i2cctl)?;
+
+	// Setup time for start condition (4.7us)
+	wait_microsec(IXGBE_I2C_T_SU_STA);
+
+	i2cctl = set_i2c_data(info, i2cctl, false)?;
+
+	// Hold time for start condition (4us)
+	wait_microsec(IXGBE_I2C_T_HD_STA);
+
+	_ = lower_i2c_clk(info, i2cctl)?;
+
+	// Minimum low period of clock is 4.7 us
+	wait_microsec(IXGBE_I2C_T_LOW);
+
+    Ok(())
+}
+ 
+// i2c_stop - Sets I2C stop condition
+// Sets I2C stop condition (Low -> High on SDA while SCL is High)
+// Disables bit-bang mode and negates data output enable on X550
+// hardware.
+fn i2c_stop(info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+	let clk_oe_bit = get_i2c_clk_oe_n_en_offset(info.get_id())?;
+	let bb_en_bit = get_i2c_bb_en_offset(info.get_id())?;
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+
+	// Stop condition must begin with data low and clock high
+	i2cctl = set_i2c_data(info, i2cctl, false)?;
+	i2cctl = raise_i2c_clk(info, i2cctl)?;
+
+	// Setup time for stop condition (4us)
+	wait_microsec(IXGBE_I2C_T_SU_STO);
+
+	i2cctl = set_i2c_data(info, i2cctl, true)?;
+
+	// bus free time between stop and start (4.7us)
+	wait_microsec(IXGBE_I2C_T_BUF);
+
+	if (bb_en_bit != 0) || (data_oe_bit != 0)  || (clk_oe_bit != 0) {
+		i2cctl &= !bb_en_bit as u32;
+		i2cctl |= (data_oe_bit | clk_oe_bit) as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+	}
+
+    Ok(())
+}
+
+// clock_in_i2c_byte - Clocks in one byte via I2C
+// Clocks in one byte data via I2C data/clock
+fn clock_in_i2c_byte(info: &PCIeInfo)->Result<u8, IxgbeDriverErr>{
+
+	let mut data = 0;
+    for i in (0..=7).rev() {
+		let bit_bool = clock_in_i2c_bit(info)?;
+		data |= (bit_bool as u8) << i;
+	}
+
+    Ok(data)
+}
+
+// clock_out_i2c_byte - Clocks out one byte via I2C
+// Clocks out one byte data via I2C data/clock
+fn clock_out_i2c_byte(info: &PCIeInfo, data:u8)->Result<(),IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+    let data_out_offset = get_i2c_data_out_offset(info.get_id())?;
+
+    let mut status = Ok(());
+    for i in (0..=7).rev() {
+		let bit = (data >> i) & 0x1;
+		if let Err(e) = clock_out_i2c_bit(info, bit == 1){
+            status = Err(e);
+            break;
+        }
+    }
+
+	// Release SDA line (set high)
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	i2cctl |= data_out_offset as u32;
+	i2cctl |= data_oe_bit as u32;
+	ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+	ixgbe_hw::write_flush(info)?;
+
+	status
+}
+
+// get_i2c_ack - Polls for I2C ACK
+// Clocks in/out one bit via I2C data/clock
+fn get_i2c_ack(info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+    let data_out_offset = get_i2c_data_out_offset(info.get_id())?;
+
+	if data_oe_bit != 0 {
+		i2cctl |= data_out_offset as u32;
+		i2cctl |= data_oe_bit as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+	}
+	i2cctl = raise_i2c_clk(info, i2cctl)?;
+
+	// Minimum high period of clock is 4us
+	wait_microsec(IXGBE_I2C_T_HIGH);
+
+	//  Poll for ACK.  Note that ACK in I2C spec is
+	// transition from 1 to 0
+	let timeout = 10;
+    let mut ack = true;
+	for _ in 0..timeout {
+		i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+		(ack,i2cctl) = get_i2c_data(info, i2cctl)?;
+
+		wait_microsec(1);
+		if !ack{
+			break;
+        }
+	}
+
+    let mut status = Ok(());
+	if ack {
+		log::debug!("I2C ack was not received.\n");
+		status = Err(IxgbeDriverErr::I2c);
+	}
+
+	_ = lower_i2c_clk(info, i2cctl)?;
+
+	// Minimum low period of clock is 4.7 us
+	wait_microsec(IXGBE_I2C_T_LOW);
+
+	status
+}
+
+// clock_in_i2c_bit - Clocks in one bit via I2C data/clock
+// Clocks in one bit via I2C data/clock
+fn clock_in_i2c_bit(info: &PCIeInfo)->Result<bool, IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+    let data_out_offset = get_i2c_data_out_offset(info.get_id())?;
+
+	if data_oe_bit != 0 {
+		i2cctl |= data_out_offset as u32;
+		i2cctl |= data_oe_bit as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+	}
+	_ = raise_i2c_clk(info, i2cctl)?;
+
+	// Minimum high period of clock is 4us 
+	wait_microsec(IXGBE_I2C_T_HIGH);
+
+	i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+	let (data, new_i2cctl) = get_i2c_data(info, i2cctl)?;
+
+	_ = lower_i2c_clk(info, new_i2cctl)?;
+
+	// Minimum low period of clock is 4.7 us
+	wait_microsec(IXGBE_I2C_T_LOW);
+
+    Ok(data)
+}
+
+// ixgbe_clock_out_i2c_bit - Clocks in/out one bit via I2C data/clock
+// Clocks out one bit via I2C data/clock
+fn clock_out_i2c_bit(info: &PCIeInfo, data: bool)->Result<(), IxgbeDriverErr>{
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+	let i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+
+	match set_i2c_data(info, i2cctl, data) {
+        Ok(i2cctl) => {
+		let new_i2cctl = raise_i2c_clk(info, i2cctl)?;
+
+		// Minimum high period of clock is 4us
+		wait_microsec(IXGBE_I2C_T_HIGH);
+
+		_ = lower_i2c_clk(info, new_i2cctl)?;
+
+	    // Minimum low period of clock is 4.7 us.
+		// This also takes care of the data hold time.
+        wait_microsec(IXGBE_I2C_T_LOW);
+
+        Ok(())
+        },
+        Err(_) => {
+    		log::error!("I2C data was not set to {}\n", data);
+            Err(IxgbeDriverErr::I2c)
+        }
+    }
+
+}
+
+// ixgbe_raise_i2c_clk - Raises the I2C SCL clock
+// Raises the I2C clock line '0'->'1'
+// Negates the I2C clock output enable on X550 hardware.
+fn raise_i2c_clk(info:&PCIeInfo, mut i2cctl: u32)->Result<u32, IxgbeDriverErr>{
+    let i2c_clk_in_offset = get_i2c_clk_in_offset(info.get_id())?;
+    let i2c_clk_out_offset = get_i2c_clk_out_offset(info.get_id())?;
+    let i2c_clk_oe_n_en_offset = get_i2c_clk_oe_n_en_offset(info.get_id())?;
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+
+	if i2c_clk_oe_n_en_offset != 0 {
+		i2cctl |= i2c_clk_oe_n_en_offset as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+	}
+
+	let timeout = IXGBE_I2C_CLOCK_STRETCHING_TIMEOUT;
+    for _ in 0..timeout {
+		i2cctl |= i2c_clk_out_offset as u32;
+
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+		// SCL rise time (1000ns)
+		wait_microsec(IXGBE_I2C_T_RISE);
+
+		let i2cctl_r = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+		if i2cctl_r & i2c_clk_in_offset as u32 != 0 {
+			break;
+        }
+	}
+
+    Ok(i2cctl)
+}
+
+// lower_i2c_clk - Lowers the I2C SCL clock
+// Lowers the I2C clock line '1'->'0'
+// Asserts the I2C clock output enable on X550 hardware.
+fn lower_i2c_clk(info: &PCIeInfo, mut i2cctl: u32)-> Result<u32, IxgbeDriverErr> {
+    let i2c_clk_out_offset = get_i2c_clk_out_offset(info.get_id())?;
+    let i2c_clk_oe_n_en_offset = get_i2c_clk_oe_n_en_offset(info.get_id())?;
+    let i2cctl_offset= get_i2cctl_offset(info.get_id())?;
+
+	i2cctl &= !i2c_clk_out_offset as u32;
+	i2cctl &= !i2c_clk_oe_n_en_offset as u32;
+
+	ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+	ixgbe_hw::write_flush(info)?;
+
+	// SCL fall time (300ns)
+	wait_microsec(IXGBE_I2C_T_FALL);
+
+    Ok(i2cctl)
+}
+
+// set_i2c_data - Sets the I2C data bit
+// Sets the I2C data bit
+// Asserts the I2C data output enable on X550 hardware.
+fn set_i2c_data(info: &PCIeInfo, mut i2cctl: u32, data: bool)-> Result<u32, IxgbeDriverErr>{
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+	let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
+	let i2c_data_out_offset = get_i2c_data_out_offset(info.get_id())?;
+
+	if data {
+		i2cctl |= i2c_data_out_offset as u32;
+    } else {
+		i2cctl &= !i2c_data_out_offset as u32;
+    }
+	i2cctl &= !data_oe_bit as u32;
+
+	ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+	ixgbe_hw::write_flush(info)?;
+
+	// Data rise/fall (1000ns/300ns) and set-up time (250ns)
+	wait_microsec(IXGBE_I2C_T_RISE + IXGBE_I2C_T_FALL + IXGBE_I2C_T_SU_DATA);
+
+	if !data {
+    	// Can't verify data in this case
+		return Ok(i2cctl);
+    }
+	if data_oe_bit != 0 {
+		i2cctl |= data_oe_bit as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+	}
+
+	// Verify data was set correctly
+	i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
+    match get_i2c_data(info, i2cctl)? {
+        (true, new_i2cctl) => {
+            Ok(new_i2cctl)
+        },
+        (false, _new_i2cctl) => {
+    		log::error!("Error - I2C data was not set to {}.\n", data);
+            Err(IxgbeDriverErr::I2c)
+        }
+    }
+
+}
+
+// get_i2c_data - Reads the I2C SDA data bit
+// Returns the I2C data bit value
+// Negates the I2C data output enable on X550 hardware.
+fn get_i2c_data(info: &PCIeInfo, mut i2cctl: u32)->Result<(bool, u32), IxgbeDriverErr>{
+	let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
+	let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
+	let i2c_data_in_offset = get_i2c_data_in_offset(info.get_id())?;
+
+	if data_oe_bit != 0 {
+		i2cctl |= data_oe_bit as u32;
+		ixgbe_hw::write_reg(info, i2cctl_offset, i2cctl)?;
+		ixgbe_hw::write_flush(info)?;
+		wait_microsec(IXGBE_I2C_T_FALL);
+	}
+    let data;
+	if (i2cctl & i2c_data_in_offset as u32) != 0 {
+		data = true;
+    } else {
+		data = false;
+    }
+
+    Ok((data, i2cctl))
+}
+
 // check_reset_blocked - check status of MNG FW veto bit
 // This function checks the MMNGC.MNG_VETO bit to see if there are
 // any constraints on link from manageability.  For MAC's that don't
 // have this bit just return faluse since the link can not be blocked
 // via this method.
-fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr>{
+pub fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr>{
 	// If we don't have this bit, it can't be blocking
 	if hw.mac.mac_type == MacType::IxgbeMac82598EB{
 		return Ok(false);
@@ -678,7 +2125,7 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
     let mut eerd;
 
     if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
-        (eeprom.eeprom_type, eeprom.semaphore_delay, eeprom.word_size) = ops.eeprom_init_params(info)?;
+        ops.eeprom_init_params(info, eeprom)?;
     }
 
     if words == 0 {
@@ -714,87 +2161,6 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
     }
 
     Ok(())
-}
-
-// Sets the hardware semaphores so EEPROM access can occur for bit-bang method
-fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
-    let timeout: u32 = 2000;
-    let mut swsm;
-    let mut status: Result<(), IxgbeDriverErr> = Err(Eeprom);
-    let mut i = 0;
-
-    let swsm_offset = get_swsm_offset(info.get_id())?;
-    log::info!("ixgbe: swsm_offset {:x}",swsm_offset);
-    // Get SMBI software semaphore between device drivers first
-    while i < timeout {
-        // If the SMBI bit is 0 when we read it, then the bit will be set and we have the semaphore
-        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
-            status = Ok(());
-            break;
-        }
-        awkernel_lib::delay::wait_microsec(50);
-        i += 1;
-    }
-
-    if i == timeout {
-        release_eeprom_semaphore(info)?;
-
-        awkernel_lib::delay::wait_microsec(50);
-
-        // one last try
-        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
-            status = Ok(());
-        }
-    }
-
-    // Get the semaphore between SW/FW
-    if status.is_ok() {
-        i = 0;
-        while i < timeout {
-            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-
-            // Set the SW EEPROM semaphore bit to request access
-            swsm |= IXGBE_SWSM_SWESMBI;
-            ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
-
-            // If we set the bit successfully then we got the semaphore.
-            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-            if swsm & IXGBE_SWSM_SWESMBI != 0 {
-                break;
-            }
-
-            awkernel_lib::delay::wait_microsec(50);
-            i += 1;
-        }
-
-        // Release semaphores and return error if SW EEPROM semaphore
-        // was not granted because we don't have access to the EEPROM
-        if i >= timeout {
-            log::error!("SWESMBI Software EEPROM semaphore not granted.");
-            release_eeprom_semaphore(info)?;
-            status = Err(Eeprom);
-        }
-    } else {
-        log::error!("Software semaphore SMBI between device drivers not granted.");
-    }
-
-    return status;
-}
-
-// This function clears hardware semaphore bits.
-fn release_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
-    let mut swsm;
-    let swsm_offset = get_swsm_offset(info.get_id())?;
-
-    swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-
-    // Release both semaphores by writing 0 to the bits SWESMBI and SMBI
-    swsm &= !(IXGBE_SWSM_SWESMBI | IXGBE_SWSM_SMBI);
-
-    ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
-    ixgbe_hw::write_flush(info)
 }
 
 fn check_address_cycle_complete(info: &PCIeInfo) -> Result<u32, IxgbeDriverErr> {
@@ -965,6 +2331,433 @@ pub fn host_interface_command<T:IxgbeOperations + ?Sized>(ops: &T, info: &PCIeIn
     Ok(Some(ret_buffer))
 }
 
+// ixgbe_acquire_eeprom - Acquire EEPROM using bit-bang
+// Prepares EEPROM for access using bit-bang method. This function should
+// be called before issuing a command to the EEPROM.
+fn acquire_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+    let eec_offset = get_eec_offset(info.get_id())?;
+	log::debug!("ixgbe_acquire_eeprom");
+
+	if let Err(_) = ops.mac_acquire_swfw_sync(info, IXGBE_GSSR_EEP_SM) {
+        return Err(IxgbeDriverErr::SwfwSync);
+    }
+
+	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	// Request EEPROM Access 
+	eec |= IXGBE_EEC_REQ;
+	ixgbe_hw::write_reg(info, eec_offset, eec);
+
+    for _ in 0..IXGBE_EEPROM_GRANT_ATTEMPTS {
+		eec = ixgbe_hw::read_reg(info, eec_offset)?;
+		if eec & IXGBE_EEC_GNT != 0 {
+			break;
+        }
+		wait_microsec(5);
+	}
+
+	// Release if grant not acquired
+	if eec & IXGBE_EEC_GNT == 0 {
+		eec &= !IXGBE_EEC_REQ;
+		ixgbe_hw::write_reg(info, eec_offset, eec)?;
+		log::debug!("Could not acquire EEPROM grant\n");
+
+		ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
+        return Err(IxgbeDriverErr::Eeprom);
+	}
+
+	// Setup EEPROM for Read/Write
+	// Clear CS and SK
+	eec &= !(IXGBE_EEC_CS | IXGBE_EEC_SK);
+	ixgbe_hw::write_reg(info,eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(1);
+
+    Ok(())
+}
+
+// Sets the hardware semaphores so EEPROM access can occur for bit-bang method
+fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
+    let timeout: u32 = 2000;
+    let mut swsm;
+    let mut status: Result<(), IxgbeDriverErr> = Err(Eeprom);
+    let mut i = 0;
+
+    let swsm_offset = get_swsm_offset(info.get_id())?;
+    // Get SMBI software semaphore between device drivers first
+    while i < timeout {
+        // If the SMBI bit is 0 when we read it, then the bit will be set and we have the semaphore
+        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
+        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+            status = Ok(());
+            break;
+        }
+        awkernel_lib::delay::wait_microsec(50);
+        i += 1;
+    }
+
+    if i == timeout {
+        release_eeprom_semaphore(info)?;
+
+        awkernel_lib::delay::wait_microsec(50);
+
+        // one last try
+        swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
+        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+            status = Ok(());
+        }
+    }
+
+    // Get the semaphore between SW/FW
+    if status.is_ok() {
+        i = 0;
+        while i < timeout {
+            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
+
+            // Set the SW EEPROM semaphore bit to request access
+            swsm |= IXGBE_SWSM_SWESMBI;
+            ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
+
+            // If we set the bit successfully then we got the semaphore.
+            swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
+            if swsm & IXGBE_SWSM_SWESMBI != 0 {
+                break;
+            }
+
+            awkernel_lib::delay::wait_microsec(50);
+            i += 1;
+        }
+
+        // Release semaphores and return error if SW EEPROM semaphore
+        // was not granted because we don't have access to the EEPROM
+        if i >= timeout {
+            log::error!("SWESMBI Software EEPROM semaphore not granted.");
+            release_eeprom_semaphore(info)?;
+            status = Err(Eeprom);
+        }
+    } else {
+        log::error!("Software semaphore SMBI between device drivers not granted.");
+    }
+
+    return status;
+}
+
+// This function clears hardware semaphore bits.
+fn release_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
+    let mut swsm;
+    let swsm_offset = get_swsm_offset(info.get_id())?;
+
+    swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
+
+    // Release both semaphores by writing 0 to the bits SWESMBI and SMBI
+    swsm &= !(IXGBE_SWSM_SWESMBI | IXGBE_SWSM_SMBI);
+
+    ixgbe_hw::write_reg(info, swsm_offset, swsm)?;
+    ixgbe_hw::write_flush(info)
+}
+
+
+// ready_eeprom - Polls for EEPROM ready
+fn ready_eeprom(info:&PCIeInfo)->Result<(), IxgbeDriverErr>{
+
+	// Read "Status Register" repeatedly until the LSB is cleared.  The
+	// EEPROM will signal that the command has been completed by clearing
+	// bit 0 of the internal status register.  If it's not cleared within
+	// 5 milliseconds, then error out.
+    let mut i = 0;
+    while i < IXGBE_EEPROM_MAX_RETRY_SPI {
+		shift_out_eeprom_bits(info, IXGBE_EEPROM_RDSR_OPCODE_SPI,
+					    IXGBE_EEPROM_OPCODE_BITS);
+		let spi_stat_reg = shift_in_eeprom_bits(info, 8)? as u8;
+		if spi_stat_reg & IXGBE_EEPROM_STATUS_RDY_SPI == 0 {
+			break;
+        }
+
+		wait_microsec(5);
+	    standby_eeprom(info)?;
+        i += 5;
+	}
+
+	// On some parts, SPI write time could vary from 0-20mSec on 3.3V
+	// devices (and only 0-5mSec on 5V devices)
+	if i >= IXGBE_EEPROM_MAX_RETRY_SPI {
+		log::debug!("SPI EEPROM Status error\n");
+        return Err(IxgbeDriverErr::Eeprom);
+	}
+
+    Ok(())
+}
+
+// standby_eeprom - Returns EEPROM to a "standby" state
+fn standby_eeprom(info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
+	let eec_offset = get_eec_offset(info.get_id())?;
+
+	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	// Toggle CS to flush commands
+	eec |= IXGBE_EEC_CS;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(1);
+	eec &= !IXGBE_EEC_CS;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(1);
+
+    Ok(())
+}
+
+// shift_out_eeprom_bits - Shift data bits out to the EEPROM.
+fn shift_out_eeprom_bits(info: &PCIeInfo, data: u16, count: u16)->Result<(), IxgbeDriverErr>{
+	let eec_offset = get_eec_offset(info.get_id())?;
+
+	// Mask is used to shift "count" bits of "data" out to the EEPROM
+	// one bit at a time.  Determine the starting bit based on count
+	let mut mask = 0x01 << (count - 1);
+
+	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+    for _ in 0..count {
+		// A "1" is shifted out to the EEPROM by setting bit "DI" to a
+		// "1", and then raising and then lowering the clock (the SK
+		// bit controls the clock input to the EEPROM).  A "0" is
+		// shifted out to the EEPROM by setting "DI" to "0" and then
+		// raising and then lowering the clock.
+		if data & mask != 0 {
+			eec |= IXGBE_EEC_DI;
+        } else {
+			eec &= !IXGBE_EEC_DI;
+        }
+
+		ixgbe_hw::write_reg(info, eec_offset, eec)?;
+		ixgbe_hw::write_flush(info)?;
+
+		wait_microsec(1);
+
+		eec = raise_eeprom_clk(info, eec)?;
+		eec = lower_eeprom_clk(info, eec)?;
+
+		// Shift mask to signify next bit of data to shift in to the
+		// EEPROM
+		mask = mask >> 1;
+	}
+
+	// We leave the "DI" bit set to "0" when we leave this routine.
+	eec &= !IXGBE_EEC_DI;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+
+    Ok(())
+}
+
+// ixgbe_shift_in_eeprom_bits - Shift data bits in from the EEPROM
+fn shift_in_eeprom_bits(info: &PCIeInfo, count:u16)->Result<u16, IxgbeDriverErr>{
+
+	let eec_offset = get_eec_offset(info.get_id())?;
+	// In order to read a register from the EEPROM, we need to shift
+	// 'count' bits in from the EEPROM. Bits are "shifted in" by raising
+	// the clock input to the EEPROM (setting the SK bit), and then reading
+	// the value of the "DO" bit.  During this "shifting in" process the
+	// "DI" bit should always be clear.
+	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	eec &= !(IXGBE_EEC_DO | IXGBE_EEC_DI);
+
+    let mut data = 0;
+    for _ in 0..count {
+		data = data << 1;
+		_ = raise_eeprom_clk(info, eec)?;
+
+		eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+		eec &= !(IXGBE_EEC_DI);
+		if eec & IXGBE_EEC_DO != 0 {
+			data |= 1;
+        }
+
+		eec = lower_eeprom_clk(info, eec)?;
+	}
+
+    Ok(data)
+}
+
+// raise_eeprom_clk - Raises the EEPROM's clock input.
+fn raise_eeprom_clk(info:&PCIeInfo, mut eec:u32)->Result<u32, IxgbeDriverErr>{//*
+    let eec_offset = get_eec_offset(info.get_id())?;
+    // Raise the clock input to the EEPROM
+    // (setting the SK bit), then delay
+	eec = eec | IXGBE_EEC_SK;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(1);
+
+    Ok(eec)
+}
+
+// lower_eeprom_clk - Lowers the EEPROM's clock input.
+fn lower_eeprom_clk(info:&PCIeInfo, mut eec:u32)->Result<u32, IxgbeDriverErr>{
+    let eec_offset = get_eec_offset(info.get_id())?;
+	// Lower the clock input to the EEPROM (clearing the SK bit), then
+	// delay
+	eec = eec & !IXGBE_EEC_SK;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+	wait_microsec(1);
+
+    Ok(eec)
+}
+
+// ixgbe_release_eeprom - Release EEPROM, release semaphores
+fn release_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, eeprom: &IxgbeEepromInfo)->Result<(), IxgbeDriverErr>{
+    let eec_offset = get_eec_offset(info.get_id())?;
+
+	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	eec |= IXGBE_EEC_CS;  // Pull CS high
+	eec &= !IXGBE_EEC_SK; // Lower SCK
+
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	ixgbe_hw::write_flush(info)?;
+
+	wait_microsec(1);
+
+	// Stop requesting EEPROM access
+	eec &= !IXGBE_EEC_REQ;
+	ixgbe_hw::write_reg(info, eec_offset, eec)?;
+
+	ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
+
+	// Delay before attempt to obtain semaphore again to allow FW access */
+	wait_microsec(eeprom.semaphore_delay as u64);
+
+    Ok(())
+}
+
+// ixgbe_read_eeprom_buffer_bit_bang - Read EEPROM using bit-bang
+// //  Reads 16 bit word(s) from EEPROM through bit-bang method
+fn read_eeprom_buffer_bit_bang<T:IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset: u16, words:u16, data:&mut [u16])->Result<(),IxgbeDriverErr>{
+	log::debug!("read_eeprom_buffer_bit_bang");
+
+	// Prepare the EEPROM for reading k
+	acquire_eeprom(ops, info)?;
+
+	if let Err(_) = ready_eeprom(info){
+		release_eeprom(ops, info, eeprom)?;
+        return Err(IxgbeDriverErr::Eeprom)
+	}
+
+	let mut read_opcode = IXGBE_EEPROM_READ_OPCODE_SPI;
+    for i in 0..words {
+		standby_eeprom(info)?;
+
+		// Some SPI eeproms use the 8th address bit embedded
+		// in the opcode
+		if (eeprom.address_bits == 8) && ((offset + i) >= 128){
+			read_opcode |= IXGBE_EEPROM_A8_OPCODE_SPI;
+        }
+
+		// Send the READ command (opcode + addr)
+		shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
+		shift_out_eeprom_bits(info, ((offset + i) * 2) as u16, eeprom.address_bits)?;
+
+		// Read the data.
+		let word_in = shift_in_eeprom_bits(info, 16)?;
+		data[i as usize] = (word_in >> 8) | (word_in << 8);
+	}
+
+	// End this read operation 
+	release_eeprom(ops, info, eeprom)?;
+
+	Ok(())
+}
+
+ // ixgbe_read_eeprom_bit_bang_generic - Read EEPROM word using bit-bang
+ //  //  Reads 16 bit value from EEPROM through bit-bang method
+pub fn read_eeprom_bit_bang_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset:u16, data: &mut [u16])->Result<(), IxgbeDriverErr>{
+
+	log::debug!("read_eeprom_bit_bang_generic");
+
+    if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
+        ops.eeprom_init_params(info, eeprom)?;
+		log::debug!("Eeprom params: {:?}", eeprom);
+    }
+
+	if offset >= eeprom.word_size {
+        return Err(IxgbeDriverErr::Eeprom);
+	}
+
+	read_eeprom_buffer_bit_bang(ops, info, eeprom, offset, 1, data)
+}
+
+pub fn phy_setup_link_generic<T:IxgbeOperations + ?Sized>(ops: &T, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+
+    let (speed_supported, _autoneg) = get_copper_link_capabilities(ops, info, hw)?;
+
+    // Set or unset auto-negotiation 10G advertisement
+    let mut autoneg_reg = ops.phy_read_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
+                IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    autoneg_reg &= !IXGBE_MII_10GBASE_T_ADVERTISE;
+    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_10GB_FULL != 0) &&
+    (speed_supported & IXGBE_LINK_SPEED_10GB_FULL != 0){
+        autoneg_reg |= IXGBE_MII_10GBASE_T_ADVERTISE;
+    }
+
+    ops.phy_write_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
+                IXGBE_MDIO_AUTO_NEG_DEV_TYPE,
+                autoneg_reg)?;
+
+    autoneg_reg = ops.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG,
+                IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    if hw.mac.mac_type == MacType::IxgbeMacX550 {
+        // Set or unset auto-negotiation 5G advertisement
+        autoneg_reg &= !IXGBE_MII_5GBASE_T_ADVERTISE;
+        if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_5GB_FULL != 0) &&
+            (speed_supported & IXGBE_LINK_SPEED_5GB_FULL != 0) {
+                autoneg_reg |= IXGBE_MII_5GBASE_T_ADVERTISE;
+            }
+
+        // Set or unset auto-negotiation 2.5G advertisement
+        autoneg_reg &= !IXGBE_MII_2_5GBASE_T_ADVERTISE;
+        if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_2_5GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_2_5GB_FULL != 0){
+                autoneg_reg |= IXGBE_MII_2_5GBASE_T_ADVERTISE;
+        }
+    }
+
+    // Set or unset auto-negotiation 1G advertisement
+    autoneg_reg &= !IXGBE_MII_1GBASE_T_ADVERTISE;
+    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_1GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_1GB_FULL != 0) {
+            autoneg_reg |= IXGBE_MII_1GBASE_T_ADVERTISE;
+    }
+
+    ops.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+    // Set or unset auto-negotiation 100M advertisement
+    autoneg_reg = ops.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    autoneg_reg &= !(IXGBE_MII_100BASE_T_ADVERTISE | IXGBE_MII_100BASE_T_ADVERTISE_HALF);
+    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_100_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_100_FULL != 0) {
+        autoneg_reg |= IXGBE_MII_100BASE_T_ADVERTISE;
+    }
+
+    ops.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+    // Blocked by MNG FW so don't reset PHY
+    if check_reset_blocked(info, hw)? {
+        return Ok(());
+    }
+
+    // Restart PHY auto-negotiation.
+    autoneg_reg =  ops.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL,
+                IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
+
+    autoneg_reg |= IXGBE_MII_RESTART;
+
+    ops.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
+
+    Ok(())
+}
+
 pub trait IxgbeOperations: Send {
     // MAC Operations
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
@@ -982,7 +2775,7 @@ pub trait IxgbeOperations: Send {
 
     fn mac_start_hw(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>;
 
-    fn mac_get_media_type(&self)-> MediaType;
+    fn mac_get_media_type(&self, info:&PCIeInfo, hw:&mut IxgbeHw)-> MediaType;
 
     // clear_vfta- Clear VLAN filter table
     // Clears the VLAN filer table, and the VMDq index associated with the filter
@@ -1105,7 +2898,7 @@ pub trait IxgbeOperations: Send {
 		    if hw.phy.id == 0 {
                 // Does not use the return value.
                 // https://github.com/openbsd/src/blob/c04d1b34942009a09b1284605d539f1382aa35bb/sys/dev/pci/ixgbe.c#L657
-			    let _ = self.identify_phy(info, hw);
+			    let _ = self.phy_identify(info, hw);
             }
 		    self.phy_read_reg(info, hw, IXGBE_PCRC8ECL,
 				        IXGBE_MDIO_PCS_DEV_TYPE)?;
@@ -1120,61 +2913,17 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // identify_phy_generic - Get physical layer module
-    // Determines the physical layer module found on the current adapter.
-    fn identify_phy(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
-        use ixgbe_hw::PhyType::*;
-
-	    if hw.phy.phy_semaphore_mask == 0 {
-		    if hw.bus.lan_id != 0{
-			    hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY1_SM;
-            } else {
-			    hw.phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
-            }
-	    }
-
-	    if hw.phy.phy_type != IxgbePhyUnknown{
-		    return Ok(());
-        }
-
-	    let phy_addr;
-	    if hw.phy.nw_mng_if_sel != 0 {
-		    phy_addr = (hw.phy.nw_mng_if_sel &
-			        IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
-			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
-		    return probe_phy(self, info, hw, phy_addr as u16);
-	    }
-
-	    let mut status = Err(PhyAddrInvalid);
-        for phy_addr in 0..IXGBE_MAX_PHY_ADDR {
-            match probe_phy(self, info, hw, phy_addr) {
-                Ok(()) => {
-                    status = Ok(());
-                    break;
-                }
-                Err(_) => {continue;}
-            }
-	    }
-
-	    //  Certain media types do not have a phy so an address will not
-	    // be found and the code will take this path.  Caller has to
-	    // decide if it is an error or not.
-	    if status != Ok(()){
-		    hw.phy.addr = 0;
-        }
-
-        status
-    }
-
     fn mac_get_mac_addr(&self, info: &PCIeInfo, mac_addr: &mut [u8]) -> Result<(), IxgbeDriverErr> {
         let rar_high = ixgbe_hw::read_reg(info, IXGBE_RAH(0) as usize)?;
         let rar_low = ixgbe_hw::read_reg(info, IXGBE_RAL(0) as usize)?;
 
         for i in 0..4 {
             mac_addr[i] = (rar_low >> (i * 8)) as u8;
+            log::info!("mac_addr[{}],{:x}",i,mac_addr[i]);
         }
         for i in 0..2 {
             mac_addr[i + 4] = (rar_high >> (i * 8)) as u8;
+            log::info!("mac_addr[{}],{:x}",i+4,mac_addr[i+4]);
         }
 
         Ok(())
@@ -1556,7 +3305,7 @@ pub trait IxgbeOperations: Send {
 	 */
 	if hw.phy.media_type == IxgbeMediaTypeBackplane {
 		reg_bp |= IXGBE_AUTOC_AN_RESTART;
-		self.mac_prot_autoc_write(info, reg_bp)?;
+		self.mac_prot_autoc_write(info, hw, reg_bp, false)?;
 	} else if (hw.phy.media_type == IxgbeMediaTypeCopper) && device_supports_autoneg_fc(self,info, hw)? {
 		self.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_ADVT, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, reg_cu as u16)?;
 	}
@@ -1723,13 +3472,13 @@ pub trait IxgbeOperations: Send {
 
     // check_mink - Determine link and speed status
     // Reads the links register to determine if link is up and the current speed
-    fn mac_check_link(&self, info: &PCIeInfo, hw: &IxgbeHw, link_up_wait_to_complete:bool) -> Result<(u32, bool), IxgbeDriverErr>{
+    fn mac_check_link(&self, info: &PCIeInfo, hw: &mut IxgbeHw, link_up_wait_to_complete:bool) -> Result<(u32, bool), IxgbeDriverErr>{
         use ixgbe_hw::MacType::*;
 
 	    /* If Crosstalk fix enabled do the sanity check of making sure
 	    * the SFP+ cage is full.
 	    */
-	    if need_crosstalk_fix(self, hw) {
+	    if need_crosstalk_fix(self, info, hw) {
 		    let sfp_cage_full = match hw.mac.mac_type {
 		    IxgbeMac82599EB =>
 			    ixgbe_hw::read_reg(info, IXGBE_ESDP)? & IXGBE_ESDP_SDP2,
@@ -1807,7 +3556,7 @@ pub trait IxgbeOperations: Send {
         ixgbe_hw::read_reg(info, IXGBE_AUTOC)
     }
 
-    fn mac_prot_autoc_write(&self, info: &PCIeInfo, reg_val: u32) -> Result<(), IxgbeDriverErr>{
+    fn mac_prot_autoc_write(&self, info: &PCIeInfo, _hw: &mut IxgbeHw, reg_val: u32, _locked: bool) -> Result<(), IxgbeDriverErr>{
         ixgbe_hw::write_reg(info, IXGBE_AUTOC, reg_val)
     }
 
@@ -1815,12 +3564,13 @@ pub trait IxgbeOperations: Send {
         ixgbe_hw::read_reg(info, IXGBE_DEVICE_CAPS)
     }
 
-    // set_lan_id_multi_port_pcie - Set LAN id for PCIe multiple port devices
+    // mac_set_lan_id - Set LAN id for PCIe multiple port devices
     // Determines the LAN function id by reading memory-mapped registers and swaps
     // the port value if requested, and set MAC instance for devices that share
     // CS4227.
     // Doesn't suport X550EM_a currently
-    fn mac_set_lan_id_multi_port_pcie(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(u16,u8,u16),IxgbeDriverErr>{
+    // ixgbe_set_lan_id_multi_port_pcie in OpenBSD
+    fn mac_set_lan_id(&self, info: &PCIeInfo, hw: &mut IxgbeHw)->Result<(u16,u8,u16),IxgbeDriverErr>{
 
 	    let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
 	    let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
@@ -1967,10 +3717,148 @@ pub trait IxgbeOperations: Send {
         autoneg_wait_to_complete: bool,
     ) -> Result<(), IxgbeDriverErr>;
 
-    // PHY Operations
+    fn mac_setup_mac_link(&self,
+        _info: &PCIeInfo,
+        _hw: &mut IxgbeHw,
+        _speed: u32,
+        _autoneg_wait_to_complete: bool,)->Result<(), IxgbeDriverErr>{
+        log::error!("mac_setup_sfp: Not Implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
 
-    fn phy_handle_phy(&self) -> (){
-        ()
+    fn mac_setup_sfp(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        log::error!("mac_setup_sfp: Not Implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    fn mac_set_rate_select_speed(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw, _speed: u32)->Result<(),IxgbeDriverErr>{
+        log::error!("mac_setup_sfp: Not Implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    // PHY Operations
+    fn phy_init(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        log::error!("phy_init: Not implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    // phy_reset - Performs a PHY reset
+    fn phy_reset(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        use PhyType::*;
+
+	    if hw.phy.phy_type == IxgbePhyUnknown {
+		   phy_identify_phy_generic(self, info, hw)?;
+        }
+
+	    if hw.phy.phy_type == IxgbePhyNone {
+            return Ok(())
+        }
+
+	    // Don't reset PHY if it's shut down due to overtemp.
+	    if Err(IxgbeDriverErr::Overtemp) == self.phy_check_overtemp(info, hw){
+            return Ok(())
+        }
+
+	    // Blocked by MNG FW so bail
+	    if check_reset_blocked(info, hw)? {
+            return Ok(())
+        }
+
+	    // Perform soft PHY reset to the PHY_XS.
+	    // This will cause a soft reset to the PHY
+	    self.phy_write_reg(info, hw, IXGBE_MDIO_PHY_XS_CONTROL,
+			        IXGBE_MDIO_PHY_XS_DEV_TYPE,
+			        IXGBE_MDIO_PHY_XS_RESET)?;
+
+	    // Poll for reset bit to self-clear indicating reset is complete.
+	    // Some PHYs could take up to 3 seconds to complete and need about
+	    // 1.7 usec delay after the reset is complete.
+        let mut ctrl = 0;
+        for _ in 0..30 {
+		    wait_millisec(100);
+		    if hw.phy.phy_type == IxgbePhyX550emExtT {
+			    ctrl = self.phy_read_reg(info, hw,
+						    IXGBE_MDIO_TX_VENDOR_ALARMS_3,
+						    IXGBE_MDIO_PMA_PMD_DEV_TYPE,
+						    )?;
+
+			    if ctrl & IXGBE_MDIO_TX_VENDOR_ALARMS_3_RST_MASK != 0 {
+				    wait_microsec(2);
+				    break;
+			    }
+		    } else {
+			    ctrl = self.phy_read_reg(info, hw,
+						        IXGBE_MDIO_PHY_XS_CONTROL,
+						        IXGBE_MDIO_PHY_XS_DEV_TYPE,
+						        )?;
+
+			    if ctrl & IXGBE_MDIO_PHY_XS_RESET == 0 {
+				    wait_microsec(2);
+				    break;
+			    }
+		    }
+	    }
+
+	    if ctrl & IXGBE_MDIO_PHY_XS_RESET != 0 {
+		    log::error!("PHY reset polling failed to complete.\n");
+            return Err(IxgbeDriverErr::ResetFailed);
+	    }
+
+        Ok(())
+    }
+
+    fn phy_check_overtemp(&self, info:&PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr>{
+	    if info.get_id() != IXGBE_DEV_ID_82599_T3_LOM {
+            return Ok(());
+        }
+
+	    // Check that the LASI temp alarm status was triggered
+	    let phy_data = self.phy_read_reg(info, hw, IXGBE_TN_LASI_STATUS_REG,
+			        IXGBE_MDIO_PMA_PMD_DEV_TYPE)?;
+
+	    if phy_data & IXGBE_TN_LASI_STATUS_TEMP_ALARM == 0 {
+            return Ok(());
+        }
+
+	    log::error!("Device over temperature");
+        Err(IxgbeDriverErr::Overtemp)
+    }
+
+    fn phy_setup_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
+        log::error!("phy_setup_phy_link_tnx: Not implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    fn phy_check_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
+        log::error!("phy_check_phy_link_tnx: Not implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    fn phy_get_phy_firmware_version_tnx(&self) -> Result<(), IxgbeDriverErr> {
+        log::error!("phy_get_phy_firmware_version_tnx: Not implemented");
+        return Err(IxgbeDriverErr::NotImplemented);
+    }
+
+    fn phy_read_i2c_byte(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8)->Result<u8, IxgbeDriverErr>{
+        read_i2c_byte_generic_int(self,info, hw, byte_offset, dev_addr, true)
+    }
+
+    fn phy_write_i2c_byte(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8, data:u8)->Result<(), IxgbeDriverErr>{
+        write_i2c_byte_generic_int(self,info, hw, byte_offset, dev_addr, data, true)
+    }
+
+    fn phy_read_i2c_eeprom(&self, info:&PCIeInfo, hw:&IxgbeHw, byte_offset:u8)-> Result<u8, IxgbeDriverErr>{
+        self.phy_read_i2c_byte(info, hw, byte_offset, IXGBE_I2C_EEPROM_DEV_ADDR)
+    }
+
+    fn phy_write_i2c_eeprom(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8,  eeprom_data:u8)->Result<(), IxgbeDriverErr>{
+        self.phy_write_i2c_byte(info, hw, byte_offset, IXGBE_I2C_EEPROM_DEV_ADDR, eeprom_data)
+    }
+
+    // identify_phy_generic - Get physical layer module
+    // Determines the physical layer module found on the current adapter.
+    fn phy_identify(&self, info: &PCIeInfo, hw: &mut IxgbeHw)-> Result<(), IxgbeDriverErr>{
+        phy_identify_phy_generic(self, info, hw)
     }
 
     // ixgbe_read_phy_reg_generic()
@@ -2006,7 +3894,7 @@ pub trait IxgbeOperations: Send {
 
         self.mac_acquire_swfw_sync(info, gssr)?;
 
-        status = self.write_reg_mdi(info, hw, reg_addr, device_type, phy_data);
+        status = self.phy_write_reg_mdi(info, hw, reg_addr, device_type, phy_data);
 
         self.mac_release_swfw_sync(info, gssr)?;
 
@@ -2053,7 +3941,7 @@ pub trait IxgbeOperations: Send {
         Ok(data as u16)
     }
 
-    fn write_reg_mdi(
+    fn phy_write_reg_mdi(
         &self,
         info: &PCIeInfo,
         hw: &IxgbeHw,
@@ -2096,10 +3984,13 @@ pub trait IxgbeOperations: Send {
     //fn set_phy_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr>;
     fn phy_set_power(
         &self,
-        info: &PCIeInfo,
-        hw: &IxgbeHw,
-        on: bool,
-    ) -> Result<(), IxgbeDriverErr>;
+        _info: &PCIeInfo,
+        _hw: &IxgbeHw,
+        _on: bool,
+    ) -> Result<(), IxgbeDriverErr>{
+        log::debug!("phy_set_power() Not Implemented");
+        Ok(())
+    }
 
     // setup_phy_link_speed - Sets the auto advertised capabilities
     fn phy_setup_link_speed(&self, info:&PCIeInfo, hw:&mut IxgbeHw, speed:u32, _autoneg_wait_to_complete: bool) ->Result<(), IxgbeDriverErr>{
@@ -2140,80 +4031,45 @@ pub trait IxgbeOperations: Send {
     // setup_phy_link - Set and restart auto-neg
     // Restart auto-negotiation and PHY and waits for completion.
     fn phy_setup_link(&self, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
-
-        let (speed_supported, _autoneg) = get_copper_link_capabilities(self, info, hw)?;
-
-        // Set or unset auto-negotiation 10G advertisement
-    	let mut autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
-			     IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
-
-    	autoneg_reg &= !IXGBE_MII_10GBASE_T_ADVERTISE;
-	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_10GB_FULL != 0) &&
-	    (speed_supported & IXGBE_LINK_SPEED_10GB_FULL != 0){
-    		autoneg_reg |= IXGBE_MII_10GBASE_T_ADVERTISE;
-        }
-
-	    self.phy_write_reg(info, hw, IXGBE_MII_10GBASE_T_AUTONEG_CTRL_REG,
-			      IXGBE_MDIO_AUTO_NEG_DEV_TYPE,
-			      autoneg_reg)?;
-
-	    autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG,
-			        IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
-
-	    if hw.mac.mac_type == MacType::IxgbeMacX550 {
-		    // Set or unset auto-negotiation 5G advertisement
-		    autoneg_reg &= !IXGBE_MII_5GBASE_T_ADVERTISE;
-		    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_5GB_FULL != 0) &&
-		        (speed_supported & IXGBE_LINK_SPEED_5GB_FULL != 0) {
-			        autoneg_reg |= IXGBE_MII_5GBASE_T_ADVERTISE;
-                }
-
-		    // Set or unset auto-negotiation 2.5G advertisement
-		    autoneg_reg &= !IXGBE_MII_2_5GBASE_T_ADVERTISE;
-		    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_2_5GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_2_5GB_FULL != 0){
-			        autoneg_reg |= IXGBE_MII_2_5GBASE_T_ADVERTISE;
-            }
-	    }
-
-	    // Set or unset auto-negotiation 1G advertisement
-	    autoneg_reg &= !IXGBE_MII_1GBASE_T_ADVERTISE;
-	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_1GB_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_1GB_FULL != 0) {
-		        autoneg_reg |= IXGBE_MII_1GBASE_T_ADVERTISE;
-        }
-
-	    self.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_VENDOR_PROVISION_1_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
-
-	    // Set or unset auto-negotiation 100M advertisement
-	    autoneg_reg = self.phy_read_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
-
-    	autoneg_reg &= !(IXGBE_MII_100BASE_T_ADVERTISE | IXGBE_MII_100BASE_T_ADVERTISE_HALF);
-	    if (hw.phy.autoneg_advertised & IXGBE_LINK_SPEED_100_FULL != 0) && (speed_supported & IXGBE_LINK_SPEED_100_FULL != 0) {
-		    autoneg_reg |= IXGBE_MII_100BASE_T_ADVERTISE;
-        }
-
-	    self.phy_write_reg(info, hw, IXGBE_MII_AUTONEG_ADVERTISE_REG, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
-
-	    // Blocked by MNG FW so don't reset PHY
-    	if check_reset_blocked(info, hw)? {
-		    return Ok(());
-        }
-
-	    // Restart PHY auto-negotiation.
-	    autoneg_reg =  self.phy_read_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL,
-			        IXGBE_MDIO_AUTO_NEG_DEV_TYPE)?;
-
-	    autoneg_reg |= IXGBE_MII_RESTART;
-
-	    self.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_CONTROL, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, autoneg_reg)?;
-
-        Ok(())
+        phy_setup_link_generic(self, info, hw)
     }
 
+    fn phy_identify_sfp(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
+        phy_identify_module_generic(self, info, hw)
+    }
 
     // EEPROM Operations
 
-    fn eeprom_init_params(&self, _info: &PCIeInfo) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
-        Err(NotSupported)
+    fn eeprom_init_params(&self, info: &PCIeInfo, eeprom: &mut IxgbeEepromInfo) -> Result<(), IxgbeDriverErr> {
+        let eec_offset = get_eec_offset(info.get_id())?;
+	    log::debug!("init_eeprom_params_generic");
+
+        
+		eeprom.eeprom_type = EepromType::IxgbeEepromNone;
+		// Set default semaphore delay to 10ms which is a well tested value
+		eeprom.semaphore_delay = 10;
+		// Clear EEPROM page size, it will be initialized as needed
+		eeprom.word_page_size = 0;
+
+		// Check for EEPROM present first.
+		// If not present leave as none
+		let eec = ixgbe_hw::read_reg(info, eec_offset)?;
+		if eec & IXGBE_EEC_PRES != 0 {
+			eeprom.eeprom_type = EepromType::IxgbeEepromSpi;
+
+			// SPI EEPROM is assumed here.  This code would need to
+			// change if a future EEPROM is not SPI.
+			let eeprom_size = (eec & IXGBE_EEC_SIZE) as u16 >> IXGBE_EEC_SIZE_SHIFT;
+			eeprom.word_size = 1 << (eeprom_size + IXGBE_EEPROM_WORD_SIZE_SHIFT);
+		}
+
+		if eec & IXGBE_EEC_ADDR_SIZE != 0 {
+			eeprom.address_bits = 16;
+        } else {
+			eeprom.address_bits = 8;
+        }
+
+        Ok(())
     }
 
     fn eeprom_read(
@@ -2227,11 +4083,101 @@ pub trait IxgbeOperations: Send {
         Ok(ret)
     }
 
-    fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr>;
+    //  eeprom_validate_checksum - Validate EEPROM checksum
+    //  //  Performs checksum calculation and validates the EEPROM checksum.  If the
+    //  caller does not need checksum_val, the value can be NULL.
+    fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr>{
+	    log::debug!("validate_eeprom_checksum_generic");
 
+        let mut eeprom = IxgbeEepromInfo {
+            eeprom_type: EepromType::IxgbeEepromUninitialized,
+            semaphore_delay: 0,
+            word_size: 0,
+            address_bits: 0,
+            word_page_size: 0,
+            ctrl_word_3: 0,
+        };
+
+        //  Read the first word from the EEPROM. If this times out or fails, do
+        // not continue or we could be in for a very long wait while every
+        // EEPROM read fails
+        let mut data= [0;1];
+	    if let Err(e) = self.eeprom_read(info, &mut eeprom, 0, &mut data) {
+		    log::debug!("EEPROM read failed\n");
+            return Err(e);
+        }
+
+	    let checksum = self.eeprom_calc_checksum(info, &mut eeprom)? & 0xffff as u16;
+
+        let mut read_checksum = [0;1];
+	    if let Err(e) = self.eeprom_read(info, &mut eeprom, IXGBE_EEPROM_CHECKSUM, &mut read_checksum){
+		    log::debug!("EEPROM read failed\n");
+		    return Err(e);
+	    }
+
+        //  Verify read checksum from EEPROM is the same as
+        // calculated checksum
+	    if read_checksum[0] != checksum {
+            return Err(IxgbeDriverErr::EepromChecksum);
+        }
+
+        Ok(eeprom)
+    }
+
+    // eeprom_calc_checksum - Calculates and returns the checksum
+    // Returns a negative error code on error, or the 16-bit checksum
     fn eeprom_calc_checksum(
         &self,
         info: &PCIeInfo,
         eeprom: &mut IxgbeEepromInfo,
-    ) -> Result<u16, IxgbeDriverErr>;
+    ) -> Result<u16, IxgbeDriverErr>{
+
+        let mut checksum = 0;
+	    // Include 0x0-0x3F in the checksum
+        for i in 0..IXGBE_EEPROM_CHECKSUM {
+            let mut word = [0;1];
+		    if let Err(_) = self.eeprom_read(info, eeprom, i, &mut word){
+			    log::debug!("EEPROM read failed\n");
+			    return Err(IxgbeDriverErr::Eeprom);
+		    }
+		    checksum += word[0];
+	    }
+
+	    // Include all data from pointers except for the fw pointer
+        for i in IXGBE_PCIE_ANALOG_PTR..IXGBE_FW_PTR {
+            let mut pointer = [0;1];
+		    if let Err(_) = self.eeprom_read(info, eeprom, i, &mut pointer) {
+			    log::debug!("EEPROM read failed\n");
+			    return Err(IxgbeDriverErr::Eeprom);
+		    }
+
+		    // If the pointer seems invalid
+		    if pointer[0] == 0xFFFF || pointer[0] == 0 {
+			    continue;
+            }
+
+            let mut length = [0;1];
+		    if let Err(_) = self.eeprom_read(info, eeprom,  pointer[0], &mut length) {
+			    log::debug!("EEPROM read failed\n");
+			    return Err(IxgbeDriverErr::Eeprom);
+		    }
+
+		    if length[0] == 0xFFFF || length[0] == 0 {
+			    continue;
+            }
+
+            let mut word = [0;1];
+            for j in pointer[0] + 1..=pointer[0] + length[0]{
+			    if let Err(_) = self.eeprom_read(info, eeprom,j, &mut word) {
+				    log::debug!("EEPROM read failed\n");
+				    return Err(IxgbeDriverErr::Eeprom);
+			    }
+			    checksum += word[0];
+		    }
+	    }
+
+	    checksum = IXGBE_EEPROM_SUM - checksum;
+
+	    Ok(checksum)
+    }
 }

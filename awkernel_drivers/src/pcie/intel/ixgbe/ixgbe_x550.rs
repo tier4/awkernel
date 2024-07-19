@@ -1,18 +1,12 @@
 use super::{
     ixgbe_hw,
-    ixgbe_operations::{self, start_hw_gen2, start_hw_generic, IxgbeOperations},
+    ixgbe_operations::{self, IxgbeOperations},
     ixgbe_regs::*,
-    ixgbe_x540, Ixgbe, IxgbeDriverErr,
+    ixgbe_x540, IxgbeDriverErr,
 };
 use crate::pcie::PCIeInfo;
 use alloc::boxed::Box;
-use awkernel_lib::{
-    delay::{wait_microsec, wait_millisec},
-    sanity::check,
-};
-use ixgbe_hw::{
-    EepromType, IxgbeEepromInfo, IxgbeHw, IxgbeMacInfo, IxgbePhyInfo, MacType, MediaType,
-};
+use ixgbe_hw::{EepromType, IxgbeEepromInfo, IxgbeHw, MediaType};
 use ixgbe_operations::get_copper_link_capabilities;
 
 const IXGBE_X540_MAX_TX_QUEUES: u32 = 128;
@@ -183,7 +177,7 @@ impl IxgbeOperations for IxgbeX550 {
         ixgbe_x540::mac_start_hw_x540(self, info, hw)
     }
 
-    fn mac_get_media_type(&self) -> MediaType {
+    fn mac_get_media_type(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> MediaType {
         MediaType::IxgbeMediaTypeCopper
     }
 
@@ -283,12 +277,16 @@ impl IxgbeOperations for IxgbeX550 {
     fn eeprom_init_params(
         &self,
         info: &PCIeInfo,
-    ) -> Result<(EepromType, u32, u16), IxgbeDriverErr> {
+        eeprom: &mut IxgbeEepromInfo,
+    ) -> Result<(), IxgbeDriverErr> {
+        eeprom.eeprom_type = EepromType::IxgbeFlash;
+        eeprom.semaphore_delay = 10;
+
         let eec = ixgbe_hw::read_reg(info, get_eec_offset(info.get_id())?)?;
         let eeprom_size = ((eec & IXGBE_EEC_SIZE) >> IXGBE_EEC_SIZE_SHIFT) as u16;
-        let word_size = 1 << (eeprom_size + IXGBE_EEPROM_WORD_SIZE_SHIFT);
+        eeprom.word_size = 1 << (eeprom_size + IXGBE_EEPROM_WORD_SIZE_SHIFT);
 
-        Ok((EepromType::IxgbeFlash, 10, word_size))
+        Ok(())
     }
 
     fn eeprom_read(
@@ -391,8 +389,7 @@ impl IxgbeOperations for IxgbeX550 {
         log::debug!("ixgbe_calc_eeprom_checksum_X550");
 
         if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
-            (eeprom.eeprom_type, eeprom.semaphore_delay, eeprom.word_size) =
-                self.eeprom_init_params(info)?;
+            self.eeprom_init_params(info, eeprom)?;
         }
 
         let mut local_buffer = [0; IXGBE_EEPROM_LAST_WORD as usize + 1];
@@ -444,20 +441,23 @@ impl IxgbeOperations for IxgbeX550 {
 }
 
 // Identical to X540, as seen in the OpenBSD: https://github.com/openbsd/src/blob/b21c4c927df760810943d63b35c0488ce22f755a/sys/dev/pci/ixgbe_x550.c#L145
+// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
+// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
+// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
-    let arc_subsystem_valid = match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK)
-    {
-        Ok(val) => {
-            if val == 0 {
-                false
-            } else {
-                true
+    let arc_subsystem_valid =
+        match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
+            Ok(val) => {
+                if val == 0 {
+                    false
+                } else {
+                    true
+                }
             }
-        }
-        Err(e) => return Err(e),
-    };
+            Err(e) => return Err(e),
+        };
 
     Ok((
         IXGBE_X540_MC_TBL_SIZE,

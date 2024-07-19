@@ -9,8 +9,8 @@ use crate::pcie::{pcie_id::IXGBE_INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
 use alloc::boxed::Box;
 
 use super::{
-    ixgbe_operations::IxgbeOperations, ixgbe_regs::*, ixgbe_x540, ixgbe_x540::IxgbeX540,
-    ixgbe_x550, ixgbe_x550::IxgbeX550, IxgbeDriverErr,
+    ixgbe_82599, ixgbe_operations::IxgbeOperations, ixgbe_regs::*, ixgbe_x540,
+    ixgbe_x540::IxgbeX540, ixgbe_x550, ixgbe_x550::IxgbeX550, IxgbeDriverErr,
 };
 
 pub const IXGBE_DEVICES: [(u16, u16); 74] = [
@@ -169,8 +169,12 @@ pub struct IxgbeMacInfo {
     pub rx_pb_size: u32,
     pub max_rx_queues: u32,
     pub max_tx_queues: u32,
+    pub orig_autoc: u32,
+    pub orig_autoc2: u32,
     pub max_msix_vectors: u16,
     pub arc_subsystem_valid: bool,
+    pub orig_link_settings_stored: bool,
+    pub autotry_restart: bool,
     pub flags: u8,
     pub set_lben: bool,
     pub max_link_up_time: u32,
@@ -197,17 +201,27 @@ pub struct IxgbeFcInfo {
 }
 
 pub struct IxgbePhyInfo {
-    pub id: u32,
     pub phy_type: PhyType,
     pub addr: u32,
+    pub id: u32,
+    pub sfp_type: SfpType,
+    pub sfp_setup_needed: bool,
     pub revision: u32,
     pub media_type: MediaType,
     pub phy_semaphore_mask: u32,
+    // pub reset_disable: bool, Unused in OpenBSD/FreeBSD
     pub autoneg_advertised: u32,
     pub speeds_supported: u32,
+    pub smart_speed: SmartSpeed,
+    pub smart_speed_active: bool,
+    pub multispeed_fiber: bool,
+    pub qsfp_shared_i2c_bus: bool,
     pub nw_mng_if_sel: u32,
+    // pub reset_if_overtemp: bool, Unused in OpenBSD/FreeBSD
+    pub no_reset: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct IxgbeEepromInfo {
     pub eeprom_type: EepromType,
     pub semaphore_delay: u32,
@@ -234,6 +248,8 @@ pub struct IxgbeHw {
     pub eeprom: IxgbeEepromInfo,
     pub bus: IxgbeBusInfo,
     pub adapter_stopped: bool,
+    // pub force_full_reset: bool, Unused in OpenBSD/FreeBSD
+    // pub wol_enabled: bool, Unused in OpenBSD/FreeBSD
     pub crosstalk_fix: bool,
 }
 
@@ -267,6 +283,7 @@ impl IxgbeHw {
             max_msix_vectors,
             arc_subsystem_valid,
         ) = match mac_type {
+            IxgbeMac82599EB => ixgbe_82599::set_mac_val(info)?,
             IxgbeMacX540 => ixgbe_x540::set_mac_val(info)?,
             IxgbeMacX550 => ixgbe_x550::set_mac_val(info)?,
             _ => (0, 0, 0, 0, 0, 0, 0, false),
@@ -275,7 +292,7 @@ impl IxgbeHw {
 
         let eeprom = ops.eeprom_validate_checksum(info)?;
 
-        // TODO: hw.mac.ops.enable_tx_laser() for 82599 SFP+ fiber
+        log::debug!("validate_checksum done!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
         Ok((
             Self {
@@ -291,8 +308,12 @@ impl IxgbeHw {
                     rx_pb_size,
                     max_rx_queues,
                     max_tx_queues,
+                    orig_autoc: 0, //TODO: Need to check if this is initialized in FreeBSD
+                    orig_autoc2: 0,
                     max_msix_vectors,
                     arc_subsystem_valid,
+                    orig_link_settings_stored: false,
+                    autotry_restart: false,
                     flags: 0,
                     set_lben: false,
                     max_link_up_time,
@@ -317,15 +338,22 @@ impl IxgbeHw {
                     requested_mode: FcMode::IxgbeFcNone, // TODO: Need to check if this is initialized in OpenB
                 },
                 phy: IxgbePhyInfo {
-                    id: 0,
                     phy_type: PhyType::IxgbePhyUnknown,
                     addr: 0,
+                    id: 0,
+                    sfp_type: SfpType::IxgbeSfpTypeUnknown,
+                    sfp_setup_needed: false,
                     revision: 0,
                     media_type: MediaType::IxgbeMediaTypeUnknown,
                     phy_semaphore_mask: 0,
                     autoneg_advertised: IXGBE_LINK_SPEED_UNKNOWN,
                     speeds_supported: IXGBE_LINK_SPEED_UNKNOWN,
+                    smart_speed: SmartSpeed::IxgbeSmartSpeedAuto,
+                    smart_speed_active: false,
+                    multispeed_fiber: false,
+                    qsfp_shared_i2c_bus: false,
                     nw_mng_if_sel: 0, // TODO: Need to check if this is initialized in OpenBSD
+                    no_reset: false,
                 },
                 eeprom,
                 bus: IxgbeBusInfo {
@@ -419,6 +447,56 @@ pub enum PhyType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum SfpType {
+    IxgbeSfpTypeDaCu = 0,
+    IxgbeSfpTypeSr = 1,
+    IxgbeSfpTypeLr = 2,
+    IxgbeSfpTypeDaCuCore0 = 3,
+    IxgbeSfpTypeDaCuCore1 = 4,
+    IxgbeSfpTypeSrlrCore0 = 5,
+    IxgbeSfpTypeSrlrCore1 = 6,
+    IxgbeSfpTypeDaActLmtCore0 = 7,
+    IxgbeSfpTypeDaActLmtCore1 = 8,
+    IxgbeSfpType1gCuCore0 = 9,
+    IxgbeSfpType1gCuCore1 = 10,
+    IxgbeSfpType1gSxCore0 = 11,
+    IxgbeSfpType1gSxCore1 = 12,
+    IxgbeSfpType1gLxCore0 = 13,
+    IxgbeSfpType1gLxCore1 = 14,
+    IxgbeSfpTypeNotPresent = 0xFFFE,
+    IxgbeSfpTypeUnknown = 0xFFFF,
+}
+
+impl TryFrom<u16> for SfpType {
+    type Error = IxgbeDriverErr;
+
+    fn try_from(value: u16) -> Result<SfpType, IxgbeDriverErr> {
+        use SfpType::*;
+
+        match value {
+            0 => Ok(IxgbeSfpTypeDaCu),
+            1 => Ok(IxgbeSfpTypeSr),
+            2 => Ok(IxgbeSfpTypeLr),
+            3 => Ok(IxgbeSfpTypeDaCuCore0),
+            4 => Ok(IxgbeSfpTypeDaCuCore1),
+            5 => Ok(IxgbeSfpTypeSrlrCore0),
+            6 => Ok(IxgbeSfpTypeSrlrCore1),
+            7 => Ok(IxgbeSfpTypeDaActLmtCore0),
+            8 => Ok(IxgbeSfpTypeDaActLmtCore1),
+            9 => Ok(IxgbeSfpType1gCuCore0),
+            10 => Ok(IxgbeSfpType1gCuCore1),
+            11 => Ok(IxgbeSfpType1gSxCore0),
+            12 => Ok(IxgbeSfpType1gSxCore1),
+            13 => Ok(IxgbeSfpType1gLxCore0),
+            14 => Ok(IxgbeSfpType1gLxCore1),
+            0xFFFE => Ok(IxgbeSfpTypeNotPresent),
+            0xFFFF => Ok(IxgbeSfpTypeUnknown),
+            _ => Err(IxgbeDriverErr::NotSupported),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum MediaType {
     IxgbeMediaTypeUnknown = 0,
     IxgbeMediaTypeFiber,
@@ -428,6 +506,13 @@ pub enum MediaType {
     IxgbeMediaTypeBackplane,
     IxgbeMediaTypeCx4,
     IxgbeMediaTypeVirtual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+pub enum SmartSpeed {
+    IxgbeSmartSpeedAuto = 0,
+    IxgbeSmartSpeedOn,
+    IxgbeSmartSpeedOff,
 }
 
 // Flow Control Settings
@@ -531,6 +616,7 @@ pub fn write_flush(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
 
 fn get_operations(mac_type: &MacType) -> Result<Box<dyn IxgbeOperations>, IxgbeDriverErr> {
     match mac_type {
+        MacType::IxgbeMac82599EB => Ok(ixgbe_82599::get_self()),
         MacType::IxgbeMacX540 => Ok(ixgbe_x540::get_self()),
         MacType::IxgbeMacX550 => Ok(ixgbe_x550::get_self()),
         _ => Err(IxgbeDriverErr::NotImplemented),

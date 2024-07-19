@@ -1051,10 +1051,16 @@ pub const IXGBE_BMCIPVAL: usize = 0x05060;
 pub const IXGBE_BMCIP_IPADDR_TYPE: usize = 0x00000001;
 pub const IXGBE_BMCIP_IPADDR_VALID: usize = 0x00000002;
 
+/* Management Bit Fields and Masks */
+pub const IXGBE_MANC_MPROXYE: u32 = 0x40000000; /* Management Proxy Enable */
+pub const IXGBE_MANC_RCV_TCO_EN: u32 = 0x00020000; /* Rcv TCO packet enable */
+pub const IXGBE_MANC_EN_BMC2OS: u32 = 0x10000000; /* Ena BMC2OS and OS2BMC traffic */
+pub const IXGBE_MANC_EN_BMC2OS_SHIFT: u32 = 28;
+
 // Firmware Semaphore Register
-pub const IXGBE_FWSM_MODE_MASK: usize = 0xE;
+pub const IXGBE_FWSM_MODE_MASK: u32 = 0xE;
 pub const IXGBE_FWSM_TS_ENABLED: u32 = 0x1;
-pub const IXGBE_FWSM_FW_MODE_PT: usize = 0x4;
+pub const IXGBE_FWSM_FW_MODE_PT: u32 = 0x4;
 
 // ARC Subsystem registers
 pub const IXGBE_HICR: usize = 0x15F00;
@@ -1540,7 +1546,7 @@ pub const IXGBE_AUTO_NEG_10GBASE_EEE_ADVT: u32 = 0x8; // AUTO NEG EEE 10GBaseT A
 pub const IXGBE_AUTO_NEG_1000BASE_EEE_ADVT: u32 = 0x4; // AUTO NEG EEE 1000BaseT Advt
 pub const IXGBE_AUTO_NEG_100BASE_EEE_ADVT: u32 = 0x2; // AUTO NEG EEE 100BaseT Advt
 pub const IXGBE_MDIO_PHY_XS_CONTROL: u32 = 0x0; // PHY_XS Control Reg
-pub const IXGBE_MDIO_PHY_XS_RESET: u32 = 0x8000; // PHY_XS Reset
+pub const IXGBE_MDIO_PHY_XS_RESET: u16 = 0x8000; // PHY_XS Reset
 pub const IXGBE_MDIO_PHY_ID_HIGH: u32 = 0x2; // PHY ID High Reg
 pub const IXGBE_MDIO_PHY_ID_LOW: u32 = 0x3; // PHY ID Low Reg
 pub const IXGBE_MDIO_PHY_SPEED_ABILITY: u32 = 0x4; // Speed Ability Reg
@@ -1558,7 +1564,7 @@ pub const IXGBE_AUTO_NEG_LP_10GBASE_CAP: u32 = 0x0800; // AUTO NEG Rx LP 10GBase
 pub const IXGBE_AUTO_NEG_10GBASET_STAT: u32 = 0x0021; // AUTO NEG 10G BaseT Stat
 
 pub const IXGBE_MDIO_TX_VENDOR_ALARMS_3: u32 = 0xCC02; // Vendor Alarms 3 Reg
-pub const IXGBE_MDIO_TX_VENDOR_ALARMS_3_RST_MASK: u32 = 0x3; // PHY Reset Complete Mask
+pub const IXGBE_MDIO_TX_VENDOR_ALARMS_3_RST_MASK: u16 = 0x3; // PHY Reset Complete Mask
 pub const IXGBE_MDIO_GLOBAL_RES_PR_10: u32 = 0xC479; // Global Resv Provisioning 10 Reg
 pub const IXGBE_MDIO_POWER_UP_STALL: u32 = 0x8000; // Power Up Stall
 pub const IXGBE_MDIO_GLOBAL_INT_CHIP_STD_MASK: u32 = 0xFF00; // int std mask
@@ -1649,16 +1655,16 @@ pub const IXGBE_M88E1500_E_PHY_ID: u32 = 0x01410DD0;
 pub const IXGBE_M88E1543_E_PHY_ID: u32 = 0x01410EA0;
 
 // Special PHY Init Routine
-pub const IXGBE_PHY_INIT_OFFSET_NL: u32 = 0x002B;
-pub const IXGBE_PHY_INIT_END_NL: u32 = 0xFFFF;
-pub const IXGBE_CONTROL_MASK_NL: u32 = 0xF000;
-pub const IXGBE_DATA_MASK_NL: u32 = 0x0FFF;
-pub const IXGBE_CONTROL_SHIFT_NL: u32 = 12;
-pub const IXGBE_DELAY_NL: u32 = 0;
-pub const IXGBE_DATA_NL: u32 = 1;
-pub const IXGBE_CONTROL_NL: u32 = 0x000F;
-pub const IXGBE_CONTROL_EOL_NL: u32 = 0x0FFF;
-pub const IXGBE_CONTROL_SOL_NL: u32 = 0x0000;
+pub const IXGBE_PHY_INIT_OFFSET_NL: u16 = 0x002B;
+pub const IXGBE_PHY_INIT_END_NL: u16 = 0xFFFF;
+pub const IXGBE_CONTROL_MASK_NL: u16 = 0xF000;
+pub const IXGBE_DATA_MASK_NL: u16 = 0x0FFF;
+pub const IXGBE_CONTROL_SHIFT_NL: u16 = 12;
+pub const IXGBE_DELAY_NL: u16 = 0;
+pub const IXGBE_DATA_NL: u16 = 1;
+pub const IXGBE_CONTROL_NL: u16 = 0x000F;
+pub const IXGBE_CONTROL_EOL_NL: u16 = 0x0FFF;
+pub const IXGBE_CONTROL_SOL_NL: u16 = 0x0000;
 
 // General purpose Interrupt Enable
 pub const IXGBE_SDP0_GPIEN: u32 = 0x00000001; // SDP0
@@ -2275,7 +2281,7 @@ pub const IXGBE_EERD_MAX_ADDR: u32 = 0x00003FFF; // EERD allows 14 bits for addr
 
 pub const IXGBE_EEC_SIZE_SHIFT: u32 = 11;
 pub const IXGBE_EEPROM_WORD_SIZE_SHIFT: u16 = 6;
-pub const IXGBE_EEPROM_OPCODE_BITS: u32 = 8;
+pub const IXGBE_EEPROM_OPCODE_BITS: u16 = 8;
 
 // FLA Register
 pub const IXGBE_FLA_LOCKED: u32 = 0x00000040;
@@ -2338,10 +2344,10 @@ pub const IXGBE_EEPROM_STATUS_RDY_SPI: u8 = 0x01;
 pub const IXGBE_EEPROM_READ_OPCODE_SPI: u8 = 0x03; // EEPROM read opcode
 pub const IXGBE_EEPROM_WRITE_OPCODE_SPI: u8 = 0x02; // EEPROM write opcode
 pub const IXGBE_EEPROM_A8_OPCODE_SPI: u8 = 0x08; // opcode bit-3 = addr bit-8
-pub const IXGBE_EEPROM_WREN_OPCODE_SPI: u8 = 0x06; // EEPROM set Write Ena latch
-pub const IXGBE_EEPROM_WRDI_OPCODE_SPI: u8 = 0x04; // EEPROM reset Write Enable latch
-pub const IXGBE_EEPROM_RDSR_OPCODE_SPI: u8 = 0x05; // EEPROM read Status reg
-pub const IXGBE_EEPROM_WRSR_OPCODE_SPI: u8 = 0x01; // EEPROM write Status reg
+pub const IXGBE_EEPROM_WREN_OPCODE_SPI: u16 = 0x06; // EEPROM set Write Ena latch
+pub const IXGBE_EEPROM_WRDI_OPCODE_SPI: u16 = 0x04; // EEPROM reset Write Enable latch
+pub const IXGBE_EEPROM_RDSR_OPCODE_SPI: u16 = 0x05; // EEPROM read Status reg
+pub const IXGBE_EEPROM_WRSR_OPCODE_SPI: u16 = 0x01; // EEPROM write Status reg
 pub const IXGBE_EEPROM_ERASE4K_OPCODE_SPI: u8 = 0x20; // EEPROM ERASE 4KB
 pub const IXGBE_EEPROM_ERASE64K_OPCODE_SPI: u8 = 0xD8; // EEPROM ERASE 64KB
 pub const IXGBE_EEPROM_ERASE256_OPCODE_SPI: u8 = 0xDB; // EEPROM ERASE 256B
@@ -2367,8 +2373,8 @@ pub const IXGBE_ETH_LENGTH_OF_ADDRESS: usize = 6;
 pub const IXGBE_EEPROM_PAGE_SIZE_MAX: u16 = 128;
 pub const IXGBE_EEPROM_RD_BUFFER_MAX_COUNT: u16 = 256; // words read in burst
 pub const IXGBE_EEPROM_WR_BUFFER_MAX_COUNT: u16 = 256; // words write in burst
-pub const IXGBE_EEPROM_CTRL_2: u8 = 1;
-pub const IXGBE_EEPROM_CCD_BIT: u8 = 2;
+pub const IXGBE_EEPROM_CTRL_2: u16 = 1;
+pub const IXGBE_EEPROM_CCD_BIT: u16 = 2;
 
 pub const IXGBE_EEPROM_GRANT_ATTEMPTS: u32 = 1000; // EEPROM attempts to gain grant
 
@@ -2391,11 +2397,11 @@ pub const IXGBE_DEVICE_CAPS_FCOE_OFFLOADS: u32 = 0x2;
 pub const IXGBE_DEVICE_CAPS_NO_CROSSTALK_WR: u32 = 1 << 7;
 
 // Firmware pointers and flags
-pub const IXGBE_FW_LESM_PARAMETERS_PTR: u32 = 0x2;
-pub const IXGBE_FW_LESM_STATE_1: u32 = 0x1;
-pub const IXGBE_FW_LESM_STATE_ENABLED: u32 = 0x8000;
-pub const IXGBE_FW_PASSTHROUGH_PATCH_CONFIG_PTR: u32 = 0x4;
-pub const IXGBE_FW_PATCH_VERSION_4: u32 = 0x7;
+pub const IXGBE_FW_LESM_PARAMETERS_PTR: u16 = 0x2;
+pub const IXGBE_FW_LESM_STATE_1: u16 = 0x1;
+pub const IXGBE_FW_LESM_STATE_ENABLED: u16 = 0x8000;
+pub const IXGBE_FW_PASSTHROUGH_PATCH_CONFIG_PTR: u16 = 0x4;
+pub const IXGBE_FW_PATCH_VERSION_4: u16 = 0x7;
 
 // iSCSI/FCOE block pointers
 pub const IXGBE_FCOE_IBA_CAPS_BLK_PTR: u32 = 0x33;
@@ -3725,58 +3731,58 @@ pub const IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT: u32 = 3;
 pub const IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD: u32 = 0x1F << IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
 
 /* PHY */
-pub const IXGBE_I2C_EEPROM_DEV_ADDR: u32 = 0xA0;
-pub const IXGBE_I2C_EEPROM_DEV_ADDR2: u32 = 0xA2;
-pub const IXGBE_I2C_EEPROM_BANK_LEN: u32 = 0xFF;
+pub const IXGBE_I2C_EEPROM_DEV_ADDR: u8 = 0xA0;
+pub const IXGBE_I2C_EEPROM_DEV_ADDR2: u8 = 0xA2;
+pub const IXGBE_I2C_EEPROM_BANK_LEN: u8 = 0xFF;
 
 /* EEPROM byte offsets */
-pub const IXGBE_SFF_IDENTIFIER: u32 = 0x0;
-pub const IXGBE_SFF_IDENTIFIER_SFP: u32 = 0x3;
-pub const IXGBE_SFF_VENDOR_OUI_BYTE0: u32 = 0x25;
-pub const IXGBE_SFF_VENDOR_OUI_BYTE1: u32 = 0x26;
-pub const IXGBE_SFF_VENDOR_OUI_BYTE2: u32 = 0x27;
-pub const IXGBE_SFF_1GBE_COMP_CODES: u32 = 0x6;
-pub const IXGBE_SFF_10GBE_COMP_CODES: u32 = 0x3;
-pub const IXGBE_SFF_CABLE_TECHNOLOGY: u32 = 0x8;
-pub const IXGBE_SFF_CABLE_SPEC_COMP: u32 = 0x3C;
-pub const IXGBE_SFF_SFF_8472_SWAP: u32 = 0x5C;
-pub const IXGBE_SFF_SFF_8472_COMP: u32 = 0x5E;
-pub const IXGBE_SFF_SFF_8472_OSCB: u32 = 0x6E;
-pub const IXGBE_SFF_SFF_8472_ESCB: u32 = 0x76;
-pub const IXGBE_SFF_IDENTIFIER_QSFP_PLUS: u32 = 0xD;
-pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE0: u32 = 0xA5;
-pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE1: u32 = 0xA6;
-pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE2: u32 = 0xA7;
-pub const IXGBE_SFF_QSFP_CONNECTOR: u32 = 0x82;
-pub const IXGBE_SFF_QSFP_10GBE_COMP: u32 = 0x83;
-pub const IXGBE_SFF_QSFP_1GBE_COMP: u32 = 0x86;
-pub const IXGBE_SFF_QSFP_CABLE_LENGTH: u32 = 0x92;
-pub const IXGBE_SFF_QSFP_DEVICE_TECH: u32 = 0x93;
+pub const IXGBE_SFF_IDENTIFIER: u8 = 0x0;
+pub const IXGBE_SFF_IDENTIFIER_SFP: u8 = 0x3;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE0: u8 = 0x25;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE1: u8 = 0x26;
+pub const IXGBE_SFF_VENDOR_OUI_BYTE2: u8 = 0x27;
+pub const IXGBE_SFF_1GBE_COMP_CODES: u8 = 0x6;
+pub const IXGBE_SFF_10GBE_COMP_CODES: u8 = 0x3;
+pub const IXGBE_SFF_CABLE_TECHNOLOGY: u8 = 0x8;
+pub const IXGBE_SFF_CABLE_SPEC_COMP: u8 = 0x3C;
+pub const IXGBE_SFF_SFF_8472_SWAP: u8 = 0x5C;
+pub const IXGBE_SFF_SFF_8472_COMP: u8 = 0x5E;
+pub const IXGBE_SFF_SFF_8472_OSCB: u8 = 0x6E;
+pub const IXGBE_SFF_SFF_8472_ESCB: u8 = 0x76;
+pub const IXGBE_SFF_IDENTIFIER_QSFP_PLUS: u8 = 0xD;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE0: u8 = 0xA5;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE1: u8 = 0xA6;
+pub const IXGBE_SFF_QSFP_VENDOR_OUI_BYTE2: u8 = 0xA7;
+pub const IXGBE_SFF_QSFP_CONNECTOR: u8 = 0x82;
+pub const IXGBE_SFF_QSFP_10GBE_COMP: u8 = 0x83;
+pub const IXGBE_SFF_QSFP_1GBE_COMP: u8 = 0x86;
+pub const IXGBE_SFF_QSFP_CABLE_LENGTH: u8 = 0x92;
+pub const IXGBE_SFF_QSFP_DEVICE_TECH: u8 = 0x93;
 
 /* Bitmasks */
-pub const IXGBE_SFF_DA_PASSIVE_CABLE: u32 = 0x4;
-pub const IXGBE_SFF_DA_ACTIVE_CABLE: u32 = 0x8;
-pub const IXGBE_SFF_DA_SPEC_ACTIVE_LIMITING: u32 = 0x4;
-pub const IXGBE_SFF_1GBASESX_CAPABLE: u32 = 0x1;
-pub const IXGBE_SFF_1GBASELX_CAPABLE: u32 = 0x2;
-pub const IXGBE_SFF_1GBASET_CAPABLE: u32 = 0x8;
-pub const IXGBE_SFF_10GBASESR_CAPABLE: u32 = 0x10;
-pub const IXGBE_SFF_10GBASELR_CAPABLE: u32 = 0x20;
-pub const IXGBE_SFF_DA_BAD_HP_CABLE: u32 = 0x80;
-pub const IXGBE_SFF_SOFT_RS_SELECT_MASK: u32 = 0x8;
-pub const IXGBE_SFF_SOFT_RS_SELECT_10G: u32 = 0x8;
-pub const IXGBE_SFF_SOFT_RS_SELECT_1G: u32 = 0x0;
-pub const IXGBE_SFF_ADDRESSING_MODE: u32 = 0x4;
-pub const IXGBE_SFF_QSFP_DA_ACTIVE_CABLE: u32 = 0x1;
-pub const IXGBE_SFF_QSFP_DA_PASSIVE_CABLE: u32 = 0x8;
-pub const IXGBE_SFF_QSFP_CONNECTOR_NOT_SEPARABLE: u32 = 0x23;
-pub const IXGBE_SFF_QSFP_TRANSMITER_850NM_VCSEL: u32 = 0x0;
-pub const IXGBE_I2C_EEPROM_READ_MASK: u32 = 0x100;
-pub const IXGBE_I2C_EEPROM_STATUS_MASK: u32 = 0x3;
-pub const IXGBE_I2C_EEPROM_STATUS_NO_OPERATION: u32 = 0x0;
-pub const IXGBE_I2C_EEPROM_STATUS_PASS: u32 = 0x1;
-pub const IXGBE_I2C_EEPROM_STATUS_FAIL: u32 = 0x2;
-pub const IXGBE_I2C_EEPROM_STATUS_IN_PROGRESS: u32 = 0x3;
+pub const IXGBE_SFF_DA_PASSIVE_CABLE: u8 = 0x4;
+pub const IXGBE_SFF_DA_ACTIVE_CABLE: u8 = 0x8;
+pub const IXGBE_SFF_DA_SPEC_ACTIVE_LIMITING: u8 = 0x4;
+pub const IXGBE_SFF_1GBASESX_CAPABLE: u8 = 0x1;
+pub const IXGBE_SFF_1GBASELX_CAPABLE: u8 = 0x2;
+pub const IXGBE_SFF_1GBASET_CAPABLE: u8 = 0x8;
+pub const IXGBE_SFF_10GBASESR_CAPABLE: u8 = 0x10;
+pub const IXGBE_SFF_10GBASELR_CAPABLE: u8 = 0x20;
+pub const IXGBE_SFF_DA_BAD_HP_CABLE: u8 = 0x80;
+pub const IXGBE_SFF_SOFT_RS_SELECT_MASK: u8 = 0x8;
+pub const IXGBE_SFF_SOFT_RS_SELECT_10G: u8 = 0x8;
+pub const IXGBE_SFF_SOFT_RS_SELECT_1G: u8 = 0x0;
+pub const IXGBE_SFF_ADDRESSING_MODE: u8 = 0x4;
+pub const IXGBE_SFF_QSFP_DA_ACTIVE_CABLE: u8 = 0x1;
+pub const IXGBE_SFF_QSFP_DA_PASSIVE_CABLE: u8 = 0x8;
+pub const IXGBE_SFF_QSFP_CONNECTOR_NOT_SEPARABLE: u8 = 0x23;
+pub const IXGBE_SFF_QSFP_TRANSMITER_850NM_VCSEL: u8 = 0x0;
+pub const IXGBE_I2C_EEPROM_READ_MASK: u16 = 0x100;
+pub const IXGBE_I2C_EEPROM_STATUS_MASK: u8 = 0x3;
+pub const IXGBE_I2C_EEPROM_STATUS_NO_OPERATION: u8 = 0x0;
+pub const IXGBE_I2C_EEPROM_STATUS_PASS: u8 = 0x1;
+pub const IXGBE_I2C_EEPROM_STATUS_FAIL: u8 = 0x2;
+pub const IXGBE_I2C_EEPROM_STATUS_IN_PROGRESS: u8 = 0x3;
 
 pub const IXGBE_CS4227: u32 = 0xBE; /* CS4227 address */
 pub const IXGBE_CS4227_GLOBAL_ID_LSB: u32 = 0;
@@ -3825,26 +3831,28 @@ pub const IXGBE_SFF_VENDOR_OUI_AVAGO: u32 = 0x00176A00;
 pub const IXGBE_SFF_VENDOR_OUI_INTEL: u32 = 0x001B2100;
 
 /* I2C SDA and SCL timing parameters for standard mode */
-pub const IXGBE_I2C_T_HD_STA: u32 = 4;
-pub const IXGBE_I2C_T_LOW: u32 = 5;
-pub const IXGBE_I2C_T_HIGH: u32 = 4;
-pub const IXGBE_I2C_T_SU_STA: u32 = 5;
-pub const IXGBE_I2C_T_HD_DATA: u32 = 5;
-pub const IXGBE_I2C_T_SU_DATA: u32 = 1;
-pub const IXGBE_I2C_T_RISE: u32 = 1;
-pub const IXGBE_I2C_T_FALL: u32 = 1;
-pub const IXGBE_I2C_T_SU_STO: u32 = 4;
-pub const IXGBE_I2C_T_BUF: u32 = 5;
+pub const IXGBE_I2C_T_HD_STA: u64 = 4;
+pub const IXGBE_I2C_T_LOW: u64 = 5;
+pub const IXGBE_I2C_T_HIGH: u64 = 4;
+pub const IXGBE_I2C_T_SU_STA: u64 = 5;
+pub const IXGBE_I2C_T_HD_DATA: u64 = 5;
+pub const IXGBE_I2C_T_SU_DATA: u64 = 1;
+pub const IXGBE_I2C_T_RISE: u64 = 1;
+pub const IXGBE_I2C_T_FALL: u64 = 1;
+pub const IXGBE_I2C_T_SU_STO: u64 = 4;
+pub const IXGBE_I2C_T_BUF: u64 = 5;
 
 pub const IXGBE_SFP_DETECT_RETRIES: u32 = 10;
 
 pub const IXGBE_TN_LASI_STATUS_REG: u32 = 0x9005;
-pub const IXGBE_TN_LASI_STATUS_TEMP_ALARM: u32 = 0x0008;
+pub const IXGBE_TN_LASI_STATUS_TEMP_ALARM: u16 = 0x0008;
 
 /* SFP+ SFF-8472 Compliance */
 pub const IXGBE_SFF_SFF_8472_UNSUP: u32 = 0x00;
 
 pub const IXGBE_FLAGS_DOUBLE_RESET_REQUIRED: u8 = 0x01;
+
+pub const IXGBE_SMARTSPEED_MAX_RETRIES: usize = 3;
 
 #[repr(C, packed)]
 pub struct IxgbeHicHdr {

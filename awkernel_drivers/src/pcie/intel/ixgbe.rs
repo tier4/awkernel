@@ -1,13 +1,17 @@
 //! # Intel 10 Gigabit Ethernet Controller
 
-use crate::pcie::{
-    self,
-    capability::{msi::MultipleMessage, msix::Msix},
-    intel::ixgbe::ixgbe_hw::MacType,
-    registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE,
-    PCIeDevice, PCIeDeviceErr, PCIeInfo,
+use crate::{
+    if_media::Media,
+    pcie::{
+        self,
+        capability::{msi::MultipleMessage, msix::Msix},
+        intel::ixgbe::ixgbe_hw::{MacType, MediaType},
+        registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE,
+        PCIeDevice, PCIeDeviceErr, PCIeInfo,
+    },
 };
 use alloc::{
+    alloc::Global,
     borrow::Cow,
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
@@ -47,12 +51,14 @@ use core::{
     fmt::{self, write, Debug},
     mem,
 };
+use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use smoltcp::wire::ArpPacket;
 
+mod ixgbe_82599;
 mod ixgbe_hw;
 mod ixgbe_operations;
 mod ixgbe_x540;
@@ -61,7 +67,7 @@ mod ixgbe_x550;
 #[allow(dead_code)]
 mod ixgbe_regs;
 
-use ixgbe_hw::{get_num_queues, IxgbeHw};
+use ixgbe_hw::{get_num_queues, IxgbeHw, SmartSpeed};
 use ixgbe_regs::*;
 
 use self::ixgbe_operations::IxgbeOperations;
@@ -333,6 +339,10 @@ impl IxgbeInner {
         }
 
         // ixgbe_identify_hardware()
+        if hw.mac.mac_type != MacType::IxgbeMac82598EB {
+            // Pick up the 82599 and VF settings */
+            hw.phy.smart_speed = SmartSpeed::IxgbeSmartSpeedOn;
+        }
         let num_segs = IXGBE_82599_SCATTER;
 
         let mut irq_to_rx_tx_link = BTreeMap::new();
@@ -369,12 +379,19 @@ impl IxgbeInner {
             PCIeInt::None
         };
 
-        //ixgbe_init_hw();
-        ops.mac_init_hw(&mut info, &mut hw)?;
-        log::debug!("mac_init_hw() done");
+        log::info!("before mac_init_hw");
+        match ops.mac_init_hw(&mut info, &mut hw) {
+            Err(e) => log::debug!("error:{:?}", e),
+            _ => (),
+        }
+        log::info!("after mac_init_hw");
 
+        if hw.mac.mac_type == MacType::IxgbeMac82599EB {
+            enable_tx_laser_multispeed_fiber(&info)?;
+        }
+
+        log::info!("before phy_set_power");
         ops.phy_set_power(&info, &hw, true)?;
-        log::debug!("phy_set_power() done");
 
         // setup interface
         // TODO: Check if these are correct
@@ -398,7 +415,6 @@ impl IxgbeInner {
         // Get the PCI-E bus info and determine LAN ID
         let businfo = ops.mac_get_bus_info(&mut info, &mut hw)?;
         hw.bus = businfo;
-        log::debug!("mac_get_bus_info() done");
 
         // Set an initial default flow control value
         hw.fc.requested_mode = ixgbe_hw::FcMode::IxgbeFcFull;
@@ -407,6 +423,8 @@ impl IxgbeInner {
         let mut ctrl_ext = ixgbe_hw::read_reg(&info, IXGBE_CTRL_EXT)?;
         ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
         ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext)?;
+
+        log::info!("new end");
 
         let ixgbe = Self {
             info,
@@ -429,6 +447,7 @@ impl IxgbeInner {
     }
 
     fn init(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        log::info!("init!!!!!!");
         use ixgbe_hw::MacType::*;
 
         self.stop(que)?;
@@ -545,7 +564,11 @@ impl IxgbeInner {
 
         // Check on any SFP devices that need to be kick-started
         if self.hw.phy.phy_type == ixgbe_hw::PhyType::IxgbePhyNone {
-            self.ops.identify_phy(&self.info, &mut self.hw)?;
+            if let Err(e) = self.ops.phy_identify(&self.info, &mut self.hw) {
+                if e == IxgbeDriverErr::SfpNotSupported {
+                    log::info!("Unsupported SFP+ module type was detected.");
+                }
+            }
             // We may be better to print error message specifically for Err(SfpNotSupported) as OpenBSD does.
         }
 
@@ -592,6 +615,16 @@ impl IxgbeInner {
         self.hw.adapter_stopped = false;
         self.ops.mac_stop_adapter(&mut self.info, &mut self.hw)?;
 
+        if self.hw.mac.mac_type == MacType::IxgbeMac82599EB {
+            ixgbe_operations::stop_mac_link_on_d3_82599(&*self.ops, &self.info, &mut self.hw)?;
+            if self.ops.mac_get_media_type(&self.info, &mut self.hw)
+                == MediaType::IxgbeMediaTypeFiber
+                && !mng_enabled(&self.info, &self.hw)?
+            {
+                ixgbe_operations::disable_tx_laser_multispeed_fiber(&self.info, &self.hw)?;
+            }
+        }
+
         self.ops.mac_set_rar(
             &self.info,
             self.hw.mac.num_rar_entries,
@@ -601,10 +634,10 @@ impl IxgbeInner {
             IXGBE_RAH_AV,
         )?;
 
-        //// let hardware know driver is unloading
-        //let mut ctrl_ext = ixgbe_hw::read_reg(&self.info, IXGBE_CTRL_EXT)?;
-        //ctrl_ext &= !IXGBE_CTRL_EXT_DRV_LOAD;
-        //ixgbe_hw::write_reg(&self.info, IXGBE_CTRL_EXT, ctrl_ext);
+        //From FreeBSD // let hardware know driver is unloading
+        // let mut ctrl_ext = ixgbe_hw::read_reg(&self.info, IXGBE_CTRL_EXT)?;
+        // ctrl_ext &= !IXGBE_CTRL_EXT_DRV_LOAD;
+        // ixgbe_hw::write_reg(&self.info, IXGBE_CTRL_EXT, ctrl_ext);
 
         for que in que.iter() {
             let mut node = MCSNode::new();
@@ -640,7 +673,7 @@ impl IxgbeInner {
     fn update_link_status(&mut self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::LinkState::*;
 
-        let (speed, link_up) = self.ops.mac_check_link(&self.info, &self.hw, false)?;
+        let (speed, link_up) = self.ops.mac_check_link(&self.info, &mut self.hw, false)?;
         self.link_speed = speed;
         self.link_active = link_up;
 
@@ -1145,19 +1178,25 @@ impl IxgbeInner {
     }
 
     fn config_link(&mut self) -> Result<(), IxgbeDriverErr> {
-        if self.is_sfp(&self.hw) {
-            // TODO:
+        if self.is_sfp() {
+            if self.hw.phy.multispeed_fiber {
+                self.ops.mac_setup_sfp(&self.info, &mut self.hw)?;
+                enable_tx_laser_multispeed_fiber(&self.info)?;
+                self.handle_msf()?;
+            } else {
+                self.handle_mod()?;
+            }
             log::info!("sfp is not supported");
             return Err(IxgbeDriverErr::NotSupported);
         } else {
-            let (speed, link_up) = self.ops.mac_check_link(&self.info, &self.hw, false)?;
+            let (speed, link_up) = self.ops.mac_check_link(&self.info, &mut self.hw, false)?;
             self.link_active = link_up;
             self.link_speed = speed; // According to FreeBSD
 
-            let mut autoneg = self.hw.phy.autoneg_advertised;
+            let mut _autoneg = self.hw.phy.autoneg_advertised;
             let _negotiate;
-            if autoneg == IXGBE_LINK_SPEED_UNKNOWN {
-                (autoneg, _negotiate) = self
+            if _autoneg == IXGBE_LINK_SPEED_UNKNOWN {
+                (_autoneg, _negotiate) = self
                     .ops
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
@@ -1168,10 +1207,51 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn is_sfp(&self, hw: &IxgbeHw) -> bool {
+    // SFP module interrupts handler
+    fn handle_mod(&mut self) -> Result<(), IxgbeDriverErr> {
+        match self.ops.phy_identify_sfp(&self.info, &mut self.hw) {
+            Ok(_) => (),
+            Err(e) => {
+                if e == IxgbeDriverErr::SfpNotSupported {
+                    log::error!("Unsupported SFP+ module type was detected!\n");
+                }
+                return Err(e);
+            }
+        }
+
+        match self.ops.mac_setup_sfp(&self.info, &mut self.hw) {
+            Ok(_) => (),
+            Err(e) => {
+                if e == IxgbeDriverErr::SfpNotSupported {
+                    log::error!("Unsupported SFP+ module type was detected!");
+                    log::error!("Setup failure - unsupported SFP+ module type!")
+                }
+                return Err(e);
+            }
+        }
+
+        self.handle_msf()
+    }
+
+    // MSF (multispeed fiber) interrupts handler
+    fn handle_msf(&mut self) -> Result<(), IxgbeDriverErr> {
+        let mut _autoneg = self.hw.phy.autoneg_advertised;
+        let _negotiate;
+        if self.hw.phy.autoneg_advertised == 0 {
+            (_autoneg, _negotiate) = self
+                .ops
+                .mac_get_link_capabilities(&self.info, &mut self.hw)?;
+            return Ok(());
+        }
+
+        self.ops
+            .mac_setup_link(&self.info, &mut self.hw, _autoneg, true)
+    }
+
+    fn is_sfp(&self) -> bool {
         use ixgbe_hw::PhyType::*;
 
-        match hw.phy.phy_type {
+        match self.hw.phy.phy_type {
             IxgbePhySfpAvago
             | IxgbePhySfpFtl
             | IxgbePhySfpIntel
@@ -1303,14 +1383,20 @@ impl IxgbeInner {
 
 impl Ixgbe {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let (inner, que) = IxgbeInner::new(info)?;
+        //let (inner, que) = IxgbeInner::new(info)?;
+        match IxgbeInner::new(info) {
+            Err(e) => log::debug!("debug:{:?}", e),
+            _ => (),
+        }
+        log::info!("completed");
 
-        let ixgbe = Self {
-            inner: RwLock::new(inner),
-            que,
-        };
+        //let ixgbe = Self {
+        //inner: RwLock::new(inner),
+        //que,
+        //};
 
-        Ok(ixgbe)
+        //Ok(ixgbe)
+        Err(PCIeDeviceErr::NotImplemented)
     }
 
     fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
@@ -1422,7 +1508,35 @@ impl Ixgbe {
             }
         }
 
-        // TODO: Pluggable optics-related interrupt
+        // Pluggable optics-related interrupt
+        let mod_mask;
+        let msf_mask;
+        if inner.is_sfp() {
+            if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
+                mod_mask = IXGBE_EICR_GPI_SDP0_X540;
+                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+            } else if inner.hw.mac.mac_type == MacType::IxgbeMacX540
+                || inner.hw.mac.mac_type == MacType::IxgbeMacX550
+                || inner.hw.mac.mac_type == MacType::IxgbeMacX550EMX
+            {
+                mod_mask = IXGBE_EICR_GPI_SDP2_X540;
+                msf_mask = IXGBE_EICR_GPI_SDP1_X540;
+            } else {
+                mod_mask = IXGBE_EICR_GPI_SDP2;
+                msf_mask = IXGBE_EICR_GPI_SDP1;
+            }
+            if reg_eicr & mod_mask != 0 {
+                // Clear the interrupt
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, mod_mask)?;
+                inner.handle_mod()?;
+            } else if (inner.hw.phy.media_type != MediaType::IxgbeMediaTypeCopper)
+                && (reg_eicr & msf_mask != 0)
+            {
+                // Clear the interrupt
+                ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, msf_mask)?;
+                inner.handle_msf()?;
+            }
+        }
 
         // Check for fan failure
         if inner.info.id == IXGBE_DEV_ID_82598AT && reg_eicr & IXGBE_EICR_GPI_SDP1 != 0 {
@@ -1435,12 +1549,17 @@ impl Ixgbe {
         {
             // Clear the interrupt
             ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP0_X540)?;
-            inner.ops.phy_handle_phy();
+            self.handle_phy()?;
         }
 
         ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS, IXGBE_EIMS_OTHER | IXGBE_EIMS_LSC)?;
 
         Ok(())
+    }
+
+    fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
+        log::error!("handle_phy: Not implemented");
+        Err(IxgbeDriverErr::NotImplemented)
     }
 
     fn rx_fill(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
