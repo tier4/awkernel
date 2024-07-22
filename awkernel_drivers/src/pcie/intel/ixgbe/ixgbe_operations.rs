@@ -3723,23 +3723,23 @@ pub trait IxgbeOperations: Send {
         _speed: u32,
         _autoneg_wait_to_complete: bool,)->Result<(), IxgbeDriverErr>{
         log::error!("mac_setup_sfp: Not Implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     fn mac_setup_sfp(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
         log::error!("mac_setup_sfp: Not Implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     fn mac_set_rate_select_speed(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw, _speed: u32)->Result<(),IxgbeDriverErr>{
         log::error!("mac_setup_sfp: Not Implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     // PHY Operations
     fn phy_init(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
         log::error!("phy_init: Not implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     // phy_reset - Performs a PHY reset
@@ -3826,17 +3826,17 @@ pub trait IxgbeOperations: Send {
 
     fn phy_setup_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_setup_phy_link_tnx: Not implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     fn phy_check_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_check_phy_link_tnx: Not implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     fn phy_get_phy_firmware_version_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_get_phy_firmware_version_tnx: Not implemented");
-        return Err(IxgbeDriverErr::NotImplemented);
+        Ok(())
     }
 
     fn phy_read_i2c_byte(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8)->Result<u8, IxgbeDriverErr>{

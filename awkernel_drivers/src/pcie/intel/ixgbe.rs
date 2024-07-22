@@ -1186,8 +1186,6 @@ impl IxgbeInner {
             } else {
                 self.handle_mod()?;
             }
-            log::info!("sfp is not supported");
-            return Err(IxgbeDriverErr::NotSupported);
         } else {
             let (speed, link_up) = self.ops.mac_check_link(&self.info, &mut self.hw, false)?;
             self.link_active = link_up;
@@ -1383,20 +1381,18 @@ impl IxgbeInner {
 
 impl Ixgbe {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        //let (inner, que) = IxgbeInner::new(info)?;
-        match IxgbeInner::new(info) {
-            Err(e) => log::debug!("debug:{:?}", e),
-            _ => (),
-        }
-        log::info!("completed");
+        let (inner, que) = IxgbeInner::new(info)?;
+        //match IxgbeInner::new(info) {
+        //Err(e) => log::debug!("debug:{:?}", e),
+        //_ => (),
+        //}
 
-        //let ixgbe = Self {
-        //inner: RwLock::new(inner),
-        //que,
-        //};
+        let ixgbe = Self {
+            inner: RwLock::new(inner),
+            que,
+        };
 
-        //Ok(ixgbe)
-        Err(PCIeDeviceErr::NotImplemented)
+        Ok(ixgbe)
     }
 
     fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
