@@ -47,7 +47,7 @@ fn init_gicv2(node: &StaticArrayedNode) -> Result<(), &'static str> {
 
     let gic = awkernel_drivers::interrupt_controller::gicv2::GICv2::new(gicd_base, gicc_base);
 
-    register_interrupt_controller(Box::new(gic));
+    unsafe { register_interrupt_controller(Box::new(gic)) };
 
     log::info!("GICv2 has been initialized.");
     log::info!("GICD_BASE = 0x{gicd_base:016x}");
@@ -91,7 +91,7 @@ fn init_gicv3(node: &StaticArrayedNode) -> Result<(), &'static str> {
     let gic =
         awkernel_drivers::interrupt_controller::gicv3::GICv3::new(gicd_base, gicr_base, its_base);
 
-    register_interrupt_controller(Box::new(gic));
+    unsafe { register_interrupt_controller(Box::new(gic)) };
 
     log::info!("GICv3 has been initialized.");
     log::info!("GICD_BASE = 0x{gicd_base:016x}");
@@ -119,7 +119,7 @@ fn init_bcm2836(
 
     let ctrl =
         awkernel_drivers::interrupt_controller::bcm2835::BCM2835IntCtrl::new(base, local_base);
-    register_interrupt_controller(Box::new(ctrl));
+    unsafe { register_interrupt_controller(Box::new(ctrl)) };
 
     log::info!("bcm2836-armctrl-ic has been initialized.");
     log::info!("bcm2836-armctrl-ic: 0x{base:016x}");

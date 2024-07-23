@@ -1066,6 +1066,151 @@ entry_point:
 );
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt-controller"><a class="header" href="#interrupt-controller">Interrupt Controller</a></h1>
+<p>The <code>InterruptController</code> is a trait for interrupt controllers.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait InterruptController: Sync + Send {
+    fn enable_irq(&amp;mut self, irq: u16);
+    fn disable_irq(&amp;mut self, irq: u16);
+    fn pending_irqs(&amp;self) -&gt; Box&lt;dyn Iterator&lt;Item = u16&gt;&gt;;
+
+    /// Send an inter-process interrupt to `target` CPU.
+    fn send_ipi(&amp;mut self, irq: u16, target: u32);
+
+    /// Send an inter-process interrupt to all CPUs.
+    fn send_ipi_broadcast(&amp;mut self, irq: u16);
+
+    /// Send an inter-process interrupt to all CPUs except the sender CPU.
+    fn send_ipi_broadcast_without_self(&amp;mut self, irq: u16);
+
+    /// Initialization for non-primary core.
+    fn init_non_primary(&amp;mut self) {}
+
+    /// End of interrupt.
+    /// This will be used by only x86_64.
+    fn eoi(&amp;mut self) {}
+
+    /// Return the range of IRQs, which can be registered.
+    /// The range is [start, end).
+    fn irq_range(&amp;self) -&gt; (u16, u16);
+
+    /// Return the range of IRQs, which can be used for PnP devices.
+    /// The range is [start, end).
+    fn irq_range_for_pnp(&amp;self) -&gt; (u16, u16);
+
+    /// Set the PCIe MSI or MSI-X interrupt
+    #[allow(unused_variables)]
+    fn set_pcie_msi(
+        &amp;self,
+        segment_number: usize,
+        target: u32,
+        irq: u16,
+        message_data: &amp;mut u32,
+        message_address: &amp;mut u32,
+        message_address_upper: Option&lt;&amp;mut u32&gt;,
+    ) -&gt; Result&lt;IRQ, &amp;'static str&gt; {
+        Err("Interrupt controller does not support PCIe MSI or MSI-X.")
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Some related functions are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn register_handler&lt;F&gt;(...) -&gt; Result&lt;(), &amp;'static str&gt;</code></td><td>Register a handler for the interrupt.</td></tr>
+<tr><td><code>fn get_handlers() -&gt; BTreeMap&lt;u16, Cow&lt;'static, str&gt;&gt;</code></td><td>Return the list of IRQs and their handlers.</td></tr>
+<tr><td><code>fn enable_irq(irq: u16)</code></td><td>Enable the interrupt.</td></tr>
+<tr><td><code>fn disable_irq(irq: u16)</code></td><td>Disable the interrupt.</td></tr>
+<tr><td><code>fn send_ipi(irq: u16, target: u32)</code></td><td>Send an inter-process interrupt to <code>target</code> CPU.</td></tr>
+<tr><td><code>fn send_ipi_broadcast(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs.</td></tr>
+<tr><td><code>fn send_ipi_broadcast_without_self(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs except the sender CPU.</td></tr>
+<tr><td><code>fn register_handler_pcie_msi&lt;F&gt;(...) -&gt; Result&lt;IRQ, &amp;'static str&gt;</code></td><td>Register a handler for PCIe MSI or MSI-X interrupt.</td></tr>
+<tr><td><code>fn handle_irq(irq: u16)</code></td><td>Handle the interrupt.</td></tr>
+<tr><td><code>fn handle_irqs()</code></td><td>Handle all pending interrupts.</td></tr>
+<tr><td><code>fn enable()</code></td><td>Enable interrupts.</td></tr>
+<tr><td><code>fn disable()</code></td><td>Disable interrupts.</td></tr>
+<tr><td><code>fn eoi()</code></td><td>End of interrupt.</td></tr>
+<tr><td><code>fn handle_preemption()</code></td><td>Handle preemption.</td></tr>
+<tr><td><code>fn set_preempt_irq(irq: u16, preemption: unsafe fn())</code></td><td>Set the preemption handler.</td></tr>
+<tr><td><code>fn get_preempt_irq() -&gt; u16</code></td><td>Return the IRQ number for preemption.</td></tr>
+</tbody></table>
+</div>
+<h1 id="handling-interrupts"><a class="header" href="#handling-interrupts">Handling Interrupts</a></h1>
+<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
+<p><code>handle_irq()</code> is called in interrupt handlers defined in.
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> for x86_64 as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>macro_rules! irq_handler {
+    ($name:ident, $id:expr) =&gt; {
+        extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+            awkernel_lib::interrupt::eoi(); // End of interrupt.
+            awkernel_lib::interrupt::handle_irq($id);
+        }
+    };
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>irq_handler</code> macro is called in each interrupt handler.</p>
+<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
+<p>The <code>handle_irqs</code> function is called in interrupt handlers defined in.
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/exception.rs">kernel/src/arch/aarch64/exception.rs</a> for aarch64 as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[no_mangle]
+pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
+    interrupt::handle_irqs();
+}
+<span class="boring">}</span></code></pre></pre>
+<h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
+<p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
+This means that the target CPU should handle the preemption request if it receives the IPI.</p>
+<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
+<p>For x86_64, the <code>handle_preempt</code> function is called in a interrupt handler defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
+    awkernel_lib::interrupt::eoi(); // End of interrupt.
+    awkernel_lib::interrupt::handle_preemption();
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
+<p>For AArch64, handling preemption is performed in the <code>handle_irqs</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Handle all pending interrupt requests.
+/// This function will be used by only aarch64 and called from CPU's interrupt handlers.
+#[cfg(feature = "aarch64")]
+pub fn handle_irqs() {
+    use crate::{heap, unwind::catch_unwind};
+    use core::mem::transmute;
+
+    let handlers = IRQ_HANDLERS.read();
+    let mut need_preemption = false;
+
+    // omitted
+
+    if need_preemption {
+        let ptr = PREEMPT_FN.load(Ordering::Relaxed);
+        let preemption = unsafe { transmute::&lt;*mut (), fn()&gt;(ptr) };
+        preemption();
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<p>There are some device drivers for interrupt controllers in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller">awkernel_drivers/src/interrupt_controller</a>.</p>
+<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
+<p>xAPIC and x2APIC are supported for x86_64.</p>
+<ul>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/interrupt_controller/apic.rs">xAPIC and x2APIC</a></li>
+</ul>
+<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
+<p>BCM2835's (Raspberry Pi 3) interrupt controller, GICv2 and GICv3 are supported for AAarch64.</p>
+<ul>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/bcm2835.rs">BCM2835's interrupt controller</a></li>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv2.rs">GICv2</a></li>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
+</ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
