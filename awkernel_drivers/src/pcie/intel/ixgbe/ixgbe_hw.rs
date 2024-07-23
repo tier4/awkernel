@@ -1,16 +1,10 @@
-use awkernel_lib::{
-    addr::{virt_addr::VirtAddr, Addr},
-    net::ether::{ETHER_CRC_LEN, ETHER_MAX_LEN, ETHER_MIN_LEN, MAX_JUMBO_FRAME_SIZE},
-};
-use bitflags::bitflags;
-
-use crate::pcie::{pcie_id::IXGBE_INTEL_VENDOR_ID, BaseAddress, PCIeInfo};
+use crate::pcie::{pcie_id::IXGBE_INTEL_VENDOR_ID, PCIeInfo};
 
 use alloc::boxed::Box;
 
 use super::{
-    ixgbe_82599, ixgbe_operations::IxgbeOperations, ixgbe_regs::*, ixgbe_x540,
-    ixgbe_x540::IxgbeX540, ixgbe_x550, ixgbe_x550::IxgbeX550, IxgbeDriverErr,
+    ixgbe_82599, ixgbe_operations::IxgbeOperations, ixgbe_regs::*, ixgbe_x540, ixgbe_x550,
+    IxgbeDriverErr,
 };
 
 pub const IXGBE_DEVICES: [(u16, u16); 74] = [
@@ -376,11 +370,6 @@ impl IxgbeHw {
         self.mac.mac_type
     }
 
-    //pub fn get_max_frame_size(&self) -> u32 {
-    //self.max_frame_size
-    //}
-    /* Set an initial default flow control value */
-
     pub fn get_mac_addr(&self) -> [u8; IXGBE_ETH_LENGTH_OF_ADDRESS] {
         self.mac.addr
     }
@@ -413,6 +402,7 @@ pub enum MacType {
     IxgbeMacX550EMAVf,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum PhyType {
     IxgbePhyUnknown = 0,
@@ -496,6 +486,7 @@ impl TryFrom<u16> for SfpType {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum MediaType {
     IxgbeMediaTypeUnknown = 0,
@@ -508,6 +499,7 @@ pub enum MediaType {
     IxgbeMediaTypeVirtual,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum SmartSpeed {
     IxgbeSmartSpeedAuto = 0,
@@ -526,6 +518,7 @@ pub enum FcMode {
 }
 
 // PCI bus types
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum BusType {
     IxgbeBusTypeUnknown = 0,
@@ -537,6 +530,7 @@ pub enum BusType {
 }
 
 // PCI bus speeds
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum BusSpeed {
     IxgbeBusSpeedUnknown = 0,
@@ -552,6 +546,7 @@ pub enum BusSpeed {
 }
 
 // PCI bus widths
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum BusWidth {
     IxgbeBusWidthUnknown = 0,
@@ -564,6 +559,7 @@ pub enum BusWidth {
     IxgbeBusWidthReserved,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum LinkState {
     LinkStateUnown = 0,  /* link unknown */

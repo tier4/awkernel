@@ -1090,21 +1090,15 @@ fn read_bar(
             let size = {
                 let high_bar = config_space.read_u32(high_offset);
 
-                config_space.write_u32(4, 0x04);
                 config_space.write_u32(!0, offset);
                 config_space.write_u32(!0, high_offset);
 
                 let low_size = config_space.read_u32(offset);
                 let high_size = config_space.read_u32(high_offset);
-                log::info!("low_size:{:X}", low_size);
-                log::info!("high_size:{:X}", high_size);
-                //if device_num == 7 && function_num == 0 {
-                //loop {}
-                //}
+
                 config_space.write_u32(bar, offset);
                 config_space.write_u32(high_bar, high_offset);
 
-                config_space.write_u32(6, 0x04);
                 (!((high_size as u64) << 32 | ((low_size & BAR_MEM_ADDR_MASK) as u64)) + 1) as usize
             };
 

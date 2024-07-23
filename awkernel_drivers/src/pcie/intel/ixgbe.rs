@@ -1,17 +1,11 @@
 //! # Intel 10 Gigabit Ethernet Controller
 
-use crate::{
-    if_media::Media,
-    pcie::{
-        self,
-        capability::{msi::MultipleMessage, msix::Msix},
-        intel::ixgbe::ixgbe_hw::{MacType, MediaType},
-        registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE,
-        PCIeDevice, PCIeDeviceErr, PCIeInfo,
-    },
+use crate::pcie::{
+    capability::msi::MultipleMessage,
+    intel::ixgbe::ixgbe_hw::{MacType, MediaType},
+    PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{
-    alloc::Global,
     borrow::Cow,
     boxed::Box,
     collections::{BTreeMap, BTreeSet},
@@ -21,9 +15,9 @@ use alloc::{
 };
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
-    addr::{virt_addr::VirtAddr, Addr},
+    addr::Addr,
     console,
-    delay::wait_microsec,
+    delay::{wait_microsec, wait_millisec},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -47,16 +41,12 @@ use awkernel_lib::{
         rwlock::RwLock,
     },
 };
-use core::{
-    fmt::{self, write, Debug},
-    mem,
-};
+use core::fmt::Debug;
 use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use smoltcp::wire::ArpPacket;
 
 mod ixgbe_82599;
 mod ixgbe_hw;
@@ -67,7 +57,7 @@ mod ixgbe_x550;
 #[allow(dead_code)]
 mod ixgbe_regs;
 
-use ixgbe_hw::{get_num_queues, IxgbeHw, SmartSpeed};
+use ixgbe_hw::{get_num_queues, SmartSpeed};
 use ixgbe_regs::*;
 
 use self::ixgbe_operations::IxgbeOperations;
@@ -76,12 +66,6 @@ const DEVICE_NAME: &str = "Intel 10 Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "ixgbe";
 
 const RECV_QUEUE_SIZE: usize = 32;
-
-enum QueueStatus {
-    IxgbeQueueIdle,
-    IxgbeQueueWorking,
-    IxgbeQueueHung,
-}
 
 pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
@@ -100,7 +84,6 @@ pub struct Tx {
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool<TxRing>,
     txd_cmd: u32,
-    //queue_status: QueueStatus,
     write_buf: Option<DMAPool<TxBuffer>>,
 }
 pub struct Rx {
@@ -125,24 +108,14 @@ struct AdvTxDesc {
     olinfo_status: u32,
 }
 
-#[derive(Clone, Copy)]
-struct TxWb {
-    rsvd: u64, // Reserved
-    nxtseq_seed: u32,
-    status: u32,
-}
-
-//union AdvTxDesc {
-//read: TxRead,
-//wb: TxWb,
-//}
-
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct RxRead {
     pkt_addr: u64, // Packet buffer address
     hdr_addr: u64, // Header buffer address
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct RxWb {
     lower_lo_dword: u32,
@@ -152,22 +125,11 @@ struct RxWb {
     upper_vlan: u16,
 }
 
-#[derive(Clone, Copy)]
-struct RxWbDetail {
-    lower_lo_dword_hs_rss_pkt_info: u16,
-    lower_lo_dword_hs_rss_hdr_info: u16,
-    lower_hi_dword_csum_ip_ip_id: u16,
-    lower_hi_dword_csum_ip_csum: u16,
-    upper_status_error: u32,
-    upper_length: u16,
-    upper_vlan: u16,
-}
-
+#[allow(dead_code)]
 union AdvRxDesc {
     data: [u64; 2],
     read: RxRead,
     wb: RxWb,
-    wbdetail: RxWbDetail,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -379,18 +341,15 @@ impl IxgbeInner {
             PCIeInt::None
         };
 
-        log::info!("before mac_init_hw");
         match ops.mac_init_hw(&mut info, &mut hw) {
             Err(e) => log::debug!("error:{:?}", e),
             _ => (),
         }
-        log::info!("after mac_init_hw");
 
         if hw.mac.mac_type == MacType::IxgbeMac82599EB {
             enable_tx_laser_multispeed_fiber(&info)?;
         }
 
-        log::info!("before phy_set_power");
         ops.phy_set_power(&info, &hw, true)?;
 
         // setup interface
@@ -424,8 +383,6 @@ impl IxgbeInner {
         ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
         ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext)?;
 
-        log::info!("new end");
-
         let ixgbe = Self {
             info,
             hw,
@@ -447,7 +404,6 @@ impl IxgbeInner {
     }
 
     fn init(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        log::info!("init!!!!!!");
         use ixgbe_hw::MacType::*;
 
         self.stop(que)?;
@@ -566,7 +522,7 @@ impl IxgbeInner {
         if self.hw.phy.phy_type == ixgbe_hw::PhyType::IxgbePhyNone {
             if let Err(e) = self.ops.phy_identify(&self.info, &mut self.hw) {
                 if e == IxgbeDriverErr::SfpNotSupported {
-                    log::info!("Unsupported SFP+ module type was detected.");
+                    log::error!("Unsupported SFP+ module type was detected.");
                 }
             }
             // We may be better to print error message specifically for Err(SfpNotSupported) as OpenBSD does.
@@ -1120,7 +1076,7 @@ impl IxgbeInner {
         }
 
         let linkvec = que.len() as u8;
-        /* For the Link interrupt */
+        // For the Link interrupt
         self.set_ivar(1, linkvec, -1)?;
 
         Ok(())
@@ -1199,7 +1155,8 @@ impl IxgbeInner {
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
             //TODO: Consider whether this is necessary.
-            // self.ops.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
+            self.ops
+                .mac_setup_link(&self.info, &mut self.hw, _autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1239,7 +1196,6 @@ impl IxgbeInner {
             (_autoneg, _negotiate) = self
                 .ops
                 .mac_get_link_capabilities(&self.info, &mut self.hw)?;
-            return Ok(());
         }
 
         self.ops
@@ -1382,10 +1338,6 @@ impl IxgbeInner {
 impl Ixgbe {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let (inner, que) = IxgbeInner::new(info)?;
-        //match IxgbeInner::new(info) {
-        //Err(e) => log::debug!("debug:{:?}", e),
-        //_ => (),
-        //}
 
         let ixgbe = Self {
             inner: RwLock::new(inner),
@@ -1468,9 +1420,9 @@ impl Ixgbe {
                 ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
                 // First get the cause
                 reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
-                /* Be sure the queue bits are not cleared */
+                // Be sure the queue bits are not cleared
                 reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
-                /* Clear interrupt with write */
+                // Clear interrupt with write
                 ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
             }
             _ => {
@@ -1505,9 +1457,9 @@ impl Ixgbe {
         }
 
         // Pluggable optics-related interrupt
-        let mod_mask;
-        let msf_mask;
         if inner.is_sfp() {
+            let mod_mask;
+            let msf_mask;
             if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
                 mod_mask = IXGBE_EICR_GPI_SDP0_X540;
                 msf_mask = IXGBE_EICR_GPI_SDP1_X540;
@@ -1545,7 +1497,8 @@ impl Ixgbe {
         {
             // Clear the interrupt
             ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP0_X540)?;
-            self.handle_phy()?;
+            // TODO: The below is for X550em.
+            // self.handle_phy()?;
         }
 
         ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS, IXGBE_EIMS_OTHER | IXGBE_EIMS_LSC)?;
@@ -1553,6 +1506,8 @@ impl Ixgbe {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    // This is for X550em.
     fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("handle_phy: Not implemented");
         Err(IxgbeDriverErr::NotImplemented)
@@ -1883,6 +1838,7 @@ impl Ixgbe {
             let write_buf = tx.write_buf.as_mut().unwrap();
             let dst = &mut write_buf.as_mut()[head];
             core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+            // TODO: cksum offloading
             //if let Some(cksum_offset) = cksum_offset {
             //log::info!("cksum: {}", cksum_pseudo);
             //core::ptr::write(
@@ -2211,7 +2167,6 @@ impl NetDevice for Ixgbe {
                 log::error!("ixgbe: init failed: {:?}", err_init);
                 Err(NetDevError::DeviceError)
             } else {
-                log::info!("ixgbe: link_active {}", inner.link_active);
                 inner.flags.insert(NetFlags::UP);
                 Ok(())
             }

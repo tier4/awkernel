@@ -3,13 +3,9 @@ use super::{
     ixgbe_regs::*,
     IxgbeDriverErr::{self, *},
 };
-use crate::{if_media::Media, pcie::{capability::pcie_cap::PCIeCap, intel::ixgbe::Ixgbe, PCIeInfo}};
-use acpi::address;
+use crate::pcie::{capability::pcie_cap::PCIeCap,  PCIeInfo};
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
-use embedded_hal::i2c;
 use ixgbe_hw::{IxgbeHw, PhyType, MacType, EepromType, MediaType, SfpType};
-
-
 
 // clear_tx_pending - Clear pending TX work from the PCIe fifo
 // The 82599 and x540 MACs can experience issues if TX work is still pending
@@ -837,8 +833,8 @@ pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(ops:&T, info
         ()}
 		}
 
-		/* Allow module to change analog characteristics (1G->10G) */
-		wait_microsec(40);
+		// Allow module to change analog characteristics (1G->10G)
+		wait_millisec(40);
 
 		ops.mac_setup_mac_link(info, hw,
 						    IXGBE_LINK_SPEED_10GB_FULL,
@@ -1506,7 +1502,12 @@ pub fn read_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIe
             }
         }
 
-		i2c_start(info)?;
+		if let Err(_) = i2c_start(info) {
+            if lock{
+                ops.mac_release_swfw_sync(info, swfw_mask)?;
+            }
+            return Err(IxgbeDriverErr::SwfwSync);
+        }
 
 		// Device Address and write indication
 		if let Err(e) = clock_out_i2c_byte(info, dev_addr){
@@ -1519,8 +1520,6 @@ pub fn read_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIe
                 }
             }
         }
-
-
 
 		if let Err(e) = get_i2c_ack(info){
             retry += 1;
@@ -1555,7 +1554,12 @@ pub fn read_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIe
             }
         }
 
-		i2c_start(info)?;
+		if let Err(_) = i2c_start(info){
+            if lock{
+                ops.mac_release_swfw_sync(info, swfw_mask)?;
+            }
+            return Err(IxgbeDriverErr::SwfwSync);
+        }
 
 		// Device Address and read indication
 		if let Err(e) = clock_out_i2c_byte(info, dev_addr | 0x1){
@@ -1608,7 +1612,12 @@ pub fn read_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIe
             }
         }
 
-		i2c_stop(info)?;
+		if let Err(_) = i2c_stop(info){
+            if lock{
+                ops.mac_release_swfw_sync(info, swfw_mask)?;
+            }
+            return Err(IxgbeDriverErr::SwfwSync);
+        }
 		if lock{
 			ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
@@ -1646,7 +1655,12 @@ pub fn write_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCI
 	let mut retry = 0;
     let status;
 	loop {
-		i2c_start(info)?;
+		if let Err(_) = i2c_start(info) {
+            if lock{
+                ops.mac_release_swfw_sync(info, swfw_mask)?;
+            }
+            return Err(IxgbeDriverErr::SwfwSync);
+        }
 
 		if let Err(e) = clock_out_i2c_byte(info, dev_addr){
             retry += 1;
@@ -1714,7 +1728,12 @@ pub fn write_i2c_byte_generic_int<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCI
             }
         }
 
-		i2c_stop(info)?;
+		if let Err(_) = i2c_stop(info) {
+            if lock{
+                ops.mac_release_swfw_sync(info, swfw_mask)?;
+            }
+            return Err(IxgbeDriverErr::SwfwSync);
+        }
 		if lock {
 			ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
@@ -2107,7 +2126,7 @@ fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverEr
     }
 
     if stopped_i == IXGBE_EERD_EEWR_ATTEMPTS {
-        log::info!("EEPROM read/write done polling timed out");
+        log::error!("EEPROM read/write done polling timed out");
         return Err(Eeprom);
     }
 
@@ -2129,17 +2148,17 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
     }
 
     if words == 0 {
-        log::info!("Invalid EEPROM words");
+        log::error!("Invalid EEPROM words");
         return Err(IxgbeDriverErr::InvalidArgument);
     }
 
     if words as usize != data.len() {
-        log::info!("EEPROM words doesn't match the size of the buffer");
+        log::error!("EEPROM words doesn't match the size of the buffer");
         return Err(IxgbeDriverErr::InvalidArgument);
     }
 
     if offset >= eeprom.word_size {
-        log::info!("Invalid EEPROM offset");
+        log::error!("Invalid EEPROM offset");
         return Err(IxgbeDriverErr::Eeprom);
     }
 
@@ -2166,7 +2185,7 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
 fn check_address_cycle_complete(info: &PCIeInfo) -> Result<u32, IxgbeDriverErr> {
     let mut command = 0;
     for _i in 0..IXGBE_MDIO_COMMAND_TIMEOUT {
-        awkernel_lib::delay::wait_microsec(10);
+        wait_microsec(10);
 
         command = ixgbe_hw::read_reg(info, IXGBE_MSCA)?;
         if (command & IXGBE_MSCA_MDI_COMMAND as u32) == 0 {
@@ -2250,9 +2269,6 @@ pub fn hic_unlocked(info: &PCIeInfo, buffer: &[u32], length: u32, timeout: u32) 
  // else returns semaphore error when encountering an error acquiring
  // semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
 pub fn host_interface_command<T:IxgbeOperations + ?Sized>(ops: &T, info: &PCIeInfo, buffer: &[u32], length: u32, timeout: u32, return_data: bool) -> Result<Option<[u32;4]>, IxgbeDriverErr>{
-	let mut hdr_size = core::mem::size_of::<IxgbeHicHdr>();
-
-    let mut dword_len;
 	log::debug!("ixgbe: host_interface_command");
 
 	if length == 0 || length > IXGBE_HI_MAX_BLOCK_BYTE_LENGTH {
@@ -2260,121 +2276,145 @@ pub fn host_interface_command<T:IxgbeOperations + ?Sized>(ops: &T, info: &PCIeIn
 		return Err(IxgbeDriverErr::HostInterfaceCommand);
 	}
 
-	// Take management host interface semaphore
-	ops.mac_acquire_swfw_sync(info, IXGBE_GSSR_SW_MNG_SM)?;
+    mac_swfw_sync_mut(ops, info, IXGBE_GSSR_SW_MNG_SM,0, ||{
+        hic_unlocked(info, buffer, length, timeout)?;
 
-	if let Err(e) = hic_unlocked(info, buffer, length, timeout){
-        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
-        return Err(e);
-    }
+        if !return_data {
+            return Ok(None);
+        }
 
-	if !return_data {
-        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
-        return Ok(None);
-    }
+	    let mut hdr_size = core::mem::size_of::<IxgbeHicHdr>();
+        // Calculate length in DWORDs
+	    let mut dword_len = hdr_size >> 2;
 
-	// Calculate length in DWORDs
-	dword_len = hdr_size >> 2;
-
-    let mut ret_buffer = [0;4];
-	// first pull in the header so we know the buffer length 
-    let mut bi = 0;
-    while bi < dword_len {
-		ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
-        bi += 1;
-    }
-
-    let resp = IxgbeHicHdr {
-        cmd: (ret_buffer[0] & 0xFF) as u8,
-        buf_len: ((ret_buffer[0] >> 8) & 0xFF) as u8,
-        cmd_or_resp: ((ret_buffer[0] >> 16) & 0xFF) as u8,
-        checksum: ((ret_buffer[0] >> 24) & 0xFF) as u8,
-    };
-
-	 // If there is any thing in data position pull it in
-	 // Read Flash command requires reading buffer length from
-	 // two byes instead of one byte
-    let buf_len;
-
-	if resp.cmd == 0x30 {
-        while bi < dword_len + 2{
-			ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info,IXGBE_FLEX_MNG, bi)?);
+        let mut ret_buffer = [0;4];
+	    // first pull in the header so we know the buffer length 
+        let mut bi = 0;
+        while bi < dword_len {
+		    ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
             bi += 1;
-		}
-		buf_len = (((resp.cmd_or_resp as u16) << 3) & 0xF00) | (resp.buf_len as u16);
-		hdr_size += 2 << 2;
-	} else {
-		buf_len = resp.buf_len as u16;
-	}
-	if buf_len == 0 {
-        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
-        return Ok(None)
-    }
+        }
 
-	if (length as usize) < buf_len as usize + hdr_size {
-		log::debug!("Buffer not large enough for reply message.\n");
-        ops.mac_release_swfw_sync(info,IXGBE_GSSR_SW_MNG_SM)?;
-        return Err(HostInterfaceCommand)
-	}
+        let resp = IxgbeHicHdr {
+            cmd: (ret_buffer[0] & 0xFF) as u8,
+            buf_len: ((ret_buffer[0] >> 8) & 0xFF) as u8,
+            cmd_or_resp: ((ret_buffer[0] >> 16) & 0xFF) as u8,
+            checksum: ((ret_buffer[0] >> 24) & 0xFF) as u8,
+        };
 
-	// Calculate length in DWORDs, add 3 for odd lengths 
-    dword_len = (buf_len as usize + 3) >> 2;
+	    // If there is any thing in data position pull it in
+	    // Read Flash command requires reading buffer length from
+	    // two byes instead of one byte
+        let buf_len;
 
-	// Pull in the rest of the buffer (bi is where we left off) 
-    while bi < dword_len {
-		ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
-        bi += 1;
-	}
+	    if resp.cmd == 0x30 {
+            while bi < dword_len + 2{
+			    ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info,IXGBE_FLEX_MNG, bi)?);
+                bi += 1;
+		    }
+		    buf_len = (((resp.cmd_or_resp as u16) << 3) & 0xF00) | (resp.buf_len as u16);
+		    hdr_size += 2 << 2;
+	    } else {
+		    buf_len = resp.buf_len as u16;
+	    }
+	    if buf_len == 0 {
+            return Ok(None)
+        }
 
-	ops.mac_release_swfw_sync(info, IXGBE_GSSR_SW_MNG_SM)?;
+	    if (length as usize) < buf_len as usize + hdr_size {
+		    log::debug!("Buffer not large enough for reply message.\n");
+            return Err(HostInterfaceCommand)
+	    }
 
-    Ok(Some(ret_buffer))
+	    // Calculate length in DWORDs, add 3 for odd lengths 
+        dword_len = (buf_len as usize + 3) >> 2;
+
+	    // Pull in the rest of the buffer (bi is where we left off) 
+        while bi < dword_len {
+		    ret_buffer[bi] = u32::from_le(ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, bi)?);
+            bi += 1;
+	    }
+
+        Ok(Some(ret_buffer))
+    })
+
 }
 
-// ixgbe_acquire_eeprom - Acquire EEPROM using bit-bang
-// Prepares EEPROM for access using bit-bang method. This function should
-// be called before issuing a command to the EEPROM.
-fn acquire_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
-    let eec_offset = get_eec_offset(info.get_id())?;
+pub fn mac_swfw_sync_mut<T, F, W>(ops: &T, info:&PCIeInfo, mask:u32, semaphore_delay: u32, mut f:F)->Result<W, IxgbeDriverErr>
+    where 
+        T: IxgbeOperations + ?Sized,
+        F: FnMut() -> Result<W, IxgbeDriverErr>,
+    {
+        ops.mac_acquire_swfw_sync(info, mask)?;
+        let result = f();
+        ops.mac_release_swfw_sync(info, mask)?;
+        wait_millisec(semaphore_delay as u64);
+        result
+    }
+
+
+
+fn acquire_eeprom<T, F, W>(ops:&T, info:&PCIeInfo, eeprom: &IxgbeEepromInfo, mut f:F)->Result<W , IxgbeDriverErr>
+where
+    T: IxgbeOperations + ?Sized,
+    F: FnMut(&T) -> Result<W, IxgbeDriverErr>,
+{
 	log::debug!("ixgbe_acquire_eeprom");
 
-	if let Err(_) = ops.mac_acquire_swfw_sync(info, IXGBE_GSSR_EEP_SM) {
-        return Err(IxgbeDriverErr::SwfwSync);
-    }
+    let result = mac_swfw_sync_mut(ops, info, IXGBE_GSSR_EEP_SM, eeprom.semaphore_delay, ||{
+        let eec_offset = get_eec_offset(info.get_id())?;
 
-	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+	    let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
 
-	// Request EEPROM Access 
-	eec |= IXGBE_EEC_REQ;
-	ixgbe_hw::write_reg(info, eec_offset, eec);
+	    // Request EEPROM Access 
+	    eec |= IXGBE_EEC_REQ;
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
 
-    for _ in 0..IXGBE_EEPROM_GRANT_ATTEMPTS {
-		eec = ixgbe_hw::read_reg(info, eec_offset)?;
-		if eec & IXGBE_EEC_GNT != 0 {
-			break;
-        }
-		wait_microsec(5);
-	}
+        for _ in 0..IXGBE_EEPROM_GRANT_ATTEMPTS {
+		    eec = ixgbe_hw::read_reg(info, eec_offset)?;
+		    if eec & IXGBE_EEC_GNT != 0 {
+			    break;
+            }
+		    wait_microsec(5);
+	    }
 
-	// Release if grant not acquired
-	if eec & IXGBE_EEC_GNT == 0 {
-		eec &= !IXGBE_EEC_REQ;
-		ixgbe_hw::write_reg(info, eec_offset, eec)?;
-		log::debug!("Could not acquire EEPROM grant\n");
+	    // Release if grant not acquired
+	    if eec & IXGBE_EEC_GNT == 0 {
+		    eec &= !IXGBE_EEC_REQ;
+		    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+		    log::debug!("Could not acquire EEPROM grant\n");
+            return Err(IxgbeDriverErr::Eeprom);
+	    }
 
-		ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-        return Err(IxgbeDriverErr::Eeprom);
-	}
+	    // Setup EEPROM for Read/Write
+	    // Clear CS and SK
+	    eec &= !(IXGBE_EEC_CS | IXGBE_EEC_SK);
+	    ixgbe_hw::write_reg(info,eec_offset, eec)?;
+	    ixgbe_hw::write_flush(info)?;
+	    wait_microsec(1);
 
-	// Setup EEPROM for Read/Write
-	// Clear CS and SK
-	eec &= !(IXGBE_EEC_CS | IXGBE_EEC_SK);
-	ixgbe_hw::write_reg(info,eec_offset, eec)?;
-	ixgbe_hw::write_flush(info)?;
-	wait_microsec(1);
+        let result = f(ops);
 
-    Ok(())
+	    let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	    eec |= IXGBE_EEC_CS;  // Pull CS high
+	    eec &= !IXGBE_EEC_SK; // Lower SCK
+
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	    ixgbe_hw::write_flush(info)?;
+
+	    wait_microsec(1);
+
+	    // Stop requesting EEPROM access
+	    eec &= !IXGBE_EEC_REQ;
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+
+        result
+    });
+
+    result
 }
+
 
 // Sets the hardware semaphores so EEPROM access can occur for bit-bang method
 fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
@@ -2392,14 +2432,14 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
             status = Ok(());
             break;
         }
-        awkernel_lib::delay::wait_microsec(50);
+        wait_microsec(50);
         i += 1;
     }
 
     if i == timeout {
         release_eeprom_semaphore(info)?;
 
-        awkernel_lib::delay::wait_microsec(50);
+        wait_microsec(50);
 
         // one last try
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
@@ -2424,7 +2464,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
                 break;
             }
 
-            awkernel_lib::delay::wait_microsec(50);
+            wait_microsec(50);
             i += 1;
         }
 
@@ -2467,7 +2507,7 @@ fn ready_eeprom(info:&PCIeInfo)->Result<(), IxgbeDriverErr>{
     let mut i = 0;
     while i < IXGBE_EEPROM_MAX_RETRY_SPI {
 		shift_out_eeprom_bits(info, IXGBE_EEPROM_RDSR_OPCODE_SPI,
-					    IXGBE_EEPROM_OPCODE_BITS);
+					    IXGBE_EEPROM_OPCODE_BITS)?;
 		let spi_stat_reg = shift_in_eeprom_bits(info, 8)? as u8;
 		if spi_stat_reg & IXGBE_EEPROM_STATUS_RDY_SPI == 0 {
 			break;
@@ -2606,68 +2646,39 @@ fn lower_eeprom_clk(info:&PCIeInfo, mut eec:u32)->Result<u32, IxgbeDriverErr>{
     Ok(eec)
 }
 
-// ixgbe_release_eeprom - Release EEPROM, release semaphores
-fn release_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, eeprom: &IxgbeEepromInfo)->Result<(), IxgbeDriverErr>{
-    let eec_offset = get_eec_offset(info.get_id())?;
-
-	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
-
-	eec |= IXGBE_EEC_CS;  // Pull CS high
-	eec &= !IXGBE_EEC_SK; // Lower SCK
-
-	ixgbe_hw::write_reg(info, eec_offset, eec)?;
-	ixgbe_hw::write_flush(info)?;
-
-	wait_microsec(1);
-
-	// Stop requesting EEPROM access
-	eec &= !IXGBE_EEC_REQ;
-	ixgbe_hw::write_reg(info, eec_offset, eec)?;
-
-	ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-
-	// Delay before attempt to obtain semaphore again to allow FW access */
-	wait_microsec(eeprom.semaphore_delay as u64);
-
-    Ok(())
-}
-
 // ixgbe_read_eeprom_buffer_bit_bang - Read EEPROM using bit-bang
 // //  Reads 16 bit word(s) from EEPROM through bit-bang method
-fn read_eeprom_buffer_bit_bang<T:IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset: u16, words:u16, data:&mut [u16])->Result<(),IxgbeDriverErr>{
+fn read_eeprom_buffer_bit_bang<T:IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset: u16, data:&mut [u16])->Result<(),IxgbeDriverErr>{
 	log::debug!("read_eeprom_buffer_bit_bang");
 
 	// Prepare the EEPROM for reading k
-	acquire_eeprom(ops, info)?;
+	acquire_eeprom(ops, info, eeprom, |_ops|{
+        if let Err(_) = ready_eeprom(info){
+            return Err(IxgbeDriverErr::Eeprom)
+	    }
 
-	if let Err(_) = ready_eeprom(info){
-		release_eeprom(ops, info, eeprom)?;
-        return Err(IxgbeDriverErr::Eeprom)
-	}
+	    let mut read_opcode = IXGBE_EEPROM_READ_OPCODE_SPI;
+        for (i, d) in data.iter_mut().enumerate() {
+		    standby_eeprom(info)?;
 
-	let mut read_opcode = IXGBE_EEPROM_READ_OPCODE_SPI;
-    for i in 0..words {
-		standby_eeprom(info)?;
+		    // Some SPI eeproms use the 8th address bit embedded
+		    // in the opcode
+		    if (eeprom.address_bits == 8) && ((offset + i as u16) >= 128){
+			    read_opcode |= IXGBE_EEPROM_A8_OPCODE_SPI;
+            }
 
-		// Some SPI eeproms use the 8th address bit embedded
-		// in the opcode
-		if (eeprom.address_bits == 8) && ((offset + i) >= 128){
-			read_opcode |= IXGBE_EEPROM_A8_OPCODE_SPI;
-        }
+		    // Send the READ command (opcode + addr)
+		    shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
+		    shift_out_eeprom_bits(info, ((offset + i as u16) * 2) as u16, eeprom.address_bits)?;
 
-		// Send the READ command (opcode + addr)
-		shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
-		shift_out_eeprom_bits(info, ((offset + i) * 2) as u16, eeprom.address_bits)?;
+		    // Read the data.
+		    let word_in = shift_in_eeprom_bits(info, 16)?;
+            *d = (word_in >> 8) | (word_in << 8);
+	    }
 
-		// Read the data.
-		let word_in = shift_in_eeprom_bits(info, 16)?;
-		data[i as usize] = (word_in >> 8) | (word_in << 8);
-	}
+        Ok(())
+    })
 
-	// End this read operation 
-	release_eeprom(ops, info, eeprom)?;
-
-	Ok(())
 }
 
  // ixgbe_read_eeprom_bit_bang_generic - Read EEPROM word using bit-bang
@@ -2685,7 +2696,7 @@ pub fn read_eeprom_bit_bang_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &P
         return Err(IxgbeDriverErr::Eeprom);
 	}
 
-	read_eeprom_buffer_bit_bang(ops, info, eeprom, offset, 1, data)
+	read_eeprom_buffer_bit_bang(ops, info, eeprom, offset, data)
 }
 
 pub fn phy_setup_link_generic<T:IxgbeOperations + ?Sized>(ops: &T, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
@@ -2919,11 +2930,9 @@ pub trait IxgbeOperations: Send {
 
         for i in 0..4 {
             mac_addr[i] = (rar_low >> (i * 8)) as u8;
-            log::info!("mac_addr[{}],{:x}",i,mac_addr[i]);
         }
         for i in 0..2 {
             mac_addr[i + 4] = (rar_high >> (i * 8)) as u8;
-            log::info!("mac_addr[{}],{:x}",i+4,mac_addr[i+4]);
         }
 
         Ok(())
@@ -2963,14 +2972,12 @@ pub trait IxgbeOperations: Send {
             ixgbe_hw::write_reg(info, IXGBE_RXDCTL(i as usize), reg_val)?;
         }
 
-        /* flush all queues disables */
+        // flush all queues disables
         ixgbe_hw::write_flush(info)?;
         wait_millisec(2);
 
-        /*
-         * Prevent the PCI-E bus from hanging by disabling PCI-E master
-         * access and verify no pending requests
-         */
+        // Prevent the PCI-E bus from hanging by disabling PCI-E master
+        // access and verify no pending requests
 
         disable_pcie_master(info, hw)?;
 
@@ -3133,7 +3140,7 @@ pub trait IxgbeOperations: Send {
         rar: u32,
         vmdq: u32,
     ) -> Result<(), IxgbeDriverErr> {
-        /* Make sure we are using a valid rar index range */
+        // Make sure we are using a valid rar index range
         if rar >= num_rar_entries {
             return Err(InvalidArgument);
         }
@@ -3184,23 +3191,18 @@ pub trait IxgbeOperations: Send {
         use ixgbe_hw::{FcMode::*, MediaType::*};
     /* Validate the requested mode */
 	if hw.fc.strict_ieee && hw.fc.requested_mode == IxgbeFcRxPause {
-        log::info!("mac_setup_fc()");
         return Err(InvalidLinkSettings);
 	}
 
-	/*
-	 * 10gig parts do not have a word in the EEPROM to determine the
-	 * default flow control setting, so we explicitly set it to full.
-	 */
+	// 10gig parts do not have a word in the EEPROM to determine the
+	// default flow control setting, so we explicitly set it to full.
 	if hw.fc.requested_mode == IxgbeFcDefault{
 		hw.fc.requested_mode = IxgbeFcFull;
     }
 
-	/*
-	 * Set up the 1G and 10G flow control advertisement registers so the
-	 * HW will be able to do fc autoneg once the cable is plugged in.  If
-	 * we link at 10G, the 1G advertisement is harmless and vice versa.
-	 */
+	// Set up the 1G and 10G flow control advertisement registers so the
+	// HW will be able to do fc autoneg once the cable is plugged in.  If
+	// we link at 10G, the 1G advertisement is harmless and vice versa.
     let mut reg;
     let mut reg_bp;
     let mut reg_cu;
@@ -3228,7 +3230,7 @@ pub trait IxgbeOperations: Send {
 	 */
 	(reg, reg_bp, reg_cu) = match hw.fc.requested_mode {
 	IxgbeFcNone => {
-		/* Flow control completely disabled by software override. */
+		// Flow control completely disabled by software override.
 		reg &= !(IXGBE_PCS1GANA_SYM_PAUSE | IXGBE_PCS1GANA_ASM_PAUSE);
 		match hw.phy.media_type {
         IxgbeMediaTypeBackplane =>
@@ -3240,10 +3242,8 @@ pub trait IxgbeOperations: Send {
         }
     }
 	IxgbeFcTxPause => {
-		/*
-		 * Tx Flow control is enabled, and Rx Flow control is
-		 * disabled by software override.
-		 */
+		// Tx Flow control is enabled, and Rx Flow control is
+		// disabled by software override.
 		reg |= IXGBE_PCS1GANA_ASM_PAUSE;
 		reg &= !IXGBE_PCS1GANA_SYM_PAUSE;
 		match hw.phy.media_type {
@@ -3255,15 +3255,13 @@ pub trait IxgbeOperations: Send {
         }
     }
 	IxgbeFcRxPause |
-		/*
-		 * Rx Flow control is enabled and Tx Flow control is
-		 * disabled by software override. Since there really
-		 * isn't a way to advertise that we are capable of RX
-		 * Pause ONLY, we will advertise that we support both
-		 * symmetric and asymmetric Rx PAUSE, as such we fall
-		 * through to the fc_full statement.  Later, we will
-		 * disable the adapter's ability to send PAUSE frames.
-		 */
+		// Rx Flow control is enabled and Tx Flow control is
+		// disabled by software override. Since there really
+		// isn't a way to advertise that we are capable of RX
+		// Pause ONLY, we will advertise that we support both
+		// symmetric and asymmetric Rx PAUSE, as such we fall
+		// through to the fc_full statement.  Later, we will
+		// disable the adapter's ability to send PAUSE frames.
 	IxgbeFcFull => {
 		/* Flow control (both Rx and Tx) is enabled by SW override. */
 		reg |= IXGBE_PCS1GANA_SYM_PAUSE | IXGBE_PCS1GANA_ASM_PAUSE;
@@ -3283,14 +3281,12 @@ pub trait IxgbeOperations: Send {
 	};
 
 	if hw.mac.mac_type < MacType::IxgbeMacX540 {
-		/*
-		 * Enable auto-negotiation between the MAC & PHY;
-		 * the MAC will advertise clause 37 flow control.
-		 */
+		// Enable auto-negotiation between the MAC & PHY;
+		// the MAC will advertise clause 37 flow control.
 		ixgbe_hw::write_reg(info, IXGBE_PCS1GANA, reg)?;
 		reg = ixgbe_hw::read_reg(info, IXGBE_PCS1GLCTL)?;
 
-		/* Disable AN timeout */
+		// Disable AN timeout
 		if hw.fc.strict_ieee {
 			reg &= !IXGBE_PCS1GLCTL_AN_1G_TIMEOUT_EN;
         }
@@ -3298,14 +3294,11 @@ pub trait IxgbeOperations: Send {
 		ixgbe_hw::write_reg(info, IXGBE_PCS1GLCTL, reg)?;
 	}
 
-	/*
-	 * AUTOC restart handles negotiation of 1G and 10G on backplane
-	 * and copper. There is no need to set the PCS1GCTL register.
-	 *
-	 */
+	// AUTOC restart handles negotiation of 1G and 10G on backplane
+	// and copper. There is no need to set the PCS1GCTL register.
 	if hw.phy.media_type == IxgbeMediaTypeBackplane {
 		reg_bp |= IXGBE_AUTOC_AN_RESTART;
-		self.mac_prot_autoc_write(info, hw, reg_bp, false)?;
+		self.mac_prot_autoc_write(info, hw, reg_bp,)?;
 	} else if (hw.phy.media_type == IxgbeMediaTypeCopper) && device_supports_autoneg_fc(self,info, hw)? {
 		self.phy_write_reg(info, hw, IXGBE_MDIO_AUTO_NEG_ADVT, IXGBE_MDIO_AUTO_NEG_DEV_TYPE, reg_cu as u16)?;
 	}
@@ -3321,7 +3314,6 @@ pub trait IxgbeOperations: Send {
 
         // Validate the water mark configuration 
         if hw.fc.pause_time == 0{
-            log::info!("mac_fc_enable()");
             return Err(InvalidLinkSettings);
         }
 
@@ -3556,7 +3548,7 @@ pub trait IxgbeOperations: Send {
         ixgbe_hw::read_reg(info, IXGBE_AUTOC)
     }
 
-    fn mac_prot_autoc_write(&self, info: &PCIeInfo, _hw: &mut IxgbeHw, reg_val: u32, _locked: bool) -> Result<(), IxgbeDriverErr>{
+    fn mac_prot_autoc_write(&self, info: &PCIeInfo, _hw: &mut IxgbeHw, reg_val: u32,) -> Result<(), IxgbeDriverErr>{
         ixgbe_hw::write_reg(info, IXGBE_AUTOC, reg_val)
     }
 
@@ -3595,14 +3587,9 @@ pub trait IxgbeOperations: Send {
     }
 
 
-    //fn disable_mc(&PCIeInfo, ) -> Result<(), IxgbeDriverErr>{
-    //if ()
-    //}
-
-    // ixgbe_acquire_swhw_sync() For X540 ixgbe_acquire_swfw_sync_X540()
+    // acquire_swhw_sync() - Acquire SWFW semaphore 
     // Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
     fn mac_acquire_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
-        log::info!("mac_acquire_swfw_sync");
         let mut gssr = 0;
         let timeout = 200;
         let swmask = mask;
@@ -3614,15 +3601,22 @@ pub trait IxgbeOperations: Send {
 
             get_eeprom_semaphore(info)?;
 
-            gssr = ixgbe_hw::read_reg(info, IXGBE_GSSR)?;
+            gssr = match ixgbe_hw::read_reg(info, IXGBE_GSSR){
+                Err(e) => {
+                    release_eeprom_semaphore(info)?;
+                    return Err(e);
+                },
+                Ok(ret) => ret,
+            };
+            
             if !(gssr & (fwmask | swmask)) != 0 {
                 gssr |= swmask;
-                ixgbe_hw::write_reg(info, IXGBE_GSSR, gssr)?;
+                let result = ixgbe_hw::write_reg(info, IXGBE_GSSR, gssr);
                 release_eeprom_semaphore(info)?;
-                return Ok(());
+                return result;
             } else {
                 release_eeprom_semaphore(info)?;
-                awkernel_lib::delay::wait_millisec(5);
+                wait_millisec(5);
             }
         }
 
@@ -3631,11 +3625,11 @@ pub trait IxgbeOperations: Send {
             self.mac_release_swfw_sync(info, gssr & (fwmask | swmask))?;
         }
 
-        awkernel_lib::delay::wait_millisec(5);
+        wait_millisec(5);
         Err(SwfwSync)
     }
 
-    // ixgbe_release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
+    // release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
     fn mac_release_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
         let mut gssr;
         let swmask = mask;
@@ -3824,19 +3818,22 @@ pub trait IxgbeOperations: Send {
         Err(IxgbeDriverErr::Overtemp)
     }
 
+    #[allow(dead_code)]
     fn phy_setup_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_setup_phy_link_tnx: Not implemented");
-        Ok(())
+        Err(IxgbeDriverErr::NotImplemented)
     }
 
+    #[allow(dead_code)]
     fn phy_check_phy_link_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_check_phy_link_tnx: Not implemented");
-        Ok(())
+        Err(IxgbeDriverErr::NotImplemented)
     }
 
+    #[allow(dead_code)]
     fn phy_get_phy_firmware_version_tnx(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_get_phy_firmware_version_tnx: Not implemented");
-        Ok(())
+        Err(IxgbeDriverErr::NotImplemented)
     }
 
     fn phy_read_i2c_byte(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8, dev_addr: u8)->Result<u8, IxgbeDriverErr>{
@@ -3851,6 +3848,7 @@ pub trait IxgbeOperations: Send {
         self.phy_read_i2c_byte(info, hw, byte_offset, IXGBE_I2C_EEPROM_DEV_ADDR)
     }
 
+    #[allow(dead_code)]
     fn phy_write_i2c_eeprom(&self,info: &PCIeInfo, hw: &IxgbeHw, byte_offset: u8,  eeprom_data:u8)->Result<(), IxgbeDriverErr>{
         self.phy_write_i2c_byte(info, hw, byte_offset, IXGBE_I2C_EEPROM_DEV_ADDR, eeprom_data)
     }
@@ -3869,16 +3867,11 @@ pub trait IxgbeOperations: Send {
         reg_addr: u32,
         device_type: u32,
     ) -> Result<u16, IxgbeDriverErr> {
-        let status;
         let gssr = hw.phy.phy_semaphore_mask;
 
-        self.mac_acquire_swfw_sync(info, gssr)?;
-
-        status = self.phy_read_reg_mdi(info, hw, reg_addr, device_type)?;
-
-        self.mac_release_swfw_sync(info, gssr)?;
-
-        Ok(status)
+        mac_swfw_sync_mut(self, info, gssr, 0,||{
+            self.phy_read_reg_mdi(info, hw, reg_addr, device_type)
+        })
     }
 
     fn phy_write_reg(
@@ -3889,16 +3882,12 @@ pub trait IxgbeOperations: Send {
         device_type: u32,
         phy_data: u16,
     ) -> Result<(), IxgbeDriverErr> {
-        let status;
         let gssr = hw.phy.phy_semaphore_mask;
 
-        self.mac_acquire_swfw_sync(info, gssr)?;
+        mac_swfw_sync_mut(self, info, gssr, 0, ||{
+            self.phy_write_reg_mdi(info, hw, reg_addr, device_type, phy_data)
+        })
 
-        status = self.phy_write_reg_mdi(info, hw, reg_addr, device_type, phy_data);
-
-        self.mac_release_swfw_sync(info, gssr)?;
-
-        status
     }
 
     fn phy_read_reg_mdi(
