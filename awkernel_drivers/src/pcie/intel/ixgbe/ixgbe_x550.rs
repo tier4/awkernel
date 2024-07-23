@@ -39,76 +39,69 @@ fn read_ee_hostif_buffer_x550<T: IxgbeOperations + ?Sized>(
 ) -> Result<(), IxgbeDriverErr> {
     let mask = IXGBE_GSSR_SW_MNG_SM | IXGBE_GSSR_EEP_SM;
 
-    // Take semaphore for the entire operation.
-    if let Err(e) = ops.mac_acquire_swfw_sync(info, mask) {
-        log::debug!("EEPROM read buffer - semaphore failed\n");
-        return Err(e);
-    }
-
-    let mut words_to_read;
-    let mut current_word = 0;
-    while words > 0 {
-        if words > FW_MAX_READ_BUFFER_SIZE / 2 {
-            words_to_read = FW_MAX_READ_BUFFER_SIZE / 2;
-        } else {
-            words_to_read = words;
-        }
-
-        let buffer = IxgbeHicReadShadowRam {
-            hdr: IxgbeHicHdr2 {
-                req: IxgbeHicHdr2Req {
-                    cmd: FW_READ_SHADOW_RAM_CMD,
-                    buf_lenh: 0,
-                    buf_lenl: FW_READ_SHADOW_RAM_LEN,
-                    checksum: FW_DEFAULT_CHECKSUM,
-                },
-            },
-            // convert offset from words to bytes
-            address: u32::to_be((offset + current_word) as u32 * 2),
-            length: u16::to_be(words_to_read * 2),
-            pad2: 0,
-            data: 0,
-            pad3: 0,
-        };
-
-        let ptr = &buffer as *const IxgbeHicReadShadowRam as *const u32;
-        let size_in_u32 =
-            core::mem::size_of::<IxgbeHicReadShadowRam>() / core::mem::size_of::<u32>();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, size_in_u32) };
-        if let Err(e) = ixgbe_operations::hic_unlocked(
-            info,
-            slice,
-            core::mem::size_of::<IxgbeHicReadShadowRam>() as u32,
-            IXGBE_HI_COMMAND_TIMEOUT,
-        ) {
-            log::debug!("Host interface command failed");
-            ops.mac_release_swfw_sync(info, mask)?;
-            return Err(e);
-        }
-
-        let mut i = 0;
-        while i < words_to_read {
-            let reg = IXGBE_FLEX_MNG + (FW_NVM_DATA_OFFSET << 2) + 2 * i as usize;
-            let mut value = ixgbe_hw::read_reg(info, reg)?;
-
-            data[current_word as usize] = (value & 0xffff) as u16;
-            //log::debug!("data[{}] = {:x}", current_word, data[current_word as usize]);
-            //wait_millisec(500);
-            current_word += 1;
-            i += 1;
-            if i < words_to_read {
-                value >>= 16;
-                data[current_word as usize] = (value & 0xffff) as u16;
-                current_word += 1;
+    ixgbe_operations::mac_swfw_sync_mut(ops, info, mask, 0, || {
+        let mut words_to_read;
+        let mut current_word = 0;
+        while words > 0 {
+            if words > FW_MAX_READ_BUFFER_SIZE / 2 {
+                words_to_read = FW_MAX_READ_BUFFER_SIZE / 2;
+            } else {
+                words_to_read = words;
             }
-            i += 1;
+
+            let buffer = IxgbeHicReadShadowRam {
+                hdr: IxgbeHicHdr2 {
+                    req: IxgbeHicHdr2Req {
+                        cmd: FW_READ_SHADOW_RAM_CMD,
+                        buf_lenh: 0,
+                        buf_lenl: FW_READ_SHADOW_RAM_LEN,
+                        checksum: FW_DEFAULT_CHECKSUM,
+                    },
+                },
+                // convert offset from words to bytes
+                address: u32::to_be((offset + current_word) as u32 * 2),
+                length: u16::to_be(words_to_read * 2),
+                pad2: 0,
+                data: 0,
+                pad3: 0,
+            };
+
+            let ptr = &buffer as *const IxgbeHicReadShadowRam as *const u32;
+            let size_in_u32 =
+                core::mem::size_of::<IxgbeHicReadShadowRam>() / core::mem::size_of::<u32>();
+            let slice = unsafe { core::slice::from_raw_parts(ptr, size_in_u32) };
+            if let Err(e) = ixgbe_operations::hic_unlocked(
+                info,
+                slice,
+                core::mem::size_of::<IxgbeHicReadShadowRam>() as u32,
+                IXGBE_HI_COMMAND_TIMEOUT,
+            ) {
+                log::debug!("Host interface command failed");
+                return Err(e);
+            }
+
+            let mut i = 0;
+            while i < words_to_read {
+                let reg = IXGBE_FLEX_MNG + (FW_NVM_DATA_OFFSET << 2) + 2 * i as usize;
+                let mut value = ixgbe_hw::read_reg(info, reg)?;
+
+                data[current_word as usize] = (value & 0xffff) as u16;
+                //log::debug!("data[{}] = {:x}", current_word, data[current_word as usize]);
+                //wait_millisec(500);
+                current_word += 1;
+                i += 1;
+                if i < words_to_read {
+                    value >>= 16;
+                    data[current_word as usize] = (value & 0xffff) as u16;
+                    current_word += 1;
+                }
+                i += 1;
+            }
+            words -= words_to_read;
         }
-        words -= words_to_read;
-    }
 
-    ops.mac_release_swfw_sync(info, mask)?;
-
-    Ok(())
+        Ok(())
+    })
 }
 
 fn checksum_ptr_x550<T: IxgbeOperations + ?Sized>(
@@ -317,27 +310,23 @@ impl IxgbeOperations for IxgbeX550 {
 
         log::debug!("ixgbe: eeprom_read");
 
-        self.mac_acquire_swfw_sync(info, mask)?;
+        ixgbe_operations::mac_swfw_sync_mut(self, info, mask, 0, || {
+            let ptr = &buffer as *const IxgbeHicReadShadowRam as *const u32;
+            let size_in_u32 =
+                core::mem::size_of::<IxgbeHicReadShadowRam>() / core::mem::size_of::<u32>();
+            let slice = unsafe { core::slice::from_raw_parts(ptr, size_in_u32) };
 
-        let ptr = &buffer as *const IxgbeHicReadShadowRam as *const u32;
-        let size_in_u32 =
-            core::mem::size_of::<IxgbeHicReadShadowRam>() / core::mem::size_of::<u32>();
-        let slice = unsafe { core::slice::from_raw_parts(ptr, size_in_u32) };
+            ixgbe_operations::hic_unlocked(
+                info,
+                slice,
+                core::mem::size_of::<IxgbeHicReadShadowRam>() as u32,
+                IXGBE_HI_COMMAND_TIMEOUT,
+            )?;
 
-        let ret = ixgbe_operations::hic_unlocked(
-            info,
-            slice,
-            core::mem::size_of::<IxgbeHicReadShadowRam>() as u32,
-            IXGBE_HI_COMMAND_TIMEOUT,
-        );
-
-        if let Ok(_) = ret {
             data[0] = ixgbe_hw::read_reg_array(info, IXGBE_FLEX_MNG, FW_NVM_DATA_OFFSET)? as u16;
-        }
 
-        self.mac_release_swfw_sync(info, mask)?;
-
-        ret
+            Ok(())
+        })
     }
 
     fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr> {

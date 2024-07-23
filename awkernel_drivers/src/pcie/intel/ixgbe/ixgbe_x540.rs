@@ -72,18 +72,19 @@ pub fn mac_reset_hw_x540<T: IxgbeOperations + ?Sized>(
 
     ixgbe_operations::clear_tx_pending(info, hw)?;
 
-    let mut ctrl;
     let mut status;
     'double_reset: loop {
         status = Ok(());
-        ops.mac_acquire_swfw_sync(info, hw.phy.phy_semaphore_mask)?;
-        ctrl = IXGBE_CTRL_RST;
-        ctrl |= ixgbe_hw::read_reg(info, IXGBE_CTRL)?;
-        ixgbe_hw::write_reg(info, IXGBE_CTRL, ctrl)?;
-        ixgbe_hw::write_flush(info)?;
-        ops.mac_release_swfw_sync(info, hw.phy.phy_semaphore_mask)?;
+
+        ixgbe_operations::mac_swfw_sync_mut(ops, info, hw.phy.phy_semaphore_mask, 0, || {
+            let mut ctrl = IXGBE_CTRL_RST;
+            ctrl |= ixgbe_hw::read_reg(info, IXGBE_CTRL)?;
+            ixgbe_hw::write_reg(info, IXGBE_CTRL, ctrl)?;
+            ixgbe_hw::write_flush(info)
+        })?;
 
         // Poll for reset bit to self-clear indicating reset is complete
+        let mut ctrl = 0;
         for _ in 0..10 {
             wait_microsec(1);
             ctrl = ixgbe_hw::read_reg(info, IXGBE_CTRL)?;
@@ -155,9 +156,16 @@ pub fn get_swfw_sync_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     if status.is_ok() {
         let mut i = 0;
         while i < timeout {
-            let swsm = ixgbe_hw::read_reg(info, swfw_sync_offset)?;
-            if swsm & IXGBE_SWFW_REGSMP == 0 {
-                break;
+            match ixgbe_hw::read_reg(info, swfw_sync_offset) {
+                Ok(swsm) => {
+                    if swsm & IXGBE_SWFW_REGSMP == 0 {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    release_swfw_sync_semaphore(info)?;
+                    return Err(e);
+                }
             }
 
             wait_microsec(50);
@@ -167,8 +175,11 @@ pub fn get_swfw_sync_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
         // Release semaphores and return error if SW NVM semaphore
         // was not granted because we don't have access to the EEPROM
         if i >= timeout {
-            log::error!("REGSMP Software NVM semaphore not granted.\n");
-            release_swfw_sync_semaphore(info)?;
+            log::error!("REGSMP Software NVM semaphore not granted.");
+            if let Err(e) = release_swfw_sync_semaphore(info) {
+                log::error!("release_swfw_sync_semaphore failed.");
+                return Err(e);
+            }
             status = Err(IxgbeDriverErr::Eeprom);
         }
     } else {
@@ -233,12 +244,19 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
             return Err(IxgbeDriverErr::SwfwSync);
         }
 
-        swfw_sync = ixgbe_hw::read_reg(info, swfw_sync_offset)?;
+        match ixgbe_hw::read_reg(info, swfw_sync_offset) {
+            Ok(ret) => swfw_sync = ret,
+            Err(e) => {
+                release_swfw_sync_semaphore(info)?;
+                return Err(e);
+            }
+        }
+
         if swfw_sync & (fwmask | swmask | hwmask) == 0 {
             swfw_sync |= swmask;
-            ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync)?;
+            let status = ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync);
             release_swfw_sync_semaphore(info)?;
-            return Ok(());
+            return status;
         }
         // Firmware currently using resource (fwmask), hardware
         // currently using resource (hwmask), or other software
@@ -255,13 +273,19 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
         log::debug!("Failed to get NVM semaphore and register semaphore while forcefully ignoring FW semaphore bit(s) and setting SW semaphore bit(s), returning IXGBE_ERR_SWFW_SYNC\n");
         return Err(IxgbeDriverErr::SwfwSync);
     }
-    swfw_sync = ixgbe_hw::read_reg(info, swfw_sync_offset)?;
+    match ixgbe_hw::read_reg(info, swfw_sync_offset) {
+        Ok(ret) => swfw_sync = ret,
+        Err(e) => {
+            release_swfw_sync_semaphore(info)?;
+            return Err(e);
+        }
+    }
     if swfw_sync & (fwmask | hwmask) != 0 {
         swfw_sync |= swmask;
-        ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync)?;
+        let status = ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync);
         release_swfw_sync_semaphore(info)?;
         wait_millisec(5);
-        return Ok(());
+        return status;
     }
     // If the resource is not released by other SW the SW can assume that
     // the other SW malfunctions. In that case the SW should clear all SW
@@ -427,10 +451,9 @@ impl IxgbeOperations for IxgbeX540 {
         offset: u16,
         data: &mut [u16],
     ) -> Result<(), IxgbeDriverErr> {
-        self.mac_acquire_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-        let ret = ixgbe_operations::read_eerd_buffer_generic(self, info, eeprom, offset, 1, data);
-        self.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-        ret
+        ixgbe_operations::mac_swfw_sync_mut(self, info, IXGBE_GSSR_EEP_SM, 0, || {
+            ixgbe_operations::read_eerd_buffer_generic(self, info, eeprom, offset, 1, data)
+        })
     }
 
     fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr> {
@@ -443,46 +466,37 @@ impl IxgbeOperations for IxgbeX540 {
             ctrl_word_3: 0,
         };
         let mut data = [0; 1];
-        let checksum;
-
         self.eeprom_read(info, &mut eeprom, 0, &mut data)?;
-        log::info!("eeprom.word_size:{}", eeprom.word_size);
 
-        self.mac_acquire_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-
-        match self.eeprom_calc_checksum(info, &mut eeprom) {
-            Ok(ret) => {
-                checksum = ret;
-            }
-            Err(e) => {
-                self.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-                return Err(e);
-            }
-        }
-
-        // Do not use self.read_eerd() because we do not want to
-        // take the synchronization semaphore twice here. */
-        let mut read_checksum = [0; 1];
-        if let Err(e) = ixgbe_operations::read_eerd_buffer_generic(
+        ixgbe_operations::mac_swfw_sync_mut(
             self,
             info,
-            &mut eeprom,
-            IXGBE_EEPROM_CHECKSUM as u16,
-            1,
-            &mut read_checksum,
-        ) {
-            self.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-            return Err(e);
-        }
+            IXGBE_GSSR_EEP_SM,
+            eeprom.semaphore_delay,
+            || {
+                let checksum = self.eeprom_calc_checksum(info, &mut eeprom)?;
+                // Do not use self.read_eerd() because we do not want to
+                // take the synchronization semaphore twice here.
+                let mut read_checksum = [0; 1];
+                ixgbe_operations::read_eerd_buffer_generic(
+                    self,
+                    info,
+                    &mut eeprom,
+                    IXGBE_EEPROM_CHECKSUM as u16,
+                    1,
+                    &mut read_checksum,
+                )?;
 
-        // Verify read checksum from EEPROM is the same as
-        // calculated checksum
-        if read_checksum[0] != checksum {
-            log::error!("Invalid EEPROM checksum");
-            return Err(IxgbeDriverErr::EepromChecksum);
-        }
+                // Verify read checksum from EEPROM is the same as
+                // calculated checksum
+                if read_checksum[0] != checksum {
+                    log::error!("Invalid EEPROM checksum");
+                    return Err(IxgbeDriverErr::EepromChecksum);
+                }
 
-        Ok(eeprom)
+                Ok(eeprom)
+            },
+        )
     }
 
     fn eeprom_calc_checksum(

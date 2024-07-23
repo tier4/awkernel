@@ -4,7 +4,7 @@ use super::{
     ixgbe_regs::*,
     IxgbeDriverErr,
 };
-use crate::pcie::{intel::ixgbe::Ixgbe, PCIeInfo};
+use crate::pcie::PCIeInfo;
 use alloc::boxed::Box;
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 use ixgbe_hw::{EepromType, IxgbeEepromInfo, IxgbeHw, MediaType, PhyType, SfpType, SmartSpeed};
@@ -700,7 +700,7 @@ fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
     let mut status = Ok(());
     if autoc != current_autoc {
         // Restart link
-        ops.mac_prot_autoc_write(info, hw, autoc, false)?;
+        ops.mac_prot_autoc_write(info, hw, autoc)?;
 
         // Only poll for autoneg to complete if specified to do so
         if autoneg_wait_to_complete {
@@ -767,10 +767,13 @@ fn start_mac_link_82599<T: IxgbeOperations + ?Sized>(
     }
 
     // Restart link
-    reset_pipeline_82599(info)?;
-
+    let ret = reset_pipeline_82599(info);
     if got_lock {
         ops.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
+    }
+
+    if let Err(e) = ret {
+        return Err(e);
     }
 
     // Only poll for autoneg to complete if specified to do so
@@ -904,7 +907,7 @@ impl IxgbeOperations for Ixgbe82599 {
             }
 
             if autoc != hw.mac.orig_autoc {
-                self.mac_prot_autoc_write(info, hw, hw.mac.orig_autoc, false)?;
+                self.mac_prot_autoc_write(info, hw, hw.mac.orig_autoc)?;
             }
 
             if (autoc2 & IXGBE_AUTOC2_UPPER_MASK) != (hw.mac.orig_autoc2 & IXGBE_AUTOC2_UPPER_MASK)
@@ -989,32 +992,35 @@ impl IxgbeOperations for Ixgbe82599 {
         info: &PCIeInfo,
         hw: &mut IxgbeHw,
         autoc: u32,
-        mut locked: bool,
     ) -> Result<(), IxgbeDriverErr> {
         // Blocked by MNG FW so bail
         if ixgbe_operations::check_reset_blocked(info, hw)? {
-            // Free the SW/FW semaphore as we
-            // already had it when this function was called.
-            if locked {
-                self.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
-            }
             return Ok(());
         }
 
         // We only need to get the lock if:
         // - We didn't do it already (in the read part of a read-modify-write)
         // - LESM is enabled.
-        if !locked && verify_lesm_fw_enabled_82599(self, info, hw)? {
+        let mut locked = false;
+        if verify_lesm_fw_enabled_82599(self, info, hw)? {
             self.mac_acquire_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
             locked = true;
         }
 
-        ixgbe_hw::write_reg(info, IXGBE_AUTOC, autoc)?;
-        reset_pipeline_82599(info)?;
+        let ret_write_reg = ixgbe_hw::write_reg(info, IXGBE_AUTOC, autoc);
+        let reset_pipeline = reset_pipeline_82599(info);
 
         // Free the SW/FW semaphore as we either grabbed it here.
         if locked {
             self.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
+        }
+
+        if let Err(_) = ret_write_reg {
+            return ret_write_reg;
+        }
+
+        if let Err(_) = reset_pipeline {
+            return reset_pipeline;
         }
 
         Ok(())
@@ -1085,40 +1091,30 @@ impl IxgbeOperations for Ixgbe82599 {
                 ixgbe_operations::get_sfp_init_sequence_offsets(self, info, hw)?;
 
             // PHY config will finish before releasing the semaphore
-            self.mac_acquire_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
+            ixgbe_operations::mac_swfw_sync_mut(
+                self,
+                info,
+                IXGBE_GSSR_MAC_CSR_SM,
+                hw.eeprom.semaphore_delay,
+                || {
+                    let mut data_value = [0; 1];
+                    data_offset += 1;
+                    self.eeprom_read(info, &mut hw.eeprom, data_offset, &mut data_value)?;
 
-            let mut data_value = [0; 1];
-            data_offset += 1;
-            self.eeprom_read(info, &mut hw.eeprom, data_offset, &mut data_value)?;
-
-            while data_value[0] != 0xffff {
-                ixgbe_hw::write_reg(info, IXGBE_CORECTL, data_value[0] as u32)?;
-                ixgbe_hw::write_flush(info)?;
-                data_offset += 1;
-                if let Err(_) = self.eeprom_read(info, &mut hw.eeprom, data_offset, &mut data_value)
-                {
-                    // Release the semaphore
-                    self.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
-                    //Delay obtaining semaphore again to allow FW access
-                    wait_millisec(hw.eeprom.semaphore_delay as u64);
-                    log::error!("eeprom read at offset {} failed", data_offset);
-                    return Err(IxgbeDriverErr::Phy);
-                }
-            }
-
-            // Release the semaphore
-            self.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
-            // Delay obtaining semaphore again to allow FW access
-            // prot_autoc_write uses the semaphore too.
-            wait_millisec(hw.eeprom.semaphore_delay as u64);
+                    while data_value[0] != 0xffff {
+                        ixgbe_hw::write_reg(info, IXGBE_CORECTL, data_value[0] as u32)?;
+                        ixgbe_hw::write_flush(info)?;
+                        data_offset += 1;
+                        self.eeprom_read(info, &mut hw.eeprom, data_offset, &mut data_value)?;
+                    }
+                    Ok(())
+                },
+            )?;
 
             // Restart DSP and set SFI mode
-            if let Err(_) = self.mac_prot_autoc_write(
-                info,
-                hw,
-                hw.mac.orig_autoc | IXGBE_AUTOC_LMS_10G_SERIAL,
-                false,
-            ) {
+            if let Err(_) =
+                self.mac_prot_autoc_write(info, hw, hw.mac.orig_autoc | IXGBE_AUTOC_LMS_10G_SERIAL)
+            {
                 log::debug!("sfp module setup not complete\n");
                 return Err(IxgbeDriverErr::SfpSetupNotComplete);
             }
