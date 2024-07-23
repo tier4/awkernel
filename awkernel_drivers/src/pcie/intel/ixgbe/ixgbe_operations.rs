@@ -837,8 +837,8 @@ pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(ops:&T, info
         ()}
 		}
 
-		/* Allow module to change analog characteristics (1G->10G) */
-		wait_microsec(40);
+		// Allow module to change analog characteristics (1G->10G)
+		wait_millisec(40);
 
 		ops.mac_setup_mac_link(info, hw,
 						    IXGBE_LINK_SPEED_10GB_FULL,
@@ -2166,7 +2166,7 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
 fn check_address_cycle_complete(info: &PCIeInfo) -> Result<u32, IxgbeDriverErr> {
     let mut command = 0;
     for _i in 0..IXGBE_MDIO_COMMAND_TIMEOUT {
-        awkernel_lib::delay::wait_microsec(10);
+        wait_microsec(10);
 
         command = ixgbe_hw::read_reg(info, IXGBE_MSCA)?;
         if (command & IXGBE_MSCA_MDI_COMMAND as u32) == 0 {
@@ -2331,50 +2331,83 @@ pub fn host_interface_command<T:IxgbeOperations + ?Sized>(ops: &T, info: &PCIeIn
     Ok(Some(ret_buffer))
 }
 
-// ixgbe_acquire_eeprom - Acquire EEPROM using bit-bang
-// Prepares EEPROM for access using bit-bang method. This function should
-// be called before issuing a command to the EEPROM.
-fn acquire_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo)->Result<(), IxgbeDriverErr>{
-    let eec_offset = get_eec_offset(info.get_id())?;
-	log::debug!("ixgbe_acquire_eeprom");
-
-	if let Err(_) = ops.mac_acquire_swfw_sync(info, IXGBE_GSSR_EEP_SM) {
-        return Err(IxgbeDriverErr::SwfwSync);
+fn mac_swfw_sync_mut<T, F, W>(ops: &T, info:&PCIeInfo, mask:u32, mut f:F)->Result<W, IxgbeDriverErr>
+    where 
+        T: IxgbeOperations + ?Sized,
+        F: FnMut(&T) -> Result<W, IxgbeDriverErr>,
+    {
+        ops.mac_acquire_swfw_sync(info, mask)?;
+        let result = f(ops);
+        ops.mac_release_swfw_sync(info, mask)?;
+        result
     }
 
-	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
 
-	// Request EEPROM Access 
-	eec |= IXGBE_EEC_REQ;
-	ixgbe_hw::write_reg(info, eec_offset, eec);
 
-    for _ in 0..IXGBE_EEPROM_GRANT_ATTEMPTS {
-		eec = ixgbe_hw::read_reg(info, eec_offset)?;
-		if eec & IXGBE_EEC_GNT != 0 {
-			break;
-        }
-		wait_microsec(5);
-	}
+fn acquire_eeprom<T, F, W>(ops:&T, info:&PCIeInfo, eeprom: &IxgbeEepromInfo, mut f:F)->Result<W , IxgbeDriverErr>
+where
+    T: IxgbeOperations + ?Sized,
+    F: FnMut(&T) -> Result<W, IxgbeDriverErr>,
+{
+	log::debug!("ixgbe_acquire_eeprom");
 
-	// Release if grant not acquired
-	if eec & IXGBE_EEC_GNT == 0 {
-		eec &= !IXGBE_EEC_REQ;
-		ixgbe_hw::write_reg(info, eec_offset, eec)?;
-		log::debug!("Could not acquire EEPROM grant\n");
+    let result = mac_swfw_sync_mut(ops, info, IXGBE_GSSR_EEP_SM, |ops|{
+        let eec_offset = get_eec_offset(info.get_id())?;
 
-		ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-        return Err(IxgbeDriverErr::Eeprom);
-	}
+	    let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
 
-	// Setup EEPROM for Read/Write
-	// Clear CS and SK
-	eec &= !(IXGBE_EEC_CS | IXGBE_EEC_SK);
-	ixgbe_hw::write_reg(info,eec_offset, eec)?;
-	ixgbe_hw::write_flush(info)?;
-	wait_microsec(1);
+	    // Request EEPROM Access 
+	    eec |= IXGBE_EEC_REQ;
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
 
-    Ok(())
+        for _ in 0..IXGBE_EEPROM_GRANT_ATTEMPTS {
+		    eec = ixgbe_hw::read_reg(info, eec_offset)?;
+		    if eec & IXGBE_EEC_GNT != 0 {
+			    break;
+            }
+		    wait_microsec(5);
+	    }
+
+	    // Release if grant not acquired
+	    if eec & IXGBE_EEC_GNT == 0 {
+		    eec &= !IXGBE_EEC_REQ;
+		    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+		    log::debug!("Could not acquire EEPROM grant\n");
+            return Err(IxgbeDriverErr::Eeprom);
+	    }
+
+	    // Setup EEPROM for Read/Write
+	    // Clear CS and SK
+	    eec &= !(IXGBE_EEC_CS | IXGBE_EEC_SK);
+	    ixgbe_hw::write_reg(info,eec_offset, eec)?;
+	    ixgbe_hw::write_flush(info)?;
+	    wait_microsec(1);
+
+        let result = f(ops);
+
+	    let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
+
+	    eec |= IXGBE_EEC_CS;  // Pull CS high
+	    eec &= !IXGBE_EEC_SK; // Lower SCK
+
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+	    ixgbe_hw::write_flush(info)?;
+
+	    wait_microsec(1);
+
+	    // Stop requesting EEPROM access
+	    eec &= !IXGBE_EEC_REQ;
+	    ixgbe_hw::write_reg(info, eec_offset, eec)?;
+
+        result
+    });
+
+    // Delay before attempt to obtain semaphore again to allow FW access
+	wait_millisec(eeprom.semaphore_delay as u64);
+
+    result
 }
+
 
 // Sets the hardware semaphores so EEPROM access can occur for bit-bang method
 fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
@@ -2392,14 +2425,14 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
             status = Ok(());
             break;
         }
-        awkernel_lib::delay::wait_microsec(50);
+        wait_microsec(50);
         i += 1;
     }
 
     if i == timeout {
         release_eeprom_semaphore(info)?;
 
-        awkernel_lib::delay::wait_microsec(50);
+        wait_microsec(50);
 
         // one last try
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
@@ -2424,7 +2457,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
                 break;
             }
 
-            awkernel_lib::delay::wait_microsec(50);
+            wait_microsec(50);
             i += 1;
         }
 
@@ -2467,7 +2500,7 @@ fn ready_eeprom(info:&PCIeInfo)->Result<(), IxgbeDriverErr>{
     let mut i = 0;
     while i < IXGBE_EEPROM_MAX_RETRY_SPI {
 		shift_out_eeprom_bits(info, IXGBE_EEPROM_RDSR_OPCODE_SPI,
-					    IXGBE_EEPROM_OPCODE_BITS);
+					    IXGBE_EEPROM_OPCODE_BITS)?;
 		let spi_stat_reg = shift_in_eeprom_bits(info, 8)? as u8;
 		if spi_stat_reg & IXGBE_EEPROM_STATUS_RDY_SPI == 0 {
 			break;
@@ -2606,68 +2639,39 @@ fn lower_eeprom_clk(info:&PCIeInfo, mut eec:u32)->Result<u32, IxgbeDriverErr>{
     Ok(eec)
 }
 
-// ixgbe_release_eeprom - Release EEPROM, release semaphores
-fn release_eeprom<T:IxgbeOperations + ?Sized>(ops:&T, info: &PCIeInfo, eeprom: &IxgbeEepromInfo)->Result<(), IxgbeDriverErr>{
-    let eec_offset = get_eec_offset(info.get_id())?;
-
-	let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
-
-	eec |= IXGBE_EEC_CS;  // Pull CS high
-	eec &= !IXGBE_EEC_SK; // Lower SCK
-
-	ixgbe_hw::write_reg(info, eec_offset, eec)?;
-	ixgbe_hw::write_flush(info)?;
-
-	wait_microsec(1);
-
-	// Stop requesting EEPROM access
-	eec &= !IXGBE_EEC_REQ;
-	ixgbe_hw::write_reg(info, eec_offset, eec)?;
-
-	ops.mac_release_swfw_sync(info, IXGBE_GSSR_EEP_SM)?;
-
-	// Delay before attempt to obtain semaphore again to allow FW access */
-	wait_microsec(eeprom.semaphore_delay as u64);
-
-    Ok(())
-}
-
 // ixgbe_read_eeprom_buffer_bit_bang - Read EEPROM using bit-bang
 // //  Reads 16 bit word(s) from EEPROM through bit-bang method
-fn read_eeprom_buffer_bit_bang<T:IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset: u16, words:u16, data:&mut [u16])->Result<(),IxgbeDriverErr>{
+fn read_eeprom_buffer_bit_bang<T:IxgbeOperations + ?Sized>(ops:&T, info:&PCIeInfo, eeprom: &mut IxgbeEepromInfo, offset: u16, data:&mut [u16])->Result<(),IxgbeDriverErr>{
 	log::debug!("read_eeprom_buffer_bit_bang");
 
 	// Prepare the EEPROM for reading k
-	acquire_eeprom(ops, info)?;
+	acquire_eeprom(ops, info, eeprom, |_ops|{
+        if let Err(_) = ready_eeprom(info){
+            return Err(IxgbeDriverErr::Eeprom)
+	    }
 
-	if let Err(_) = ready_eeprom(info){
-		release_eeprom(ops, info, eeprom)?;
-        return Err(IxgbeDriverErr::Eeprom)
-	}
+	    let mut read_opcode = IXGBE_EEPROM_READ_OPCODE_SPI;
+        for (i, d) in data.iter_mut().enumerate() {
+		    standby_eeprom(info)?;
 
-	let mut read_opcode = IXGBE_EEPROM_READ_OPCODE_SPI;
-    for i in 0..words {
-		standby_eeprom(info)?;
+		    // Some SPI eeproms use the 8th address bit embedded
+		    // in the opcode
+		    if (eeprom.address_bits == 8) && ((offset + i as u16) >= 128){
+			    read_opcode |= IXGBE_EEPROM_A8_OPCODE_SPI;
+            }
 
-		// Some SPI eeproms use the 8th address bit embedded
-		// in the opcode
-		if (eeprom.address_bits == 8) && ((offset + i) >= 128){
-			read_opcode |= IXGBE_EEPROM_A8_OPCODE_SPI;
-        }
+		    // Send the READ command (opcode + addr)
+		    shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
+		    shift_out_eeprom_bits(info, ((offset + i as u16) * 2) as u16, eeprom.address_bits)?;
 
-		// Send the READ command (opcode + addr)
-		shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
-		shift_out_eeprom_bits(info, ((offset + i) * 2) as u16, eeprom.address_bits)?;
+		    // Read the data.
+		    let word_in = shift_in_eeprom_bits(info, 16)?;
+            *d = (word_in >> 8) | (word_in << 8);
+	    }
 
-		// Read the data.
-		let word_in = shift_in_eeprom_bits(info, 16)?;
-		data[i as usize] = (word_in >> 8) | (word_in << 8);
-	}
+        Ok(())
+    })
 
-	// End this read operation 
-	release_eeprom(ops, info, eeprom)?;
-
-	Ok(())
 }
 
  // ixgbe_read_eeprom_bit_bang_generic - Read EEPROM word using bit-bang
@@ -2685,7 +2689,7 @@ pub fn read_eeprom_bit_bang_generic<T:IxgbeOperations + ?Sized>(ops:&T, info: &P
         return Err(IxgbeDriverErr::Eeprom);
 	}
 
-	read_eeprom_buffer_bit_bang(ops, info, eeprom, offset, 1, data)
+	read_eeprom_buffer_bit_bang(ops, info, eeprom, offset, data)
 }
 
 pub fn phy_setup_link_generic<T:IxgbeOperations + ?Sized>(ops: &T, info:&PCIeInfo, hw:&mut IxgbeHw) -> Result<(), IxgbeDriverErr>{
@@ -3595,11 +3599,7 @@ pub trait IxgbeOperations: Send {
     }
 
 
-    //fn disable_mc(&PCIeInfo, ) -> Result<(), IxgbeDriverErr>{
-    //if ()
-    //}
-
-    // ixgbe_acquire_swhw_sync() For X540 ixgbe_acquire_swfw_sync_X540()
+    // acquire_swhw_sync() - Acquire SWFW semaphore 
     // Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
     fn mac_acquire_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
         log::info!("mac_acquire_swfw_sync");
@@ -3614,15 +3614,22 @@ pub trait IxgbeOperations: Send {
 
             get_eeprom_semaphore(info)?;
 
-            gssr = ixgbe_hw::read_reg(info, IXGBE_GSSR)?;
+            gssr = match ixgbe_hw::read_reg(info, IXGBE_GSSR){
+                Err(e) => {
+                    release_eeprom_semaphore(info)?;
+                    return Err(e);
+                },
+                Ok(ret) => ret,
+            };
+            
             if !(gssr & (fwmask | swmask)) != 0 {
                 gssr |= swmask;
-                ixgbe_hw::write_reg(info, IXGBE_GSSR, gssr)?;
+                let result = ixgbe_hw::write_reg(info, IXGBE_GSSR, gssr);
                 release_eeprom_semaphore(info)?;
-                return Ok(());
+                return result;
             } else {
                 release_eeprom_semaphore(info)?;
-                awkernel_lib::delay::wait_millisec(5);
+                wait_millisec(5);
             }
         }
 
@@ -3631,11 +3638,11 @@ pub trait IxgbeOperations: Send {
             self.mac_release_swfw_sync(info, gssr & (fwmask | swmask))?;
         }
 
-        awkernel_lib::delay::wait_millisec(5);
+        wait_millisec(5);
         Err(SwfwSync)
     }
 
-    // ixgbe_release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
+    // release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
     fn mac_release_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
         let mut gssr;
         let swmask = mask;
