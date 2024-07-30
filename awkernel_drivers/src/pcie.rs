@@ -570,7 +570,6 @@ fn init<F>(
     };
 
     let mut host_bridge_bus = 0;
-    log::info!("init!!!!!!!!!!!!!!!!");
     for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
@@ -596,7 +595,6 @@ fn init<F>(
 
         visited.insert(bus_number);
         check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
-        log::info!("init!!!!!!!!!!!!!!!!1");
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
     }
@@ -607,8 +605,6 @@ fn init<F>(
     }
 
     bus_tree.attach();
-
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
@@ -695,12 +691,6 @@ impl PCIeInfo {
         device_number: u8,
         function_number: u8,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
-        log::info!(
-            "bus:{:X} device:{:X} function:{:X}",
-            bus_number,
-            device_number,
-            function_number
-        );
         let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
         let command_status = config_space.read_u32(registers::STATUS_COMMAND);
         let command = (command_status & 0xffff) as u16;
@@ -711,15 +701,12 @@ impl PCIeInfo {
         if id == !0 || vendor == !0 {
             return Err(PCIeDeviceErr::InitFailure);
         }
-        log::info!("id:{:X} vendor:{:X}", id, vendor);
-        log::info!("command:{:X}", command);
 
         let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
         let header_type = header_type & 0x7f;
 
         let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
         let revision_id = (cls_rev_id & 0xff) as u8;
-        log::info!("cls_rev_id:{:X} revision_id:{:X}", cls_rev_id, revision_id);
 
         let pcie_class = pcie_class::PCIeClass::from_u8(
             (cls_rev_id >> 24) as u8,
@@ -728,8 +715,6 @@ impl PCIeInfo {
         .ok_or(PCIeDeviceErr::InvalidClass)?;
 
         let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
-
-        log::info!("header_type:{}", header_type);
 
         let mut result = PCIeInfo {
             config_space,
@@ -878,11 +863,6 @@ impl PCIeInfo {
             _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
-        //if self.device_number == 6 && self.function_number == 0 {
-        //loop {}
-        //}
-
-        log::info!("read_bar");
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
@@ -967,7 +947,6 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
-        log::info!("attach");
         let segment_group = self.segment_group;
         let bus_number = self.bus_number;
         let device_number = self.device_number;
@@ -1041,7 +1020,6 @@ fn read_bar(
     function_num: u8,
 ) -> BaseAddress {
     let bar = config_space.read_u32(offset);
-    log::info!("bar:{:X}", bar);
 
     if (bar & BAR_IO) == 1 {
         // I/O space
@@ -1085,7 +1063,6 @@ fn read_bar(
         } else if bar_type == BAR_TYPE_64 {
             let high_offset = offset + 4;
             let high_bar = config_space.read_u32(high_offset);
-            log::info!("high_bar:{:X}", high_bar);
 
             let size = {
                 let high_bar = config_space.read_u32(high_offset);
