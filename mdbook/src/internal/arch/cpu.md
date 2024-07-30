@@ -27,9 +27,9 @@ There are functions regarding CPU in [awkernel_lib/src/cpu.rs](https://github.co
 
 |  function             | description |
 |-----------------------|-------------|
-| `cpu_id() -> usize ` | Return the ID of the CPU. |
-| `raw_cpu_id() -> usize` | Return the ID of the CPU without any modification. |
-| `num_cpu() -> usize` | Return the number of CPUs. |
+| `fn cpu_id() -> usize` | Return the ID of the CPU. |
+| `fn raw_cpu_id() -> usize` | Return the ID of the CPU without any modification. |
+| `fn num_cpu() -> usize` | Return the number of CPUs. |
 
 # Implementation
 

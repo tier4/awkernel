@@ -138,7 +138,7 @@ Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers
 
 ```text
 $ make docs
-$ ls docs/book/index.html
+$ ls docs/index.html
 ```
 
 ### Raspi

@@ -17,14 +17,6 @@ where
     fn allocate_frame(&mut self) -> Result<F, E>;
 }
 
-/// Allocate a frame for NUMA node of `numa_id`.
-pub trait NUMAFrameAllocator<F, E>
-where
-    F: Frame,
-{
-    fn allocate_frame(&mut self, numa_id: usize) -> Result<F, E>;
-}
-
 pub trait PageTable<F, FA, E>
 where
     F: Frame,
@@ -60,7 +52,7 @@ pub struct Flags {
     pub write: bool,         // writable
     pub cache: bool,         // enable cache
     pub write_through: bool, // write back if disabled
-    pub device: bool,        // this page is MMIO, ignored on x86
+    pub device: bool,        // this page is for MMIO, ignored on x86
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
