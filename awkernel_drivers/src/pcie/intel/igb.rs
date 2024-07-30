@@ -161,7 +161,7 @@ struct Tx {
     write_buf: Option<DMAPool<TxBuffer>>,
 }
 
-pub struct Queue {
+struct Queue {
     tx: Mutex<Tx>,
     rx: Mutex<Rx>,
     me: usize,
@@ -349,7 +349,7 @@ pub enum IgbDriverErr {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IRQRxTxLink {
+enum IRQRxTxLink {
     RxTx(usize),
     Link,          // Link status change
     Legacy(usize), // Rx, Tx or Link

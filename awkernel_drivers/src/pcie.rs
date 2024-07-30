@@ -21,10 +21,7 @@ use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
 #[cfg(feature = "x86")]
 use acpi::{AcpiTables, PciConfigRegions};
 
-use crate::{
-    device,
-    pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass},
-};
+use crate::pcie::pcie_class::{PCIeBridgeSubClass, PCIeClass};
 
 use self::{
     base_address::{AddressType, BaseAddress},
@@ -570,6 +567,7 @@ fn init<F>(
     };
 
     let mut host_bridge_bus = 0;
+
     for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
@@ -600,11 +598,14 @@ fn init<F>(
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
+
     if let Some(ranges) = ranges {
         bus_tree.init_base_address(ranges);
     }
 
     bus_tree.attach();
+
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
