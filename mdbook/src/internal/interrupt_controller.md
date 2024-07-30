@@ -74,7 +74,7 @@ Some related functions are defined in [awkernel_lib/src/interrupt.rs](https://gi
 
 ## x86_64
 
-`handle_irq()` is called in interrupt handlers defined in.
+`handle_irq` is called in interrupt handlers defined in.
 [kernel/src/arch/x86_64/interrupt_handler.rs](https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs) for x86_64 as follows.
 
 ```rust

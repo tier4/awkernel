@@ -1136,7 +1136,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 </div>
 <h1 id="handling-interrupts"><a class="header" href="#handling-interrupts">Handling Interrupts</a></h1>
 <h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
-<p><code>handle_irq()</code> is called in interrupt handlers defined in.
+<p><code>handle_irq</code> is called in interrupt handlers defined in.
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> for x86_64 as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1212,6 +1212,107 @@ pub fn handle_irqs() {
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
 </ul>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
+<p>Awkernel uses <a href="https://github.com/yvt/rlsf">rlsf</a>, which implements Two-Level Segregated Fit (TLSF) memory allocator.
+The <code>Tallock</code> structure represents an allocator in Awkernel,
+which contains a primary allocator and a backup allocator.
+Async/await tasks use only the primary allocator,
+but kernel tasks, such as interrupt handlers,
+use both the primary and the backup allocators for safety.
+Because of the backup allocator,
+kernel tasks can safely handle memory exhaustion in the primary allocator.</p>
+<p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct Allocator(Mutex&lt;TLSFAlloc&gt;);
+struct BackUpAllocator(Mutex&lt;TLSFAlloc&gt;);
+
+pub struct Talloc {
+    primary: Allocator,
+    backup: BackUpAllocator,
+
+    /// bitmap for each CPU to decide which allocator to use
+    flags: [AtomicU32; NUM_MAX_CPU / 32],
+
+    primary_start: AtomicUsize,
+    primary_size: AtomicUsize,
+    backup_start: AtomicUsize,
+    backup_size: AtomicUsize,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Talloc</code> structure is defined as a global allocator as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[global_allocator]
+pub static TALLOC: Talloc = Talloc::new();
+<span class="boring">}</span></code></pre></pre>
+<p>There are 2 functions to initialize memory regions of the primary and backup allocators.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the memory region of the primary allocator.</td></tr>
+<tr><td><code>fn init_backup(backup_start: usize, backup_size: usize)</code></td><td>Initialize the memory region of the backup allocator.</td></tr>
+</tbody></table>
+</div>
+<h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
+<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
+<p>For x86_64, the primary and backup allocators are initialized
+in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
+These functions initialize virtual memory regions for the primary and backup heaps
+before initializing the primary and backup allocators.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn init_primary_heap(
+    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
+    page_allocators: &amp;mut BTreeMap&lt;u32, VecPageAllocator&gt;,
+) {
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+
+    let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
+
+    let heap_size = num_pages * PAGESIZE;
+    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn init_backup_heap(
+    boot_info: &amp;mut BootInfo,
+    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
+) -&gt; (usize, MemoryRegion, Option&lt;PhysFrame&gt;) {
+    // omitted: Initialize virtual memory regions for the backup heap.
+
+    // Initialize.
+    // Enable heap allocator.
+    unsafe {
+        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+    }
+
+    (backup_pages, backup_heap_region, next_page)
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
+<p>For x86_64, the primary and backup allocators are initialized
+in <code>primary_cpu</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn primary_cpu(device_tree_base: usize) {
+    // omitted
+
+    // 5. Enable heap allocator.
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
 
