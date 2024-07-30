@@ -2,6 +2,7 @@
 x86 = "build --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 aarch64 = "build --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 rv32 = "build --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+rv64 = "build --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 std = "build --package awkernel --no-default-features --features std"
 
 test_awkernel_lib = "test --package awkernel_lib --no-default-features --features std"
@@ -14,10 +15,12 @@ clippy_raspi5 = "clippy --package awkernel --no-default-features --features rasp
 clippy_aarch64_virt = "clippy --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_std = "clippy --package awkernel --no-default-features --features std"
 clippy_rv32 = "clippy --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+clippy_rv64 = "clippy --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 
 check_aarch64 = "check --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_x86 = "check --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_rv32 = "check --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
+check_rv64 = "check --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_no_std = "check --package awkernel -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem --quiet --message-format=json"
 check_std = "check --package awkernel --no-default-features --features std"
 
@@ -30,3 +33,8 @@ rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 
 [target.riscv32imac-unknown-none-elf]
 rustflags = ["-C", "link-arg=-Tkernel/ld/rv32-link.lds"]
+
+[target.riscv64gc-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=-Tkernel/ld/rv64-link.lds", "-Cforce-frame-pointers=yes"
+]

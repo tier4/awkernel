@@ -25,6 +25,10 @@ optional = true
 version = "0.15"
 optional = true
 
+[dependencies.riscv]
+version = "0.11.1"
+optional = true
+
 [dependencies.acpi]
 # version = "5.0"
 git = "https://github.com/ytakano/acpi.git"
@@ -68,6 +72,7 @@ default = ["x86"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
+rv64 = ["dep:riscv"]
 std = ["dep:libc", "dep:parking_lot"]
 spinlock = []
 
