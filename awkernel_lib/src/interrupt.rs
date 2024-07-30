@@ -439,6 +439,10 @@ pub fn disable() {
 }
 
 /// Initialization for non-primary core.
+///
+/// # Safety
+///
+/// This function must be called only once from the primary CPU.
 pub unsafe fn init_non_primary() {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
