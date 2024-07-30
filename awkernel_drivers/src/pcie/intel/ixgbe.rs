@@ -17,7 +17,7 @@ use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     console,
-    delay::wait_microsec,
+    delay::{wait_microsec, wait_millisec},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -1076,7 +1076,7 @@ impl IxgbeInner {
         }
 
         let linkvec = que.len() as u8;
-        /* For the Link interrupt */
+        // For the Link interrupt
         self.set_ivar(1, linkvec, -1)?;
 
         Ok(())
@@ -1155,7 +1155,8 @@ impl IxgbeInner {
                     .mac_get_link_capabilities(&self.info, &mut self.hw)?;
             }
             //TODO: Consider whether this is necessary.
-            // self.ops.mac_setup_link(&self.info, &mut self.hw, autoneg, self.link_active)?;
+            self.ops
+                .mac_setup_link(&self.info, &mut self.hw, _autoneg, self.link_active)?;
         }
 
         Ok(())
@@ -1195,7 +1196,6 @@ impl IxgbeInner {
             (_autoneg, _negotiate) = self
                 .ops
                 .mac_get_link_capabilities(&self.info, &mut self.hw)?;
-            return Ok(());
         }
 
         self.ops
@@ -1338,10 +1338,6 @@ impl IxgbeInner {
 impl Ixgbe {
     fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
         let (inner, que) = IxgbeInner::new(info)?;
-        //match IxgbeInner::new(info) {
-        //Err(e) => log::debug!("debug:{:?}", e),
-        //_ => (),
-        //}
 
         let ixgbe = Self {
             inner: RwLock::new(inner),
@@ -1424,9 +1420,9 @@ impl Ixgbe {
                 ixgbe_hw::write_reg(&inner.info, IXGBE_EIMC, IXGBE_EIMC_OTHER)?;
                 // First get the cause
                 reg_eicr = ixgbe_hw::read_reg(&inner.info, IXGBE_EICS)?;
-                /* Be sure the queue bits are not cleared */
+                // Be sure the queue bits are not cleared
                 reg_eicr &= !IXGBE_EICR_RTX_QUEUE;
-                /* Clear interrupt with write */
+                // Clear interrupt with write
                 ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, reg_eicr)?;
             }
             _ => {
@@ -1461,9 +1457,9 @@ impl Ixgbe {
         }
 
         // Pluggable optics-related interrupt
-        let mod_mask;
-        let msf_mask;
         if inner.is_sfp() {
+            let mod_mask;
+            let msf_mask;
             if inner.info.get_id() == IXGBE_DEV_ID_X550EM_X_SFP {
                 mod_mask = IXGBE_EICR_GPI_SDP0_X540;
                 msf_mask = IXGBE_EICR_GPI_SDP1_X540;
@@ -1501,7 +1497,8 @@ impl Ixgbe {
         {
             // Clear the interrupt
             ixgbe_hw::write_reg(&inner.info, IXGBE_EICR, IXGBE_EICR_GPI_SDP0_X540)?;
-            self.handle_phy()?;
+            // TODO: The below is for X550em.
+            // self.handle_phy()?;
         }
 
         ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS, IXGBE_EIMS_OTHER | IXGBE_EIMS_LSC)?;
@@ -1509,6 +1506,8 @@ impl Ixgbe {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    // This is for X550em.
     fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("handle_phy: Not implemented");
         Err(IxgbeDriverErr::NotImplemented)
