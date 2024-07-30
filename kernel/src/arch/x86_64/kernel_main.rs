@@ -210,7 +210,7 @@ fn kernel_main2(
             init_apic_timer(&mut xapic);
 
             // Register interrupt controller.
-            register_interrupt_controller(Box::new(xapic));
+            unsafe { register_interrupt_controller(Box::new(xapic)) };
 
             result
         }
@@ -233,7 +233,7 @@ fn kernel_main2(
             init_apic_timer(&mut x2apic);
 
             // Register interrupt controller.
-            register_interrupt_controller(Box::new(x2apic));
+            unsafe { register_interrupt_controller(Box::new(x2apic)) };
 
             result
         }

@@ -14,7 +14,7 @@ embedded-graphics = "0.8"
 
 [dependencies.unwinding]
 # version = "0.2"
-git = "https://github.com/ytakano/unwinding.git"
+git = "https://github.com/nbdd0121/unwinding.git"
 default-features = false
 optional = true
 features = ["unwinder", "panic", "personality", "fde-static"]
@@ -92,7 +92,7 @@ raspi = [
     "userland/raspi",
 ]
 
-raspi5 = ["aarch64"]
+raspi5 = ["aarch64", "awkernel_drivers/raspi", "awkernel_drivers/pl011"]
 
 
 aarch64_virt = [
@@ -101,3 +101,4 @@ aarch64_virt = [
     "awkernel_drivers/pl011",
 ]
 spinlock = ["awkernel_lib/spinlock"]
+linux = []

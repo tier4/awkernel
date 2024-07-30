@@ -78,6 +78,7 @@ static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
 fn empty() {}
 
+/// Return the list of IRQs and their handlers.
 pub fn get_handlers() -> BTreeMap<u16, Cow<'static, str>> {
     let handlers = IRQ_HANDLERS.read();
     let mut map = BTreeMap::new();
@@ -91,7 +92,13 @@ pub fn get_handlers() -> BTreeMap<u16, Cow<'static, str>> {
     map
 }
 
-pub fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
+/// Register an interrupt controller.
+///
+/// # Safety
+///
+/// This function is unsafe because the caller must ensure that the interrupt controller is valid.
+/// The interrupt controller should be initialized only once.
+pub unsafe fn register_interrupt_controller(controller: Box<dyn InterruptController>) {
     let mut ctrl = INTERRUPT_CONTROLLER.write();
     *ctrl = Some(controller);
 }
@@ -156,6 +163,7 @@ impl Drop for IRQ {
 }
 
 /// Register an interrupt handler.
+/// If the handler is already registered, this function will return an error.
 pub fn register_handler<F>(
     irq: u16,
     name: Cow<'static, str>,
@@ -193,6 +201,7 @@ where
     }
 }
 
+/// Enable the interrupt.
 pub fn enable_irq(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
@@ -202,6 +211,7 @@ pub fn enable_irq(irq: u16) {
     }
 }
 
+/// Disable the interrupt.
 pub fn disable_irq(irq: u16) {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
@@ -300,6 +310,8 @@ where
     result
 }
 
+/// Handle the pending interrupt request.
+/// This function will be used by only x86_64 and called from CPU's interrupt handlers.
 #[cfg(feature = "x86")]
 pub fn handle_irq(irq: u16) {
     use crate::{heap, unwind::catch_unwind};
@@ -324,6 +336,8 @@ pub fn handle_irq(irq: u16) {
     }
 }
 
+/// Handle all pending interrupt requests.
+/// This function will be used by only aarch64 and called from CPU's interrupt handlers.
 #[cfg(feature = "aarch64")]
 pub fn handle_irqs() {
     use crate::{heap, unwind::catch_unwind};
@@ -368,6 +382,7 @@ pub fn handle_irqs() {
     }
 }
 
+/// Handle preemption.
 #[cfg(feature = "x86")]
 pub fn handle_preemption() {
     use core::mem::transmute;
@@ -413,16 +428,22 @@ impl Drop for InterruptGuard {
     }
 }
 
+/// Enable interrupts.
 pub fn enable() {
     ArchImpl::enable();
 }
 
+/// Disable interrupts.
 pub fn disable() {
     ArchImpl::disable();
 }
 
 /// Initialization for non-primary core.
-pub fn init_non_primary() {
+///
+/// # Safety
+///
+/// This function must be called only once from the primary CPU.
+pub unsafe fn init_non_primary() {
     let mut controller = INTERRUPT_CONTROLLER.write();
     if let Some(ctrl) = controller.as_mut() {
         ctrl.init_non_primary();
@@ -438,6 +459,12 @@ pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
 }
 
+/// Return the IRQ number for preemption.
+pub fn get_preempt_irq() -> u16 {
+    PREEMPT_IRQ.load(Ordering::Relaxed)
+}
+
+/// Check the initialization status of the interrupt module.
 pub fn sanity_check() {
     if INTERRUPT_CONTROLLER.read().is_none() {
         log::warn!("interrupt::INTERRUPT_CONTROLLER is not yet initialized.")

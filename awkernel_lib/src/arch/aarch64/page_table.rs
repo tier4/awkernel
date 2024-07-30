@@ -219,6 +219,11 @@ impl PageTable {
         let lv3_idx = Self::get_idx(vm_addr, PageTableLevel::Lv3);
         let ptr = &lv3_table[lv3_idx];
         let val = unsafe { read_volatile(ptr) };
+
+        if val & FLAG_L3_AF == 0 {
+            return None;
+        }
+
         let high = val & (0xfffffff) << 12; // PA[39:12]
         let low = vm_addr.as_usize() as u64 & 0xfff; // PA[11:0]
 
@@ -234,31 +239,6 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, &'static str> for PageT
         flags: crate::paging::Flags,
         page_allocator: &mut PageAllocator<Page>,
     ) -> Result<(), &'static str> {
-        let lv1_table = &mut self.root.entries;
-        let lv1_idx = Self::get_idx(virt_addr, PageTableLevel::Lv1);
-        let lv2_table;
-
-        if lv1_table[lv1_idx] == 0 {
-            lv2_table = PageTableEntry::new(page_allocator)?.entries;
-            lv1_table[lv1_idx] = (lv2_table.as_ptr()) as u64 | 0b11;
-        } else {
-            let addr = lv1_table[lv1_idx] & Self::ADDR_MASK;
-            lv2_table = PageTableEntry::from_addr(PhyAddr::new(addr as usize)).entries;
-        }
-
-        let lv2_idx = Self::get_idx(virt_addr, PageTableLevel::Lv2);
-        let lv3_table;
-
-        if lv2_table[lv2_idx] == 0 {
-            lv3_table = PageTableEntry::new(page_allocator)?.entries;
-            lv2_table[lv2_idx] = (lv3_table.as_ptr()) as u64 | 0b11;
-        } else {
-            let addr = lv2_table[lv2_idx] & Self::ADDR_MASK;
-            lv3_table = PageTableEntry::from_addr(PhyAddr::new(addr as usize)).entries;
-        }
-
-        let lv3_idx = Self::get_idx(virt_addr, PageTableLevel::Lv3);
-
         let mut f = FLAG_L3_AF | 0b11;
 
         if !flags.execute {
@@ -271,19 +251,13 @@ impl crate::paging::PageTable<Page, PageAllocator<Page>, &'static str> for PageT
             f |= FLAG_L3_SH_R_N;
         }
 
-        if flags.device {
-            f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH;
-        } else if flags.cache {
-            f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH;
-        } else {
-            f |= FLAG_L3_NS | FLAG_L3_ISH;
+        match (flags.device, flags.cache) {
+            (true, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_OSH,
+            (true, false) => f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH,
+            (false, true) => f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH,
+            (false, false) => f |= FLAG_L3_NS | FLAG_L3_ISH,
         }
 
-        let e = phy_addr.as_usize() as u64 & !0xfff | f;
-        let ptr = &mut lv3_table[lv3_idx];
-
-        unsafe { write_volatile(ptr, e) };
-
-        Ok(())
+        self.map_to_aarch64(virt_addr, phy_addr, f, page_allocator)
     }
 }

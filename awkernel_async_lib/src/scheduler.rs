@@ -12,17 +12,20 @@ use alloc::boxed::Box;
 mod fifo;
 pub(super) mod panicked;
 mod prioritized_fifo;
+mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     FIFO,
 
     /// `u8` is the priority of the prioritized scheduler.
     /// 0 is the highest priority and 255 is the lowest priority.
     PrioritizedFIFO(u8),
+
+    RR,
 
     Panicked,
 }
@@ -64,6 +67,10 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
         return Some(task);
     }
 
+    if let Some(task) = rr::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
     if let Some(task) = panicked::SCHEDULER.get_next() {
         return Some(task);
     }
@@ -76,6 +83,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
     match sched_type {
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
+        SchedulerType::RR => &rr::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
@@ -142,6 +150,9 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
 /// This function should be called from only Autoware Kernel.
 /// So, do not call this from userland.
 pub fn wake_task() {
+    // Check whether each running task exceeds the time quantum.
+    crate::scheduler::rr::SCHEDULER.check_time_quantum();
+
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.wake_task();

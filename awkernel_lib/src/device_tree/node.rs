@@ -265,6 +265,7 @@ impl<'a, A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'a, A> {
 
 const ARRAYED_NODE_SIZE: usize = 8;
 
+#[derive(Clone)]
 pub struct ArrayedNode<'a, A: Allocator + Clone> {
     array: [Option<&'a DeviceTreeNode<'a, A>>; ARRAYED_NODE_SIZE],
     index: usize,
@@ -363,7 +364,7 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
                     leaf = Some(tail);
                 } else {
                     let n = node.as_ref().unwrap();
-                    if let Some(ranges) = n.props().iter().find(|p| p.name() == "ranges") {
+                    if let Some(ranges) = n.get_property("ranges") {
                         match ranges.value() {
                             PropertyValue::Ranges(rgs) => {
                                 // `base_addr` must be in the ranges,
@@ -378,6 +379,7 @@ impl<'a, A: Allocator + Clone> ArrayedNode<'a, A> {
                                 // Invalid address.
                                 return Err(DeviceTreeError::MemoryAccessFailed);
                             }
+                            PropertyValue::None => (),
                             _ => return Err(DeviceTreeError::InvalidSemantics), // Must be ranges.
                         }
                     }

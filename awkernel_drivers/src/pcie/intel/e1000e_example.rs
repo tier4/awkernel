@@ -9,14 +9,14 @@ const E1000_DEV_ID_82574L: u16 = 0x10D3;
 const EECD: usize = 0x00010; // EEPROM Control Register
 
 /// First, we need to check if the device is an Intel 82574L (e1000e).
-/// This function is called by [`awkernel_drivers::pcie::PCIeInfo::attach`]
+/// This function is called by `crate::pcie::PCIeInfo::attach`
 /// to check if the device is an Intel 82574L (e1000e).
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::INTEL_VENDOR_ID && id == E1000_DEV_ID_82574L
 }
 
 /// Attach the device to the system.
-/// This function is also called by [`awkernel_drivers::pcie::PCIeInfo::attach`]
+/// This function is also called by `crate::pcie::PCIeInfo::attach`
 /// to attach the device to the system.
 pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
     // Initialize PCIeInfo

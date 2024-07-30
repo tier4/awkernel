@@ -17,14 +17,6 @@ where
     fn allocate_frame(&mut self) -> Result<F, E>;
 }
 
-/// Allocate a frame for NUMA node of `numa_id`.
-pub trait NUMAFrameAllocator<F, E>
-where
-    F: Frame,
-{
-    fn allocate_frame(&mut self, numa_id: usize) -> Result<F, E>;
-}
-
 pub trait PageTable<F, FA, E>
 where
     F: Frame,
@@ -60,7 +52,7 @@ pub struct Flags {
     pub write: bool,         // writable
     pub cache: bool,         // enable cache
     pub write_through: bool, // write back if disabled
-    pub device: bool,        // this page is MMIO, ignored on x86
+    pub device: bool,        // this page is for MMIO, ignored on x86
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +87,7 @@ pub trait Mapper {
 
 /// Return the physical address of `vm_addr`.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
     ArchImpl::vm_to_phy(vm_addr)
 }
@@ -107,6 +100,7 @@ pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
 /// - `flag` must be reasonable.
 /// - `phy_addr` must be being unmapped.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<(), MapError> {
     ArchImpl::map(vm_addr, phy_addr, flags)
 }
@@ -118,6 +112,7 @@ pub unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -> Result<
 /// - Virtual memory must be enabled.
 /// - `vm_addr` must be being mapped.
 #[cfg(not(feature = "std"))]
+#[inline(always)]
 pub unsafe fn unmap(vm_addr: VirtAddr) {
     ArchImpl::unmap(vm_addr)
 }

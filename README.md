@@ -28,7 +28,7 @@ It can execute async/await applications in kernel space safely.
 - [ ] Frame buffer
   - [ ] AArch64 virt
   - [x] Raspberry Pi 3 and 4
-  - [ ] x86_64
+  - [x] x86_64
 - [ ] Diagnostics
 - [ ] Measurement
 - [ ] Power Management
@@ -61,7 +61,7 @@ It can execute async/await applications in kernel space safely.
   - [x] genet for Raspberry Pi
 - Networking
   - [x] IPv4
-  - [x] IPv6
+  - [ ] IPv6
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
@@ -69,7 +69,7 @@ It can execute async/await applications in kernel space safely.
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
-    - [ ] UDP checksum
+    - [x] UDP checksum
     - [ ] TCP checksum
     - [ ] VLAN hardware tagging
 - [ ] XHCI
@@ -84,11 +84,14 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-03-09
-$ rustup default nightly-2024-03-09
+$ rustup toolchain install nightly-2024-05-08
+$ rustup default nightly-2024-05-08
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils
+$ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+$ cargo binstall mdbook
+$ cargo binstall mdbook-mermaid
 ```
 
 ## Crates
@@ -128,6 +131,43 @@ graph TD;
 ```
 
 Applications can use `awkernel_async_lib`, `awkernel_lib`, and `awkernel_drivers`.
+
+---
+
+## Documents
+
+```text
+$ make docs
+$ ls docs/index.html
+```
+
+### Raspi
+
+```text
+$ cargo doc_raspi
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### AArch64 Qemu Virt
+
+``` text
+$ cargo doc_aarch64_virt
+$ ls target/aarch64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
+
+### x86_64
+
+```text
+$ make kernel/asm/x86
+$ cargo doc_x86
+$ ls target/x86_64-kernel/doc/awkernel/index.html
+$ ls target/aarch64-kernel/doc/awkernel_lib/index.html
+etc
+```
 
 ---
 
@@ -181,7 +221,7 @@ $ make aarch64 BSP=aarch64_virt RELEASE=1
 ### Boot
 
 ```text
-$ make qemu-aarch64_virt
+$ make qemu-aarch64-virt
 ```
 
 ### GDB
@@ -322,3 +362,30 @@ $ make run-std RELEASE=1
 $ make qemu-raspi3
 $ telnet localhost 5556
 ```
+
+---
+
+## Test
+
+Unit tests by using Rust's mechanism can be executed as follows.
+
+```text
+$ make test
+```
+
+Some mechanisms which use atomic instructions are verified by using [loom](https://github.com/tokio-rs/loom),
+and these verifications are executed as follows.
+It will takes several minutes.
+
+```text
+$ make loom
+```
+
+## Publications
+
+[Publications](./PUBLICATIONS.md)
+
+## Verification
+
+[Verification Result](./VERIFICATION.md)
+
