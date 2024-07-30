@@ -692,8 +692,6 @@ impl PCIeInfo {
         function_number: u8,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
         let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
-        let command_status = config_space.read_u32(registers::STATUS_COMMAND);
-        let command = (command_status & 0xffff) as u16;
 
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
@@ -866,12 +864,7 @@ impl PCIeInfo {
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
-                let bar = read_bar(
-                    &self.config_space,
-                    registers::BAR0 + i * 4,
-                    self.device_number,
-                    self.function_number,
-                );
+                let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
 
                 let is_64bit = bar.is_64bit_memory();
                 self.base_addresses[i] = bar;
@@ -957,10 +950,10 @@ impl PCIeInfo {
         #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
-                //#[cfg(feature = "igb")]
-                //if intel::igb::match_device(self.vendor, self.id) {
-                //return intel::igb::attach(self);
-                //}
+                #[cfg(feature = "igb")]
+                if intel::igb::match_device(self.vendor, self.id) {
+                    return intel::igb::attach(self);
+                }
 
                 if intel::ixgbe::match_device(self.vendor, self.id) {
                     return intel::ixgbe::attach(self);
@@ -1013,12 +1006,7 @@ const BAR_IO_ADDR_MASK: u32 = !0b11;
 const BAR_MEM_ADDR_MASK: u32 = !0b1111;
 
 /// Read the base address of `addr`.
-fn read_bar(
-    config_space: &ConfigSpace,
-    offset: usize,
-    device_num: u8,
-    function_num: u8,
-) -> BaseAddress {
+fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
     let bar = config_space.read_u32(offset);
 
     if (bar & BAR_IO) == 1 {
