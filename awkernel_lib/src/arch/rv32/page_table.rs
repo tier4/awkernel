@@ -8,6 +8,7 @@ use super::frame_allocator::{FrameTracker, frame_alloc};
 use crate::{delay::wait_forever, memory::PAGESIZE};
 use bitflags::*;
 use super::frame_allocator::*;
+use riscv::register::satp;
 
 /// PTE Flags of RISC V SV32 page table
 ///  V - Valid
@@ -128,10 +129,14 @@ impl PageTable {
         result
     }
 
-    pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) {
+    pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) -> bool {
         let pte = self.find_pte_create(vpn).unwrap();
-        assert!(!pte.is_valid(), "vpn{:?} is mapped before mapping", vpn);
+        if pte.is_valid() {
+            panic!("vpn{:?} is mapped before mapping", vpn);
+            return false;
+        }
         *pte = PageTableEntry::new(ppn, flags | Flags::V);
+        return true;
     }
 
     pub fn unmap(&mut self, vpn: VirtPageNum) {
@@ -139,4 +144,21 @@ impl PageTable {
         assert!(pte.is_valid(), "vpn{:?} is invalid before unmapping", vpn);
         *pte = PageTableEntry::empty();
     }
+    
+    pub fn translate(&self, vpn: VirtPageNum) {
+        self.find_pte(vpn).map(|pte| *pte)
+    }
+    
+    pub fn translate_va(&self, va: VirtAddr) -> Option
+}
+
+pub fn get_page_table(va: VirtAddr) -> Option<PageTable> {
+    let root_ppn = unsafe { satp::read().ppn() };
+    let root_frame = FrameTracker::new(root_ppn.into());
+    let mut page_table = PageTable {
+        root_ppn: root_ppn.into(),
+        frames: vec![root_frame],
+    };
+
+    Some(page_table)
 }

@@ -4,6 +4,7 @@ use super::address::{
 };
 use alloc::vec::Vec;
 use alloc::sync::Arc;
+use crate::sync::mcs::MCSNode;
 use crate::sync::mutex::Mutex;
 
 type FrameAllocatorImpl = PageAllocator;
@@ -15,11 +16,9 @@ type FrameAllocatorImpl = PageAllocator;
 /// SAFETY
 ///
 /// Based on MCSLock, thread safe
-static mut FRAME_ALLOCATOR_IML: Option<FrameAllocatorImpl> = {
-    Some(FrameAllocatorImpl::new())
-};
 pub static FRAME_ALLOCATOR: Arc<Mutex<Option<FrameAllocatorImpl>>> = {
-    unsafe { Arc::new(Mutex::new(FRAME_ALLOCATOR_IML)) }
+    let mut frame_allocator_ref = Some(FrameAllocatorImpl::new());
+    unsafe { Arc::new(Mutex::new(frame_allocator_ref)) }
 };
 
 pub fn frame_alloc() -> Option<FrameTracker> {}
@@ -30,14 +29,23 @@ pub fn init_page_allocator() {
     extern "C" {
         fn ekernel();
     }
-
-    if let Some(ALLOCATOR_REF) = *(Arc::get_mut(&mut FRAME_ALLOCATOR)?).lock().unwrap() {
-        ALLOCATOR_REF.init(
+    let mut node = MCSNode::new();
+    let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if let Some(allocator_ref) = allocator.as_mut() {
+        allocator_ref.init(
             PhysAddr::from(ekernel as usize).ceil(),
             PhysAddr::from(MEMORY_END as usize).floor(),
-        )
+        );
     } else {
-        panic!("[Error] FrameAllocator is not initialized at all! May be triggered by Race condition of multicore!")
+        *allocator = Some(FrameAllocatorImpl::new());
+        if let Some(allocator_ref) = allocator.as_mut() {
+            allocator_ref.init(
+                PhysAddr::from(ekernel as usize).ceil(),
+                PhysAddr::from(MEMORY_END as usize).floor(),
+            );
+        } else {
+            panic!("[Error] Failed to initialize FrameAllocator!");
+        }
     }
 }
 

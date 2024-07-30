@@ -14,6 +14,10 @@ bitflags = "2.3"
 version = "0.2"
 optional = true
 
+[dependencies.riscv]
+version = "0.11.1"
+optional = true
+
 [dependencies.x86_64]
 version = "0.14"
 optional = true
@@ -45,5 +49,5 @@ features = ["panic"]
 default = ["aarch64"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
-rv32 = []
+rv32 = ["dep:riscv"]
 std = ["dep:libc", "dep:parking_lot"]
