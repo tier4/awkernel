@@ -152,7 +152,7 @@ etc
 
 ### AArch64 Qemu Virt
 
-``` text
+```text
 $ cargo doc_aarch64_virt
 $ ls target/aarch64-kernel/doc/awkernel/index.html
 $ ls target/aarch64-kernel/doc/awkernel_lib/index.html
@@ -326,6 +326,30 @@ $ make qemu-riscv32
 
 ---
 
+## RISC-V (64bit, Qemu)
+
+### Compile
+
+Debug build.
+
+```text
+$ make riscv64
+```
+
+Release build.
+
+```text
+$ make riscv64 RELEASE=1
+```
+
+### Boot
+
+```text
+$ make qemu-riscv64
+```
+
+---
+
 ## Linux / macOS
 
 ### Compile
@@ -388,4 +412,3 @@ $ make loom
 ## Verification
 
 [Verification Result](./VERIFICATION.md)
-

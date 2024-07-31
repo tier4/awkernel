@@ -44,6 +44,9 @@ pub const USER_START: usize = 0x1FFFFFF << 39;
 #[cfg(feature = "rv32")]
 pub const USER_START: usize = 1024 * 1024 * 1024 * 2; // 2 GiB
 
+#[cfg(feature = "rv64")]
+pub const USER_START: usize = 1024 * 1024 * 1024 * 2; // 2 GiB
+
 /// Flag for a page.
 /// Note that every page is readable.
 #[derive(Debug, Clone, Copy)]

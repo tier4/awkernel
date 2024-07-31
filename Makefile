@@ -54,12 +54,13 @@ AARCH64_LD=$(LINKERDIR)/aarch64-link.lds
 AARCH64_BSP_LD=$(LINKERDIR)/aarch64-link-bsp.lds
 X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
+RV64_LD=$(LINKERDIR)/rv64-link.lds
 
 RUSTV=nightly-2024-05-08
 
-all: aarch64 x86_64 riscv32 std
+all: aarch64 x86_64 riscv32 riscv64 std
 
-check: check_aarch64 check_x86_64 check_std check_riscv32
+check: check_aarch64 check_x86_64 check_std check_riscv32 check_riscv64
 
 clippy:
 	cargo +$(RUSTV) clippy_x86
@@ -67,6 +68,7 @@ clippy:
 	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
 	cargo +$(RUSTV) clippy_rv32
+	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
 
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
@@ -192,6 +194,18 @@ check_riscv32: $(X86ASM)
 
 qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
 	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
+
+# riscv64
+
+riscv64:
+	cargo +$(RUSTV) rv64 $(OPT)
+
+check_riscv64: $(X86ASM)
+	cargo +$(RUSTV) check_rv64
+
+qemu-riscv64: target/riscv64gc-unknown-none-elf/$(BUILD)/awkernel
+	qemu-system-riscv64 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
+
 
 # Linux / macOS
 

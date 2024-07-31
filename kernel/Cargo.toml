@@ -78,6 +78,12 @@ rv32 = [
     "dep:ns16550a",
     "awkernel_drivers/rv32",
 ]
+rv64 = [
+    "no_std_unwinding",
+    "awkernel_lib/rv64",
+    "dep:ns16550a",
+    #    "awkernel_drivers/rv64",
+]
 std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
     "no_std_unwinding",
