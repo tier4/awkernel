@@ -5,7 +5,7 @@ SECTIONS
 {
     PROVIDE (__executable_start = .);
 
-    . = 0x80000000;
+    . = 0x80200000;
     __ram_start = .;
     .init : { KEEP(*(.init)) }
     .text : { *(.text .text.* .gnu.linkonce.t*) }

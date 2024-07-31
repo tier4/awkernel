@@ -24,21 +24,10 @@ impl Delay for super::RV64 {
     }
 
     fn cpu_counter() -> u64 {
-        let (mut cycleh, mut cycle): (u32, u32);
-
+        let cycle: u64;
         unsafe {
-            while {
-                let test: u32;
-                core::arch::asm!(
-                "rdcycleh {0}; rdcycle {1}; rdcycleh {2}",
-                out(reg) cycleh,
-                out(reg) cycle,
-                out(reg) test
-                );
-                cycleh != test
-            } {}
+            core::arch::asm!("rdcycle {}", out(reg) cycle);
         }
-
-        ((cycleh as u64) << 32) | (cycle as u64)
+        cycle
     }
 }
