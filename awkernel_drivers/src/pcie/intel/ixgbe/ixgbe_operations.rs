@@ -47,7 +47,7 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
         }
     }
 
-    /* initiate cleaning flow for buffers in the PCIe transaction layer */
+    // initiate cleaning flow for buffers in the PCIe transaction layer
     let gcr_ext = ixgbe_hw::read_reg(info, IXGBE_GCR_EXT)?;
     ixgbe_hw::write_reg(
         info,
@@ -55,11 +55,11 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
         gcr_ext | IXGBE_GCR_EXT_BUFFERS_CLEAR as u32,
     )?;
 
-    /* Flush all writes and allow 20usec for all transactions to clear */
+    // Flush all writes and allow 20usec for all transactions to clear
     ixgbe_hw::write_flush(info)?;
     wait_microsec(20);
 
-    /* restore previous register values */
+    // restore previous register values
     ixgbe_hw::write_reg(info, IXGBE_GCR_EXT, gcr_ext)?;
     ixgbe_hw::write_reg(info, IXGBE_HLREG0, hlreg0)?;
     Ok(())
@@ -78,18 +78,18 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
     hw: &mut IxgbeHw,
 ) -> Result<(), IxgbeDriverErr> {
     use ixgbe_hw::MacType::*;
-    /* Set the media type */
+    // Set the media type
     hw.phy.media_type = ops.mac_get_media_type(info, hw);
 
-    /* PHY ops initialization must be done in reset_hw() */
+    // PHY ops initialization must be done in reset_hw()
 
-    /* Clear the VLAN filter table */
+    // Clear the VLAN filter table
     ops.mac_clear_vfta(info, hw)?;
 
-    /* Clear statistics registers */
+    // Clear statistics registers
     ops.mac_clear_hw_cntrs(info, hw)?;
 
-    /* Set No Snoop Disable */
+    // Set No Snoop Disable
     let mut ctrl_ext = ixgbe_hw::read_reg(info, IXGBE_CTRL_EXT)?;
     ctrl_ext |= IXGBE_CTRL_EXT_NS_DIS;
     ixgbe_hw::write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
@@ -109,7 +109,7 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
 
     hw.crosstalk_fix = crosstalk_fix;
 
-    /* Clear adapter stopped flag */
+    // Clear adapter stopped flag
     hw.adapter_stopped = false;
 
     Ok(())
@@ -122,14 +122,14 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
 ///    82599
 ///    X540
 pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
-    /* Clear the rate limiters */
+    // Clear the rate limiters
     for i in 0..hw.mac.max_tx_queues {
         ixgbe_hw::write_reg(info, IXGBE_RTTDQSEL, i)?;
         ixgbe_hw::write_reg(info, IXGBE_RTTBCNRC, 0)?;
     }
     ixgbe_hw::write_flush(info)?;
 
-    /* Disable relaxed ordering */
+    // Disable relaxed ordering
     let mut regval;
     for i in 0..hw.mac.max_tx_queues {
         regval = ixgbe_hw::read_reg(info, IXGBE_DCA_TXCTRL_82599(i as usize))?;
@@ -149,15 +149,15 @@ pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr
 /// validate_mac_addr - Validate MAC address
 /// Tests a MAC address to ensure it is a valid Individual Address
 fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
-    /* Make sure it is not a multicast address */
+    // Make sure it is not a multicast address
     if ixgbe_is_multicast(mac_addr) {
         log::trace!("MAC address is multicast");
         Err(InvalidMacAddr)
-    /* Not a broadcast address */
+    // Not a broadcast address
     } else if ixgbe_is_broadcast(mac_addr) {
         log::trace!("MAC address is broadcast");
         Err(InvalidMacAddr)
-    /* Reject the zero address */
+    // Reject the zero address
     } else if mac_addr[0] == 0
         && mac_addr[1] == 0
         && mac_addr[2] == 0
@@ -215,7 +215,7 @@ fn disable_pcie_master(info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), Ixgb
         return Ok(());
     }
 
-    /* Poll for master request bit to clear */
+    // Poll for master request bit to clear
     for _ in 0..IXGBE_PCI_MASTER_DISABLE_TIMEOUT {
         wait_microsec(100);
         status = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
@@ -315,7 +315,7 @@ fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(
 
     let supported = match hw.phy.media_type {
         IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
-            /* flow control autoneg black list */
+            // flow control autoneg black list
             match info.id {
                 IXGBE_DEV_ID_X550EM_A_SFP
                 | IXGBE_DEV_ID_X550EM_A_SFP_N
@@ -525,7 +525,7 @@ fn negotiate_fc(
 }
 
 /// set_mta - Set bit-vector in multicast table
-/// // Sets the bit-vector in the multicast table.
+/// Sets the bit-vector in the multicast table.
 pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]) {
     hw.addr_ctrl.mta_in_use += 1;
     let vector = mta_vector(hw, mc_addr);
@@ -542,7 +542,7 @@ pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]) {
 }
 
 /// mta_vector - Determines bit-vector in multicast table to set
-/// // Extracts the 12 bits, from a multicast address, to determine which
+/// Extracts the 12 bits, from a multicast address, to determine which
 /// bit-vector to set in the multicast table. The hardware uses 12 bits, from
 /// incoming rx multicast addresses, to determine the bit-vector to check in
 /// the MTA. Which of the 4 combination, of 12-bits, the hardware uses is set
@@ -592,7 +592,7 @@ pub fn mng_present(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr
 }
 
 /// disable_tx_laser_multispeed_fiber - Disable Tx laser
-/// // The base drivers may require better control over SFP+ module
+/// The base drivers may require better control over SFP+ module
 /// PHY states.  This includes selectively shutting down the Tx
 /// laser on the PHY, effectively halting physical link.
 pub fn disable_tx_laser_multispeed_fiber(
@@ -898,7 +898,7 @@ pub fn set_soft_rate_select_speed<T: IxgbeOperations + ?Sized>(
         return Err(e);
     }
 
-    /* Set RS1 */
+    // Set RS1
     let mut eeprom_data = match ops.phy_read_i2c_byte(
         info,
         hw,
@@ -1169,7 +1169,7 @@ fn get_phy_id<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// get_phy_type_from_id - Get the phy type
+/// get_phy_type_from_id - Get the phy type
 fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType {
     use ixgbe_hw::PhyType::*;
 
@@ -2849,7 +2849,6 @@ fn shift_in_eeprom_bits(info: &PCIeInfo, count: u16) -> Result<u16, IxgbeDriverE
 
 /// raise_eeprom_clk - Raises the EEPROM's clock input.
 fn raise_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr> {
-    //*
     let eec_offset = get_eec_offset(info.get_id())?;
     // Raise the clock input to the EEPROM
     // (setting the SK bit), then delay
@@ -2885,7 +2884,7 @@ fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
 ) -> Result<(), IxgbeDriverErr> {
     log::debug!("read_eeprom_buffer_bit_bang");
 
-    // Prepare the EEPROM for reading k
+    // Prepare the EEPROM for reading
     acquire_eeprom(ops, info, eeprom, |_ops| {
         if ready_eeprom(info).is_err() {
             return Err(IxgbeDriverErr::Eeprom);
@@ -3296,7 +3295,7 @@ pub trait IxgbeOperations: Send {
         hw.addr_ctrl.overflow_promisc = 0;
         hw.addr_ctrl.rar_used_count = 1;
 
-        /* Zero out the other receive addresses. */
+        // Zero out the other receive addresses.
         for i in 1..hw.mac.num_rar_entries {
             ixgbe_hw::write_reg(info, IXGBE_RAL(i) as usize, 0)?;
             ixgbe_hw::write_reg(info, IXGBE_RAH(i) as usize, 0)?;
@@ -3338,7 +3337,7 @@ pub trait IxgbeOperations: Send {
         ixgbe_hw::write_reg(info, IXGBE_RAL(index) as usize, 0)?;
         ixgbe_hw::write_reg(info, IXGBE_RAH(index) as usize, rar_high)?;
 
-        /* clear VMDq pool/queue selection for this RAR */
+        // clear VMDq pool/queue selection for this RAR
         self.mac_clear_vmdq(info, num_rar_entries, index, IXGBE_CLEAR_VMDQ_ALL)?;
 
         Ok(())
@@ -3472,7 +3471,7 @@ pub trait IxgbeOperations: Send {
     /// Called at init time to set up flow control.
     fn mac_setup_fc(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::{FcMode::*, MediaType::*};
-        /* Validate the requested mode */
+        // Validate the requested mode
         if hw.fc.strict_ieee && hw.fc.requested_mode == IxgbeFcRxPause {
             return Err(InvalidLinkSettings);
         }
@@ -3491,11 +3490,11 @@ pub trait IxgbeOperations: Send {
         let mut reg_cu;
         (reg, reg_bp, reg_cu) = match hw.phy.media_type {
             IxgbeMediaTypeBackplane =>
-            /* some MAC's need RMW protection on AUTOC */
+            // some MAC's need RMW protection on AUTOC
             {
                 (0, self.mac_prot_autoc_read(info)?, 0)
             }
-            /* only backplane uses autoc so fall though */
+            // only backplane uses autoc so fall though
             IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
                 (ixgbe_hw::read_reg(info, IXGBE_PCS1GANA)?, 0, 0)
             }
@@ -3556,7 +3555,7 @@ pub trait IxgbeOperations: Send {
 		        // through to the fc_full statement.  Later, we will
 		        // disable the adapter's ability to send PAUSE frames.
 	        IxgbeFcFull => {
-		        /* Flow control (both Rx and Tx) is enabled by SW override. */
+		        // Flow control (both Rx and Tx) is enabled by SW override.
 		        reg |= IXGBE_PCS1GANA_SYM_PAUSE | IXGBE_PCS1GANA_ASM_PAUSE;
 		        match hw.phy.media_type {
                 IxgbeMediaTypeBackplane =>
@@ -3736,7 +3735,7 @@ pub trait IxgbeOperations: Send {
         }
 
         match hw.phy.media_type {
-            /* Autoneg flow control on fiber adapters */
+            // Autoneg flow control on fiber adapters
             IxgbeMediaTypeFiber | IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp => {
                 if speed == IXGBE_LINK_SPEED_1GB_FULL {
                     fc_autoneg_fiber(info, hw)?;
@@ -3744,11 +3743,11 @@ pub trait IxgbeOperations: Send {
                     return Err(FcNotNegotiated);
                 }
             }
-            /* Autoneg flow control on backplane adapters */
+            // Autoneg flow control on backplane adapters
             IxgbeMediaTypeBackplane => {
                 fc_autoneg_backplane(info, hw)?;
             }
-            /* Autoneg flow control on copper adapters */
+            // Autoneg flow control on copper adapters
             IxgbeMediaTypeCopper => {
                 if device_supports_autoneg_fc(self, info, hw)? {
                     fc_autoneg_copper(self, info, hw)?;
@@ -3791,7 +3790,7 @@ pub trait IxgbeOperations: Send {
             }
         }
 
-        /* clear the old state */
+        // clear the old state
         let links_orig = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
 
         let mut links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
@@ -3879,13 +3878,13 @@ pub trait IxgbeOperations: Send {
         let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
         let lan_id = func as u8;
 
-        /* check for a port swap */
+        // check for a port swap
         reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?;
         if reg & IXGBE_FACTPS_LFS != 0 {
             func ^= 0x1;
         }
 
-        /* Get MAC instance from EEPROM for configuring CS4227 */
+        // Get MAC instance from EEPROM for configuring CS4227
         let mut ee_ctrl_4 = [0; 1];
         let mut instance_id = 0;
         if info.id == IXGBE_DEV_ID_X550EM_A_SFP {

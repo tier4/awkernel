@@ -15,7 +15,7 @@ pub const IXGBE_FC_PAUSE: u16 = 0xFFFF;
 pub const IXGBE_FC_HI: u32 = 0x20000;
 pub const IXGBE_FC_LO: u32 = 0x10000;
 
-/* Defines for printing debug information */
+// Defines for printing debug information
 pub const DEBUG_INIT: u32 = 0;
 pub const DEBUG_IOCTL: u32 = 0;
 pub const DEBUG_HW: u32 = 0;
@@ -231,7 +231,7 @@ pub const NVM_ETK_VALID: usize = 0x8000;
 pub const NVM_INVALID_PTR: usize = 0xFFFF;
 pub const NVM_VER_SIZE: usize = 32;
 
-// Struct definition in Rust for NVM Version details
+/// Struct definition in Rust for NVM Version details
 #[derive(Debug, Clone, Copy)]
 pub struct IXGBENvmVersion {
     pub etk_id: u32,

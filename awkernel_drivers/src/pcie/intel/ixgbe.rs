@@ -1308,7 +1308,7 @@ impl IxgbeInner {
         Ok(())
     }
 
-    // MSIX Interrupt Handlers
+    /// MSIX Interrupt Handlers
     fn enable_queue(&self, vector: u32) -> Result<(), IxgbeDriverErr> {
         let queue = 1u64 << vector;
         if self.hw.mac.mac_type == MacType::IxgbeMac82598EB {
@@ -1800,8 +1800,8 @@ impl Ixgbe {
         Ok((1, cmd_type_len, olinfo_status, cksum_pseudo, cksum_offset))
     }
 
-    // This routine maps the mbufs to tx descriptors, allowing the
-    // TX engine to transmit the packets.
+    /// This routine maps the mbufs to tx descriptors, allowing the
+    /// TX engine to transmit the packets.
     fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
         let len = ether_frame.data.len();
         if len > MCLBYTES as usize {
@@ -1990,8 +1990,8 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
     }
 }
 
-// Allocate memory for the transmit and receive rings, and then
-// the descriptors associated with each, called only once at attach.
+/// Allocate memory for the transmit and receive rings, and then
+/// the descriptors associated with each, called only once at attach.
 fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
     let tx_size = core::mem::size_of::<TxDescriptor>() * DEFAULT_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
