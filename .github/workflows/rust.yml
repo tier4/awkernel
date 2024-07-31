@@ -44,9 +44,9 @@ jobs:
       - name: Build x86_64
         run: make check_x86_64
       - name: Build RISCV32
-        run: make check_rv32
+        run: make check_riscv32
       - name: Build RISCV64
-        run: make check_rv64
+        run: make check_riscv64
       - name: Build std
         run: make check_std
 
