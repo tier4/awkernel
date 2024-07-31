@@ -1611,12 +1611,6 @@ impl Ixgbe {
                     let read_buf = rx.read_buf.as_ref().unwrap();
                     let src = &read_buf.as_ref()[i];
                     let data = src[0..len as usize].to_vec();
-                    log::debug!(
-                        "que_id:{}, etherframe: {:02x?}",
-                        que_id,
-                        &data[0..len as usize]
-                    );
-
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 }
 
@@ -1818,7 +1812,6 @@ impl Ixgbe {
         }
 
         let data = ether_frame.data[0..len].to_vec();
-        log::debug!("{:02x?}", &data[0..len]);
 
         let mut head = tx.tx_desc_head;
 
