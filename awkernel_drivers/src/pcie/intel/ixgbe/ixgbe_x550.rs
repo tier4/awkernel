@@ -76,7 +76,7 @@ fn read_ee_hostif_buffer_x550<T: IxgbeOperations + ?Sized>(
                 core::mem::size_of::<IxgbeHicReadShadowRam>() as u32,
                 IXGBE_HI_COMMAND_TIMEOUT,
             ) {
-                log::debug!("Host interface command failed");
+                log::error!("Host interface command failed");
                 return Err(e);
             }
 
@@ -86,8 +86,6 @@ fn read_ee_hostif_buffer_x550<T: IxgbeOperations + ?Sized>(
                 let mut value = ixgbe_hw::read_reg(info, reg)?;
 
                 data[current_word as usize] = (value & 0xffff) as u16;
-                //log::debug!("data[{}] = {:x}", current_word, data[current_word as usize]);
-                //wait_millisec(500);
                 current_word += 1;
                 i += 1;
                 if i < words_to_read {
@@ -116,7 +114,7 @@ fn checksum_ptr_x550<T: IxgbeOperations + ?Sized>(
     let mut bufsz = 256;
     // Read a chunk at the pointer location
     if let Err(e) = read_ee_hostif_buffer_x550(ops, info, ptr, bufsz, &mut buf) {
-        log::debug!("Failed to read EEPROM image\n");
+        log::error!("Failed to read EEPROM image\n");
         return Err(e);
     }
 
@@ -146,7 +144,7 @@ fn checksum_ptr_x550<T: IxgbeOperations + ?Sized>(
 
             // Read a chunk at the pointer location
             if let Err(e) = read_ee_hostif_buffer_x550(ops, info, ptr, bufsz, &mut buf) {
-                log::debug!("Failed to read EEPROM image\n");
+                log::error!("Failed to read EEPROM image\n");
                 return Err(e);
             }
         }
@@ -204,7 +202,7 @@ impl IxgbeOperations for IxgbeX550 {
     // disable_rx_x550 - Disable RX unit
     // Enables the Rx DMA unit for x550
     fn mac_disable_rx(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
-        log::debug!("ixgbe_enable_rx_dma_x550");
+        log::trace!("ixgbe_enable_rx_dma_x550");
 
         let mut rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
         if rxctrl & IXGBE_RXCTRL_RXEN != 0 {
@@ -310,7 +308,7 @@ impl IxgbeOperations for IxgbeX550 {
             pad3: 0,
         };
 
-        log::debug!("ixgbe: eeprom_read");
+        log::trace!("eeprom_read");
 
         ixgbe_operations::mac_swfw_sync_mut(self, info, mask, 0, || {
             let ptr = &buffer as *const IxgbeHicReadShadowRam as *const u32;
@@ -332,7 +330,7 @@ impl IxgbeOperations for IxgbeX550 {
     }
 
     fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr> {
-        log::debug!("ixgbe_validate_eeprom_checksum_X550");
+        log::trace!("eeprom_validate_checksum");
 
         let mut eeprom = IxgbeEepromInfo {
             eeprom_type: EepromType::IxgbeEepromUninitialized,
@@ -348,7 +346,7 @@ impl IxgbeOperations for IxgbeX550 {
         // not continue or we could be in for a very long wait while every
         // EEPROM read fails
         if let Err(e) = self.eeprom_read(info, &mut eeprom, 0, &mut data) {
-            log::debug!("EEPROM read failed");
+            log::error!("EEPROM read failed");
             return Err(e);
         }
 
@@ -377,7 +375,7 @@ impl IxgbeOperations for IxgbeX550 {
         info: &PCIeInfo,
         eeprom: &mut IxgbeEepromInfo,
     ) -> Result<u16, IxgbeDriverErr> {
-        log::debug!("ixgbe_calc_eeprom_checksum_X550");
+        log::trace!("eeprom_calc_checksum");
 
         if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
             self.eeprom_init_params(info, eeprom)?;
@@ -388,7 +386,7 @@ impl IxgbeOperations for IxgbeX550 {
         if let Err(e) =
             read_ee_hostif_buffer_x550(self, info, 0, IXGBE_EEPROM_LAST_WORD + 1, &mut local_buffer)
         {
-            log::debug!("Failed to read EEPROM image");
+            log::error!("Failed to read EEPROM image");
             return Err(e);
         }
 
@@ -404,7 +402,6 @@ impl IxgbeOperations for IxgbeX550 {
                 checksum += *data;
             }
         }
-        log::debug!("0x0-0x41 checksum:{:x}", checksum);
 
         // Include all data from pointers 0x3, 0x6-0xE.  This excludes the
         // FW, PHY module, and PCIe Expansion/Option ROM pointers.
@@ -426,7 +423,6 @@ impl IxgbeOperations for IxgbeX550 {
             };
 
             checksum_ptr_x550(self, info, pointer, size, &mut checksum, eeprom)?;
-            //log::debug!("checksum{}:{:x}", i, checksum);
         }
 
         checksum = IXGBE_EEPROM_SUM - checksum;

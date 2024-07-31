@@ -262,11 +262,12 @@ impl IxgbeHw {
 
         let mac_type = get_mac_type(info.get_id())?;
 
-        // Doesn't seem to require check_pci_express since all the ixgbe devices support PCI Express
-        // https://github.com/openbsd/src/blob/82673a188a32931f4005a3ede8f05d97542feb17/sys/dev/pci/ixgbe.c#L715
-
-        // TODO: Need to set ixgbe_smart_speed for 82599EB
-        // ⇔ OpenBSD ixgbe_identify_hardware()
+        // ixgbe_identify_hardware()
+        let smart_speed = if mac_type != IxgbeMac82598EB {
+            SmartSpeed::IxgbeSmartSpeedOn
+        } else {
+            SmartSpeed::IxgbeSmartSpeedAuto
+        };
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
@@ -294,8 +295,6 @@ impl IxgbeHw {
         let max_link_up_time = IXGBE_LINK_UP_TIME;
 
         let eeprom = ops.eeprom_validate_checksum(info)?;
-
-        log::debug!("validate_checksum done!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
 
         Ok((
             Self {
@@ -351,7 +350,7 @@ impl IxgbeHw {
                     phy_semaphore_mask: 0,
                     autoneg_advertised: IXGBE_LINK_SPEED_UNKNOWN,
                     speeds_supported: IXGBE_LINK_SPEED_UNKNOWN,
-                    smart_speed: SmartSpeed::IxgbeSmartSpeedAuto,
+                    smart_speed,
                     smart_speed_active: false,
                     multispeed_fiber: false,
                     qsfp_shared_i2c_bus: false,
