@@ -16,7 +16,6 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    console,
     delay::wait_microsec,
     dma_pool::DMAPool,
     interrupt::IRQ,
@@ -199,8 +198,6 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     let result = Arc::new(ixgbe);
 
     awkernel_lib::net::add_interface(result.clone(), None);
-
-    console::print("attached!!!!!!!!!!!!!\n");
     Ok(result)
 }
 
@@ -1810,8 +1807,6 @@ impl Ixgbe {
         if len > MCLBYTES as usize {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
-
-        let data = ether_frame.data[0..len].to_vec();
 
         let mut head = tx.tx_desc_head;
 
