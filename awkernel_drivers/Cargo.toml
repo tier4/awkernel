@@ -14,6 +14,7 @@ embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 array-macro = "2.1"
 memoffset = "0.9"
+rand = { version = "0.8", features = ["small_rng"], default-features = false }
 
 [dependencies.x86_64]
 version = "0.15"
@@ -78,5 +79,6 @@ genet = ["mii"] # Broadcom GENET for Raspberry Pi
 
 ## PCIe
 pcie = []
-all_pcie = ["pcie", "igb"]
-igb = []                   # Intel Gigabit Ethernet
+all_pcie = ["pcie", "igb", "ixgbe"]
+igb = []                            # Intel Gigabit Ethernet
+ixgbe = []                          # Intel 10 Gigabit Ethernet
