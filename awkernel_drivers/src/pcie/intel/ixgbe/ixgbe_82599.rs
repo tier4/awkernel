@@ -30,11 +30,11 @@ pub fn get_self() -> Box<dyn IxgbeOperations> {
     Box::new(ops)
 }
 
-// ixgbe_verify_fw_version_82599 - verify FW version for 82599
-//  Verifies that installed the firmware version is 0.6 or higher
-// for SFI devices. All 82599 SFI devices should have version 0.6 or higher.
-//  Returns IXGBE_ERR_EEPROM_VERSION if the FW is not present or
-// if the FW version is not supported.
+/// verify_fw_version_82599 - verify FW version for 82599
+///  Verifies that installed the firmware version is 0.6 or higher
+/// for SFI devices. All 82599 SFI devices should have version 0.6 or higher.
+///  Returns IXGBE_ERR_EEPROM_VERSION if the FW is not present or
+/// if the FW version is not supported.
 fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -106,9 +106,9 @@ fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
     Err(IxgbeDriverErr::EepromVersion)
 }
 
-// verify_lesm_fw_enabled_82599 - Checks LESM FW module state.
-// Returns TRUE if the LESM FW module is present and enabled. Otherwise
-// returns FALSE. Smart Speed must be disabled if LESM FW module is enabled.
+/// verify_lesm_fw_enabled_82599 - Checks LESM FW module state.
+/// Returns TRUE if the LESM FW module is present and enabled. Otherwise
+/// returns FALSE. Smart Speed must be disabled if LESM FW module is enabled.
 fn verify_lesm_fw_enabled_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -151,9 +151,9 @@ fn verify_lesm_fw_enabled_82599<T: IxgbeOperations + ?Sized>(
     Ok(false)
 }
 
-// ixgbe_reset_pipeline_82599 - perform pipeline reset
-// Reset pipeline by asserting Restart_AN together with LMS change to ensure
-// full pipeline reset.  This function assumes the SW/FW lock is held.
+/// reset_pipeline_82599 - perform pipeline reset
+/// Reset pipeline by asserting Restart_AN together with LMS change to ensure
+/// full pipeline reset.  This function assumes the SW/FW lock is held.
 fn reset_pipeline_82599(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     // Enable link if disabled in NVM
     let mut autoc2_reg = ixgbe_hw::read_reg(info, IXGBE_AUTOC2)?;
@@ -193,8 +193,8 @@ fn reset_pipeline_82599(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// get_link_capabilities_82599 - Determines link capabilities
-// Determines the link capabilities by reading the AUTOC register.
+/// get_link_capabilities_82599 - Determines link capabilities
+/// Determines the link capabilities by reading the AUTOC register.
 fn get_link_capabilities_82599(
     info: &PCIeInfo,
     hw: &IxgbeHw,
@@ -269,8 +269,8 @@ fn get_link_capabilities_82599(
     Ok((speed, autoneg))
 }
 
-// set_hard_rate_select_speed - Set module link speed
-// Set module link speed via RS0/RS1 rate select pins.
+/// set_hard_rate_select_speed - Set module link speed
+/// Set module link speed via RS0/RS1 rate select pins.
 fn set_hard_rate_select_speed(info: &PCIeInfo, speed: u32) -> Result<(), IxgbeDriverErr> {
     let mut esdp_reg = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
 
@@ -292,8 +292,8 @@ fn set_hard_rate_select_speed(info: &PCIeInfo, speed: u32) -> Result<(), IxgbeDr
     Ok(())
 }
 
-// phy_setup_phy_link_tnx - Set and restart auto-neg
-//  // Restart auto-negotiation and PHY and waits for completion.
+/// phy_setup_phy_link_tnx - Set and restart auto-neg
+///  // Restart auto-negotiation and PHY and waits for completion.
 fn phy_setup_phy_link_tnx<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -396,9 +396,9 @@ fn phy_setup_phy_link_tnx<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// read_i2c_byte_82599 - Reads 8 bit word over I2C
-// Performs byte read operation to SFP module's EEPROM over I2C interface at
-// a specified device address.
+/// read_i2c_byte_82599 - Reads 8 bit word over I2C
+/// Performs byte read operation to SFP module's EEPROM over I2C interface at
+/// a specified device address.
 pub fn read_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -448,9 +448,9 @@ pub fn read_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     Ok(data)
 }
 
-// write_i2c_byte_82599 - Writes 8 bit word over I2C
-//  Performs byte write operation to SFP module's EEPROM over I2C interface at
-// a specified device address.
+/// write_i2c_byte_82599 - Writes 8 bit word over I2C
+///  Performs byte write operation to SFP module's EEPROM over I2C interface at
+/// a specified device address.
 fn write_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -505,8 +505,8 @@ fn write_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// setup_mac_link_smartspeed - Set MAC link speed using SmartSpeed
-//  Implements the Intel SmartSpeed algorithm.
+/// setup_mac_link_smartspeed - Set MAC link speed using SmartSpeed
+///  Implements the Intel SmartSpeed algorithm.
 fn setup_mac_link_smartspeed<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -624,8 +624,8 @@ fn setup_mac_link_smartspeed<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// setup_mac_link_82599 - Set MAC link speed
-// Set the link speed in the AUTOC register and restarts link.
+/// setup_mac_link_82599 - Set MAC link speed
+/// Set the link speed in the AUTOC register and restarts link.
 fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -730,8 +730,8 @@ fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
     status
 }
 
-// ixgbe_setup_copper_link_82599 - Set the PHY autoneg advertised field
-// Restarts link on PHY and MAC based on settings passed in.
+/// setup_copper_link_82599 - Set the PHY autoneg advertised field
+/// Restarts link on PHY and MAC based on settings passed in.
 fn setup_copper_link_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -749,9 +749,9 @@ fn setup_copper_link_82599<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// start_mac_link_82599 - Setup MAC link settings
-// Configures link settings based on values in the ixgbe_hw struct.
-// Restarts the link.  Performs autonegotiation if needed.
+/// start_mac_link_82599 - Setup MAC link settings
+/// Configures link settings based on values in the ixgbe_hw struct.
+/// Restarts the link.  Performs autonegotiation if needed.
 fn start_mac_link_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -805,10 +805,10 @@ fn start_mac_link_82599<T: IxgbeOperations + ?Sized>(
 impl IxgbeOperations for Ixgbe82599 {
     // MAC Operations
 
-    // ixgbe_reset_hw_82599 - Perform hardware reset
-    // Resets the hardware by resetting the transmit and receive units, masks
-    // and clears all interrupts, perform a PHY reset, and perform a link (MAC)
-    // reset.
+    /// mac_reset_hw - Perform hardware reset
+    /// Resets the hardware by resetting the transmit and receive units, masks
+    /// and clears all interrupts, perform a PHY reset, and perform a link (MAC)
+    /// reset.
     fn mac_reset_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         // Call adapter stop to disable tx/rx and clear interrupts
         self.mac_stop_adapter(info, hw)?;
@@ -926,10 +926,10 @@ impl IxgbeOperations for Ixgbe82599 {
         status
     }
 
-    // start_hw_82599 - Prepare hardware for Tx/Rx
-    // Starts the hardware using the generic start_hw function
-    // and the generation start_hw function.
-    // Then performs revision-specific operations, if any.
+    /// mac_start_hw - Prepare hardware for Tx/Rx
+    /// Starts the hardware using the generic start_hw function
+    /// and the generation start_hw function.
+    /// Then performs revision-specific operations, if any.
     fn mac_start_hw(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         start_hw_generic(self, info, hw)?;
         start_hw_gen2(info, hw)?;
@@ -940,8 +940,8 @@ impl IxgbeOperations for Ixgbe82599 {
         verify_fw_version_82599(self, info, hw)
     }
 
-    // get_media_type - Get media type
-    // // Returns the media type (fiber, copper, backplane)
+    /// mac_get_media_type - Get media type
+    /// // Returns the media type (fiber, copper, backplane)
     fn mac_get_media_type(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> MediaType {
         use MediaType::*;
         use PhyType::*;
@@ -978,9 +978,9 @@ impl IxgbeOperations for Ixgbe82599 {
         }
     }
 
-    // prot_autoc_write_82599 - Hides MAC differences needed for AUTOC write
-    // This part (82599) may need to hold the SW/FW lock around all writes to
-    // AUTOC. Likewise after a write we need to do a pipeline reset.
+    /// prot_autoc_write - Hides MAC differences needed for AUTOC write
+    /// This part (82599) may need to hold the SW/FW lock around all writes to
+    /// AUTOC. Likewise after a write we need to do a pipeline reset.
     fn mac_prot_autoc_write(
         &self,
         info: &PCIeInfo,
@@ -1166,10 +1166,10 @@ impl IxgbeOperations for Ixgbe82599 {
         Ok(())
     }
 
-    // ixgbe_identify_phy_82599 - Get physical layer module
-    // Determines the physical layer module found on the current adapter.
-    // If PHY already detected, maintains current PHY type in hw struct,
-    // otherwise executes the PHY detection routine.
+    /// identify_phy - Get physical layer module
+    /// Determines the physical layer module found on the current adapter.
+    /// If PHY already detected, maintains current PHY type in hw struct,
+    /// otherwise executes the PHY detection routine.
     fn phy_identify(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         // Detect PHY if not unknown - returns success if already detected.
         let mut status = ixgbe_operations::phy_identify_phy_generic(self, info, hw);
@@ -1258,9 +1258,9 @@ impl IxgbeOperations for Ixgbe82599 {
     }
 }
 
-// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
-// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
-// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+/// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
+/// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
+/// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
 #[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,

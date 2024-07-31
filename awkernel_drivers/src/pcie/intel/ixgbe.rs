@@ -1076,11 +1076,11 @@ impl IxgbeInner {
         Ok(())
     }
 
-    // Setup the correct IVAR register for a particular MSIX interrupt
-    //   (yes this is all very magic and confusing :)
-    //  - entry is the register array entry
-    //  - vector is the MSIX vector for this queue
-    //  - rx_tx_misc is RX/TX/MISC
+    /// Setup the correct IVAR register for a particular MSIX interrupt
+    ///   (yes this is all very magic and confusing :)
+    ///  - entry is the register array entry
+    ///  - vector is the MSIX vector for this queue
+    ///  - rx_tx_misc is RX/TX/MISC
     fn set_ivar(
         &self,
         mut entry: u8,
@@ -1156,7 +1156,7 @@ impl IxgbeInner {
         Ok(())
     }
 
-    // SFP module interrupts handler
+    /// SFP module interrupts handler
     fn handle_mod(&mut self) -> Result<(), IxgbeDriverErr> {
         match self.ops.phy_identify_sfp(&self.info, &mut self.hw) {
             Ok(_) => (),
@@ -1182,7 +1182,7 @@ impl IxgbeInner {
         self.handle_msf()
     }
 
-    // MSF (multispeed fiber) interrupts handler
+    /// MSF (multispeed fiber) interrupts handler
     fn handle_msf(&mut self) -> Result<(), IxgbeDriverErr> {
         let mut _autoneg = self.hw.phy.autoneg_advertised;
         let _negotiate;
@@ -1214,7 +1214,7 @@ impl IxgbeInner {
         )
     }
 
-    // Requires sc->max_frame_size to be set.
+    /// Requires sc->max_frame_size to be set.
     fn config_delay_values(&mut self) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
         let frame = self.max_frame_size as u32;
@@ -1500,7 +1500,7 @@ impl Ixgbe {
     }
 
     #[allow(dead_code)]
-    // This is for X550em.
+    /// This is for X550em.
     fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
         log::error!("handle_phy: Not implemented");
         Err(IxgbeDriverErr::NotImplemented)
@@ -1669,8 +1669,8 @@ impl Ixgbe {
         }
     }
 
-    // Advanced Context Descriptor setup for VLAN or CSUM
-    // Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32)`.
+    /// Advanced Context Descriptor setup for VLAN or CSUM
+    /// Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32)`.
     #[allow(clippy::type_complexity)]
     fn tx_offload(
         &self,
@@ -1759,7 +1759,7 @@ impl Ixgbe {
         ))
     }
 
-    // Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
+    /// Return `(ntxc: u32, cmd_type_len: u32, olinfo_status: u32)`.
     fn tx_ctx_setup(
         &self,
         tx: &mut Tx,

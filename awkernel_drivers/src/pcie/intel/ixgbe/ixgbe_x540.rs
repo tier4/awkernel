@@ -31,7 +31,7 @@ fn mng_present(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverE
     Ok((fwsm & IXGBE_FWSM_FW_MODE_PT) != 0)
 }
 
-// This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
+/// This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
 fn check_reset_blocked(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
     use MacType::*;
 
@@ -187,8 +187,8 @@ pub fn get_swfw_sync_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     status
 }
 
-// release_swfw_sync_semaphore - Release hardware semaphore
-// This function clears hardware semaphore bits.
+/// release_swfw_sync_semaphore - Release hardware semaphore
+/// This function clears hardware semaphore bits.
 fn release_swfw_sync_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let swfw_sync_offset = get_swfw_sync_offset(info.get_id())?;
     let swsm_offset = get_swsm_offset(info.get_id())?;
@@ -310,9 +310,9 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
     Err(IxgbeDriverErr::SwfwSync)
 }
 
-// ixgbe_release_swfw_sync_X540 - Release SWFW semaphore
-// Releases the SWFW semaphore through the SW_FW_SYNC register
-// for the specified function (CSR, PHY0, PHY1, EVM, Flash)
+/// ixgbe_release_swfw_sync_X540 - Release SWFW semaphore
+/// Releases the SWFW semaphore through the SW_FW_SYNC register
+/// for the specified function (CSR, PHY0, PHY1, EVM, Flash)
 pub fn mac_release_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
     let mut swmask = mask & (IXGBE_GSSR_NVM_PHY_MASK | IXGBE_GSSR_SW_MNG_SM);
     if mask & IXGBE_GSSR_I2C_MASK != 0 {
@@ -375,9 +375,9 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
 impl IxgbeOperations for IxgbeX540 {
     // MAC Operations
 
-    // ixgbe_reset_hw_X540 - Perform hardware reset
-    // Resets the hardware by resetting the transmit and receive units, masks
-    // and clears all interrupts, and perform a reset.
+    /// ixgbe_reset_hw_X540 - Perform hardware reset
+    /// Resets the hardware by resetting the transmit and receive units, masks
+    /// and clears all interrupts, and perform a reset.
     fn mac_reset_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         mac_reset_hw_x540(self, info, hw)
     }
@@ -406,7 +406,7 @@ impl IxgbeOperations for IxgbeX540 {
         get_copper_link_capabilities(self, info, hw)
     }
 
-    // setup_mac_link_X540 - Sets the auto advertised capabilities
+    /// setup_mac_link_X540 - Sets the auto advertised capabilities
     fn mac_setup_link(
         &self,
         info: &PCIeInfo,
@@ -419,14 +419,14 @@ impl IxgbeOperations for IxgbeX540 {
 
     // PHY Operations
 
-    // Using copper phy
+    /// Using copper phy
     fn phy_set_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr> {
         phy_set_power_x540(self, info, hw, on)
     }
 
     // EEPROM Operations
 
-    // Requires checking of EepromType to make sure that it is uninitialized beforehand
+    /// Requires checking of EepromType to make sure that it is uninitialized beforehand
     fn eeprom_init_params(
         &self,
         info: &PCIeInfo,
@@ -558,9 +558,9 @@ impl IxgbeOperations for IxgbeX540 {
     }
 }
 
-// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
-// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
-// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+/// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
+/// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
+/// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
 #[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,

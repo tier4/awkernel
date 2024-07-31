@@ -159,7 +159,7 @@ fn checksum_ptr_x550<T: IxgbeOperations + ?Sized>(
 impl IxgbeOperations for IxgbeX550 {
     // MAC Operations
 
-    // mac_reset_hw: IxgbeX540 - Perform hardware reset
+    /// mac_reset_hw: IxgbeX540 - Perform hardware reset
     fn mac_reset_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         ixgbe_x540::mac_reset_hw_x540(self, info, hw)
     }
@@ -188,7 +188,7 @@ impl IxgbeOperations for IxgbeX550 {
         get_copper_link_capabilities(self, info, hw)
     }
 
-    // setup_mac_link_X540 - Sets the auto advertised capabilities
+    /// setup_mac_link - Sets the auto advertised capabilities
     fn mac_setup_link(
         &self,
         info: &PCIeInfo,
@@ -199,8 +199,8 @@ impl IxgbeOperations for IxgbeX550 {
         self.phy_setup_link_speed(info, hw, speed, autoneg_wait_to_complete)
     }
 
-    // disable_rx_x550 - Disable RX unit
-    // Enables the Rx DMA unit for x550
+    /// mac_disable_rx - Disable RX unit
+    /// Enables the Rx DMA unit for x550
     fn mac_disable_rx(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         log::trace!("ixgbe_enable_rx_dma_x550");
 
@@ -256,17 +256,17 @@ impl IxgbeOperations for IxgbeX550 {
 
     // PHY Operations
 
-    // Using copper phy
+    /// Using copper phy
     fn phy_set_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr> {
         ixgbe_x540::phy_set_power_x540(self, info, hw, on)
     }
 
     // EEPROM Operations
 
-    // init_eeprom_params - Initialize EEPROM params
-    // Initializes the EEPROM parameters ixgbe_eeprom_info within the
-    // ixgbe_hw struct in order to set up EEPROM access.
-    // Requires checking of EepromType to make sure that it is uninitialized beforehand
+    /// eeprom_init_params - Initialize EEPROM params
+    /// Initializes the EEPROM parameters ixgbe_eeprom_info within the
+    /// ixgbe_hw struct in order to set up EEPROM access.
+    /// Requires checking of EepromType to make sure that it is uninitialized beforehand
     fn eeprom_init_params(
         &self,
         info: &PCIeInfo,
@@ -368,8 +368,8 @@ impl IxgbeOperations for IxgbeX550 {
         Ok(eeprom)
     }
 
-    // eeprom_calc_checksum - Calculates and returns the checksum
-    // Returns a negative error code on error, or the 16-bit checksum
+    /// eeprom_calc_checksum - Calculates and returns the checksum
+    /// Returns a negative error code on error, or the 16-bit checksum
     fn eeprom_calc_checksum(
         &self,
         info: &PCIeInfo,
@@ -431,10 +431,10 @@ impl IxgbeOperations for IxgbeX550 {
     }
 }
 
-// Identical to X540, as seen in the OpenBSD: https://github.com/openbsd/src/blob/b21c4c927df760810943d63b35c0488ce22f755a/sys/dev/pci/ixgbe_x550.c#L145
-// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
-// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
-// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+/// Identical to X540, as seen in the OpenBSD: https://github.com/openbsd/src/blob/b21c4c927df760810943d63b35c0488ce22f755a/sys/dev/pci/ixgbe_x550.c#L145
+/// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
+/// rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
+/// max_msix_vectors: u16, arc_subsystem_valid: bool)`.
 #[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,

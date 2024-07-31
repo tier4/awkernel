@@ -956,6 +956,7 @@ impl PCIeInfo {
                     return intel::igb::attach(self);
                 }
 
+                #[cfg(feature = "ixgbe")]
                 if intel::ixgbe::match_device(self.vendor, self.id) {
                     return intel::ixgbe::attach(self);
                 }

@@ -7,10 +7,10 @@ use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
 use ixgbe_hw::{EepromType, IxgbeHw, MacType, MediaType, PhyType, SfpType};
 
-// clear_tx_pending - Clear pending TX work from the PCIe fifo
-// The 82599 and x540 MACs can experience issues if TX work is still pending
-// when a reset occurs.  This function prevents this by flushing the PCIe
-// buffers on the system.
+/// clear_tx_pending - Clear pending TX work from the PCIe fifo
+/// The 82599 and x540 MACs can experience issues if TX work is still pending
+/// when a reset occurs.  This function prevents this by flushing the PCIe
+/// buffers on the system.
 pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
     use crate::pcie::capability::pcie_cap::registers::DeviceStatusControl;
 
@@ -67,11 +67,11 @@ pub fn clear_tx_pending(info: &mut PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDr
 
 // MAC Helper Functions
 
-// start_hw_generic - Prepare hardware for Tx/Rx
-// Starts the hardware by filling the bus info structure and media type, clears
-// all on chip counters, initializes receive address registers, multicast
-// table, VLAN filter table, calls routine to set up link and flow control
-// settings, and leaves transmit and receive units disabled and uninitialized
+/// start_hw_generic - Prepare hardware for Tx/Rx
+/// Starts the hardware by filling the bus info structure and media type, clears
+/// all on chip counters, initializes receive address registers, multicast
+/// table, VLAN filter table, calls routine to set up link and flow control
+/// settings, and leaves transmit and receive units disabled and uninitialized
 pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -115,12 +115,12 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// start_hw_gen2 - Init sequence for common device family
-// Performs the init sequence common to the second generation
-// of 10 GbE devices.
-// Devices in the second generation:
-//    82599
-//    X540
+/// start_hw_gen2 - Init sequence for common device family
+/// Performs the init sequence common to the second generation
+/// of 10 GbE devices.
+/// Devices in the second generation:
+///    82599
+///    X540
 pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
     /* Clear the rate limiters */
     for i in 0..hw.mac.max_tx_queues {
@@ -146,8 +146,8 @@ pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr
     Ok(())
 }
 
-// validate_mac_addr - Validate MAC address
-// Tests a MAC address to ensure it is a valid Individual Address
+/// validate_mac_addr - Validate MAC address
+/// Tests a MAC address to ensure it is a valid Individual Address
 fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
     /* Make sure it is not a multicast address */
     if ixgbe_is_multicast(mac_addr) {
@@ -172,11 +172,11 @@ fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
     }
 }
 
-// pcie_timeout_poll - Return number of times to poll for completion
-// System-wide timeout range is encoded in PCIe Device Control2 register.
-// Add 10% to specified maximum and return the number of times to poll for
-// completion timeout, in units of 100 microsec.  Never return less than
-// 800 = 80 millisec.
+/// pcie_timeout_poll - Return number of times to poll for completion
+/// System-wide timeout range is encoded in PCIe Device Control2 register.
+/// Add 10% to specified maximum and return the number of times to poll for
+/// completion timeout, in units of 100 microsec.  Never return less than
+/// 800 = 80 millisec.
 fn pcie_timeout_poll(cap: &mut PCIeCap) -> u32 {
     use crate::pcie::capability::pcie_cap::registers::DeviceStatusControl2;
     let devctl2 = cap.get_device_status_control2();
@@ -199,11 +199,11 @@ fn pcie_timeout_poll(cap: &mut PCIeCap) -> u32 {
     (pollcnt * 11) / 10
 }
 
-// disable_pcie_master - Disable PCI-express master access
-// Disables PCI-Express master access and verifies there are no pending
-// requests. IXGBE_ERR_MASTER_REQUESTS_PENDING is returned if master disable
-// bit hasn't caused the master requests to be disabled, else IXGBE_SUCCESS
-// is returned signifying master requests disabled.
+/// disable_pcie_master - Disable PCI-express master access
+/// Disables PCI-Express master access and verifies there are no pending
+/// requests. IXGBE_ERR_MASTER_REQUESTS_PENDING is returned if master disable
+/// bit hasn't caused the master requests to be disabled, else IXGBE_SUCCESS
+/// is returned signifying master requests disabled.
 fn disable_pcie_master(info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
     use crate::pcie::capability::pcie_cap::registers::DeviceStatusControl;
     // Always set this bit to ensure any future transactions are blocked
@@ -260,8 +260,8 @@ fn disable_pcie_master(info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), Ixgb
     Err(MasterRequestsPending)
 }
 
-// set_pci_config_data - Generic store PCI bus info
-// Stores the PCI bus info (speed, width, type) within the ixgbe_hw structure
+/// set_pci_config_data - Generic store PCI bus info
+/// Stores the PCI bus info (speed, width, type) within the ixgbe_hw structure
 fn set_pci_config_data<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -303,9 +303,9 @@ fn set_pci_config_data<T: IxgbeOperations + ?Sized>(
     Ok(businfo)
 }
 
-// device_supports_autoneg_fc - Check if device supports autonegotiation
-// This function returns TRUE if the device supports flow control
-// autonegotiation, and FALSE if it does not.
+/// device_supports_autoneg_fc - Check if device supports autonegotiation
+/// This function returns TRUE if the device supports flow control
+/// autonegotiation, and FALSE if it does not.
 fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -402,8 +402,8 @@ fn fc_autoneg_fiber(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriver
     )
 }
 
-// fc_autoneg_backplane - Enable flow control IEEE clause 37
-// Enable flow control according to IEEE clause 37.
+/// fc_autoneg_backplane - Enable flow control IEEE clause 37
+/// Enable flow control according to IEEE clause 37.
 fn fc_autoneg_backplane(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
     // On backplane, bail out if
     // - backplane autoneg was not completed, or if
@@ -438,8 +438,8 @@ fn fc_autoneg_backplane(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDr
     )
 }
 
-// fc_autoneg_copper - Enable flow control IEEE clause 37
-// Enable flow control according to IEEE clause 37.
+/// fc_autoneg_copper - Enable flow control IEEE clause 37
+/// Enable flow control according to IEEE clause 37.
 fn fc_autoneg_copper<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -469,9 +469,9 @@ fn fc_autoneg_copper<T: IxgbeOperations + ?Sized>(
     )
 }
 
-// negotiate_fc - Negotiate flow control
-// Find the intersection between advertised settings and link partner's
-// advertised settings
+/// negotiate_fc - Negotiate flow control
+/// Find the intersection between advertised settings and link partner's
+/// advertised settings
 fn negotiate_fc(
     hw: &mut IxgbeHw,
     adv_reg: u32,
@@ -524,8 +524,8 @@ fn negotiate_fc(
     Ok(())
 }
 
-// set_mta - Set bit-vector in multicast table
-// // Sets the bit-vector in the multicast table.
+/// set_mta - Set bit-vector in multicast table
+/// // Sets the bit-vector in the multicast table.
 pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]) {
     hw.addr_ctrl.mta_in_use += 1;
     let vector = mta_vector(hw, mc_addr);
@@ -541,13 +541,13 @@ pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]) {
     hw.mac.mta_shadow[vector_reg as usize] |= 1 << vector_bit
 }
 
-// mta_vector - Determines bit-vector in multicast table to set
-// // Extracts the 12 bits, from a multicast address, to determine which
-// bit-vector to set in the multicast table. The hardware uses 12 bits, from
-// incoming rx multicast addresses, to determine the bit-vector to check in
-// the MTA. Which of the 4 combination, of 12-bits, the hardware uses is set
-// by the MO field of the MCSTCTRL. The MO field is set during initialization
-// to mc_filter_type.
+/// mta_vector - Determines bit-vector in multicast table to set
+/// // Extracts the 12 bits, from a multicast address, to determine which
+/// bit-vector to set in the multicast table. The hardware uses 12 bits, from
+/// incoming rx multicast addresses, to determine the bit-vector to check in
+/// the MTA. Which of the 4 combination, of 12-bits, the hardware uses is set
+/// by the MO field of the MCSTCTRL. The MO field is set during initialization
+/// to mc_filter_type.
 pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
     let mut vector = match hw.mac.mc_filter_type {
         0 => {
@@ -578,7 +578,7 @@ pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
     vector
 }
 
-// mng_present - returns TRUE when management capability is present
+/// mng_present - returns TRUE when management capability is present
 pub fn mng_present(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr> {
     let fwsm_offset = get_fwsm_offset(info.get_id())?;
 
@@ -591,10 +591,10 @@ pub fn mng_present(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr
     Ok(fwsm & IXGBE_FWSM_FW_MODE_PT != 0)
 }
 
-// disable_tx_laser_multispeed_fiber - Disable Tx laser
-// // The base drivers may require better control over SFP+ module
-// PHY states.  This includes selectively shutting down the Tx
-// laser on the PHY, effectively halting physical link.
+/// disable_tx_laser_multispeed_fiber - Disable Tx laser
+/// // The base drivers may require better control over SFP+ module
+/// PHY states.  This includes selectively shutting down the Tx
+/// laser on the PHY, effectively halting physical link.
 pub fn disable_tx_laser_multispeed_fiber(
     info: &PCIeInfo,
     hw: &IxgbeHw,
@@ -615,10 +615,10 @@ pub fn disable_tx_laser_multispeed_fiber(
     Ok(())
 }
 
-// enable_tx_laser_multispeed_fiber - Enable Tx laser
-// The base drivers may require better control over SFP+ module
-// PHY states.  This includes selectively turning on the Tx
-// laser on the PHY, effectively starting physical link.
+/// enable_tx_laser_multispeed_fiber - Enable Tx laser
+/// The base drivers may require better control over SFP+ module
+/// PHY states.  This includes selectively turning on the Tx
+/// laser on the PHY, effectively starting physical link.
 pub fn enable_tx_laser_multispeed_fiber(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let mut esdp_reg = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
 
@@ -631,15 +631,14 @@ pub fn enable_tx_laser_multispeed_fiber(info: &PCIeInfo) -> Result<(), IxgbeDriv
     Ok(())
 }
 
-// flap_tx_laser - Flap Tx laser
-//
-// When the driver changes the link speeds that it can support,
-// it sets autotry_restart to TRUE to indicate that we need to
-// initiate a new autotry session with the link partner.  To do
-// so, we set the speed then disable and re-enable the Tx laser, to
-// alert the link partner that it also needs to restart autotry on its
-// end.  This is consistent with TRUE clause 37 autoneg, which also
-// involves a loss of signal.
+/// flap_tx_laser - Flap Tx laser
+/// When the driver changes the link speeds that it can support,
+/// it sets autotry_restart to TRUE to indicate that we need to
+/// initiate a new autotry session with the link partner.  To do
+/// so, we set the speed then disable and re-enable the Tx laser, to
+/// alert the link partner that it also needs to restart autotry on its
+/// end.  This is consistent with TRUE clause 37 autoneg, which also
+/// involves a loss of signal.
 fn flap_tx_laser_multispeed_fiber(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
     log::debug!("ixgbe_flap_tx_laser_multispeed_fiber");
 
@@ -657,9 +656,9 @@ fn flap_tx_laser_multispeed_fiber(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(
     Ok(())
 }
 
-// get_sfp_init_sequence_offsets - Provides offset of PHY init sequence
-// Checks the MAC's EEPROM to see if it supports a given SFP+ module type, if
-// so it returns the offsets to the phy init sequence block.
+/// get_sfp_init_sequence_offsets - Provides offset of PHY init sequence
+/// Checks the MAC's EEPROM to see if it supports a given SFP+ module type, if
+/// so it returns the offsets to the phy init sequence block.
 pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -782,7 +781,7 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
     Ok((list_offset[0], data_offset[0]))
 }
 
-// get_copper_link_capabilities - Determines link capabilities
+/// get_copper_link_capabilities - Determines link capabilities
 pub fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -797,9 +796,9 @@ pub fn get_copper_link_capabilities<T: IxgbeOperations + ?Sized>(
     Ok((speed, true))
 }
 
-// get_copper_speeds_supported - Get copper link speeds from phy
-// Determines the supported link capabilities by reading the PHY auto
-// negotiation register.
+/// get_copper_speeds_supported - Get copper link speeds from phy
+/// Determines the supported link capabilities by reading the PHY auto
+/// negotiation register.
 fn get_copper_speeds_supported<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -836,8 +835,8 @@ fn get_copper_speeds_supported<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// stop_mac_link_on_d3_82599 - Disables link on D3
-// Disables link during D3 power down sequence.
+/// stop_mac_link_on_d3_82599 - Disables link on D3
+/// Disables link during D3 power down sequence.
 pub fn stop_mac_link_on_d3_82599<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -855,8 +854,8 @@ pub fn stop_mac_link_on_d3_82599<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// set_soft_rate_select_speed - Set module link speed
-//  Set module link speed via the soft rate select.
+/// set_soft_rate_select_speed - Set module link speed
+/// Set module link speed via the soft rate select.
 pub fn set_soft_rate_select_speed<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -929,8 +928,8 @@ pub fn set_soft_rate_select_speed<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// setup_mac_link_multispeed_fiber - Set MAC link speed
-// Set the link speed in the MAC and/or PHY register and restarts link.
+/// setup_mac_link_multispeed_fiber - Set MAC link speed
+/// Set the link speed in the MAC and/or PHY register and restarts link.
 pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1068,8 +1067,8 @@ pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(
     out(hw, speed, Ok(()))
 }
 
-// mng_enabled - Is the manageability engine enabled?
-// Returns TRUE if the manageability engine is enabled.
+/// mng_enabled - Is the manageability engine enabled?
+/// Returns TRUE if the manageability engine is enabled.
 pub fn mng_enabled(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr> {
     let fwsm = ixgbe_hw::read_reg(info, get_fwsm_offset(info.get_id())?)?;
     if (fwsm & IXGBE_FWSM_MODE_MASK) != IXGBE_FWSM_FW_MODE_PT {
@@ -1091,8 +1090,8 @@ pub fn mng_enabled(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr
     Ok(true)
 }
 
-// probe_phy - Probe a single address for a PHY
-// Returns TRUE if PHY found
+/// probe_phy - Probe a single address for a PHY
+/// Returns TRUE if PHY found
 fn probe_phy<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1126,7 +1125,7 @@ fn probe_phy<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-//  validate_phy_addr - Determines phy address is valid
+/// validate_phy_addr - Determines phy address is valid
 fn validate_phy_addr<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1148,7 +1147,7 @@ fn validate_phy_addr<T: IxgbeOperations + ?Sized>(
     Err(PhyAddrInvalid)
 }
 
-//  get_phy_id - Get the phy type
+/// get_phy_id - Get the phy type
 fn get_phy_id<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1234,8 +1233,8 @@ pub fn phy_identify_phy_generic<T: IxgbeOperations + ?Sized>(
     status
 }
 
-// phy_identify_module_generic - Identifies module type
-// Determines HW type and calls appropriate function.
+/// phy_identify_module_generic - Identifies module type
+/// Determines HW type and calls appropriate function.
 pub fn phy_identify_module_generic<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1253,8 +1252,8 @@ pub fn phy_identify_module_generic<T: IxgbeOperations + ?Sized>(
     }
 }
 
-// ixgbe_identify_sfp_module_generic - Identifies SFP modules
-// Searches for and identifies the SFP module and assigns appropriate PHY type.
+/// identify_sfp_module_generic - Identifies SFP modules
+/// Searches for and identifies the SFP module and assigns appropriate PHY type.
 fn identify_sfp_module_generic<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1480,8 +1479,8 @@ fn identify_sfp_module_generic<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// identify_qsfp_module_generic - Identifies QSFP modules
-// Searches for and identifies the QSFP module and assigns appropriate PHY type
+/// identify_qsfp_module_generic - Identifies QSFP modules
+/// Searches for and identifies the QSFP module and assigns appropriate PHY type
 fn identify_qsfp_module_generic<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1638,9 +1637,9 @@ fn identify_qsfp_module_generic<T: IxgbeOperations + ?Sized>(
     Ok(())
 }
 
-// i2c_bus_clear - Clears the I2C bus
-// Clears the I2C bus by sending nine clock pulses.
-// Used when data line is stuck low.
+/// i2c_bus_clear - Clears the I2C bus
+/// Clears the I2C bus by sending nine clock pulses.
+/// Used when data line is stuck low.
 fn i2c_bus_clear(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
 
@@ -1669,9 +1668,9 @@ fn i2c_bus_clear(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// read_i2c_byte_generic_int - Reads 8 bit word over I2C
-// Performs byte read operation to SFP module's EEPROM over I2C interface at
-// a specified device address.
+/// read_i2c_byte_generic_int - Reads 8 bit word over I2C
+/// Performs byte read operation to SFP module's EEPROM over I2C interface at
+/// a specified device address.
 pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1845,10 +1844,9 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     status
 }
 
-// write_i2c_byte_generic_int - Writes 8 bit word over I2C
-// Performs byte write operation to SFP module's EEPROM over I2C interface at
-// a specified device address.
-//
+/// write_i2c_byte_generic_int - Writes 8 bit word over I2C
+/// Performs byte write operation to SFP module's EEPROM over I2C interface at
+/// a specified device address.
 pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -1972,7 +1970,7 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     status
 }
 
-// is_sfp_probe - Returns TRUE if SFP is being detected
+/// is_sfp_probe - Returns TRUE if SFP is being detected
 fn is_sfp_probe(hw: &IxgbeHw, offset: u8, addr: u8) -> bool {
     use SfpType::*;
 
@@ -1985,9 +1983,9 @@ fn is_sfp_probe(hw: &IxgbeHw, offset: u8, addr: u8) -> bool {
     false
 }
 
-// i2c_start - Sets I2C start condition
-// Sets I2C start condition (High -> Low on SDA while SCL is High)
-// Set bit-bang mode on X550 hardware.
+/// i2c_start - Sets I2C start condition
+/// Sets I2C start condition (High -> Low on SDA while SCL is High)
+/// Set bit-bang mode on X550 hardware.
 fn i2c_start(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
     let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
@@ -2015,10 +2013,10 @@ fn i2c_start(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// i2c_stop - Sets I2C stop condition
-// Sets I2C stop condition (Low -> High on SDA while SCL is High)
-// Disables bit-bang mode and negates data output enable on X550
-// hardware.
+/// i2c_stop - Sets I2C stop condition
+/// Sets I2C stop condition (Low -> High on SDA while SCL is High)
+/// Disables bit-bang mode and negates data output enable on X550
+/// hardware.
 fn i2c_stop(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let clk_oe_bit = get_i2c_clk_oe_n_en_offset(info.get_id())?;
     let bb_en_bit = get_i2c_bb_en_offset(info.get_id())?;
@@ -2048,8 +2046,8 @@ fn i2c_stop(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// clock_in_i2c_byte - Clocks in one byte via I2C
-// Clocks in one byte data via I2C data/clock
+/// clock_in_i2c_byte - Clocks in one byte via I2C
+/// Clocks in one byte data via I2C data/clock
 fn clock_in_i2c_byte(info: &PCIeInfo) -> Result<u8, IxgbeDriverErr> {
     let mut data = 0;
     for i in (0..=7).rev() {
@@ -2060,8 +2058,8 @@ fn clock_in_i2c_byte(info: &PCIeInfo) -> Result<u8, IxgbeDriverErr> {
     Ok(data)
 }
 
-// clock_out_i2c_byte - Clocks out one byte via I2C
-// Clocks out one byte data via I2C data/clock
+/// clock_out_i2c_byte - Clocks out one byte via I2C
+/// Clocks out one byte data via I2C data/clock
 fn clock_out_i2c_byte(info: &PCIeInfo, data: u8) -> Result<(), IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
     let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
@@ -2086,8 +2084,8 @@ fn clock_out_i2c_byte(info: &PCIeInfo, data: u8) -> Result<(), IxgbeDriverErr> {
     status
 }
 
-// get_i2c_ack - Polls for I2C ACK
-// Clocks in/out one bit via I2C data/clock
+/// get_i2c_ack - Polls for I2C ACK
+/// Clocks in/out one bit via I2C data/clock
 fn get_i2c_ack(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
     let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
@@ -2133,8 +2131,8 @@ fn get_i2c_ack(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     status
 }
 
-// clock_in_i2c_bit - Clocks in one bit via I2C data/clock
-// Clocks in one bit via I2C data/clock
+/// clock_in_i2c_bit - Clocks in one bit via I2C data/clock
+/// Clocks in one bit via I2C data/clock
 fn clock_in_i2c_bit(info: &PCIeInfo) -> Result<bool, IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
     let mut i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
@@ -2163,8 +2161,8 @@ fn clock_in_i2c_bit(info: &PCIeInfo) -> Result<bool, IxgbeDriverErr> {
     Ok(data)
 }
 
-// ixgbe_clock_out_i2c_bit - Clocks in/out one bit via I2C data/clock
-// Clocks out one bit via I2C data/clock
+/// clock_out_i2c_bit - Clocks in/out one bit via I2C data/clock
+/// Clocks out one bit via I2C data/clock
 fn clock_out_i2c_bit(info: &PCIeInfo, data: bool) -> Result<(), IxgbeDriverErr> {
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
     let i2cctl = ixgbe_hw::read_reg(info, i2cctl_offset)?;
@@ -2191,9 +2189,9 @@ fn clock_out_i2c_bit(info: &PCIeInfo, data: bool) -> Result<(), IxgbeDriverErr> 
     }
 }
 
-// ixgbe_raise_i2c_clk - Raises the I2C SCL clock
-// Raises the I2C clock line '0'->'1'
-// Negates the I2C clock output enable on X550 hardware.
+/// raise_i2c_clk - Raises the I2C SCL clock
+/// Raises the I2C clock line '0'->'1'
+/// Negates the I2C clock output enable on X550 hardware.
 fn raise_i2c_clk(info: &PCIeInfo, mut i2cctl: u32) -> Result<u32, IxgbeDriverErr> {
     let i2c_clk_in_offset = get_i2c_clk_in_offset(info.get_id())?;
     let i2c_clk_out_offset = get_i2c_clk_out_offset(info.get_id())?;
@@ -2223,9 +2221,9 @@ fn raise_i2c_clk(info: &PCIeInfo, mut i2cctl: u32) -> Result<u32, IxgbeDriverErr
     Ok(i2cctl)
 }
 
-// lower_i2c_clk - Lowers the I2C SCL clock
-// Lowers the I2C clock line '1'->'0'
-// Asserts the I2C clock output enable on X550 hardware.
+/// lower_i2c_clk - Lowers the I2C SCL clock
+/// Lowers the I2C clock line '1'->'0'
+/// Asserts the I2C clock output enable on X550 hardware.
 fn lower_i2c_clk(info: &PCIeInfo, mut i2cctl: u32) -> Result<u32, IxgbeDriverErr> {
     let i2c_clk_out_offset = get_i2c_clk_out_offset(info.get_id())?;
     let i2c_clk_oe_n_en_offset = get_i2c_clk_oe_n_en_offset(info.get_id())?;
@@ -2243,9 +2241,9 @@ fn lower_i2c_clk(info: &PCIeInfo, mut i2cctl: u32) -> Result<u32, IxgbeDriverErr
     Ok(i2cctl)
 }
 
-// set_i2c_data - Sets the I2C data bit
-// Sets the I2C data bit
-// Asserts the I2C data output enable on X550 hardware.
+/// set_i2c_data - Sets the I2C data bit
+/// Sets the I2C data bit
+/// Asserts the I2C data output enable on X550 hardware.
 fn set_i2c_data(info: &PCIeInfo, mut i2cctl: u32, data: bool) -> Result<u32, IxgbeDriverErr> {
     let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
@@ -2285,9 +2283,9 @@ fn set_i2c_data(info: &PCIeInfo, mut i2cctl: u32, data: bool) -> Result<u32, Ixg
     }
 }
 
-// get_i2c_data - Reads the I2C SDA data bit
-// Returns the I2C data bit value
-// Negates the I2C data output enable on X550 hardware.
+/// get_i2c_data - Reads the I2C SDA data bit
+/// Returns the I2C data bit value
+/// Negates the I2C data output enable on X550 hardware.
 fn get_i2c_data(info: &PCIeInfo, mut i2cctl: u32) -> Result<(bool, u32), IxgbeDriverErr> {
     let data_oe_bit = get_i2c_data_oe_n_en_offset(info.get_id())?;
     let i2cctl_offset = get_i2cctl_offset(info.get_id())?;
@@ -2304,11 +2302,11 @@ fn get_i2c_data(info: &PCIeInfo, mut i2cctl: u32) -> Result<(bool, u32), IxgbeDr
     Ok((data, i2cctl))
 }
 
-// check_reset_blocked - check status of MNG FW veto bit
-// This function checks the MMNGC.MNG_VETO bit to see if there are
-// any constraints on link from manageability.  For MAC's that don't
-// have this bit just return faluse since the link can not be blocked
-// via this method.
+/// check_reset_blocked - check status of MNG FW veto bit
+/// This function checks the MMNGC.MNG_VETO bit to see if there are
+/// any constraints on link from manageability.  For MAC's that don't
+/// have this bit just return faluse since the link can not be blocked
+/// via this method.
 pub fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr> {
     // If we don't have this bit, it can't be blocking
     if hw.mac.mac_type == MacType::IxgbeMac82598EB {
@@ -2413,12 +2411,12 @@ fn check_address_cycle_complete(info: &PCIeInfo) -> Result<u32, IxgbeDriverErr> 
     Ok(command)
 }
 
-// hic_unlocked - Issue command to manageability block unlocked
-//  Communicates with the manageability block. On success return IXGBE_SUCCESS
-// else returns semaphore error when encountering an error acquiring
-// semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
-// This function assumes that the IXGBE_GSSR_SW_MNG_SM semaphore is held
-// by the caller.
+/// hic_unlocked - Issue command to manageability block unlocked
+///  Communicates with the manageability block. On success return IXGBE_SUCCESS
+/// else returns semaphore error when encountering an error acquiring
+/// semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
+/// This function assumes that the IXGBE_GSSR_SW_MNG_SM semaphore is held
+/// by the caller.
 pub fn hic_unlocked(
     info: &PCIeInfo,
     buffer: &[u32],
@@ -2480,15 +2478,15 @@ pub fn hic_unlocked(
     Ok(())
 }
 
-// host_interface_command - Issue command to manageability block
-// Needed because FW structures are big endian and decoding of
-// these fields can be 8 bit or 16 bit based on command. Decoding
-// is not easily understood without making a table of commands.
-// So we will leave this up to the caller to read back the data
-// in these cases.
-// Communicates with the manageability block. On success return IXGBE_SUCCESS
-// else returns semaphore error when encountering an error acquiring
-// semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
+/// host_interface_command - Issue command to manageability block
+/// Needed because FW structures are big endian and decoding of
+/// these fields can be 8 bit or 16 bit based on command. Decoding
+/// is not easily understood without making a table of commands.
+/// So we will leave this up to the caller to read back the data
+/// in these cases.
+/// Communicates with the manageability block. On success return IXGBE_SUCCESS
+/// else returns semaphore error when encountering an error acquiring
+/// semaphore or IXGBE_ERR_HOST_INTERFACE_COMMAND when command fails.
 pub fn host_interface_command<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -2649,7 +2647,7 @@ where
     })
 }
 
-// Sets the hardware semaphores so EEPROM access can occur for bit-bang method
+/// Sets the hardware semaphores so EEPROM access can occur for bit-bang method
 fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let timeout: u32 = 2000;
     let mut swsm;
@@ -2715,7 +2713,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     status
 }
 
-// This function clears hardware semaphore bits.
+/// This function clears hardware semaphore bits.
 fn release_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let mut swsm;
     let swsm_offset = get_swsm_offset(info.get_id())?;
@@ -2729,7 +2727,7 @@ fn release_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     ixgbe_hw::write_flush(info)
 }
 
-// ready_eeprom - Polls for EEPROM ready
+/// ready_eeprom - Polls for EEPROM ready
 fn ready_eeprom(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     // Read "Status Register" repeatedly until the LSB is cleared.  The
     // EEPROM will signal that the command has been completed by clearing
@@ -2758,7 +2756,7 @@ fn ready_eeprom(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// standby_eeprom - Returns EEPROM to a "standby" state
+/// standby_eeprom - Returns EEPROM to a "standby" state
 fn standby_eeprom(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     let eec_offset = get_eec_offset(info.get_id())?;
 
@@ -2777,7 +2775,7 @@ fn standby_eeprom(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     Ok(())
 }
 
-// shift_out_eeprom_bits - Shift data bits out to the EEPROM.
+/// shift_out_eeprom_bits - Shift data bits out to the EEPROM.
 fn shift_out_eeprom_bits(info: &PCIeInfo, data: u16, count: u16) -> Result<(), IxgbeDriverErr> {
     let eec_offset = get_eec_offset(info.get_id())?;
 
@@ -2819,7 +2817,7 @@ fn shift_out_eeprom_bits(info: &PCIeInfo, data: u16, count: u16) -> Result<(), I
     Ok(())
 }
 
-// ixgbe_shift_in_eeprom_bits - Shift data bits in from the EEPROM
+/// shift_in_eeprom_bits - Shift data bits in from the EEPROM
 fn shift_in_eeprom_bits(info: &PCIeInfo, count: u16) -> Result<u16, IxgbeDriverErr> {
     let eec_offset = get_eec_offset(info.get_id())?;
     // In order to read a register from the EEPROM, we need to shift
@@ -2849,7 +2847,7 @@ fn shift_in_eeprom_bits(info: &PCIeInfo, count: u16) -> Result<u16, IxgbeDriverE
     Ok(data)
 }
 
-// raise_eeprom_clk - Raises the EEPROM's clock input.
+/// raise_eeprom_clk - Raises the EEPROM's clock input.
 fn raise_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr> {
     //*
     let eec_offset = get_eec_offset(info.get_id())?;
@@ -2863,7 +2861,7 @@ fn raise_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr
     Ok(eec)
 }
 
-// lower_eeprom_clk - Lowers the EEPROM's clock input.
+/// lower_eeprom_clk - Lowers the EEPROM's clock input.
 fn lower_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr> {
     let eec_offset = get_eec_offset(info.get_id())?;
     // Lower the clock input to the EEPROM (clearing the SK bit), then
@@ -2876,8 +2874,8 @@ fn lower_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr
     Ok(eec)
 }
 
-// ixgbe_read_eeprom_buffer_bit_bang - Read EEPROM using bit-bang
-// //  Reads 16 bit word(s) from EEPROM through bit-bang method
+/// read_eeprom_buffer_bit_bang - Read EEPROM using bit-bang
+/// Reads 16 bit word(s) from EEPROM through bit-bang method
 fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -2916,8 +2914,8 @@ fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
     })
 }
 
-// ixgbe_read_eeprom_bit_bang_generic - Read EEPROM word using bit-bang
-//  //  Reads 16 bit value from EEPROM through bit-bang method
+/// read_eeprom_bit_bang_generic - Read EEPROM word using bit-bang
+/// Reads 16 bit value from EEPROM through bit-bang method
 pub fn read_eeprom_bit_bang_generic<T: IxgbeOperations + ?Sized>(
     ops: &T,
     info: &PCIeInfo,
@@ -3061,6 +3059,7 @@ pub fn phy_setup_link_generic<T: IxgbeOperations + ?Sized>(
 
 pub trait IxgbeOperations: Send {
     // MAC Operations
+
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         match self.mac_reset_hw(info, hw) {
             Ok(()) | Err(SfpNotPresent) => self.mac_start_hw(info, hw),
@@ -3076,8 +3075,8 @@ pub trait IxgbeOperations: Send {
 
     fn mac_get_media_type(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> MediaType;
 
-    // clear_vfta- Clear VLAN filter table
-    // Clears the VLAN filer table, and the VMDq index associated with the filter
+    /// clear_vfta- Clear VLAN filter table
+    /// Clears the VLAN filer table, and the VMDq index associated with the filter
     fn mac_clear_vfta(&self, info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr> {
         for offset in 0..hw.mac.vft_size {
             ixgbe_hw::write_reg(info, IXGBE_VFTA(offset as usize), 0)?;
@@ -3092,9 +3091,9 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // mac_clear_hw_cntrs - Generic clear hardware counters
-    // Clears all hardware statistics counters by reading them from the hardware
-    // Statistics counters are clear on read.
+    /// mac_clear_hw_cntrs - Generic clear hardware counters
+    /// Clears all hardware statistics counters by reading them from the hardware
+    /// Statistics counters are clear on read.
     fn mac_clear_hw_cntrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::{read_reg, MacType::*};
 
@@ -3222,11 +3221,11 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // stop_adapter - Stop Tx/Rx units
-    // Sets the adapter_stopped flag within ixgbe_hw struct. Clears interrupts,
-    // disables transmit and receive units. The adapter_stopped flag is used by
-    // the shared code and drivers to determine if the adapter is in a stopped
-    // state and should not touch the hardware.
+    /// stop_adapter - Stop Tx/Rx units
+    /// Sets the adapter_stopped flag within ixgbe_hw struct. Clears interrupts,
+    /// disables transmit and receive units. The adapter_stopped flag is used by
+    /// the shared code and drivers to determine if the adapter is in a stopped
+    /// state and should not touch the hardware.
     fn mac_stop_adapter(
         &self,
         info: &mut PCIeInfo,
@@ -3268,10 +3267,10 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // mac_init_rx_addrs_generic - Initializes receive address filters.
-    // Places the MAC address in receive address register 0 and clears the rest
-    // of the receive address registers. Clears the multicast table. Assumes
-    // the receiver is in reset when the routine is called.
+    /// mac_init_rx_addrs_generic - Initializes receive address filters.
+    /// Places the MAC address in receive address register 0 and clears the rest
+    /// of the receive address registers. Clears the multicast table. Assumes
+    /// the receiver is in reset when the routine is called.
     fn mac_init_rx_addrs(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         // If the current mac address is valid, assume it is a software override
         // to the permanent address.
@@ -3316,8 +3315,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // ixgbe_clear_rar_generic - Remove Rx address register
-    // Clears an ethernet address from a receive address register.
+    /// clear_rar_generic - Remove Rx address register
+    /// Clears an ethernet address from a receive address register.
     fn mac_clear_rar(
         &self,
         info: &PCIeInfo,
@@ -3345,8 +3344,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // mac_set_rar_generic - Set Rx address register
-    // Puts an ethernet address into a receive address register.
+    /// mac_set_rar - Set Rx address register
+    /// Puts an ethernet address into a receive address register.
     fn mac_set_rar(
         &self,
         info: &PCIeInfo,
@@ -3389,7 +3388,7 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // ixgbe_set_vmdq_generic - Associate a VMDq pool index with a rx address
+    /// mac_set_vmdq - Associate a VMDq pool index with a rx address
     fn mac_set_vmdq(
         &self,
         info: &PCIeInfo,
@@ -3416,7 +3415,7 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // ixgbe_clear_vmdq_generic - Disassociate a VMDq pool index from a rx address
+    /// mac_clear_vmdq - Disassociate a VMDq pool index from a rx address
     fn mac_clear_vmdq(
         &self,
         info: &PCIeInfo,
@@ -3461,7 +3460,7 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // ixgbe_init_uta_tables_generic - Initialize the Unicast Table Array
+    /// mac_init_uta_tables - Initialize the Unicast Table Array
     fn mac_init_uta_tables(&self, info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
         for i in 0..128 {
             ixgbe_hw::write_reg(info, IXGBE_UTA(i), 0)?;
@@ -3469,8 +3468,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // setup_fc_generic - Set up flow control
-    // Called at init time to set up flow control.
+    /// mac_setup_fc - Set up flow control
+    /// Called at init time to set up flow control.
     fn mac_setup_fc(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::{FcMode::*, MediaType::*};
         /* Validate the requested mode */
@@ -3607,8 +3606,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // fc_enable - Enable flow control
-    // Enable flow control according to the current settings.
+    /// mac_fc_enable - Enable flow control
+    /// Enable flow control according to the current settings.
     fn mac_fc_enable(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::FcMode::*;
 
@@ -3711,9 +3710,9 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // fc_autoneg - Configure flow control
-    // Compares our advertised flow control capabilities to those advertised by
-    // our link partner, and determines the proper flow control mode to use.
+    /// mac_fc_autoneg - Configure flow control
+    /// Compares our advertised flow control capabilities to those advertised by
+    /// our link partner, and determines the proper flow control mode to use.
     fn mac_fc_autoneg(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MediaType::*;
 
@@ -3765,8 +3764,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // check_mink - Determine link and speed status
-    // Reads the links register to determine if link is up and the current speed
+    /// mac_check_link - Determine link and speed status
+    /// Reads the links register to determine if link is up and the current speed
     fn mac_check_link(
         &self,
         info: &PCIeInfo,
@@ -3865,12 +3864,12 @@ pub trait IxgbeOperations: Send {
         ixgbe_hw::read_reg(info, IXGBE_DEVICE_CAPS)
     }
 
-    // mac_set_lan_id - Set LAN id for PCIe multiple port devices
-    // Determines the LAN function id by reading memory-mapped registers and swaps
-    // the port value if requested, and set MAC instance for devices that share
-    // CS4227.
-    // Doesn't suport X550EM_a currently
-    // ixgbe_set_lan_id_multi_port_pcie in OpenBSD
+    /// mac_set_lan_id - Set LAN id for PCIe multiple port devices
+    /// Determines the LAN function id by reading memory-mapped registers and swaps
+    /// the port value if requested, and set MAC instance for devices that share
+    /// CS4227.
+    /// Doesn't suport X550EM_a currently
+    /// ixgbe_set_lan_id_multi_port_pcie in OpenBSD
     fn mac_set_lan_id(
         &self,
         info: &PCIeInfo,
@@ -3897,8 +3896,8 @@ pub trait IxgbeOperations: Send {
         Ok((func, lan_id, instance_id))
     }
 
-    // acquire_swhw_sync() - Acquire SWFW semaphore
-    // Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
+    /// mac_acquire_swhw_sync() - Acquire SWFW semaphore
+    /// Acquires the SWFW semaphore through the GSSR register for the specified function (CSR, PHY0, PHY1, EEPROM, Flash)
     fn mac_acquire_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
         let mut gssr = 0;
         let timeout = 200;
@@ -3939,7 +3938,7 @@ pub trait IxgbeOperations: Send {
         Err(SwfwSync)
     }
 
-    // release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
+    /// mac_release_swhw_sync() For X540 ixgbe_release_swfw_sync_X540()
     fn mac_release_swfw_sync(&self, info: &PCIeInfo, mask: u32) -> Result<(), IxgbeDriverErr> {
         let mut gssr;
         let swmask = mask;
@@ -3955,9 +3954,9 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // get_bus_info - Generic set PCI bus info
-    // Gets the PCI bus info (speed, width, type) then calls helper function to
-    // store this data within the ixgbe_hw structure.
+    /// mac_get_bus_info - Generic set PCI bus info
+    /// Gets the PCI bus info (speed, width, type) then calls helper function to
+    /// store this data within the ixgbe_hw structure.
     fn mac_get_bus_info(
         &self,
         info: &mut PCIeInfo,
@@ -4058,12 +4057,13 @@ pub trait IxgbeOperations: Send {
     }
 
     // PHY Operations
+
     fn phy_init(&self, _info: &PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         log::error!("phy_init: Not implemented");
         Ok(())
     }
 
-    // phy_reset - Performs a PHY reset
+    /// phy_reset - Performs a PHY reset
     fn phy_reset(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         use PhyType::*;
 
@@ -4222,13 +4222,12 @@ pub trait IxgbeOperations: Send {
         )
     }
 
-    // identify_phy_generic - Get physical layer module
-    // Determines the physical layer module found on the current adapter.
+    /// phy_identify - Get physical layer module
+    /// Determines the physical layer module found on the current adapter.
     fn phy_identify(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         phy_identify_phy_generic(self, info, hw)
     }
 
-    // ixgbe_read_phy_reg_generic()
     fn phy_read_reg(
         &self,
         info: &PCIeInfo,
@@ -4338,7 +4337,7 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    //fn set_phy_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr>;
+    /// phy_set_power(&self, info: &PCIeInfo, hw: &IxgbeHw, on: bool) -> Result<(), IxgbeDriverErr>;
     fn phy_set_power(
         &self,
         _info: &PCIeInfo,
@@ -4349,7 +4348,7 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // setup_phy_link_speed - Sets the auto advertised capabilities
+    /// phy_setup_link_speed - Sets the auto advertised capabilities
     fn phy_setup_link_speed(
         &self,
         info: &PCIeInfo,
@@ -4391,8 +4390,8 @@ pub trait IxgbeOperations: Send {
         Ok(())
     }
 
-    // setup_phy_link - Set and restart auto-neg
-    // Restart auto-negotiation and PHY and waits for completion.
+    /// phy_setup_link - Set and restart auto-neg
+    /// Restart auto-negotiation and PHY and waits for completion.
     fn phy_setup_link(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         phy_setup_link_generic(self, info, hw)
     }
@@ -4448,9 +4447,9 @@ pub trait IxgbeOperations: Send {
         read_eerd_buffer_generic(self, info, eeprom, offset, 1, data)
     }
 
-    //  eeprom_validate_checksum - Validate EEPROM checksum
-    //  //  Performs checksum calculation and validates the EEPROM checksum.  If the
-    //  caller does not need checksum_val, the value can be NULL.
+    ///  eeprom_validate_checksum - Validate EEPROM checksum
+    ///  //  Performs checksum calculation and validates the EEPROM checksum.  If the
+    ///  caller does not need checksum_val, the value can be NULL.
     fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr> {
         log::trace!("eeprom_validate_checksum");
 
@@ -4491,8 +4490,8 @@ pub trait IxgbeOperations: Send {
         Ok(eeprom)
     }
 
-    // eeprom_calc_checksum - Calculates and returns the checksum
-    // Returns a negative error code on error, or the 16-bit checksum
+    /// eeprom_calc_checksum - Calculates and returns the checksum
+    /// Returns a negative error code on error, or the 16-bit checksum
     fn eeprom_calc_checksum(
         &self,
         info: &PCIeInfo,
