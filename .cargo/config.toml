@@ -35,6 +35,4 @@ rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 rustflags = ["-C", "link-arg=-Tkernel/ld/rv32-link.lds"]
 
 [target.riscv64gc-unknown-none-elf]
-rustflags = [
-    "-C", "link-arg=-Tkernel/ld/rv64-link.lds", "-Cforce-frame-pointers=yes"
-]
+rustflags = ["-C", "link-arg=-Tkernel/ld/rv64-link.lds"]

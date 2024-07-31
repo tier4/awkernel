@@ -8,7 +8,7 @@
 
 _start:
   # set up the 8MB initial stack for each cpu.
-  li sp, 0x80800000
+  li sp, 0x80000000
   li a0, 0x00800000
   csrr a1, mhartid
   addi a1, a1, 1

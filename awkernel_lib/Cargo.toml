@@ -72,7 +72,7 @@ default = ["x86"]
 x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
 aarch64 = ["dep:awkernel_aarch64"]
 rv32 = []
-rv64 = ["dep:riscv"]
+rv64 = []
 std = ["dep:libc", "dep:parking_lot"]
 spinlock = []
 
