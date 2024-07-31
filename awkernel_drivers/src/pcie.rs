@@ -1054,13 +1054,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
             let high_bar = config_space.read_u32(high_offset);
 
             let size = {
-                use registers::*;
                 let high_bar = config_space.read_u32(high_offset);
-
-                config_space.write_u32(
-                    registers::StatusCommand::BUS_MASTER.bits(),
-                    registers::STATUS_COMMAND,
-                );
 
                 config_space.write_u32(!0, offset);
                 config_space.write_u32(!0, high_offset);
@@ -1070,11 +1064,6 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
 
                 config_space.write_u32(bar, offset);
                 config_space.write_u32(high_bar, high_offset);
-
-                config_space.write_u32(
-                    (StatusCommand::BUS_MASTER | StatusCommand::MEMORY_SPACE).bits(),
-                    STATUS_COMMAND,
-                );
 
                 (!((high_size as u64) << 32 | ((low_size & BAR_MEM_ADDR_MASK) as u64)) + 1) as usize
             };
