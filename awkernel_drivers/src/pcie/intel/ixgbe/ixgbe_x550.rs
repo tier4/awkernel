@@ -234,14 +234,16 @@ impl IxgbeOperations for IxgbeX550 {
                 core::mem::size_of::<IxgbeHicDisableRxen>() / core::mem::size_of::<u32>();
             let slice = unsafe { core::slice::from_raw_parts(ptr, size_in_u32) };
 
-            if let Err(_) = ixgbe_operations::host_interface_command(
+            if ixgbe_operations::host_interface_command(
                 self,
                 info,
                 slice,
                 core::mem::size_of::<IxgbeHicDisableRxen>() as u32,
                 IXGBE_HI_COMMAND_TIMEOUT,
                 true,
-            ) {
+            )
+            .is_err()
+            {
                 // If we fail - disable RX using register write
                 rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
                 if rxctrl & IXGBE_RXCTRL_RXEN != 0 {
@@ -393,9 +395,13 @@ impl IxgbeOperations for IxgbeX550 {
         // For X550 hardware include 0x0-0x41 in the checksum, skip the
         // checksum word itself
         let mut checksum = 0;
-        for i in 0..=IXGBE_EEPROM_LAST_WORD as usize {
+        for (i, data) in local_buffer
+            .iter()
+            .enumerate()
+            .take(IXGBE_EEPROM_LAST_WORD as usize + 1)
+        {
             if i != IXGBE_EEPROM_CHECKSUM as usize {
-                checksum += local_buffer[i];
+                checksum += *data;
             }
         }
         log::debug!("0x0-0x41 checksum:{:x}", checksum);
@@ -433,18 +439,13 @@ impl IxgbeOperations for IxgbeX550 {
 // Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
 // rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
 // max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+#[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
     let arc_subsystem_valid =
         match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => {
-                if val == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
+            Ok(val) => val != 0,
             Err(e) => return Err(e),
         };
 

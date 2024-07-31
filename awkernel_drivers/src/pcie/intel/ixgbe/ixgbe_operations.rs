@@ -102,11 +102,7 @@ pub fn start_hw_generic<T: IxgbeOperations + ?Sized>(
     let crosstalk_fix = match hw.mac.mac_type {
         IxgbeMac82599EB | IxgbeMacX550EMX | IxgbeMacX550EMA => {
             let device_caps = ops.mac_get_device_caps(info)?;
-            if device_caps & IXGBE_DEVICE_CAPS_NO_CROSSTALK_WR != 0 {
-                false
-            } else {
-                true
-            }
+            device_caps & IXGBE_DEVICE_CAPS_NO_CROSSTALK_WR == 0
         }
         _ => false,
     };
@@ -154,10 +150,12 @@ pub fn start_hw_gen2(info: &PCIeInfo, hw: &IxgbeHw) -> Result<(), IxgbeDriverErr
 // Tests a MAC address to ensure it is a valid Individual Address
 fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
     /* Make sure it is not a multicast address */
-    let status = if ixgbe_is_multicast(mac_addr) {
+    if ixgbe_is_multicast(mac_addr) {
+        log::trace!("MAC address is multicast");
         Err(InvalidMacAddr)
     /* Not a broadcast address */
     } else if ixgbe_is_broadcast(mac_addr) {
+        log::trace!("MAC address is broadcast");
         Err(InvalidMacAddr)
     /* Reject the zero address */
     } else if mac_addr[0] == 0
@@ -167,12 +165,11 @@ fn validate_mac_addr(mac_addr: &[u8]) -> Result<(), IxgbeDriverErr> {
         && mac_addr[4] == 0
         && mac_addr[5] == 0
     {
+        log::trace!("MAC address is all zeros");
         Err(InvalidMacAddr)
     } else {
         Ok(())
-    };
-
-    status
+    }
 }
 
 // pcie_timeout_poll - Return number of times to poll for completion
@@ -210,7 +207,7 @@ fn pcie_timeout_poll(cap: &mut PCIeCap) -> u32 {
 fn disable_pcie_master(info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
     use crate::pcie::capability::pcie_cap::registers::DeviceStatusControl;
     // Always set this bit to ensure any future transactions are blocked
-    ixgbe_hw::write_reg(info, IXGBE_CTRL, IXGBE_CTRL_GIO_DIS as u32)?;
+    ixgbe_hw::write_reg(info, IXGBE_CTRL, IXGBE_CTRL_GIO_DIS)?;
 
     // Exit if master requests are blocked
     let mut status = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
@@ -327,39 +324,29 @@ fn device_supports_autoneg_fc<T: IxgbeOperations + ?Sized>(
                 _ => {
                     let (speed, link_up) = ops.mac_check_link(info, hw, false)?;
                     if link_up {
-                        if speed == IXGBE_LINK_SPEED_1GB_FULL {
-                            true
-                        } else {
-                            false
-                        }
+                        speed == IXGBE_LINK_SPEED_1GB_FULL
                     } else {
                         true
                     }
                 }
             }
         }
-        IxgbeMediaTypeBackplane => {
-            if info.id == IXGBE_DEV_ID_X550EM_X_XFI {
-                false
-            } else {
-                true
-            }
-        }
+        IxgbeMediaTypeBackplane => info.id != IXGBE_DEV_ID_X550EM_X_XFI,
         IxgbeMediaTypeCopper => {
-            /* only some copper devices support flow control autoneg */
-            match info.id {
+            // only some copper devices support flow control autoneg
+            matches!(
+                info.id,
                 IXGBE_DEV_ID_82599_T3_LOM
-                | IXGBE_DEV_ID_X540T
-                | IXGBE_DEV_ID_X540T1
-                | IXGBE_DEV_ID_X540_BYPASS
-                | IXGBE_DEV_ID_X550T
-                | IXGBE_DEV_ID_X550T1
-                | IXGBE_DEV_ID_X550EM_X_10G_T
-                | IXGBE_DEV_ID_X550EM_A_10G_T
-                | IXGBE_DEV_ID_X550EM_A_1G_T
-                | IXGBE_DEV_ID_X550EM_A_1G_T_L => true,
-                _ => false,
-            }
+                    | IXGBE_DEV_ID_X540T
+                    | IXGBE_DEV_ID_X540T1
+                    | IXGBE_DEV_ID_X540_BYPASS
+                    | IXGBE_DEV_ID_X550T
+                    | IXGBE_DEV_ID_X550T1
+                    | IXGBE_DEV_ID_X550EM_X_10G_T
+                    | IXGBE_DEV_ID_X550EM_A_10G_T
+                    | IXGBE_DEV_ID_X550EM_A_1G_T
+                    | IXGBE_DEV_ID_X550EM_A_1G_T_L
+            )
         }
         _ => false,
     };
@@ -383,10 +370,10 @@ fn need_crosstalk_fix<T: IxgbeOperations + ?Sized>(
     }
 
     // Only consider SFP+ PHYs i.e. media type fiber
-    match ops.mac_get_media_type(info, hw) {
-        IxgbeMediaTypeFiber | IxgbeMediaTypeFiberQsfp => true,
-        _ => false,
-    }
+    matches!(
+        ops.mac_get_media_type(info, hw),
+        IxgbeMediaTypeFiber | IxgbeMediaTypeFiberQsfp
+    )
 }
 
 fn fc_autoneg_fiber(info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
@@ -551,8 +538,7 @@ pub fn set_mta(hw: &mut IxgbeHw, mc_addr: &[u8]) {
     // the value.
     let vector_reg = (vector >> 5) & 0x7F;
     let vector_bit = vector & 0x1F;
-    hw.mac.mta_shadow[vector_reg as usize] |= 1 << vector_bit;
-    ()
+    hw.mac.mta_shadow[vector_reg as usize] |= 1 << vector_bit
 }
 
 // mta_vector - Determines bit-vector in multicast table to set
@@ -594,14 +580,13 @@ pub fn mta_vector(hw: &IxgbeHw, mc_addr: &[u8]) -> u16 {
 
 // mng_present - returns TRUE when management capability is present
 pub fn mng_present(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeDriverErr> {
-    let fwsm;
     let fwsm_offset = get_fwsm_offset(info.get_id())?;
 
     if hw.mac.mac_type < MacType::IxgbeMac82599EB {
         return Ok(false);
     }
 
-    fwsm = ixgbe_hw::read_reg(info, fwsm_offset)?;
+    let fwsm = ixgbe_hw::read_reg(info, fwsm_offset)?;
 
     Ok(fwsm & IXGBE_FWSM_FW_MODE_PT != 0)
 }
@@ -714,12 +699,15 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
 
     // Read offset to PHY init contents
     let mut list_offset = [0; 1];
-    if let Err(_) = ops.eeprom_read(
-        info,
-        &mut hw.eeprom,
-        IXGBE_PHY_INIT_OFFSET_NL,
-        &mut list_offset,
-    ) {
+    if ops
+        .eeprom_read(
+            info,
+            &mut hw.eeprom,
+            IXGBE_PHY_INIT_OFFSET_NL,
+            &mut list_offset,
+        )
+        .is_err()
+    {
         log::error!("eeprom read at offset {} failed", IXGBE_PHY_INIT_OFFSET_NL);
         return Err(SfpNoInitSeqPresent);
     }
@@ -734,7 +722,10 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
     // Find the matching SFP ID in the EEPROM
     // and program the init sequence
     let mut sfp_id = [0; 1];
-    if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id) {
+    if ops
+        .eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id)
+        .is_err()
+    {
         log::error!("eeprom read at offset {} failed", list_offset[0]);
         return Err(IxgbeDriverErr::Phy);
     }
@@ -744,7 +735,9 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
         let sfp_id_sfptype = SfpType::try_from(sfp_id[0])?;
         if sfp_id_sfptype == sfp_type {
             list_offset[0] += 1;
-            if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut data_offset)
+            if ops
+                .eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut data_offset)
+                .is_err()
             {
                 log::error!("eeprom read at offset {} failed", list_offset[0]);
                 return Err(IxgbeDriverErr::Phy);
@@ -758,7 +751,10 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
             }
         } else {
             list_offset[0] += 2;
-            if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id) {
+            if ops
+                .eeprom_read(info, &mut hw.eeprom, list_offset[0], &mut sfp_id)
+                .is_err()
+            {
                 log::error!("eeprom read at offset {} failed", list_offset[0]);
                 return Err(IxgbeDriverErr::Phy);
             }
@@ -980,7 +976,6 @@ pub fn setup_mac_link_multispeed_fiber<T: IxgbeOperations + ?Sized>(
             IxgbeMediaTypeFiberQsfp => (), // QSFP module automatically detects MAC link speed
             _ => {
                 log::debug!("Unexpected media type.\n");
-                ()
             }
         }
 
@@ -1150,7 +1145,7 @@ fn validate_phy_addr<T: IxgbeOperations + ?Sized>(
         return Ok(());
     }
 
-    return Err(PhyAddrInvalid);
+    Err(PhyAddrInvalid)
 }
 
 //  get_phy_id - Get the phy type
@@ -1179,7 +1174,7 @@ fn get_phy_id<T: IxgbeOperations + ?Sized>(
 fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType {
     use ixgbe_hw::PhyType::*;
 
-    let phy_type = match phy_id {
+    match phy_id {
         TN1010_PHY_ID => IxgbePhyTn,
         X550_PHY_ID2 | X550_PHY_ID3 | X540_PHY_ID => IxgbePhyAq,
         QT2022_PHY_ID => IxgbePhyQt,
@@ -1187,9 +1182,7 @@ fn get_phy_type_from_id(phy_id: u32) -> ixgbe_hw::PhyType {
         X557_PHY_ID | X557_PHY_ID2 => IxgbePhyX550emExtT,
         IXGBE_M88E1500_E_PHY_ID | IXGBE_M88E1543_E_PHY_ID => IxgbePhyExt1gT,
         _ => IxgbePhyUnknown,
-    };
-
-    phy_type
+    }
 }
 
 pub fn phy_identify_phy_generic<T: IxgbeOperations + ?Sized>(
@@ -1332,6 +1325,7 @@ fn identify_sfp_module_generic<T: IxgbeOperations + ?Sized>(
          * 11  SFP_1g_sx_CORE0 - 82599-specific
          * 12  SFP_1g_sx_CORE1 - 82599-specific
          */
+        #[allow(clippy::collapsible_else_if)]
         if hw.mac.mac_type == MacType::IxgbeMac82598EB {
             if cable_tech & IXGBE_SFF_DA_PASSIVE_CABLE != 0 {
                 hw.phy.sfp_type = IxgbeSfpTypeDaCu;
@@ -1722,13 +1716,11 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     let swfw_mask = hw.phy.phy_semaphore_mask;
     let status;
     loop {
-        if lock {
-            if let Err(_) = ops.mac_acquire_swfw_sync(info, swfw_mask) {
-                return Err(IxgbeDriverErr::SwfwSync);
-            }
+        if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
+            return Err(IxgbeDriverErr::SwfwSync);
         }
 
-        if let Err(_) = i2c_start(info) {
+        if i2c_start(info).is_err() {
             if lock {
                 ops.mac_release_swfw_sync(info, swfw_mask)?;
             }
@@ -1780,7 +1772,7 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
             }
         }
 
-        if let Err(_) = i2c_start(info) {
+        if i2c_start(info).is_err() {
             if lock {
                 ops.mac_release_swfw_sync(info, swfw_mask)?;
             }
@@ -1838,7 +1830,7 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
             }
         }
 
-        if let Err(_) = i2c_stop(info) {
+        if i2c_stop(info).is_err() {
             if lock {
                 ops.mac_release_swfw_sync(info, swfw_mask)?;
             }
@@ -1879,17 +1871,15 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     }
 
     let swfw_mask = hw.phy.phy_semaphore_mask;
-    if lock {
-        if let Err(_) = ops.mac_acquire_swfw_sync(info, swfw_mask) {
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+    if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
+        return Err(IxgbeDriverErr::SwfwSync);
     }
 
     let max_retry = 1;
     let mut retry = 0;
     let status;
     loop {
-        if let Err(_) = i2c_start(info) {
+        if i2c_start(info).is_err() {
             if lock {
                 ops.mac_release_swfw_sync(info, swfw_mask)?;
             }
@@ -1962,7 +1952,7 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
             }
         }
 
-        if let Err(_) = i2c_stop(info) {
+        if i2c_stop(info).is_err() {
             if lock {
                 ops.mac_release_swfw_sync(info, swfw_mask)?;
             }
@@ -1992,7 +1982,7 @@ fn is_sfp_probe(hw: &IxgbeHw, offset: u8, addr: u8) -> bool {
     {
         return true;
     }
-    return false;
+    false
 }
 
 // i2c_start - Sets I2C start condition
@@ -2309,12 +2299,7 @@ fn get_i2c_data(info: &PCIeInfo, mut i2cctl: u32) -> Result<(bool, u32), IxgbeDr
         ixgbe_hw::write_flush(info)?;
         wait_microsec(IXGBE_I2C_T_FALL);
     }
-    let data;
-    if (i2cctl & i2c_data_in_offset as u32) != 0 {
-        data = true;
-    } else {
-        data = false;
-    }
+    let data = (i2cctl & i2c_data_in_offset as u32) != 0;
 
     Ok((data, i2cctl))
 }
@@ -2451,7 +2436,7 @@ pub fn hic_unlocked(
 
     // Check that the host interface is enabled.
     let mut hicr = ixgbe_hw::read_reg(info, IXGBE_HICR)?;
-    if (hicr & IXGBE_HICR_EN as u32) == 0 {
+    if (hicr & IXGBE_HICR_EN) == 0 {
         log::debug!("IXGBE_HOST_EN bit disabled.\n");
         return Err(IxgbeDriverErr::HostInterfaceCommand);
     }
@@ -2466,8 +2451,9 @@ pub fn hic_unlocked(
 
     // The device driver writes the relevant command block
     // into the ram area.
-    for i in 0..dword_len {
-        ixgbe_hw::write_reg_array(info, IXGBE_FLEX_MNG, i, u32::to_le(buffer[i]))?;
+    //for i in 0..dword_len {
+    for (i, item) in buffer.iter().enumerate().take(dword_len) {
+        ixgbe_hw::write_reg_array(info, IXGBE_FLEX_MNG, i, u32::to_le(*item))?;
     }
 
     // Setting this bit tells the ARC that a new command is pending.
@@ -2484,7 +2470,7 @@ pub fn hic_unlocked(
     }
 
     // Check command completion
-    if (timeout != 0 && ended_by_break == false)
+    if (timeout != 0 && !ended_by_break)
         || (ixgbe_hw::read_reg(info, IXGBE_HICR)? & IXGBE_HICR_SV) == 0
     {
         log::error!("Command has failed with no status valid.");
@@ -2611,7 +2597,7 @@ where
 {
     log::debug!("ixgbe_acquire_eeprom");
 
-    let result = mac_swfw_sync_mut(ops, info, IXGBE_GSSR_EEP_SM, eeprom.semaphore_delay, || {
+    mac_swfw_sync_mut(ops, info, IXGBE_GSSR_EEP_SM, eeprom.semaphore_delay, || {
         let eec_offset = get_eec_offset(info.get_id())?;
 
         let mut eec = ixgbe_hw::read_reg(info, eec_offset)?;
@@ -2660,9 +2646,7 @@ where
         ixgbe_hw::write_reg(info, eec_offset, eec)?;
 
         result
-    });
-
-    result
+    })
 }
 
 // Sets the hardware semaphores so EEPROM access can occur for bit-bang method
@@ -2728,7 +2712,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
         log::error!("Software semaphore SMBI between device drivers not granted.");
     }
 
-    return status;
+    status
 }
 
 // This function clears hardware semaphore bits.
@@ -2824,7 +2808,7 @@ fn shift_out_eeprom_bits(info: &PCIeInfo, data: u16, count: u16) -> Result<(), I
 
         // Shift mask to signify next bit of data to shift in to the
         // EEPROM
-        mask = mask >> 1;
+        mask >>= 1;
     }
 
     // We leave the "DI" bit set to "0" when we leave this routine.
@@ -2849,7 +2833,7 @@ fn shift_in_eeprom_bits(info: &PCIeInfo, count: u16) -> Result<u16, IxgbeDriverE
 
     let mut data = 0;
     for _ in 0..count {
-        data = data << 1;
+        data <<= 1;
         _ = raise_eeprom_clk(info, eec)?;
 
         eec = ixgbe_hw::read_reg(info, eec_offset)?;
@@ -2871,7 +2855,7 @@ fn raise_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr
     let eec_offset = get_eec_offset(info.get_id())?;
     // Raise the clock input to the EEPROM
     // (setting the SK bit), then delay
-    eec = eec | IXGBE_EEC_SK;
+    eec |= IXGBE_EEC_SK;
     ixgbe_hw::write_reg(info, eec_offset, eec)?;
     ixgbe_hw::write_flush(info)?;
     wait_microsec(1);
@@ -2884,7 +2868,7 @@ fn lower_eeprom_clk(info: &PCIeInfo, mut eec: u32) -> Result<u32, IxgbeDriverErr
     let eec_offset = get_eec_offset(info.get_id())?;
     // Lower the clock input to the EEPROM (clearing the SK bit), then
     // delay
-    eec = eec & !IXGBE_EEC_SK;
+    eec &= !IXGBE_EEC_SK;
     ixgbe_hw::write_reg(info, eec_offset, eec)?;
     ixgbe_hw::write_flush(info)?;
     wait_microsec(1);
@@ -2905,7 +2889,7 @@ fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
 
     // Prepare the EEPROM for reading k
     acquire_eeprom(ops, info, eeprom, |_ops| {
-        if let Err(_) = ready_eeprom(info) {
+        if ready_eeprom(info).is_err() {
             return Err(IxgbeDriverErr::Eeprom);
         }
 
@@ -2921,7 +2905,7 @@ fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
 
             // Send the READ command (opcode + addr)
             shift_out_eeprom_bits(info, read_opcode as u16, IXGBE_EEPROM_OPCODE_BITS)?;
-            shift_out_eeprom_bits(info, ((offset + i as u16) * 2) as u16, eeprom.address_bits)?;
+            shift_out_eeprom_bits(info, (offset + i as u16) * 2, eeprom.address_bits)?;
 
             // Read the data.
             let word_in = shift_in_eeprom_bits(info, 16)?;
@@ -3078,12 +3062,10 @@ pub fn phy_setup_link_generic<T: IxgbeOperations + ?Sized>(
 pub trait IxgbeOperations: Send {
     // MAC Operations
     fn mac_init_hw(&self, info: &mut PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
-        let ret = match self.mac_reset_hw(info, hw) {
+        match self.mac_reset_hw(info, hw) {
             Ok(()) | Err(SfpNotPresent) => self.mac_start_hw(info, hw),
             Err(e) => Err(e),
-        };
-
-        ret
+        }
     }
 
     fn mac_reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
@@ -3229,6 +3211,7 @@ pub trait IxgbeOperations: Send {
         let rar_high = ixgbe_hw::read_reg(info, IXGBE_RAH(0) as usize)?;
         let rar_low = ixgbe_hw::read_reg(info, IXGBE_RAL(0) as usize)?;
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..4 {
             mac_addr[i] = (rar_low >> (i * 8)) as u8;
         }
@@ -3302,7 +3285,7 @@ pub trait IxgbeOperations: Send {
                 info,
                 hw.mac.num_rar_entries,
                 0,
-                &mut hw.mac.addr,
+                &hw.mac.addr,
                 0,
                 IXGBE_RAH_AV,
             )?;
@@ -3320,7 +3303,7 @@ pub trait IxgbeOperations: Send {
             ixgbe_hw::write_reg(info, IXGBE_RAH(i) as usize, 0)?;
         }
 
-        /* Clear the MTA */
+        // Clear the MTA
         hw.addr_ctrl.mta_in_use = 0;
         ixgbe_hw::write_reg(info, IXGBE_MCSTCTRL, hw.mac.mc_filter_type as u32)?;
 
@@ -3636,13 +3619,12 @@ pub trait IxgbeOperations: Send {
 
         // Low water mark of zero causes XOFF floods
         for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
-            if (hw.fc.current_mode == IxgbeFcTxPause || hw.fc.current_mode == IxgbeFcFull)
-                && (hw.fc.high_water[i] != 0)
+            if ((hw.fc.current_mode == IxgbeFcTxPause || hw.fc.current_mode == IxgbeFcFull)
+                && (hw.fc.high_water[i] != 0))
+                && ((hw.fc.low_water[i] == 0) || (hw.fc.low_water[i] >= hw.fc.high_water[i]))
             {
-                if (hw.fc.low_water[i] == 0) || (hw.fc.low_water[i] >= hw.fc.high_water[i]) {
-                    log::debug!("Invalid water mark configuration");
-                    return Err(InvalidLinkSettings);
-                }
+                log::debug!("Invalid water mark configuration");
+                return Err(InvalidLinkSettings);
             }
         }
 
@@ -3820,6 +3802,7 @@ pub trait IxgbeOperations: Send {
         }
 
         let mut link_up = false;
+        #[allow(clippy::collapsible_else_if)]
         if link_up_wait_to_complete {
             for _ in 0..hw.mac.max_link_up_time {
                 if links_reg & IXGBE_LINKS_UP != 0 {
@@ -3832,11 +3815,7 @@ pub trait IxgbeOperations: Send {
                 links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
             }
         } else {
-            if links_reg & IXGBE_LINKS_UP != 0 {
-                link_up = true;
-            } else {
-                link_up = false;
-            }
+            link_up = links_reg & IXGBE_LINKS_UP != 0;
         }
 
         let speed = match links_reg & IXGBE_LINKS_SPEED_82599 {
@@ -3997,13 +3976,11 @@ pub trait IxgbeOperations: Send {
         use ixgbe_hw::MacType::*;
         let rxctrl = ixgbe_hw::read_reg(info, IXGBE_RXCTRL)?;
         ixgbe_hw::write_reg(info, IXGBE_RXCTRL, rxctrl | IXGBE_RXCTRL_RXEN)?;
-        if hw.mac.mac_type != IxgbeMac82598EB {
-            if hw.mac.set_lben {
-                let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;
-                pfdtxgswc |= IXGBE_PFDTXGSWC_VT_LBEN as u32;
-                ixgbe_hw::write_reg(info, IXGBE_PFDTXGSWC, pfdtxgswc)?;
-                hw.mac.set_lben = false;
-            }
+        if hw.mac.mac_type != IxgbeMac82598EB && hw.mac.set_lben {
+            let mut pfdtxgswc = ixgbe_hw::read_reg(info, IXGBE_PFDTXGSWC)?;
+            pfdtxgswc |= IXGBE_PFDTXGSWC_VT_LBEN;
+            ixgbe_hw::write_reg(info, IXGBE_PFDTXGSWC, pfdtxgswc)?;
+            hw.mac.set_lben = false;
         }
         Ok(())
     }
@@ -4432,7 +4409,7 @@ pub trait IxgbeOperations: Send {
         eeprom: &mut IxgbeEepromInfo,
     ) -> Result<(), IxgbeDriverErr> {
         let eec_offset = get_eec_offset(info.get_id())?;
-        log::debug!("init_eeprom_params_generic");
+        log::trace!("eeprom_init_params");
 
         eeprom.eeprom_type = EepromType::IxgbeEepromNone;
         // Set default semaphore delay to 10ms which is a well tested value
@@ -4468,15 +4445,14 @@ pub trait IxgbeOperations: Send {
         offset: u16,
         data: &mut [u16],
     ) -> Result<(), IxgbeDriverErr> {
-        let ret = read_eerd_buffer_generic(self, info, eeprom, offset, 1, data)?;
-        Ok(ret)
+        read_eerd_buffer_generic(self, info, eeprom, offset, 1, data)
     }
 
     //  eeprom_validate_checksum - Validate EEPROM checksum
     //  //  Performs checksum calculation and validates the EEPROM checksum.  If the
     //  caller does not need checksum_val, the value can be NULL.
     fn eeprom_validate_checksum(&self, info: &PCIeInfo) -> Result<IxgbeEepromInfo, IxgbeDriverErr> {
-        log::debug!("validate_eeprom_checksum_generic");
+        log::trace!("eeprom_validate_checksum");
 
         let mut eeprom = IxgbeEepromInfo {
             eeprom_type: EepromType::IxgbeEepromUninitialized,
@@ -4496,7 +4472,7 @@ pub trait IxgbeOperations: Send {
             return Err(e);
         }
 
-        let checksum = self.eeprom_calc_checksum(info, &mut eeprom)? & 0xffff as u16;
+        let checksum = self.eeprom_calc_checksum(info, &mut eeprom)?;
 
         let mut read_checksum = [0; 1];
         if let Err(e) =
@@ -4526,7 +4502,7 @@ pub trait IxgbeOperations: Send {
         // Include 0x0-0x3F in the checksum
         for i in 0..IXGBE_EEPROM_CHECKSUM {
             let mut word = [0; 1];
-            if let Err(_) = self.eeprom_read(info, eeprom, i, &mut word) {
+            if self.eeprom_read(info, eeprom, i, &mut word).is_err() {
                 log::debug!("EEPROM read failed\n");
                 return Err(IxgbeDriverErr::Eeprom);
             }
@@ -4536,7 +4512,7 @@ pub trait IxgbeOperations: Send {
         // Include all data from pointers except for the fw pointer
         for i in IXGBE_PCIE_ANALOG_PTR..IXGBE_FW_PTR {
             let mut pointer = [0; 1];
-            if let Err(_) = self.eeprom_read(info, eeprom, i, &mut pointer) {
+            if self.eeprom_read(info, eeprom, i, &mut pointer).is_err() {
                 log::debug!("EEPROM read failed\n");
                 return Err(IxgbeDriverErr::Eeprom);
             }
@@ -4547,7 +4523,10 @@ pub trait IxgbeOperations: Send {
             }
 
             let mut length = [0; 1];
-            if let Err(_) = self.eeprom_read(info, eeprom, pointer[0], &mut length) {
+            if self
+                .eeprom_read(info, eeprom, pointer[0], &mut length)
+                .is_err()
+            {
                 log::debug!("EEPROM read failed\n");
                 return Err(IxgbeDriverErr::Eeprom);
             }
@@ -4558,7 +4537,7 @@ pub trait IxgbeOperations: Send {
 
             let mut word = [0; 1];
             for j in pointer[0] + 1..=pointer[0] + length[0] {
-                if let Err(_) = self.eeprom_read(info, eeprom, j, &mut word) {
+                if self.eeprom_read(info, eeprom, j, &mut word).is_err() {
                     log::debug!("EEPROM read failed\n");
                     return Err(IxgbeDriverErr::Eeprom);
                 }

@@ -21,28 +21,26 @@ pub struct IxgbeX540;
 
 fn mng_present(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
     use MacType::*;
-    let fwsm;
 
     if matches!(mac_type, IxgbeMac82599EB) {
         return Ok(false);
     }
 
-    fwsm = ixgbe_hw::read_reg(info, IXGBE_FWSM)?;
+    let fwsm = ixgbe_hw::read_reg(info, IXGBE_FWSM)?;
 
-    Ok((fwsm & IXGBE_FWSM_FW_MODE_PT as u32) != 0)
+    Ok((fwsm & IXGBE_FWSM_FW_MODE_PT) != 0)
 }
 
 // This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
 fn check_reset_blocked(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
     use MacType::*;
-    let mmngc;
 
     // If we don't have this bit, it can't be blocking
     if matches!(mac_type, IxgbeMac82598EB) {
         return Ok(false);
     }
 
-    mmngc = ixgbe_hw::read_reg(info, IXGBE_MMNGC)?;
+    let mmngc = ixgbe_hw::read_reg(info, IXGBE_MMNGC)?;
     if mmngc & IXGBE_MMNGC_MNG_VETO != 0 {
         log::error!("MNG_VETO bit detected");
         return Ok(true);
@@ -186,7 +184,7 @@ pub fn get_swfw_sync_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
         log::error!("Software semaphore SMBI between device drivers not granted.\n");
     }
 
-    return status;
+    status
 }
 
 // release_swfw_sync_semaphore - Release hardware semaphore
@@ -237,7 +235,7 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
         /* SW NVM semaphore bit is used for access to all
          * SW_FW_SYNC bits (not just NVM)
          */
-        if let Err(_) = get_swfw_sync_semaphore(info) {
+        if get_swfw_sync_semaphore(info).is_err() {
             log::debug!(
                 "Failed to get NVM access and register semaphore, returning IXGBE_ERR_SWFW_SYNC\n"
             );
@@ -269,7 +267,7 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
     // the FW/HW malfunctions. In that case the SW should set the SW bit(s)
     // of the requested resource(s) while ignoring the corresponding FW/HW
     // bits in the SW_FW_SYNC register.
-    if let Err(_) = get_swfw_sync_semaphore(info) {
+    if get_swfw_sync_semaphore(info).is_err() {
         log::debug!("Failed to get NVM semaphore and register semaphore while forcefully ignoring FW semaphore bit(s) and setting SW semaphore bit(s), returning IXGBE_ERR_SWFW_SYNC\n");
         return Err(IxgbeDriverErr::SwfwSync);
     }
@@ -309,7 +307,7 @@ pub fn mac_acquire_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
     release_swfw_sync_semaphore(info)?;
     log::debug!("Returning error IXGBE_ERR_SWFW_SYNC\n");
 
-    return Err(IxgbeDriverErr::SwfwSync);
+    Err(IxgbeDriverErr::SwfwSync)
 }
 
 // ixgbe_release_swfw_sync_X540 - Release SWFW semaphore
@@ -482,7 +480,7 @@ impl IxgbeOperations for IxgbeX540 {
                     self,
                     info,
                     &mut eeprom,
-                    IXGBE_EEPROM_CHECKSUM as u16,
+                    IXGBE_EEPROM_CHECKSUM,
                     1,
                     &mut read_checksum,
                 )?;
@@ -563,18 +561,13 @@ impl IxgbeOperations for IxgbeX540 {
 // Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
 // rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
 // max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+#[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
     let arc_subsystem_valid =
         match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => {
-                if val == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
+            Ok(val) => val != 0,
             Err(e) => return Err(e),
         };
 

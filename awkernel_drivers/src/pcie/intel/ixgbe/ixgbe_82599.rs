@@ -47,7 +47,10 @@ fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
 
     // get the offset to the Firmware Module block
     let mut fw_offset = [0; 1];
-    if let Err(_) = ops.eeprom_read(info, &mut hw.eeprom, IXGBE_FW_PTR, &mut fw_offset) {
+    if ops
+        .eeprom_read(info, &mut hw.eeprom, IXGBE_FW_PTR, &mut fw_offset)
+        .is_err()
+    {
         log::error!("eeprom read at offset {} failed", IXGBE_FW_PTR);
         return Err(IxgbeDriverErr::EepromVersion);
     }
@@ -58,12 +61,15 @@ fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
 
     // get the offset to the Pass Through Patch Configuration block
     let mut fw_ptp_cfg_offset = [0; 1];
-    if let Err(_) = ops.eeprom_read(
-        info,
-        &mut hw.eeprom,
-        fw_offset[0] + IXGBE_FW_PASSTHROUGH_PATCH_CONFIG_PTR,
-        &mut fw_ptp_cfg_offset,
-    ) {
+    if ops
+        .eeprom_read(
+            info,
+            &mut hw.eeprom,
+            fw_offset[0] + IXGBE_FW_PASSTHROUGH_PATCH_CONFIG_PTR,
+            &mut fw_ptp_cfg_offset,
+        )
+        .is_err()
+    {
         log::error!(
             "eeprom read at offset {} failed",
             fw_offset[0] + IXGBE_FW_PASSTHROUGH_PATCH_CONFIG_PTR
@@ -77,12 +83,15 @@ fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
 
     // get the firmware version
     let mut fw_version = [0; 1];
-    if let Err(_) = ops.eeprom_read(
-        info,
-        &mut hw.eeprom,
-        fw_ptp_cfg_offset[0] + IXGBE_FW_PATCH_VERSION_4,
-        &mut fw_version,
-    ) {
+    if ops
+        .eeprom_read(
+            info,
+            &mut hw.eeprom,
+            fw_ptp_cfg_offset[0] + IXGBE_FW_PATCH_VERSION_4,
+            &mut fw_version,
+        )
+        .is_err()
+    {
         log::error!(
             "eeprom read at offset {} failed",
             fw_ptp_cfg_offset[0] + IXGBE_FW_PATCH_VERSION_4
@@ -254,11 +263,7 @@ fn get_link_capabilities_82599(
 
         //  QSFP must not enable full auto-negotiation
         // Limited autoneg is enabled at 1G
-        autoneg = if hw.phy.media_type == MediaType::IxgbeMediaTypeFiberQsfp {
-            false
-        } else {
-            true
-        };
+        autoneg = hw.phy.media_type != MediaType::IxgbeMediaTypeFiberQsfp;
     }
 
     Ok((speed, autoneg))
@@ -401,7 +406,7 @@ pub fn read_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     byte_offset: u8,
     dev_addr: u8,
 ) -> Result<u8, IxgbeDriverErr> {
-    if hw.phy.qsfp_shared_i2c_bus == true {
+    if hw.phy.qsfp_shared_i2c_bus {
         // Acquire I2C bus ownership.
         let mut esdp = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
         esdp |= IXGBE_ESDP_SDP0;
@@ -432,7 +437,7 @@ pub fn read_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     let data =
         ixgbe_operations::read_i2c_byte_generic_int(ops, info, hw, byte_offset, dev_addr, true)?;
 
-    if hw.phy.qsfp_shared_i2c_bus == true {
+    if hw.phy.qsfp_shared_i2c_bus {
         // Release I2C bus ownership.
         let mut esdp = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
         esdp &= !IXGBE_ESDP_SDP0;
@@ -457,7 +462,7 @@ fn write_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
     let mut timeout = 200;
 
     let mut esdp;
-    if hw.phy.qsfp_shared_i2c_bus == true {
+    if hw.phy.qsfp_shared_i2c_bus {
         // Acquire I2C bus ownership.
         esdp = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
         esdp |= IXGBE_ESDP_SDP0;
@@ -476,7 +481,7 @@ fn write_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
 
         if timeout == 0 {
             log::debug!("Driver can't access resource, acquiring I2C bus timeout.\n");
-            if hw.phy.qsfp_shared_i2c_bus == true {
+            if hw.phy.qsfp_shared_i2c_bus {
                 // Release I2C bus ownership.
                 esdp = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
                 esdp &= !IXGBE_ESDP_SDP0;
@@ -489,7 +494,7 @@ fn write_i2c_byte_82599<T: IxgbeOperations + ?Sized>(
 
     ixgbe_operations::write_i2c_byte_generic_int(ops, info, hw, byte_offset, dev_addr, data, true)?;
 
-    if hw.phy.qsfp_shared_i2c_bus == true {
+    if hw.phy.qsfp_shared_i2c_bus {
         // Release I2C bus ownership.
         esdp = ixgbe_hw::read_reg(info, IXGBE_ESDP)?;
         esdp &= !IXGBE_ESDP_SDP0;
@@ -513,7 +518,7 @@ fn setup_mac_link_smartspeed<T: IxgbeOperations + ?Sized>(
         if link_up && (link_speed == IXGBE_LINK_SPEED_1GB_FULL) {
             log::debug!("Smartspeed has downgraded the link speed from the maximum advertised\n");
         }
-        return Err(e);
+        Err(e)
     }
 
     let link_speed = IXGBE_LINK_SPEED_UNKNOWN;
@@ -575,11 +580,12 @@ fn setup_mac_link_smartspeed<T: IxgbeOperations + ?Sized>(
 
     // We didn't get link.  If we advertised KR plus one of KX4/KX
     // (or BX4/BX), then disable KR and try again.
-    if ((autoc_reg & IXGBE_AUTOC_KR_SUPP) == 0) || ((autoc_reg & IXGBE_AUTOC_KX4_KX_SUPP_MASK) == 0)
+    if (((autoc_reg & IXGBE_AUTOC_KR_SUPP) == 0)
+        || ((autoc_reg & IXGBE_AUTOC_KX4_KX_SUPP_MASK) == 0))
+        && link_up
+        && (link_speed == IXGBE_LINK_SPEED_1GB_FULL)
     {
-        if link_up && (link_speed == IXGBE_LINK_SPEED_1GB_FULL) {
-            log::debug!("Smartspeed has downgraded the link speed from the maximum advertised\n");
-        }
+        log::debug!("Smartspeed has downgraded the link speed from the maximum advertised\n");
     }
 
     // Turn SmartSpeed on to disable KR support
@@ -600,12 +606,8 @@ fn setup_mac_link_smartspeed<T: IxgbeOperations + ?Sized>(
             return error_out(link_up, link_speed, e);
         }
 
-        if link_up {
-            if link_speed == IXGBE_LINK_SPEED_1GB_FULL {
-                log::debug!(
-                    "Smartspeed has downgraded the link speed from the maximum advertised\n"
-                );
-            }
+        if link_up && (link_speed == IXGBE_LINK_SPEED_1GB_FULL) {
+            log::debug!("Smartspeed has downgraded the link speed from the maximum advertised\n");
         }
     }
 
@@ -647,12 +649,11 @@ fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
     let mut autoc = current_autoc;
 
     // Use stored value (EEPROM defaults) of AUTOC to find KR/KX4 support
-    let orig_autoc;
-    if hw.mac.orig_link_settings_stored {
-        orig_autoc = hw.mac.orig_autoc;
+    let orig_autoc = if hw.mac.orig_link_settings_stored {
+        hw.mac.orig_autoc
     } else {
-        orig_autoc = autoc;
-    }
+        autoc
+    };
 
     let link_mode = autoc & IXGBE_AUTOC_LMS_MASK;
     let pma_pmd_1g = autoc & IXGBE_AUTOC_1G_PMA_PMD_MASK;
@@ -668,7 +669,7 @@ fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
             if orig_autoc & IXGBE_AUTOC_KX4_SUPP != 0 {
                 autoc |= IXGBE_AUTOC_KX4_SUPP;
             }
-            if (orig_autoc & IXGBE_AUTOC_KR_SUPP != 0) && (hw.phy.smart_speed_active == false) {
+            if (orig_autoc & IXGBE_AUTOC_KR_SUPP != 0) && !hw.phy.smart_speed_active {
                 autoc |= IXGBE_AUTOC_KR_SUPP;
             }
         }
@@ -703,23 +704,22 @@ fn setup_mac_link_82599<T: IxgbeOperations + ?Sized>(
         ops.mac_prot_autoc_write(info, hw, autoc)?;
 
         // Only poll for autoneg to complete if specified to do so
-        if autoneg_wait_to_complete {
-            if link_mode == IXGBE_AUTOC_LMS_KX4_KX_KR
+        if autoneg_wait_to_complete
+            && (link_mode == IXGBE_AUTOC_LMS_KX4_KX_KR
                 || link_mode == IXGBE_AUTOC_LMS_KX4_KX_KR_1G_AN
-                || link_mode == IXGBE_AUTOC_LMS_KX4_KX_KR_SGMII
-            {
-                let mut links_reg = 0; // Just in case Autoneg time=0
-                for _ in 0..IXGBE_AUTO_NEG_TIME {
-                    links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
-                    if links_reg & IXGBE_LINKS_KX_AN_COMP != 0 {
-                        break;
-                    }
-                    wait_millisec(100);
+                || link_mode == IXGBE_AUTOC_LMS_KX4_KX_KR_SGMII)
+        {
+            let mut links_reg = 0; // Just in case Autoneg time=0
+            for _ in 0..IXGBE_AUTO_NEG_TIME {
+                links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
+                if links_reg & IXGBE_LINKS_KX_AN_COMP != 0 {
+                    break;
                 }
-                if links_reg & IXGBE_LINKS_KX_AN_COMP == 0 {
-                    status = Err(IxgbeDriverErr::AutonegNotComplete);
-                    log::debug!("Autoneg did not complete.\n");
-                }
+                wait_millisec(100);
+            }
+            if links_reg & IXGBE_LINKS_KX_AN_COMP == 0 {
+                status = Err(IxgbeDriverErr::AutonegNotComplete);
+                log::debug!("Autoneg did not complete.\n");
             }
         }
 
@@ -771,10 +771,7 @@ fn start_mac_link_82599<T: IxgbeOperations + ?Sized>(
     if got_lock {
         ops.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
     }
-
-    if let Err(e) = ret {
-        return Err(e);
-    }
+    ret?;
 
     // Only poll for autoneg to complete if specified to do so
     let mut status = Ok(());
@@ -828,7 +825,7 @@ impl IxgbeOperations for Ixgbe82599 {
         }
 
         // Reset PHY
-        if hw.phy.no_reset == false {
+        if !hw.phy.no_reset {
             self.phy_reset(info, hw)?;
         }
 
@@ -840,12 +837,11 @@ impl IxgbeOperations for Ixgbe82599 {
         // Double resets are required for recovery from certain error
         // conditions.  Between resets, it is necessary to stall to
         // allow time for any pending HW events to complete.
-        let count;
-        if hw.mac.flags & IXGBE_FLAGS_DOUBLE_RESET_REQUIRED != 0 {
-            count = 2
+        let count = if hw.mac.flags & IXGBE_FLAGS_DOUBLE_RESET_REQUIRED != 0 {
+            2
         } else {
-            count = 1;
-        }
+            1
+        };
 
         for _ in 0..count {
             // Issue global reset to the MAC.  Needs to be SW reset if link is up.
@@ -892,7 +888,7 @@ impl IxgbeOperations for Ixgbe82599 {
             ixgbe_hw::write_flush(info)?;
         }
 
-        if hw.mac.orig_link_settings_stored == false {
+        if !hw.mac.orig_link_settings_stored {
             hw.mac.orig_autoc = autoc;
             hw.mac.orig_autoc2 = autoc2;
             hw.mac.orig_link_settings_stored = true;
@@ -958,7 +954,7 @@ impl IxgbeOperations for Ixgbe82599 {
             _ => (),
         }
 
-        let media_type = match info.get_id() {
+        match info.get_id() {
             IXGBE_DEV_ID_82599_KX4
             | IXGBE_DEV_ID_82599_KX4_MEZZ
             | IXGBE_DEV_ID_82599_COMBO_BACKPLANE
@@ -979,9 +975,7 @@ impl IxgbeOperations for Ixgbe82599 {
                 IxgbeMediaTypeFiberFixed
             }
             _ => IxgbeMediaTypeUnknown,
-        };
-
-        media_type
+        }
     }
 
     // prot_autoc_write_82599 - Hides MAC differences needed for AUTOC write
@@ -1015,13 +1009,8 @@ impl IxgbeOperations for Ixgbe82599 {
             self.mac_release_swfw_sync(info, IXGBE_GSSR_MAC_CSR_SM)?;
         }
 
-        if let Err(_) = ret_write_reg {
-            return ret_write_reg;
-        }
-
-        if let Err(_) = reset_pipeline {
-            return reset_pipeline;
-        }
+        ret_write_reg?;
+        reset_pipeline?;
 
         Ok(())
     }
@@ -1051,16 +1040,14 @@ impl IxgbeOperations for Ixgbe82599 {
                     speed,
                     autoneg_wait_to_complete,
                 )?;
+            } else if (media_type == IxgbeMediaTypeBackplane)
+                && (hw.phy.smart_speed == IxgbeSmartSpeedAuto
+                    || hw.phy.smart_speed == IxgbeSmartSpeedOn)
+                && !verify_lesm_fw_enabled_82599(self, info, hw)?
+            {
+                setup_mac_link_smartspeed(self, info, hw, speed, autoneg_wait_to_complete)?;
             } else {
-                if (media_type == IxgbeMediaTypeBackplane)
-                    && (hw.phy.smart_speed == IxgbeSmartSpeedAuto
-                        || hw.phy.smart_speed == IxgbeSmartSpeedOn)
-                    && !verify_lesm_fw_enabled_82599(self, info, hw)?
-                {
-                    setup_mac_link_smartspeed(self, info, hw, speed, autoneg_wait_to_complete)?;
-                } else {
-                    setup_mac_link_82599(self, info, hw, speed, autoneg_wait_to_complete)?;
-                }
+                setup_mac_link_82599(self, info, hw, speed, autoneg_wait_to_complete)?;
             }
         }
 
@@ -1112,8 +1099,9 @@ impl IxgbeOperations for Ixgbe82599 {
             )?;
 
             // Restart DSP and set SFI mode
-            if let Err(_) =
-                self.mac_prot_autoc_write(info, hw, hw.mac.orig_autoc | IXGBE_AUTOC_LMS_10G_SERIAL)
+            if self
+                .mac_prot_autoc_write(info, hw, hw.mac.orig_autoc | IXGBE_AUTOC_LMS_10G_SERIAL)
+                .is_err()
             {
                 log::debug!("sfp module setup not complete\n");
                 return Err(IxgbeDriverErr::SfpSetupNotComplete);
@@ -1185,7 +1173,7 @@ impl IxgbeOperations for Ixgbe82599 {
     fn phy_identify(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
         // Detect PHY if not unknown - returns success if already detected.
         let mut status = ixgbe_operations::phy_identify_phy_generic(self, info, hw);
-        if let Err(_) = status {
+        if status.is_err() {
             // 82599 10GBASE-T requires an external PHY
             if self.mac_get_media_type(info, hw) == MediaType::IxgbeMediaTypeCopper {
                 return Ok(());
@@ -1273,18 +1261,13 @@ impl IxgbeOperations for Ixgbe82599 {
 // Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
 // rx_pb_size: u32, max_rx_queues: u32, max_tx_queues: u32,
 // max_msix_vectors: u16, arc_subsystem_valid: bool)`.
+#[allow(clippy::type_complexity)]
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
     let arc_subsystem_valid =
         match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => {
-                if val == 0 {
-                    false
-                } else {
-                    true
-                }
-            }
+            Ok(val) => val != 0,
             Err(e) => return Err(e),
         };
 

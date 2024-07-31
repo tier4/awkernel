@@ -17,13 +17,12 @@ use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
     console,
-    delay::{wait_microsec, wait_millisec},
+    delay::wait_microsec,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
         ether::{
-            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr,
-            ETHER_CRC_LEN, ETHER_HDR_LEN, ETHER_MAX_LEN, ETHER_TYPE_VLAN,
+            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_HDR_LEN,
         },
         in_cksum::in_pseudo,
         ip::Ip,
@@ -71,6 +70,7 @@ pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
 const MCLSHIFT: u32 = 11;
 const MCLBYTES: u32 = 1 << MCLSHIFT;
+#[allow(dead_code)]
 const MAXMCLBYTES: u32 = 64 * 1024;
 
 type TxRing = [TxDescriptor; DEFAULT_TXD];
@@ -341,10 +341,7 @@ impl IxgbeInner {
             PCIeInt::None
         };
 
-        match ops.mac_init_hw(&mut info, &mut hw) {
-            Err(e) => log::debug!("error:{:?}", e),
-            _ => (),
-        }
+        ops.mac_init_hw(&mut info, &mut hw)?;
 
         if hw.mac.mac_type == MacType::IxgbeMac82599EB {
             enable_tx_laser_multispeed_fiber(&info)?;
@@ -460,7 +457,7 @@ impl IxgbeInner {
             // When the internal queue falls below PTHRESH (16),
             // start prefetching as long as there are at least
             // HTHRESH (1) buffers ready.
-            txdctl |= (16 << 0) | (1 << 8);
+            txdctl |= 16 | (1 << 8);
             ixgbe_hw::write_reg(&self.info, IXGBE_TXDCTL(i), txdctl)?;
         }
 
@@ -868,8 +865,8 @@ impl IxgbeInner {
         let seed = [0x12u8; 32]; // Random seed value
         let mut rng = SmallRng::from_seed(seed);
         let mut rss_keys = [0u32; 10];
-        for i in 0..10 {
-            rss_keys[i] = rng.gen::<u32>();
+        for rss_key in &mut rss_keys {
+            *rss_key = rng.gen::<u32>();
         }
 
         // Set multiplier for RETA setup and table size based on MAC
@@ -894,8 +891,8 @@ impl IxgbeInner {
             queue_id = j * index_mult;
             // The low 8 bits are for hash value (n+0);
             // The next 8 bits are for hash value (n+1), etc.
-            reta = reta >> 8;
-            reta = reta | ((queue_id as u32) << 24);
+            reta >>= 8;
+            reta |= (queue_id as u32) << 24;
             if (i & 3) == 3 {
                 if i < 128 {
                     ixgbe_hw::write_reg(&self.info, IXGBE_RETA(i >> 2), reta)?;
@@ -908,8 +905,8 @@ impl IxgbeInner {
         }
 
         // Now fill our hash function seeds
-        for i in 0..10 {
-            ixgbe_hw::write_reg(&self.info, IXGBE_RSSRK(i), rss_keys[i])?;
+        for (i, rss_key) in rss_keys.iter().enumerate() {
+            ixgbe_hw::write_reg(&self.info, IXGBE_RSSRK(i), *rss_key)?;
         }
 
         // Disable UDP - IP fragments aren't currently being handled
@@ -936,7 +933,7 @@ impl IxgbeInner {
             // Queue 2 -> Counter 2....
             // Queues 16-127 are mapped to Counter 0
             if i < 4 {
-                r = i * 4 + 0;
+                r = i * 4;
                 r |= (i * 4 + 1) << 8;
                 r |= (i * 4 + 2) << 16;
                 r |= (i * 4 + 3) << 24;
@@ -1105,7 +1102,7 @@ impl IxgbeInner {
                 }
                 let index = (entry >> 2) & 0x1F;
                 let mut ivar = ixgbe_hw::read_reg(&self.info, IXGBE_IVAR(index as usize))?;
-                ivar &= !((0xFF as u32) << (8 * (entry & 0x3)));
+                ivar &= !((0xFF_u32) << (8 * (entry & 0x3)));
                 ivar |= (vector as u32) << (8 * (entry & 0x3));
                 ixgbe_hw::write_reg(&self.info, IXGBE_IVAR(index as usize), ivar)?;
             }
@@ -1114,7 +1111,7 @@ impl IxgbeInner {
                     /* MISC IVAR */
                     let index = (entry & 1) * 8;
                     let mut ivar = ixgbe_hw::read_reg(&self.info, IXGBE_IVAR_MISC)?;
-                    ivar &= !((0xFF as u32) << index);
+                    ivar &= !((0xFF_u32) << index);
                     ivar |= (vector as u32) << index;
                     ixgbe_hw::write_reg(&self.info, IXGBE_IVAR_MISC, ivar)?;
                 } else {
@@ -1122,7 +1119,7 @@ impl IxgbeInner {
                     let index = (16 * (entry & 1)) + (8 * rx_tx_misc as u8);
                     let mut ivar =
                         ixgbe_hw::read_reg(&self.info, IXGBE_IVAR((entry >> 1) as usize))?;
-                    ivar &= !((0xFF as u32) << index);
+                    ivar &= !((0xFF_u32) << index);
                     ivar |= (vector as u32) << index;
                     ixgbe_hw::write_reg(&self.info, IXGBE_IVAR((entry >> 1) as usize), ivar)?;
                 }
@@ -1205,19 +1202,19 @@ impl IxgbeInner {
     fn is_sfp(&self) -> bool {
         use ixgbe_hw::PhyType::*;
 
-        match self.hw.phy.phy_type {
+        matches!(
+            self.hw.phy.phy_type,
             IxgbePhySfpAvago
-            | IxgbePhySfpFtl
-            | IxgbePhySfpIntel
-            | IxgbePhySfpUnknown
-            | IxgbePhySfpPassiveTyco
-            | IxgbePhySfpPassiveUnknown
-            | IxgbePhyQsfpPassiveUnknown
-            | IxgbePhyQsfpActiveUnknown
-            | IxgbePhyQsfpIntel
-            | IxgbePhyQsfpUnknown => true,
-            _ => false,
-        }
+                | IxgbePhySfpFtl
+                | IxgbePhySfpIntel
+                | IxgbePhySfpUnknown
+                | IxgbePhySfpPassiveTyco
+                | IxgbePhySfpPassiveUnknown
+                | IxgbePhyQsfpPassiveUnknown
+                | IxgbePhyQsfpActiveUnknown
+                | IxgbePhyQsfpIntel
+                | IxgbePhyQsfpUnknown
+        )
     }
 
     // Requires sc->max_frame_size to be set.
@@ -1321,7 +1318,7 @@ impl IxgbeInner {
             let mask = (IXGBE_EIMS_RTX_QUEUE as u64 & queue) as u32;
             ixgbe_hw::write_reg(&self.info, IXGBE_EIMS, mask)?;
         } else {
-            let mask_low = (queue & 0xFFFFFFFF as u64) as u32;
+            let mask_low = (queue & 0xFFFFFFFF_u64) as u32;
             if mask_low != 0 {
                 ixgbe_hw::write_reg(&self.info, IXGBE_EIMS_EX(0), mask_low)?;
             }
@@ -1387,7 +1384,6 @@ impl Ixgbe {
                 match inner.hw.mac.mac_type {
                     MacType::IxgbeMac82598EB => {
                         // TODO
-                        ()
                     }
                     _ => {
                         let mask_lo = (queue & 0xFFFFFFFF) as u32;
@@ -1615,8 +1611,11 @@ impl Ixgbe {
                     let read_buf = rx.read_buf.as_ref().unwrap();
                     let src = &read_buf.as_ref()[i];
                     let data = src[0..len as usize].to_vec();
-                    log::debug!("que_id: {}", que_id);
-                    log::debug!("etherframe: {:02x?}", &data[0..len as usize]);
+                    log::debug!(
+                        "que_id:{}, etherframe: {:02x?}",
+                        que_id,
+                        &data[0..len as usize]
+                    );
 
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 }
@@ -1681,6 +1680,7 @@ impl Ixgbe {
 
     // Advanced Context Descriptor setup for VLAN or CSUM
     // Return `(offload: bool, vlan_macip_lens: u32, type_tucmd_mlhl: u32, olinfo_status: u32)`.
+    #[allow(clippy::type_complexity)]
     fn tx_offload(
         &self,
         ether_frame: &EtherFrameRef,
@@ -1817,8 +1817,8 @@ impl Ixgbe {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
 
-        let data = ether_frame.data[0..len as usize].to_vec();
-        log::debug!("{:02x?}", &data[0..len as usize]);
+        let data = ether_frame.data[0..len].to_vec();
+        log::debug!("{:02x?}", &data[0..len]);
 
         let mut head = tx.tx_desc_head;
 
@@ -1855,11 +1855,6 @@ impl Ixgbe {
             tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
         );
         desc.adv_tx.olinfo_status = u32::to_le(olinfo_status);
-
-        unsafe {
-            log::debug!("adv_tx.buffer_addr:{:x}", desc.adv_tx.cmd_type_len);
-            log::debug!("adv_tx.buffer_addr:{:x}", desc.adv_tx.olinfo_status);
-        }
 
         head += 1;
         if head == tx_slots {
@@ -2096,7 +2091,7 @@ impl NetDevice for Ixgbe {
     fn link_speed(&self) -> u64 {
         let inner = self.inner.read();
 
-        let speed = match inner.link_speed {
+        match inner.link_speed {
             speed if speed & IXGBE_LINK_SPEED_10GB_FULL != 0 => 10000,
             speed if speed & IXGBE_LINK_SPEED_5GB_FULL != 0 => 5000,
             speed if speed & IXGBE_LINK_SPEED_2_5GB_FULL != 0 => 2500,
@@ -2104,9 +2099,7 @@ impl NetDevice for Ixgbe {
             speed if speed & IXGBE_LINK_SPEED_100_FULL != 0 => 100,
             speed if speed & IXGBE_LINK_SPEED_10_FULL != 0 => 10,
             _ => 0,
-        };
-
-        speed
+        }
     }
 
     fn mac_address(&self) -> [u8; 6] {

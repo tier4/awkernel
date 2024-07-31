@@ -149,7 +149,7 @@ pub fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
 }
 
 pub const IXGBE_MAX_MTA: usize = 128;
-
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct IxgbeMacInfo {
     pub mac_type: MacType,
@@ -174,6 +174,8 @@ pub struct IxgbeMacInfo {
     pub max_link_up_time: u32,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub struct IxgbeAddrFilterInfo {
     pub num_mc_addrs: u32,
     pub rar_used_count: u32,
@@ -182,6 +184,8 @@ pub struct IxgbeAddrFilterInfo {
     pub user_set_promisc: bool,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub struct IxgbeFcInfo {
     pub high_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS], // Flow Ctrl High-water
     pub low_water: [u32; IXGBE_DCB_MAX_TRAFFIC_CLASS],  // Flow Ctrl Low-water
@@ -194,6 +198,8 @@ pub struct IxgbeFcInfo {
     pub requested_mode: FcMode,  // FC mode requested by caller
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub struct IxgbePhyInfo {
     pub phy_type: PhyType,
     pub addr: u32,
@@ -215,6 +221,7 @@ pub struct IxgbePhyInfo {
     pub no_reset: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct IxgbeEepromInfo {
     pub eeprom_type: EepromType,
@@ -225,6 +232,8 @@ pub struct IxgbeEepromInfo {
     pub ctrl_word_3: u16,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
 pub struct IxgbeBusInfo {
     pub speed: BusSpeed,
     pub width: BusWidth,
@@ -373,12 +382,9 @@ impl IxgbeHw {
     pub fn get_mac_addr(&self) -> [u8; IXGBE_ETH_LENGTH_OF_ADDRESS] {
         self.mac.addr
     }
-
-    pub fn get_media_type(&self) -> MediaType {
-        self.phy.media_type
-    }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum EepromType {
     IxgbeEepromUninitialized = 0,
@@ -499,6 +505,7 @@ pub enum MediaType {
     IxgbeMediaTypeVirtual,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum SmartSpeed {
@@ -508,6 +515,7 @@ pub enum SmartSpeed {
 }
 
 // Flow Control Settings
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum FcMode {
     IxgbeFcNone = 0,
@@ -518,6 +526,7 @@ pub enum FcMode {
 }
 
 // PCI bus types
+#[allow(clippy::enum_variant_names)]
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum BusType {
@@ -559,6 +568,7 @@ pub enum BusWidth {
     IxgbeBusWidthReserved,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum LinkState {

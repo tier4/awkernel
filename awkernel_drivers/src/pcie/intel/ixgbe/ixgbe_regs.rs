@@ -1416,7 +1416,7 @@ pub const IXGBE_RDRXCTL_MDP_EN: usize = 0x20000000;
 pub fn ixgbe_rqtc_shift_tc(i: usize) -> usize {
     i * 4
 }
-pub const IXGBE_RQTC_TC0_MASK: usize = 0x7 << 0;
+pub const IXGBE_RQTC_TC0_MASK: usize = 0x7;
 pub const IXGBE_RQTC_TC1_MASK: usize = 0x7 << 4;
 pub const IXGBE_RQTC_TC2_MASK: usize = 0x7 << 8;
 pub const IXGBE_RQTC_TC3_MASK: usize = 0x7 << 12;
@@ -1995,7 +1995,7 @@ pub const IXGBE_IVAR_TXRX_ENTRY: u32 = 96;
 pub const IXGBE_IVAR_RX_ENTRY: u32 = 64;
 pub const IXGBE_IVAR_TX_ENTRY: u32 = 32;
 pub fn ixgbe_ivar_rx_queue(i: u32) -> u32 {
-    0 + i
+    i
 }
 pub fn ixgbe_ivar_tx_queue(i: u32) -> u32 {
     64 + i
@@ -2003,7 +2003,7 @@ pub fn ixgbe_ivar_tx_queue(i: u32) -> u32 {
 pub const IXGBE_IVAR_TCP_TIMER_INDEX: u8 = 96; // 0 based index
 pub const IXGBE_IVAR_OTHER_CAUSES_INDEX: u8 = 97; // 0 based index
 pub fn ixgbe_msix_vector(i: u32) -> u32 {
-    0 + i
+    i
 }
 pub const IXGBE_IVAR_ALLOC_VAL: u8 = 0x80; // Interrupt Allocation valid
 
@@ -2820,16 +2820,16 @@ pub const IXGBE_TX_DESC_SPECIAL_PRI_SHIFT: u32 = IXGBE_RX_DESC_SPECIAL_PRI_SHIFT
 // SR-IOV specific macros
 pub const IXGBE_MBVFICR_INDEX: fn(vf_number: u32) -> u32 = |vf_number| vf_number >> 4;
 pub const IXGBE_MBVFICR: fn(i: u32) -> u32 = |i| 0x00710 + (i * 4);
-pub const IXGBE_VFLRE: fn(i: u32) -> u32 = |i| (i & 1 != 0).then(|| 0x001C0).unwrap_or(0x00600);
+pub const IXGBE_VFLRE: fn(i: u32) -> u32 = |i| if i & 1 != 0 { 0x001C0 } else { 0x00600 };
 pub const IXGBE_VFLREC: fn(i: u32) -> u32 = |i| 0x00700 + (i * 4);
 
 // Translated register #defines
 pub const IXGBE_PVFCTRL: fn(p: u32) -> u32 = |p| 0x00300 + (4 * p);
-pub const IXGBE_PVFSTATUS: fn(p: u32) -> u32 = |p| 0x00008 + (0 * p);
-pub const IXGBE_PVFLINKS: fn(p: u32) -> u32 = |p| 0x042A4 + (0 * p);
-pub const IXGBE_PVFRTIMER: fn(p: u32) -> u32 = |p| 0x00048 + (0 * p);
+pub const IXGBE_PVFSTATUS: fn(p: u32) -> u32 = |_p| 0x00008;
+pub const IXGBE_PVFLINKS: fn(p: u32) -> u32 = |_p| 0x042A4;
+pub const IXGBE_PVFRTIMER: fn(p: u32) -> u32 = |_p| 0x00048;
 pub const IXGBE_PVFMAILBOX: fn(p: u32) -> u32 = |p| 0x04C00 + (4 * p);
-pub const IXGBE_PVFRXMEMWRAP: fn(p: u32) -> u32 = |p| 0x03190 + (0 * p);
+pub const IXGBE_PVFRXMEMWRAP: fn(p: u32) -> u32 = |_p| 0x03190;
 pub const IXGBE_PVTEICR: fn(p: u32) -> u32 = |p| 0x00B00 + (4 * p);
 pub const IXGBE_PVTEICS: fn(p: u32) -> u32 = |p| 0x00C00 + (4 * p);
 pub const IXGBE_PVTEIMS: fn(p: u32) -> u32 = |p| 0x00D00 + (4 * p);
