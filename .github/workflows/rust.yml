@@ -17,42 +17,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Install Rust nightly
-      run: rustup toolchain install nightly-2024-05-08
-    - name: Use Rust nightly
-      run: rustup default nightly-2024-05-08
-    - name: Add Rust components
-      run: rustup component add rust-src llvm-tools-preview clippy rustfmt
-    - name: Add Rust targets
-      run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
-    - name: Install cargo-binutils
-      run: cargo install cargo-binutils
+      - name: Install Rust nightly
+        run: rustup toolchain install nightly-2024-05-08
+      - name: Use Rust nightly
+        run: rustup default nightly-2024-05-08
+      - name: Add Rust components
+        run: rustup component add rust-src llvm-tools-preview clippy rustfmt
+      - name: Add Rust targets
+        run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf riscv64gc-unknown-none-elf
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils
 
-    - name: Cargo fmt
-      run: cargo fmt && git diff --exit-code
+      - name: Cargo fmt
+        run: cargo fmt && git diff --exit-code
 
-    - name: Build aarch64_virt
-      run: make check_aarch64 BSP=aarch64_virt
-    - name: Build aarch64 raspi5
-      run: make check_aarch64 BSP=raspi5
-    - name: Build aarch64 raspi4
-      run: make check_aarch64 BSP=raspi4
-    - name: Build aarch64 raspi3
-      run: make check_aarch64 BSP=raspi3
-    - name: Build x86_64
-      run: make check_x86_64
-    - name: Build std
-      run: make check_std
+      - name: Build aarch64_virt
+        run: make check_aarch64 BSP=aarch64_virt
+      - name: Build aarch64 raspi5
+        run: make check_aarch64 BSP=raspi5
+      - name: Build aarch64 raspi4
+        run: make check_aarch64 BSP=raspi4
+      - name: Build aarch64 raspi3
+        run: make check_aarch64 BSP=raspi3
+      - name: Build x86_64
+        run: make check_x86_64
+      - name: Build RISCV32
+        run: make check_rv32
+      - name: Build RISCV64
+        run: make check_rv64
+      - name: Build std
+        run: make check_std
 
-    - name: Clippy aarch64_virt
-      run: cargo clippy_aarch64_virt -- --deny warnings
-    - name: Clippy raspi
-      run: cargo clippy_raspi -- --deny warnings
-    - name: Cliipy raspi5
-      run: cargo clippy_raspi5 -- --deny warnings
-    - name: Clippy x86_64
-      run: cargo clippy_x86 -- --deny warnings
-    - name: Clippy std
-      run: cargo clippy_std -- --deny warnings
+      - name: Clippy aarch64_virt
+        run: cargo clippy_aarch64_virt -- --deny warnings
+      - name: Clippy raspi
+        run: cargo clippy_raspi -- --deny warnings
+      - name: Cliipy raspi5
+        run: cargo clippy_raspi5 -- --deny warnings
+      - name: Clippy x86_64
+        run: cargo clippy_x86 -- --deny warnings
+      - name: Clippy RISCV32
+        run: cargo clippy_rv32 -- --deny warnings
+      - name: Clippy RISCV64
+        run: cargo clippy_rv64 -- --deny warnings
+      - name: Clippy std
+        run: cargo clippy_std -- --deny warnings
