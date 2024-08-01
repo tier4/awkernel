@@ -89,7 +89,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.3.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.4.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.5.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.6.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.7.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.8.</strong> PCIe</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.3.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.4.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.5.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.6.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.7.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.8.</strong> PCIe</a></li><li class="chapter-item expanded "><a href="internal/synchronization.html"><strong aria-hidden="true">2.9.</strong> Synchronization</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -1315,6 +1315,55 @@ in <code>primary_cpu</code> function defined in
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h1>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync.rs">awkernel_lib/src/sync.rs</a> module provides synchronization primitives.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/mutex.rs"><code>Mutex</code>:awkernel_lib/src/sync/mutex.rs</a> is used for mutual exclusion.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/rwlock.rs"><code>RwLock</code>:awkernel_lib/src/sync/rwlock.rs</a> is used for read-write locks.
+Note that these locks are spin-based, and interrupts are disabled during the critical section.</p>
+<h2 id="mutex"><a class="header" href="#mutex">Mutex</a></h2>
+<p>Awkernel adopts MCS lock [1] for mutual exclusion by default
+because the safety and liveliness of MCS lock have been formally verified [2].
+Therefore, <code>MCSNode</code> have to be used when using <code>Mutex</code> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use alloc::sync::Arc;
+
+let data = Arc::new(Mutex::new(0));
+
+// acquire the lock
+let mut node = MCSNode::new();
+let guard = data.lock(&amp;mut node);
+
+*guard = 10;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="rwlock"><a class="header" href="#rwlock">RwLock</a></h2>
+<p><code>RwLock</code> can be used as normal read-write lock as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::rwlock::RwLock;
+use alloc::sync::Arc;
+
+let data = Arc::new(RwLock::new(0));
+
+{
+    // write lock
+    let guard = data.write();
+    *guard = 10;
+}
+
+{
+    // read lock
+    let guard = data.read();
+    assert_eq!(*guard, 10);
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>J. M. Mellor-Crummey and M. L. Scott. Algorithms for scalable synchronization on shared-
+memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
+<li>J. Kim, V. Sjöberg, R. Gu, Z. Shao. Safety and Liveness of MCS Lock - Layer by Layer. APLAS 2017: 273-297</li>
+</ol>
 
                     </main>
 
