@@ -14,3 +14,4 @@
   - [Memory Allocator](./internal/memory_allocator.md)
   - [Scheduler](./internal/scheduler.md)
   - [PCIe](./internal/PCIe.md)
+  - [Synchronization](./internal/synchronization.md)
