@@ -2,6 +2,7 @@
 
 Awkernel uses [log](https://crates.io/crates/log) crate for logging.
 So, you can use the log macros like defined in this crate as follows.
+The logger uses the console module internally.
 
 ```rust
 log::error!("This is an error message.");
