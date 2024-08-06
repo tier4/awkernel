@@ -10,6 +10,7 @@
     - [CPU](./internal/arch/cpu.md)
     - [Interrupt](./internal/arch/interrupt.md)
     - [Mapper (Virtual Memory Management)](./internal/arch/mapper.md)
+  - [Delay](./internal/delay.md)
   - [Page Table](./internal/page_table.md)
   - [Context Switch](./internal/context_switch.md)
   - [Interrupt Controller](./internal/interrupt_controller.md)
