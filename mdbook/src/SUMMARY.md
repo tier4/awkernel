@@ -2,6 +2,8 @@
 
 - [Introduction](README.md)
 - [Internal](./internal/README.md)
+  - [Synchronization](./internal/synchronization.md)
+  - [Logger](./internal/logger.md)
   - [Boot](./internal/boot.md)
   - [Architecture Abstraction](./internal/arch/README.md)
     - [Delay](./internal/arch/delay.md)
@@ -14,4 +16,3 @@
   - [Memory Allocator](./internal/memory_allocator.md)
   - [Scheduler](./internal/scheduler.md)
   - [PCIe](./internal/PCIe.md)
-  - [Synchronization](./internal/synchronization.md)
