@@ -89,7 +89,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.3.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.4.</strong> PCIe</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="internal/logger.html"><strong aria-hidden="true">2.2.</strong> Logger</a></li><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.3.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.4.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.4.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.4.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.4.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.4.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/delay.html"><strong aria-hidden="true">2.5.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -176,6 +176,78 @@
                     <main>
                         <h1 id="awkernel"><a class="header" href="#awkernel">Awkernel</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="internal"><a class="header" href="#internal">Internal</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h1>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync.rs">awkernel_lib/src/sync.rs</a> module provides synchronization primitives.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/mutex.rs"><code>Mutex</code>:awkernel_lib/src/sync/mutex.rs</a> is used for mutual exclusion.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/rwlock.rs"><code>RwLock</code>:awkernel_lib/src/sync/rwlock.rs</a> is used for read-write locks.
+Note that these locks are spin-based, and interrupts are disabled during the critical section.</p>
+<h2 id="mutex"><a class="header" href="#mutex">Mutex</a></h2>
+<p>Awkernel adopts MCS lock [1] for mutual exclusion by default
+because the safety and liveliness of MCS lock have been formally verified [2].
+Therefore, <code>MCSNode</code> have to be used when using <code>Mutex</code> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use alloc::sync::Arc;
+
+let data = Arc::new(Mutex::new(0));
+
+// acquire the lock
+let mut node = MCSNode::new();
+let guard = data.lock(&amp;mut node);
+
+*guard = 10;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="rwlock"><a class="header" href="#rwlock">RwLock</a></h2>
+<p><code>RwLock</code> can be used as normal read-write lock as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::rwlock::RwLock;
+use alloc::sync::Arc;
+
+let data = Arc::new(RwLock::new(0));
+
+{
+    // write lock
+    let guard = data.write();
+    *guard = 10;
+}
+
+{
+    // read lock
+    let guard = data.read();
+    assert_eq!(*guard, 10);
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>J. M. Mellor-Crummey and M. L. Scott. Algorithms for scalable synchronization on shared-
+memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
+<li>J. Kim, V. Sjöberg, R. Gu, Z. Shao. Safety and Liveness of MCS Lock - Layer by Layer. APLAS 2017: 273-297</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="logger"><a class="header" href="#logger">Logger</a></h1>
+<p>Awkernel uses <a href="https://crates.io/crates/log">log</a> crate for logging.
+So, you can use the log macros like defined in this crate as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>log::error!("This is an error message.");
+log::warn!("This is a warning message.");
+log::info!("Hello, world!");
+log::debug!("This is a debug message.");
+log::trace!("This is a trace message.");
+<span class="boring">}</span></code></pre></pre>
+<p><code>log::debug!</code> is useful when implementing and debugging the kernel
+because it displays a message with the file name and line number where the macro is called.</p>
+<p>You can use <code>log::set_max_level</code> function to set the maximum log level as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>log::set_max_level(log::LevelFilter::Trace);
+<span class="boring">}</span></code></pre></pre>
+<h1 id="buffered-logger"><a class="header" href="#buffered-logger">Buffered Logger</a></h1>
+<p>After booting Awkernel, the logger implementation defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/logger.rs">awkernel_lib/src/logger.rs</a> is switched to a buffered logger defined in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/buffered_logger.rs">applications/awkernel_services/src/buffered_logger.rs</a>.
+The buffered logger buffers log messages and writes them to the UART in a batch.
+Note that the buffered logger will discard messages if the buffer is full to avoid memory exhaustion.
+The buffered logger is executed as an async/await task and spawned in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/lib.rs">applications/awkernel_services/src/main.rs</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="boot"><a class="header" href="#boot">Boot</a></h1>
 <p>In this section, we explain how Awkernel boots.</p>
 <h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
@@ -477,9 +549,9 @@ The ID is unique for each CPU,
 but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.</p>
 <p>There are functions regarding CPU in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/cpu.rs">awkernel_lib/src/cpu.rs</a> as follows.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
-<tr><td><code>cpu_id() -&gt; usize </code></td><td>Return the ID of the CPU.</td></tr>
-<tr><td><code>raw_cpu_id() -&gt; usize</code></td><td>Return the ID of the CPU without any modification.</td></tr>
-<tr><td><code>num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
+<tr><td><code>fn cpu_id() -&gt; usize</code></td><td>Return the ID of the CPU.</td></tr>
+<tr><td><code>fn raw_cpu_id() -&gt; usize</code></td><td>Return the ID of the CPU without any modification.</td></tr>
+<tr><td><code>fn num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
 </tbody></table>
 </div>
 <h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
@@ -624,6 +696,695 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
+<p>The <code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Mapper {
+    /// Return the physical address of `vm_addr`.
+    fn vm_to_phy(vm_addr: VirtAddr) -&gt; Option&lt;PhyAddr&gt;;
+
+    /// Map `vm_addr` to `phy_addr` with `flag`.
+    ///
+    /// # Safety
+    ///
+    /// - Virtual memory must be enabled.
+    /// - `flag` must be reasonable.
+    /// - `phy_addr` must be being unmapped.
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -&gt; Result&lt;(), MapError&gt;;
+
+    /// Unmap `vm_addr`.
+    ///
+    /// # Safety
+    ///
+    /// - Virtual memory must be enabled.
+    /// - `vm_addr` must be being mapped.
+    unsafe fn unmap(vm_addr: VirtAddr);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
+These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
+<p>The <code>Flags</code> type is used to represent the flags of the page table entry.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Flag for a page.
+/// Note that every page is readable.
+#[derive(Debug, Clone, Copy)]
+pub struct Flags {
+    pub execute: bool,       // executable
+    pub write: bool,         // writable
+    pub cache: bool,         // enable cache
+    pub write_through: bool, // write back if disabled
+    pub device: bool,        // this page is for MMIO, ignored on x86
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are functions regarding the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn vm_to_phy(vm_addr: VirtAddr) -&gt; Option&lt;PhyAddr&gt;</code></td><td>Return the physical address of <code>vm_addr</code>.</td></tr>
+<tr><td><code>unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -&gt; Result&lt;(), MapError&gt;</code></td><td>Map <code>vm_addr</code> to <code>phy_addr</code> with <code>flag</code>.</td></tr>
+<tr><td><code>fn unsafe fn unmap(vm_addr: VirtAddr)</code></td><td>Unmap <code>vm_addr</code>.</td></tr>
+</tbody></table>
+</div>
+<p>Awkernel's page size is 4 KiB and it is defined by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PAGESIZE</code>:awkernel_lib/src/paging.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub const PAGESIZE: usize = 4 * 1024;
+<span class="boring">}</span></code></pre></pre>
+<h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
+<h2 id="x86_64-5"><a class="header" href="#x86_64-5">x86_64</a></h2>
+<p>For x86_64, the <code>X86</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a>.
+To handle page tables, the <code>OffsetPageTable</code> structure defined in the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate is used.</p>
+<h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
+<p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
+To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
+<div style="break-before: page; page-break-before: always;"></div><div style="break-before: page; page-break-before: always;"></div><h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
+<p>The <code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
+It is defined as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait PageTable&lt;F, FA, E&gt;
+where
+    F: Frame,
+    FA: FrameAllocator&lt;F, E&gt;,
+{
+    /// Map `virt_addr` to `phy_addr` with `flag`.
+    ///
+    /// # Safety
+    ///
+    /// - virt_addr and phy_addr must be aligned to page size.
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: Flags,
+        page_allocator: &amp;mut FA,
+    ) -&gt; Result&lt;(), E&gt;;
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>map_to</code> method of the <code>PageTable</code> is used to specify a page frame allocator,
+which allocates physical pages for the page table, when mapping pages.
+It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
+<p>The <code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
+It is defined as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Frame {
+    fn start_address(&amp;self) -&gt; PhyAddr;
+    fn set_address(&amp;mut self, addr: PhyAddr);
+    fn size(&amp;self) -&gt; usize;
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
+It is used by the <code>PageTable</code> as described above.</p>
+<h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
+<h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
+<p>For x86_64, the <code>PageTable</code> structure
+is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/page_table.rs">awkernel_lib/src/arch/x86_64/page_table.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PageTable&lt;'a&gt; {
+    offset_page_table: &amp;'a mut OffsetPageTable&lt;'static&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl&lt;'a&gt; crate::paging::PageTable&lt;super::page_allocator::Frame, VecPageAllocator, &amp;'static str&gt;
+    for PageTable&lt;'a&gt;
+{
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: crate::addr::virt_addr::VirtAddr,
+        phy_addr: crate::addr::phy_addr::PhyAddr,
+        flags: crate::paging::Flags,
+        page_allocator: &amp;mut VecPageAllocator,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let flags = flags_to_x86_flags(flags);
+
+        let page = Page::containing_address(VirtAddr::new(virt_addr.as_usize() as u64));
+        let frame =
+            PhysFrame::&lt;Size4KiB&gt;::containing_address(PhysAddr::new(phy_addr.as_usize() as u64));
+
+        match self
+            .offset_page_table
+            .map_to(page, frame, flags, page_allocator)
+        {
+            Ok(flusher) =&gt; {
+                flusher.flush();
+                Ok(())
+            }
+            Err(_) =&gt; Err("Failed to map page"),
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
+<p>For AArch64, the <code>PageTable</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs">awkernel_lib/src/arch/aarch64/page_table.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// - 3 transition levels
+/// - 4KiB page
+/// - up to 512GiB memory
+pub struct PageTable {
+    root: PageTableEntry,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::paging::PageTable&lt;Page, PageAllocator&lt;Page&gt;, &amp;'static str&gt; for PageTable {
+    unsafe fn map_to(
+        &amp;mut self,
+        virt_addr: VirtAddr,
+        phy_addr: PhyAddr,
+        flags: crate::paging::Flags,
+        page_allocator: &amp;mut PageAllocator&lt;Page&gt;,
+    ) -&gt; Result&lt;(), &amp;'static str&gt; {
+        let mut f = FLAG_L3_AF | 0b11;
+
+        if !flags.execute {
+            f |= FLAG_L3_XN | FLAG_L3_PXN;
+        }
+
+        if flags.write {
+            f |= FLAG_L3_SH_RW_N;
+        } else {
+            f |= FLAG_L3_SH_R_N;
+        }
+
+        match (flags.device, flags.cache) {
+            (true, true) =&gt; f |= FLAG_L3_ATTR_MEM | FLAG_L3_OSH,
+            (true, false) =&gt; f |= FLAG_L3_ATTR_DEV | FLAG_L3_OSH,
+            (false, true) =&gt; f |= FLAG_L3_ATTR_MEM | FLAG_L3_ISH,
+            (false, false) =&gt; f |= FLAG_L3_NS | FLAG_L3_ISH,
+        }
+
+        self.map_to_aarch64(virt_addr, phy_addr, f, page_allocator)
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="context-switch"><a class="header" href="#context-switch">Context Switch</a></h1>
+<p>The <code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
+is a trait that enables preemptive multitasking.
+It provides methods to set the stack pointer, entry point,
+and argument of the context as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Context: Default {
+    /// # Safety
+    ///
+    /// Ensure that changing the stack pointer is valid at that time.
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize);
+
+    /// # Safety
+    ///
+    /// This function must be called for only initialization purpose.
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize);
+
+    /// # Safety
+    ///
+    /// This function must be called for only initialization purpose.
+    unsafe fn set_argument(&amp;mut self, arg: usize);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>context_switch</code> function must be implemented for each architecture
+to enable context switching.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>extern "C" {
+    /// Switch context from `current` to `next`.
+    pub fn context_switch(current: *mut ArchContext, next: *const ArchContext);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>context_switch</code> function stores and restores CPU registers,
+and the <code>ArchContext</code> structure is an architecture-specific context structure.</p>
+<h1 id="disable-preemption"><a class="header" href="#disable-preemption">Disable Preemption</a></h1>
+<p>In <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/Cargo.toml">awkernel_async_lib/Cargo.toml</a>, there is the <code>no_preempt</code> feature to disable preemption.</p>
+<pre><code class="language-toml">[features]
+default = []
+std = ["awkernel_lib/std", "no_preempt"]
+no_preempt = []
+</code></pre>
+<p>If you want to disable preemption, please enable the <code>no_preempt</code> feature as
+<code>default = ["no_preempt"]</code>.</p>
+<h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
+<h2 id="x86_64-7"><a class="header" href="#x86_64-7">x86_64</a></h2>
+<p>For x86_64, the <code>Context</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs">awkernel_lib/src/context/x86_64.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct Context {
+    pub rbx: u64,
+    pub rsp: u64,
+    pub rbp: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
+<p>The <code>context_switch</code> function is implemented in assembly as follows.
+This stores and restores only general-purpose registers because
+the floating-point registers are stored and restored by each interrupt handler.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>core::arch::global_asm!(
+    "
+.global context_switch
+context_switch:
+// Store general purpose registers
+mov   [rdi], rbx
+mov  8[rdi], rsp
+mov 16[rdi], rbp
+mov 24[rdi], r12
+mov 32[rdi], r13
+mov 40[rdi], r14
+mov 48[rdi], r15
+
+// Load general purpose registers
+mov rbx,   [rsi]
+mov rsp,  8[rsi]
+mov rbp, 16[rsi]
+mov r12, 24[rsi]
+mov r13, 32[rsi]
+mov r14, 40[rsi]
+mov r15, 48[rsi]
+
+ret
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs"><code>Context</code>:awkernel_lib/src/context/x86_64.rs</a> structure as follows.
+These methods set the stack pointer, entry point, and argument of the context.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::context::Context for Context {
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize) {
+        self.rsp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+        self.r12 = arg as u64;
+        self.r13 = entry as usize as u64;
+
+        let entry_point_addr = entry_point as usize as u64;
+
+        unsafe {
+            core::arch::asm!("mov {}, rsp", lateout(reg) self.r15);
+            core::arch::asm!("mov rsp, {}", in(reg) self.rsp);
+            core::arch::asm!("push {}", in(reg) entry_point_addr);
+            core::arch::asm!("mov rsp, {}", in(reg) self.r15);
+        }
+
+        self.rsp -= 8;
+    }
+
+    unsafe fn set_argument(&amp;mut self, arg: usize) {
+        self.r12 = arg as u64;
+    }
+}
+
+extern "C" {
+    fn entry_point() -&gt; !;
+}
+
+global_asm!(
+    "
+.global entry_point
+entry_point:
+    mov  rdi, r12
+    call r13
+1:
+    hlt
+    jmp  1b
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
+<p>For AArch64, the <code>Context</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs">awkernel_lib/src/context/aarch64.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct Context {
+    // 8 * 8 bytes
+    pub fp_regs: FPRegs, // floating point registers
+
+    //------------------------------ offset: 16 * 4 (+4)
+
+    // 8 * 12 bytes
+    pub gp_regs: GPRegs, // general purpose registers
+
+    // ----------------------------- offset: 16 * 10 (+6)
+
+    // 8 * 2 bytes
+    pub sp: u64, // stack pointer
+    _unused: [u8; 8],
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
+<p>The <code>context_switch</code> function is implemented in assembly as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>core::arch::global_asm!(
+    "
+.global context_switch
+context_switch:
+// Save the current context.
+
+// Store floating-point registers.
+stp      d8,  d9, [x0], #16
+stp     d10, d11, [x0], #16
+stp     d12, d13, [x0], #16
+stp     d14, d15, [x0], #16
+
+// Store general purpose registers.
+stp     x19, x20, [x0], #16
+stp     x21, x22, [x0], #16
+stp     x23, x24, [x0], #16
+stp     x25, x26, [x0], #16
+stp     x27, x28, [x0], #16
+stp     x29, x30, [x0], #16
+
+// Store SP.
+mov     x9, sp
+str     x9, [x0]
+
+
+// Restore the next context.
+
+// Load floating-point registers.
+ldp      d8,  d9, [x1], #16
+ldp     d10, d11, [x1], #16
+ldp     d12, d13, [x1], #16
+ldp     d14, d15, [x1], #16
+
+// Load general purpose registers.
+ldp     x19, x20, [x1], #16
+ldp     x21, x22, [x1], #16
+ldp     x23, x24, [x1], #16
+ldp     x25, x26, [x1], #16
+ldp     x27, x28, [x1], #16
+ldp     x29, x30, [x1], #16
+
+// Load SP.
+ldr     x9, [x1]
+mov     sp, x9
+
+ret
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs"><code>Context</code>:awkernel_lib/src/context/aarch64.rs</a> structure as follows.
+These methods set the stack pointer, entry point, and argument of the context.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::context::Context for Context {
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize) {
+        self.sp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+        self.gp_regs.x20 = entry as usize as u64;
+        self.gp_regs.x30 = entry_point as *const () as u64;
+    }
+
+    unsafe fn set_argument(&amp;mut self, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+    }
+}
+
+extern "C" {
+    fn entry_point() -&gt; !;
+}
+
+global_asm!(
+    "
+.global entry_point
+entry_point:
+    mov     x0, x19
+    blr     x20
+1:
+    wfi
+    b       1b
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt-controller"><a class="header" href="#interrupt-controller">Interrupt Controller</a></h1>
+<p>The <code>InterruptController</code> is a trait for interrupt controllers.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait InterruptController: Sync + Send {
+    fn enable_irq(&amp;mut self, irq: u16);
+    fn disable_irq(&amp;mut self, irq: u16);
+    fn pending_irqs(&amp;self) -&gt; Box&lt;dyn Iterator&lt;Item = u16&gt;&gt;;
+
+    /// Send an inter-process interrupt to `target` CPU.
+    fn send_ipi(&amp;mut self, irq: u16, target: u32);
+
+    /// Send an inter-process interrupt to all CPUs.
+    fn send_ipi_broadcast(&amp;mut self, irq: u16);
+
+    /// Send an inter-process interrupt to all CPUs except the sender CPU.
+    fn send_ipi_broadcast_without_self(&amp;mut self, irq: u16);
+
+    /// Initialization for non-primary core.
+    fn init_non_primary(&amp;mut self) {}
+
+    /// End of interrupt.
+    /// This will be used by only x86_64.
+    fn eoi(&amp;mut self) {}
+
+    /// Return the range of IRQs, which can be registered.
+    /// The range is [start, end).
+    fn irq_range(&amp;self) -&gt; (u16, u16);
+
+    /// Return the range of IRQs, which can be used for PnP devices.
+    /// The range is [start, end).
+    fn irq_range_for_pnp(&amp;self) -&gt; (u16, u16);
+
+    /// Set the PCIe MSI or MSI-X interrupt
+    #[allow(unused_variables)]
+    fn set_pcie_msi(
+        &amp;self,
+        segment_number: usize,
+        target: u32,
+        irq: u16,
+        message_data: &amp;mut u32,
+        message_address: &amp;mut u32,
+        message_address_upper: Option&lt;&amp;mut u32&gt;,
+    ) -&gt; Result&lt;IRQ, &amp;'static str&gt; {
+        Err("Interrupt controller does not support PCIe MSI or MSI-X.")
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>Some related functions are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn register_handler&lt;F&gt;(...) -&gt; Result&lt;(), &amp;'static str&gt;</code></td><td>Register a handler for the interrupt.</td></tr>
+<tr><td><code>fn get_handlers() -&gt; BTreeMap&lt;u16, Cow&lt;'static, str&gt;&gt;</code></td><td>Return the list of IRQs and their handlers.</td></tr>
+<tr><td><code>fn enable_irq(irq: u16)</code></td><td>Enable the interrupt.</td></tr>
+<tr><td><code>fn disable_irq(irq: u16)</code></td><td>Disable the interrupt.</td></tr>
+<tr><td><code>fn send_ipi(irq: u16, target: u32)</code></td><td>Send an inter-process interrupt to <code>target</code> CPU.</td></tr>
+<tr><td><code>fn send_ipi_broadcast(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs.</td></tr>
+<tr><td><code>fn send_ipi_broadcast_without_self(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs except the sender CPU.</td></tr>
+<tr><td><code>fn register_handler_pcie_msi&lt;F&gt;(...) -&gt; Result&lt;IRQ, &amp;'static str&gt;</code></td><td>Register a handler for PCIe MSI or MSI-X interrupt.</td></tr>
+<tr><td><code>fn handle_irq(irq: u16)</code></td><td>Handle the interrupt.</td></tr>
+<tr><td><code>fn handle_irqs()</code></td><td>Handle all pending interrupts.</td></tr>
+<tr><td><code>fn enable()</code></td><td>Enable interrupts.</td></tr>
+<tr><td><code>fn disable()</code></td><td>Disable interrupts.</td></tr>
+<tr><td><code>fn eoi()</code></td><td>End of interrupt.</td></tr>
+<tr><td><code>fn handle_preemption()</code></td><td>Handle preemption.</td></tr>
+<tr><td><code>fn set_preempt_irq(irq: u16, preemption: unsafe fn())</code></td><td>Set the preemption handler.</td></tr>
+<tr><td><code>fn get_preempt_irq() -&gt; u16</code></td><td>Return the IRQ number for preemption.</td></tr>
+</tbody></table>
+</div>
+<h1 id="handling-interrupts"><a class="header" href="#handling-interrupts">Handling Interrupts</a></h1>
+<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
+<p><code>handle_irq</code> is called in interrupt handlers defined in.
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> for x86_64 as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>macro_rules! irq_handler {
+    ($name:ident, $id:expr) =&gt; {
+        extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+            awkernel_lib::interrupt::eoi(); // End of interrupt.
+            awkernel_lib::interrupt::handle_irq($id);
+        }
+    };
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>irq_handler</code> macro is called in each interrupt handler.</p>
+<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
+<p>The <code>handle_irqs</code> function is called in interrupt handlers defined in.
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/exception.rs">kernel/src/arch/aarch64/exception.rs</a> for aarch64 as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[no_mangle]
+pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
+    interrupt::handle_irqs();
+}
+<span class="boring">}</span></code></pre></pre>
+<h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
+<p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
+This means that the target CPU should handle the preemption request if it receives the IPI.</p>
+<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
+<p>For x86_64, the <code>handle_preempt</code> function is called in a interrupt handler defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
+    awkernel_lib::interrupt::eoi(); // End of interrupt.
+    awkernel_lib::interrupt::handle_preemption();
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
+<p>For AArch64, handling preemption is performed in the <code>handle_irqs</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Handle all pending interrupt requests.
+/// This function will be used by only aarch64 and called from CPU's interrupt handlers.
+#[cfg(feature = "aarch64")]
+pub fn handle_irqs() {
+    use crate::{heap, unwind::catch_unwind};
+    use core::mem::transmute;
+
+    let handlers = IRQ_HANDLERS.read();
+    let mut need_preemption = false;
+
+    // omitted
+
+    if need_preemption {
+        let ptr = PREEMPT_FN.load(Ordering::Relaxed);
+        let preemption = unsafe { transmute::&lt;*mut (), fn()&gt;(ptr) };
+        preemption();
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<p>There are some device drivers for interrupt controllers in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller">awkernel_drivers/src/interrupt_controller</a>.</p>
+<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
+<p>xAPIC and x2APIC are supported for x86_64.</p>
+<ul>
+<li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/interrupt_controller/apic.rs">xAPIC and x2APIC</a></li>
+</ul>
+<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
+<p>BCM2835's (Raspberry Pi 3) interrupt controller, GICv2 and GICv3 are supported for AAarch64.</p>
+<ul>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/bcm2835.rs">BCM2835's interrupt controller</a></li>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv2.rs">GICv2</a></li>
+<li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/gicv3.rs">GICv3</a></li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
+<p>Awkernel uses <a href="https://github.com/yvt/rlsf">rlsf</a>, which implements Two-Level Segregated Fit (TLSF) memory allocator.
+The <code>Tallock</code> structure represents an allocator in Awkernel,
+which contains a primary allocator and a backup allocator.
+Async/await tasks use only the primary allocator,
+but kernel tasks, such as interrupt handlers,
+use both the primary and the backup allocators for safety.
+Because of the backup allocator,
+kernel tasks can safely handle memory exhaustion in the primary allocator.</p>
+<p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct Allocator(Mutex&lt;TLSFAlloc&gt;);
+struct BackUpAllocator(Mutex&lt;TLSFAlloc&gt;);
+
+pub struct Talloc {
+    primary: Allocator,
+    backup: BackUpAllocator,
+
+    /// bitmap for each CPU to decide which allocator to use
+    flags: [AtomicU32; NUM_MAX_CPU / 32],
+
+    primary_start: AtomicUsize,
+    primary_size: AtomicUsize,
+    backup_start: AtomicUsize,
+    backup_size: AtomicUsize,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Talloc</code> structure is defined as a global allocator as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[global_allocator]
+pub static TALLOC: Talloc = Talloc::new();
+<span class="boring">}</span></code></pre></pre>
+<p>There are 2 functions to initialize memory regions of the primary and backup allocators.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the memory region of the primary allocator.</td></tr>
+<tr><td><code>fn init_backup(backup_start: usize, backup_size: usize)</code></td><td>Initialize the memory region of the backup allocator.</td></tr>
+</tbody></table>
+</div>
+<h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
+<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
+<p>For x86_64, the primary and backup allocators are initialized
+in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
+These functions initialize virtual memory regions for the primary and backup heaps
+before initializing the primary and backup allocators.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn init_primary_heap(
+    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
+    page_allocators: &amp;mut BTreeMap&lt;u32, VecPageAllocator&gt;,
+) {
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+
+    let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
+
+    let heap_size = num_pages * PAGESIZE;
+    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn init_backup_heap(
+    boot_info: &amp;mut BootInfo,
+    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
+) -&gt; (usize, MemoryRegion, Option&lt;PhysFrame&gt;) {
+    // omitted: Initialize virtual memory regions for the backup heap.
+
+    // Initialize.
+    // Enable heap allocator.
+    unsafe {
+        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
+        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+    }
+
+    (backup_pages, backup_heap_region, next_page)
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
+<p>For x86_64, the primary and backup allocators are initialized
+in <code>primary_cpu</code> function defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>unsafe fn primary_cpu(device_tree_base: usize) {
+    // omitted
+
+    // 5. Enable heap allocator.
+    let backup_start = HEAP_START;
+    let backup_size = BACKUP_HEAP_SIZE;
+    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
+    let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+
+    heap::init_primary(primary_start, primary_size);
+    heap::init_backup(backup_start, backup_size);
+
+    // omitted
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
 

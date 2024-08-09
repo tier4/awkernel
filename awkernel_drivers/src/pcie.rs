@@ -956,6 +956,11 @@ impl PCIeInfo {
                     return intel::igb::attach(self);
                 }
 
+                #[cfg(feature = "ixgbe")]
+                if intel::ixgbe::match_device(self.vendor, self.id) {
+                    return intel::ixgbe::attach(self);
+                }
+
                 // Example of the driver for Intel E1000e.
                 if intel::e1000e_example::match_device(self.vendor, self.id) {
                     return intel::e1000e_example::attach(self);
