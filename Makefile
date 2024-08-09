@@ -9,6 +9,10 @@ else
 	BUILD = debug
 endif
 
+ifeq ($(RV), 1)
+	OPT += --features runtime_verification
+endif
+
 # 2MiB Stack
 STACKSIZE = 1024 * 1024 * 2
 

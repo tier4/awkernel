@@ -47,6 +47,11 @@ default-features = false
 path = "../awkernel_aarch64"
 optional = true
 
+[dependencies.runtime_verification]
+path = "../runtime_verification"
+default-features = false
+optional = true
+
 [dependencies.x86_64]
 version = "0.15"
 optional = true

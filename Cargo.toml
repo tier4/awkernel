@@ -10,7 +10,8 @@ members = [
     "awkernel_lib",
     "awkernel_aarch64",
     "awkernel_drivers",
-    "applications/*",
+    "applications/*", 
+    "runtime_verification",
 ]
 
 resolver = "2"

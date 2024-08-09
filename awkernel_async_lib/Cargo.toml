@@ -22,6 +22,11 @@ default-features = false
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
 
+[dependencies.runtime_verification]
+path = "../runtime_verification"
+default-features = false
+optional = true
+
 [dependencies.smoltcp]
 version = "0.11.0"
 default-features = false

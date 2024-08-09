@@ -44,6 +44,9 @@ pub use preempt::{preemption, thread::deallocate_thread_pool};
 #[cfg(not(feature = "no_preempt"))]
 use preempt::thread::PtrWorkerThreadContext;
 
+#[cfg(feature = "runtime_verification")]
+use runtime_verification;
+
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
@@ -79,6 +82,17 @@ impl ArcWake for Task {
 
     fn wake(self: Arc<Self>) {
         let panicked;
+
+        #[cfg(feature = "runtime_verification")]
+        {
+            let mut node = MCSNode::new();
+            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+            let model = models.get_mut(&self.id).unwrap();
+            model
+                .next(&runtime_verification::event::Event::Wake)
+                .unwrap();
+        }
 
         {
             use State::*;
@@ -285,6 +299,19 @@ pub fn spawn(
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
     let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
+
+    #[cfg(feature = "runtime_verification")]
+    {
+        let mut node = MCSNode::new();
+        let mut models = runtime_verification::MODELS.lock(&mut node);
+
+        let mut model = runtime_verification::task::new_task_model();
+        model
+            .next(&runtime_verification::event::Event::Spawn)
+            .unwrap();
+        models.insert(id, model);
+    }
+
     tasks.wake(id);
 
     id
@@ -312,11 +339,36 @@ fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
+            #[cfg(feature = "runtime_verification")]
+            {
+                let mut node = MCSNode::new();
+                let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                let model = models.get_mut(&next.id).unwrap();
+                model
+                    .next(&runtime_verification::event::Event::GetNext)
+                    .unwrap();
+            }
+
             return Some(next);
         }
     }
 
-    scheduler::get_next_task()
+    let next = scheduler::get_next_task();
+    #[cfg(feature = "runtime_verification")]
+    {
+        if let Some(ref task) = next {
+            let mut node = MCSNode::new();
+            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+            let model = models.get_mut(&task.id).unwrap();
+            model
+                .next(&runtime_verification::event::Event::GetNext)
+                .unwrap();
+        }
+    }
+
+    next
 }
 
 pub mod perf {
@@ -537,6 +589,17 @@ pub fn run_main() {
             match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
+                    #[cfg(feature = "runtime_verification")]
+                    {
+                        let mut node = MCSNode::new();
+                        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                        let model = models.get_mut(&task.id).unwrap();
+                        model
+                            .next(&runtime_verification::event::Event::PollPending)
+                            .unwrap();
+                    }
+
                     info.state = State::Waiting;
 
                     if info.need_sched {
@@ -547,6 +610,16 @@ pub fn run_main() {
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
+                    #[cfg(feature = "runtime_verification")]
+                    {
+                        let mut node = MCSNode::new();
+                        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                        let model = models.get_mut(&task.id).unwrap();
+                        model
+                            .next(&runtime_verification::event::Event::PollReady)
+                            .unwrap();
+                    }
 
                     info.state = State::Terminated;
                     drop(info);
@@ -561,6 +634,17 @@ pub fn run_main() {
                 }
                 Err(_) => {
                     // Caught panic.
+                    #[cfg(feature = "runtime_verification")]
+                    {
+                        let mut node = MCSNode::new();
+                        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                        let model = models.get_mut(&task.id).unwrap();
+                        model
+                            .next(&runtime_verification::event::Event::Panic)
+                            .unwrap();
+                    }
+
                     info.state = State::Panicked;
                     drop(info);
 
@@ -691,6 +775,17 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 pub fn set_need_sched(task_id: u32) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
+
+    #[cfg(feature = "runtime_verification")]
+    {
+        let mut node = MCSNode::new();
+        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+        let model = models.get_mut(&task_id).unwrap();
+        model
+            .next(&runtime_verification::event::Event::SetNeedSched)
+            .unwrap();
+    }
 
     if let Some(task) = tasks.id_to_task.get(&task_id) {
         let mut node = MCSNode::new();

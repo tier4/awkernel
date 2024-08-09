@@ -162,6 +162,17 @@ unsafe fn do_preemption() {
         let tasks = super::TASKS.lock(&mut node);
         let task = tasks.id_to_task.get(&task_id.0).unwrap();
 
+        #[cfg(feature = "runtime_verification")]
+        {
+            let mut node = MCSNode::new();
+            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+            let model = models.get_mut(&task_id.0).unwrap();
+            model
+                .next(&runtime_verification::event::Event::Preempt)
+                .unwrap();
+        }
+
         let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
         if !info.need_sched {

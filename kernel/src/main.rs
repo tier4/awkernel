@@ -83,6 +83,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        #[cfg(feature = "runtime_verification")]
+        for _ in 0..20 {
+            task::spawn("RR Task".into(), async move { loop {} }, SchedulerType::RR);
+        }
+
         NUM_READY_WORKER.store(awkernel_lib::cpu::num_cpu() as u16 - 1, Ordering::SeqCst);
 
         PRIMARY_READY.store(true, Ordering::SeqCst);
