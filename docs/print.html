@@ -1291,9 +1291,38 @@ The <code>Tallock</code> structure represents an allocator in Awkernel,
 which contains a primary allocator and a backup allocator.
 Async/await tasks use only the primary allocator,
 but kernel tasks, such as interrupt handlers,
-use both the primary and the backup allocators for safety.
-Because of the backup allocator,
-kernel tasks can safely handle memory exhaustion in the primary allocator.</p>
+use both the primary and the backup allocators for safety.</p>
+<p>The following code shows how to use the primary and backup allocators in the task scheduler defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">awkernel_async_lib/src/task.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn run_main() {
+    loop {
+        if let Some(task) = get_next_task() {
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
+
+            let result = catch_unwind(|| {
+                guard.poll_unpin(&amp;mut ctx)
+            });
+
+            // Use the primary and backup memory allocator.
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+            };
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>In <code>run_main</code> function, a executable task is taken from the task queue by <code>get_next_task</code> function.
+Before executing the task, <code>awkernel_lib::heap::TALLOC.use_primary()</code> is called to use only the primary memory allocator.
+The task is executed by calling <code>poll_unpin</code> method in the <code>catch_unwind</code> block to catch a panic.
+If the task exhausts the primary memory region, it will panic and <code>run_main</code> function will catch the panic.
+After catching the panic, <code>awkernel_lib::heap::TALLOC.use_primary_then_backup()</code> is called to use both the primary and backup memory allocators,
+and safely deallocate the task.</p>
 <p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
