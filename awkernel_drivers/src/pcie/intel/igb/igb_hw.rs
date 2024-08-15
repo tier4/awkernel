@@ -6181,11 +6181,7 @@ impl IgbHw {
         }
 
         self.acquire_software_flag(info, |hw| {
-            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
-                bank
-            } else {
-                0
-            };
+            let flash_bank = hw.valid_nvm_bank_detect_ich8lan(info).unwrap_or(0);
 
             // Adjust offset appropriately if we're on bank 1 - adjust for word size
             let bank_offset =
@@ -6217,11 +6213,7 @@ impl IgbHw {
         }
 
         self.acquire_software_flag(info, |hw| {
-            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
-                bank
-            } else {
-                0
-            };
+            let flash_bank = hw.valid_nvm_bank_detect_ich8lan(info).unwrap_or(0);
 
             // Adjust offset appropriately if we're on bank 1 - adjust for word size
             let bank_offset =
