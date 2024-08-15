@@ -5870,7 +5870,7 @@ impl IgbHw {
                     // starting from any offset.
                     for d in data.iter_mut() {
                         let word_in = hw.shift_in_ee_bits(info, 16)?;
-                        *d = (word_in >> 8) | (word_in << 8);
+                        *d = word_in.rotate_left(8);
                     }
 
                     Ok(())
@@ -6003,7 +6003,7 @@ impl IgbHw {
             // Loop to allow for up to whole page write (32 bytes) of eeprom
             while widx < data.len() {
                 let word_out = data[widx];
-                let word_out = (word_out >> 8) | (word_out << 8);
+                let word_out = word_out.rotate_left(8);
                 self.shift_out_ee_bits(info, word_out, 16)?;
                 widx += 1;
 
