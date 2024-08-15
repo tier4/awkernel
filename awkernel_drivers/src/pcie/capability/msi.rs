@@ -69,7 +69,7 @@ pub enum MultipleMessage {
 /// 1. Allocation of Four Messages to the Device
 ///     - The device has been allocated four different messages for interrupt signaling.
 ///     - This means it can differentiate among four separate events or conditions for which it needs to notify the system.
-/// 2 Message Data Register Value (49A0h)
+/// 2. Message Data Register Value (49A0h)
 ///     - This value is assigned to the device's Message Data register.
 ///     - In MSI, the Message Data register typically contains the interrupt vector that the device should use when signaling an interrupt.
 /// 3. Message Address Register Value (FEEF_F00Ch)
