@@ -64,16 +64,19 @@ impl<A: awkernel_lib::addr::Addr> MemoryRange<A> {
     /// If
     /// - self:  `****----------****`
     /// - range: `******-----*******`
+    ///
     /// then, `ContainResult::Contain` will be returned.
     ///
     /// If
     /// - self:  `*********------***`
     /// - range: `**-----***********`
+    ///
     /// then, `ContainResult::NotContain` will be returned.
     ///
     /// If
     /// - self:  `****----------****`
     /// - range: `**--------********`
+    ///
     /// then, `ContainResult::Overlap` will be returned.
     fn contains(&self, range: Self) -> ContainResult {
         if self.start <= range.start && range.end <= self.end {
@@ -249,6 +252,7 @@ impl VM {
     /// If
     /// - heap:   `***---------***`
     /// - remove: `*****---*******`
+    ///
     /// then the heap will be `***--***----***`.
     pub fn remove_heap(&mut self, start: PhyAddr, end: PhyAddr) -> Result<(), &'static str> {
         if start >= end {
