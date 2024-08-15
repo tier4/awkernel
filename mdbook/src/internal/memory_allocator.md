@@ -6,8 +6,39 @@ which contains a primary allocator and a backup allocator.
 Async/await tasks use only the primary allocator,
 but kernel tasks, such as interrupt handlers,
 use both the primary and the backup allocators for safety.
-Because of the backup allocator,
-kernel tasks can safely handle memory exhaustion in the primary allocator.
+
+The following code shows how to use the primary and backup allocators in the task scheduler defined in
+[awkernel_async_lib/src/task.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs).
+
+```rust
+pub fn run_main() {
+    loop {
+        if let Some(task) = get_next_task() {
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
+
+            let result = catch_unwind(|| {
+                guard.poll_unpin(&mut ctx)
+            });
+
+            // Use the primary and backup memory allocator.
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+            };
+        }
+    }
+}
+```
+
+In `run_main` function, a executable task is taken from the task queue by `get_next_task` function.
+Before executing the task, `awkernel_lib::heap::TALLOC.use_primary()` is called to use only the primary memory allocator.
+The task is executed by calling `poll_unpin` method in the `catch_unwind` block to catch a panic.
+If the task exhausts the primary memory region, it will panic and `run_main` function will catch the panic.
+After catching the panic, `awkernel_lib::heap::TALLOC.use_primary_then_backup()` is called to use both the primary and backup memory allocators,
+and safely deallocate the task.
 
 The `Tallock` structure is defined in [awkernel_lib/src/heap.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs) as follows.
 
