@@ -2319,7 +2319,6 @@ impl IgbHw {
     /// 3) if not set the link is locked (all is good), otherwise...
     /// 4) reset the PHY
     /// 5) repeat up to 10 times
-    ///
     /// Note: this is only called for IGP3 copper when speed is 1gb.
     fn kumeran_lock_loss_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // Make sure link is up before proceeding.  If not just return.
