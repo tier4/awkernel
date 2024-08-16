@@ -270,6 +270,45 @@ impl IfNet {
         }
     }
 
+    /// Leave a multicast group.
+    /// This function calls `NetDevice::remove_multicast_addr` to remove a multicast address internally.
+    pub fn leave_multicast_v4(&self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+        if !addr.is_multicast() {
+            return Err(NetManagerError::InvalidIpv4MulticastAddress);
+        }
+
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        if !inner.multicast_addr_ipv4.contains(&addr) {
+            return Ok(());
+        }
+
+        inner.multicast_addr_ipv4.remove(&addr);
+
+        let mac_addr = ipv4_addr_to_mac_addr(addr);
+
+        match inner.multicast_addr_mac.entry(mac_addr) {
+            btree_map::Entry::Occupied(mut entry) => {
+                let count = entry.get_mut();
+
+                if *count == 1 {
+                    entry.remove();
+                    self.net_device
+                        .remove_multicast_addr(&mac_addr)
+                        .map_err(|e| NetManagerError::DeviceError(e))?;
+                } else {
+                    *count -= 1;
+                }
+            }
+            btree_map::Entry::Vacant(_) => {
+                return Err(NetManagerError::InvalidIpv4MulticastAddress);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Join a multicast group.
     /// This function calls `NetDevice::add_multicast_addr` to add a multicast address internally.
     pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<(), NetManagerError> {

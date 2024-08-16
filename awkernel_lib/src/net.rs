@@ -652,10 +652,6 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
 
 /// Join an IPv4 multicast group.
 pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<(), NetManagerError> {
-    if !addr.is_multicast() {
-        return Err(NetManagerError::InvalidIpv4MulticastAddress);
-    }
-
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
@@ -663,4 +659,15 @@ pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<(), NetMan
     };
 
     if_net.join_multicast_v4(addr)
+}
+
+/// Leave an IPv4 multicast group.
+pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    if_net.leave_multicast_v4(addr)
 }
