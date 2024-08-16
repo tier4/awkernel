@@ -296,7 +296,7 @@ impl IfNet {
                     entry.remove();
                     self.net_device
                         .remove_multicast_addr(&mac_addr)
-                        .map_err(|e| NetManagerError::DeviceError(e))?;
+                        .map_err(NetManagerError::DeviceError)?;
                 } else {
                     *count -= 1;
                 }
@@ -335,7 +335,7 @@ impl IfNet {
                 entry.insert(1);
                 self.net_device
                     .add_multicast_addr(&mac_addr)
-                    .map_err(|e| NetManagerError::DeviceError(e))?;
+                    .map_err(NetManagerError::DeviceError)?;
             }
         }
 
