@@ -1,6 +1,6 @@
 # Page Table
 
-The `PageTable` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait that provides a way to abstract page tables.
+`PageTable` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait that provides a way to abstract page tables.
 It is defined as follows.
 
 ```rust
@@ -24,11 +24,11 @@ where
 }
 ```
 
-The `map_to` method of the `PageTable` is used to specify a page frame allocator,
+`map_to` method of `PageTable` is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.
 
-The `Frame` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait to represent a physical page frame.
+`Frame` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait to represent a physical page frame.
 It is defined as follows.
 
 ```rust
@@ -38,8 +38,9 @@ pub trait Frame {
     fn size(&self) -> usize;
 }
 ```
-The `FrameAllocator` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait to allocate physical pages.
-It is used by the `PageTable` as described above.
+
+`FrameAllocator` defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) is a trait to allocate physical pages.
+It is used by `PageTable` as described above.
 
 # Implementation
 
