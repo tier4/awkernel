@@ -1,4 +1,9 @@
-use alloc::{collections::BTreeMap, sync::Arc};
+use core::net::Ipv4Addr;
+
+use alloc::{
+    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
+    sync::Arc,
+};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
     iface::{Config, Interface, SocketSet},
@@ -10,8 +15,10 @@ use smoltcp::{
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{
-    ether::{extract_headers, NetworkHdr, TransportHdr},
+    ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
+    multicast::ipv4_addr_to_mac_addr,
     net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
+    NetManagerError,
 };
 
 #[cfg(not(feature = "std"))]
@@ -147,6 +154,9 @@ pub(super) struct IfNetInner {
     pub(super) interface: Interface,
     pub(super) socket_set: SocketSet<'static>,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
+
+    multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
+    multicast_addr_mac: BTreeMap<[u8; ETHER_ADDR_LEN], u32>,
 }
 
 impl IfNetInner {
@@ -248,6 +258,8 @@ impl IfNet {
                 interface,
                 socket_set,
                 default_gateway_ipv4: None,
+                multicast_addr_ipv4: BTreeSet::new(),
+                multicast_addr_mac: BTreeMap::new(),
             }),
             rx_irq_to_drvier,
             net_device,
@@ -256,6 +268,39 @@ impl IfNet {
             poll_driver,
             tick_driver,
         }
+    }
+
+    /// Join a multicast group.
+    /// This function calls `NetDevice::add_multicast_addr` to add a multicast address internally.
+    pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+        if !addr.is_multicast() {
+            return Err(NetManagerError::InvalidIpv4MulticastAddress);
+        }
+
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        if inner.multicast_addr_ipv4.contains(&addr) {
+            return Ok(());
+        }
+
+        inner.multicast_addr_ipv4.insert(addr);
+
+        let mac_addr = ipv4_addr_to_mac_addr(addr);
+
+        match inner.multicast_addr_mac.entry(mac_addr) {
+            btree_map::Entry::Occupied(mut entry) => {
+                *entry.get_mut() += 1;
+            }
+            btree_map::Entry::Vacant(entry) => {
+                entry.insert(1);
+                self.net_device
+                    .add_multicast_addr(&mac_addr)
+                    .map_err(|e| NetManagerError::DeviceError(e))?;
+            }
+        }
+
+        Ok(())
     }
 
     pub fn poll_tx_only(&self, que_id: usize) -> bool {
