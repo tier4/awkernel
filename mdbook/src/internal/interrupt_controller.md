@@ -1,6 +1,6 @@
 # Interrupt Controller
 
-The `InterruptController` is a trait for interrupt controllers.
+`InterruptController` is a trait for interrupt controllers.
 It is defined in [awkernel_lib/src/interrupt.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs) as follows.
 
 ```rust

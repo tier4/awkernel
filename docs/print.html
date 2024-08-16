@@ -226,6 +226,167 @@ memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
 <li>J. Kim, V. Sjöberg, R. Gu, Z. Shao. Safety and Liveness of MCS Lock - Layer by Layer. APLAS 2017: 273-297</li>
 </ol>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="console"><a class="header" href="#console">Console</a></h1>
+<p><code>Console</code> is a trait for the console and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Console: Write + Send {
+    /// Enable the serial port.
+    fn enable(&amp;mut self);
+
+    /// Disable the serial port.
+    fn disable(&amp;mut self);
+
+    /// Enable the reception interrupt.
+    fn enable_recv_interrupt(&amp;mut self);
+
+    /// Disable the reception interrupt.
+    fn disable_recv_interrupt(&amp;mut self);
+
+    /// Acknowledge to the reception interrupt.
+    fn acknowledge_recv_interrupt(&amp;mut self);
+
+    /// Get IRQ#.
+    fn irq_id(&amp;self) -&gt; u16;
+
+    /// Read a byte.
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt;;
+
+    /// Write a byte.
+    fn put(&amp;mut self, data: u8);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the <code>Console</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn register_unsafe_puts(console: unsafe fn(&amp;str))</code></td><td>Register the unsafe <code>puts</code> function.</td></tr>
+<tr><td><code>unsafe fn unsafe_puts(data: &amp;str)</code></td><td>Write a string.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u32(num: u32)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u64(num: u64)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u96(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u128(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>fn register_console(console: Box&lt;dyn Console&gt;)</code></td><td>Register the console.</td></tr>
+<tr><td><code>fn enable()</code></td><td>Enable the console.</td></tr>
+<tr><td><code>fn disable()</code></td><td>Disable the console.</td></tr>
+<tr><td><code>fn enable_recv_interrupt()</code></td><td>Enable the reception interrupt.</td></tr>
+<tr><td><code>fn disable_recv_interrupt()</code></td><td>Disable the reception interrupt.</td></tr>
+<tr><td><code>fn acknowledge_recv_interrupt()</code></td><td>Acknowledge to the reception interrupt.</td></tr>
+<tr><td><code>fn irq_id()</code></td><td>Get IRQ#.</td></tr>
+<tr><td><code>fn get()</code></td><td>Read a byte.</td></tr>
+<tr><td><code>fn put(data: u8)</code></td><td>Write a byte.</td></tr>
+<tr><td><code>fn print(data: &amp;str)</code></td><td>Write a string.</td></tr>
+</tbody></table>
+</div>
+<p>When booting, an unsafe console should be registered by calling the <code>register_unsafe_puts</code> function.
+After that, the <code>unsafe_puts</code> and <code>unsafe_print_hex</code> functions can be used to print messages.
+Note that these functions are unsafe because they may cause data races.</p>
+<p>After enabling mutual exclusion, a safe console should be registered by calling the <code>register_console</code> function.
+Then, the <code>print</code>, <code>get</code>, and <code>put</code> functions can be used to print messages.</p>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<p>x86_64 should equip UART 16550 serial ports, and Awkerenel uses the serial port to output messages as a console.
+UART 16550's device driver is implemented in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/uart/uart_16550">awkernel_drivers/src/uart/uart_16550</a>
+whose original source code is from <a href="https://github.com/rust-osdev/uart_16550">uart_16550</a>.
+The <code>Uart</code> structure defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/console.rs">kernel/src/arch/x86_64/console.rs</a>
+implements the <code>Console</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Uart {
+    port: uart_16550::SerialPort,
+    enabled: bool,
+}
+
+impl Console for Uart {
+    fn enable(&amp;mut self) {
+        self.enabled = true;
+    }
+
+    fn disable(&amp;mut self) {
+        self.enabled = false;
+    }
+
+    fn enable_recv_interrupt(&amp;mut self) {
+        self.port.enable_interrupt();
+    }
+
+    fn disable_recv_interrupt(&amp;mut self) {
+        self.port.disable_interrupt();
+    }
+
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        // nothing to do
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        36 // COM1
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if self.enabled {
+            self.port.try_receive()
+        } else {
+            None
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        if self.enabled {
+            self.port.send(data);
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<p>AArch64 should equip PL011 UART serial ports, and Awkerenel uses the serial port to output messages as a console.
+PL011 UART's device driver is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/uart/pl011.rs">awkernel_drivers/src/uart/pl011.rs</a>,
+and it implements the <code>Console</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Console for PL011 {
+    fn enable(&amp;mut self) {
+        use registers::CR;
+        registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE, self.base_addr); // enable, Rx, Tx
+    }
+
+    fn disable(&amp;mut self) {
+        registers::UART0_CR.write(registers::CR::empty(), self.base_addr);
+    }
+
+    fn enable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.setbits(IMSC_RXIM, self.base_addr);
+    }
+
+    fn disable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.clrbits(IMSC_RXIM, self.base_addr);
+    }
+
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        registers::UART0_ICR.write(registers::ICR::RXIC, self.base_addr);
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        self.irq
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if registers::UART0_FR.read(self.base_addr) &amp; 0x10 != 0 {
+            None
+        } else {
+            Some(registers::UART0_DR.read(self.base_addr) as u8)
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while registers::UART0_FR.read(self.base_addr) &amp; 0x20 != 0 {
+            core::hint::spin_loop();
+        }
+
+        // write the character to the buffer
+        registers::UART0_DR.write(data as u32, self.base_addr);
+    }
+}
+<span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="logger"><a class="header" href="#logger">Logger</a></h1>
 <p>Awkernel uses <a href="https://crates.io/crates/log">log</a> crate for logging.
 So, you can use the log macros like defined in this crate as follows.
@@ -252,7 +413,7 @@ Note that the buffered logger will discard messages if the buffer is full to avo
 The buffered logger is executed as an async/await task and spawned in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/lib.rs">applications/awkernel_services/src/main.rs</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="boot"><a class="header" href="#boot">Boot</a></h1>
 <p>In this section, we explain how Awkernel boots.</p>
-<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
 <h3 id="primary-core"><a class="header" href="#primary-core">Primary Core</a></h3>
 <p>The primary core calls <code>kernel_main</code> of <code>x86_64</code> first, which
 is called by UEFI.</p>
@@ -279,7 +440,7 @@ It eventually calls <code>main</code> like the primary core.</p>
     _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
     non_primary_kernel_main:kernel_main.rs--&gt;main:main.rs;
 </pre>
-<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
 <h3 id="primary-and-non-primary-cores"><a class="header" href="#primary-and-non-primary-cores">Primary and Non-primary Cores</a></h3>
 <p><code>_start</code> defined in <code>boot.S</code> is the entry point for both the primary and non-primary cores.
 <code>_start</code> eventually calls <code>kernel_main</code> in <code>kernel_main.rs</code>.
@@ -370,8 +531,8 @@ The <code>Interrupt</code> trait provides a way to enable and disable interrupts
 The <code>CPU</code> trait provides a way to get the current CPU ID.
 The <code>Mapper</code> trait provides a way to map and unmap virtual memory regions.</p>
 <p>For the <code>std</code> environment, the <code>Arch</code> trait does not require the <code>Mapper</code> trait because user space applications do not need to manage memory mappings.</p>
-<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
-<h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
+<h1 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h1>
+<h2 id="x86_64-2"><a class="header" href="#x86_64-2">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
@@ -380,7 +541,7 @@ In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code
 <li><code>CPU</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a></li>
 <li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a></li>
 </ul>
-<h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
+<h2 id="aarch64-2"><a class="header" href="#aarch64-2">AArch64</a></h2>
 <p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
@@ -444,8 +605,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 <tr><td><code>fn pause()</code></td><td>Pause a CPU during busy loop to reduce CPU power consumption.</td></tr>
 </tbody></table>
 </div>
-<h1 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h1>
-<h2 id="x86_64-2"><a class="header" href="#x86_64-2">x86_64</a></h2>
+<h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
+<h2 id="x86_64-3"><a class="header" href="#x86_64-3">x86_64</a></h2>
 <p>For x86_64, the the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Delay</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -490,7 +651,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 <p>Awkernel currently uses High Precision Event Timer (HPET) to get uptime in microseconds.
 So, if you want to use Awkernel on KVM, you need to enable HPET in the virtual machine settings.
 To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.</p>
-<h2 id="aarch64-2"><a class="header" href="#aarch64-2">AArch64</a></h2>
+<h2 id="aarch64-3"><a class="header" href="#aarch64-3">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Delay</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -556,8 +717,8 @@ but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.<
 <tr><td><code>fn num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
 </tbody></table>
 </div>
-<h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
-<h2 id="x86_64-3"><a class="header" href="#x86_64-3">x86_64</a></h2>
+<h1 id="implementation-3"><a class="header" href="#implementation-3">Implementation</a></h1>
+<h2 id="x86_64-4"><a class="header" href="#x86_64-4">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>CPU</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -590,7 +751,7 @@ but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.<
 It assumes that the CPU ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
 If you find any hardware that does not follow this assumption,
 please let us know or send us a PR.</p>
-<h2 id="aarch64-3"><a class="header" href="#aarch64-3">AArch64</a></h2>
+<h2 id="aarch64-4"><a class="header" href="#aarch64-4">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>CPU</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/cpu.rs">awkernel_lib/src/arch/aarch64/cpu.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -642,8 +803,8 @@ After the scope, interrupts are enabled automatically as follows.</p>
 <span class="boring">}</span></code></pre></pre>
 <p>There are <code>enable</code> and <code>disable</code> functions in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.
 You can use these functions rather than using the <code>InterruptGuard</code>.</p>
-<h1 id="implementation-3"><a class="header" href="#implementation-3">Implementation</a></h1>
-<h2 id="x86_64-4"><a class="header" href="#x86_64-4">x86_64</a></h2>
+<h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
+<h2 id="x86_64-5"><a class="header" href="#x86_64-5">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Interrupt</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/interrupt.rs">awkernel_lib/src/arch/x86_64/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -675,7 +836,7 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
 }
 <span class="boring">}</span></code></pre></pre>
 <p>For x86_64, Awkernel uses the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate to enable and disable interrupts.</p>
-<h2 id="aarch64-4"><a class="header" href="#aarch64-4">AArch64</a></h2>
+<h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Interrupt</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs">awkernel_lib/src/arch/aarch64/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -698,7 +859,7 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
-<p>The <code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
+<p><code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -724,7 +885,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     unsafe fn unmap(vm_addr: VirtAddr);
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
+<p><code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
 These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
 <p>The <code>Flags</code> type is used to represent the flags of the page table entry.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
@@ -753,15 +914,15 @@ pub struct Flags {
 </span><span class="boring">fn main() {
 </span>pub const PAGESIZE: usize = 4 * 1024;
 <span class="boring">}</span></code></pre></pre>
-<h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
-<h2 id="x86_64-5"><a class="header" href="#x86_64-5">x86_64</a></h2>
+<h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
+<h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
 <p>For x86_64, the <code>X86</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a>.
 To handle page tables, the <code>OffsetPageTable</code> structure defined in the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate is used.</p>
-<h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
+<h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
 <p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
 To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
-<p>The <code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
+<p><code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -784,10 +945,10 @@ where
     ) -&gt; Result&lt;(), E&gt;;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>map_to</code> method of the <code>PageTable</code> is used to specify a page frame allocator,
+<p><code>map_to</code> method of <code>PageTable</code> is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
-<p>The <code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
+<p><code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -797,10 +958,10 @@ It is defined as follows.</p>
     fn size(&amp;self) -&gt; usize;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
-It is used by the <code>PageTable</code> as described above.</p>
-<h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
-<h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
+<p><code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
+It is used by <code>PageTable</code> as described above.</p>
+<h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
+<h2 id="x86_64-7"><a class="header" href="#x86_64-7">x86_64</a></h2>
 <p>For x86_64, the <code>PageTable</code> structure
 is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/page_table.rs">awkernel_lib/src/arch/x86_64/page_table.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -841,7 +1002,7 @@ is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
+<h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
 <p>For AArch64, the <code>PageTable</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs">awkernel_lib/src/arch/aarch64/page_table.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -888,7 +1049,7 @@ pub struct PageTable {
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="context-switch"><a class="header" href="#context-switch">Context Switch</a></h1>
-<p>The <code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
+<p><code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
 is a trait that enables preemptive multitasking.
 It provides methods to set the stack pointer, entry point,
 and argument of the context as follows.</p>
@@ -931,8 +1092,8 @@ no_preempt = []
 </code></pre>
 <p>If you want to disable preemption, please enable the <code>no_preempt</code> feature as
 <code>default = ["no_preempt"]</code>.</p>
-<h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
-<h2 id="x86_64-7"><a class="header" href="#x86_64-7">x86_64</a></h2>
+<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
 <p>For x86_64, the <code>Context</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs">awkernel_lib/src/context/x86_64.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1027,7 +1188,7 @@ entry_point:
 "
 );
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
+<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
 <p>For AArch64, the <code>Context</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs">awkernel_lib/src/context/aarch64.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1140,7 +1301,7 @@ entry_point:
 );
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt-controller"><a class="header" href="#interrupt-controller">Interrupt Controller</a></h1>
-<p>The <code>InterruptController</code> is a trait for interrupt controllers.
+<p><code>InterruptController</code> is a trait for interrupt controllers.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1209,7 +1370,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 </tbody></table>
 </div>
 <h1 id="handling-interrupts"><a class="header" href="#handling-interrupts">Handling Interrupts</a></h1>
-<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
+<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
 <p><code>handle_irq</code> is called in interrupt handlers defined in.
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> for x86_64 as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1224,7 +1385,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 }
 <span class="boring">}</span></code></pre></pre>
 <p><code>irq_handler</code> macro is called in each interrupt handler.</p>
-<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
+<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
 <p>The <code>handle_irqs</code> function is called in interrupt handlers defined in.
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/exception.rs">kernel/src/arch/aarch64/exception.rs</a> for aarch64 as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1237,7 +1398,7 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
 <h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
 <p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
 This means that the target CPU should handle the preemption request if it receives the IPI.</p>
-<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
+<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
 <p>For x86_64, the <code>handle_preempt</code> function is called in a interrupt handler defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1247,7 +1408,7 @@ This means that the target CPU should handle the preemption request if it receiv
     awkernel_lib::interrupt::handle_preemption();
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
+<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
 <p>For AArch64, handling preemption is performed in the <code>handle_irqs</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1271,14 +1432,14 @@ pub fn handle_irqs() {
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<h1 id="implementation-8"><a class="header" href="#implementation-8">Implementation</a></h1>
 <p>There are some device drivers for interrupt controllers in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller">awkernel_drivers/src/interrupt_controller</a>.</p>
-<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
+<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
 <p>xAPIC and x2APIC are supported for x86_64.</p>
 <ul>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/interrupt_controller/apic.rs">xAPIC and x2APIC</a></li>
 </ul>
-<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
+<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
 <p>BCM2835's (Raspberry Pi 3) interrupt controller, GICv2 and GICv3 are supported for AAarch64.</p>
 <ul>
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/bcm2835.rs">BCM2835's interrupt controller</a></li>
@@ -1355,7 +1516,7 @@ pub static TALLOC: Talloc = Talloc::new();
 </tbody></table>
 </div>
 <h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
-<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
+<h2 id="x86_64-12"><a class="header" href="#x86_64-12">x86_64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
 in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
@@ -1395,7 +1556,7 @@ before initializing the primary and backup allocators.</p>
     (backup_pages, backup_heap_region, next_page)
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
+<h2 id="aarch64-12"><a class="header" href="#aarch64-12">AArch64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
 in <code>primary_cpu</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>

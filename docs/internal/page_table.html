@@ -174,7 +174,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
-<p>The <code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
+<p><code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -197,10 +197,10 @@ where
     ) -&gt; Result&lt;(), E&gt;;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>map_to</code> method of the <code>PageTable</code> is used to specify a page frame allocator,
+<p><code>map_to</code> method of <code>PageTable</code> is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
-<p>The <code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
+<p><code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -210,8 +210,8 @@ It is defined as follows.</p>
     fn size(&amp;self) -&gt; usize;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
-It is used by the <code>PageTable</code> as described above.</p>
+<p><code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
+It is used by <code>PageTable</code> as described above.</p>
 <h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
 <h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
 <p>For x86_64, the <code>PageTable</code> structure

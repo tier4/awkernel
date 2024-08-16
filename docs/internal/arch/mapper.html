@@ -174,7 +174,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
-<p>The <code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
+<p><code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -200,7 +200,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     unsafe fn unmap(vm_addr: VirtAddr);
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
+<p><code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
 These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
 <p>The <code>Flags</code> type is used to represent the flags of the page table entry.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
