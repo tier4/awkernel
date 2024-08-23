@@ -6,7 +6,7 @@ use alloc::{
 };
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
-    iface::{Config, Interface, SocketSet},
+    iface::{Config, Interface, MulticastError, SocketSet},
     phy::{self, Checksum, Device, DeviceCapabilities},
     time::Instant,
     wire::HardwareAddress,
@@ -310,17 +310,23 @@ impl IfNet {
     }
 
     /// Join a multicast group.
-    /// This function calls `NetDevice::add_multicast_addr` to add a multicast address internally.
-    pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+    /// This function calls `NetDevice::add_multicast_addr` and
+    /// `Interface::join_multicast_group` of `smoltcp` to add a multicast address internally.
+    ///
+    /// Add an address to a list of subscribed multicast IP addresses.
+    /// Returns `Ok(announce_sent)`` if the address was added successfully,
+    /// where `announce_sent`` indicates whether an initial immediate announcement has been sent.
+    pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
         if !addr.is_multicast() {
             return Err(NetManagerError::InvalidIpv4MulticastAddress);
         }
 
+        // Add the multicast address to the list.
         let mut node = MCSNode::new();
         let mut inner = self.inner.lock(&mut node);
 
         if inner.multicast_addr_ipv4.contains(&addr) {
-            return Ok(());
+            return Ok(false);
         }
 
         inner.multicast_addr_ipv4.insert(addr);
@@ -339,7 +345,39 @@ impl IfNet {
             }
         }
 
-        Ok(())
+        // Create a NetDriverRef.
+        let first_driver = self.rx_irq_to_drvier.first_key_value();
+        let ref_net_driver = first_driver
+            .as_ref()
+            .ok_or(NetManagerError::InvalidState)?
+            .1;
+
+        let tx_ringq = self
+            .tx_only_ringq
+            .get(ref_net_driver.rx_que_id)
+            .ok_or(NetManagerError::InvalidState)?;
+
+        let mut node = MCSNode::new();
+        let mut tx_ringq = tx_ringq.lock(&mut node);
+
+        let mut device_ref = NetDriverRef {
+            inner: &ref_net_driver.inner,
+            rx_ringq: None,
+            tx_ringq: &mut tx_ringq,
+        };
+
+        // Join the multicast group.
+        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+        let addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+
+        match inner
+            .interface
+            .join_multicast_group(&mut device_ref, addr, timestamp)
+        {
+            Ok(result) => Ok(result),
+            Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
+            Err(_) => Err(NetManagerError::MulticastError),
+        }
     }
 
     pub fn poll_tx_only(&self, que_id: usize) -> bool {

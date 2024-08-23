@@ -5,11 +5,21 @@ extern crate alloc;
 use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
-use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
+use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
+use awkernel_lib::net::NetManagerError;
+
+// 10.0.2.0/24 is the IP address range of the Qemu's network.
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+
+// 10.0.2.2 is the IP address of the Qemu's host.
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+
+const MULTICAST_PORT: u16 = 20001;
 
 pub async fn run() {
-    // 10.0.2.0/24 is the IP address range of the Qemu's network.
-    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(10, 0, 2, 64), 24);
+    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -31,13 +41,63 @@ pub async fn run() {
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
+
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast recv".into(),
+        ipv4_multicast_recv_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn ipv4_multicast_recv_test() {
+    let maddr = Ipv4Addr::new(224, 0, 0, 123);
+
+    // Join the multicast group.
+    loop {
+        match awkernel_lib::net::join_multicast_v4(0, maddr) {
+            Ok(_) => {
+                log::debug!("Joined the multicast group.");
+                break;
+            }
+            Err(NetManagerError::SendError) => (),
+            _ => {
+                log::error!("Failed to join the multicast group.");
+                return;
+            }
+        }
+
+        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+    }
+
+    // Open a UDP socket for multicast.
+    let mut config = UdpConfig::default();
+    config.port = Some(MULTICAST_PORT);
+
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
+
+    let mut buf = [0u8; 1024 * 2];
+
+    loop {
+        // Receive a UDP packet.
+        let result = socket.recv(&mut buf).await.unwrap();
+
+        let msg = format!(
+            "Received a Multicast packet from {}:{}: {}",
+            result.1.get_addr(),
+            result.2,
+            core::str::from_utf8(&buf[..result.0]).unwrap()
+        );
+
+        log::debug!("{msg}");
+    }
 }
 
 async fn tcp_connect_test() {
     // 10.0.2.2 is the IP address of the Qemu's host.
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         0,
-        IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2)),
+        IpAddr::new_v4(UDP_TCP_DST_ADDR),
         8080,
         Default::default(),
     ) else {
@@ -97,8 +157,7 @@ async fn udp_test() {
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
-    // 10.0.2.2 is the IP address of the Qemu's host.
-    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2));
+    let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 
     let mut buf = [0u8; 1024 * 2];
 

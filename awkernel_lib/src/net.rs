@@ -53,6 +53,7 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+    MulticastError,
     DeviceError(NetDevError),
 }
 
@@ -651,7 +652,10 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
 }
 
 /// Join an IPv4 multicast group.
-pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+///
+/// Returns `Ok(announce_sent)` if the address was added successfully,
+/// where `announce_sent` indicates whether an initial immediate announcement has been sent.
+pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {

@@ -65,6 +65,7 @@ features = [
     "proto-ipv6",
     "socket-icmp",
     "medium-ethernet",
+    "proto-igmp",
 ]
 
 [features]
