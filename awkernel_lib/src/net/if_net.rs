@@ -353,7 +353,7 @@ impl IfNet {
 
         let net_driver_ref = NetDriverRef {
             inner: &ref_net_driver.inner,
-            rx_ringq: Some(rx_ringq.as_mut()),
+            rx_ringq: Some(&mut *rx_ringq),
             tx_ringq: &mut tx_ringq,
         };
 
