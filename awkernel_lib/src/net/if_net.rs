@@ -1,4 +1,4 @@
-use core::net::{self, Ipv4Addr};
+use core::net::Ipv4Addr;
 
 use alloc::{
     collections::{btree_map, btree_set::BTreeSet, BTreeMap},
