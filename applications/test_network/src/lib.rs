@@ -16,6 +16,8 @@ const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 // 10.0.2.2 is the IP address of the Qemu's host.
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
+const MULTICAST_PORT: u16 = 20001;
+
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
 
@@ -70,7 +72,7 @@ async fn ipv4_multicast_recv_test() {
 
     // Open a UDP socket for multicast.
     let mut config = UdpConfig::default();
-    config.port = Some(20001);
+    config.port = Some(MULTICAST_PORT);
 
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
 
