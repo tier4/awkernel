@@ -9,9 +9,9 @@ use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
@@ -51,45 +51,65 @@ pub async fn run() {
 }
 
 async fn ipv4_multicast_recv_test() {
-    let maddr = Ipv4Addr::new(224, 0, 0, 123);
-
-    // Join the multicast group.
     loop {
-        match awkernel_lib::net::join_multicast_v4(0, maddr) {
-            Ok(_) => {
-                log::debug!("Joined the multicast group.");
-                break;
+        let maddr = Ipv4Addr::new(224, 0, 0, 123);
+
+        // Join the multicast group.
+        loop {
+            match awkernel_lib::net::join_multicast_v4(0, maddr) {
+                Ok(_) => {
+                    log::debug!("Joined the multicast group.");
+                    break;
+                }
+                Err(NetManagerError::SendError) => (),
+                _ => {
+                    log::error!("Failed to join the multicast group.");
+                    return;
+                }
             }
-            Err(NetManagerError::SendError) => (),
-            _ => {
-                log::error!("Failed to join the multicast group.");
-                return;
-            }
+
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
         }
 
-        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
-    }
+        // Open a UDP socket for multicast.
+        let mut config = UdpConfig::default();
+        config.port = Some(MULTICAST_PORT);
 
-    // Open a UDP socket for multicast.
-    let mut config = UdpConfig::default();
-    config.port = Some(MULTICAST_PORT);
+        let mut socket =
+            awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
 
-    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
+        let mut buf = [0u8; 1024 * 2];
 
-    let mut buf = [0u8; 1024 * 2];
+        for _ in 0..10 {
+            // Receive a UDP packet.
+            let result = socket.recv(&mut buf).await.unwrap();
 
-    loop {
-        // Receive a UDP packet.
-        let result = socket.recv(&mut buf).await.unwrap();
+            let msg = format!(
+                "Received a Multicast packet from {}:{}: {}",
+                result.1.get_addr(),
+                result.2,
+                core::str::from_utf8(&buf[..result.0]).unwrap()
+            );
 
-        let msg = format!(
-            "Received a Multicast packet from {}:{}: {}",
-            result.1.get_addr(),
-            result.2,
-            core::str::from_utf8(&buf[..result.0]).unwrap()
-        );
+            log::debug!("{msg}");
+        }
 
-        log::debug!("{msg}");
+        // Leave the multicast group.
+        loop {
+            match awkernel_lib::net::leave_multicast_v4(0, maddr) {
+                Ok(_) => {
+                    log::debug!("Left the multicast group.");
+                    break;
+                }
+                Err(NetManagerError::SendError) => (),
+                Err(e) => {
+                    log::error!("Failed to leave the multicast group. {e:?}");
+                    return;
+                }
+            }
+
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        }
     }
 }
 

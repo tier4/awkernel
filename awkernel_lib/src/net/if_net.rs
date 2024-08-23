@@ -1,4 +1,4 @@
-use core::net::Ipv4Addr;
+use core::net::{self, Ipv4Addr};
 
 use alloc::{
     collections::{btree_map, btree_set::BTreeSet, BTreeMap},
@@ -272,41 +272,92 @@ impl IfNet {
 
     /// Leave a multicast group.
     /// This function calls `NetDevice::remove_multicast_addr` to remove a multicast address internally.
-    pub fn leave_multicast_v4(&self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+    ///
+    /// Returns `Ok(leave_sent)` if the address was removed successfully,
+    /// where `leave_sent` indicates whether an immediate leave packet has been sent.
+    pub fn leave_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
         if !addr.is_multicast() {
-            return Err(NetManagerError::InvalidIpv4MulticastAddress);
+            return Err(NetManagerError::MulticastInvalidIpv4Address);
         }
 
+        // Remove the multicast address from the list.
         let mut node = MCSNode::new();
         let mut inner = self.inner.lock(&mut node);
 
         if !inner.multicast_addr_ipv4.contains(&addr) {
-            return Ok(());
+            return Err(NetManagerError::MulticastNotJoined);
         }
-
-        inner.multicast_addr_ipv4.remove(&addr);
 
         let mac_addr = ipv4_addr_to_mac_addr(addr);
 
-        match inner.multicast_addr_mac.entry(mac_addr) {
-            btree_map::Entry::Occupied(mut entry) => {
-                let count = entry.get_mut();
+        // Leave the multicast group.
+        self.first_net_driver_ref(move |mut net_driver_ref| {
+            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
 
-                if *count == 1 {
-                    entry.remove();
-                    self.net_device
-                        .remove_multicast_addr(&mac_addr)
-                        .map_err(NetManagerError::DeviceError)?;
-                } else {
-                    *count -= 1;
+            match inner.interface.leave_multicast_group(
+                &mut net_driver_ref,
+                smoltcp_addr,
+                timestamp,
+            ) {
+                Ok(result) => {
+                    inner.multicast_addr_ipv4.remove(&addr);
+
+                    // Disable the multicast address if it is not used.
+                    match inner.multicast_addr_mac.entry(mac_addr) {
+                        btree_map::Entry::Occupied(mut entry) => {
+                            let count = entry.get_mut();
+
+                            if *count == 1 {
+                                entry.remove();
+                                self.net_device
+                                    .remove_multicast_addr(&mac_addr)
+                                    .map_err(NetManagerError::DeviceError)?;
+                            } else {
+                                *count -= 1;
+                            }
+                        }
+                        btree_map::Entry::Vacant(_) => {
+                            return Err(NetManagerError::MulticastInvalidIpv4Address);
+                        }
+                    }
+
+                    Ok(result)
                 }
+                Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
+                Err(_) => Err(NetManagerError::MulticastError),
             }
-            btree_map::Entry::Vacant(_) => {
-                return Err(NetManagerError::InvalidIpv4MulticastAddress);
-            }
-        }
+        })
+    }
 
-        Ok(())
+    fn first_net_driver_ref<F, T>(&self, mut f: F) -> Result<T, NetManagerError>
+    where
+        F: FnMut(NetDriverRef) -> Result<T, NetManagerError>,
+    {
+        let first_driver = self.rx_irq_to_drvier.first_key_value();
+        let ref_net_driver = first_driver
+            .as_ref()
+            .ok_or(NetManagerError::InvalidState)?
+            .1;
+
+        let tx_ringq = self
+            .tx_only_ringq
+            .get(ref_net_driver.rx_que_id)
+            .ok_or(NetManagerError::InvalidState)?;
+
+        let mut node = MCSNode::new();
+        let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
+
+        let mut node = MCSNode::new();
+        let mut tx_ringq = tx_ringq.lock(&mut node);
+
+        let net_driver_ref = NetDriverRef {
+            inner: &ref_net_driver.inner,
+            rx_ringq: Some(rx_ringq.as_mut()),
+            tx_ringq: &mut tx_ringq,
+        };
+
+        f(net_driver_ref)
     }
 
     /// Join a multicast group.
@@ -318,7 +369,7 @@ impl IfNet {
     /// where `announce_sent`` indicates whether an initial immediate announcement has been sent.
     pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
         if !addr.is_multicast() {
-            return Err(NetManagerError::InvalidIpv4MulticastAddress);
+            return Err(NetManagerError::MulticastInvalidIpv4Address);
         }
 
         // Add the multicast address to the list.
@@ -329,8 +380,7 @@ impl IfNet {
             return Ok(false);
         }
 
-        inner.multicast_addr_ipv4.insert(addr);
-
+        // Enable the multicast address if it is used.
         let mac_addr = ipv4_addr_to_mac_addr(addr);
 
         match inner.multicast_addr_mac.entry(mac_addr) {
@@ -345,39 +395,46 @@ impl IfNet {
             }
         }
 
-        // Create a NetDriverRef.
-        let first_driver = self.rx_irq_to_drvier.first_key_value();
-        let ref_net_driver = first_driver
-            .as_ref()
-            .ok_or(NetManagerError::InvalidState)?
-            .1;
-
-        let tx_ringq = self
-            .tx_only_ringq
-            .get(ref_net_driver.rx_que_id)
-            .ok_or(NetManagerError::InvalidState)?;
-
-        let mut node = MCSNode::new();
-        let mut tx_ringq = tx_ringq.lock(&mut node);
-
-        let mut device_ref = NetDriverRef {
-            inner: &ref_net_driver.inner,
-            rx_ringq: None,
-            tx_ringq: &mut tx_ringq,
-        };
-
         // Join the multicast group.
-        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
-        let addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+        let result = self.first_net_driver_ref(move |mut net_driver_ref| {
+            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
 
-        match inner
-            .interface
-            .join_multicast_group(&mut device_ref, addr, timestamp)
-        {
-            Ok(result) => Ok(result),
-            Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
-            Err(_) => Err(NetManagerError::MulticastError),
+            match inner
+                .interface
+                .join_multicast_group(&mut net_driver_ref, smoltcp_addr, timestamp)
+            {
+                Ok(result) => {
+                    inner.multicast_addr_ipv4.insert(addr);
+                    Ok(result)
+                }
+                Err(MulticastError::Exhausted) => Err(NetManagerError::SendError),
+                Err(_) => Err(NetManagerError::MulticastError),
+            }
+        });
+
+        if result.is_ok() {
+            return result;
         }
+
+        // Error handling.
+        // If an error occurs, the multicast address is removed from the list.
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        if let btree_map::Entry::Occupied(mut entry) = inner.multicast_addr_mac.entry(mac_addr) {
+            let num = entry.get_mut();
+            if *num == 1 {
+                entry.remove();
+                self.net_device
+                    .remove_multicast_addr(&mac_addr)
+                    .map_err(NetManagerError::DeviceError)?;
+            } else {
+                *num -= 1;
+            }
+        }
+
+        result
     }
 
     pub fn poll_tx_only(&self, que_id: usize) -> bool {

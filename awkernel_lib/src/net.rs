@@ -43,7 +43,6 @@ pub mod udp_socket;
 pub enum NetManagerError {
     InvalidInterfaceID,
     InvalidIPv4Address,
-    InvalidIpv4MulticastAddress,
     CannotFindInterface,
     PortInUse,
     SendError,
@@ -53,7 +52,12 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+
+    // Multicast
+    MulticastInvalidIpv4Address,
     MulticastError,
+    MulticastNotJoined,
+
     DeviceError(NetDevError),
 }
 
@@ -666,7 +670,10 @@ pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetM
 }
 
 /// Leave an IPv4 multicast group.
-pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+///
+/// Returns `Ok(leave_sent)` if the address was removed successfully,
+/// where `leave_sent` indicates whether an immediate leave packet has been sent.
+pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
