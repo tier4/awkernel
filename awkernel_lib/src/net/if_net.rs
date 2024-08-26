@@ -142,7 +142,7 @@ impl<'a> Device for NetDriverRef<'a> {
 pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
-    rx_irq_to_drvier: BTreeMap<u16, NetDriver>,
+    rx_irq_to_driver: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
@@ -200,14 +200,14 @@ impl IfNet {
         };
 
         // Create NetDrivers.
-        let mut rx_irq_to_drvier = BTreeMap::new();
+        let mut rx_irq_to_driver = BTreeMap::new();
         let mut tx_only_ringq = Vec::new();
 
         for irq in net_device.irqs().into_iter() {
             let rx_ringq = RingQ::new(512);
 
             if let Some(que_id) = net_device.rx_irq_to_que_id(irq) {
-                rx_irq_to_drvier.insert(
+                rx_irq_to_driver.insert(
                     irq,
                     NetDriver {
                         inner: net_device.clone(),
@@ -261,7 +261,7 @@ impl IfNet {
                 multicast_addr_ipv4: BTreeSet::new(),
                 multicast_addr_mac: BTreeMap::new(),
             }),
-            rx_irq_to_drvier,
+            rx_irq_to_driver,
             net_device,
             tx_only_ringq,
             is_poll_mode,
@@ -334,7 +334,7 @@ impl IfNet {
     where
         F: FnMut(NetDriverRef) -> Result<T, NetManagerError>,
     {
-        let first_driver = self.rx_irq_to_drvier.first_key_value();
+        let first_driver = self.rx_irq_to_driver.first_key_value();
         let ref_net_driver = first_driver
             .as_ref()
             .ok_or(NetManagerError::InvalidState)?
@@ -569,7 +569,7 @@ impl IfNet {
     /// If poll returns true, the caller should call poll again.
     #[inline(always)]
     pub fn poll_rx_irq(&self, irq: u16) -> bool {
-        let Some(ref_net_driver) = self.rx_irq_to_drvier.get(&irq) else {
+        let Some(ref_net_driver) = self.rx_irq_to_driver.get(&irq) else {
             return false;
         };
 
