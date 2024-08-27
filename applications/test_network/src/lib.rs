@@ -16,6 +16,8 @@ const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 // 10.0.2.2 is the IP address of the Qemu's host.
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
+const UDP_DST_PORT: u16 = 26099;
+
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
 
@@ -49,6 +51,35 @@ pub async fn run() {
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
+
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast send".into(),
+        ipv4_multicast_send_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn ipv4_multicast_send_test() {
+    // Create a UDP socket on interface 0.
+    let mut socket =
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
+
+    let dst_addr = IpAddr::new_v4(MULTICAST_ADDR);
+
+    loop {
+        // Send a UDP packet.
+        if let Err(e) = socket
+            .send(b"Hello Awkernel!", &dst_addr, MULTICAST_PORT)
+            .await
+        {
+            log::error!("Failed to send a UDP packet: {:?}", e);
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+    }
 }
 
 async fn ipv4_multicast_recv_test() {
@@ -112,7 +143,6 @@ async fn ipv4_multicast_recv_test() {
 }
 
 async fn tcp_connect_test() {
-    // 10.0.2.2 is the IP address of the Qemu's host.
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         0,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
@@ -171,7 +201,7 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
 }
 
 async fn udp_test() {
-    // Create a UDP socket on interface 1.
+    // Create a UDP socket on interface 0.
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
@@ -183,7 +213,10 @@ async fn udp_test() {
         let t0 = awkernel_lib::delay::uptime();
 
         // Send a UDP packet.
-        if let Err(e) = socket.send(b"Hello Awkernel!", &dst_addr, 26099).await {
+        if let Err(e) = socket
+            .send(b"Hello Awkernel!", &dst_addr, UDP_DST_PORT)
+            .await
+        {
             log::error!("Failed to send a UDP packet: {:?}", e);
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;
