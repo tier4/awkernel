@@ -65,7 +65,7 @@ It can execute async/await applications in kernel space safely.
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
-  - [ ] IP multicast
+  - [x] IP multicast
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
