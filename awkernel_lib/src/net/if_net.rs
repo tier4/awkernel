@@ -1,3 +1,18 @@
+//! # Network Interface Module
+//!
+//! This module provides the network interface module.
+//!
+//! `IfNet` is a structure that manages the network interface.
+//! `NetDriver` is a structure that manages the network driver.
+//!
+//!　These structures contain the following mutex-protected fields:
+//!
+//! 1. `NetDriver::rx_ringq`
+//! 2. `IfNet::tx_ringq`
+//! 3. `IfNet::inner`
+//!
+//! These mutexes must be locked in the order shown above.
+
 use core::net::Ipv4Addr;
 
 use alloc::{
