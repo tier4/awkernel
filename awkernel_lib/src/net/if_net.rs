@@ -1,3 +1,18 @@
+//! # Network Interface Module
+//!
+//! This module provides the network interface module.
+//!
+//! `IfNet` is a structure that manages the network interface.
+//! `NetDriver` is a structure that manages the network driver.
+//!
+//!　These structures contain the following mutex-protected fields:
+//!
+//! 1. `NetDriver::rx_ringq`
+//! 2. `IfNet::tx_ringq`
+//! 3. `IfNet::inner`
+//!
+//! These mutexes must be locked in the order shown above.
+
 use core::net::Ipv4Addr;
 
 use alloc::{
@@ -281,11 +296,13 @@ impl IfNet {
         }
 
         // Remove the multicast address from the list.
-        let mut node = MCSNode::new();
-        let mut inner = self.inner.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let inner = self.inner.lock(&mut node);
 
-        if !inner.multicast_addr_ipv4.contains(&addr) {
-            return Err(NetManagerError::MulticastNotJoined);
+            if !inner.multicast_addr_ipv4.contains(&addr) {
+                return Err(NetManagerError::MulticastNotJoined);
+            }
         }
 
         let mac_addr = ipv4_addr_to_mac_addr(addr);
@@ -294,6 +311,9 @@ impl IfNet {
         self.first_net_driver_ref(move |mut net_driver_ref| {
             let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
             let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
 
             match inner.interface.leave_multicast_group(
                 &mut net_driver_ref,
@@ -372,26 +392,28 @@ impl IfNet {
             return Err(NetManagerError::MulticastInvalidIpv4Address);
         }
 
-        // Add the multicast address to the list.
-        let mut node = MCSNode::new();
-        let mut inner = self.inner.lock(&mut node);
-
-        if inner.multicast_addr_ipv4.contains(&addr) {
-            return Ok(false);
-        }
-
         // Enable the multicast address if it is used.
         let mac_addr = ipv4_addr_to_mac_addr(addr);
 
-        match inner.multicast_addr_mac.entry(mac_addr) {
-            btree_map::Entry::Occupied(mut entry) => {
-                *entry.get_mut() += 1;
+        {
+            // Add the multicast address to the list.
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
+
+            if inner.multicast_addr_ipv4.contains(&addr) {
+                return Ok(false);
             }
-            btree_map::Entry::Vacant(entry) => {
-                entry.insert(1);
-                self.net_device
-                    .add_multicast_addr(&mac_addr)
-                    .map_err(NetManagerError::DeviceError)?;
+
+            match inner.multicast_addr_mac.entry(mac_addr) {
+                btree_map::Entry::Occupied(mut entry) => {
+                    *entry.get_mut() += 1;
+                }
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(1);
+                    self.net_device
+                        .add_multicast_addr(&mac_addr)
+                        .map_err(NetManagerError::DeviceError)?;
+                }
             }
         }
 
@@ -399,6 +421,9 @@ impl IfNet {
         let result = self.first_net_driver_ref(move |mut net_driver_ref| {
             let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
             let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
+
+            let mut node = MCSNode::new();
+            let mut inner = self.inner.lock(&mut node);
 
             match inner
                 .interface
