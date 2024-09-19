@@ -1,7 +1,5 @@
 # PCIe
 
-# PCIe
-
 In this section, we explain functions in [awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs).
 
 
