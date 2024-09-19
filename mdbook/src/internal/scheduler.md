@@ -1,11 +1,3 @@
-<style>
-table {
-    table-layout: fixed;
-    width: 100%;
-}
-
-</style>
-
 # Scheduler
 
 Scheduler is a trait for the scheduler and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
@@ -78,5 +70,5 @@ $ ls awkernel_async_lib/src/scheduler
 
 Scheduler implementation is done by implementing Scheduler Trait.
 When implementing a scheduler, it is necessary to register it in the following three places.
-`fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)`, and `pub enum SchedulerType`.
+`fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
 
