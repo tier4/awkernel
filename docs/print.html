@@ -1578,6 +1578,67 @@ in <code>primary_cpu</code> function defined in
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
+<p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub(crate) trait Scheduler {
+    /// Enqueue an executable task.
+    /// The enqueued task will be taken by `get_next()`.
+    fn wake_task(&amp;self, task: Arc&lt;Task&gt;);
+
+    /// Get the next executable task.
+    fn get_next(&amp;self) -&gt; Option&lt;Arc&lt;Task&gt;&gt;;
+
+    /// Get the scheduler name.
+    fn scheduler_name(&amp;self) -&gt; SchedulerType;
+
+    #[allow(dead_code)] // TODO: to be removed
+    fn priority(&amp;self) -&gt; u8;
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the scheduler in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn get_next_task()</code></td><td>Get the next executable task.</td></tr>
+<tr><td><code>fn get_scheduler(sched_type: SchedulerType)</code></td><td>Get a scheduler.</td></tr>
+</tbody></table>
+</div>
+<p><code>SchedulerType</code> is an enum for the scheduler type and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum SchedulerType {
+    FIFO,
+
+    PrioritizedFIFO(u8),
+
+    RR,
+
+    Panicked,
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="sleepingtasks"><a class="header" href="#sleepingtasks">SleepingTasks</a></h2>
+<p><code>SleepingTasks</code> is a struct for managing sleeping tasks and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct SleepingTasks {
+    delta_list: DeltaList&lt;Box&lt;dyn FnOnce() + Send&gt;&gt;,
+    base_time: u64,
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>SleepingTasks</code> struct has the following functions.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn new()</code></td><td>Create a new <code>SleepingTasks</code> instance.</td></tr>
+<tr><td><code>fn sleep_task(&amp;mut self, handler: Box&lt;dyn FnOnce() + Send&gt;, mut dur: u64)</code></td><td>Sleep a task for a certain duration.</td></tr>
+<tr><td><code>fn wake_task(&amp;mut self)</code></td><td>Wake up tasks after sleep.</td></tr>
+</tbody></table>
+</div>
+<h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
+<p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
+<pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
+&gt; fifo.rs  panicked.rs  prioritized_fifo.rs  rr.rs
+</code></pre>
+<p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
+Each scheduler must be registered in the following three locations.
+<code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
 
                     </main>
