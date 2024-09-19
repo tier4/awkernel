@@ -1,6 +1,6 @@
 # Scheduler
 
-Scheduler is a trait for the scheduler and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
+`Scheduler` is a trait for the scheduler and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
 ```rust
 pub(crate) trait Scheduler {
@@ -26,7 +26,7 @@ There are several functions regarding the scheduler in [awkernel_async_lib/src/s
 | `fn get_next_task()`  | Get the next executable task.  |
 | `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.  |
 
-The `SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
+`SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
 ```rust
 pub enum SchedulerType {
@@ -42,7 +42,7 @@ pub enum SchedulerType {
 
 ## SleepingTasks
 
-The `SleepingTasks` is a struct for managing sleeping tasks and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
+`SleepingTasks` is a struct for managing sleeping tasks and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
 ```rust
 struct SleepingTasks {
@@ -51,7 +51,7 @@ struct SleepingTasks {
 }
 ```
 
-The `SleepingTasks` struct has the following functions.
+`SleepingTasks` struct has the following functions.
 
 |  function             | description |
 |-----------------------|-------------|
@@ -59,16 +59,15 @@ The `SleepingTasks` struct has the following functions.
 | `fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: u64)` | Sleep a task for a certain duration. |
 | `fn wake_task(&mut self)` | Wake up tasks after sleep. |
 
-## Implementing a Scheduler
+## Scheduler Implementation
 
-The scheduler is implemented under the folder [awkernel_async_lib/src/scheduler](https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler).
+Some schedulers are implemented under the folder [awkernel_async_lib/src/scheduler](https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler).
 
 ```shell
 $ ls awkernel_async_lib/src/scheduler
 > fifo.rs  panicked.rs  prioritized_fifo.rs  rr.rs
 ```
 
-Scheduler implementation is done by implementing Scheduler Trait.
-When implementing a scheduler, it is necessary to register it in the following three places.
+A scheduler can be implemented by implementing `Scheduler` Trait.
+Each scheduler must be registered in the following three locations.
 `fn get_next_task()`, `fn get_scheduler(sched_type: SchedulerType)` and `pub enum SchedulerType`.
-
