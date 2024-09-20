@@ -16,17 +16,17 @@ struct PCIeTree {
 }
 ```
 
-There are several functions regarding `PCIeTree` structure.
+There are several functions regarding the `PCIeTree` structure.
 
 | function | description |
 |----------|-------------|
 | `fn update_bridge_info(...)` | Update the bridge information for each bus in the tree. |
-| `fn attach(&mut self)` | Attache all the buses in the tree to enable communication with the PCIe device. |
+| `fn attach(&mut self)` | Attach all the buses in the tree to enable communication with the PCIe device. |
 | `fn init_base_address(&mut self, ranges: &mut [PCIeRange])` | Initialize the base address of each bus in the tree based on the PCIe memory range. |
 
 <!-- ### Impl fmt::Display -->
 
-`PCIeTree` structure implements `fmt:Display` trait as follows.
+`PCIeTree` structure implements the `fmt:Display` trait as follows.
 
 ```rust
 impl fmt::Display for PCIeTree {
@@ -56,18 +56,18 @@ pub struct PCIeBus {
 }
 ```
 
-There are several functions regarding `PCIeBus` structure.
+There are several functions regarding the `PCIeBus` structure.
 
 | function | description |
 |----------|-------------|
-| `fn new(...)` | Construct `PCIeBus` structure. |
+| `fn new(...)` | Construct the `PCIeBus` structure. |
 | `fn update_bridge_info(...)` | Update the bus information by reflecting the bridge details. |
 | `fn attach(&mut self)` | Attaches all devices connected to the bus. |
 | `fn init_base_address(&mut self, ranges: &mut [PCIeRange])` | Initializes the base addresses of all devices connected to the bus based on the PCIe memory range. |
 
 <!-- ### Impl fmt::Display -->
 
-`PCIeBus` structure implements [`PCIeDevice`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) trait as follows.
+`PCIeBus` structure implements the `PCIeDevice` trait in [awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
 
 ```rust
 impl PCIeDevice for PCIeBus {
@@ -90,7 +90,7 @@ impl PCIeDevice for PCIeBus {
 
 <!-- ### Impl PCIeDevice -->
 
-`PCIeBus` structure implements `fmt::Display` trait as follows.
+`PCIeBus` structure implements the `fmt::Display` trait as follows.
 
 ```rust
 impl fmt::Display for PCIeBus {
@@ -133,14 +133,14 @@ pub struct PCIeInfo {
 }
 ```
 
-There are several functions regarding `PCIeInfo` structure.
+There are several functions regarding the `PCIeInfo` structure.
 
 | function | description |
 |----------|-------------|
-| `fn from_io(...)` | Construct `PCIeInfo` structure using I/O ports (x86 only). |
-| `fn from_addr(...)` | Construct `PCIeInfo` structure using virtual address. |
-| `fn new(...)` | Construct `PCIeInfo` structure. |
-| `fn init_base_address(&mut self, ranges: &mut [PCIeRange])` | Initialize the base address of `PCIeInfo` based on the PCIe memory range. |
+| `fn from_io(...)` | Construct the `PCIeInfo` structure using I/O ports (x86 only). |
+| `fn from_addr(...)` | Construct the `PCIeInfo` structure using virtual address. |
+| `fn new(...)` | Construct the `PCIeInfo` structure. |
+| `fn init_base_address(&mut self, ranges: &mut [PCIeRange])` | Initialize the base address of the `PCIeInfo` based on the PCIe memory range. |
 | `pub fn get_bfd(&self)` | Get PCIe information in BDF (Bus, Device, Function) format. |
 | `pub fn get_secondary_bus(&self)` | Get the number of the PCIe secondary bus. |
 | `pub fn get_device_name(&self)` | Get the name of the PCIe device. |
@@ -158,7 +158,7 @@ There are several functions regarding `PCIeInfo` structure.
 | `pub fn set_interrupt_line(&mut self, irq: u8)` | Set the interrupt line number for the PCIe device. |
 | `pub fn get_interrupt_pin(&self)` | Get the interrupt pin number of the PCIe device. |
 | `pub(crate) fn read_capability(&mut self)` | Check PCIe device extension functionality and construct structures for extensions such as MSI, MSI-X, etc. |
-| `fn read_bar(&mut self)` | Read the base address of the PCIe device and reflect it in `PCIeInfo` structure. |
+| `fn read_bar(&mut self)` | Read the base address of the PCIe device and reflect it in the `PCIeInfo` structure. |
 | `pub(crate) fn map_bar(&mut self)` | Map the base address of the PCIe device to a page. |
 | `pub fn get_bar(&self, i: usize)` | Get the base address at the specified index. |
 | `fn attach(self)` | Initialize the PCIe device based on the information. |
@@ -167,7 +167,7 @@ There are several functions regarding `PCIeInfo` structure.
 
 <!-- ### Impl fmt::Display -->
 
-`PCIeInfo` structure implements `fmt::Display` trait as follows.
+`PCIeInfo` structure implements the `fmt::Display` trait as follows.
 
 ```rust
 impl fmt::Display for PCIeInfo {
@@ -200,7 +200,7 @@ pub enum ChildDevice {
 }
 ```
 
-There are several functions regarding `ChildDevice` enum.
+There are several functions regarding the `ChildDevice` enum.
 
 | function | description |
 |----------|-------------|
@@ -226,7 +226,7 @@ struct UnknownDevice {
 
 <!-- ### Impl PCIeDevice -->
 
-`UnknownDevice` structure implements [`PCIeDevice`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) trait as follows.
+`UnknownDevice` structure implements the `PCIeDevice` trait in [awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
 
 ```rust
 impl PCIeDevice for PCIeBus {
@@ -270,7 +270,7 @@ pub enum PCIeDeviceErr {
 
 <!-- ### Impl fmt::Display -->
 
-`PCIeDeviceErr` structure implements `fmt::Display` trait as follows.
+`PCIeDeviceErr` structure implements the `fmt::Display` trait as follows.
 
 ```rust
 impl fmt::Display for PCIeDeviceErr {
@@ -395,9 +395,9 @@ fn init<F>(
 }
 ```
 
-## Enumerating PCI Buses
+## Checking the PCI Buses
 
-The following functions are used to check every device on the PCIe bus.
+The following functions are used to check all devices on the PCIe bus.
 
 ### check_bus
 
@@ -438,7 +438,7 @@ fn check_device<F>(
 
 ### check_function
 
-Retrieve PCIe bus information and store it in `PCIeTree` structure.
+Retrieve PCIe bus information and store it in the `PCIeTree` structure.
 
 ```rust
 fn check_function<F>(
@@ -473,7 +473,7 @@ where
 
 ```
 
-## Read base address
+## Read the base address
 
 Read the base address specified by the offset from the PCIe device's configuration space.
 
@@ -510,7 +510,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
 
 ```
 
-## Print PCIe devices
+## Print the PCIe devices
 
 Print the configuration of the devices on the PCIe bus.
 

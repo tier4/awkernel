@@ -1651,14 +1651,14 @@ Each scheduler must be registered in the following three locations.
     tree: BTreeMap&lt;u8, Box&lt;PCIeBus&gt;&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding <code>PCIeTree</code> structure.</p>
+<p>There are several functions regarding the <code>PCIeTree</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bridge information for each bus in the tree.</td></tr>
-<tr><td><code>fn attach(&amp;mut self)</code></td><td>Attache all the buses in the tree to enable communication with the PCIe device.</td></tr>
+<tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach all the buses in the tree to enable communication with the PCIe device.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of each bus in the tree based on the PCIe memory range.</td></tr>
 </tbody></table>
 </div><!-- ### Impl fmt::Display -->
-<p><code>PCIeTree</code> structure implements <code>fmt:Display</code> trait as follows.</p>
+<p><code>PCIeTree</code> structure implements the <code>fmt:Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl fmt::Display for PCIeTree {
@@ -1685,15 +1685,15 @@ Each scheduler must be registered in the following three locations.
     devices: Vec&lt;ChildDevice&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding <code>PCIeBus</code> structure.</p>
+<p>There are several functions regarding the <code>PCIeBus</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
-<tr><td><code>fn new(...)</code></td><td>Construct <code>PCIeBus</code> structure.</td></tr>
+<tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeBus</code> structure.</td></tr>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bus information by reflecting the bridge details.</td></tr>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attaches all devices connected to the bus.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initializes the base addresses of all devices connected to the bus based on the PCIe memory range.</td></tr>
 </tbody></table>
 </div><!-- ### Impl fmt::Display -->
-<p><code>PCIeBus</code> structure implements <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>PCIeDevice</code>:awkernel/awkernel_drivers/src/pcie.rs</a> trait as follows.</p>
+<p><code>PCIeBus</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl PCIeDevice for PCIeBus {
@@ -1714,7 +1714,7 @@ Each scheduler must be registered in the following three locations.
 }
 <span class="boring">}</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
-<p><code>PCIeBus</code> structure implements <code>fmt::Display</code> trait as follows.</p>
+<p><code>PCIeBus</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl fmt::Display for PCIeBus {
@@ -1753,12 +1753,12 @@ pub struct PCIeInfo {
     bridge_function_number: Option&lt;u8&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding <code>PCIeInfo</code> structure.</p>
+<p>There are several functions regarding the <code>PCIeInfo</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
-<tr><td><code>fn from_io(...)</code></td><td>Construct <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
-<tr><td><code>fn from_addr(...)</code></td><td>Construct <code>PCIeInfo</code> structure using virtual address.</td></tr>
-<tr><td><code>fn new(...)</code></td><td>Construct <code>PCIeInfo</code> structure.</td></tr>
-<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of <code>PCIeInfo</code> based on the PCIe memory range.</td></tr>
+<tr><td><code>fn from_io(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
+<tr><td><code>fn from_addr(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using virtual address.</td></tr>
+<tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeInfo</code> structure.</td></tr>
+<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of the <code>PCIeInfo</code> based on the PCIe memory range.</td></tr>
 <tr><td><code>pub fn get_bfd(&amp;self)</code></td><td>Get PCIe information in BDF (Bus, Device, Function) format.</td></tr>
 <tr><td><code>pub fn get_secondary_bus(&amp;self)</code></td><td>Get the number of the PCIe secondary bus.</td></tr>
 <tr><td><code>pub fn get_device_name(&amp;self)</code></td><td>Get the name of the PCIe device.</td></tr>
@@ -1776,7 +1776,7 @@ pub struct PCIeInfo {
 <tr><td><code>pub fn set_interrupt_line(&amp;mut self, irq: u8)</code></td><td>Set the interrupt line number for the PCIe device.</td></tr>
 <tr><td><code>pub fn get_interrupt_pin(&amp;self)</code></td><td>Get the interrupt pin number of the PCIe device.</td></tr>
 <tr><td><code>pub(crate) fn read_capability(&amp;mut self)</code></td><td>Check PCIe device extension functionality and construct structures for extensions such as MSI, MSI-X, etc.</td></tr>
-<tr><td><code>fn read_bar(&amp;mut self)</code></td><td>Read the base address of the PCIe device and reflect it in <code>PCIeInfo</code> structure.</td></tr>
+<tr><td><code>fn read_bar(&amp;mut self)</code></td><td>Read the base address of the PCIe device and reflect it in the <code>PCIeInfo</code> structure.</td></tr>
 <tr><td><code>pub(crate) fn map_bar(&amp;mut self)</code></td><td>Map the base address of the PCIe device to a page.</td></tr>
 <tr><td><code>pub fn get_bar(&amp;self, i: usize)</code></td><td>Get the base address at the specified index.</td></tr>
 <tr><td><code>fn attach(self)</code></td><td>Initialize the PCIe device based on the information.</td></tr>
@@ -1784,7 +1784,7 @@ pub struct PCIeInfo {
 <tr><td><code>pub fn enable_legacy_interrupt(&amp;mut self)</code></td><td>Enable legacy (non-MSI) interrupts on the PCIe device.</td></tr>
 </tbody></table>
 </div><!-- ### Impl fmt::Display -->
-<p><code>PCIeInfo</code> structure implements <code>fmt::Display</code> trait as follows.</p>
+<p><code>PCIeInfo</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl fmt::Display for PCIeInfo {
@@ -1813,7 +1813,7 @@ pub struct PCIeInfo {
     Unattached(Box&lt;PCIeInfo&gt;),
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding <code>ChildDevice</code> enum.</p>
+<p>There are several functions regarding the <code>ChildDevice</code> enum.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach a child PCIe device.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of a child PCIe device based on the PCIe memory range.</td></tr>
@@ -1834,7 +1834,7 @@ pub struct PCIeInfo {
 }
 <span class="boring">}</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
-<p><code>UnknownDevice</code> structure implements <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>PCIeDevice</code>:awkernel/awkernel_drivers/src/pcie.rs</a> trait as follows.</p>
+<p><code>UnknownDevice</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl PCIeDevice for PCIeBus {
@@ -1874,7 +1874,7 @@ pub enum PCIeDeviceErr {
 }
 <span class="boring">}</span></code></pre></pre>
 <!-- ### Impl fmt::Display -->
-<p><code>PCIeDeviceErr</code> structure implements <code>fmt::Display</code> trait as follows.</p>
+<p><code>PCIeDeviceErr</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl fmt::Display for PCIeDeviceErr {
@@ -2028,7 +2028,7 @@ fn check_device&lt;F&gt;(
 }
 <span class="boring">}</span></code></pre></pre>
 <h3 id="check_function"><a class="header" href="#check_function">check_function</a></h3>
-<p>Retrieve PCIe bus information and store it in <code>PCIeTree</code> structure.</p>
+<p>Retrieve PCIe bus information and store it in the <code>PCIeTree</code> structure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn check_function&lt;F&gt;(
