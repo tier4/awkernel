@@ -210,7 +210,7 @@ There are several functions regarding `ChildDevice` enum.
 
 ## UnknownDevice
 
-`UnknownDevice` is a structure for representing a PCIe device with unknown details, including its segment group, bus, device, and function numbers.
+`UnknownDevice` is a structure for representing an attached PCIe device including its segment group, bus, device and function numbers.
 
 ```rust
 struct UnknownDevice {
@@ -438,7 +438,7 @@ fn check_device<F>(
 
 ### check_function
 
-Retrieve PCIe bus information and store it in the PCIeTree structure.
+Retrieve PCIe bus information and store it in `PCIeTree` structure.
 
 ```rust
 fn check_function<F>(

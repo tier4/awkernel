@@ -354,7 +354,7 @@ pub struct PCIeInfo {
 </tbody></table>
 </div>
 <h2 id="unknowndevice"><a class="header" href="#unknowndevice">UnknownDevice</a></h2>
-<p><code>UnknownDevice</code> is a structure for representing a PCIe device with unknown details, including its segment group, bus, device, and function numbers.</p>
+<p><code>UnknownDevice</code> is a structure for representing an attached PCIe device including its segment group, bus, device and function numbers.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>struct UnknownDevice {
@@ -562,7 +562,7 @@ fn check_device&lt;F&gt;(
 }
 <span class="boring">}</span></code></pre></pre>
 <h3 id="check_function"><a class="header" href="#check_function">check_function</a></h3>
-<p>Retrieve PCIe bus information and store it in the PCIeTree structure.</p>
+<p>Retrieve PCIe bus information and store it in <code>PCIeTree</code> structure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn check_function&lt;F&gt;(
