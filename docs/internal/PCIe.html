@@ -185,14 +185,14 @@
     tree: BTreeMap&lt;u8, Box&lt;PCIeBus&gt;&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding the <code>PCIeTree</code> structure.</p>
+<p>There are several methods regarding the <code>PCIeTree</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bridge information for each bus in the tree.</td></tr>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach all the buses in the tree to enable communication with the PCIe device.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of each bus in the tree based on the PCIe memory range.</td></tr>
 </tbody></table>
 </div><!-- ### Impl fmt::Display -->
-<p><code>PCIeTree</code> structure implements the <code>fmt:Display</code> trait as follows.</p>
+<p><code>PCIeTree</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>impl fmt::Display for PCIeTree {
@@ -208,7 +208,7 @@
 }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="pciebus"><a class="header" href="#pciebus">PCIeBus</a></h2>
-<p><code>PCIeBus</code> is a structure for representing individual PCIe buses.</p>
+<p><code>PCIeBus</code> is a structure that represents individual PCIe buses.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub struct PCIeBus {
@@ -219,7 +219,7 @@
     devices: Vec&lt;ChildDevice&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding the <code>PCIeBus</code> structure.</p>
+<p>There are several methods regarding the <code>PCIeBus</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeBus</code> structure.</td></tr>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bus information by reflecting the bridge details.</td></tr>
@@ -258,7 +258,7 @@
 }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="pcieinfo"><a class="header" href="#pcieinfo">PCIeInfo</a></h2>
-<p><code>PCIeInfo</code> is a structure for storing the essential information required to initialize a PCIe device.</p>
+<p><code>PCIeInfo</code> is a structure used to store the essential information required to initialize a PCIe device.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Information necessary for initializing the device
@@ -287,7 +287,7 @@ pub struct PCIeInfo {
     bridge_function_number: Option&lt;u8&gt;,
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding the <code>PCIeInfo</code> structure.</p>
+<p>There are several methods regarding <code>PCIeInfo</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn from_io(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
 <tr><td><code>fn from_addr(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using virtual address.</td></tr>
@@ -337,7 +337,7 @@ pub struct PCIeInfo {
 }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="childdevice"><a class="header" href="#childdevice">ChildDevice</a></h2>
-<p><code>ChildDevice</code> is an enum for representing different types of devices and their attachment states on a PCIe bus.</p>
+<p><code>ChildDevice</code> is an enum that represents different types of devices and their attachment states on a PCIe bus.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub enum ChildDevice {
@@ -347,14 +347,14 @@ pub struct PCIeInfo {
     Unattached(Box&lt;PCIeInfo&gt;),
 }
 <span class="boring">}</span></code></pre></pre>
-<p>There are several functions regarding the <code>ChildDevice</code> enum.</p>
+<p>There are several methods regarding <code>ChildDevice</code> enum.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach a child PCIe device.</td></tr>
 <tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of a child PCIe device based on the PCIe memory range.</td></tr>
 </tbody></table>
 </div>
 <h2 id="unknowndevice"><a class="header" href="#unknowndevice">UnknownDevice</a></h2>
-<p><code>UnknownDevice</code> is a structure for representing an attached PCIe device including its segment group, bus, device and function numbers.</p>
+<p><code>UnknownDevice</code> is a structure that represents an attached PCIe device including its segment group, bus, device and function numbers.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>struct UnknownDevice {
@@ -391,7 +391,7 @@ pub struct PCIeInfo {
 }
 <span class="boring">}</span></code></pre></pre>
 <h2 id="pciedeviceerr"><a class="header" href="#pciedeviceerr">PCIeDeviceErr</a></h2>
-<p><code>PCIeDeviceErr</code> is an enum for representing various error types related to PCIe devices.</p>
+<p><code>PCIeDeviceErr</code> is an enum that represents various error types related to PCIe devices.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[derive(Debug, Clone)]
@@ -424,7 +424,7 @@ pub enum PCIeDeviceErr {
 <span class="boring">}</span></code></pre></pre>
 <h2 id="initialization"><a class="header" href="#initialization">Initialization</a></h2>
 <h3 id="x86"><a class="header" href="#x86">x86</a></h3>
-<p>For x86, the PCIe is initialized with ACPI in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_acpi</code>:awkernel/awkernel_drivers/src/pcie.rs</a> and with I/O port in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_io</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<p>For x86, the PCIe is initialized with ACPI or I/O port by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_acpi</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_io</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Initialize the PCIe with ACPI.
@@ -474,7 +474,7 @@ pub fn init_with_io() {
 }
 <span class="boring">}</span></code></pre></pre>
 <h3 id="others"><a class="header" href="#others">Others</a></h3>
-<p>The PCIe is initialized with the base address in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_addr</code>:awkernel/awkernel_drivers/src/pcie.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<p>The PCIe is initialized with the base address by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_addr</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// If `ranges` is not None, the base address registers of the device will be initialized by using `ranges`.
@@ -526,8 +526,8 @@ pub fn init_with_addr(
     pcie_trees.insert(segment_group, Arc::new(bus_tree));
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="enumerating-pci-buses"><a class="header" href="#enumerating-pci-buses">Enumerating PCI Buses</a></h2>
-<p>The following functions are used to check every device on the PCIe bus.</p>
+<h2 id="checking-the-pci-buses"><a class="header" href="#checking-the-pci-buses">Checking the PCI Buses</a></h2>
+<p>The following functions are used to check all devices on the PCIe bus.</p>
 <h3 id="check_bus"><a class="header" href="#check_bus">check_bus</a></h3>
 <p>Check thirty-two devices on the PCIe bus.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -588,7 +588,7 @@ where
     if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
 
         // omitted: Push PCIe device to `PCIeTree`, considering if it is a bridge device
-        
+
         true
     } else {
         false
@@ -596,7 +596,7 @@ where
 }
 
 <span class="boring">}</span></code></pre></pre>
-<h2 id="read-base-address"><a class="header" href="#read-base-address">Read base address</a></h2>
+<h2 id="read-the-base-address"><a class="header" href="#read-the-base-address">Read the base address</a></h2>
 <p>Read the base address specified by the offset from the PCIe device's configuration space.</p>
 <h3 id="read_bar"><a class="header" href="#read_bar">read_bar</a></h3>
 <p>Read the base address.</p>
@@ -629,7 +629,7 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 }
 
 <span class="boring">}</span></code></pre></pre>
-<h2 id="print-pcie-devices"><a class="header" href="#print-pcie-devices">Print PCIe devices</a></h2>
+<h2 id="print-the-pcie-devices"><a class="header" href="#print-the-pcie-devices">Print the PCIe devices</a></h2>
 <p>Print the configuration of the devices on the PCIe bus.</p>
 <h3 id="print_pcie_devices"><a class="header" href="#print_pcie_devices">print_pcie_devices</a></h3>
 <p>Print the configuration of PCIe devices, including device names, vendor ID, device ID, PCIe class and bridge information.</p>

@@ -16,7 +16,7 @@ struct PCIeTree {
 }
 ```
 
-There are several functions regarding the `PCIeTree` structure.
+There are several methods regarding the `PCIeTree` structure.
 
 | function | description |
 |----------|-------------|
@@ -26,7 +26,7 @@ There are several functions regarding the `PCIeTree` structure.
 
 <!-- ### Impl fmt::Display -->
 
-`PCIeTree` structure implements the `fmt:Display` trait as follows.
+`PCIeTree` structure implements the `fmt::Display` trait as follows.
 
 ```rust
 impl fmt::Display for PCIeTree {
@@ -44,7 +44,7 @@ impl fmt::Display for PCIeTree {
 
 ## PCIeBus
 
-`PCIeBus` is a structure for representing individual PCIe buses.
+`PCIeBus` is a structure that represents individual PCIe buses.
 
 ```rust
 pub struct PCIeBus {
@@ -56,7 +56,7 @@ pub struct PCIeBus {
 }
 ```
 
-There are several functions regarding the `PCIeBus` structure.
+There are several methods regarding the `PCIeBus` structure.
 
 | function | description |
 |----------|-------------|
@@ -103,7 +103,7 @@ impl fmt::Display for PCIeBus {
 
 ## PCIeInfo
 
-`PCIeInfo` is a structure for storing the essential information required to initialize a PCIe device.
+`PCIeInfo` is a structure used to store the essential information required to initialize a PCIe device.
 
 ```rust
 /// Information necessary for initializing the device
@@ -133,7 +133,7 @@ pub struct PCIeInfo {
 }
 ```
 
-There are several functions regarding the `PCIeInfo` structure.
+There are several methods regarding `PCIeInfo` structure.
 
 | function | description |
 |----------|-------------|
@@ -189,7 +189,7 @@ impl fmt::Display for PCIeInfo {
 
 ## ChildDevice
 
-`ChildDevice` is an enum for representing different types of devices and their attachment states on a PCIe bus.
+`ChildDevice` is an enum that represents different types of devices and their attachment states on a PCIe bus.
 
 ```rust
 pub enum ChildDevice {
@@ -200,7 +200,7 @@ pub enum ChildDevice {
 }
 ```
 
-There are several functions regarding the `ChildDevice` enum.
+There are several methods regarding `ChildDevice` enum.
 
 | function | description |
 |----------|-------------|
@@ -210,7 +210,7 @@ There are several functions regarding the `ChildDevice` enum.
 
 ## UnknownDevice
 
-`UnknownDevice` is a structure for representing an attached PCIe device including its segment group, bus, device and function numbers.
+`UnknownDevice` is a structure that represents an attached PCIe device including its segment group, bus, device and function numbers.
 
 ```rust
 struct UnknownDevice {
@@ -251,7 +251,7 @@ impl PCIeDevice for PCIeBus {
 
 ## PCIeDeviceErr
 
-`PCIeDeviceErr` is an enum for representing various error types related to PCIe devices.
+`PCIeDeviceErr` is an enum that represents various error types related to PCIe devices.
 
 ```rust
 #[derive(Debug, Clone)]
@@ -290,7 +290,7 @@ impl fmt::Display for PCIeDeviceErr {
 
 ### x86
 
-For x86, the PCIe is initialized with ACPI in [`init_with_acpi`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) and with I/O port in [`init_with_io`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
+For x86, the PCIe is initialized with ACPI or I/O port by [`init_with_acpi`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) or [`init_with_io`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
 
 ```rust
 /// Initialize the PCIe with ACPI.
@@ -342,7 +342,7 @@ pub fn init_with_io() {
 
 ### Others
 
-The PCIe is initialized with the base address in [`init_with_addr`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) and [`init`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
+The PCIe is initialized with the base address by [`init_with_addr`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) or [`init`:awkernel/awkernel_drivers/src/pcie.rs](https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs) as follows.
 
 ```rust
 /// If `ranges` is not None, the base address registers of the device will be initialized by using `ranges`.
@@ -464,7 +464,7 @@ where
     if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
 
         // omitted: Push PCIe device to `PCIeTree`, considering if it is a bridge device
-        
+
         true
     } else {
         false
