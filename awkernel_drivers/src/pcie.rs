@@ -197,7 +197,7 @@ pub fn init_with_io() {
     init(0, None, PCIeInfo::from_io, None);
 }
 
-/// Structure representing the PCIe device after it has been attached.
+/// Structure representing a PCIe device after it has been attached.
 struct UnknownDevice {
     segment_group: u16,
     bus_number: u8,
@@ -223,7 +223,7 @@ impl PCIeDevice for UnknownDevice {
     }
 
     fn children(&self) -> Option<&Vec<ChildDevice>> {
-        // UnknownDevice represents the terminal device and returns only None because there are no child devices.
+        // UnknownDevice represents a terminal device and always returns None.
         None
     }
 }
@@ -291,7 +291,7 @@ impl ChildDevice {
             return;
         };
 
-        // Return when already attached.
+        // Return if the device is already attached.
         let ChildDevice::Unattached(info) = core::mem::replace(self, attaching) else {
             return;
         };
@@ -340,7 +340,6 @@ impl PCIeBus {
         }
     }
 
-    // Reflect the argument, bridge information, on the bus.
     fn update_bridge_info(
         &mut self,
         mut bridge_bus_number: u8,
@@ -586,7 +585,7 @@ fn init<F>(
             VirtAddr::new(0)
         };
 
-        // PCIeInfo is initialized using the argument f which is the constructor.
+        // Search for the host bridge.
         if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
             if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
                 host_bridge_bus = bus_number;
@@ -606,9 +605,8 @@ fn init<F>(
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
 
     if let Some(ranges) = ranges {
-        // ranges is a property of the pcie node in the device tree.
-        // This property has information for mapping the address space of a PCIe device 
-        // to the address space of the host system.
+        // 'ranges' is a property of the PCIe node in the device tree.
+        // This property contains information for mapping the address space of a PCIe device to the address space of the host system.
         bus_tree.init_base_address(ranges);
     }
 
@@ -772,9 +770,7 @@ impl PCIeInfo {
                     bridge_device_number,
                     bridge_function_number,
                 ) {
-                    // Write a base address in PCIe config space.
                     unsafe { addr.set_base_address(allocated.device_addr) };
-                    // Store the address after being allocated in the BaseAddress structure.
                     *addr = allocated.cpu_addr;
                     break;
                 }
@@ -861,8 +857,7 @@ impl PCIeInfo {
         self.interrupt_pin
     }
 
-    /// Read PCIe device extension functionality settings and
-    /// initialize MSI, MSI-X, and other extensions.
+    /// Read PCIe device extension functionality settings and initialize MSI, MSI-X, and other extensions.
     pub(crate) fn read_capability(&mut self) {
         capability::read(self);
     }
@@ -1027,9 +1022,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
     if (bar & BAR_IO) == 1 {
         // I/O space
 
-        // From the PCIe specification, the memory space size can be
-        // obtained by writing 1 to all bits of the base address register and
-        // then reading them back.
+        // According to the PCIe specification, the size of the memory space is obtained by writing 1 to all bits of the base address register and then reading back the value.
         let size = {
             config_space.write_u32(!0, offset);
             let size = config_space.read_u32(offset);
