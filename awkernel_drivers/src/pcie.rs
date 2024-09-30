@@ -291,7 +291,7 @@ impl ChildDevice {
             return;
         };
 
-        // Return if the device is already attached.
+        // Return if the device has already been attached.
         let ChildDevice::Unattached(info) = core::mem::replace(self, attaching) else {
             return;
         };
@@ -447,7 +447,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
-/// Scan for devices that the physical PCIe bus has.
+/// Scan for devices on the physical PCIe bus.
 #[inline]
 fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
 where
@@ -1022,7 +1022,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
     if (bar & BAR_IO) == 1 {
         // I/O space
 
-        // According to the PCIe specification, the size of the memory space is obtained by writing 1 to all bits of the base address register and then reading back the value.
+        // To determine the size of the memory space, the PCIe specification prescribes writing 1 to all bits of the base address register and then reading back the value.
         let size = {
             config_space.write_u32(!0, offset);
             let size = config_space.read_u32(offset);
