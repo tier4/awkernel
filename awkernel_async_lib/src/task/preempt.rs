@@ -163,9 +163,11 @@ unsafe fn do_preemption() {
         let task = tasks.id_to_task.get(&task_id.0).unwrap();
 
         let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        if !info.need_sched {
+        let mut info = task.info.lock(&mut node);
+        if !info.need_preemption {
             return;
+        } else {
+            info.need_preemption = false;
         }
     }
 
