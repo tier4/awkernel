@@ -58,23 +58,23 @@ pub struct Data<T> {
 
 /// Publisher.
 pub struct Publisher<T: 'static + Send> {
-    subscribers: Subscribers<T>,
+    topic: InnerTopic<T>,
 }
 
 /// Subscriber.
 pub struct Subscriber<T: 'static + Clone + Send> {
     inner: ArcInner<T>,
-    subscribers: Subscribers<T>,
+    topic: InnerTopic<T>,
 }
 
-struct Subscribers<T: Send> {
+struct InnerTopic<T: Send> {
     id_to_subscriber: Arc<RwLock<BTreeMap<usize, ArcInner<T>>>>,
     name: Cow<'static, str>,
     sender_buf: Option<Arc<Mutex<RingQ<Data<T>>>>>,
     attribute: Attribute,
 }
 
-impl<T: Send> Subscribers<T> {
+impl<T: Send> InnerTopic<T> {
     fn new(name: Cow<'static, str>, attribute: Attribute) -> Self {
         let sender_buf = if attribute.transient_local {
             Some(Arc::new(Mutex::new(RingQ::new(attribute.queue_size))))
@@ -92,7 +92,7 @@ impl<T: Send> Subscribers<T> {
 }
 
 /// Subscriber.
-impl<T: Send> Clone for Subscribers<T> {
+impl<T: Send> Clone for InnerTopic<T> {
     fn clone(&self) -> Self {
         Self {
             id_to_subscriber: self.id_to_subscriber.clone(),
@@ -157,7 +157,7 @@ impl<'a, T: Clone + Send> Future for Receiver<'a, T> {
             waker.wake();
         }
 
-        inner.garbage_collect(&self.subscriber.subscribers.attribute.lifespan);
+        inner.garbage_collect(&self.subscriber.topic.attribute.lifespan);
 
         if let Some(data) = inner.queue.pop() {
             Poll::Ready(data)
@@ -235,14 +235,14 @@ where
         loop {
             match &this.state {
                 SenderState::Start => {
-                    let guard = this.publisher.subscribers.id_to_subscriber.read();
+                    let guard = this.publisher.topic.id_to_subscriber.read();
                     for x in guard.values() {
                         this.subscribers.push_back(x.clone());
                     }
 
-                    if this.publisher.subscribers.attribute.transient_local {
+                    if this.publisher.topic.attribute.transient_local {
                         // Store data to the send buffer.
-                        if let Some(buf) = &this.publisher.subscribers.sender_buf {
+                        if let Some(buf) = &this.publisher.topic.sender_buf {
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
                             if let Err(data) = guard.push(Data {
@@ -276,7 +276,7 @@ where
                             return Poll::Pending;
                         }
 
-                        inner.garbage_collect(&this.publisher.subscribers.attribute.lifespan);
+                        inner.garbage_collect(&this.publisher.topic.attribute.lifespan);
 
                         match inner.queue.push(Data {
                             timestamp: *this.timestamp,
@@ -289,7 +289,7 @@ where
                                 }
                             }
                             Err(data) => {
-                                if this.publisher.subscribers.attribute.flow_control {
+                                if this.publisher.topic.attribute.flow_control {
                                     // If there are no room in the queue to send data, enqueue itself to `waker_publishers`.
                                     inner.waker_publishers.push_back(cx.waker().clone());
                                     drop(inner);
@@ -342,7 +342,7 @@ where
 /// };
 /// ```
 pub fn create_pubsub<T: Clone + Send>(attribute: Attribute) -> (Publisher<T>, Subscriber<T>) {
-    let subscribers = Subscribers::new("anonymous".into(), attribute.clone());
+    let subscribers = InnerTopic::new("anonymous".into(), attribute.clone());
     let inner = Arc::new(Mutex::new(InnerSubscriber::new(attribute.queue_size)));
 
     {
@@ -352,10 +352,10 @@ pub fn create_pubsub<T: Clone + Send>(attribute: Attribute) -> (Publisher<T>, Su
 
     let subscriber = Subscriber {
         inner,
-        subscribers: subscribers.clone(),
+        topic: subscribers.clone(),
     };
 
-    let publisher = Publisher { subscribers };
+    let publisher = Publisher { topic: subscribers };
 
     (publisher, subscriber)
 }
@@ -363,15 +363,15 @@ pub fn create_pubsub<T: Clone + Send>(attribute: Attribute) -> (Publisher<T>, Su
 impl<T: Clone + Send> Clone for Subscriber<T> {
     fn clone(&self) -> Self {
         let inner = Arc::new(Mutex::new(InnerSubscriber::new(
-            self.subscribers.attribute.queue_size,
+            self.topic.attribute.queue_size,
         )));
 
-        let mut guard = self.subscribers.id_to_subscriber.write();
+        let mut guard = self.topic.id_to_subscriber.write();
         guard.insert(inner_id(&inner), inner.clone());
 
         Self {
             inner,
-            subscribers: self.subscribers.clone(),
+            topic: self.topic.clone(),
         }
     }
 }
@@ -410,20 +410,20 @@ pub enum Lifespan {
 }
 
 #[derive(Clone)]
-struct InnerPubSub<T: Send> {
-    subscribers: Subscribers<T>,
+struct Topic<T: Send> {
+    inner_topic: InnerTopic<T>,
     num_publisher: u64,
 }
 
 /// Manager of publishers and subscribers.
 struct PubSub {
-    name_to_inner: AnyDict,
+    name_to_topic: AnyDict,
 }
 
 impl PubSub {
     const fn new() -> Self {
         Self {
-            name_to_inner: AnyDict::new(),
+            name_to_topic: AnyDict::new(),
         }
     }
 
@@ -432,32 +432,32 @@ impl PubSub {
         name: Cow<'static, str>,
         attribute: Attribute,
     ) -> Result<Publisher<T>, &'static str> {
-        match self.name_to_inner.get_mut::<InnerPubSub<T>>(&name) {
+        match self.name_to_topic.get_mut::<Topic<T>>(&name) {
             AnyDictResult::TypeError => Err("create_publisher: typing error"),
             AnyDictResult::None => {
-                let subscribers = Subscribers::new(name.clone(), attribute.clone());
-                let subscribers2 = Subscribers {
-                    id_to_subscriber: subscribers.id_to_subscriber.clone(),
+                let topic = InnerTopic::new(name.clone(), attribute.clone());
+                let topic2 = InnerTopic {
+                    id_to_subscriber: topic.id_to_subscriber.clone(),
                     name: name.clone(),
-                    sender_buf: subscribers.sender_buf.clone(),
+                    sender_buf: topic.sender_buf.clone(),
                     attribute,
                 };
 
-                let inner = InnerPubSub {
-                    subscribers: subscribers2,
+                let inner = Topic {
+                    inner_topic: topic2,
                     num_publisher: 1,
                 };
 
-                self.name_to_inner.insert::<InnerPubSub<T>>(name, inner);
+                self.name_to_topic.insert::<Topic<T>>(name, inner);
 
-                Ok(Publisher { subscribers })
+                Ok(Publisher { topic })
             }
             AnyDictResult::Ok(inner) => {
-                if inner.subscribers.attribute == attribute {
+                if inner.inner_topic.attribute == attribute {
                     inner.num_publisher += 1;
 
                     Ok(Publisher {
-                        subscribers: inner.subscribers.clone(),
+                        topic: inner.inner_topic.clone(),
                     })
                 } else {
                     Err("create_publisher: incompatible attribute")
@@ -471,44 +471,43 @@ impl PubSub {
         name: Cow<'static, str>,
         attribute: Attribute,
     ) -> Result<Subscriber<T>, &'static str> {
-        match self.name_to_inner.get::<InnerPubSub<T>>(&name) {
+        match self.name_to_topic.get::<Topic<T>>(&name) {
             AnyDictResult::TypeError => Err("create_subscriber: typing error"),
             AnyDictResult::None => {
                 // Create `Subscribers`.
-                let subscribers = Subscribers::new(name.clone(), attribute.clone());
+                let topic = InnerTopic::new(name.clone(), attribute.clone());
 
                 // Create `InnerSubscriber`.
                 let inner_sub = Arc::new(Mutex::new(InnerSubscriber::new(attribute.queue_size)));
                 {
-                    let mut guard = subscribers.id_to_subscriber.write();
+                    let mut guard = topic.id_to_subscriber.write();
                     guard.insert(inner_id(&inner_sub), inner_sub.clone());
                 }
 
-                let subscribers2 = subscribers.clone();
+                let topic2 = topic.clone();
 
                 // Create `InnerPubSub`.
-                let inner_pubsub = InnerPubSub {
-                    subscribers: subscribers2,
+                let inner_pubsub = Topic {
+                    inner_topic: topic2,
                     num_publisher: 0,
                 };
 
-                self.name_to_inner
-                    .insert::<InnerPubSub<T>>(name, inner_pubsub);
+                self.name_to_topic.insert::<Topic<T>>(name, inner_pubsub);
 
                 // Create `Subscriber` and return it.
                 Ok(Subscriber {
                     inner: inner_sub,
-                    subscribers,
+                    topic,
                 })
             }
             AnyDictResult::Ok(inner) => {
-                if inner.subscribers.attribute == attribute {
+                if inner.inner_topic.attribute == attribute {
                     // Create `InnerSubscriber`.
                     let mut inner_sub = InnerSubscriber::new(attribute.queue_size);
 
                     // Insert sent data to the queue.
                     if attribute.transient_local {
-                        if let Some(buf) = &inner.subscribers.sender_buf {
+                        if let Some(buf) = &inner.inner_topic.sender_buf {
                             let mut node = MCSNode::new();
                             let guard = buf.lock(&mut node);
                             for data in guard.iter() {
@@ -520,14 +519,14 @@ impl PubSub {
                     let inner_sub = Arc::new(Mutex::new(inner_sub));
 
                     {
-                        let mut guard = inner.subscribers.id_to_subscriber.write();
+                        let mut guard = inner.inner_topic.id_to_subscriber.write();
                         guard.insert(inner_id(&inner_sub), inner_sub.clone());
                     }
 
                     // Create `Subscriber` and return it.
                     Ok(Subscriber {
                         inner: inner_sub,
-                        subscribers: inner.subscribers.clone(),
+                        topic: inner.inner_topic.clone(),
                     })
                 } else {
                     Err("create_subscriber: incompatible attribute")
@@ -538,17 +537,17 @@ impl PubSub {
 
     fn destroy_publisher<T: 'static + Send>(&mut self, publisher: &Publisher<T>) {
         match self
-            .name_to_inner
-            .get_mut::<InnerPubSub<T>>(&publisher.subscribers.name)
+            .name_to_topic
+            .get_mut::<Topic<T>>(&publisher.topic.name)
         {
             AnyDictResult::None | AnyDictResult::TypeError => (),
             AnyDictResult::Ok(inner) => {
                 inner.num_publisher -= 1;
                 if inner.num_publisher == 0 {
-                    let guard = inner.subscribers.id_to_subscriber.read();
+                    let guard = inner.inner_topic.id_to_subscriber.read();
                     if guard.is_empty() {
                         guard.unlock();
-                        self.name_to_inner.remove(&publisher.subscribers.name);
+                        self.name_to_topic.remove(&publisher.topic.name);
                     }
                 }
             }
@@ -557,7 +556,7 @@ impl PubSub {
 
     fn destroy_subscriber<T: 'static + Clone + Send>(&mut self, subscriber: &Subscriber<T>) {
         {
-            let mut guard = subscriber.subscribers.id_to_subscriber.write();
+            let mut guard = subscriber.topic.id_to_subscriber.write();
             guard.remove(&subscriber.id());
         }
 
@@ -575,16 +574,16 @@ impl PubSub {
         }
 
         match self
-            .name_to_inner
-            .get_mut::<InnerPubSub<T>>(&subscriber.subscribers.name)
+            .name_to_topic
+            .get_mut::<Topic<T>>(&subscriber.topic.name)
         {
             AnyDictResult::None | AnyDictResult::TypeError => (),
             AnyDictResult::Ok(inner) => {
                 if inner.num_publisher == 0 {
-                    let guard = inner.subscribers.id_to_subscriber.read();
+                    let guard = inner.inner_topic.id_to_subscriber.read();
                     if guard.is_empty() {
                         guard.unlock();
-                        self.name_to_inner.remove(&subscriber.subscribers.name);
+                        self.name_to_topic.remove(&subscriber.topic.name);
                     }
                 }
             }
