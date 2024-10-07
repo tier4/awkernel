@@ -2,17 +2,18 @@
 
 extern crate alloc;
 
-use alloc::format;
+use alloc::{borrow::Cow, format, string::String, vec};
 use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn,
+    sleep, spawn, spawn_reactor,
     task::perf::add_context_restore_end,
     uptime,
 };
 use core::{
     ptr::write_volatile,
+    str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -118,4 +119,46 @@ pub async fn run() {
         )
         .await;
     }
+
+    spawn(
+        "hoge".into(),
+        async move {
+            let publisher =
+                create_publisher::<i32>("topic1".into(), pubsub::Attribute::default()).unwrap();
+            loop {
+                sleep(Duration::from_secs(1)).await;
+                publisher.send(1 as i32);
+            }
+        },
+        SchedulerType::FIFO,
+    )
+    .await;
+
+    spawn(
+        "fuga".into(),
+        async move {
+            let publisher =
+                create_publisher::<String>("topic2".into(), pubsub::Attribute::default()).unwrap();
+            loop {
+                sleep(Duration::from_secs(1)).await;
+                publisher.send(String::from_str("1").unwrap());
+            }
+        },
+        SchedulerType::FIFO,
+    )
+    .await;
+
+    let f = |(a, b): (i32, String)| -> (f64, bool) {
+        log::debug!("hello from reactor");
+        (a as f64, b.is_empty())
+    };
+
+    let ret = spawn_reactor::<_, (i32, String), _>(
+        "my_reactor".into(),
+        f,
+        vec![Cow::from("topic1"), Cow::from("topic2")],
+        vec![Cow::from("result1"), Cow::from("result2")],
+        SchedulerType::FIFO,
+    )
+    .await;
 }
