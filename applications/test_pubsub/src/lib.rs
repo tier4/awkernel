@@ -127,7 +127,8 @@ pub async fn run() {
                 create_publisher::<i32>("topic1".into(), pubsub::Attribute::default()).unwrap();
             loop {
                 sleep(Duration::from_secs(1)).await;
-                publisher.send(1 as i32);
+                log::debug!("hello from hoge");
+                publisher.send(1 as i32).await;
             }
         },
         SchedulerType::FIFO,
@@ -141,7 +142,8 @@ pub async fn run() {
                 create_publisher::<String>("topic2".into(), pubsub::Attribute::default()).unwrap();
             loop {
                 sleep(Duration::from_secs(1)).await;
-                publisher.send(String::from_str("1").unwrap());
+                log::debug!("hello from fuga");
+                publisher.send(String::from_str("1").unwrap()).await;
             }
         },
         SchedulerType::FIFO,
@@ -149,7 +151,7 @@ pub async fn run() {
     .await;
 
     let f = |(a, b): (i32, String)| -> (f64, bool) {
-        log::debug!("hello from reactor");
+        log::debug!("hello from reactor a = {} b = {}", a, b);
         (a as f64, b.is_empty())
     };
 
@@ -161,4 +163,6 @@ pub async fn run() {
         SchedulerType::FIFO,
     )
     .await;
+
+    ret.await;
 }
