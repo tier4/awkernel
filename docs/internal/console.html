@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Memory Allocator - Awkernel</title>
+        <title>Console - Awkernel</title>
 
 
         <!-- Custom HTML head -->
@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html" class="active"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html" class="active"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -173,135 +173,166 @@
 
                 <div id="content" class="content">
                     <main>
-                        <h1 id="memory-allocator"><a class="header" href="#memory-allocator">Memory Allocator</a></h1>
-<p>Awkernel uses <a href="https://github.com/yvt/rlsf">rlsf</a>, which implements Two-Level Segregated Fit (TLSF) memory allocator.
-The <code>Tallock</code> structure represents an allocator in Awkernel,
-which contains a primary allocator and a backup allocator.
-Async/await tasks use only the primary allocator,
-but kernel tasks, such as interrupt handlers,
-use both the primary and the backup allocators for safety.</p>
-<p>The following code shows how to use the primary and backup allocators in the task scheduler defined in
-<a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">awkernel_async_lib/src/task.rs</a>.</p>
+                        <h1 id="console"><a class="header" href="#console">Console</a></h1>
+<p><code>Console</code> is a trait for the console and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>pub fn run_main() {
-    loop {
-        if let Some(task) = get_next_task() {
-            // Use the primary memory allocator.
-            #[cfg(not(feature = "std"))]
-            unsafe {
-                awkernel_lib::heap::TALLOC.use_primary()
-            };
+</span>pub trait Console: Write + Send {
+    /// Enable the serial port.
+    fn enable(&amp;mut self);
 
-            let result = catch_unwind(|| {
-                guard.poll_unpin(&amp;mut ctx)
-            });
+    /// Disable the serial port.
+    fn disable(&amp;mut self);
 
-            // Use the primary and backup memory allocator.
-            unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
-            };
+    /// Enable the reception interrupt.
+    fn enable_recv_interrupt(&amp;mut self);
+
+    /// Disable the reception interrupt.
+    fn disable_recv_interrupt(&amp;mut self);
+
+    /// Acknowledge to the reception interrupt.
+    fn acknowledge_recv_interrupt(&amp;mut self);
+
+    /// Get IRQ#.
+    fn irq_id(&amp;self) -&gt; u16;
+
+    /// Read a byte.
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt;;
+
+    /// Write a byte.
+    fn put(&amp;mut self, data: u8);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the <code>Console</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn register_unsafe_puts(console: unsafe fn(&amp;str))</code></td><td>Register the unsafe <code>puts</code> function.</td></tr>
+<tr><td><code>unsafe fn unsafe_puts(data: &amp;str)</code></td><td>Write a string.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u32(num: u32)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u64(num: u64)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u96(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u128(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>fn register_console(console: Box&lt;dyn Console&gt;)</code></td><td>Register the console.</td></tr>
+<tr><td><code>fn enable()</code></td><td>Enable the console.</td></tr>
+<tr><td><code>fn disable()</code></td><td>Disable the console.</td></tr>
+<tr><td><code>fn enable_recv_interrupt()</code></td><td>Enable the reception interrupt.</td></tr>
+<tr><td><code>fn disable_recv_interrupt()</code></td><td>Disable the reception interrupt.</td></tr>
+<tr><td><code>fn acknowledge_recv_interrupt()</code></td><td>Acknowledge to the reception interrupt.</td></tr>
+<tr><td><code>fn irq_id()</code></td><td>Get IRQ#.</td></tr>
+<tr><td><code>fn get()</code></td><td>Read a byte.</td></tr>
+<tr><td><code>fn put(data: u8)</code></td><td>Write a byte.</td></tr>
+<tr><td><code>fn print(data: &amp;str)</code></td><td>Write a string.</td></tr>
+</tbody></table>
+</div>
+<p>When booting, an unsafe console should be registered by calling the <code>register_unsafe_puts</code> function.
+After that, the <code>unsafe_puts</code> and <code>unsafe_print_hex</code> functions can be used to print messages.
+Note that these functions are unsafe because they may cause data races.</p>
+<p>After enabling mutual exclusion, a safe console should be registered by calling the <code>register_console</code> function.
+Then, the <code>print</code>, <code>get</code>, and <code>put</code> functions can be used to print messages.</p>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<p>x86_64 should equip UART 16550 serial ports, and Awkerenel uses the serial port to output messages as a console.
+UART 16550's device driver is implemented in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/uart/uart_16550">awkernel_drivers/src/uart/uart_16550</a>
+whose original source code is from <a href="https://github.com/rust-osdev/uart_16550">uart_16550</a>.
+The <code>Uart</code> structure defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/console.rs">kernel/src/arch/x86_64/console.rs</a>
+implements the <code>Console</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Uart {
+    port: uart_16550::SerialPort,
+    enabled: bool,
+}
+
+impl Console for Uart {
+    fn enable(&amp;mut self) {
+        self.enabled = true;
+    }
+
+    fn disable(&amp;mut self) {
+        self.enabled = false;
+    }
+
+    fn enable_recv_interrupt(&amp;mut self) {
+        self.port.enable_interrupt();
+    }
+
+    fn disable_recv_interrupt(&amp;mut self) {
+        self.port.disable_interrupt();
+    }
+
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        // nothing to do
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        36 // COM1
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if self.enabled {
+            self.port.try_receive()
+        } else {
+            None
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        if self.enabled {
+            self.port.send(data);
         }
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<p>In <code>run_main</code> function, a executable task is taken from the task queue by <code>get_next_task</code> function.
-Before executing the task, <code>awkernel_lib::heap::TALLOC.use_primary()</code> is called to use only the primary memory allocator.
-The task is executed by calling <code>poll_unpin</code> method in the <code>catch_unwind</code> block to catch a panic.
-If the task exhausts the primary memory region, it will panic and <code>run_main</code> function will catch the panic.
-After catching the panic, <code>awkernel_lib::heap::TALLOC.use_primary_then_backup()</code> is called to use both the primary and backup memory allocators,
-and safely deallocate the task.</p>
-<p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<p>AArch64 should equip PL011 UART serial ports, and Awkerenel uses the serial port to output messages as a console.
+PL011 UART's device driver is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/uart/pl011.rs">awkernel_drivers/src/uart/pl011.rs</a>,
+and it implements the <code>Console</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>struct Allocator(Mutex&lt;TLSFAlloc&gt;);
-struct BackUpAllocator(Mutex&lt;TLSFAlloc&gt;);
-
-pub struct Talloc {
-    primary: Allocator,
-    backup: BackUpAllocator,
-
-    /// bitmap for each CPU to decide which allocator to use
-    flags: [AtomicU32; NUM_MAX_CPU / 32],
-
-    primary_start: AtomicUsize,
-    primary_size: AtomicUsize,
-    backup_start: AtomicUsize,
-    backup_size: AtomicUsize,
-}
-<span class="boring">}</span></code></pre></pre>
-<p>The <code>Talloc</code> structure is defined as a global allocator as follows.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>#[global_allocator]
-pub static TALLOC: Talloc = Talloc::new();
-<span class="boring">}</span></code></pre></pre>
-<p>There are 2 functions to initialize memory regions of the primary and backup allocators.</p>
-<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
-<tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the memory region of the primary allocator.</td></tr>
-<tr><td><code>fn init_backup(backup_start: usize, backup_size: usize)</code></td><td>Initialize the memory region of the backup allocator.</td></tr>
-</tbody></table>
-</div>
-<h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
-<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
-<p>For x86_64, the primary and backup allocators are initialized
-in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions defined in
-<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
-These functions initialize virtual memory regions for the primary and backup heaps
-before initializing the primary and backup allocators.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn init_primary_heap(
-    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
-    page_allocators: &amp;mut BTreeMap&lt;u32, VecPageAllocator&gt;,
-) {
-    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
-
-    let num_pages = map_primary_heap(page_table, page_allocators, primary_start);
-
-    let heap_size = num_pages * PAGESIZE;
-    unsafe { awkernel_lib::heap::init_primary(primary_start, heap_size) };
-
-    // omitted
-}
-<span class="boring">}</span></code></pre></pre>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>fn init_backup_heap(
-    boot_info: &amp;mut BootInfo,
-    page_table: &amp;mut OffsetPageTable&lt;'static&gt;,
-) -&gt; (usize, MemoryRegion, Option&lt;PhysFrame&gt;) {
-    // omitted: Initialize virtual memory regions for the backup heap.
-
-    // Initialize.
-    // Enable heap allocator.
-    unsafe {
-        awkernel_lib::heap::init_backup(HEAP_START, BACKUP_HEAP_SIZE);
-        awkernel_lib::heap::TALLOC.use_primary_then_backup();
+</span>impl Console for PL011 {
+    fn enable(&amp;mut self) {
+        use registers::CR;
+        registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE, self.base_addr); // enable, Rx, Tx
     }
 
-    (backup_pages, backup_heap_region, next_page)
-}
-<span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
-<p>For x86_64, the primary and backup allocators are initialized
-in <code>primary_cpu</code> function defined in
-<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>
-<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
-</span><span class="boring">fn main() {
-</span>unsafe fn primary_cpu(device_tree_base: usize) {
-    // omitted
+    fn disable(&amp;mut self) {
+        registers::UART0_CR.write(registers::CR::empty(), self.base_addr);
+    }
 
-    // 5. Enable heap allocator.
-    let backup_start = HEAP_START;
-    let backup_size = BACKUP_HEAP_SIZE;
-    let primary_start = HEAP_START + BACKUP_HEAP_SIZE;
-    let primary_size = vm.get_heap_size().unwrap() - BACKUP_HEAP_SIZE;
+    fn enable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.setbits(IMSC_RXIM, self.base_addr);
+    }
 
-    heap::init_primary(primary_start, primary_size);
-    heap::init_backup(backup_start, backup_size);
+    fn disable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.clrbits(IMSC_RXIM, self.base_addr);
+    }
 
-    // omitted
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        registers::UART0_ICR.write(registers::ICR::RXIC, self.base_addr);
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        self.irq
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if registers::UART0_FR.read(self.base_addr) &amp; 0x10 != 0 {
+            None
+        } else {
+            Some(registers::UART0_DR.read(self.base_addr) as u8)
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while registers::UART0_FR.read(self.base_addr) &amp; 0x20 != 0 {
+            core::hint::spin_loop();
+        }
+
+        // write the character to the buffer
+        registers::UART0_DR.write(data as u32, self.base_addr);
+    }
 }
 <span class="boring">}</span></code></pre></pre>
 
@@ -309,11 +340,11 @@ in <code>primary_cpu</code> function defined in
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internal/interrupt_controller.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../internal/synchronization.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../internal/scheduler.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../internal/logger.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -323,11 +354,11 @@ in <code>primary_cpu</code> function defined in
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internal/interrupt_controller.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../internal/synchronization.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../internal/scheduler.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../internal/logger.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

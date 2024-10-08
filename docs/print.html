@@ -89,7 +89,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.3.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.4.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.5.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.6.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.7.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.8.</strong> PCIe</a></li><li class="chapter-item expanded "><a href="internal/synchronization.html"><strong aria-hidden="true">2.9.</strong> Synchronization</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -176,9 +176,244 @@
                     <main>
                         <h1 id="awkernel"><a class="header" href="#awkernel">Awkernel</a></h1>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="internal"><a class="header" href="#internal">Internal</a></h1>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h1>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync.rs">awkernel_lib/src/sync.rs</a> module provides synchronization primitives.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/mutex.rs"><code>Mutex</code>:awkernel_lib/src/sync/mutex.rs</a> is used for mutual exclusion.
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/rwlock.rs"><code>RwLock</code>:awkernel_lib/src/sync/rwlock.rs</a> is used for read-write locks.
+Note that these locks are spin-based, and interrupts are disabled during the critical section.</p>
+<h2 id="mutex"><a class="header" href="#mutex">Mutex</a></h2>
+<p>Awkernel adopts MCS lock [1] for mutual exclusion by default
+because the safety and liveliness of MCS lock have been formally verified [2].
+Therefore, <code>MCSNode</code> have to be used when using <code>Mutex</code> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use alloc::sync::Arc;
+
+let data = Arc::new(Mutex::new(0));
+
+// acquire the lock
+let mut node = MCSNode::new();
+let guard = data.lock(&amp;mut node);
+
+*guard = 10;
+<span class="boring">}</span></code></pre></pre>
+<h2 id="rwlock"><a class="header" href="#rwlock">RwLock</a></h2>
+<p><code>RwLock</code> can be used as normal read-write lock as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>use awkernel_lib::sync::rwlock::RwLock;
+use alloc::sync::Arc;
+
+let data = Arc::new(RwLock::new(0));
+
+{
+    // write lock
+    let guard = data.write();
+    *guard = 10;
+}
+
+{
+    // read lock
+    let guard = data.read();
+    assert_eq!(*guard, 10);
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="references"><a class="header" href="#references">References</a></h2>
+<ol>
+<li>J. M. Mellor-Crummey and M. L. Scott. Algorithms for scalable synchronization on shared-
+memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
+<li>J. Kim, V. Sjöberg, R. Gu, Z. Shao. Safety and Liveness of MCS Lock - Layer by Layer. APLAS 2017: 273-297</li>
+</ol>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="console"><a class="header" href="#console">Console</a></h1>
+<p><code>Console</code> is a trait for the console and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Console: Write + Send {
+    /// Enable the serial port.
+    fn enable(&amp;mut self);
+
+    /// Disable the serial port.
+    fn disable(&amp;mut self);
+
+    /// Enable the reception interrupt.
+    fn enable_recv_interrupt(&amp;mut self);
+
+    /// Disable the reception interrupt.
+    fn disable_recv_interrupt(&amp;mut self);
+
+    /// Acknowledge to the reception interrupt.
+    fn acknowledge_recv_interrupt(&amp;mut self);
+
+    /// Get IRQ#.
+    fn irq_id(&amp;self) -&gt; u16;
+
+    /// Read a byte.
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt;;
+
+    /// Write a byte.
+    fn put(&amp;mut self, data: u8);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the <code>Console</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn register_unsafe_puts(console: unsafe fn(&amp;str))</code></td><td>Register the unsafe <code>puts</code> function.</td></tr>
+<tr><td><code>unsafe fn unsafe_puts(data: &amp;str)</code></td><td>Write a string.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u32(num: u32)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u64(num: u64)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u96(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>unsafe fn unsafe_print_hex_u128(num: u128)</code></td><td>Write a hexadecimal number.</td></tr>
+<tr><td><code>fn register_console(console: Box&lt;dyn Console&gt;)</code></td><td>Register the console.</td></tr>
+<tr><td><code>fn enable()</code></td><td>Enable the console.</td></tr>
+<tr><td><code>fn disable()</code></td><td>Disable the console.</td></tr>
+<tr><td><code>fn enable_recv_interrupt()</code></td><td>Enable the reception interrupt.</td></tr>
+<tr><td><code>fn disable_recv_interrupt()</code></td><td>Disable the reception interrupt.</td></tr>
+<tr><td><code>fn acknowledge_recv_interrupt()</code></td><td>Acknowledge to the reception interrupt.</td></tr>
+<tr><td><code>fn irq_id()</code></td><td>Get IRQ#.</td></tr>
+<tr><td><code>fn get()</code></td><td>Read a byte.</td></tr>
+<tr><td><code>fn put(data: u8)</code></td><td>Write a byte.</td></tr>
+<tr><td><code>fn print(data: &amp;str)</code></td><td>Write a string.</td></tr>
+</tbody></table>
+</div>
+<p>When booting, an unsafe console should be registered by calling the <code>register_unsafe_puts</code> function.
+After that, the <code>unsafe_puts</code> and <code>unsafe_print_hex</code> functions can be used to print messages.
+Note that these functions are unsafe because they may cause data races.</p>
+<p>After enabling mutual exclusion, a safe console should be registered by calling the <code>register_console</code> function.
+Then, the <code>print</code>, <code>get</code>, and <code>put</code> functions can be used to print messages.</p>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<p>x86_64 should equip UART 16550 serial ports, and Awkerenel uses the serial port to output messages as a console.
+UART 16550's device driver is implemented in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/uart/uart_16550">awkernel_drivers/src/uart/uart_16550</a>
+whose original source code is from <a href="https://github.com/rust-osdev/uart_16550">uart_16550</a>.
+The <code>Uart</code> structure defined in
+<a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/console.rs">kernel/src/arch/x86_64/console.rs</a>
+implements the <code>Console</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct Uart {
+    port: uart_16550::SerialPort,
+    enabled: bool,
+}
+
+impl Console for Uart {
+    fn enable(&amp;mut self) {
+        self.enabled = true;
+    }
+
+    fn disable(&amp;mut self) {
+        self.enabled = false;
+    }
+
+    fn enable_recv_interrupt(&amp;mut self) {
+        self.port.enable_interrupt();
+    }
+
+    fn disable_recv_interrupt(&amp;mut self) {
+        self.port.disable_interrupt();
+    }
+
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        // nothing to do
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        36 // COM1
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if self.enabled {
+            self.port.try_receive()
+        } else {
+            None
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        if self.enabled {
+            self.port.send(data);
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<p>AArch64 should equip PL011 UART serial ports, and Awkerenel uses the serial port to output messages as a console.
+PL011 UART's device driver is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/uart/pl011.rs">awkernel_drivers/src/uart/pl011.rs</a>,
+and it implements the <code>Console</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl Console for PL011 {
+    fn enable(&amp;mut self) {
+        use registers::CR;
+        registers::UART0_CR.write(CR::EN | CR::RXE | CR::TXE, self.base_addr); // enable, Rx, Tx
+    }
+
+    fn disable(&amp;mut self) {
+        registers::UART0_CR.write(registers::CR::empty(), self.base_addr);
+    }
+
+    fn enable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.setbits(IMSC_RXIM, self.base_addr);
+    }
+
+    fn disable_recv_interrupt(&amp;mut self) {
+        registers::UART0_IMSC.clrbits(IMSC_RXIM, self.base_addr);
+    }
+
+    fn acknowledge_recv_interrupt(&amp;mut self) {
+        registers::UART0_ICR.write(registers::ICR::RXIC, self.base_addr);
+    }
+
+    fn irq_id(&amp;self) -&gt; u16 {
+        self.irq
+    }
+
+    fn get(&amp;mut self) -&gt; Option&lt;u8&gt; {
+        if registers::UART0_FR.read(self.base_addr) &amp; 0x10 != 0 {
+            None
+        } else {
+            Some(registers::UART0_DR.read(self.base_addr) as u8)
+        }
+    }
+
+    fn put(&amp;mut self, data: u8) {
+        // wait until we can send
+        unsafe { asm!("nop;") };
+        while registers::UART0_FR.read(self.base_addr) &amp; 0x20 != 0 {
+            core::hint::spin_loop();
+        }
+
+        // write the character to the buffer
+        registers::UART0_DR.write(data as u32, self.base_addr);
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<div style="break-before: page; page-break-before: always;"></div><h1 id="logger"><a class="header" href="#logger">Logger</a></h1>
+<p>Awkernel uses <a href="https://crates.io/crates/log">log</a> crate for logging.
+So, you can use the log macros like defined in this crate as follows.
+The logger uses the console module internally.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>log::error!("This is an error message.");
+log::warn!("This is a warning message.");
+log::info!("Hello, world!");
+log::debug!("This is a debug message.");
+log::trace!("This is a trace message.");
+<span class="boring">}</span></code></pre></pre>
+<p><code>log::debug!</code> is useful when implementing and debugging the kernel
+because it displays a message with the file name and line number where the macro is called.</p>
+<p>You can use <code>log::set_max_level</code> function to set the maximum log level as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>log::set_max_level(log::LevelFilter::Trace);
+<span class="boring">}</span></code></pre></pre>
+<h1 id="buffered-logger"><a class="header" href="#buffered-logger">Buffered Logger</a></h1>
+<p>After booting Awkernel, the logger implementation defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/logger.rs">awkernel_lib/src/logger.rs</a> is switched to a buffered logger defined in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/buffered_logger.rs">applications/awkernel_services/src/buffered_logger.rs</a>.
+The buffered logger buffers log messages and writes them to the UART in a batch.
+Note that the buffered logger will discard messages if the buffer is full to avoid memory exhaustion.
+The buffered logger is executed as an async/await task and spawned in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/lib.rs">applications/awkernel_services/src/main.rs</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="boot"><a class="header" href="#boot">Boot</a></h1>
 <p>In this section, we explain how Awkernel boots.</p>
-<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
 <h3 id="primary-core"><a class="header" href="#primary-core">Primary Core</a></h3>
 <p>The primary core calls <code>kernel_main</code> of <code>x86_64</code> first, which
 is called by UEFI.</p>
@@ -205,7 +440,7 @@ It eventually calls <code>main</code> like the primary core.</p>
     _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
     non_primary_kernel_main:kernel_main.rs--&gt;main:main.rs;
 </pre>
-<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
 <h3 id="primary-and-non-primary-cores"><a class="header" href="#primary-and-non-primary-cores">Primary and Non-primary Cores</a></h3>
 <p><code>_start</code> defined in <code>boot.S</code> is the entry point for both the primary and non-primary cores.
 <code>_start</code> eventually calls <code>kernel_main</code> in <code>kernel_main.rs</code>.
@@ -296,8 +531,8 @@ The <code>Interrupt</code> trait provides a way to enable and disable interrupts
 The <code>CPU</code> trait provides a way to get the current CPU ID.
 The <code>Mapper</code> trait provides a way to map and unmap virtual memory regions.</p>
 <p>For the <code>std</code> environment, the <code>Arch</code> trait does not require the <code>Mapper</code> trait because user space applications do not need to manage memory mappings.</p>
-<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
-<h2 id="x86_64-1"><a class="header" href="#x86_64-1">x86_64</a></h2>
+<h1 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h1>
+<h2 id="x86_64-2"><a class="header" href="#x86_64-2">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code>:awkernel_lib/src/arch/x86_64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
@@ -306,7 +541,7 @@ In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code
 <li><code>CPU</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a></li>
 <li><code>Mapper</code>: <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a></li>
 </ul>
-<h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
+<h2 id="aarch64-2"><a class="header" href="#aarch64-2">AArch64</a></h2>
 <p>For AArch64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code>:awkernel_lib/src/arch/aarch64.rs</a> structure implements the <code>Arch</code> trait.
 In addition, it implements the <code>Delay</code>, <code>Interrupt</code>, <code>CPU</code>, and <code>Mapper</code> traits as follows.</p>
 <ul>
@@ -370,8 +605,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 <tr><td><code>fn pause()</code></td><td>Pause a CPU during busy loop to reduce CPU power consumption.</td></tr>
 </tbody></table>
 </div>
-<h1 id="implementation-1"><a class="header" href="#implementation-1">Implementation</a></h1>
-<h2 id="x86_64-2"><a class="header" href="#x86_64-2">x86_64</a></h2>
+<h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
+<h2 id="x86_64-3"><a class="header" href="#x86_64-3">x86_64</a></h2>
 <p>For x86_64, the the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Delay</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/delay.rs">awkernel_lib/src/arch/x86_64/delay.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -416,7 +651,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 <p>Awkernel currently uses High Precision Event Timer (HPET) to get uptime in microseconds.
 So, if you want to use Awkernel on KVM, you need to enable HPET in the virtual machine settings.
 To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.</p>
-<h2 id="aarch64-2"><a class="header" href="#aarch64-2">AArch64</a></h2>
+<h2 id="aarch64-3"><a class="header" href="#aarch64-3">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Delay</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/delay.rs">awkernel_lib/src/arch/aarch64/delay.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -482,8 +717,8 @@ but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.<
 <tr><td><code>fn num_cpu() -&gt; usize</code></td><td>Return the number of CPUs.</td></tr>
 </tbody></table>
 </div>
-<h1 id="implementation-2"><a class="header" href="#implementation-2">Implementation</a></h1>
-<h2 id="x86_64-3"><a class="header" href="#x86_64-3">x86_64</a></h2>
+<h1 id="implementation-3"><a class="header" href="#implementation-3">Implementation</a></h1>
+<h2 id="x86_64-4"><a class="header" href="#x86_64-4">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>CPU</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/cpu.rs">awkernel_lib/src/arch/x86_64/cpu.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -516,7 +751,7 @@ but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.<
 It assumes that the CPU ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
 If you find any hardware that does not follow this assumption,
 please let us know or send us a PR.</p>
-<h2 id="aarch64-3"><a class="header" href="#aarch64-3">AArch64</a></h2>
+<h2 id="aarch64-4"><a class="header" href="#aarch64-4">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>CPU</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/cpu.rs">awkernel_lib/src/arch/aarch64/cpu.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -568,8 +803,8 @@ After the scope, interrupts are enabled automatically as follows.</p>
 <span class="boring">}</span></code></pre></pre>
 <p>There are <code>enable</code> and <code>disable</code> functions in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.
 You can use these functions rather than using the <code>InterruptGuard</code>.</p>
-<h1 id="implementation-3"><a class="header" href="#implementation-3">Implementation</a></h1>
-<h2 id="x86_64-4"><a class="header" href="#x86_64-4">x86_64</a></h2>
+<h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
+<h2 id="x86_64-5"><a class="header" href="#x86_64-5">x86_64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64.rs"><code>X86</code></a> structure implements the <code>Interrupt</code> trait in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/interrupt.rs">awkernel_lib/src/arch/x86_64/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -601,7 +836,7 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
 }
 <span class="boring">}</span></code></pre></pre>
 <p>For x86_64, Awkernel uses the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate to enable and disable interrupts.</p>
-<h2 id="aarch64-4"><a class="header" href="#aarch64-4">AArch64</a></h2>
+<h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Interrupt</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs">awkernel_lib/src/arch/aarch64/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -624,7 +859,7 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
-<p>The <code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
+<p><code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -650,7 +885,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     unsafe fn unmap(vm_addr: VirtAddr);
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
+<p><code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
 These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
 <p>The <code>Flags</code> type is used to represent the flags of the page table entry.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
@@ -679,15 +914,15 @@ pub struct Flags {
 </span><span class="boring">fn main() {
 </span>pub const PAGESIZE: usize = 4 * 1024;
 <span class="boring">}</span></code></pre></pre>
-<h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
-<h2 id="x86_64-5"><a class="header" href="#x86_64-5">x86_64</a></h2>
+<h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
+<h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
 <p>For x86_64, the <code>X86</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a>.
 To handle page tables, the <code>OffsetPageTable</code> structure defined in the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate is used.</p>
-<h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
+<h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
 <p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
 To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
-<p>The <code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
+<p><code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -710,10 +945,10 @@ where
     ) -&gt; Result&lt;(), E&gt;;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>map_to</code> method of the <code>PageTable</code> is used to specify a page frame allocator,
+<p><code>map_to</code> method of <code>PageTable</code> is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
-<p>The <code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
+<p><code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -723,10 +958,10 @@ It is defined as follows.</p>
     fn size(&amp;self) -&gt; usize;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
-It is used by the <code>PageTable</code> as described above.</p>
-<h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
-<h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
+<p><code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
+It is used by <code>PageTable</code> as described above.</p>
+<h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
+<h2 id="x86_64-7"><a class="header" href="#x86_64-7">x86_64</a></h2>
 <p>For x86_64, the <code>PageTable</code> structure
 is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/page_table.rs">awkernel_lib/src/arch/x86_64/page_table.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -767,7 +1002,7 @@ is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-6"><a class="header" href="#aarch64-6">AArch64</a></h2>
+<h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
 <p>For AArch64, the <code>PageTable</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs">awkernel_lib/src/arch/aarch64/page_table.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -814,7 +1049,7 @@ pub struct PageTable {
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="context-switch"><a class="header" href="#context-switch">Context Switch</a></h1>
-<p>The <code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
+<p><code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
 is a trait that enables preemptive multitasking.
 It provides methods to set the stack pointer, entry point,
 and argument of the context as follows.</p>
@@ -857,8 +1092,8 @@ no_preempt = []
 </code></pre>
 <p>If you want to disable preemption, please enable the <code>no_preempt</code> feature as
 <code>default = ["no_preempt"]</code>.</p>
-<h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
-<h2 id="x86_64-7"><a class="header" href="#x86_64-7">x86_64</a></h2>
+<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
 <p>For x86_64, the <code>Context</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs">awkernel_lib/src/context/x86_64.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -953,7 +1188,7 @@ entry_point:
 "
 );
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
+<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
 <p>For AArch64, the <code>Context</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs">awkernel_lib/src/context/aarch64.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1066,7 +1301,7 @@ entry_point:
 );
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt-controller"><a class="header" href="#interrupt-controller">Interrupt Controller</a></h1>
-<p>The <code>InterruptController</code> is a trait for interrupt controllers.
+<p><code>InterruptController</code> is a trait for interrupt controllers.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1135,7 +1370,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 </tbody></table>
 </div>
 <h1 id="handling-interrupts"><a class="header" href="#handling-interrupts">Handling Interrupts</a></h1>
-<h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
+<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
 <p><code>handle_irq</code> is called in interrupt handlers defined in.
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> for x86_64 as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1150,7 +1385,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 }
 <span class="boring">}</span></code></pre></pre>
 <p><code>irq_handler</code> macro is called in each interrupt handler.</p>
-<h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
+<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
 <p>The <code>handle_irqs</code> function is called in interrupt handlers defined in.
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/exception.rs">kernel/src/arch/aarch64/exception.rs</a> for aarch64 as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1163,7 +1398,7 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
 <h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
 <p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
 This means that the target CPU should handle the preemption request if it receives the IPI.</p>
-<h2 id="x86_64-9"><a class="header" href="#x86_64-9">x86_64</a></h2>
+<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
 <p>For x86_64, the <code>handle_preempt</code> function is called in a interrupt handler defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1173,7 +1408,7 @@ This means that the target CPU should handle the preemption request if it receiv
     awkernel_lib::interrupt::handle_preemption();
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
+<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
 <p>For AArch64, handling preemption is performed in the <code>handle_irqs</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1197,14 +1432,14 @@ pub fn handle_irqs() {
     }
 }
 <span class="boring">}</span></code></pre></pre>
-<h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
+<h1 id="implementation-8"><a class="header" href="#implementation-8">Implementation</a></h1>
 <p>There are some device drivers for interrupt controllers in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller">awkernel_drivers/src/interrupt_controller</a>.</p>
-<h2 id="x86_64-10"><a class="header" href="#x86_64-10">x86_64</a></h2>
+<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
 <p>xAPIC and x2APIC are supported for x86_64.</p>
 <ul>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/interrupt_controller/apic.rs">xAPIC and x2APIC</a></li>
 </ul>
-<h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
+<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
 <p>BCM2835's (Raspberry Pi 3) interrupt controller, GICv2 and GICv3 are supported for AAarch64.</p>
 <ul>
 <li><a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller/bcm2835.rs">BCM2835's interrupt controller</a></li>
@@ -1217,9 +1452,38 @@ The <code>Tallock</code> structure represents an allocator in Awkernel,
 which contains a primary allocator and a backup allocator.
 Async/await tasks use only the primary allocator,
 but kernel tasks, such as interrupt handlers,
-use both the primary and the backup allocators for safety.
-Because of the backup allocator,
-kernel tasks can safely handle memory exhaustion in the primary allocator.</p>
+use both the primary and the backup allocators for safety.</p>
+<p>The following code shows how to use the primary and backup allocators in the task scheduler defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs">awkernel_async_lib/src/task.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub fn run_main() {
+    loop {
+        if let Some(task) = get_next_task() {
+            // Use the primary memory allocator.
+            #[cfg(not(feature = "std"))]
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary()
+            };
+
+            let result = catch_unwind(|| {
+                guard.poll_unpin(&amp;mut ctx)
+            });
+
+            // Use the primary and backup memory allocator.
+            unsafe {
+                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+            };
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<p>In <code>run_main</code> function, a executable task is taken from the task queue by <code>get_next_task</code> function.
+Before executing the task, <code>awkernel_lib::heap::TALLOC.use_primary()</code> is called to use only the primary memory allocator.
+The task is executed by calling <code>poll_unpin</code> method in the <code>catch_unwind</code> block to catch a panic.
+If the task exhausts the primary memory region, it will panic and <code>run_main</code> function will catch the panic.
+After catching the panic, <code>awkernel_lib::heap::TALLOC.use_primary_then_backup()</code> is called to use both the primary and backup memory allocators,
+and safely deallocate the task.</p>
 <p>The <code>Tallock</code> structure is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/heap.rs">awkernel_lib/src/heap.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1252,7 +1516,7 @@ pub static TALLOC: Talloc = Talloc::new();
 </tbody></table>
 </div>
 <h1 id="initialization"><a class="header" href="#initialization">Initialization</a></h1>
-<h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
+<h2 id="x86_64-12"><a class="header" href="#x86_64-12">x86_64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
 in <code>init_primary_heap</code> and <code>init_backup_heap</code> functions defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs">kernel/src/arch/x86_64/kernel_main.rs</a> as follows.
@@ -1292,7 +1556,7 @@ before initializing the primary and backup allocators.</p>
     (backup_pages, backup_heap_region, next_page)
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="aarch64-11"><a class="header" href="#aarch64-11">AArch64</a></h2>
+<h2 id="aarch64-12"><a class="header" href="#aarch64-12">AArch64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
 in <code>primary_cpu</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/aarch64/kernel_main.rs">kernel/src/arch/aarch64/kernel_main.rs</a> as follows.</p>
@@ -1314,56 +1578,565 @@ in <code>primary_cpu</code> function defined in
 }
 <span class="boring">}</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
+<p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub(crate) trait Scheduler {
+    /// Enqueue an executable task.
+    /// The enqueued task will be taken by `get_next()`.
+    fn wake_task(&amp;self, task: Arc&lt;Task&gt;);
+
+    /// Get the next executable task.
+    fn get_next(&amp;self) -&gt; Option&lt;Arc&lt;Task&gt;&gt;;
+
+    /// Get the scheduler name.
+    fn scheduler_name(&amp;self) -&gt; SchedulerType;
+
+    #[allow(dead_code)] // TODO: to be removed
+    fn priority(&amp;self) -&gt; u8;
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several functions regarding the scheduler in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a>.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn get_next_task()</code></td><td>Get the next executable task.</td></tr>
+<tr><td><code>fn get_scheduler(sched_type: SchedulerType)</code></td><td>Get a scheduler.</td></tr>
+</tbody></table>
+</div>
+<p><code>SchedulerType</code> is an enum for the scheduler type and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum SchedulerType {
+    FIFO,
+
+    PrioritizedFIFO(u8),
+
+    RR,
+
+    Panicked,
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="sleepingtasks"><a class="header" href="#sleepingtasks">SleepingTasks</a></h2>
+<p><code>SleepingTasks</code> is a struct for managing sleeping tasks and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct SleepingTasks {
+    delta_list: DeltaList&lt;Box&lt;dyn FnOnce() + Send&gt;&gt;,
+    base_time: u64,
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>SleepingTasks</code> struct has the following functions.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn new()</code></td><td>Create a new <code>SleepingTasks</code> instance.</td></tr>
+<tr><td><code>fn sleep_task(&amp;mut self, handler: Box&lt;dyn FnOnce() + Send&gt;, mut dur: u64)</code></td><td>Sleep a task for a certain duration.</td></tr>
+<tr><td><code>fn wake_task(&amp;mut self)</code></td><td>Wake up tasks after sleep.</td></tr>
+</tbody></table>
+</div>
+<h2 id="scheduler-implementation"><a class="header" href="#scheduler-implementation">Scheduler Implementation</a></h2>
+<p>Some schedulers are implemented under the folder <a href="https://github.com/tier4/awkernel/tree/main/awkernel_async_lib/src/scheduler">awkernel_async_lib/src/scheduler</a>.</p>
+<pre><code class="language-shell">$ ls awkernel_async_lib/src/scheduler
+&gt; fifo.rs  panicked.rs  prioritized_fifo.rs  rr.rs
+</code></pre>
+<p>A scheduler can be implemented by implementing <code>Scheduler</code> Trait.
+Each scheduler must be registered in the following three locations.
+<code>fn get_next_task()</code>, <code>fn get_scheduler(sched_type: SchedulerType)</code> and <code>pub enum SchedulerType</code>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="pcie"><a class="header" href="#pcie">PCIe</a></h1>
-<div style="break-before: page; page-break-before: always;"></div><h1 id="synchronization"><a class="header" href="#synchronization">Synchronization</a></h1>
-<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync.rs">awkernel_lib/src/sync.rs</a> module provides synchronization primitives.
-<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/mutex.rs"><code>Mutex</code>:awkernel_lib/src/sync/mutex.rs</a> is used for mutual exclusion.
-<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/sync/rwlock.rs"><code>RwLock</code>:awkernel_lib/src/sync/rwlock.rs</a> is used for read-write locks.
-Note that these locks are spin-based, and interrupts are disabled during the critical section.</p>
-<h2 id="mutex"><a class="header" href="#mutex">Mutex</a></h2>
-<p>Awkernel adopts MCS lock [1] for mutual exclusion by default
-because the safety and liveliness of MCS lock have been formally verified [2].
-Therefore, <code>MCSNode</code> have to be used when using <code>Mutex</code> as follows.</p>
+<p>This section explains the functions and structures defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a>.</p>
+<h2 id="pcietree"><a class="header" href="#pcietree">PCIeTree</a></h2>
+<p><code>PCIeTree</code> is a structure for managing a hierarchical collection of PCIe buses.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use alloc::sync::Arc;
-
-let data = Arc::new(Mutex::new(0));
-
-// acquire the lock
-let mut node = MCSNode::new();
-let guard = data.lock(&amp;mut node);
-
-*guard = 10;
+</span>struct PCIeTree {
+    // - Key: Bus number
+    // - Value: PCIeBus
+    tree: BTreeMap&lt;u8, Box&lt;PCIeBus&gt;&gt;,
+}
 <span class="boring">}</span></code></pre></pre>
-<h2 id="rwlock"><a class="header" href="#rwlock">RwLock</a></h2>
-<p><code>RwLock</code> can be used as normal read-write lock as follows.</p>
+<p>There are several methods regarding the <code>PCIeTree</code> structure.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bridge information for each bus in the tree.</td></tr>
+<tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach all the buses in the tree to enable communication with the PCIe device.</td></tr>
+<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of each bus in the tree based on the PCIe memory range.</td></tr>
+</tbody></table>
+</div><!-- ### Impl fmt::Display -->
+<p><code>PCIeTree</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>use awkernel_lib::sync::rwlock::RwLock;
-use alloc::sync::Arc;
+</span>impl fmt::Display for PCIeTree {
+    fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
+        for (_, bus) in self.tree.iter() {
+            if !bus.devices.is_empty() {
+                write!(f, "{}", bus)?;
+            }
+        }
 
-let data = Arc::new(RwLock::new(0));
-
-{
-    // write lock
-    let guard = data.write();
-    *guard = 10;
-}
-
-{
-    // read lock
-    let guard = data.read();
-    assert_eq!(*guard, 10);
+        Ok(())
+    }
 }
 <span class="boring">}</span></code></pre></pre>
-<h2 id="references"><a class="header" href="#references">References</a></h2>
-<ol>
-<li>J. M. Mellor-Crummey and M. L. Scott. Algorithms for scalable synchronization on shared-
-memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
-<li>J. Kim, V. Sjöberg, R. Gu, Z. Shao. Safety and Liveness of MCS Lock - Layer by Layer. APLAS 2017: 273-297</li>
-</ol>
+<h2 id="pciebus"><a class="header" href="#pciebus">PCIeBus</a></h2>
+<p><code>PCIeBus</code> is a structure that represents individual PCIe buses.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub struct PCIeBus {
+    segment_group: u16,
+    bus_number: u8,
+    base_address: Option&lt;VirtAddr&gt;,
+    info: Option&lt;PCIeInfo&gt;,
+    devices: Vec&lt;ChildDevice&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several methods regarding the <code>PCIeBus</code> structure.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeBus</code> structure.</td></tr>
+<tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bus information by reflecting the bridge details.</td></tr>
+<tr><td><code>fn attach(&amp;mut self)</code></td><td>Attaches all devices connected to the bus.</td></tr>
+<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initializes the base addresses of all devices connected to the bus based on the PCIe memory range.</td></tr>
+</tbody></table>
+</div><!-- ### Impl fmt::Display -->
+<p><code>PCIeBus</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl PCIeDevice for PCIeBus {
+    fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
+        if let Some(info) = self.info.as_ref() {
+            let bfd = info.get_bfd();
+            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            name.into()
+        } else {
+            let name = format!("Bus #{:02x}", self.bus_number);
+            name.into()
+        }
+    }
+
+    fn children(&amp;self) -&gt; Option&lt;&amp;Vec&lt;ChildDevice&gt;&gt; {
+        Some(&amp;self.devices)
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<!-- ### Impl PCIeDevice -->
+<p><code>PCIeBus</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl fmt::Display for PCIeBus {
+    fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
+        print_pcie_devices(self, f, 0)
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="pcieinfo"><a class="header" href="#pcieinfo">PCIeInfo</a></h2>
+<p><code>PCIeInfo</code> is a structure used to store the essential information required to initialize a PCIe device.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Information necessary for initializing the device
+#[derive(Debug)]
+pub struct PCIeInfo {
+    pub(crate) config_space: ConfigSpace,
+    segment_group: u16,
+    bus_number: u8,
+    device_number: u8,
+    function_number: u8,
+    id: u16,
+    vendor: u16,
+    revision_id: u8,
+    interrupt_pin: u8,
+    pcie_class: pcie_class::PCIeClass,
+    device_name: Option&lt;pcie_id::PCIeID&gt;,
+    pub(crate) header_type: u8,
+    base_addresses: [BaseAddress; 6],
+    msi: Option&lt;capability::msi::Msi&gt;,
+    msix: Option&lt;capability::msix::Msix&gt;,
+    pcie_cap: Option&lt;capability::pcie_cap::PCIeCap&gt;,
+
+    // The bridge having this device.
+    bridge_bus_number: Option&lt;u8&gt;,
+    bridge_device_number: Option&lt;u8&gt;,
+    bridge_function_number: Option&lt;u8&gt;,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several methods regarding <code>PCIeInfo</code> structure.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn from_io(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
+<tr><td><code>fn from_addr(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using virtual address.</td></tr>
+<tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeInfo</code> structure.</td></tr>
+<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of the <code>PCIeInfo</code> based on the PCIe memory range.</td></tr>
+<tr><td><code>pub fn get_bfd(&amp;self)</code></td><td>Get PCIe information in BDF (Bus, Device, Function) format.</td></tr>
+<tr><td><code>pub fn get_secondary_bus(&amp;self)</code></td><td>Get the number of the PCIe secondary bus.</td></tr>
+<tr><td><code>pub fn get_device_name(&amp;self)</code></td><td>Get the name of the PCIe device.</td></tr>
+<tr><td><code>pub fn get_class(&amp;self)</code></td><td>Get the PCIe device classification.</td></tr>
+<tr><td><code>pub fn get_id(&amp;self)</code></td><td>Get the PCIe device ID.</td></tr>
+<tr><td><code>pub fn get_revision_id(&amp;self)</code></td><td>Get the PCIe revision ID.</td></tr>
+<tr><td><code>pub fn set_revision_id(&amp;mut self, revision_id: u8)</code></td><td>Set the PCIe revision ID.</td></tr>
+<tr><td><code>pub fn get_msi_mut(&amp;mut self)</code></td><td>Get a mutable reference to the MSI (Message Signaled Interrupts) of the PCIe device.</td></tr>
+<tr><td><code>pub fn get_msix_mut(&amp;mut self)</code></td><td>Get a mutable reference to the MSI-X (Message Signaled Interrupts eXtended) of the PCIe device.</td></tr>
+<tr><td><code>pub fn get_pcie_cap_mut(&amp;mut self)</code></td><td>Get a mutable reference to the PCIe capabilities pointer (extended functionality) of the device.</td></tr>
+<tr><td><code>pub fn read_status_command(&amp;self)</code></td><td>Get the value of the STATUS_COMMAND register of the PCIe device.</td></tr>
+<tr><td><code>pub fn write_status_command(&amp;mut self, csr: registers::StatusCommand)</code></td><td>Set the value of the STATUS_COMMAND register of the PCIe device.</td></tr>
+<tr><td><code>pub fn get_segment_group(&amp;self)</code></td><td>Get the segment group to which the PCIe device belongs.</td></tr>
+<tr><td><code>pub fn get_interrupt_line(&amp;self)</code></td><td>Get the interrupt line number for the PCIe device.</td></tr>
+<tr><td><code>pub fn set_interrupt_line(&amp;mut self, irq: u8)</code></td><td>Set the interrupt line number for the PCIe device.</td></tr>
+<tr><td><code>pub fn get_interrupt_pin(&amp;self)</code></td><td>Get the interrupt pin number of the PCIe device.</td></tr>
+<tr><td><code>pub(crate) fn read_capability(&amp;mut self)</code></td><td>Check PCIe device extension functionality and construct structures for extensions such as MSI, MSI-X, etc.</td></tr>
+<tr><td><code>fn read_bar(&amp;mut self)</code></td><td>Read the base address of the PCIe device and reflect it in the <code>PCIeInfo</code> structure.</td></tr>
+<tr><td><code>pub(crate) fn map_bar(&amp;mut self)</code></td><td>Map the base address of the PCIe device to a page.</td></tr>
+<tr><td><code>pub fn get_bar(&amp;self, i: usize)</code></td><td>Get the base address at the specified index.</td></tr>
+<tr><td><code>fn attach(self)</code></td><td>Initialize the PCIe device based on the information.</td></tr>
+<tr><td><code>pub fn disable_legacy_interrupt(&amp;mut self)</code></td><td>Disable legacy (non-MSI) interrupts on the PCIe device.</td></tr>
+<tr><td><code>pub fn enable_legacy_interrupt(&amp;mut self)</code></td><td>Enable legacy (non-MSI) interrupts on the PCIe device.</td></tr>
+</tbody></table>
+</div><!-- ### Impl fmt::Display -->
+<p><code>PCIeInfo</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl fmt::Display for PCIeInfo {
+    fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
+        write!(
+            f,
+            "{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.segment_group,
+            self.bus_number,
+            self.device_number,
+            self.function_number,
+            self.id,
+            self.pcie_class,
+        )
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="childdevice"><a class="header" href="#childdevice">ChildDevice</a></h2>
+<p><code>ChildDevice</code> is an enum that represents different types of devices and their attachment states on a PCIe bus.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub enum ChildDevice {
+    Bus(Box&lt;PCIeBus&gt;),
+    Attached(Arc&lt;dyn PCIeDevice + Sync + Send&gt;),
+    Attaching,
+    Unattached(Box&lt;PCIeInfo&gt;),
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are several methods regarding <code>ChildDevice</code> enum.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach a child PCIe device.</td></tr>
+<tr><td><code>fn init_base_address(&amp;mut self, ranges: &amp;mut [PCIeRange])</code></td><td>Initialize the base address of a child PCIe device based on the PCIe memory range.</td></tr>
+</tbody></table>
+</div>
+<h2 id="unknowndevice"><a class="header" href="#unknowndevice">UnknownDevice</a></h2>
+<p><code>UnknownDevice</code> is a structure that represents an attached PCIe device including its segment group, bus, device and function numbers.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>struct UnknownDevice {
+    segment_group: u16,
+    bus_number: u8,
+    device_number: u8,
+    function_number: u8,
+    vendor: u16,
+    id: u16,
+    pcie_class: pcie_class::PCIeClass,
+}
+<span class="boring">}</span></code></pre></pre>
+<!-- ### Impl PCIeDevice -->
+<p><code>UnknownDevice</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl PCIeDevice for PCIeBus {
+    fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
+        let bfd = format!(
+            "{:04x}:{:02x}:{:02x}.{:01x}",
+            self.segment_group, self.bus_number, self.device_number, self.function_number
+        );
+
+        let name = format!(
+            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            self.vendor, self.id, self.pcie_class,
+        );
+        name.into()
+    }
+
+    fn children(&amp;self) -&gt; Option&lt;&amp;Vec&lt;ChildDevice&gt;&gt; {
+        None
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="pciedeviceerr"><a class="header" href="#pciedeviceerr">PCIeDeviceErr</a></h2>
+<p><code>PCIeDeviceErr</code> is an enum that represents various error types related to PCIe devices.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Clone)]
+pub enum PCIeDeviceErr {
+    InitFailure,
+    ReadFailure,
+    PageTableFailure,
+    CommandFailure,
+    UnRecognizedDevice { bus: u8, device: u16, vendor: u16 },
+    InvalidClass,
+    Interrupt,
+    NotImplemented,
+    BARFailure,
+}
+<span class="boring">}</span></code></pre></pre>
+<!-- ### Impl fmt::Display -->
+<p><code>PCIeDeviceErr</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl fmt::Display for PCIeDeviceErr {
+    fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
+        match self {
+            Self::InitFailure =&gt; {
+                write!(f, "Failed to initialize the device driver.")
+            }
+            // omitted
+        }
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="initialization-1"><a class="header" href="#initialization-1">Initialization</a></h2>
+<h3 id="x86"><a class="header" href="#x86">x86</a></h3>
+<p>For x86, the PCIe is initialized with ACPI or I/O port by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_acpi</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_io</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Initialize the PCIe with ACPI.
+#[cfg(feature = "x86")]
+pub fn init_with_acpi(acpi: &amp;AcpiTables&lt;AcpiMapper&gt;) -&gt; Result&lt;(), PCIeDeviceErr&gt; {
+    use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
+
+    const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
+
+    let pcie_info = PciConfigRegions::new(acpi).or(Err(PCIeDeviceErr::InitFailure))?;
+    for segment in pcie_info.iter() {
+        let flags = Flags {
+            write: true,
+            execute: false,
+            cache: false,
+            write_through: false,
+            device: true,
+        };
+
+        let mut config_start = segment.physical_address;
+        let config_end = config_start + CONFIG_SPACE_SIZE;
+
+        while config_start &lt; config_end {
+            let phy_addr = PhyAddr::new(config_start);
+            let virt_addr = VirtAddr::new(config_start);
+
+            unsafe {
+                paging::map(virt_addr, phy_addr, flags).or(Err(PCIeDeviceErr::PageTableFailure))?
+            };
+
+            config_start += PAGESIZE;
+        }
+
+        let base_address = segment.physical_address;
+        init_with_addr(segment.segment_group, VirtAddr::new(base_address), None);
+    }
+
+    Ok(())
+}
+<span class="boring">}</span></code></pre></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Initialize the PCIe with IO port.
+#[cfg(feature = "x86")]
+pub fn init_with_io() {
+    init(0, None, PCIeInfo::from_io, None);
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="others"><a class="header" href="#others">Others</a></h3>
+<p>The PCIe is initialized with the base address by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_addr</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// If `ranges` is not None, the base address registers of the device will be initialized by using `ranges`.
+pub fn init_with_addr(
+    segment_group: u16,
+    base_address: VirtAddr,
+    ranges: Option&lt;&amp;mut [PCIeRange]&gt;,
+) {
+    init(
+        segment_group,
+        Some(base_address),
+        PCIeInfo::from_addr,
+        ranges,
+    );
+}
+<span class="boring">}</span></code></pre></pre>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn init&lt;F&gt;(
+    segment_group: u16,
+    base_address: Option&lt;VirtAddr&gt;,
+    f: F,
+    ranges: Option&lt;&amp;mut [PCIeRange]&gt;,
+) where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -&gt; Result&lt;PCIeInfo, PCIeDeviceErr&gt;,
+{
+    let mut visited = BTreeSet::new();
+
+    let mut bus_tree = PCIeTree {
+        tree: BTreeMap::new(),
+    };
+
+    let mut host_bridge_bus = 0;
+
+    //omitted: Construct `PCIeTree` and create a tree structure.
+
+    bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
+
+    if let Some(ranges) = ranges {
+        bus_tree.init_base_address(ranges);
+    }
+
+    bus_tree.attach();
+
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+
+    let mut node = MCSNode::new();
+    let mut pcie_trees = PCIE_TREES.lock(&amp;mut node);
+    pcie_trees.insert(segment_group, Arc::new(bus_tree));
+}
+<span class="boring">}</span></code></pre></pre>
+<h2 id="checking-the-pci-buses"><a class="header" href="#checking-the-pci-buses">Checking the PCI Buses</a></h2>
+<p>The following functions are used to check all devices on the PCIe bus.</p>
+<h3 id="check_bus"><a class="header" href="#check_bus">check_bus</a></h3>
+<p>Check thirty-two devices on the PCIe bus.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[inline]
+fn check_bus&lt;F&gt;(bus: &amp;mut PCIeBus, bus_tree: &amp;mut PCIeTree, visited: &amp;mut BTreeSet&lt;u8&gt;, f: &amp;F)
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -&gt; Result&lt;PCIeInfo, PCIeDeviceErr&gt;,
+{
+    for device in 0..32 {
+        check_device(bus, device, bus_tree, visited, f);
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="check_device"><a class="header" href="#check_device">check_device</a></h3>
+<p>Check eight functions on the device.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[inline]
+fn check_device&lt;F&gt;(
+    bus: &amp;mut PCIeBus,
+    device: u8,
+    bus_tree: &amp;mut PCIeTree,
+    visited: &amp;mut BTreeSet&lt;u8&gt;,
+    f: &amp;F,
+) where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -&gt; Result&lt;PCIeInfo, PCIeDeviceErr&gt;,
+{
+    for function in 0..8 {
+        check_function(bus, device, function, bus_tree, visited, f);
+    }
+}
+<span class="boring">}</span></code></pre></pre>
+<h3 id="check_function"><a class="header" href="#check_function">check_function</a></h3>
+<p>Retrieve PCIe bus information and store it in the <code>PCIeTree</code> structure.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn check_function&lt;F&gt;(
+    bus: &amp;mut PCIeBus,
+    device: u8,
+    function: u8,
+    bus_tree: &amp;mut PCIeTree,
+    visited: &amp;mut BTreeSet&lt;u8&gt;,
+    f: &amp;F,
+) -&gt; bool
+where
+    F: Fn(u16, u8, u8, u8, VirtAddr) -&gt; Result&lt;PCIeInfo, PCIeDeviceErr&gt;,
+{
+    let offset =
+        (bus.bus_number as usize) &lt;&lt; 20 | (device as usize) &lt;&lt; 15 | (function as usize) &lt;&lt; 12;
+
+    let addr = if let Some(base_address) = bus.base_address {
+        base_address + offset
+    } else {
+        VirtAddr::new(0)
+    };
+
+    if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
+
+        // omitted: Push PCIe device to `PCIeTree`, considering if it is a bridge device
+
+        true
+    } else {
+        false
+    }
+}
+
+<span class="boring">}</span></code></pre></pre>
+<h2 id="read-the-base-address"><a class="header" href="#read-the-base-address">Read the base address</a></h2>
+<p>Read the base address specified by the offset from the PCIe device's configuration space.</p>
+<h3 id="read_bar"><a class="header" href="#read_bar">read_bar</a></h3>
+<p>Read the base address.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Read the base address of `addr`.
+fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
+    let bar = config_space.read_u32(offset);
+
+    if (bar &amp; BAR_IO) == 1 {
+
+        // omitted: Read the base address for x86
+
+} else {
+        // Memory space
+
+        let bar_type = bar &amp; BAR_TYPE_MASK;
+        if bar_type == BAR_TYPE_32 {
+
+            // ommitted: Read the base address for 32bit target
+
+        } else if bar_type == BAR_TYPE_64 {
+
+            // ommitted: Read the base address for 64bit target
+
+        } else {
+            BaseAddress::None
+        }
+    }
+}
+
+<span class="boring">}</span></code></pre></pre>
+<h2 id="print-the-pcie-devices"><a class="header" href="#print-the-pcie-devices">Print the PCIe devices</a></h2>
+<p>Print the configuration of the devices on the PCIe bus.</p>
+<h3 id="print_pcie_devices"><a class="header" href="#print_pcie_devices">print_pcie_devices</a></h3>
+<p>Print the configuration of PCIe devices, including device names, vendor ID, device ID, PCIe class and bridge information.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>fn print_pcie_devices(device: &amp;dyn PCIeDevice, f: &amp;mut fmt::Formatter, indent: u8) -&gt; fmt::Result {
+    let indent_str = " ".repeat(indent as usize * 4);
+    write!(f, "{}{}\r\n", indent_str, device.device_name())?;
+
+    if let Some(children) = device.children() {
+        for child in children.iter() {
+            match child {
+                ChildDevice::Attached(child) =&gt; {
+                    print_pcie_devices(child.as_ref(), f, indent + 1)?;
+                }
+                ChildDevice::Unattached(info) =&gt; {
+                    let name = format!(
+                        "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
+                        info.get_bfd(),
+                        info.vendor,
+                        info.id,
+                        info.pcie_class,
+                        info.bridge_bus_number,
+                        info.bridge_device_number,
+                        info.bridge_function_number,
+                    );
+
+                    let indent_str = " ".repeat((indent as usize + 1) * 4);
+                    write!(f, "{}{}\r\n", indent_str, name)?;
+                }
+                ChildDevice::Bus(bus) =&gt; {
+                    print_pcie_devices(bus.as_ref(), f, indent + 1)?;
+                }
+                _ =&gt; (),
+            }
+        }
+    }
+
+    Ok(())
+}
+<span class="boring">}</span></code></pre></pre>
 
                     </main>
 

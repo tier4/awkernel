@@ -2906,7 +2906,7 @@ fn read_eeprom_buffer_bit_bang<T: IxgbeOperations + ?Sized>(
 
             // Read the data.
             let word_in = shift_in_eeprom_bits(info, 16)?;
-            *d = (word_in >> 8) | (word_in << 8);
+            *d = word_in.rotate_left(8);
         }
 
         Ok(())

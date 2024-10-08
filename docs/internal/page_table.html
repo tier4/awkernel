@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html" class="active"><strong aria-hidden="true">2.3.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.4.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.5.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.6.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.7.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.8.</strong> PCIe</a></li><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.9.</strong> Synchronization</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html" class="active"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -174,7 +174,7 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="page-table"><a class="header" href="#page-table">Page Table</a></h1>
-<p>The <code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
+<p><code>PageTable</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait that provides a way to abstract page tables.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -197,10 +197,10 @@ where
     ) -&gt; Result&lt;(), E&gt;;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>map_to</code> method of the <code>PageTable</code> is used to specify a page frame allocator,
+<p><code>map_to</code> method of <code>PageTable</code> is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
-<p>The <code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
+<p><code>Frame</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to represent a physical page frame.
 It is defined as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -210,8 +210,8 @@ It is defined as follows.</p>
     fn size(&amp;self) -&gt; usize;
 }
 <span class="boring">}</span></code></pre></pre>
-<p>The <code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
-It is used by the <code>PageTable</code> as described above.</p>
+<p><code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
+It is used by <code>PageTable</code> as described above.</p>
 <h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
 <h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
 <p>For x86_64, the <code>PageTable</code> structure

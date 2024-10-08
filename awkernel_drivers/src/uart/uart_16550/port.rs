@@ -114,6 +114,20 @@ impl SerialPort {
             None
         }
     }
+
+    /// Enable the interrupt.
+    pub fn enable_interrupt(&mut self) {
+        unsafe {
+            self.int_en.write(0x01);
+        }
+    }
+
+    /// Disable the interrupt.
+    pub fn disable_interrupt(&mut self) {
+        unsafe {
+            self.int_en.write(0x00);
+        }
+    }
 }
 
 impl fmt::Write for SerialPort {
