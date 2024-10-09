@@ -9,10 +9,9 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use self::perf::MAX_MEASURE_SIZE;
 use crate::{
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
-    uptime,
+    cpu_counter,
 };
 use alloc::{
     borrow::Cow,
@@ -327,12 +326,38 @@ pub mod perf {
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
+
+    static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+
     static mut CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
     static mut CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn add_task_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut TASKS_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_task_end(cpu_id: usize, task_id: u32, time: u64) {
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
+        if start != 0 && time > start {
+            let current_exec_time = time - start;
+            unsafe {
+                let sum_exec_time =  read_volatile(&TASKS_EXEC_TIMES[task_index]);
+                write_volatile(&mut TASKS_EXEC_TIMES[task_index], current_exec_time + sum_exec_time);
+                write_volatile(&mut TASKS_STARTS[cpu_id], 0);
+            }
+        }
+    }
+
+    pub fn log_exec_times(task_id: u32) {
+        let exec_time = unsafe { read_volatile(&TASKS_EXEC_TIMES[(task_id as usize) & (MAX_MEASURE_SIZE - 1)]) };
+        log::debug!("Task#{:?} execution TSC = {:?} [cycles]", task_id, exec_time);
+    }
 
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
         unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
@@ -409,12 +434,10 @@ pub mod perf {
 pub fn run_main() {
     CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
         .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
-    let mut task_exec_times = [0; MAX_MEASURE_SIZE];
-    let mut measure_count = 0;
-    let mut measure_duration_start = 0;
 
     loop {
         if let Some(task) = get_next_task() {
+
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -478,10 +501,9 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    let task_start = uptime();
-                    if measure_count == 0 {
-                        measure_duration_start = task_start;
-                    }
+                    let task_start = cpu_counter();
+
+                    perf::add_task_start(cpu_id, task_start);
                     // Only the subscriber's cooperative context switch overhead is measured.
                     if task.name.contains("subscriber") {
                         perf::add_context_restore_start(cpu_id, task_start);
@@ -490,19 +512,12 @@ pub fn run_main() {
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    let task_end = uptime();
-                    task_exec_times[measure_count] = task_end - task_start;
-                    // if measure_count == MAX_MEASURE_SIZE - 1 {
-                    //     log::debug!(
-                    //         "CPU#{:?} utilization = {:.3} [%]",
-                    //         awkernel_lib::cpu::cpu_id(),
-                    //         task_exec_times.iter().sum::<u64>() as f64
-                    //             / ((uptime() - measure_duration_start) as f64)
-                    //             * 100.0,
-                    //     );
-                    // }
+                    let task_end = cpu_counter();
+
+                    perf::add_task_end(cpu_id, task.id, task_end);
                     perf::add_context_save_end(cpu_id, task_end);
-                    measure_count = (measure_count + 1) % MAX_MEASURE_SIZE;
+
+                    perf::log_exec_times(task.id);
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),

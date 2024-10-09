@@ -1,6 +1,6 @@
 //! Task yielding.
 
-use crate::{task::perf::add_context_save_start, uptime};
+use crate::{task::perf::add_context_save_start, cpu_counter};
 use core::task::Poll;
 use futures::Future;
 
@@ -24,7 +24,7 @@ impl Future for Yield {
 
             cx.waker().wake_by_ref();
 
-            add_context_save_start(awkernel_lib::cpu::cpu_id(), uptime());
+            add_context_save_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
             Poll::Pending
         }
     }

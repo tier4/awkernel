@@ -1,4 +1,8 @@
-use crate::task::{get_current_task, Task};
+use crate::{
+    task::{Task, get_current_task},
+    task::perf::add_task_end,
+    cpu_counter,
+};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -50,6 +54,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
 
     let mut current_ctx = thread::take_current_context();
 
+    let current_task_id = current_task.id;
+
     {
         let mut node = MCSNode::new();
         let mut info = current_task.info.lock(&mut node);
@@ -70,6 +76,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
+
+        add_task_end(cpu_id, current_task_id, cpu_counter());
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
 

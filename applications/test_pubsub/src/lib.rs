@@ -9,7 +9,7 @@ use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep, spawn,
     task::perf::add_context_restore_end,
-    uptime,
+    uptime, cpu_counter,
 };
 use core::{
     ptr::write_volatile,
@@ -99,7 +99,7 @@ pub async fn run() {
                 loop {
                     subscriber.recv().await;
                     // Only the subscriber's cooperative context switch overhead is measured.
-                    add_context_restore_end(awkernel_async_lib::cpu_id(), uptime());
+                    add_context_restore_end(awkernel_async_lib::cpu_id(), cpu_counter());
                 }
             },
             SchedulerType::FIFO,
