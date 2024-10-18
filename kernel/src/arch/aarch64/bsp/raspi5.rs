@@ -232,7 +232,10 @@ impl Raspi5 {
 
             // let reg_base = reg.0.to_u128() as usize;
             let reg_base = reg.0.to_u128() as usize;
+            
             let reg_size = reg.1.to_u128() as usize;
+            // let reg_size = 0x10000000 as usize;
+
             unsafe {
                 unsafe_puts("reg_base\r\n");
                 unsafe_print_hex_u64(reg_base as u64);
@@ -340,6 +343,15 @@ impl Raspi5 {
                     unsafe_puts("PCIe init6.\r\n");
                 }
             }
+
+            // for (index, range) in ranges.iter().enumerate() {
+            //     unsafe{
+            //         unsafe_puts("\r\n***range***");
+
+            //         unsafe_print_hex_u64("");
+                    
+            //     }
+            // }
 
             // Get the "reg" property.
             let Some((base, _size)) = self.pcie_reg else {

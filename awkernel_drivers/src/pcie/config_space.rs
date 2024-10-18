@@ -1,6 +1,9 @@
 use core::ptr::{read_volatile, write_volatile};
 
-use awkernel_lib::addr::{virt_addr::VirtAddr, Addr};
+use awkernel_lib::{
+    addr::{virt_addr::VirtAddr, Addr},
+    console::unsafe_puts,
+};
 
 #[derive(Debug, Clone)]
 pub enum ConfigSpace {
@@ -21,6 +24,9 @@ impl ConfigSpace {
     }
 
     pub fn new_memory(base: VirtAddr) -> Self {
+        unsafe {
+            // unsafe_puts("\r\nConfigSpace::new_memory start\r\n");
+        }
         Self::Mmio(base)
     }
 

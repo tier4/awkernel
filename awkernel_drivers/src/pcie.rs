@@ -12,8 +12,9 @@ use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
     paging::{self, MapError, PAGESIZE},
     sync::{mcs::MCSNode, mutex::Mutex},
+    delay,
 };
-use core::fmt::{self, Debug};
+use core::fmt::{self, Debug, Display};
 
 #[cfg(feature = "x86")]
 use awkernel_lib::arch::x86_64::acpi::AcpiMapper;
@@ -29,6 +30,7 @@ use self::{
     pcie_device_tree::PCIeRange,
 };
 
+use awkernel_lib::console::unsafe_print_hex_u32;
 use awkernel_lib::console::unsafe_print_hex_u64;
 use awkernel_lib::console::unsafe_puts;
 
@@ -454,36 +456,20 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
-// #[inline]
-// fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
-// where
-//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
-// {
-//     for device in 0..32 {
-//         check_device(bus, device, bus_tree, visited, f);
-//     }
-// }
-
-// #[inline]
-// fn check_device<F>(
-//     bus: &mut PCIeBus,
-//     device: u8,
-//     bus_tree: &mut PCIeTree,
-//     visited: &mut BTreeSet<u8>,
-//     f: &F,
-// ) where
-//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
-// {
-//     for function in 0..8 {
-//         check_function(bus, device, function, bus_tree, visited, f);
-//     }
-// }
 #[inline]
 fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    for device in 0..1 {
+    // for device in 0..32 {
+    for device in 0..2 {
+        unsafe{
+            unsafe_puts("\r\ncheck_device( bus: ");
+            unsafe_print_hex_u64(bus.bus_number as u64);
+            unsafe_puts(", device: ");
+            unsafe_print_hex_u64(device as u64);
+            unsafe_puts(", ... )\r\n");
+        }
         check_device(bus, device, bus_tree, visited, f);
     }
 }
@@ -498,9 +484,43 @@ fn check_device<F>(
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    let function = 0;
-    check_function(bus, device, function, bus_tree, visited, f);
+    for function in 0..8 {
+        unsafe{
+            unsafe_puts("\r\n\r\ncheck_function( bus: ");
+            unsafe_print_hex_u64(bus.bus_number as u64);
+            unsafe_puts(", device: ");
+            unsafe_print_hex_u64(device as u64);
+            unsafe_puts(", function: ");
+            unsafe_print_hex_u64(function as u64);
+            unsafe_puts(", ... )\r\n");
+        }
+        check_function(bus, device, function, bus_tree, visited, f);
+    }
 }
+
+// #[inline]
+// fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
+// where
+//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+// {
+//     for device in 0..1 {
+//         check_device(bus, device, bus_tree, visited, f);
+//     }
+// }
+
+// #[inline]
+// fn check_device<F>(
+//     bus: &mut PCIeBus,
+//     device: u8,
+//     bus_tree: &mut PCIeTree,
+//     visited: &mut BTreeSet<u8>,
+//     f: &F,
+// ) where
+//     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
+// {
+//     let function = 0;
+//     check_function(bus, device, function, bus_tree, visited, f);
+// }
 
 fn check_function<F>(
     bus: &mut PCIeBus,
@@ -514,33 +534,38 @@ where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
     unsafe {
-        unsafe_puts("check_function1.\r\n");
+        // unsafe_puts("check_function start\r\n");
     }
     let offset =
         (bus.bus_number as usize) << 20 | (device as usize) << 15 | (function as usize) << 12;
 
     unsafe {
-        unsafe_puts("\r\n bus_number.\r\n");
-        unsafe_print_hex_u64(bus.bus_number as u64);
-        unsafe_puts("\r\n device.\r\n");
-        unsafe_print_hex_u64(device as u64);
-        unsafe_puts("\r\n function.\r\n");
-        unsafe_print_hex_u64(function as u64);
+        // unsafe_puts("\r\noffset: ");
+        // unsafe_print_hex_u64(offset as u64);
+        // unsafe_puts("\r\nbus_number: ");
+        // unsafe_print_hex_u64(bus.bus_number as u64);
+        // unsafe_puts("\r\ndevice: ");
+        // unsafe_print_hex_u64(device as u64);
+        // unsafe_puts("\r\nfunction: ");
+        // unsafe_print_hex_u64(function as u64);
     }
 
     unsafe {
-        unsafe_puts("check_function2.\r\n");
+        unsafe_puts("\r\n\r\n");
     }
+
     let addr = if let Some(base_address) = bus.base_address {
         base_address + offset
     } else {
         VirtAddr::new(0)
     };
     unsafe {
-        unsafe_print_hex_u64(offset as u64);
+        // unsafe_puts("\r\nbase_address + offset: ");
+        // unsafe_print_hex_u64(addr.as_ptr() as *const usize as u64);
+        // unsafe_puts("\r\n");
     }
     unsafe {
-        unsafe_puts("check_function3.\r\n");
+        // unsafe_puts("\r\nlet addr = if let Some(base_address) = bus.base_address\r\n");
     }
     if let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) {
         if matches!(
@@ -548,23 +573,23 @@ where
             PCIeClass::BridgeDevice(PCIeBridgeSubClass::PCItoPCI)
         ) {
             unsafe {
-                unsafe_puts("check_function4.\r\n");
+                // unsafe_puts("\r\nif let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr)\r\n");
             }
             let secondary_bus = info.get_secondary_bus().unwrap();
             unsafe {
-                unsafe_puts("\r\nsecondary_bus.\r\n");
+                unsafe_puts("\r\nsecondary_bus: ");
                 unsafe_print_hex_u64(secondary_bus as u64);
             }
             // let secondary_bus = 1;
             if secondary_bus < bus.bus_number {
                 unsafe {
-                    unsafe_puts("check_function41.\r\n");
+                    // unsafe_puts("\r\nif secondary_bus < bus.bus_number\r\n");
                 }
                 // If the secondary bus number is less than the current bus number,
                 // it means that the bus has already been visited.
                 if let Some(grandchild) = bus_tree.tree.remove(&secondary_bus) {
                     unsafe {
-                        unsafe_puts("check_function42.\r\n");
+                        // unsafe_puts("\r\nif let Some(grandchild) = bus_tree.tree.remove(&secondary_bus)\r\n");
                     }
                     let mut bus_child = PCIeBus::new(
                         bus.segment_group,
@@ -577,12 +602,12 @@ where
                 }
             } else if secondary_bus == bus.bus_number {
                 unsafe {
-                    unsafe_puts("check_function43.\r\n");
+                    // unsafe_puts("\r\nelse if secondary_bus == bus.bus_number\r\n");
                 }
                 log::warn!("PCIe: Secondary bus number is same as the current bus number.");
             } else if !visited.contains(&secondary_bus) {
                 unsafe {
-                    unsafe_puts("check_function5.\r\n");
+                    // unsafe_puts("\r\nelse if !visited.contains(&secondary_bus)\r\n");
                 }
                 // If the secondary bus number is greater than the current bus number,
                 // it means that the bus may has not been visited yet.
@@ -601,7 +626,7 @@ where
             }
         } else {
             unsafe {
-                unsafe_puts("check_function6.\r\n");
+                // unsafe_puts("\r\nelse\r\n");
             }
             bus.devices.push(ChildDevice::Unattached(Box::new(info)));
         }
@@ -609,7 +634,7 @@ where
         true
     } else {
         unsafe {
-            unsafe_puts("check_function7.\r\n");
+            // unsafe_puts("\r\nif let Ok(info) = f(bus.segment_group, bus.bus_number, device, function, addr) else\r\n");
         }
         false
     }
@@ -646,12 +671,19 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    for bus_number in 0..=1 {
+    // for bus_number in 0..=255 {
+    for bus_number in 0..1 {
         if visited.contains(&bus_number) {
             continue;
         }
 
         let offset = (bus_number as usize) << 20;
+
+        unsafe{
+            unsafe_puts("\r\noffset: ");
+            unsafe_print_hex_u64(offset as u64);
+            unsafe_puts("\r\n");
+        }
 
         let addr = if let Some(base_address) = base_address {
             base_address + offset
@@ -664,8 +696,10 @@ fn init<F>(
                 unsafe_puts("\r\nbase address.\r\n");
                 let base = base_addr.as_usize(); // Make sure such a method exists in VirtAddr definition
 
-                unsafe_print_hex_u64(segment_group as u64);
                 unsafe_print_hex_u64(base as u64);
+
+                unsafe_puts("\r\nsegment group.\r\n");
+                unsafe_print_hex_u64(segment_group as u64);
             } else {
                 // Handle the case where base_address is None if necessary
                 unsafe_print_hex_u64(segment_group as u64);
@@ -673,42 +707,44 @@ fn init<F>(
             }
         }
 
+        unsafe { unsafe_puts("\r\n\r\n") }
+
         if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
             unsafe {
-                unsafe_puts("2222222221.\r\n");
+                // unsafe_puts("2222222221.\r\n");
             }
 
             if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
                 unsafe {
-                    unsafe_puts("2222222223.\r\n");
+                    // unsafe_puts("2222222223.\r\n");
                 }
                 // insert atacched
                 host_bridge_bus = bus_number;
             }
         } else {
             unsafe {
-                unsafe_puts("2222222224.\r\n");
+                // unsafe_puts("2222222224.\r\n");
             }
             continue;
         };
         unsafe {
-            unsafe_puts("2222222225.\r\n");
+            // unsafe_puts("2222222225.\r\n");
         }
         let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
         unsafe {
-            unsafe_puts("2222222226.\r\n");
+            // unsafe_puts("2222222226.\r\n");
         }
         visited.insert(bus_number);
         unsafe {
-            unsafe_puts("2222222227.\r\n");
+            // unsafe_puts("2222222227.\r\n");
         }
         check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
         unsafe {
-            unsafe_puts("2222222228.\r\n");
+            // unsafe_puts("2222222228.\r\n");
         }
         bus_tree.tree.insert(bus_number, Box::new(bus));
         unsafe {
-            unsafe_puts("2222222229.\r\n");
+            // unsafe_puts("2222222229.\r\n");
         }
     }
 
@@ -789,7 +825,26 @@ impl PCIeInfo {
         function_number: u8,
         addr: VirtAddr,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        unsafe {
+            // unsafe_puts("\r\nPCIeInfo::from_addr start\r\n");
+        }
         let config_space = ConfigSpace::new_memory(addr);
+
+        unsafe {
+            // unsafe_puts("\r\nConfigSpace::new_memory finish\r\n");
+
+            // let temp: *const usize = addr.as_ptr();
+            // unsafe_puts("\r\nconfig_space: ");
+            // unsafe_print_hex_u64(temp as u64);
+            // unsafe_puts("\r\nsegment_group: ");
+            // unsafe_print_hex_u64(segment_group as u64);
+            // unsafe_puts("\r\nbus_number: ");
+            // unsafe_print_hex_u64(bus_number as u64);
+            // unsafe_puts("\r\ndevice_number: ");
+            // unsafe_print_hex_u64(device_number as u64);
+            // unsafe_puts("\r\nfunction_number: ");
+            // unsafe_print_hex_u64(function_number as u64);
+        }
         Self::new(
             config_space,
             segment_group,
@@ -807,29 +862,105 @@ impl PCIeInfo {
         device_number: u8,
         function_number: u8,
     ) -> Result<PCIeInfo, PCIeDeviceErr> {
+        unsafe {
+            // unsafe_puts("\r\nPCIeInfo::new start\r\n");
+        }
+
         let ids = config_space.read_u32(registers::DEVICE_VENDOR_ID);
+        unsafe{
+            // unsafe_puts("\r\nlet ids = config_space.read_u32\r\n");
+        }
 
         let vendor = (ids & 0xffff) as u16;
         let id = (ids >> 16) as u16;
 
         if id == !0 || vendor == !0 {
+            
+            unsafe{
+                use crate::pcie::ConfigSpace::Mmio;
+                unsafe_puts("\r\n******PCIeDeviceErr::InitFailure******");
+                match config_space {
+                    Mmio(m) => {
+                        unsafe_puts("\r\nconfig_space: ");
+                        unsafe_print_hex_u64(m.as_ptr() as *const usize as u64);
+                    },
+                    _ => {}
+                }
+                unsafe_puts("\r\nsegment_group: ");
+                unsafe_print_hex_u64(segment_group as u64);
+                unsafe_puts("\r\nbus_number: ");
+                unsafe_print_hex_u64(bus_number as u64);
+                unsafe_puts("\r\ndevice_number: ");
+                unsafe_print_hex_u64(device_number as u64);
+                unsafe_puts("\r\nfunction_number: ");
+                unsafe_print_hex_u64(function_number as u64);
+                unsafe_puts("\r\nid: ");
+                unsafe_print_hex_u64(id as u64);
+                unsafe_puts("\r\nvendor: ");
+                unsafe_print_hex_u64(vendor as u64);
+                unsafe_puts("\r\n**************************************\r\n");
+                awkernel_lib::delay::wait_microsec(10);
+            }
             return Err(PCIeDeviceErr::InitFailure);
         }
 
         let header_type = (config_space.read_u32(registers::BIST_HEAD_LAT_CACH) >> 16 & 0xff) as u8;
+        unsafe{
+            // unsafe_puts("\r\nlet header_type = (config_space.read_u32\r\n");
+        }
         let header_type = header_type & 0x7f;
 
         let cls_rev_id = config_space.read_u32(registers::CLASS_CODE_REVISION_ID);
+        unsafe{
+            // unsafe_puts("\r\nlet cls_rev_id = config_space.read_u32\r\n");
+        }
         let revision_id = (cls_rev_id & 0xff) as u8;
 
         let pcie_class = pcie_class::PCIeClass::from_u8(
             (cls_rev_id >> 24) as u8,
             ((cls_rev_id >> 16) & 0xff) as u8,
-        )
-        .ok_or(PCIeDeviceErr::InvalidClass)?;
+        );// .ok_or(PCIeDeviceErr::InvalidClass)?;
 
+        let pcie_class = if let Some(pcie_class) = pcie_class {
+            pcie_class
+        } else{
+            unsafe{
+                use crate::pcie::ConfigSpace::Mmio;
+                unsafe_puts("\r\n******PCIeDeviceErr::InvalidClass*****");
+                match config_space {
+                    Mmio(m) => {
+                        unsafe_puts("\r\nconfig_space: ");
+                        unsafe_print_hex_u64(m.as_ptr() as *const usize as u64);
+                    },
+                    _ => {}
+                }
+                unsafe_puts("\r\nsegment_group: ");
+                unsafe_print_hex_u64(segment_group as u64);
+                unsafe_puts("\r\nbus_number: ");
+                unsafe_print_hex_u64(bus_number as u64);
+                unsafe_puts("\r\ndevice_number: ");
+                unsafe_print_hex_u64(device_number as u64);
+                unsafe_puts("\r\nfunction_number: ");
+                unsafe_print_hex_u64(function_number as u64);
+                unsafe_puts("\r\nid: ");
+                unsafe_print_hex_u64(id as u64);
+                unsafe_puts("\r\nvendor: ");
+                unsafe_print_hex_u64(vendor as u64);
+                unsafe_puts("\r\npcie_class: ");
+                unsafe_print_hex_u64((cls_rev_id >> 24) as u64);
+                unsafe_puts("\r\n**************************************\r\n");
+                awkernel_lib::delay::wait_microsec(10);
+            }
+            return Err(PCIeDeviceErr::InvalidClass)
+        };
+
+        unsafe{
+            // unsafe_puts("\r\nlet pcie_class = pcie_class::PCIeClass::from_u8\r\n");
+        }
         let interrupt_pin_line = config_space.read_u16(registers::INTERRUPT_LINE);
-
+        unsafe{
+            // unsafe_puts("\r\nlet interrupt_pin_line = config_space.read_u16\r\n");
+        }
         let mut result = PCIeInfo {
             config_space,
             segment_group,
@@ -851,8 +982,71 @@ impl PCIeInfo {
             bridge_device_number: None,
             bridge_function_number: None,
         };
-
-        result.read_bar();
+        unsafe{
+            // unsafe_puts("\r\nlet mut result = PCIeInfo\r\n");
+        }
+        
+        if let Err(err) = result.read_bar() {
+            match err {
+                PCIeDeviceErr::ReadFailure => {
+                    unsafe{ 
+                        // unsafe_puts("\r\nread_bar -> ReadFailure\r\n");
+                    }
+                },
+                _ => {}
+            }
+        } else {
+            unsafe{
+                use crate::pcie::ConfigSpace::Mmio;
+    
+                unsafe_puts("\r\nPCIeInfo was initilized\r\n");
+                match result.config_space {
+                    Mmio(m) => {
+                        unsafe_puts("\r\nconfig_space: ");
+                        unsafe_print_hex_u64(m.as_ptr() as *const usize as u64);
+                    },
+                    _ => {}
+                }
+                unsafe_puts("\r\nsegment_group: ");
+                unsafe_print_hex_u64(result.segment_group as u64);
+                unsafe_puts("\r\nbus_number: ");
+                unsafe_print_hex_u64(result.bus_number as u64);
+                unsafe_puts("\r\ndevice_number: ");
+                unsafe_print_hex_u64(result.device_number as u64);
+                unsafe_puts("\r\nfunction_number: ");
+                unsafe_print_hex_u64(result.function_number as u64);
+                unsafe_puts("\r\nid: ");
+                unsafe_print_hex_u64(result.id as u64);
+                unsafe_puts("\r\nvendor: ");
+                unsafe_print_hex_u64(result.vendor as u64);
+                unsafe_puts("\r\nrevision_id: ");
+                unsafe_print_hex_u64(result.revision_id as u64);
+                unsafe_puts("\r\ninterrupt_pin: ");
+                unsafe_print_hex_u64(result.interrupt_pin as u64);
+                unsafe_puts("\r\npcie_class: ");
+                unsafe_print_hex_u64((cls_rev_id >> 24) as u64);
+                unsafe_puts("\r\nheader_type: ");
+                unsafe_print_hex_u64(result.header_type as u64);
+                for ba in &result.base_addresses {
+                    use crate::pcie::BaseAddress::Mmio as BMmio;
+                    match ba {
+                        BMmio { reg_addr, addr, size, address_type: _, prefetchable: _, mapped: _ } => {
+                            unsafe_puts("\r\nbase_address.reg_addr: ");
+                            unsafe_print_hex_u64(reg_addr.unwrap().as_ptr() as *const usize as u64);
+                            unsafe_puts("\r\nbase_address.addr: ");
+                            unsafe_print_hex_u64(*addr as u64);
+                            unsafe_puts("\r\nbase_address.size: ");
+                            unsafe_print_hex_u64(*size as u64);
+                        },
+                        _ => {}
+                    }
+                }
+                awkernel_lib::delay::wait_microsec(10);
+            }
+        }
+        unsafe{
+            // unsafe_puts("\r\nresult.read_bar()\r\n");
+        }
 
         Ok(result)
     }
@@ -973,17 +1167,69 @@ impl PCIeInfo {
         capability::read(self);
     }
 
-    fn read_bar(&mut self) {
+    fn read_bar(&mut self) -> Result<(), PCIeDeviceErr> {
+        unsafe{
+            // unsafe_puts("\r\nread_bar start\r\n");
+        }
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
             | registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE => 2,
-            _ => panic!("Unrecognized header type: {:#x}", self.header_type),
+            _ => {
+                unsafe{
+                    // unsafe_puts("\r\nheader_type: ");
+                    // unsafe_print_hex_u64(self.header_type as u64);
+                    // unsafe_puts("\r\nheader_type panic!\r\n");
+                    // unsafe_puts("\r\n");
+                    unsafe{
+                        use crate::pcie::ConfigSpace::Mmio;
+                        unsafe_puts("\r\n******PCIeDeviceErr::ReadFailure******");
+                        match self.config_space {
+                            Mmio(m) => {
+                                unsafe_puts("\r\nconfig_space: ");
+                                unsafe_print_hex_u64(m.as_ptr() as *const usize as u64);
+                            },
+                            _ => {}
+                        }
+                        unsafe_puts("\r\nsegment_group: ");
+                        unsafe_print_hex_u64(self.segment_group as u64);
+                        unsafe_puts("\r\nbus_number: ");
+                        unsafe_print_hex_u64(self.bus_number as u64);
+                        unsafe_puts("\r\ndevice_number: ");
+                        unsafe_print_hex_u64(self.device_number as u64);
+                        unsafe_puts("\r\nfunction_number: ");
+                        unsafe_print_hex_u64(self.function_number as u64);
+                        unsafe_puts("\r\nid: ");
+                        unsafe_print_hex_u64(self.id as u64);
+                        unsafe_puts("\r\nvendor: ");
+                        unsafe_print_hex_u64(self.vendor as u64);
+                        unsafe_puts("\r\nheader_type: ");
+                        unsafe_print_hex_u64(self.header_type as u64);
+                        unsafe_puts("\r\n**************************************\r\n");
+                        awkernel_lib::delay::wait_microsec(10);
+                    }
+                }
+                return Err(PCIeDeviceErr::ReadFailure);
+                panic!("Unrecognized header type: {:#x}", self.header_type)
+            },
         };
+
+        unsafe{
+            // unsafe_puts("\r\nheader_bype: ");
+            // unsafe_print_hex_u64(self.header_type as u64);
+            // unsafe_puts("\r\nnum_reg: ");
+            // unsafe_print_hex_u64(num_reg as u64);
+            // unsafe_puts("\r\n");
+        }
 
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
             let mut i = 0;
             while i < num_reg {
+                unsafe{
+                    // unsafe_puts("\r\ni: ");
+                    // unsafe_print_hex_u64(i as u64);
+                    // unsafe_puts("\r\n");
+                }
                 let bar = read_bar(&self.config_space, registers::BAR0 + i * 4);
 
                 let is_64bit = bar.is_64bit_memory();
@@ -996,6 +1242,11 @@ impl PCIeInfo {
                 }
             }
         }
+        unsafe{
+            // unsafe_puts("\r\nread_bar finish\r\n");
+        }
+
+        Ok(())
     }
 
     pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
