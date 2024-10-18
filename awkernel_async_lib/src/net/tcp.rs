@@ -171,7 +171,7 @@ struct TcpSender<'a> {
     buf: &'a [u8],
 }
 
-impl<'a> Future for TcpSender<'a> {
+impl Future for TcpSender<'_> {
     type Output = Result<usize, TcpSendError>;
 
     fn poll(
@@ -191,7 +191,7 @@ struct TcpReceiver<'a> {
     buf: &'a mut [u8],
 }
 
-impl<'a> Future for TcpReceiver<'a> {
+impl Future for TcpReceiver<'_> {
     type Output = Result<usize, TcpRecvError>;
 
     fn poll(
@@ -245,7 +245,7 @@ struct TcpStreamTxSender<'a> {
     buf: &'a [u8],
 }
 
-impl<'a> Future for TcpStreamTxSender<'a> {
+impl Future for TcpStreamTxSender<'_> {
     type Output = Result<usize, TcpSendError>;
 
     fn poll(
@@ -299,7 +299,7 @@ struct TcpStreamRxReceiver<'a> {
     buf: &'a mut [u8],
 }
 
-impl<'a> Future for TcpStreamRxReceiver<'a> {
+impl Future for TcpStreamRxReceiver<'_> {
     type Output = Result<usize, TcpRecvError>;
 
     fn poll(

@@ -220,7 +220,7 @@ fn parse_properties_and_nodes<'a, A: Allocator + Clone>(
     Ok((props, nodes, block_count))
 }
 
-impl<'a, A: Allocator + Clone> Display for DeviceTreeNode<'a, A> {
+impl<A: Allocator + Clone> Display for DeviceTreeNode<'_, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "{} {{", self.name)?;
 
@@ -246,7 +246,7 @@ impl<'a, A: Allocator + Clone> Display for DeviceTreeNode<'a, A> {
 }
 
 /// Check if a node has children
-impl<'a, A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'a, A> {
+impl<A: Allocator + Clone> HasNamedChildNode<A> for DeviceTreeNode<'_, A> {
     fn has_children(&self) -> bool {
         !self.nodes().is_empty()
     }
@@ -271,7 +271,7 @@ pub struct ArrayedNode<'a, A: Allocator + Clone> {
     index: usize,
 }
 
-impl<'a, A: Allocator + Clone> Default for ArrayedNode<'a, A> {
+impl<A: Allocator + Clone> Default for ArrayedNode<'_, A> {
     fn default() -> Self {
         Self::new()
     }

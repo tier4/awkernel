@@ -165,7 +165,8 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
 
         unsafe {
             RASPI_FRAME_BUFFER = Some(raspi_framebuffer);
-            awkernel_lib::graphics::set_frame_buffer(RASPI_FRAME_BUFFER.as_mut().unwrap());
+            let ptr = &raw mut RASPI_FRAME_BUFFER;
+            awkernel_lib::graphics::set_frame_buffer((*ptr).as_mut().unwrap());
         }
 
         Ok(())
@@ -176,7 +177,8 @@ pub unsafe fn lfb_init(width: u32, height: u32) -> Result<(), &'static str> {
 
 pub fn get_frame_buffer_region() -> Option<(usize, usize)> {
     unsafe {
-        let rfb = RASPI_FRAME_BUFFER.as_ref()?;
+        let ptr = &raw mut RASPI_FRAME_BUFFER;
+        let rfb = (*ptr).as_ref()?;
         Some((
             rfb.frame_buffer.framebuffer.as_ptr() as usize,
             rfb.frame_buffer.framebuffer_size,

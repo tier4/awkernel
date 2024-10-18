@@ -206,7 +206,7 @@ struct AsyncSender<'a, T: Send> {
     data: Option<ChannelData<T>>,
 }
 
-impl<'a, T: Send> Future for AsyncSender<'a, T> {
+impl<T: Send> Future for AsyncSender<'_, T> {
     type Output = Result<bool, SendErr>;
 
     fn poll(
@@ -322,7 +322,7 @@ struct AsyncReceiver<'a, T: Send> {
     receiver: &'a Receiver<T>,
 }
 
-impl<'a, T: Send> Future for AsyncReceiver<'a, T> {
+impl<T: Send> Future for AsyncReceiver<'_, T> {
     type Output = Result<T, RecvErr>;
 
     fn poll(

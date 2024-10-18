@@ -53,7 +53,7 @@ struct NetDriverRef<'a> {
     tx_ringq: &'a mut RingQ<Vec<u8>>,
 }
 
-impl<'a> NetDriverRef<'a> {
+impl NetDriverRef<'_> {
     fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
         let mut flags = PacketHeaderFlags::empty();
 
@@ -85,9 +85,15 @@ impl<'a> NetDriverRef<'a> {
     }
 }
 
-impl<'a> Device for NetDriverRef<'a> {
-    type RxToken<'b> = NRxToken where Self : 'b;
-    type TxToken<'b> = NTxToken<'b> where Self: 'b;
+impl Device for NetDriverRef<'_> {
+    type RxToken<'b>
+        = NRxToken
+    where
+        Self: 'b;
+    type TxToken<'b>
+        = NTxToken<'b>
+    where
+        Self: 'b;
     fn capabilities(&self) -> phy::DeviceCapabilities {
         let mut cap = DeviceCapabilities::default();
         cap.max_transmission_unit = 1500;
@@ -626,7 +632,7 @@ pub struct NTxToken<'a> {
     tx_ring: &'a mut RingQ<Vec<u8>>,
 }
 
-impl<'a> phy::TxToken for NTxToken<'a> {
+impl phy::TxToken for NTxToken<'_> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
