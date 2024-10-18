@@ -143,7 +143,7 @@ struct Receiver<'a, T: 'static + Clone + Send> {
     subscriber: &'a Subscriber<T>,
 }
 
-impl<'a, T: Clone + Send> Future for Receiver<'a, T> {
+impl<T: Clone + Send> Future for Receiver<'_, T> {
     type Output = Data<T>;
 
     fn poll(
@@ -219,7 +219,7 @@ impl<'a, T: Send> Sender<'a, T> {
     }
 }
 
-impl<'a, T> Future for Sender<'a, T>
+impl<T> Future for Sender<'_, T>
 where
     T: Clone + Sync + Send,
 {
@@ -400,6 +400,8 @@ pub struct Attribute {
     pub lifespan: Lifespan,
 }
 
+/// Lifespan of a message.
+///
 /// `Lifespan` represent how log a message is valid.
 /// `Lifespan::Permanent` means messages are valid forever.
 /// `Lifespan::Span(Duration)` means messages will be expired and discarded after the span of `Duration`.

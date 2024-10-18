@@ -56,7 +56,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2024-08-13
+RUSTV=nightly-2024-10-16
 
 all: aarch64 x86_64 riscv32 riscv64 std
 

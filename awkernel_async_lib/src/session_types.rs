@@ -456,7 +456,7 @@ impl<'c> ChanSelect<'c> {
     }
 }
 
-impl<'c> Default for ChanSelect<'c> {
+impl Default for ChanSelect<'_> {
     fn default() -> Self {
         Self::new()
     }

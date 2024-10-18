@@ -8,4 +8,5 @@ pub mod gicv2;
 pub mod gicv3;
 
 #[cfg(feature = "x86")]
+#[allow(static_mut_refs)]
 pub mod apic;

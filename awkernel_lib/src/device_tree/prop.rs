@@ -58,7 +58,7 @@ pub enum PropertyValue<'a, A: Allocator + Clone> {
 }
 
 /// Implements the Display trait for PropertyValue to allow it to be printed
-impl<'a, A: Allocator + Clone> Display for PropertyValue<'a, A> {
+impl<A: Allocator + Clone> Display for PropertyValue<'_, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             PropertyValue::None => write!(f, ""),
@@ -330,7 +330,7 @@ impl<'a, A: Allocator + Clone> NodeProperty<'a, A> {
 }
 
 /// Implements the Display trait for NodeProperty to allow it to be printed
-impl<'a, A: Allocator + Clone> Display for NodeProperty<'a, A> {
+impl<A: Allocator + Clone> Display for NodeProperty<'_, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match &self.value {
             PropertyValue::Unknown | PropertyValue::None => write!(f, "{};", self.name),
