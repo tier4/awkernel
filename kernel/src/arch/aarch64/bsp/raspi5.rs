@@ -25,9 +25,6 @@ use awkernel_lib::{
     paging::PAGESIZE,
 };
 
-use awkernel_lib::console::unsafe_print_hex_u32;
-use awkernel_lib::console::unsafe_print_hex_u64;
-
 pub mod config;
 mod pciebridge;
 mod uart;
@@ -46,7 +43,7 @@ impl super::SoC for Raspi5 {
             .ok_or(err_msg!("failed to initialize __symbols__ node"))?;
         self.init_pcie_bridge();
         self.init_uart();
-        self.get_pcie_mem();
+        let _ = self.get_pcie_mem();
         // self.init_gpio();
         Ok(())
     }
@@ -190,7 +187,6 @@ impl Raspi5 {
     }
 
     unsafe fn get_pcie_mem(&mut self) -> Result<(), &'static str> {
-        unsafe_puts("get_pcie_mem.\r\n");
         // Find PCIe node.
         // let Some(pcie_node) = self
         //     .device_tree
@@ -206,20 +202,13 @@ impl Raspi5 {
         let pcie_node = if let Some(axi) = self.device_tree.root().find_child("axi") {
             axi.nodes().iter().find(|n| {
                 let name = n.name();
-                unsafe {
-                    unsafe_puts(name);
-                    unsafe_puts("\r\n");
-                }
                 name.starts_with("pcie@120000")
             })
         } else {
             None
         };
 
-        unsafe_puts("PCIe node found.\r\n");
-
         // Get the "reg" property.
-
         if let Some(pcie_node) = pcie_node {
             let reg_prop = pcie_node
                 .get_property("reg")
@@ -230,60 +219,35 @@ impl Raspi5 {
                 _ => return Err(err_msg!("PCIe: reg property has invalid value")),
             };
 
-            // let reg_base = reg.0.to_u128() as usize;
             let reg_base = reg.0.to_u128() as usize;
             
             let reg_size = reg.1.to_u128() as usize;
             // let reg_size = 0x10000000 as usize;
 
-            unsafe {
-                unsafe_puts("reg_base\r\n");
-                unsafe_print_hex_u64(reg_base as u64);
-                unsafe_puts("\r\nreg_size\r\n");
-                unsafe_print_hex_u64(reg_size as u64);
-            }
             let pcie_regs = (PhyAddr::new(reg_base), reg_size);
-            unsafe_puts("PCIe node found2.\r\n");
 
             self.pcie_reg = Some(pcie_regs);
 
             Ok(())
         } else {
-            unsafe {
-                unsafe_puts("PCIe node not found.\r\n");
-            }
-            Ok(())
+            return Err(err_msg!("PCIe: node not found"));
         }
     }
 
     fn init_pcie(&self) -> Result<(), &'static str> {
-        unsafe {
-            unsafe_puts("PCIe init.\r\n");
-        }
-
         let pcie_node = if let Some(axi) = self.device_tree.root().find_child("axi") {
             // Try to find the `pcie@` node within `axi`
             axi.nodes().iter().find(|n| {
                 let name = n.name();
-                unsafe {
-                    // Print each node's name to diagnose the tree structure.
-                    unsafe_puts(name);
-                    unsafe_puts("\r\n"); // Print a newline for clarity in output.
-                }
                 name.starts_with("pcie@120000") // Check if the node name starts with "pcie@"
             })
         } else {
             // If the `axi` node is not found, return None
             None
         };
-        unsafe {
-            unsafe_puts("PCIe init1.\r\n");
-        }
+
         // Get the "ranges" property.
         if let Some(pcie_node) = pcie_node {
-            unsafe {
-                unsafe_puts("PCIe init2.\r\n");
-            }
             let ranges_prop = pcie_node
                 .get_property("ranges")
                 .ok_or(err_msg!("PCIe: failed to get ranges property"))?;
@@ -297,17 +261,12 @@ impl Raspi5 {
             if value.len() % 28 != 0 {
                 return Err(err_msg!("PCIe: ranges property has invalid length"));
             }
-            unsafe {
-                unsafe_puts("PCIe init3.\r\n");
-            }
+
             let mut ranges = Vec::new();
 
             for i in (0..).step_by(56) {
                 if i + 56 > value.len() {
                     break;
-                }
-                unsafe {
-                    unsafe_puts("PCIe init4.\r\n");
                 }
                 let slice = &value[i..i + 56];
 
@@ -324,42 +283,16 @@ impl Raspi5 {
                     << 32)
                     | u32::from_be_bytes([slice[24], slice[25], slice[26], slice[27]]) as u64;
 
-                unsafe {
-                    unsafe_puts("PCIe init5.\r\n");
-                    unsafe_print_hex_u32(head);
-                    unsafe_puts("\r\nbus_addr\r\n");
-                    unsafe_print_hex_u64(pcie_addr);
-                    unsafe_puts("\r\nphys_addr\r\n");
-                    unsafe_print_hex_u64(cpu_addr);
-                    unsafe_puts("\r\nsize\r\n");
-                    unsafe_print_hex_u64(size);
-                }
-
                 let range =
                     PCIeRange::new(head, pcie_addr as usize, cpu_addr as usize, size as usize);
                 ranges.push(range);
-
-                unsafe {
-                    unsafe_puts("PCIe init6.\r\n");
-                }
             }
-
-            // for (index, range) in ranges.iter().enumerate() {
-            //     unsafe{
-            //         unsafe_puts("\r\n***range***");
-
-            //         unsafe_print_hex_u64("");
-                    
-            //     }
-            // }
 
             // Get the "reg" property.
             let Some((base, _size)) = self.pcie_reg else {
                 return Err(err_msg!("PCIe: PCIe registers are not initialized"));
             };
-            unsafe {
-                unsafe_puts("PCIe init10.\r\n");
-            }
+
             // Initialize PCIe.
             awkernel_drivers::pcie::init_with_addr(
                 0,
@@ -368,14 +301,13 @@ impl Raspi5 {
             );
 
             unsafe {
-                unsafe_puts("PCIe init11.\r\n");
-                unsafe_puts("PCIe init success.\r\n");
+                unsafe_puts("PCIe has been successfully initialized.\r\n");
             }
 
             Ok(())
         } else {
             unsafe {
-                unsafe_puts("PCIe node not found.\r\n");
+                unsafe_puts("PCIe: node not found\r\n");
             }
             Ok(())
         }
