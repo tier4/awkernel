@@ -29,6 +29,8 @@ jobs:
         run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf riscv64gc-unknown-none-elf
       - name: Install cargo-binutils
         run: cargo install cargo-binutils
+      - name: Install cargo-udeps
+        run: cargo install cargo-udeps
 
       - name: Cargo fmt
         run: cargo fmt && git diff --exit-code
@@ -64,3 +66,6 @@ jobs:
         run: cargo clippy_rv64 -- --deny warnings
       - name: Clippy std
         run: cargo clippy_std -- --deny warnings
+
+      - name: udeps
+        run: make udeps
