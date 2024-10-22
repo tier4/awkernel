@@ -71,6 +71,16 @@ clippy:
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
 
+udeps:
+	cargo +$(RUSTV) udeps_x86
+	cargo +$(RUSTV) udeps_raspi
+	cargo +$(RUSTV) udeps_aarch64_virt
+	cargo +$(RUSTV) udeps_lib_x86
+	cargo +$(RUSTV) udeps_lib_aarch64
+	cargo +$(RUSTV) udeps_drivers_x86
+	cargo +$(RUSTV) udeps_drivers_raspi
+	cargo +$(RUSTV) udeps_async_lib
+
 cargo: target/aarch64-kernel/$(BUILD)/awkernel kernel-x86_64.elf std
 
 FORCE:
