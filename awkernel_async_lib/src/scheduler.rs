@@ -12,6 +12,7 @@ use alloc::boxed::Box;
 mod fifo;
 pub(super) mod panicked;
 mod prioritized_fifo;
+mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
@@ -26,6 +27,8 @@ pub enum SchedulerType {
     PrioritizedFIFO(u8),
 
     RR,
+
+    PriorityBasedRR,
 
     Panicked,
 }
@@ -71,6 +74,10 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
         return Some(task);
     }
 
+    if let Some(task) = priority_based_rr::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
     if let Some(task) = panicked::SCHEDULER.get_next() {
         return Some(task);
     }
@@ -84,6 +91,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::RR => &rr::SCHEDULER,
+        SchedulerType::PriorityBasedRR => &priority_based_rr::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
