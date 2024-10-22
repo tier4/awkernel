@@ -21,10 +21,10 @@ pub(crate) trait Scheduler {
 
 There are several functions regarding the scheduler in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs).
 
-|  function             | description |
-|-----------------------|-------------------------------|
-| `fn get_next_task()`  | Get the next executable task.  |
-| `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.  |
+| function                                      | description                   |
+| --------------------------------------------- | ----------------------------- |
+| `fn get_next_task()`                          | Get the next executable task. |
+| `fn get_scheduler(sched_type: SchedulerType)` | Get a scheduler.              |
 
 `SchedulerType` is an enum for the scheduler type and defined in [awkernel_async_lib/src/scheduler.rs](https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs) as follows.
 
@@ -35,6 +35,8 @@ pub enum SchedulerType {
     PrioritizedFIFO(u8),
 
     RR,
+
+    PriorityBasedRR,
 
     Panicked,
 }
@@ -53,11 +55,11 @@ struct SleepingTasks {
 
 `SleepingTasks` struct has the following functions.
 
-|  function             | description |
-|-----------------------|-------------|
-| `fn new()` | Create a new `SleepingTasks` instance. |
-| `fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: u64)` | Sleep a task for a certain duration. |
-| `fn wake_task(&mut self)` | Wake up tasks after sleep. |
+| function                                                                    | description                            |
+| --------------------------------------------------------------------------- | -------------------------------------- |
+| `fn new()`                                                                  | Create a new `SleepingTasks` instance. |
+| `fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: u64)` | Sleep a task for a certain duration.   |
+| `fn wake_task(&mut self)`                                                   | Wake up tasks after sleep.             |
 
 ## Scheduler Implementation
 
