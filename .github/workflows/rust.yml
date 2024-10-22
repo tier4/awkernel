@@ -30,7 +30,7 @@ jobs:
       - name: Install cargo-binutils
         run: cargo install cargo-binutils
       - name: Install cargo-udeps
-        run: cargo install cargo-udeps
+        run: cargo install cargo-udeps --locked
 
       - name: Cargo fmt
         run: cargo fmt && git diff --exit-code
