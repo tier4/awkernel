@@ -1,10 +1,14 @@
 //! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
+use crate::task::{get_current_task, get_scheduler_type_by_task_id};
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    cpu::num_cpu,
+    sync::mutex::{MCSNode, Mutex},
+};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -159,7 +163,17 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
 /// So, do not call this from userland.
 pub fn wake_task() {
     // Check whether each running task exceeds the time quantum.
-    crate::scheduler::rr::SCHEDULER.check_time_quantum();
+    for cpu_id in 1..num_cpu() {
+        if let Some(task_id) = get_current_task(cpu_id) {
+            match get_scheduler_type_by_task_id(task_id) {
+                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
+                Some(SchedulerType::PriorityBasedRR) => {
+                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
+                }
+                _ => (),
+            }
+        }
+    }
 
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
