@@ -354,9 +354,17 @@ pub mod perf {
         }
     }
 
-    pub fn log_exec_times(task_id: u32) {
-        let exec_time = unsafe { read_volatile(&TASKS_EXEC_TIMES[(task_id as usize) & (MAX_MEASURE_SIZE - 1)]) };
-        log::debug!("Task#{:?} execution TSC = {:?} [cycles]", task_id, exec_time);
+    pub fn reset_task_exec(task_id: u32) {
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        unsafe { write_volatile(&mut TASKS_EXEC_TIMES[task_index], 0) };
+    }
+
+    pub fn get_task_exec(task_id: u32) -> u64 {
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        unsafe {
+            let exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
+            exec_time
+        }
     }
 
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
@@ -517,7 +525,21 @@ pub fn run_main() {
                     perf::add_task_end(cpu_id, task.id, task_end);
                     perf::add_context_save_end(cpu_id, task_end);
 
-                    perf::log_exec_times(task.id);
+                    {
+                        let mut node = MCSNode::new();
+                        let info = task.info.lock(&mut node);
+                        log::debug!(
+                            "CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10}, Sum:{:>10}, Preempt:{}, Name[{}]",
+                            cpu_id,
+                            task.id,
+                            task_start,
+                            task_end,
+                            task_end - task_start,
+                            perf::get_task_exec(task.id),
+                            info.get_num_preemption(),
+                            task.name
+                        );
+                    }
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
@@ -568,6 +590,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+                    perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
                 }
                 Err(_) => {
@@ -577,6 +600,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+                    perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
                 }
             }
