@@ -1,7 +1,7 @@
 //! A basic RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, get_raw_cpu_id, set_need_preemption, State};
+use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
@@ -91,7 +91,7 @@ impl RRScheduler {
             let elapsed = awkernel_lib::delay::uptime() - last_executed;
             if last_executed != 0 && elapsed > self.interval {
                 set_need_preemption(task_id);
-                awkernel_lib::interrupt::send_ipi(preempt_irq, get_raw_cpu_id(cpu_id) as u32);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
             }
         }
     }
