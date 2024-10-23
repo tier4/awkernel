@@ -22,17 +22,17 @@ mod rr;
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
+/// `u8` is the priority of priority based schedulers.
+/// 0 is the highest priority and 255 is the lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     FIFO,
 
-    /// `u8` is the priority of the prioritized scheduler.
-    /// 0 is the highest priority and 255 is the lowest priority.
     PrioritizedFIFO(u8),
 
     RR,
 
-    PriorityBasedRR,
+    PriorityBasedRR(u8),
 
     Panicked,
 }
@@ -95,7 +95,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::FIFO => &fifo::SCHEDULER,
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::RR => &rr::SCHEDULER,
-        SchedulerType::PriorityBasedRR => &priority_based_rr::SCHEDULER,
+        SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
@@ -167,7 +167,7 @@ pub fn wake_task() {
         if let Some(task_id) = get_current_task(cpu_id) {
             match get_scheduler_type_by_task_id(task_id) {
                 Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
-                Some(SchedulerType::PriorityBasedRR) => {
+                Some(SchedulerType::PriorityBasedRR(_)) => {
                     priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
                 }
                 _ => (),

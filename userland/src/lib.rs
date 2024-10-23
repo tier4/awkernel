@@ -22,5 +22,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_prioritized_fifo")]
     test_prioritized_fifo::run().await; // test for prioritized_fifo
 
+    #[cfg(feature = "test_priority_based_rr")]
+    test_priority_based_rr::run().await; // test for priority_based_rr
+
     Ok(())
 }
