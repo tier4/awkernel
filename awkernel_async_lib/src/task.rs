@@ -364,10 +364,6 @@ pub mod perf {
         unsafe { write_volatile(&mut TASKS_EXEC_TIMES[task_index], 0) };
     }
 
-    pub fn get_task_start(cpu_id: usize) -> u64 {
-        unsafe { read_volatile(&TASKS_STARTS[cpu_id]) }
-    }
-
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe {
