@@ -23,7 +23,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     test_prioritized_fifo::run().await; // test for prioritized_fifo
 
     #[cfg(feature = "test_rr")]
-    test_rr::run().await; // test for rr Round Robin scheduler
+    test_rr::run().await; // test for Round Robin scheduler
 
     Ok(())
 }
