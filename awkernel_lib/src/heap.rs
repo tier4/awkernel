@@ -146,7 +146,7 @@ pub struct Guard<'a> {
     flag: u32,
 }
 
-impl<'a> Drop for Guard<'a> {
+impl Drop for Guard<'_> {
     fn drop(&mut self) {
         unsafe { self.talloc.restore(self.index, self.flag) };
     }
@@ -257,7 +257,7 @@ unsafe impl GlobalAlloc for BackUpAllocator {
         let mut node = MCSNode::new();
         let mut guard = self.0.lock(&mut node);
         if let Some(mut ptr) = guard.allocate(layout) {
-            return ptr.as_mut();
+            ptr.as_mut()
         } else {
             drop(guard);
             unsafe_puts("failed to allocate heap memory\r\n");

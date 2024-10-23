@@ -57,7 +57,7 @@ impl<T: Send> MCSLock<T> {
         }
     }
 
-    pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<MCSLockGuard<T>> {
+    pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<MCSLockGuard<'a, T>> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
 
@@ -87,7 +87,7 @@ impl<T: Send> MCSLock<T> {
     }
 
     /// acquire lock
-    pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<T> {
+    pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<'a, T> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
 
@@ -138,7 +138,7 @@ pub struct MCSLockGuard<'a, T: Send> {
     _phantom: PhantomData<*mut ()>,
 }
 
-impl<'a, T: Send> MCSLockGuard<'a, T> {
+impl<T: Send> MCSLockGuard<'_, T> {
     #[cfg(loom)]
     pub fn with_mut<F, R>(&mut self, f: F) -> R
     where
@@ -148,7 +148,7 @@ impl<'a, T: Send> MCSLockGuard<'a, T> {
     }
 }
 
-impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
+impl<T: Send> Drop for MCSLockGuard<'_, T> {
     fn drop(&mut self) {
         if !self.need_unlock {
             return;
@@ -183,7 +183,7 @@ impl<'a, T: Send> Drop for MCSLockGuard<'a, T> {
 }
 
 #[cfg(not(loom))]
-impl<'a, T: Send> Deref for MCSLockGuard<'a, T> {
+impl<T: Send> Deref for MCSLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -192,21 +192,21 @@ impl<'a, T: Send> Deref for MCSLockGuard<'a, T> {
 }
 
 #[cfg(not(loom))]
-impl<'a, T: Send> DerefMut for MCSLockGuard<'a, T> {
+impl<T: Send> DerefMut for MCSLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mcs_lock.data.get() }
     }
 }
 
 #[cfg(not(loom))]
-impl<'a, T: Send> AsMut<T> for MCSLockGuard<'a, T> {
+impl<T: Send> AsMut<T> for MCSLockGuard<'_, T> {
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mcs_lock.data.get() }
     }
 }
 
 #[cfg(not(loom))]
-impl<'a, T: Send> AsRef<T> for MCSLockGuard<'a, T> {
+impl<T: Send> AsRef<T> for MCSLockGuard<'_, T> {
     fn as_ref(&self) -> &T {
         unsafe { &*self.mcs_lock.data.get() }
     }

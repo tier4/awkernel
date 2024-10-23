@@ -252,6 +252,7 @@ pub fn send_ipi_broadcast_without_self(irq: u16) {
 }
 
 /// Register an interrupt handler for PCIe MSI or MSI-X  interrupt.
+///
 /// This returns an IRQ object, which can be used to enable or disable the interrupt.
 /// When dropping the IRQ object, the interrupt will be disabled and the handler will be removed.
 pub fn register_handler_pcie_msi<F>(

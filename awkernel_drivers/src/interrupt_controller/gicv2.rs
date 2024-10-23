@@ -63,7 +63,7 @@ pub struct GICv2 {
 }
 
 fn div_ceil(a: usize, b: usize) -> usize {
-    (a + b - 1) / b
+    (a + b - 1).div_ceil(b)
 }
 
 impl GICv2 {

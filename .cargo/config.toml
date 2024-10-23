@@ -28,6 +28,16 @@ doc_raspi = "doc --package awkernel --no-default-features --features raspi --tar
 doc_aarch64_virt = "doc --package awkernel --no-default-features --features aarch64_virt --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 doc_x86 = "doc --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 
+udeps_x86 = "udeps --package awkernel --no-default-features --features x86"
+udeps_raspi = "udeps --package awkernel --no-default-features --features x86"
+udeps_aarch64_virt = "udeps --package awkernel --no-default-features --features aarch64_virt"
+udeps_lib_x86 = "udeps --package awkernel_lib --no-default-features --features x86"
+udeps_lib_aarch64 = "udeps --package awkernel_lib --no-default-features --features aarch64"
+udeps_async_lib = "udeps --package awkernel_async_lib --no-default-features --features std"
+udeps_drivers_x86 = "udeps --package awkernel_drivers --no-default-features --features x86"
+udeps_drivers_raspi = "udeps --package awkernel_drivers --no-default-features --features aarch64 --features raspi --features pl011"
+udeps_async_lib_verified = "udeps --package awkernel_async_lib_verified"
+
 [target.'cfg(target_os = "linux")']
 rustflags = ["-C", "link-arg=-lc", "-C", "link-arg=-lpthread"]
 

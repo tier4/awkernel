@@ -466,7 +466,7 @@ pub fn create_server<G, F: Send, R>(
 /// - `R`: type of result.
 pub async fn create_client<G: 'static, F: 'static + Send, R: 'static>(
     name: Cow<'static, str>,
-) -> Result<ClientSendGoal<G, F, R>, &'static str> {
+) -> Result<ClientSendGoal<'static, G, F, R>, &'static str> {
     let mut node = MCSNode::new();
 
     let tx = {

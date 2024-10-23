@@ -56,7 +56,7 @@ It can execute async/await applications in kernel space safely.
 - Network controllers
   - [x] Intel Gb Ethernet Controller (e1000 Series)
   - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
-  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [x] Intel 10Gb Ethernet Controller (X520 Series)
   - [ ] Mellanox ConnectX-5 series
   - [x] genet for Raspberry Pi
 - Networking
@@ -84,8 +84,8 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-08-13
-$ rustup default nightly-2024-08-13
+$ rustup toolchain install nightly-2024-10-16
+$ rustup default nightly-2024-10-16
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 $ cargo install cargo-binutils

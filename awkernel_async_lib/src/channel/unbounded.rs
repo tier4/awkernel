@@ -166,7 +166,7 @@ struct AsyncReceiver<'a, T: Send> {
     receiver: &'a Receiver<T>,
 }
 
-impl<'a, T: Send> Future for AsyncReceiver<'a, T> {
+impl<T: Send> Future for AsyncReceiver<'_, T> {
     type Output = Result<T, RecvErr>;
 
     fn poll(

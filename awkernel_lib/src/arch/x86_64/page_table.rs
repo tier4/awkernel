@@ -15,16 +15,16 @@ impl<'a> PageTable<'a> {
     }
 }
 
-impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
-    crate::paging::PageTable<super::page_allocator::Frame, PageAllocator<'a, T>, &'static str>
-    for PageTable<'b>
+impl<T: Iterator<Item = PhysFrame> + Send>
+    crate::paging::PageTable<super::page_allocator::Frame, PageAllocator<'_, T>, &'static str>
+    for PageTable<'_>
 {
     unsafe fn map_to(
         &mut self,
         virt_addr: crate::addr::virt_addr::VirtAddr,
         phy_addr: crate::addr::phy_addr::PhyAddr,
         flags: crate::paging::Flags,
-        page_allocator: &mut super::page_allocator::PageAllocator<'a, T>,
+        page_allocator: &mut super::page_allocator::PageAllocator<'_, T>,
     ) -> Result<(), &'static str> {
         let flags = flags_to_x86_flags(flags);
 
@@ -45,8 +45,8 @@ impl<'a, 'b, T: Iterator<Item = PhysFrame> + Send>
     }
 }
 
-impl<'a> crate::paging::PageTable<super::page_allocator::Frame, VecPageAllocator, &'static str>
-    for PageTable<'a>
+impl crate::paging::PageTable<super::page_allocator::Frame, VecPageAllocator, &'static str>
+    for PageTable<'_>
 {
     unsafe fn map_to(
         &mut self,

@@ -3243,7 +3243,7 @@ pub const IXGBE_PHYSICAL_LAYER_1000BASE_LX: u64 = 0x20000;
 /* BitTimes (BT) conversion */
 #[allow(non_snake_case)]
 pub const fn IXGBE_BT2KB(bt: u32) -> u32 {
-    (bt + (8 * 1024 - 1)) / (8 * 1024)
+    (bt + (8 * 1024 - 1)).div_ceil(8 * 1024)
 }
 
 #[allow(non_snake_case)]
