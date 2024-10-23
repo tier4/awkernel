@@ -30,9 +30,15 @@ impl PartialEq for PriorityBasedRRTask {
     }
 }
 
+/// If the priority is the same, the woken task must be placed
+/// at the back of the queue among tasks with the same priority
 impl Ord for PriorityBasedRRTask {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.priority.cmp(&other.priority).reverse()
+        if self.priority < other.priority {
+            core::cmp::Ordering::Greater
+        } else {
+            core::cmp::Ordering::Less
+        }
     }
 }
 

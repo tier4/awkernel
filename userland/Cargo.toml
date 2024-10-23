@@ -43,7 +43,7 @@ path = "../applications/test_priority_based_rr"
 optional = true
 
 [features]
-default = ["test_graphics"]
+default = ["test_priority_based_rr"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
