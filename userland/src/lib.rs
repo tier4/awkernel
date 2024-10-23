@@ -19,5 +19,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_graphics")]
     test_graphics::run().await; // test for graphics
 
+    #[cfg(feature = "test_prioritized_fifo")]
+    test_prioritized_fifo::run().await; // test for prioritized_fifo
+
     Ok(())
 }
