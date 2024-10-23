@@ -17,8 +17,9 @@ pub(super) fn locate_block(index: usize) -> usize {
 }
 
 /// Aligns the size
+#[allow(clippy::manual_div_ceil)]
 pub(super) fn align_size(raw_size: usize) -> usize {
-    (raw_size + BLOCK_SIZE - 1).div_ceil(BLOCK_SIZE)
+    (raw_size + BLOCK_SIZE - 1) / (BLOCK_SIZE)
 }
 
 pub(super) fn safe_index<T>(data: &[T], index: usize) -> Result<&T> {

@@ -62,7 +62,7 @@ all: aarch64 x86_64 riscv32 riscv64 std
 
 check: check_aarch64 check_x86_64 check_std check_riscv32 check_riscv64
 
-clippy:
+clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_x86
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
@@ -71,12 +71,13 @@ clippy:
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
 
-udeps:
+udeps: $(X86ASM)
 	cargo +$(RUSTV) udeps_x86
 	cargo +$(RUSTV) udeps_raspi
 	cargo +$(RUSTV) udeps_aarch64_virt
 	cargo +$(RUSTV) udeps_lib_x86
 	cargo +$(RUSTV) udeps_lib_aarch64
+	cargo +$(RUSTV) udeps_lib_rv64
 	cargo +$(RUSTV) udeps_drivers_x86
 	cargo +$(RUSTV) udeps_drivers_raspi
 	cargo +$(RUSTV) udeps_async_lib
