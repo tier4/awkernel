@@ -56,14 +56,12 @@ impl<'a, T> core::future::Future for AsyncLockFuture<'a, T> {
                 (*self.lock.wakers.get()).push_back(cx.waker().clone());
             }
 
-            Poll::Pending
-
-            // [WIP] To prevent starvation, check mutex again
-            // if self.lock.lock_var.load(Ordering::Relaxed) {
-            //     Poll::Pending
-            // } else {
-            //     self.poll(cx)
-            // }
+            // To prevent starvation, check lock_var again
+            if self.lock.lock_var.load(Ordering::Relaxed) {
+                Poll::Pending
+            } else {
+                self.poll(cx)
+            }
         }
     }
 }
