@@ -346,7 +346,7 @@ pub mod perf {
         let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
 
         // {
-        //     log::info!("CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10}", cpu_id, task_id, start, time, time - start);
+        //     log::info!("CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]", cpu_id, task_id, start, time, time - start);
         // }
 
         if start != 0 && time > start {
@@ -536,7 +536,7 @@ pub fn run_main() {
                     //     let mut node = MCSNode::new();
                     //     let info = task.info.lock(&mut node);
                     //     log::info!(
-                    //         "CPUID#{:?} Task#{:?} Sum:{:>10}, Preempt:{}, Name[{}]",
+                    //         "CPUID#{:?} Task#{:?} Sum:{:>10} [TSC], Preempt:{}, Name[{}]",
                     //         cpu_id,
                     //         task.id,
                     //         perf::get_task_exec(task.id),
