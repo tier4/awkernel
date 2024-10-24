@@ -369,9 +369,7 @@ pub mod perf {
 
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
-        unsafe {
-            read_volatile(&TASKS_EXEC_TIMES[task_index])
-        }
+        unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
     }
 
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
