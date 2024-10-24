@@ -1,6 +1,6 @@
 //! Task yielding.
 
-use crate::{task::perf::add_context_save_start, cpu_counter};
+use crate::{cpu_counter, task::perf::add_context_save_start};
 use core::task::Poll;
 use futures::Future;
 

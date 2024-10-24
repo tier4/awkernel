@@ -10,8 +10,8 @@
 mod preempt;
 
 use crate::{
-    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
     cpu_counter,
+    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
 };
 use alloc::{
     borrow::Cow,
@@ -352,8 +352,11 @@ pub mod perf {
         if start != 0 && time > start {
             let current_exec_time = time - start;
             unsafe {
-                let sum_exec_time =  read_volatile(&TASKS_EXEC_TIMES[task_index]);
-                write_volatile(&mut TASKS_EXEC_TIMES[task_index], current_exec_time + sum_exec_time);
+                let sum_exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
+                write_volatile(
+                    &mut TASKS_EXEC_TIMES[task_index],
+                    current_exec_time + sum_exec_time,
+                );
                 write_volatile(&mut TASKS_STARTS[cpu_id], 0);
             }
         }
@@ -450,7 +453,6 @@ pub fn run_main() {
 
     loop {
         if let Some(task) = get_next_task() {
-
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.

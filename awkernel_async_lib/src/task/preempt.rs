@@ -1,7 +1,7 @@
 use crate::{
-    task::{Task, get_current_task},
-    task::perf::{add_task_start, add_task_end},
     cpu_counter,
+    task::perf::{add_task_end, add_task_start},
+    task::{get_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
@@ -76,7 +76,6 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
-
         add_task_end(cpu_id, current_task_id, cpu_counter());
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);

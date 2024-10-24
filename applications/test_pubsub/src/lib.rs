@@ -5,11 +5,12 @@ extern crate alloc;
 use alloc::format;
 use awkernel_async_lib::{
     channel::bounded,
+    cpu_counter,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
     sleep, spawn,
     task::perf::add_context_restore_end,
-    uptime, cpu_counter,
+    uptime,
 };
 use core::{
     ptr::write_volatile,
