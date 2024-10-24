@@ -21,14 +21,15 @@ begin
         if ~lock_var then
             lock_var := TRUE;
             return;
-        \* If this else block is used, starvation can be avoided
-        \* else
-        \*     waiting := TRUE;
         end if;
 
-    \* This causes a starvation
     enqueue_thread:
         waiting := TRUE;
+    
+    check_again:
+        if ~lock_var then
+            waken := TRUE;
+        end if;
 
     poll_lock:
         await waken;
@@ -61,8 +62,8 @@ begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "f67523bd" /\ chksum(tla) = "1c66ce39")
-\* Process thread at line 51 col 6 changed to thread_
+\* BEGIN TRANSLATION (chksum(pcal) = "1b237f63" /\ chksum(tla) = "70a468a")
+\* Process thread at line 52 col 6 changed to thread_
 \* Parameter thread of procedure lock at line 18 col 16 changed to thread_l
 CONSTANT defaultInitValue
 VARIABLES pc, waken, lock_var, data, waiting, stack
@@ -94,11 +95,24 @@ start_lock(self) == /\ pc[self] = "start_lock"
                                /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
                                /\ thread_l' = [thread_l EXCEPT ![self] = Head(stack[self]).thread_l]
                                /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                               /\ UNCHANGED waiting
-                          ELSE /\ waiting' = TRUE
-                               /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
+                          ELSE /\ pc' = [pc EXCEPT ![self] = "enqueue_thread"]
                                /\ UNCHANGED << lock_var, stack, thread_l >>
-                    /\ UNCHANGED << waken, data, thread >>
+                    /\ UNCHANGED << waken, data, waiting, thread >>
+
+enqueue_thread(self) == /\ pc[self] = "enqueue_thread"
+                        /\ waiting' = TRUE
+                        /\ pc' = [pc EXCEPT ![self] = "check_again"]
+                        /\ UNCHANGED << waken, lock_var, data, stack, thread_l, 
+                                        thread >>
+
+check_again(self) == /\ pc[self] = "check_again"
+                     /\ IF ~lock_var
+                           THEN /\ waken' = TRUE
+                           ELSE /\ TRUE
+                                /\ waken' = waken
+                     /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
+                     /\ UNCHANGED << lock_var, data, waiting, stack, thread_l, 
+                                     thread >>
 
 poll_lock(self) == /\ pc[self] = "poll_lock"
                    /\ waken
@@ -107,11 +121,12 @@ poll_lock(self) == /\ pc[self] = "poll_lock"
                    /\ UNCHANGED << lock_var, data, waiting, stack, thread_l, 
                                    thread >>
 
-lock(self) == start_lock(self) \/ poll_lock(self)
+lock(self) == start_lock(self) \/ enqueue_thread(self) \/ check_again(self)
+                 \/ poll_lock(self)
 
 start_unlock(self) == /\ pc[self] = "start_unlock"
                       /\ Assert((lock_var), 
-                                "Failure of assertion at line 42, column 9.")
+                                "Failure of assertion at line 43, column 9.")
                       /\ lock_var' = FALSE
                       /\ pc' = [pc EXCEPT ![self] = "wake"]
                       /\ UNCHANGED << waken, data, waiting, stack, thread_l, 

@@ -2,45 +2,36 @@
 
 1. download tla2tools
 
-2. Trandlate PlusCal to TLA+
+2. Translate PlusCal to TLA+
 ```bash
 java -cp tla2tools.jar pcal.trans mutex.tla
 ```
 
 3. Run TLC
 ```bash
-java -jar tla2tools.jar mutex.tla
+java -jar tla2tools.jar -deadlock -config mutex.cfg mutex.tla
 ```
 
 
 ## Result
 
-### stavation free model
-```
-    start_lock:
-        if ~lock_var then
-            lock_var := TRUE;
-            return;
-        else
-            waiting := TRUE;
-        end if;
-```
+### starvation free model
 
 ```txt
 $ java -jar tla2tools.jar -deadlock -config mutex.cfg mutex.tla
 TLC2 Version 2.20 of Day Month 20?? (rev: cc65eef)
 Warning: Please run the Java VM, which executes TLC with a throughput optimized garbage collector, by passing the "-XX:+UseParallelGC" property.
 (Use the -nowarning option to disable this warning.)
-Running breadth-first search Model-Checking with fp 127 and seed 5754611875939444919 with 1 worker on 22 cores with 7968MB heap and 64MB offheap memory [pid: 122009] (Linux 6.8.0-47-generic amd64, Ubuntu 11.0.24 x86_64, MSBDiskFPSet, DiskStateQueue).
+Running breadth-first search Model-Checking with fp 96 and seed 6478384794873034978 with 1 worker on 22 cores with 7968MB heap and 64MB offheap memory [pid: 122953] (Linux 6.8.0-47-generic amd64, Ubuntu 11.0.24 x86_64, MSBDiskFPSet, DiskStateQueue).
 Parsing file /home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/mutex.tla
 Warning: symbols were renamed.
-Parsing file /tmp/tlc-17989938148406378330/TLC.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
-Parsing file /tmp/tlc-17989938148406378330/Integers.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
-Parsing file /tmp/tlc-17989938148406378330/Sequences.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
-Parsing file /tmp/tlc-17989938148406378330/_TLCTrace.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
-Parsing file /tmp/tlc-17989938148406378330/Naturals.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
-Parsing file /tmp/tlc-17989938148406378330/FiniteSets.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
-Parsing file /tmp/tlc-17989938148406378330/TLCExt.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
+Parsing file /tmp/tlc-3295666740157571331/TLC.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file /tmp/tlc-3295666740157571331/Integers.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file /tmp/tlc-3295666740157571331/Sequences.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file /tmp/tlc-3295666740157571331/_TLCTrace.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file /tmp/tlc-3295666740157571331/Naturals.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file /tmp/tlc-3295666740157571331/FiniteSets.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file /tmp/tlc-3295666740157571331/TLCExt.tla (jar:file:/home/veqcc/work/awkernel/specification/awkernel_async_lib/src/mutex/tla2tools.jar!/tla2sany/StandardModules/TLCExt.tla)
 Semantic processing of module Naturals
 Semantic processing of module Sequences
 Semantic processing of module FiniteSets
@@ -49,34 +40,26 @@ Semantic processing of module Integers
 Semantic processing of module TLCExt
 Semantic processing of module _TLCTrace
 Semantic processing of module mutex
-Starting... (2024-10-24 18:41:46)
+Starting... (2024-10-24 18:57:15)
 Implied-temporal checking--satisfiability problem has 1 branches.
 Computing initial states...
-Finished computing initial states: 1 distinct state generated at 2024-10-24 18:41:46.
-Progress(15) at 2024-10-24 18:41:46: 87 states generated, 61 distinct states found, 0 states left on queue.
-Checking temporal properties for the complete state space with 61 total distinct states at (2024-10-24 18:41:46)
-Finished checking temporal properties in 00s at 2024-10-24 18:41:46
+Finished computing initial states: 1 distinct state generated at 2024-10-24 18:57:15.
+Progress(17) at 2024-10-24 18:57:15: 157 states generated, 104 distinct states found, 0 states left on queue.
+Checking temporal properties for the complete state space with 104 total distinct states at (2024-10-24 18:57:15)
+Finished checking temporal properties in 00s at 2024-10-24 18:57:15
 Model checking completed. No error has been found.
   Estimates of the probability that TLC did not check all reachable states
   because two distinct states had the same fingerprint:
-  calculated (optimistic):  val = 8.6E-17
-87 states generated, 61 distinct states found, 0 states left on queue.
-The depth of the complete state graph search is 15.
+  calculated (optimistic):  val = 3.0E-16
+157 states generated, 104 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 17.
 The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 2 and the 95th percentile is 2).
-Finished in 00s at (2024-10-24 18:41:46)
+Finished in 00s at (2024-10-24 18:57:15)
 ```
 
 ### starvation model
-```
-    start_lock:
-        if ~lock_var then
-            lock_var := TRUE;
-            return;
-        end if;
 
-    enqueue_thread:
-        waiting := TRUE;
-```
+Try after `check_again` block is removed.
 
 ```txt
 $ java -jar tla2tools.jar -deadlock -config mutex.cfg mutex.tla
