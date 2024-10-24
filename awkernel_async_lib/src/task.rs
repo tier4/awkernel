@@ -370,8 +370,7 @@ pub mod perf {
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe {
-            let exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
-            exec_time
+            read_volatile(&TASKS_EXEC_TIMES[task_index])
         }
     }
 
