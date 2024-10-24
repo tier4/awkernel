@@ -41,7 +41,6 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let next_cpu_ctx = next_ctx.get_cpu_context();
 
     unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
-    add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
     thread::set_current_context(current_ctx);
 
@@ -81,7 +80,7 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
         add_task_end(cpu_id, current_task_id, cpu_counter());
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
-        add_task_start(cpu_id, cpu_counter());
+        add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
         thread::set_current_context(current_ctx);
     }
