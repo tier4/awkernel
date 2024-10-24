@@ -3,8 +3,9 @@
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::{cpu::num_cpu, delay::wait_millisec};
 
-/// This test confirms whether PriorityBasedRR scheduler works
-/// both as a priority based scheduler and as an RR scheduler
+// This test confirms whether PriorityBasedRR scheduler works
+// both as a priority based scheduler (low priority tasks will not be run)
+// and as an RR scheduler (all high priority tasks will infinitely be run)
 pub async fn run() {
     wait_millisec(1000);
     log::debug!("test_priority_based_rr");

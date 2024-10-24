@@ -2,7 +2,7 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
-use alloc::{collections::BinaryHeap, sync::Arc};
+use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PriorityBasedRRScheduler {
@@ -18,40 +18,14 @@ struct PriorityBasedRRTask {
     priority: u8,
 }
 
-impl PartialOrd for PriorityBasedRRTask {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for PriorityBasedRRTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-    }
-}
-
-/// If the priority is the same, the woken task must be placed
-/// at the back of the queue among tasks with the same priority
-impl Ord for PriorityBasedRRTask {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        if self.priority < other.priority {
-            core::cmp::Ordering::Greater
-        } else {
-            core::cmp::Ordering::Less
-        }
-    }
-}
-
-impl Eq for PriorityBasedRRTask {}
-
 struct PriorityBasedRRData {
-    queue: BinaryHeap<PriorityBasedRRTask>,
+    queue: VecDeque<PriorityBasedRRTask>,
 }
 
 impl PriorityBasedRRData {
     fn new() -> Self {
         Self {
-            queue: BinaryHeap::new(),
+            queue: VecDeque::new(),
         }
     }
 }
@@ -59,19 +33,29 @@ impl PriorityBasedRRData {
 impl Scheduler for PriorityBasedRRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
-        let mut guard = self.data.lock(&mut node);
-        let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-
-        let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
         let SchedulerType::PriorityBasedRR(priority) = info.scheduler_type else {
             return;
         };
-
-        data.queue.push(PriorityBasedRRTask {
+        let new_task = PriorityBasedRRTask {
             task: task.clone(),
             priority,
-        });
+        };
+
+        let mut node = MCSNode::new();
+        let mut guard = self.data.lock(&mut node);
+        let data = guard.get_or_insert_with(PriorityBasedRRData::new);
+
+        // NOTE: This is a simple linear search.
+        // If you want to improve performance, please refactor it.
+        for i in 0..data.queue.len() {
+            if priority < data.queue[i].priority {
+                data.queue.insert(i, new_task);
+                return;
+            }
+        }
+
+        data.queue.push_back(new_task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -83,7 +67,7 @@ impl Scheduler for PriorityBasedRRScheduler {
             None => return None,
         };
 
-        while let Some(rr_task) = data.queue.pop() {
+        while let Some(rr_task) = data.queue.pop_front() {
             {
                 let mut node = MCSNode::new();
                 let mut task_info = rr_task.task.info.lock(&mut node);
