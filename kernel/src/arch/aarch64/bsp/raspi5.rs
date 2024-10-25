@@ -44,7 +44,7 @@ impl super::SoC for Raspi5 {
         self.init_pcie_bridge();
         self.init_uart();
         let _ = self.get_pcie_mem();
-        // self.init_gpio();
+        self.init_gpio();
         Ok(())
     }
 
@@ -188,17 +188,6 @@ impl Raspi5 {
 
     unsafe fn get_pcie_mem(&mut self) -> Result<(), &'static str> {
         // Find PCIe node.
-        // let Some(pcie_node) = self
-        //     .device_tree
-        //     .root()
-        //     .nodes()
-        //     .iter()
-        //     .find(|n| n.name().starts_with("pcie@"))
-        // else {
-        //     unsafe_puts("PCIe node not found.\r\n");
-        //     return Ok(());
-        // };
-
         let pcie_node = if let Some(axi) = self.device_tree.root().find_child("axi") {
             axi.nodes().iter().find(|n| {
                 let name = n.name();
@@ -222,7 +211,6 @@ impl Raspi5 {
             let reg_base = reg.0.to_u128() as usize;
             
             let reg_size = reg.1.to_u128() as usize;
-            // let reg_size = 0x10000000 as usize;
 
             let pcie_regs = (PhyAddr::new(reg_base), reg_size);
 
