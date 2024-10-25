@@ -1,4 +1,5 @@
-use alloc::collections::VecDeque;
+use alloc::{collections::VecDeque, sync::Arc};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
@@ -9,7 +10,7 @@ use core::{
 pub struct AsyncLock<T> {
     data: UnsafeCell<T>,
     lock_var: AtomicBool,
-    wakers: UnsafeCell<VecDeque<Waker>>,
+    wakers: Arc<Mutex<VecDeque<Waker>>>,
 }
 
 pub struct AsyncLockGuard<'a, T> {
@@ -24,7 +25,7 @@ impl<T> AsyncLock<T> {
         Self {
             data: UnsafeCell::new(data),
             lock_var: AtomicBool::new(false),
-            wakers: UnsafeCell::new(VecDeque::new()),
+            wakers: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
@@ -52,18 +53,18 @@ impl<'a, T> core::future::Future for AsyncLockFuture<'a, T> {
         {
             Poll::Ready(AsyncLockGuard { lock: self.lock })
         } else {
-            unsafe {
-                (*self.lock.wakers.get()).push_back(cx.waker().clone());
+            {
+                let mut node = MCSNode::new();
+                let mut wakers = self.lock.wakers.lock(&mut node);
+                wakers.push_back(cx.waker().clone());
             }
 
-            Poll::Pending
-
             // To prevent starvation, check lock_var again
-            // if self.lock.lock_var.load(Ordering::Relaxed) {
-            //     Poll::Pending
-            // } else {
-            //     self.poll(cx)
-            // }
+            if self.lock.lock_var.load(Ordering::Relaxed) {
+                Poll::Pending
+            } else {
+                self.poll(cx)
+            }
         }
     }
 }
@@ -72,11 +73,10 @@ impl<T> Drop for AsyncLockGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.lock_var.store(false, Ordering::Release);
 
-        unsafe {
-            let wakers = &mut *self.lock.wakers.get();
-            if let Some(waker) = wakers.pop_front() {
-                waker.wake()
-            }
+        let mut node = MCSNode::new();
+        let mut wakers = self.lock.wakers.lock(&mut node);
+        if let Some(waker) = wakers.pop_front() {
+            waker.wake()
         }
     }
 }

@@ -47,7 +47,7 @@ path = "../applications/test_async_mutex"
 optional = true
 
 [features]
-default = ["test_priority_based_rr"]
+default = ["test_graphics"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
