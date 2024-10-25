@@ -1,6 +1,4 @@
-use crate::{
-    task::{get_current_task, Task},
-};
+use crate::task::{get_current_task, Task};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{

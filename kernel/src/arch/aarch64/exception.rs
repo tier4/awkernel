@@ -4,8 +4,8 @@ use awkernel_lib::{
 };
 
 use awkernel_async_lib::{
-    task::perf::{add_task_start, add_task_end},
     cpu_counter,
+    task::perf::{add_task_end, add_task_start},
 };
 
 use core::str::from_utf8_unchecked;

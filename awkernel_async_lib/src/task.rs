@@ -321,10 +321,10 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub mod perf {
+    use crate::task::get_current_task;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{addr_of, read_volatile, write_volatile};
     use core::sync::atomic::{AtomicUsize, Ordering};
-    use crate::task::get_current_task;
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
 
@@ -352,7 +352,14 @@ pub mod perf {
         let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
 
         {
-            log::info!("CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]", cpu_id, task_id, start, time, time - start);
+            log::info!(
+                "CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]",
+                cpu_id,
+                task_id,
+                start,
+                time,
+                time - start
+            );
         }
 
         if start != 0 && time > start {
