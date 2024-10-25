@@ -42,6 +42,10 @@ optional = true
 path = "../applications/test_priority_based_rr"
 optional = true
 
+[dependencies.test_async_mutex]
+path = "../applications/test_async_mutex"
+optional = true
+
 [features]
 default = ["test_priority_based_rr"]
 raspi = ["dep:test_rpi_hal"]
@@ -52,3 +56,4 @@ test_graphics = ["dep:test_graphics"]
 test_prioritized_fifo = ["dep:test_prioritized_fifo"]
 test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
+test_async_mutex = ["dep:test_async_mutex"]

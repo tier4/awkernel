@@ -56,12 +56,14 @@ impl<'a, T> core::future::Future for AsyncLockFuture<'a, T> {
                 (*self.lock.wakers.get()).push_back(cx.waker().clone());
             }
 
+            Poll::Pending
+
             // To prevent starvation, check lock_var again
-            if self.lock.lock_var.load(Ordering::Relaxed) {
-                Poll::Pending
-            } else {
-                self.poll(cx)
-            }
+            // if self.lock.lock_var.load(Ordering::Relaxed) {
+            //     Poll::Pending
+            // } else {
+            //     self.poll(cx)
+            // }
         }
     }
 }
@@ -79,7 +81,7 @@ impl<T> Drop for AsyncLockGuard<'_, T> {
     }
 }
 
-impl<T> Deref for AsyncLockGuard<'_, T> {
+impl<T: Send> Deref for AsyncLockGuard<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -87,9 +89,21 @@ impl<T> Deref for AsyncLockGuard<'_, T> {
     }
 }
 
-impl<T> DerefMut for AsyncLockGuard<'_, T> {
+impl<T: Send> DerefMut for AsyncLockGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<T: Send> AsMut<T> for AsyncLockGuard<'_, T> {
+    fn as_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.lock.data.get() }
+    }
+}
+
+impl<T: Send> AsRef<T> for AsyncLockGuard<'_, T> {
+    fn as_ref(&self) -> &T {
+        unsafe { &*self.lock.data.get() }
     }
 }
 
@@ -97,7 +111,6 @@ impl<T> DerefMut for AsyncLockGuard<'_, T> {
 mod tests {
     use super::*;
     use alloc::sync::Arc;
-    use awkernel_lib::delay::wait_millisec;
 
     #[test]
     fn test_simple_async_mutex() {
@@ -108,7 +121,7 @@ mod tests {
             let mutex = mutex.clone();
             let task = async move {
                 let mut guard = mutex.lock().await;
-                let data = guard.deref_mut();
+                let data = guard.as_mut();
                 *data += 1;
             };
 
@@ -119,50 +132,9 @@ mod tests {
         let mutex = mutex.clone();
         let task = async move {
             let guard = mutex.lock().await;
-            let data = guard.deref();
+            let data = guard.as_ref();
             assert!(*data == 10000);
         };
-
-        tasks.spawn(task);
-        tasks.run();
-    }
-
-    #[test]
-    fn test_multiple_wakers() {
-        let mutex = Arc::new(AsyncLock::new(0));
-        let tasks = crate::mini_task::Tasks::new();
-
-        // Generate a heavy task so that subsequent tasks will be blocked
-        {
-            let mutex = mutex.clone();
-            let task = async move {
-                let mut guard = mutex.lock().await;
-                let data = guard.deref_mut();
-                wait_millisec(100);
-                *data = 1;
-            };
-            tasks.spawn(task);
-            tasks.run();
-        }
-
-        for _ in 0..100 {
-            let mutex = mutex.clone();
-            let task = async move {
-                let mut guard = mutex.lock().await;
-                let data = guard.deref_mut();
-                *data += 1;
-            };
-            tasks.spawn(task);
-        }
-        tasks.run();
-
-        let mutex = mutex.clone();
-        let task = async move {
-            let guard = mutex.lock().await;
-            let data = guard.deref();
-            assert!(*data == 101);
-        };
-
         tasks.spawn(task);
         tasks.run();
     }
