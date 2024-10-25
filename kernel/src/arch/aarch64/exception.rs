@@ -1,13 +1,11 @@
-use awkernel_lib::{
-    arch::aarch64::exception_saved_regs::Context, console::unsafe_puts, delay::wait_forever,
-    interrupt,
-};
-
 use awkernel_async_lib::{
     cpu_counter,
     task::perf::{add_task_end, add_task_start},
 };
-
+use awkernel_lib::{
+    arch::aarch64::exception_saved_regs::Context, console::unsafe_puts, delay::wait_forever,
+    interrupt,
+};
 use core::str::from_utf8_unchecked;
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
