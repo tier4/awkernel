@@ -2319,6 +2319,7 @@ impl IgbHw {
     /// 3) if not set the link is locked (all is good), otherwise...
     /// 4) reset the PHY
     /// 5) repeat up to 10 times
+    ///
     /// Note: this is only called for IGP3 copper when speed is 1gb.
     fn kumeran_lock_loss_workaround(&mut self, info: &PCIeInfo) -> Result<(), IgbDriverErr> {
         // Make sure link is up before proceeding.  If not just return.
@@ -5870,7 +5871,7 @@ impl IgbHw {
                     // starting from any offset.
                     for d in data.iter_mut() {
                         let word_in = hw.shift_in_ee_bits(info, 16)?;
-                        *d = (word_in >> 8) | (word_in << 8);
+                        *d = word_in.rotate_left(8);
                     }
 
                     Ok(())
@@ -6003,7 +6004,7 @@ impl IgbHw {
             // Loop to allow for up to whole page write (32 bytes) of eeprom
             while widx < data.len() {
                 let word_out = data[widx];
-                let word_out = (word_out >> 8) | (word_out << 8);
+                let word_out = word_out.rotate_left(8);
                 self.shift_out_ee_bits(info, word_out, 16)?;
                 widx += 1;
 
@@ -6180,11 +6181,7 @@ impl IgbHw {
         }
 
         self.acquire_software_flag(info, |hw| {
-            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
-                bank
-            } else {
-                0
-            };
+            let flash_bank = hw.valid_nvm_bank_detect_ich8lan(info).unwrap_or(0);
 
             // Adjust offset appropriately if we're on bank 1 - adjust for word size
             let bank_offset =
@@ -6216,11 +6213,7 @@ impl IgbHw {
         }
 
         self.acquire_software_flag(info, |hw| {
-            let flash_bank = if let Ok(bank) = hw.valid_nvm_bank_detect_ich8lan(info) {
-                bank
-            } else {
-                0
-            };
+            let flash_bank = hw.valid_nvm_bank_detect_ich8lan(info).unwrap_or(0);
 
             // Adjust offset appropriately if we're on bank 1 - adjust for word size
             let bank_offset =

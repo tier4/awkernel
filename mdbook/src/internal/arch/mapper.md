@@ -1,6 +1,6 @@
 # Mapper (Virtual Memory Management)
 
-The `Mapper` is a trait that provides a way to map and unmap virtual memory.
+`Mapper` is a trait that provides a way to map and unmap virtual memory.
 It is defined in [awkernel_lib/src/paging.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs) as follows.
 
 ```rust
@@ -27,7 +27,7 @@ pub trait Mapper {
 }
 ```
 
-The `Mapper` uses `VirtAddr` and `PhyAddr` types to represent virtual and physical addresses.
+`Mapper` uses `VirtAddr` and `PhyAddr` types to represent virtual and physical addresses.
 These types are defined in [awkernel_lib/src/addr/virt_addr.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs) and [awkernel_lib/src/addr/phy_addr.rs](https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs).
 
 The `Flags` type is used to represent the flags of the page table entry.

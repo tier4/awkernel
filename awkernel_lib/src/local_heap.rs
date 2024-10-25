@@ -76,8 +76,8 @@ impl<'a, 'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize>
     }
 }
 
-unsafe impl<'a, 'pool, FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
-    for LocalHeap<'a, 'pool, FLBitmap, SLBitmap, FLLEN, SLLEN>
+unsafe impl<FLBitmap, SLBitmap, const FLLEN: usize, const SLLEN: usize> Allocator
+    for LocalHeap<'_, '_, FLBitmap, SLBitmap, FLLEN, SLLEN>
 where
     FLBitmap: BinInteger,
     SLBitmap: BinInteger,

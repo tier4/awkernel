@@ -62,6 +62,7 @@ pub struct GICv2 {
     max_it: u16,
 }
 
+#[allow(clippy::manual_div_ceil)]
 fn div_ceil(a: usize, b: usize) -> usize {
     (a + b - 1) / b
 }

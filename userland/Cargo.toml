@@ -30,10 +30,25 @@ optional = true
 path = "../applications/test_graphics"
 optional = true
 
+[dependencies.test_prioritized_fifo]
+path = "../applications/test_prioritized_fifo"
+optional = true
+
+[dependencies.test_rr]
+path = "../applications/test_rr"
+optional = true
+
+[dependencies.test_priority_based_rr]
+path = "../applications/test_priority_based_rr"
+optional = true
+
 [features]
-default = ["test_graphics"]
+default = ["test_priority_based_rr"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
 test_graphics = ["dep:test_graphics"]
+test_prioritized_fifo = ["dep:test_prioritized_fifo"]
+test_rr = ["dep:test_rr"]
+test_priority_based_rr = ["dep:test_priority_based_rr"]

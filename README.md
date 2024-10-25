@@ -36,7 +36,8 @@ It can execute async/await applications in kernel space safely.
   - [ ] Reboot
 - [ ] Schedulers
   - [x] FIFO scheduler
-  - [ ] Round robin scheduler
+  - [x] Round robin scheduler
+  - [ ] Priority Based Round robin scheduler
   - [ ] EDF scheduler
   - [ ] DAG scheduler
 - [ ] Memory allocators
@@ -56,7 +57,7 @@ It can execute async/await applications in kernel space safely.
 - Network controllers
   - [x] Intel Gb Ethernet Controller (e1000 Series)
   - [ ] Intel 2.5Gb Ethernet Controller (I225/I226 series)
-  - [ ] Intel 10Gb Ethernet Controller (X520 Series)
+  - [x] Intel 10Gb Ethernet Controller (X520 Series)
   - [ ] Mellanox ConnectX-5 series
   - [x] genet for Raspberry Pi
 - Networking
@@ -65,7 +66,7 @@ It can execute async/await applications in kernel space safely.
   - [x] UDP
   - [x] TCP
   - [ ] VLAN
-  - [ ] IP multicast
+  - [x] IP multicast
   - [ ] Offloading
     - [ ] TSO
     - [ ] IPv4 header checksum
@@ -84,10 +85,10 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-05-08
-$ rustup default nightly-2024-05-08
+$ rustup toolchain install nightly-2024-10-16
+$ rustup default nightly-2024-10-16
 $ rustup component add rust-src llvm-tools-preview
-$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
+$ rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf riscv64gc-unknown-none-elf
 $ cargo install cargo-binutils
 $ curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 $ cargo binstall mdbook

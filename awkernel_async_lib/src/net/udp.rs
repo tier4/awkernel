@@ -87,7 +87,7 @@ pub struct UdpSender<'a> {
     dst_port: u16,
 }
 
-impl<'a> Future for UdpSender<'a> {
+impl Future for UdpSender<'_> {
     type Output = Result<(), UdpSocketError>;
     fn poll(
         self: core::pin::Pin<&mut Self>,
@@ -114,7 +114,7 @@ pub struct UdpReceiver<'a> {
     buf: &'a mut [u8],
 }
 
-impl<'a> Future for UdpReceiver<'a> {
+impl Future for UdpReceiver<'_> {
     type Output = Result<(usize, IpAddr, u16), UdpSocketError>;
     fn poll(
         self: core::pin::Pin<&mut Self>,

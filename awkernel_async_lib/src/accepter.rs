@@ -10,7 +10,6 @@ use core::{marker::PhantomData, sync::atomic::AtomicPtr};
 use alloc::vec::Vec;
 
 /// Channel so that a server accepts a connection.
-
 pub(crate) type TxRx = (Sender<AtomicPtr<u8>>, Receiver<AtomicPtr<u8>>);
 
 /// `P` is a protocol of a server.

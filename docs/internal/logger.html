@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/logger.html" class="active"><strong aria-hidden="true">2.2.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.3.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.4.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.4.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.4.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.4.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.4.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/delay.html"><strong aria-hidden="true">2.5.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html" class="active"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -175,7 +175,8 @@
                     <main>
                         <h1 id="logger"><a class="header" href="#logger">Logger</a></h1>
 <p>Awkernel uses <a href="https://crates.io/crates/log">log</a> crate for logging.
-So, you can use the log macros like defined in this crate as follows.</p>
+So, you can use the log macros like defined in this crate as follows.
+The logger uses the console module internally.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>log::error!("This is an error message.");
@@ -201,7 +202,7 @@ The buffered logger is executed as an async/await task and spawned in <a href="h
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="../internal/synchronization.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="../internal/console.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
@@ -215,7 +216,7 @@ The buffered logger is executed as an async/await task and spawned in <a href="h
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="../internal/synchronization.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="../internal/console.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <i class="fa fa-angle-left"></i>
                     </a>
 

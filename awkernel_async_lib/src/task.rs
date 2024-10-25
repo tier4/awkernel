@@ -131,6 +131,7 @@ pub struct TaskInfo {
     pub(crate) num_preempt: u64,
     last_executed_time: u64,
     need_sched: bool,
+    need_preemption: bool,
     panicked: bool,
 
     #[cfg(not(feature = "no_preempt"))]
@@ -234,6 +235,7 @@ impl Tasks {
                     num_preempt: 0,
                     last_executed_time: 0,
                     need_sched: false,
+                    need_preemption: false,
                     panicked: false,
 
                     #[cfg(not(feature = "no_preempt"))]
@@ -525,12 +527,6 @@ pub fn run_main() {
                         not(feature = "std")
                     ))]
                     {
-                        {
-                            let mut node = MCSNode::new();
-                            let mut info = task.info.lock(&mut node);
-                            info.need_sched = false;
-                        }
-
                         awkernel_lib::interrupt::enable();
                     }
 
@@ -772,7 +768,7 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 }
 
 #[inline(always)]
-pub fn set_need_sched(task_id: u32) {
+pub fn set_need_preemption(task_id: u32) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
@@ -790,7 +786,7 @@ pub fn set_need_sched(task_id: u32) {
     if let Some(task) = tasks.id_to_task.get(&task_id) {
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
-        info.need_sched = true;
+        info.need_preemption = true;
     }
 }
 
