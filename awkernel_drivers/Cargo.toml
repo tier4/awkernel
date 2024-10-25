@@ -77,7 +77,7 @@ mii = []        # Media Independent Interface
 genet = ["mii"] # Broadcom GENET for Raspberry Pi
 
 ## PCIe
-pcie = []
-all_pcie = ["pcie", "broadcom", "igb","raspi"]
-igb = []                   # Intel Gigabit Ethernet
-broadcom =[]
+all_pcie = ["pcie", "igb", "ixgbe", "broadcom", "raspi"]
+igb = ["dep:memoffset"]             # Intel Gigabit Ethernet
+ixgbe = ["dep:rand"]                # Intel 10 Gigabit Ethernet
+broadcom = []

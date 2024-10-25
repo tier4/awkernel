@@ -458,6 +458,7 @@ const MAX_DEVICE: u8 = 32;
 #[cfg(feature = "raspi")]
 const MAX_DEVICE: u8 = 2;
 
+/// Scan for devices on the physical PCIe bus.
 #[inline]
 fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
 where
