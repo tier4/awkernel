@@ -452,6 +452,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
+
 #[cfg(not(feature = "raspi"))]
 const MAX_DEVICE: u8 = 32;
 
