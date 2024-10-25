@@ -324,6 +324,7 @@ pub mod perf {
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{addr_of, read_volatile, write_volatile};
     use core::sync::atomic::{AtomicUsize, Ordering};
+    use crate::task::get_current_task;
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
 
@@ -341,7 +342,12 @@ pub mod perf {
         unsafe { write_volatile(&mut TASKS_STARTS[cpu_id], time) };
     }
 
-    pub fn add_task_end(cpu_id: usize, task_id: u32, time: u64) {
+    pub fn add_task_end(cpu_id: usize, time: u64) {
+        let task_id = get_current_task(cpu_id).unwrap_or(0);
+        if task_id == 0 {
+            log::warn!("CPUID#{:?} is not running any task", cpu_id);
+            return;
+        }
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
 
@@ -526,21 +532,21 @@ pub fn run_main() {
 
                     let task_end = cpu_counter();
 
-                    perf::add_task_end(cpu_id, task.id, task_end);
+                    perf::add_task_end(cpu_id, task_end);
                     perf::add_context_save_end(cpu_id, task_end);
 
-                    // {
-                    //     let mut node = MCSNode::new();
-                    //     let info = task.info.lock(&mut node);
-                    //     log::info!(
-                    //         "CPUID#{:?} Task#{:?} Sum:{:>10} [TSC], Preempt:{}, Name[{}]",
-                    //         cpu_id,
-                    //         task.id,
-                    //         perf::get_task_exec(task.id),
-                    //         info.get_num_preemption(),
-                    //         task.name
-                    //     );
-                    // }
+                    {
+                        let mut node = MCSNode::new();
+                        let info = task.info.lock(&mut node);
+                        log::info!(
+                            "CPUID#{:?} Task#{:?} Sum:{:>10} [TSC], Preempt:{}, Name[{}]",
+                            cpu_id,
+                            task.id,
+                            perf::get_task_exec(task.id),
+                            info.get_num_preemption(),
+                            task.name
+                        );
+                    }
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),

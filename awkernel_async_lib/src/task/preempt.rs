@@ -76,10 +76,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
-        add_task_end(cpu_id, current_task_id, cpu_counter());
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
-        add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
         thread::set_current_context(current_ctx);
     }
