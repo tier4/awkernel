@@ -1,6 +1,4 @@
 use crate::{
-    cpu_counter,
-    task::perf::{add_task_end, add_task_start},
     task::{get_current_task, Task},
 };
 use alloc::{collections::VecDeque, sync::Arc};
@@ -53,8 +51,6 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let cpu_id = awkernel_lib::cpu::cpu_id();
 
     let mut current_ctx = thread::take_current_context();
-
-    let current_task_id = current_task.id;
 
     {
         let mut node = MCSNode::new();

@@ -351,9 +351,9 @@ pub mod perf {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
 
-        // {
-        //     log::info!("CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]", cpu_id, task_id, start, time, time - start);
-        // }
+        {
+            log::info!("CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]", cpu_id, task_id, start, time, time - start);
+        }
 
         if start != 0 && time > start {
             let current_exec_time = time - start;
