@@ -1,4 +1,4 @@
-//! A prioritized round robin scheduler.
+//! A prioritized FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::State;

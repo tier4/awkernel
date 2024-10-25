@@ -1,0 +1,481 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Context Switch - Awkernel</title>
+
+
+        <!-- Custom HTML head -->
+        
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon.svg">
+        <link rel="shortcut icon" href="../favicon.png">
+        <link rel="stylesheet" href="../css/variables.css">
+        <link rel="stylesheet" href="../css/general.css">
+        <link rel="stylesheet" href="../css/chrome.css">
+        <link rel="stylesheet" href="../css/print.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../FontAwesome/css/font-awesome.css">
+        <link rel="stylesheet" href="../fonts/fonts.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" href="../highlight.css">
+        <link rel="stylesheet" href="../tomorrow-night.css">
+        <link rel="stylesheet" href="../ayu-highlight.css">
+
+        <!-- Custom theme stylesheets -->
+
+    </head>
+    <body class="sidebar-visible no-js">
+    <div id="body-container">
+        <!-- Provide site root to javascript -->
+        <script>
+            var path_to_root = "../";
+            var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
+        </script>
+
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                var theme = localStorage.getItem('mdbook-theme');
+                var sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            var theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            var html = document.querySelector('html');
+            html.classList.remove('light')
+            html.classList.add(theme);
+            var body = document.querySelector('body');
+            body.classList.remove('no-js')
+            body.classList.add('js');
+        </script>
+
+        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            var body = document.querySelector('body');
+            var sidebar = null;
+            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+            }
+            sidebar_toggle.checked = sidebar === 'visible';
+            body.classList.remove('sidebar-visible');
+            body.classList.add("sidebar-" + sidebar);
+        </script>
+
+        <nav id="sidebar" class="sidebar" aria-label="Table of contents">
+            <div class="sidebar-scrollbox">
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html" class="active"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
+            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <!-- Track and set sidebar scroll position -->
+        <script>
+            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
+            sidebarScrollbox.addEventListener('click', function(e) {
+                if (e.target.tagName === 'A') {
+                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
+                }
+            }, { passive: true });
+            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
+            sessionStorage.removeItem('sidebar-scroll');
+            if (sidebarScrollTop) {
+                // preserve sidebar scroll position when navigating via links within sidebar
+                sidebarScrollbox.scrollTop = sidebarScrollTop;
+            } else {
+                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
+                var activeSection = document.querySelector('#sidebar .active');
+                if (activeSection) {
+                    activeSection.scrollIntoView({ block: 'center' });
+                }
+            }
+        </script>
+
+        <div id="page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                                <div id="menu-bar-hover-placeholder"></div>
+                <div id="menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                            <i class="fa fa-bars"></i>
+                        </label>
+                        <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
+                            <i class="fa fa-paint-brush"></i>
+                        </button>
+                        <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="ayu">Ayu</button></li>
+                        </ul>
+                        <button id="search-toggle" class="icon-button" type="button" title="Search. (Shortkey: s)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="S" aria-controls="searchbar">
+                            <i class="fa fa-search"></i>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Awkernel</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <i id="print-button" class="fa fa-print"></i>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="search-wrapper" class="hidden">
+                    <form id="searchbar-outer" class="searchbar-outer">
+                        <input type="search" id="searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="searchresults-outer" aria-describedby="searchresults-header">
+                    </form>
+                    <div id="searchresults-outer" class="searchresults-outer hidden">
+                        <div id="searchresults-header" class="searchresults-header"></div>
+                        <ul id="searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="content" class="content">
+                    <main>
+                        <h1 id="context-switch"><a class="header" href="#context-switch">Context Switch</a></h1>
+<p><code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
+is a trait that enables preemptive multitasking.
+It provides methods to set the stack pointer, entry point,
+and argument of the context as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Context: Default {
+    /// # Safety
+    ///
+    /// Ensure that changing the stack pointer is valid at that time.
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize);
+
+    /// # Safety
+    ///
+    /// This function must be called for only initialization purpose.
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize);
+
+    /// # Safety
+    ///
+    /// This function must be called for only initialization purpose.
+    unsafe fn set_argument(&amp;mut self, arg: usize);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>context_switch</code> function must be implemented for each architecture
+to enable context switching.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>extern "C" {
+    /// Switch context from `current` to `next`.
+    pub fn context_switch(current: *mut ArchContext, next: *const ArchContext);
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>context_switch</code> function stores and restores CPU registers,
+and the <code>ArchContext</code> structure is an architecture-specific context structure.</p>
+<h1 id="disable-preemption"><a class="header" href="#disable-preemption">Disable Preemption</a></h1>
+<p>In <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/Cargo.toml">awkernel_async_lib/Cargo.toml</a>, there is the <code>no_preempt</code> feature to disable preemption.</p>
+<pre><code class="language-toml">[features]
+default = []
+std = ["awkernel_lib/std", "no_preempt"]
+no_preempt = []
+</code></pre>
+<p>If you want to disable preemption, please enable the <code>no_preempt</code> feature as
+<code>default = ["no_preempt"]</code>.</p>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<p>For x86_64, the <code>Context</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs">awkernel_lib/src/context/x86_64.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct Context {
+    pub rbx: u64,
+    pub rsp: u64,
+    pub rbp: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
+<p>The <code>context_switch</code> function is implemented in assembly as follows.
+This stores and restores only general-purpose registers because
+the floating-point registers are stored and restored by each interrupt handler.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>core::arch::global_asm!(
+    "
+.global context_switch
+context_switch:
+// Store general purpose registers
+mov   [rdi], rbx
+mov  8[rdi], rsp
+mov 16[rdi], rbp
+mov 24[rdi], r12
+mov 32[rdi], r13
+mov 40[rdi], r14
+mov 48[rdi], r15
+
+// Load general purpose registers
+mov rbx,   [rsi]
+mov rsp,  8[rsi]
+mov rbp, 16[rsi]
+mov r12, 24[rsi]
+mov r13, 32[rsi]
+mov r14, 40[rsi]
+mov r15, 48[rsi]
+
+ret
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs"><code>Context</code>:awkernel_lib/src/context/x86_64.rs</a> structure as follows.
+These methods set the stack pointer, entry point, and argument of the context.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::context::Context for Context {
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize) {
+        self.rsp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+        self.r12 = arg as u64;
+        self.r13 = entry as usize as u64;
+
+        let entry_point_addr = entry_point as usize as u64;
+
+        unsafe {
+            core::arch::asm!("mov {}, rsp", lateout(reg) self.r15);
+            core::arch::asm!("mov rsp, {}", in(reg) self.rsp);
+            core::arch::asm!("push {}", in(reg) entry_point_addr);
+            core::arch::asm!("mov rsp, {}", in(reg) self.r15);
+        }
+
+        self.rsp -= 8;
+    }
+
+    unsafe fn set_argument(&amp;mut self, arg: usize) {
+        self.r12 = arg as u64;
+    }
+}
+
+extern "C" {
+    fn entry_point() -&gt; !;
+}
+
+global_asm!(
+    "
+.global entry_point
+entry_point:
+    mov  rdi, r12
+    call r13
+1:
+    hlt
+    jmp  1b
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<p>For AArch64, the <code>Context</code> structure is defined in
+<a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs">awkernel_lib/src/context/aarch64.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>#[derive(Debug, Copy, Clone, Default)]
+#[repr(C)]
+pub struct Context {
+    // 8 * 8 bytes
+    pub fp_regs: FPRegs, // floating point registers
+
+    //------------------------------ offset: 16 * 4 (+4)
+
+    // 8 * 12 bytes
+    pub gp_regs: GPRegs, // general purpose registers
+
+    // ----------------------------- offset: 16 * 10 (+6)
+
+    // 8 * 2 bytes
+    pub sp: u64, // stack pointer
+    _unused: [u8; 8],
+}
+<span class="boring">}</span></code></pre></pre>
+<p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
+<p>The <code>context_switch</code> function is implemented in assembly as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>core::arch::global_asm!(
+    "
+.global context_switch
+context_switch:
+// Save the current context.
+
+// Store floating-point registers.
+stp      d8,  d9, [x0], #16
+stp     d10, d11, [x0], #16
+stp     d12, d13, [x0], #16
+stp     d14, d15, [x0], #16
+
+// Store general purpose registers.
+stp     x19, x20, [x0], #16
+stp     x21, x22, [x0], #16
+stp     x23, x24, [x0], #16
+stp     x25, x26, [x0], #16
+stp     x27, x28, [x0], #16
+stp     x29, x30, [x0], #16
+
+// Store SP.
+mov     x9, sp
+str     x9, [x0]
+
+
+// Restore the next context.
+
+// Load floating-point registers.
+ldp      d8,  d9, [x1], #16
+ldp     d10, d11, [x1], #16
+ldp     d12, d13, [x1], #16
+ldp     d14, d15, [x1], #16
+
+// Load general purpose registers.
+ldp     x19, x20, [x1], #16
+ldp     x21, x22, [x1], #16
+ldp     x23, x24, [x1], #16
+ldp     x25, x26, [x1], #16
+ldp     x27, x28, [x1], #16
+ldp     x29, x30, [x1], #16
+
+// Load SP.
+ldr     x9, [x1]
+mov     sp, x9
+
+ret
+"
+);
+<span class="boring">}</span></code></pre></pre>
+<p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs"><code>Context</code>:awkernel_lib/src/context/aarch64.rs</a> structure as follows.
+These methods set the stack pointer, entry point, and argument of the context.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>impl crate::context::Context for Context {
+    unsafe fn set_stack_pointer(&amp;mut self, sp: usize) {
+        self.sp = sp as u64;
+    }
+
+    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+        self.gp_regs.x20 = entry as usize as u64;
+        self.gp_regs.x30 = entry_point as *const () as u64;
+    }
+
+    unsafe fn set_argument(&amp;mut self, arg: usize) {
+        self.gp_regs.x19 = arg as u64;
+    }
+}
+
+extern "C" {
+    fn entry_point() -&gt; !;
+}
+
+global_asm!(
+    "
+.global entry_point
+entry_point:
+    mov     x0, x19
+    blr     x20
+1:
+    wfi
+    b       1b
+"
+);
+<span class="boring">}</span></code></pre></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../internal/page_table.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <i class="fa fa-angle-left"></i>
+                            </a>
+
+                            <a rel="next prefetch" href="../internal/interrupt_controller.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <i class="fa fa-angle-right"></i>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../internal/page_table.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <i class="fa fa-angle-left"></i>
+                    </a>
+
+                    <a rel="next prefetch" href="../internal/interrupt_controller.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <i class="fa fa-angle-right"></i>
+                    </a>
+            </nav>
+
+        </div>
+
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr.min.js"></script>
+        <script src="../mark.min.js"></script>
+        <script src="../searcher.js"></script>
+
+        <script src="../clipboard.min.js"></script>
+        <script src="../highlight.js"></script>
+        <script src="../book.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../mermaid.min.js"></script>
+        <script src="../mermaid-init.js"></script>
+
+
+    </div>
+    </body>
+</html>

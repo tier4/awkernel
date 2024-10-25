@@ -15,8 +15,14 @@ pub use self::x86_64::Context as ArchContext;
 #[cfg(target_arch = "riscv32")]
 mod rv32;
 
+#[cfg(target_arch = "riscv64")]
+mod rv64;
+
 #[cfg(target_arch = "riscv32")]
 pub use rv32::Context as ArchContext;
+
+#[cfg(target_arch = "riscv64")]
+pub use rv64::Context as ArchContext;
 
 extern "C" {
     /// Switch context from `current` to `next`.

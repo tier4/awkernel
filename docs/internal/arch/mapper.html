@@ -88,7 +88,7 @@
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
-                <ol class="chapter"><li class="chapter-item expanded "><a href="../../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../internal/boot.html"><strong aria-hidden="true">2.1.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../../internal/arch/index.html"><strong aria-hidden="true">2.2.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../internal/arch/delay.html"><strong aria-hidden="true">2.2.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../../internal/arch/cpu.html"><strong aria-hidden="true">2.2.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../../internal/arch/interrupt.html"><strong aria-hidden="true">2.2.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../../internal/arch/mapper.html" class="active"><strong aria-hidden="true">2.2.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../../internal/scheduler.html"><strong aria-hidden="true">2.3.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../../internal/PCIe.html"><strong aria-hidden="true">2.4.</strong> PCIe</a></li></ol></li></ol>
+                <ol class="chapter"><li class="chapter-item expanded "><a href="../../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../../internal/arch/mapper.html" class="active"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../../internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
             <div id="sidebar-resize-handle" class="sidebar-resize-handle">
                 <div class="sidebar-resize-indicator"></div>
@@ -174,6 +174,68 @@
                 <div id="content" class="content">
                     <main>
                         <h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
+<p><code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub trait Mapper {
+    /// Return the physical address of `vm_addr`.
+    fn vm_to_phy(vm_addr: VirtAddr) -&gt; Option&lt;PhyAddr&gt;;
+
+    /// Map `vm_addr` to `phy_addr` with `flag`.
+    ///
+    /// # Safety
+    ///
+    /// - Virtual memory must be enabled.
+    /// - `flag` must be reasonable.
+    /// - `phy_addr` must be being unmapped.
+    unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -&gt; Result&lt;(), MapError&gt;;
+
+    /// Unmap `vm_addr`.
+    ///
+    /// # Safety
+    ///
+    /// - Virtual memory must be enabled.
+    /// - `vm_addr` must be being mapped.
+    unsafe fn unmap(vm_addr: VirtAddr);
+}
+<span class="boring">}</span></code></pre></pre>
+<p><code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
+These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
+<p>The <code>Flags</code> type is used to represent the flags of the page table entry.
+It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>/// Flag for a page.
+/// Note that every page is readable.
+#[derive(Debug, Clone, Copy)]
+pub struct Flags {
+    pub execute: bool,       // executable
+    pub write: bool,         // writable
+    pub cache: bool,         // enable cache
+    pub write_through: bool, // write back if disabled
+    pub device: bool,        // this page is for MMIO, ignored on x86
+}
+<span class="boring">}</span></code></pre></pre>
+<p>There are functions regarding the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
+<div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
+<tr><td><code>fn vm_to_phy(vm_addr: VirtAddr) -&gt; Option&lt;PhyAddr&gt;</code></td><td>Return the physical address of <code>vm_addr</code>.</td></tr>
+<tr><td><code>unsafe fn map(vm_addr: VirtAddr, phy_addr: PhyAddr, flags: Flags) -&gt; Result&lt;(), MapError&gt;</code></td><td>Map <code>vm_addr</code> to <code>phy_addr</code> with <code>flag</code>.</td></tr>
+<tr><td><code>fn unsafe fn unmap(vm_addr: VirtAddr)</code></td><td>Unmap <code>vm_addr</code>.</td></tr>
+</tbody></table>
+</div>
+<p>Awkernel's page size is 4 KiB and it is defined by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PAGESIZE</code>:awkernel_lib/src/paging.rs</a>.</p>
+<pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
+</span><span class="boring">fn main() {
+</span>pub const PAGESIZE: usize = 4 * 1024;
+<span class="boring">}</span></code></pre></pre>
+<h1 id="implementation"><a class="header" href="#implementation">Implementation</a></h1>
+<h2 id="x86_64"><a class="header" href="#x86_64">x86_64</a></h2>
+<p>For x86_64, the <code>X86</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a>.
+To handle page tables, the <code>OffsetPageTable</code> structure defined in the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate is used.</p>
+<h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
+<p>For AArch64, the <code>AArch64</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/paging.rs">awkernel_lib/src/arch/aarch64/paging.rs</a>.
+To handle page tables, the <code>PageTable</code> structure defined in the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs"><code>awkernel_lib/src/arch/aarch64/page_table.rs</code></a> is used.</p>
 
                     </main>
 
@@ -183,7 +245,7 @@
                                 <i class="fa fa-angle-left"></i>
                             </a>
 
-                            <a rel="next prefetch" href="../../internal/scheduler.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                            <a rel="next prefetch" href="../../internal/page_table.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                                 <i class="fa fa-angle-right"></i>
                             </a>
 
@@ -197,7 +259,7 @@
                         <i class="fa fa-angle-left"></i>
                     </a>
 
-                    <a rel="next prefetch" href="../../internal/scheduler.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                    <a rel="next prefetch" href="../../internal/page_table.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
                         <i class="fa fa-angle-right"></i>
                     </a>
             </nav>

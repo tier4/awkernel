@@ -205,6 +205,7 @@ pub fn init_with_io() {
     init(0, None, PCIeInfo::from_io, None);
 }
 
+/// Structure representing a PCIe device after it has been attached.
 struct UnknownDevice {
     segment_group: u16,
     bus_number: u8,
@@ -230,6 +231,7 @@ impl PCIeDevice for UnknownDevice {
     }
 
     fn children(&self) -> Option<&Vec<ChildDevice>> {
+        // UnknownDevice represents a terminal device and always returns None.
         None
     }
 }
@@ -297,6 +299,7 @@ impl ChildDevice {
             return;
         };
 
+        // Return if the device has already been attached.
         let ChildDevice::Unattached(info) = core::mem::replace(self, attaching) else {
             return;
         };
@@ -603,6 +606,7 @@ fn init<F>(
             VirtAddr::new(0)
         };
 
+        // Search for the host bridge.
         if let Ok(info) = f(segment_group, bus_number, 0, 0, addr) {
             if info.pcie_class == PCIeClass::BridgeDevice(PCIeBridgeSubClass::HostBridge) {
                 host_bridge_bus = bus_number;
@@ -622,6 +626,8 @@ fn init<F>(
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
 
     if let Some(ranges) = ranges {
+        // 'ranges' is a property of the PCIe node in the device tree.
+        // This property contains information for mapping the address space of a PCIe device to the address space of the host system.
         bus_tree.init_base_address(ranges);
     }
 
@@ -872,6 +878,7 @@ impl PCIeInfo {
         self.interrupt_pin
     }
 
+    /// Read PCIe device extension functionality settings and initialize MSI, MSI-X, and other extensions.
     pub(crate) fn read_capability(&mut self) {
         capability::read(self);
     }
@@ -983,6 +990,11 @@ impl PCIeInfo {
                     return intel::igb::attach(self);
                 }
 
+                #[cfg(feature = "ixgbe")]
+                if intel::ixgbe::match_device(self.vendor, self.id) {
+                    return intel::ixgbe::attach(self);
+                }
+
                 // Example of the driver for Intel E1000e.
                 if intel::e1000e_example::match_device(self.vendor, self.id) {
                     return intel::e1000e_example::attach(self);
@@ -1046,6 +1058,7 @@ fn read_bar(config_space: &ConfigSpace, offset: usize) -> BaseAddress {
     if (bar & BAR_IO) == 1 {
         // I/O space
 
+        // To determine the size of the memory space, the PCIe specification prescribes writing 1 to all bits of the base address register and then reading back the value.
         let size = {
             config_space.write_u32(!0, offset);
             let size = config_space.read_u32(offset);

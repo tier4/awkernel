@@ -6,7 +6,7 @@ ASM_IMG_X86=mpboot.img
 all: $(ASM_IMG_X86)
 
 $(ASM_OBJ_X86): $(ASM_FILE_X86)
-	$(CC) -m32 -fno-pie -nostdlib -c $< -o $@
+	gcc -m32 -fno-pie -nostdlib -c $< -o $@
 
 # See kernel::arch::x86_64::kernel_main::NON_PRIMARY_START
 $(ASM_ELF_X86): $(ASM_OBJ_X86)

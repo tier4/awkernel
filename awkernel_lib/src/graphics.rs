@@ -89,7 +89,8 @@ pub fn draw_mono_text(
     alignment: Alignment,
 ) -> Result<Point, FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.draw_mono_text(text, position, style, alignment)
         } else {
             Err(FrameBufferError::NoFrameBuffer)
@@ -101,7 +102,8 @@ pub fn draw_mono_text(
 #[inline(always)]
 pub fn bounding_box() -> Rectangle {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_ref() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.bounding_box()
         } else {
             Rectangle::new(Point::new(0, 0), Size::new(0, 0))
@@ -113,7 +115,8 @@ pub fn bounding_box() -> Rectangle {
 #[inline(always)]
 pub fn fill(color: &Rgb888) {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.fill(color);
         }
     }
@@ -123,7 +126,8 @@ pub fn fill(color: &Rgb888) {
 #[inline(always)]
 pub fn set_pixel(position: Point, color: &Rgb888) {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.set_pixel(position, color);
         }
     }
@@ -138,7 +142,8 @@ pub fn line(
     stroke_width: u32,
 ) -> Result<(), FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.line(start, end, color, stroke_width)?;
         }
     }
@@ -160,7 +165,8 @@ pub fn circle(
     is_filled: bool,
 ) -> Result<(), FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.circle(top_left, diameter, color, stroke_width, is_filled)?;
         }
     }
@@ -181,7 +187,8 @@ pub fn rectangle(
     is_filled: bool,
 ) -> Result<(), FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.rectangle(corner_1, corner_2, color, stroke_width, is_filled)?;
         }
     }
@@ -203,7 +210,8 @@ pub fn triangle(
     is_filled: bool,
 ) -> Result<(), FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.triangle(vertex_1, vertex_2, vertex_3, color, stroke_width, is_filled)?;
         }
     }
@@ -219,7 +227,8 @@ pub fn polyline(
     stroke_width: u32,
 ) -> Result<(), FrameBufferError> {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.polyline(points, color, stroke_width)?;
         }
     }
@@ -232,7 +241,8 @@ pub fn polyline(
 #[inline(always)]
 pub fn flush() {
     unsafe {
-        if let Some(frame_buffer) = FRAME_BUFFER.as_mut() {
+        let ptr = &raw mut FRAME_BUFFER;
+        if let Some(frame_buffer) = &mut *ptr {
             frame_buffer.flush();
         }
     }

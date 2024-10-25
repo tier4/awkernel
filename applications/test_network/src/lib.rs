@@ -5,11 +5,24 @@ extern crate alloc;
 use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
-use awkernel_async_lib::net::{tcp::TcpConfig, IpAddr};
+use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
+use awkernel_lib::net::NetManagerError;
+
+// 10.0.2.0/24 is the IP address range of the Qemu's network.
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+
+// 10.0.2.2 is the IP address of the Qemu's host.
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+
+const UDP_DST_PORT: u16 = 26099;
+
+const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
+const MULTICAST_PORT: u16 = 20001;
 
 pub async fn run() {
-    // 10.0.2.0/24 is the IP address range of the Qemu's network.
-    awkernel_lib::net::add_ipv4_addr(0, Ipv4Addr::new(10, 0, 2, 64), 24);
+    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -31,13 +44,108 @@ pub async fn run() {
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
+
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast recv".into(),
+        ipv4_multicast_recv_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast send".into(),
+        ipv4_multicast_send_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+}
+
+async fn ipv4_multicast_send_test() {
+    // Create a UDP socket on interface 0.
+    let mut socket =
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
+
+    let dst_addr = IpAddr::new_v4(MULTICAST_ADDR);
+
+    loop {
+        // Send a UDP packet.
+        if let Err(e) = socket
+            .send(b"Hello Awkernel!", &dst_addr, MULTICAST_PORT)
+            .await
+        {
+            log::error!("Failed to send a UDP packet: {:?}", e);
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+async fn ipv4_multicast_recv_test() {
+    // Open a UDP socket for multicast.
+    let mut config = UdpConfig::default();
+    config.port = Some(MULTICAST_PORT);
+
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
+
+    loop {
+        // Join the multicast group.
+        loop {
+            match awkernel_lib::net::join_multicast_v4(0, MULTICAST_ADDR) {
+                Ok(_) => {
+                    log::debug!("Joined the multicast group.");
+                    break;
+                }
+                Err(NetManagerError::SendError) => (),
+                _ => {
+                    log::error!("Failed to join the multicast group.");
+                    return;
+                }
+            }
+
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        }
+
+        let mut buf = [0u8; 1024 * 2];
+
+        for _ in 0..10 {
+            // Receive a UDP packet.
+            let result = socket.recv(&mut buf).await.unwrap();
+
+            let msg = format!(
+                "Received a Multicast packet from {}:{}: {}",
+                result.1.get_addr(),
+                result.2,
+                core::str::from_utf8(&buf[..result.0]).unwrap()
+            );
+
+            log::debug!("{msg}");
+        }
+
+        // Leave the multicast group.
+        loop {
+            match awkernel_lib::net::leave_multicast_v4(0, MULTICAST_ADDR) {
+                Ok(_) => {
+                    log::debug!("Left the multicast group.");
+                    break;
+                }
+                Err(NetManagerError::SendError) => (),
+                Err(e) => {
+                    log::error!("Failed to leave the multicast group. {e:?}");
+                    return;
+                }
+            }
+
+            awkernel_async_lib::sleep(Duration::from_secs(1)).await;
+        }
+    }
 }
 
 async fn tcp_connect_test() {
-    // 10.0.2.2 is the IP address of the Qemu's host.
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         0,
-        IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2)),
+        IpAddr::new_v4(UDP_TCP_DST_ADDR),
         8080,
         Default::default(),
     ) else {
@@ -93,12 +201,11 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
 }
 
 async fn udp_test() {
-    // Create a UDP socket on interface 1.
+    // Create a UDP socket on interface 0.
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
-    // 10.0.2.2 is the IP address of the Qemu's host.
-    let dst_addr = IpAddr::new_v4(Ipv4Addr::new(10, 0, 2, 2));
+    let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 
     let mut buf = [0u8; 1024 * 2];
 
@@ -106,7 +213,10 @@ async fn udp_test() {
         let t0 = awkernel_lib::delay::uptime();
 
         // Send a UDP packet.
-        if let Err(e) = socket.send(b"Hello Awkernel!", &dst_addr, 26099).await {
+        if let Err(e) = socket
+            .send(b"Hello Awkernel!", &dst_addr, UDP_DST_PORT)
+            .await
+        {
             log::error!("Failed to send a UDP packet: {:?}", e);
             awkernel_async_lib::sleep(Duration::from_secs(1)).await;
             continue;

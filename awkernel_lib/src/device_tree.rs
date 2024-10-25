@@ -1,3 +1,5 @@
+//! Device Tree Blob (DTB) parser.
+//!
 //! To read a device tree blob, use `from_bytes`, which does not depend on the global allocator,
 //! and use the local allocator provided by this module.
 //! Therefore, a device tree can be read without initialization of the heap memory.
@@ -76,52 +78,56 @@ static mut DEVICE_TREE: OnceCell<DeviceTree<local_heap::LocalHeap<'static, 'stat
 pub fn from_bytes(
     bytes: &'static [u8],
 ) -> Result<&'static DeviceTree<'static, local_heap::LocalHeap<'static, 'static>>> {
-    if let Some(device_tree) = unsafe { DEVICE_TREE.get() } {
+    let ptr = &raw mut DEVICE_TREE;
+    if let Some(device_tree) = unsafe { (*ptr).get() } {
         return Ok(device_tree);
     }
 
     let local_allocator = get_allocator()?;
     let device_tree = DeviceTree::from_bytes(bytes, local_allocator)?;
 
-    Ok(unsafe { DEVICE_TREE.get_or_init(|| device_tree) })
+    let ptr = &raw mut DEVICE_TREE;
+    Ok(unsafe { (*ptr).get_or_init(|| device_tree) })
 }
 
 /// Read a device tree blob from the address.
 pub fn from_address(
     addr: usize,
 ) -> Result<&'static DeviceTree<'static, local_heap::LocalHeap<'static, 'static>>> {
-    if let Some(device_tree) = unsafe { DEVICE_TREE.get() } {
+    let ptr = &raw mut DEVICE_TREE;
+    if let Some(device_tree) = unsafe { (*ptr).get() } {
         return Ok(device_tree);
     }
 
     let local_allocator = get_allocator()?;
     let device_tree = DeviceTree::from_address(addr, local_allocator)?;
 
-    Ok(unsafe { DEVICE_TREE.get_or_init(|| device_tree) })
+    let ptr = &raw mut DEVICE_TREE;
+    Ok(unsafe { (*ptr).get_or_init(|| device_tree) })
 }
 
 fn get_allocator() -> Result<local_heap::LocalHeap<'static, 'static>> {
-    if let Some(local_allocator) = unsafe { LOCAL_ALLOCATOR.get() } {
+    let ptr = &raw mut LOCAL_ALLOCATOR;
+    if let Some(local_allocator) = unsafe { (*ptr).get() } {
         return Ok(local_allocator.clone());
     }
     let local_tlsf = get_tlsf()?;
 
-    Ok(unsafe {
-        LOCAL_ALLOCATOR
-            .get_or_init(|| LocalHeap::new(local_tlsf))
-            .clone()
-    })
+    let ptr = &raw mut LOCAL_ALLOCATOR;
+    Ok(unsafe { (*ptr).get_or_init(|| LocalHeap::new(local_tlsf)).clone() })
 }
 
 fn get_tlsf() -> Result<&'static RefCell<TLSF<'static>>> {
-    if let Some(local_tlsf) = unsafe { LOCAL_TLSF.get() } {
+    let ptr = &raw mut LOCAL_TLSF;
+    if let Some(local_tlsf) = unsafe { (*ptr).get() } {
         return Ok(local_tlsf);
     }
 
     let memory_pool = init_memory_pool();
     let local_tlsf = TLSF::new(memory_pool);
 
-    Ok(unsafe { LOCAL_TLSF.get_or_init(|| RefCell::new(local_tlsf)) })
+    let ptr = &raw mut LOCAL_TLSF;
+    Ok(unsafe { (*ptr).get_or_init(|| RefCell::new(local_tlsf)) })
 }
 
 pub struct DeviceTree<'a, A: Allocator + Clone> {
@@ -270,7 +276,7 @@ impl<'a, A: Allocator + Clone> Iterator for DeviceTreeNodeIter<'a, A> {
     }
 }
 
-impl<'a, A: Allocator + Clone> Display for DeviceTree<'a, A> {
+impl<A: Allocator + Clone> Display for DeviceTree<'_, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         writeln!(f, "{}", self.root)
     }

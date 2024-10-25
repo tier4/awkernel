@@ -1,7 +1,12 @@
 use alloc::boxed::Box;
 use awkernel_lib::{delay::wait_forever, heap::TALLOC};
 
-#[cfg(any(feature = "x86", feature = "aarch64", feature = "rv32"))]
+#[cfg(any(
+    feature = "x86",
+    feature = "aarch64",
+    feature = "rv32",
+    feature = "rv64"
+))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     {
