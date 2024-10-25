@@ -351,17 +351,6 @@ pub mod perf {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
 
-        {
-            log::info!(
-                "CPUID#{:?} Task#{:?} Start:{}, End:{}, Exec:{:>10} [TSC]",
-                cpu_id,
-                task_id,
-                start,
-                time,
-                time - start
-            );
-        }
-
         if start != 0 && time > start {
             let current_exec_time = time - start;
             unsafe {
@@ -378,11 +367,6 @@ pub mod perf {
     pub fn reset_task_exec(task_id: u32) {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { write_volatile(&mut TASKS_EXEC_TIMES[task_index], 0) };
-    }
-
-    pub fn get_task_exec(task_id: u32) -> u64 {
-        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
-        unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
     }
 
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
@@ -526,34 +510,17 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    let task_start = cpu_counter();
-
-                    perf::add_task_start(cpu_id, task_start);
                     // Only the subscriber's cooperative context switch overhead is measured.
                     if task.name.contains("subscriber") {
-                        perf::add_context_restore_start(cpu_id, task_start);
+                        perf::add_context_restore_start(cpu_id, cpu_counter());
                     }
+                    perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    let task_end = cpu_counter();
-
-                    perf::add_task_end(cpu_id, task_end);
-                    perf::add_context_save_end(cpu_id, task_end);
-
-                    {
-                        let mut node = MCSNode::new();
-                        let info = task.info.lock(&mut node);
-                        log::info!(
-                            "CPUID#{:?} Task#{:?} Sum:{:>10} [TSC], Preempt:{}, Name[{}]",
-                            cpu_id,
-                            task.id,
-                            perf::get_task_exec(task.id),
-                            info.get_num_preemption(),
-                            task.name
-                        );
-                    }
+                    perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_context_save_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),

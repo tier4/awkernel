@@ -222,12 +222,9 @@ ESR  = 0x{:x}
 
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-    add_task_end(cpu_id, cpu_counter());
+    add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
     interrupt::handle_irqs();
-
-    let cpu_id = awkernel_lib::cpu::cpu_id();
-    add_task_start(cpu_id, cpu_counter())
+    add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter())
 }
 
 #[no_mangle]
