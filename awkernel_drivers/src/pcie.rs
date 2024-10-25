@@ -10,9 +10,9 @@ use alloc::{
 use array_macro::array;
 use awkernel_lib::{
     addr::{virt_addr::VirtAddr, Addr},
+    delay,
     paging::{self, MapError, PAGESIZE},
     sync::{mcs::MCSNode, mutex::Mutex},
-    delay,
 };
 use core::fmt::{self, Debug};
 
@@ -454,7 +454,6 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
 
     Ok(())
 }
-
 
 #[cfg(not(feature = "raspi"))]
 const MAX_DEVICE: u8 = 32;

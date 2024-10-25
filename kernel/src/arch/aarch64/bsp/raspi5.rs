@@ -209,7 +209,7 @@ impl Raspi5 {
             };
 
             let reg_base = reg.0.to_u128() as usize;
-            
+
             let reg_size = reg.1.to_u128() as usize;
 
             let pcie_regs = (PhyAddr::new(reg_base), reg_size);

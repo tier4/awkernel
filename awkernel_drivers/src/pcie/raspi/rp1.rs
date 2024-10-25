@@ -1,5 +1,5 @@
-use alloc::{borrow::Cow, sync::Arc};
 use crate::pcie::{pcie_id, registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
+use alloc::{borrow::Cow, sync::Arc};
 
 const RP1_ID: u16 = 0x0001;
 
@@ -45,11 +45,16 @@ pub struct RP1 {
 
 impl RP1 {
     pub fn new(mut info: PCIeInfo) -> Self {
-        info.config_space.write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
+        info.config_space
+            .write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
 
-        info.config_space.write_u32(lower_32_bits(MEM_PCIE_RANGE_PCIE_START) | PCI_BASE_ADDRESS_MEM_TYPE_64, registers::BAR0);
+        info.config_space.write_u32(
+            lower_32_bits(MEM_PCIE_RANGE_PCIE_START) | PCI_BASE_ADDRESS_MEM_TYPE_64,
+            registers::BAR0,
+        );
 
-        info.config_space.write_u32(upper_32_bits(MEM_PCIE_RANGE_PCIE_START), registers::BAR1);
+        info.config_space
+            .write_u32(upper_32_bits(MEM_PCIE_RANGE_PCIE_START), registers::BAR1);
 
         let uch_int_pin = info.get_interrupt_pin();
         if uch_int_pin != 0 {

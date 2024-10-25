@@ -1,5 +1,5 @@
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use crate::pcie::{pcie_id, registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
+use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 
 const BCM2712_ID: u16 = 0x2712;
 
@@ -51,18 +51,24 @@ pub struct BCM2712 {
 
 impl BCM2712 {
     pub fn new(mut info: PCIeInfo) -> Self {
-
-        info.config_space.write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
+        info.config_space
+            .write_u8(64 / 4, registers::BIST_HEAD_LAT_CACH);
 
         info.config_space.write_u8(pci_bus2(1), PCI_SECONDARY_BUS);
         info.config_space.write_u8(pci_bus2(1), PCI_SECONDARY_BUS);
 
-        info.config_space.write_u16((MEM_PCIE_RANGE_PCIE_START >> 16) as u16, PCI_MEMORY_BASE);
-        info.config_space.write_u16((MEM_PCIE_RANGE_PCIE_START >> 16) as u16, PCI_MEMORY_LIMIT);
+        info.config_space
+            .write_u16((MEM_PCIE_RANGE_PCIE_START >> 16) as u16, PCI_MEMORY_BASE);
+        info.config_space
+            .write_u16((MEM_PCIE_RANGE_PCIE_START >> 16) as u16, PCI_MEMORY_LIMIT);
 
-        info.config_space.write_u8(PCI_BRIDGE_CTL_PARITY, PCI_BRIDGE_CONTROL);
+        info.config_space
+            .write_u8(PCI_BRIDGE_CTL_PARITY, PCI_BRIDGE_CONTROL);
 
-        info.config_space.write_u8(PCI_EXP_RTCTL_CRSSVE as u8, BRCM_PCIE_CAP_REGS + PCI_EXP_RTCTL);
+        info.config_space.write_u8(
+            PCI_EXP_RTCTL_CRSSVE as u8,
+            BRCM_PCIE_CAP_REGS + PCI_EXP_RTCTL,
+        );
 
         let mut csr = info.read_status_command();
         csr.set(registers::StatusCommand::MEMORY_SPACE, true);
