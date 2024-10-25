@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use awkernel_async_lib::{scheduler::SchedulerType, spawn, sync};
 use awkernel_lib::delay::wait_millisec;
 
-/// This test confirms that
+// This test confirms that AsyncLock does not invoke a starvation.
 pub async fn run() {
     wait_millisec(1000);
     log::debug!("test_async_mutex start");
