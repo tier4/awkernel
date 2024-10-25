@@ -452,10 +452,10 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
-#[cfg(not(feature = "aarch64"))]
+#[cfg(not(feature = "raspi"))]
 const MAX_DEVICE: u8 = 32;
 
-#[cfg(feature = "aarch64")]
+#[cfg(feature = "raspi")]
 const MAX_DEVICE: u8 = 2;
 
 #[inline]
@@ -566,10 +566,10 @@ pub fn init_with_addr(
     );
 }
 
-#[cfg(not(feature = "aarch64"))]
+#[cfg(not(feature = "raspi"))]
 const MAX_BUS: u8 = 255;
 
-#[cfg(feature = "aarch64")]
+#[cfg(feature = "raspi")]
 const MAX_BUS: u8 = 0;
 
 fn init<F>(
@@ -879,8 +879,10 @@ impl PCIeInfo {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
             | registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE => 2,
+            #[cfg(feature = "raspi")]
             _ => return Err(PCIeDeviceErr::ReadFailure),
-            // _ => panic!("Unrecognized header type: {:#x}", self.header_type),
+            #[cfg(not(feature = "raspi"))]
+            _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
