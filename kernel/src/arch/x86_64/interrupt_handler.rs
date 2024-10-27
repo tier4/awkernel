@@ -1,3 +1,7 @@
+use awkernel_async_lib::{
+    cpu_counter,
+    task::perf::{add_task_end, add_task_start},
+};
 use awkernel_lib::delay::wait_forever;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
@@ -509,8 +513,10 @@ irq_handler!(irq253, 253);
 irq_handler!(irq254, 254);
 
 extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
+    add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
     awkernel_lib::interrupt::eoi(); // End of interrupt.
     awkernel_lib::interrupt::handle_preemption();
+    add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 }
 
 extern "x86-interrupt" fn alignment_check(stack_frame: InterruptStackFrame, error: u64) {
