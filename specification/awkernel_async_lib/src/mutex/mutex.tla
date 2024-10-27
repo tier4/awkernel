@@ -28,7 +28,8 @@ begin
     
     check_again:
         if ~lock_var then
-            waken := TRUE;
+            assign_waken:
+                waken := TRUE;
         end if;
 
     poll_lock:
@@ -45,7 +46,8 @@ begin
     
     wake:
         if waiting then
-            waken := TRUE;
+            assign_waken:
+                waken := TRUE;
         end if;
 end procedure;
 
@@ -62,8 +64,9 @@ begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "1b237f63" /\ chksum(tla) = "70a468a")
-\* Process thread at line 52 col 6 changed to thread_
+\* BEGIN TRANSLATION (chksum(pcal) = "ae633e47" /\ chksum(tla) = "ddf963fe")
+\* Label assign_waken of procedure lock at line 32 col 17 changed to assign_waken_
+\* Process thread at line 54 col 6 changed to thread_
 \* Parameter thread of procedure lock at line 18 col 16 changed to thread_l
 CONSTANT defaultInitValue
 VARIABLES pc, waken, lock_var, data, waiting, stack
@@ -107,12 +110,16 @@ enqueue_thread(self) == /\ pc[self] = "enqueue_thread"
 
 check_again(self) == /\ pc[self] = "check_again"
                      /\ IF ~lock_var
-                           THEN /\ waken' = TRUE
-                           ELSE /\ TRUE
-                                /\ waken' = waken
-                     /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
-                     /\ UNCHANGED << lock_var, data, waiting, stack, thread_l, 
-                                     thread >>
+                           THEN /\ pc' = [pc EXCEPT ![self] = "assign_waken_"]
+                           ELSE /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
+                     /\ UNCHANGED << waken, lock_var, data, waiting, stack, 
+                                     thread_l, thread >>
+
+assign_waken_(self) == /\ pc[self] = "assign_waken_"
+                       /\ waken' = TRUE
+                       /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
+                       /\ UNCHANGED << lock_var, data, waiting, stack, 
+                                       thread_l, thread >>
 
 poll_lock(self) == /\ pc[self] = "poll_lock"
                    /\ waken
@@ -122,11 +129,11 @@ poll_lock(self) == /\ pc[self] = "poll_lock"
                                    thread >>
 
 lock(self) == start_lock(self) \/ enqueue_thread(self) \/ check_again(self)
-                 \/ poll_lock(self)
+                 \/ assign_waken_(self) \/ poll_lock(self)
 
 start_unlock(self) == /\ pc[self] = "start_unlock"
                       /\ Assert((lock_var), 
-                                "Failure of assertion at line 43, column 9.")
+                                "Failure of assertion at line 44, column 9.")
                       /\ lock_var' = FALSE
                       /\ pc' = [pc EXCEPT ![self] = "wake"]
                       /\ UNCHANGED << waken, data, waiting, stack, thread_l, 
@@ -134,13 +141,18 @@ start_unlock(self) == /\ pc[self] = "start_unlock"
 
 wake(self) == /\ pc[self] = "wake"
               /\ IF waiting
-                    THEN /\ waken' = TRUE
-                    ELSE /\ TRUE
-                         /\ waken' = waken
-              /\ pc' = [pc EXCEPT ![self] = "Error"]
-              /\ UNCHANGED << lock_var, data, waiting, stack, thread_l, thread >>
+                    THEN /\ pc' = [pc EXCEPT ![self] = "assign_waken"]
+                    ELSE /\ pc' = [pc EXCEPT ![self] = "Error"]
+              /\ UNCHANGED << waken, lock_var, data, waiting, stack, thread_l, 
+                              thread >>
 
-unlock(self) == start_unlock(self) \/ wake(self)
+assign_waken(self) == /\ pc[self] = "assign_waken"
+                      /\ waken' = TRUE
+                      /\ pc' = [pc EXCEPT ![self] = "Error"]
+                      /\ UNCHANGED << lock_var, data, waiting, stack, thread_l, 
+                                      thread >>
+
+unlock(self) == start_unlock(self) \/ wake(self) \/ assign_waken(self)
 
 start_thread(self) == /\ pc[self] = "start_thread"
                       /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "lock",
