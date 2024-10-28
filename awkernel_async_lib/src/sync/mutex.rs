@@ -45,25 +45,22 @@ impl<'a, T> core::future::Future for AsyncLockFuture<'a, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        if self
-            .lock
-            .lock_var
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_ok()
-        {
-            Poll::Ready(AsyncLockGuard { lock: self.lock })
-        } else {
+        loop {
+            if self
+                .lock
+                .lock_var
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
             {
+                return Poll::Ready(AsyncLockGuard { lock: self.lock });
+            } else {
+                // To prevent starvation, 'empty check -> push_back -> return Pending' should be guarded
                 let mut node = MCSNode::new();
                 let mut wakers = self.lock.wakers.lock(&mut node);
-                wakers.push_back(cx.waker().clone());
-            }
-
-            // To prevent starvation, check lock_var again
-            if self.lock.lock_var.load(Ordering::Relaxed) {
-                Poll::Pending
-            } else {
-                self.poll(cx)
+                if !wakers.is_empty() {
+                    wakers.push_back(cx.waker().clone());
+                    return Poll::Pending;
+                }
             }
         }
     }
