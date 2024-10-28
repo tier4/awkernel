@@ -9,10 +9,9 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use self::perf::MAX_MEASURE_SIZE;
 use crate::{
+    cpu_counter,
     scheduler::{self, get_scheduler, Scheduler, SchedulerType},
-    uptime,
 };
 use alloc::{
     borrow::Cow,
@@ -322,17 +321,58 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 pub mod perf {
+    use crate::task::get_current_task;
     use awkernel_lib::cpu::NUM_MAX_CPU;
     use core::ptr::{addr_of, read_volatile, write_volatile};
     use core::sync::atomic::{AtomicUsize, Ordering};
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
+
+    static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+
     static mut CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
     static mut CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    pub fn add_task_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut TASKS_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_task_end(cpu_id: usize, time: u64) {
+        let task_id = get_current_task(cpu_id).unwrap_or(0);
+        if task_id == 0 {
+            log::warn!("CPUID#{:?} is not running any task", cpu_id);
+            return;
+        }
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
+
+        if start != 0 && time > start {
+            let current_exec_time = time - start;
+            unsafe {
+                let sum_exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
+                write_volatile(
+                    &mut TASKS_EXEC_TIMES[task_index],
+                    current_exec_time + sum_exec_time,
+                );
+                write_volatile(&mut TASKS_STARTS[cpu_id], 0);
+            }
+        }
+    }
+
+    pub fn reset_task_exec(task_id: u32) {
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        unsafe { write_volatile(&mut TASKS_EXEC_TIMES[task_index], 0) };
+    }
+
+    pub fn get_task_exec(task_id: u32) -> u64 {
+        let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
+        unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
+    }
 
     pub fn add_context_save_start(cpu_id: usize, time: u64) {
         unsafe { write_volatile(&mut CONTEXT_SAVE_STARTS[cpu_id], time) };
@@ -409,9 +449,6 @@ pub mod perf {
 pub fn run_main() {
     CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
         .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
-    let mut task_exec_times = [0; MAX_MEASURE_SIZE];
-    let mut measure_count = 0;
-    let mut measure_duration_start = 0;
 
     loop {
         if let Some(task) = get_next_task() {
@@ -478,31 +515,17 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    let task_start = uptime();
-                    if measure_count == 0 {
-                        measure_duration_start = task_start;
-                    }
                     // Only the subscriber's cooperative context switch overhead is measured.
                     if task.name.contains("subscriber") {
-                        perf::add_context_restore_start(cpu_id, task_start);
+                        perf::add_context_restore_start(cpu_id, cpu_counter());
                     }
+                    perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    let task_end = uptime();
-                    task_exec_times[measure_count] = task_end - task_start;
-                    // if measure_count == MAX_MEASURE_SIZE - 1 {
-                    //     log::debug!(
-                    //         "CPU#{:?} utilization = {:.3} [%]",
-                    //         awkernel_lib::cpu::cpu_id(),
-                    //         task_exec_times.iter().sum::<u64>() as f64
-                    //             / ((uptime() - measure_duration_start) as f64)
-                    //             * 100.0,
-                    //     );
-                    // }
-                    perf::add_context_save_end(cpu_id, task_end);
-                    measure_count = (measure_count + 1) % MAX_MEASURE_SIZE;
+                    perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_context_save_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
@@ -553,6 +576,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+                    perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
                 }
                 Err(_) => {
@@ -562,6 +586,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+                    perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
                 }
             }

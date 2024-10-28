@@ -5,6 +5,7 @@ extern crate alloc;
 use alloc::format;
 use awkernel_async_lib::{
     channel::bounded,
+    cpu_counter,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
     sleep, spawn,
@@ -99,7 +100,7 @@ pub async fn run() {
                 loop {
                     subscriber.recv().await;
                     // Only the subscriber's cooperative context switch overhead is measured.
-                    add_context_restore_end(awkernel_async_lib::cpu_id(), uptime());
+                    add_context_restore_end(awkernel_async_lib::cpu_id(), cpu_counter());
                 }
             },
             SchedulerType::FIFO,
