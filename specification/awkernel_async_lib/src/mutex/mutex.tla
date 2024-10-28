@@ -17,32 +17,23 @@ end define
 
 procedure lock(thread)
 begin
-    start_lock:
+    lock:
         if ~lock_var then
             lock_var := TRUE;
             return;
-        end if;
-
-    enqueue_thread:
-        if Len(wakers) > 0 then
-            wakers := Append(wakers, thread);
         else
-            goto start_lock;
-        end if;
+            wakers := Append(wakers, thread);
 
-    poll_lock:
-        await waken;
-        waken := FALSE;
-        goto start_lock;
+            await waken;
+            waken := FALSE;
+            goto lock;
+        end if;
 end procedure;
 
 procedure unlock(thread)
 begin
-    start_unlock:
-        assert(lock_var);
+    unlock:
         lock_var := FALSE;
-    
-    wake:
         if Len(wakers) > 0 then
             wakers := Tail(wakers);
             waken := TRUE;
@@ -62,8 +53,10 @@ begin
 end process;
 
 end algorithm;*)
-\* BEGIN TRANSLATION (chksum(pcal) = "8f6c2a79" /\ chksum(tla) = "5d9c3255")
-\* Process thread at line 52 col 6 changed to thread_
+\* BEGIN TRANSLATION (chksum(pcal) = "f856835c" /\ chksum(tla) = "5579abf5")
+\* Label lock of procedure lock at line 21 col 9 changed to lock_
+\* Label unlock of procedure unlock at line 36 col 9 changed to unlock_
+\* Process thread at line 43 col 6 changed to thread_
 \* Parameter thread of procedure lock at line 18 col 16 changed to thread_l
 CONSTANT defaultInitValue
 VARIABLES pc, waken, lock_var, data, wakers, stack
@@ -89,52 +82,33 @@ Init == (* Global variables *)
         /\ stack = [self \in ProcSet |-> << >>]
         /\ pc = [self \in ProcSet |-> "start_thread"]
 
-start_lock(self) == /\ pc[self] = "start_lock"
-                    /\ IF ~lock_var
-                          THEN /\ lock_var' = TRUE
-                               /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
-                               /\ thread_l' = [thread_l EXCEPT ![self] = Head(stack[self]).thread_l]
-                               /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
-                          ELSE /\ pc' = [pc EXCEPT ![self] = "enqueue_thread"]
-                               /\ UNCHANGED << lock_var, stack, thread_l >>
-                    /\ UNCHANGED << waken, data, wakers, thread >>
+lock_(self) == /\ pc[self] = "lock_"
+               /\ IF ~lock_var
+                     THEN /\ lock_var' = TRUE
+                          /\ pc' = [pc EXCEPT ![self] = Head(stack[self]).pc]
+                          /\ thread_l' = [thread_l EXCEPT ![self] = Head(stack[self]).thread_l]
+                          /\ stack' = [stack EXCEPT ![self] = Tail(stack[self])]
+                          /\ UNCHANGED << waken, wakers >>
+                     ELSE /\ wakers' = Append(wakers, thread_l[self])
+                          /\ waken
+                          /\ waken' = FALSE
+                          /\ pc' = [pc EXCEPT ![self] = "lock_"]
+                          /\ UNCHANGED << lock_var, stack, thread_l >>
+               /\ UNCHANGED << data, thread >>
 
-enqueue_thread(self) == /\ pc[self] = "enqueue_thread"
-                        /\ IF Len(wakers) > 0
-                              THEN /\ wakers' = Append(wakers, thread_l[self])
-                                   /\ pc' = [pc EXCEPT ![self] = "poll_lock"]
-                              ELSE /\ pc' = [pc EXCEPT ![self] = "start_lock"]
-                                   /\ UNCHANGED wakers
-                        /\ UNCHANGED << waken, lock_var, data, stack, thread_l, 
-                                        thread >>
+lock(self) == lock_(self)
 
-poll_lock(self) == /\ pc[self] = "poll_lock"
-                   /\ waken
-                   /\ waken' = FALSE
-                   /\ pc' = [pc EXCEPT ![self] = "start_lock"]
-                   /\ UNCHANGED << lock_var, data, wakers, stack, thread_l, 
-                                   thread >>
+unlock_(self) == /\ pc[self] = "unlock_"
+                 /\ lock_var' = FALSE
+                 /\ IF Len(wakers) > 0
+                       THEN /\ wakers' = Tail(wakers)
+                            /\ waken' = TRUE
+                       ELSE /\ TRUE
+                            /\ UNCHANGED << waken, wakers >>
+                 /\ pc' = [pc EXCEPT ![self] = "Error"]
+                 /\ UNCHANGED << data, stack, thread_l, thread >>
 
-lock(self) == start_lock(self) \/ enqueue_thread(self) \/ poll_lock(self)
-
-start_unlock(self) == /\ pc[self] = "start_unlock"
-                      /\ Assert((lock_var), 
-                                "Failure of assertion at line 42, column 9.")
-                      /\ lock_var' = FALSE
-                      /\ pc' = [pc EXCEPT ![self] = "wake"]
-                      /\ UNCHANGED << waken, data, wakers, stack, thread_l, 
-                                      thread >>
-
-wake(self) == /\ pc[self] = "wake"
-              /\ IF Len(wakers) > 0
-                    THEN /\ wakers' = Tail(wakers)
-                         /\ waken' = TRUE
-                    ELSE /\ TRUE
-                         /\ UNCHANGED << waken, wakers >>
-              /\ pc' = [pc EXCEPT ![self] = "Error"]
-              /\ UNCHANGED << lock_var, data, stack, thread_l, thread >>
-
-unlock(self) == start_unlock(self) \/ wake(self)
+unlock(self) == unlock_(self)
 
 start_thread(self) == /\ pc[self] = "start_thread"
                       /\ /\ stack' = [stack EXCEPT ![self] = << [ procedure |->  "lock",
@@ -142,7 +116,7 @@ start_thread(self) == /\ pc[self] = "start_thread"
                                                                   thread_l  |->  thread_l[self] ] >>
                                                               \o stack[self]]
                          /\ thread_l' = [thread_l EXCEPT ![self] = thread[self]]
-                      /\ pc' = [pc EXCEPT ![self] = "start_lock"]
+                      /\ pc' = [pc EXCEPT ![self] = "lock_"]
                       /\ UNCHANGED << waken, lock_var, data, wakers, thread >>
 
 add_data(self) == /\ pc[self] = "add_data"
@@ -157,7 +131,7 @@ end_thread(self) == /\ pc[self] = "end_thread"
                                                                 thread    |->  thread[self] ] >>
                                                             \o stack[self]]
                        /\ thread' = [thread EXCEPT ![self] = thread[self]]
-                    /\ pc' = [pc EXCEPT ![self] = "start_unlock"]
+                    /\ pc' = [pc EXCEPT ![self] = "unlock_"]
                     /\ UNCHANGED << waken, lock_var, data, wakers, thread_l >>
 
 thread_(self) == start_thread(self) \/ add_data(self) \/ end_thread(self)

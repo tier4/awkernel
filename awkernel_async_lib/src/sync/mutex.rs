@@ -3,14 +3,26 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{
     cell::UnsafeCell,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, Ordering},
     task::{Poll, Waker},
 };
 
+struct AsyncLockInner {
+    lock_var: bool,
+    wakers: VecDeque<Waker>,
+}
+
+impl AsyncLockInner {
+    pub fn new() -> Self {
+        Self {
+            lock_var: false,
+            wakers: VecDeque::new(),
+        }
+    }
+}
+
 pub struct AsyncLock<T> {
     data: UnsafeCell<T>,
-    lock_var: AtomicBool,
-    wakers: Arc<Mutex<VecDeque<Waker>>>,
+    inner: Arc<Mutex<AsyncLockInner>>,
 }
 
 pub struct AsyncLockGuard<'a, T> {
@@ -24,8 +36,7 @@ impl<T> AsyncLock<T> {
     pub fn new(data: T) -> Self {
         Self {
             data: UnsafeCell::new(data),
-            lock_var: AtomicBool::new(false),
-            wakers: Arc::new(Mutex::new(VecDeque::new())),
+            inner: Arc::new(Mutex::new(AsyncLockInner::new())),
         }
     }
 
@@ -45,34 +56,26 @@ impl<'a, T> core::future::Future for AsyncLockFuture<'a, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> Poll<Self::Output> {
-        loop {
-            if self
-                .lock
-                .lock_var
-                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-                .is_ok()
-            {
-                return Poll::Ready(AsyncLockGuard { lock: self.lock });
-            } else {
-                // To prevent starvation, 'empty check -> push_back -> return Pending' should be guarded
-                let mut node = MCSNode::new();
-                let mut wakers = self.lock.wakers.lock(&mut node);
-                if !wakers.is_empty() {
-                    wakers.push_back(cx.waker().clone());
-                    return Poll::Pending;
-                }
-            }
+        let mut node = MCSNode::new();
+        let mut inner = self.lock.inner.lock(&mut node);
+
+        if !inner.lock_var {
+            inner.lock_var = true;
+            Poll::Ready(AsyncLockGuard { lock: self.lock })
+        } else {
+            inner.wakers.push_back(cx.waker().clone());
+            Poll::Pending
         }
     }
 }
 
 impl<T> Drop for AsyncLockGuard<'_, T> {
     fn drop(&mut self) {
-        self.lock.lock_var.store(false, Ordering::Release);
-
         let mut node = MCSNode::new();
-        let mut wakers = self.lock.wakers.lock(&mut node);
-        if let Some(waker) = wakers.pop_front() {
+        let mut inner = self.lock.inner.lock(&mut node);
+
+        inner.lock_var = false;
+        if let Some(waker) = inner.wakers.pop_front() {
             waker.wake()
         }
     }
