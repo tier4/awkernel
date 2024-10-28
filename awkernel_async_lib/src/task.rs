@@ -439,7 +439,8 @@ pub mod perf {
     }
 
     pub fn calc_yield_context_switch_overhead() -> (f64, f64, f64, f64) {
-        let (avg_save, worst_save) = calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_SAVE_OVERHEADS) });
+        let (avg_save, worst_save) =
+            calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_SAVE_OVERHEADS) });
         let (avg_restore, worst_restore) =
             calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_RESTORE_OVERHEADS) });
         (avg_save, worst_save, avg_restore, worst_restore)
