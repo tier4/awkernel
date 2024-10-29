@@ -336,7 +336,7 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 4096; // Entry point of 16-bit mode (protected mode).
+const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
 const NON_PRIMARY_KERNEL_MAIN: u64 = 2048 + NON_PRIMARY_START;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 const FLAG_POS: u64 = CR3_POS + 8;
@@ -525,8 +525,8 @@ fn map_page0(
 
     unsafe {
         match page_table.map_to(
-            awkernel_lib::addr::virt_addr::VirtAddr::new(4096),
-            awkernel_lib::addr::phy_addr::PhyAddr::new(4096),
+            awkernel_lib::addr::virt_addr::VirtAddr::new(0),
+            awkernel_lib::addr::phy_addr::PhyAddr::new(0),
             flags,
             page_allocator,
         ) {

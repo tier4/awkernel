@@ -195,7 +195,7 @@ _start_cpu:
     orl     %ebx, (gdtdesc32 + 2) # add the relocation base to the GDT
     orl     %ebx, (gdtdesc64 + 2) # add the relocation base to the GDT
     orl     %ebx, (ljmp32 + 2)    # add the relocation base to the ljmpl's argument, $start32
-    orl     %ebx, (ljmp64 + 2)    # add the relocation base to the ljmpl's argument, $entry64
+    orl     %ebx, (ljmp64 + 1)    # add the relocation base to the ljmpl's argument, $entry64
 
     addr32 lgdtl (gdtdesc32)
 
@@ -263,9 +263,6 @@ start32:
     orl     $CR0_DEFAULT, %ecx
     movl    %ecx, %cr0
 
-loop:
-    jmp     loop
-
 ljmp64:
     ljmpl   $0x8, $entry64
 
@@ -306,6 +303,8 @@ xapic:
 end:
     // APIC ID is now in ECX
 
+    movl    %esi, %ebx         // Get relocation base
+
     // Set stack pointer.
     movl    %ecx, %eax
     movl    $STACK_SIZE, %ecx
@@ -321,6 +320,10 @@ end:
     movl    %ebx, %ecx
     orq     $NON_PRIMARY_KERNEL_MAIN, %rcx
     movq    (%rcx), %rax
+
+loop:
+    jmp     loop
+
     callq   *%rax
 
 spin:
