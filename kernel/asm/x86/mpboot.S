@@ -194,16 +194,21 @@ _start_cpu:
 
     orl     %ebx, (gdtdesc32 + 2) # add the relocation base to the GDT
     orl     %ebx, (gdtdesc64 + 2) # add the relocation base to the GDT
+    orl     %ebx, (ljmp32 + 2)    # add the relocation base to the ljmpl's argument, $start32
+    orl     %ebx, (ljmp64 + 2)    # add the relocation base to the ljmpl's argument, $entry64
 
     addr32 lgdtl (gdtdesc32)
 
     movl    %cr0, %eax           # get cr0
     orl     $CR0_PE, %eax        # enable protected mode
     movl    %eax, %cr0           # doit
+
+ljmp32:
     ljmpl   $0x8, $start32
 
 .code32  # Tell assembler to generate 32-bit code now.
 start32:
+
     movl    $0x10, %eax    # data segment
     movw    %ax, %ds
     movw    %ax, %ss
@@ -211,8 +216,9 @@ start32:
     movw    %ax, %fs
     movw    %ax, %gs
 
-    movl    $STACK_TEMP, %esp
-    orl     %ebx, %esp
+    movl    $STACK_TEMP, %eax
+    addl    %ebx, %eax
+    movl    %eax, %esp
 
     /* First, reset the PSL. */
     pushl   $PSL_MBO
@@ -225,6 +231,7 @@ start32:
     movl    $MSR_EFER, %ecx
     rdmsr
     movl    %edx, %edi      # %edx is needed by wrmsr below
+    movl    %ebx, %esi      # save relocation base
 
     # Check if we need to enable NXE
     movl    $0x80000001, %eax
@@ -232,28 +239,34 @@ start32:
     andl    $CPUID_NXE, %edx
     xorl    %eax, %eax
     testl   %edx, %edx
-    jz    1f
+    jz      1f
     orl     $EFER_NXE, %eax
 1:
     orl     $(EFER_LME | EFER_SCE), %eax
 
     movl    %edi, %edx      # Restore saved %edx
+    movl    %esi, %ebx      # Restore saved %ebx
+
     movl    $MSR_EFER, %ecx
     wrmsr
 
     movl    $CPU0_CR3, %ecx
-    xorl    %ebx, %ecx
+    orl     %ebx, %ecx
     movl    (%ecx), %ecx
     movl    %ecx, %cr3      # load ptd addr into mmu
 
     movl    $gdtdesc64, %eax
-    xorl    %ebx, %eax
+    orl     %ebx, %eax
     lgdt    (%eax)
 
     movl    %cr0, %ecx      # get control word
     orl     $CR0_DEFAULT, %ecx
     movl    %ecx, %cr0
 
+loop:
+    jmp     loop
+
+ljmp64:
     ljmpl   $0x8, $entry64
 
 .code64  # Tell assembler to generate 64-bit code now.
@@ -302,7 +315,7 @@ end:
     movl    %eax, %ebp
 
     movq    $FLAG, %rax
-    xorq    %rbx, %rax
+    orq     %rbx, %rax
     movq    $1, (%rax)
 
     movl    %ebx, %ecx
