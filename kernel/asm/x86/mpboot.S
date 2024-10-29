@@ -302,11 +302,11 @@ end:
     movl    %eax, %ebp
 
     movq    $FLAG, %rax
-    xorl    %ebx
+    xorq    %rbx, %rax
     movq    $1, (%rax)
 
     movl    %ebx, %ecx
-    orlq    $NON_PRIMARY_KERNEL_MAIN, %rcx
+    orq     $NON_PRIMARY_KERNEL_MAIN, %rcx
     movq    (%rcx), %rax
     callq   *%rax
 
