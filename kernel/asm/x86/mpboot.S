@@ -181,13 +181,19 @@
 
 .code16
 _start_cpu:
-    cli                         # BIOS enabled interrupts; disable
+    cli                          # BIOS enabled interrupts; disable
 
-    # Zero data segment registers DS, ES, and SS.
-    xorw    %ax, %ax             # Set %ax to zero
-    movw    %ax, %ds             # -> Data Segment
-    movw    %ax, %es             # -> Extra Segment
-    movw    %ax, %ss             # -> Stack Segment
+    mov	    %cs, %ax             # copy %cs to %ds.  Remember these
+	mov	    %ax, %ds             # are offsets rather than selectors
+	mov	    %ax, %ss
+
+    # Find the relocation base
+    xorl    %ebx, %ebx
+    mov     %cs, %bx
+    sall    $4, %ebx             # $ebx is the relocation base
+
+    orl     %ebx, (gdtdesc32 + 2) # add the relocation base to the GDT
+    orl     %ebx, (gdtdesc64 + 2) # add the relocation base to the GDT
 
     addr32 lgdtl (gdtdesc32)
 
@@ -206,6 +212,7 @@ start32:
     movw    %ax, %gs
 
     movl    $STACK_TEMP, %esp
+    orl     %ebx, %esp
 
     /* First, reset the PSL. */
     pushl   $PSL_MBO
@@ -231,14 +238,16 @@ start32:
     orl     $(EFER_LME | EFER_SCE), %eax
 
     movl    %edi, %edx      # Restore saved %edx
-    movl    $MSR_EFER,%ecx
+    movl    $MSR_EFER, %ecx
     wrmsr
 
     movl    $CPU0_CR3, %ecx
+    xorl    %ebx, %ecx
     movl    (%ecx), %ecx
     movl    %ecx, %cr3      # load ptd addr into mmu
 
     movl    $gdtdesc64, %eax
+    xorl    %ebx, %eax
     lgdt    (%eax)
 
     movl    %cr0, %ecx      # get control word
@@ -274,18 +283,18 @@ use_leaf_0b:
 
 assign_apic_id:
     cpuid
-    movl    %edx, %ebx
+    movl    %edx, %ecx
     jmp     end
 
 xapic:
-    shrl    $24, %ebx          // 31:24 is local APIC ID
-    andl    $0xFF, %ebx
+    shrl    $24, %ecx          // 31:24 is local APIC ID
+    andl    $0xFF, %ecx
 
 end:
-    // APIC ID is now in EBX
+    // APIC ID is now in ECX
 
     // Set stack pointer.
-    movl    %ebx, %eax
+    movl    %ecx, %eax
     movl    $STACK_SIZE, %ecx
     mull    %ecx
     addl    $STACK_START, %eax
@@ -293,10 +302,12 @@ end:
     movl    %eax, %ebp
 
     movq    $FLAG, %rax
+    xorl    %ebx
     movq    $1, (%rax)
 
-    movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
-    movq    (%rbx), %rax
+    movl    %ebx, %ecx
+    orlq    $NON_PRIMARY_KERNEL_MAIN, %rcx
+    movq    (%rcx), %rax
     callq   *%rax
 
 spin:
