@@ -9,7 +9,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    addr::{virt_addr::VirtAddr},
+    addr::virt_addr::VirtAddr,
     paging::{self, MapError, PAGESIZE},
     sync::{mcs::MCSNode, mutex::Mutex},
 };
