@@ -5,10 +5,7 @@ use crate::{
     config::DMA_SIZE,
 };
 
-use awkernel_drivers::{
-    pcie::pcie_device_tree::PCIeRange,
-    psci::{self, Affinity},
-};
+use awkernel_drivers::pcie::pcie_device_tree::PCIeRange;
 
 use alloc::vec::Vec;
 
@@ -218,7 +215,7 @@ impl Raspi5 {
 
             Ok(())
         } else {
-            return Err(err_msg!("PCIe: node not found"));
+            Err(err_msg!("PCIe: node not found"))
         }
     }
 

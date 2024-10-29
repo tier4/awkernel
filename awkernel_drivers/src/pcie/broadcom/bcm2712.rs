@@ -1,12 +1,10 @@
 use crate::pcie::{pcie_id, registers, PCIeDevice, PCIeDeviceErr, PCIeInfo};
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, sync::Arc};
 
 const BCM2712_ID: u16 = 0x2712;
 
 const MEM_PCIE_RANGE_PCIE_START: u64 = 0x0000000000;
-const PCI_BASE_ADDRESS_MEM_TYPE_64: u32 = 0x04;
 const PCI_SECONDARY_BUS: usize = 0x19;
-const PCI_SUBORDINATE_BUS: usize = 0x1a;
 const PCI_MEMORY_BASE: usize = 0x20;
 const PCI_MEMORY_LIMIT: usize = 0x22;
 const PCI_BRIDGE_CTL_PARITY: u8 = 0x01;
