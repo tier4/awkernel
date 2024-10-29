@@ -105,7 +105,7 @@ raspi = [
 raspi5 = [
     "aarch64",
     "awkernel_drivers/raspi",
-    "awkernel_drivers/all_pcie",
+    "awkernel_drivers/pcie",
     "awkernel_drivers/pl011",
     "dep:embedded-hal",
 ]
