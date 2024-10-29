@@ -293,20 +293,18 @@ use_leaf_0b:
 
 assign_apic_id:
     cpuid
-    movl    %edx, %ecx
+    movl    %edx, %ebx
     jmp     end
 
 xapic:
-    shrl    $24, %ecx          // 31:24 is local APIC ID
-    andl    $0xFF, %ecx
+    shrl    $24, %ebx          // 31:24 is local APIC ID
+    andl    $0xFF, %ebx
 
 end:
-    // APIC ID is now in ECX
-
-    movl    %esi, %ebx         // Get relocation base
+    // APIC ID is now in EBX
 
     // Set stack pointer.
-    movl    %ecx, %eax
+    movl    %ebx, %eax
     movl    $STACK_SIZE, %ecx
     mull    %ecx
     addl    $STACK_START, %eax
@@ -314,16 +312,12 @@ end:
     movl    %eax, %ebp
 
     movq    $FLAG, %rax
-    orq     %rbx, %rax
+    orq     %rsi, %rax      # Add the relocation base
     movq    $1, (%rax)
 
-    movl    %ebx, %ecx
+    movl    %esi, %ecx      # Restore saved relocation base
     orq     $NON_PRIMARY_KERNEL_MAIN, %rcx
     movq    (%rcx), %rax
-
-loop:
-    jmp     loop
-
     callq   *%rax
 
 spin:
