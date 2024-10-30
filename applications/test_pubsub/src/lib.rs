@@ -8,8 +8,7 @@ use awkernel_async_lib::{
     cpu_counter,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn,
-    uptime,
+    sleep, spawn, uptime,
 };
 use core::{
     ptr::write_volatile,
