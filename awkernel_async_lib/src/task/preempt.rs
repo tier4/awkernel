@@ -1,4 +1,8 @@
 use crate::task::{get_current_task, Task};
+use crate::{
+    cpu_counter,
+    task::perf::{add_context_restore_start, add_context_save_end, ContextSwitchType},
+};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -70,9 +74,15 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
+        add_context_save_end(ContextSwitchType::Preempt, cpu_id, cpu_counter());
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
 
+        add_context_restore_start(
+            ContextSwitchType::Preempt,
+            awkernel_lib::cpu::cpu_id(),
+            cpu_counter(),
+        );
         thread::set_current_context(current_ctx);
     }
 
