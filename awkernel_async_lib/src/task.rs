@@ -331,6 +331,9 @@ pub mod perf {
     static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
 
+    static mut IDLE_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
     static mut YIELD_CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut YIELD_CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static YIELD_CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -384,6 +387,30 @@ pub mod perf {
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
+    }
+
+    pub fn add_idle_time_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut IDLE_TIMES_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_idle_time_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&IDLE_TIMES_STARTS[cpu_id]) };
+
+        if start != 0 && time > start {
+            let current_exec_time = time - start;
+            unsafe {
+                let sum_idle_time = read_volatile(&IDLE_TIMES_SUM[cpu_id]);
+                write_volatile(
+                    &mut IDLE_TIMES_SUM[cpu_id],
+                    current_exec_time + sum_idle_time,
+                );
+                write_volatile(&mut IDLE_TIMES_STARTS[cpu_id], 0)
+            };
+        }
+    }
+
+    pub fn get_idle_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&IDLE_TIMES_SUM[cpu_id]) }
     }
 
     pub fn add_context_save_start(context_type: ContextSwitchType, cpu_id: usize, time: u64) {
@@ -535,6 +562,7 @@ pub mod perf {
 }
 
 pub fn run_main() {
+    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
     CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
         .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
 
@@ -551,6 +579,7 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
+                    perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     perf::add_context_save_start(
                         perf::ContextSwitchType::Yield,
                         awkernel_lib::cpu::cpu_id(),
@@ -564,6 +593,7 @@ pub fn run_main() {
                         awkernel_lib::cpu::cpu_id(),
                         cpu_counter(),
                     );
+                    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     continue;
                 }
             }
@@ -615,12 +645,14 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
+                    perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
                     perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
