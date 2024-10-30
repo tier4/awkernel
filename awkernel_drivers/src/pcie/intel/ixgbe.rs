@@ -78,7 +78,6 @@ type TxRing = [TxDescriptor; DEFAULT_TXD];
 type TxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_TXD];
 
 type RxRing = [AdvRxDesc; DEFAULT_RXD];
-type RxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_RXD];
 
 pub struct Tx {
     tx_desc_head: usize,
@@ -91,8 +90,6 @@ pub struct Rx {
     rx_desc_head: u32,
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool<RxRing>,
-    read_buf: Option<DMAPool<RxBuffer>>,
-
     read_queue: RingQ<EtherFrameBuf>,
 }
 
@@ -163,6 +160,7 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
+    phy_to_virt_addr: HashMap<u64, u64>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -406,6 +404,7 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
+            phy_to_virt_addr: HashMap::with_capacity(DEFAULT_RXD),
         };
 
         Ok((ixgbe, que))
@@ -607,10 +606,6 @@ impl IxgbeInner {
             let mut node = MCSNode::new();
             let mut tx = que.tx.lock(&mut node);
             tx.write_buf = None;
-
-            let mut node = MCSNode::new();
-            let mut rx = que.rx.lock(&mut node);
-            rx.read_buf = None;
         }
 
         self.update_link_status()?;
@@ -762,21 +757,19 @@ impl IxgbeInner {
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
-            let rx_buffer_size = MCLBYTES as usize * DEFAULT_RXD;
-            let read_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                rx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IxgbeDriverErr::DMAPool)?;
-
-            let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
             for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+                let read_buf: DMAPool<[u8; PAGESIZE]> =
+                    DMAPool::new(self.info.get_segment_group() as usize, 1)
+                        .ok_or(IxgbeDriverErr::DMAPool)?;
+                let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+
                 desc.data = [0; 2];
                 desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+                self.phy_to_virt_addr.insert(
+                    (buf_phy_addr + i * MCLBYTES as usize) as u64,
+                    (read_buf.get_virt_addr().as_usize() + i * MCLBYTES as usize) as u64,
+                );
             }
-
-            rx.read_buf = Some(read_buf);
         }
 
         Ok(())
@@ -1554,18 +1547,23 @@ impl Ixgbe {
         Ok(())
     }
 
+    unsafe fn invalidate_cache(&self, addr: *const u8) -> Result<(), IxgbeDriverErr> {
+        #[cfg(target_arch = "x86_64")]
+        core::arch::x86_64::_mm_clflush(addr);
+        return Ok(());
+
+        #[cfg(not(any(target_arch = "x86_64")))]
+        return IxgbeDriverErr::NotSupported;
+    }
+
     fn rx_recv(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
         let que = &self.que[que_id];
 
         {
-            let inner = self.inner.read();
+            let mut inner = self.inner.write();
 
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
-
-            if rx.read_buf.is_none() {
-                return Ok(());
-            }
 
             let mut i = rx.rx_desc_tail;
 
@@ -1578,9 +1576,9 @@ impl Ixgbe {
                     break;
                 }
 
-                let rx_desc_ring = rx.rx_desc_ring.as_ref();
+                let rx_desc_ring = rx.rx_desc_ring.as_mut();
                 let rx_desc_ring_len = rx_desc_ring.len();
-                let desc = &rx_desc_ring[i];
+                let desc = &mut rx_desc_ring[i];
 
                 let staterr;
                 unsafe {
@@ -1618,9 +1616,26 @@ impl Ixgbe {
                     drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let read_buf = rx.read_buf.as_ref().unwrap();
-                    let src = &read_buf.as_ref()[i];
-                    let data = src[0..len as usize].to_vec();
+                    let virt_addr;
+                    unsafe {
+                        virt_addr = inner.phy_to_virt_addr.remove(&desc.read.pkt_addr).unwrap();
+                    }
+                    let ptr = virt_addr as *const u8;
+                    let data;
+                    unsafe {
+                        data = Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize);
+                    }
+
+                    let read_buf: DMAPool<[u8; PAGESIZE]> =
+                        DMAPool::new(inner.info.get_segment_group() as usize, 1)
+                            .ok_or(IxgbeDriverErr::DMAPool)?;
+                    let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+                    desc.read.pkt_addr = buf_phy_addr as u64;
+                    // Need clflush
+                    unsafe {
+                        self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
+                    }
+
                     rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
                 }
 
@@ -2029,7 +2044,6 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
         rx_desc_head: 0,
         rx_desc_tail: 0,
         rx_desc_ring,
-        read_buf: None,
         read_queue: RingQ::new(RECV_QUEUE_SIZE),
     };
 
