@@ -1549,11 +1549,16 @@ impl Ixgbe {
 
     unsafe fn invalidate_cache(&self, addr: *const u8) -> Result<(), IxgbeDriverErr> {
         #[cfg(target_arch = "x86_64")]
-        core::arch::x86_64::_mm_clflush(addr);
-        return Ok(());
+        {
+            core::arch::x86_64::_mm_clflush(addr);
+            Ok(())
+        }
 
         #[cfg(not(any(target_arch = "x86_64")))]
-        return IxgbeDriverErr::NotSupported;
+        {
+            let _ = addr;
+            Err(IxgbeDriverErr::NotSupported)
+        }
     }
 
     fn rx_recv(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
