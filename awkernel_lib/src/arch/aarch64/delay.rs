@@ -28,12 +28,12 @@ impl Delay for super::AArch64 {
         let now = awkernel_aarch64::cntvct_el0::get();
 
         let factor = if frq == unsafe { CNTFRQ } {
-            unsafe { FACTOR_1_000_000_DIV_FRQ }
+            unsafe { read_volatile(addr_of!(FACTOR_1_000_000_DIV_FRQ)) }
         } else {
             let n = 1_000_000.0 / frq as f64;
             unsafe {
-                CNTFRQ = frq;
-                FACTOR_1_000_000_DIV_FRQ = n;
+                write_volatile(addr_of_mut!(CNTFRQ), frq);
+                write_volatile(addr_of_mut!(FACTOR_1_000_000_DIV_FRQ), n);
             }
             n
         };

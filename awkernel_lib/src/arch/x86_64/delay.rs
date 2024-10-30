@@ -6,7 +6,10 @@ use crate::{
     paging::{Flags, PageTable},
 };
 use acpi::AcpiTables;
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::{
+    ptr::{addr_of, addr_of_mut, read_volatile, write_volatile},
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+};
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
 mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
@@ -37,7 +40,7 @@ impl Delay for super::X86 {
 
     fn uptime() -> u64 {
         let base = HPET_BASE.load(Ordering::Relaxed);
-        let factor = unsafe { HPET_COUNTER_1_000_000_DIV_HZ };
+        let factor = unsafe { read_volatile(addr_of!(HPET_COUNTER_1_000_000_DIV_HZ)) };
         let start = HPET_COUNTER_START.load(Ordering::Relaxed);
 
         if factor == 0.0 {
@@ -98,7 +101,12 @@ pub(super) fn init(
     let hz = 1_000_000_000_000_000 / (capabilities >> 32);
     log::info!("HPET frequency = {hz}[Hz]");
 
-    unsafe { HPET_COUNTER_1_000_000_DIV_HZ = 1_000_000.0 / hz as f64 };
+    unsafe {
+        write_volatile(
+            addr_of_mut!(HPET_COUNTER_1_000_000_DIV_HZ),
+            1_000_000.0 / hz as f64,
+        )
+    };
 
     // Enable HPET.
     let conf = HPET_GENERAL_CONF.read(base);
