@@ -551,7 +551,19 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
+                    perf::add_context_save_start(
+                        perf::ContextSwitchType::Yield,
+                        awkernel_lib::cpu::cpu_id(),
+                        cpu_counter(),
+                    );
+
                     unsafe { preempt::yield_and_pool(ctx) };
+
+                    perf::add_context_restore_end(
+                        perf::ContextSwitchType::Yield,
+                        awkernel_lib::cpu::cpu_id(),
+                        cpu_counter(),
+                    );
                     continue;
                 }
             }

@@ -40,7 +40,19 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_ctx.get_cpu_context();
 
+    add_context_save_end(
+        ContextSwitchType::Yield,
+        awkernel_lib::cpu::cpu_id(),
+        cpu_counter(),
+    );
+
     unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
+
+    add_context_restore_start(
+        ContextSwitchType::Yield,
+        awkernel_lib::cpu::cpu_id(),
+        cpu_counter(),
+    );
 
     thread::set_current_context(current_ctx);
 
