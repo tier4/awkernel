@@ -603,25 +603,12 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    // Only the subscriber's cooperative context switch overhead is measured.
-                    if task.name.contains("subscriber") {
-                        perf::add_context_restore_start(
-                            perf::ContextSwitchType::Yield,
-                            cpu_id,
-                            cpu_counter(),
-                        );
-                    }
                     perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
                     perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_context_save_end(
-                        perf::ContextSwitchType::Yield,
-                        awkernel_lib::cpu::cpu_id(),
-                        cpu_counter(),
-                    );
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
