@@ -13,8 +13,8 @@ mmio_rw!(offset 0x10 => HPET_GENERAL_CONF<u64>);
 mmio_r!(offset 0xf0 => HPET_MAIN_COUNTER<u64>);
 
 static HPET_BASE: AtomicUsize = AtomicUsize::new(0);
-static HPET_COUNTER_HZ: AtomicU64 = AtomicU64::new(0);
 static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
+static mut HPET_COUNTER_1_000_000_DIV_HZ: f64 = 0.0;
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -37,16 +37,16 @@ impl Delay for super::X86 {
 
     fn uptime() -> u64 {
         let base = HPET_BASE.load(Ordering::Relaxed);
-        let hz = HPET_COUNTER_HZ.load(Ordering::Relaxed);
+        let factor = unsafe { HPET_COUNTER_1_000_000_DIV_HZ };
         let start = HPET_COUNTER_START.load(Ordering::Relaxed);
 
-        if hz == 0 {
+        if factor == 0.0 {
             0
         } else {
             let now = HPET_MAIN_COUNTER.read(base);
             let diff = now - start;
 
-            diff * 1_000_000 / hz
+            (diff as f64 * factor) as u64
         }
     }
 
@@ -97,7 +97,8 @@ pub(super) fn init(
     let capabilities = HPET_GENERAL_CAP.read(base);
     let hz = 1_000_000_000_000_000 / (capabilities >> 32);
     log::info!("HPET frequency = {hz}[Hz]");
-    HPET_COUNTER_HZ.store(hz, Ordering::Relaxed);
+
+    unsafe { HPET_COUNTER_1_000_000_DIV_HZ = 1_000_000.0 / hz as f64 };
 
     // Enable HPET.
     let conf = HPET_GENERAL_CONF.read(base);

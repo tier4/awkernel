@@ -2,6 +2,8 @@ use crate::delay::Delay;
 use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 
 static mut COUNT_START: u64 = 0;
+static mut CNTFRQ: u64 = 0;
+static mut FACTOR_1_000_000_DIV_FRQ: f64 = 0.0;
 
 impl Delay for super::AArch64 {
     fn wait_interrupt() {
@@ -25,9 +27,20 @@ impl Delay for super::AArch64 {
         let frq = awkernel_aarch64::cntfrq_el0::get();
         let now = awkernel_aarch64::cntvct_el0::get();
 
+        let factor = if frq == unsafe { CNTFRQ } {
+            unsafe { FACTOR_1_000_000_DIV_FRQ }
+        } else {
+            let n = 1_000_000.0 / frq as f64;
+            unsafe {
+                CNTFRQ = frq;
+                FACTOR_1_000_000_DIV_FRQ = n;
+            }
+            n
+        };
+
         let diff = now - start;
 
-        diff * 1_000_000 / frq
+        (diff as f64 * factor) as u64
     }
 
     fn cpu_counter() -> u64 {
