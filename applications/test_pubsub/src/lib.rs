@@ -9,7 +9,6 @@ use awkernel_async_lib::{
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
     sleep, spawn,
-    task::perf::{add_context_restore_end, ContextSwitchType},
     uptime,
 };
 use core::{
@@ -99,12 +98,6 @@ pub async fn run() {
             async move {
                 loop {
                     subscriber.recv().await;
-                    // Only the subscriber's cooperative context switch overhead is measured.
-                    add_context_restore_end(
-                        ContextSwitchType::Yield,
-                        awkernel_async_lib::cpu_id(),
-                        cpu_counter(),
-                    );
                 }
             },
             SchedulerType::FIFO,
