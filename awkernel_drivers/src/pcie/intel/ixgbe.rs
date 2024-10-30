@@ -1627,8 +1627,13 @@ impl Ixgbe {
                     }
                     let ptr = virt_addr as *const u8;
                     let data;
+
                     unsafe {
                         data = Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize);
+                    }
+
+                    for byte in &data {
+                        log::debug!("{:02x}", byte);
                     }
 
                     let read_buf: DMAPool<[u8; PAGESIZE]> =

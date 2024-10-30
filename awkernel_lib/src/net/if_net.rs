@@ -101,9 +101,9 @@ impl Device for NetDriverRef<'_> {
 
         let capabilities = self.inner.capabilities();
 
-        if capabilities.contains(NetCapabilities::CSUM_IPv4) {
-            cap.checksum.ipv4 = Checksum::Rx;
-        }
+        //if capabilities.contains(NetCapabilities::CSUM_IPv4) {
+        //cap.checksum.ipv4 = Checksum::Rx;
+        //}
 
         // Note: Awkernel doen't yet support Ipv6.
         // Additionally, tests for TCP functionality have not yet been conducted.
@@ -117,9 +117,9 @@ impl Device for NetDriverRef<'_> {
         //     cap.checksum.udp = Checksum::Rx;
         // }
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
-            cap.checksum.udp = Checksum::Rx;
-        }
+        //if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+        //cap.checksum.udp = Checksum::Rx;
+        //}
 
         cap
     }

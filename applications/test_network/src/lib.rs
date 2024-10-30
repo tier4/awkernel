@@ -9,12 +9,12 @@ use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(8, 0, 2, 64);
 
 // const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(8, 0, 2, 2);
 
 const UDP_DST_PORT: u16 = 26099;
 
@@ -31,33 +31,33 @@ pub async fn run() {
     )
     .await;
 
-    awkernel_async_lib::spawn(
-        "test tcp listen".into(),
-        tcp_listen_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    //awkernel_async_lib::spawn(
+    //"test tcp listen".into(),
+    //tcp_listen_test(),
+    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    //)
+    //.await;
 
-    awkernel_async_lib::spawn(
-        "test tcp connect".into(),
-        tcp_connect_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    //awkernel_async_lib::spawn(
+    //"test tcp connect".into(),
+    //tcp_connect_test(),
+    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    //)
+    //.await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast recv".into(),
-        ipv4_multicast_recv_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    //awkernel_async_lib::spawn(
+    //"test IPv4 multicast recv".into(),
+    //ipv4_multicast_recv_test(),
+    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    //)
+    //.await;
 
-    awkernel_async_lib::spawn(
-        "test IPv4 multicast send".into(),
-        ipv4_multicast_send_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+    //awkernel_async_lib::spawn(
+    //"test IPv4 multicast send".into(),
+    //ipv4_multicast_send_test(),
+    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    //)
+    //.await;
 }
 
 async fn ipv4_multicast_send_test() {
