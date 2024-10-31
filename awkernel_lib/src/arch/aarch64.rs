@@ -1,6 +1,7 @@
 pub mod armv8_timer;
 pub(super) mod cpu;
 pub(super) mod delay;
+pub(super) mod dvfs;
 pub mod exception_saved_regs;
 pub(super) mod interrupt;
 pub mod page_allocator;
