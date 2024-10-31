@@ -172,8 +172,12 @@ fn kernel_main2(
         page_allocators.insert(*numa_id, page_allocator);
     }
 
+    for (cpu, numa) in cpu_to_numa.iter() {
+        log::info!("CPU/NUMA: {cpu}/{numa}");
+    }
+
     // 9. Initialize stack memory regions for non-primary CPUs.
-    if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
+    if map_stack(&cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
@@ -204,9 +208,41 @@ fn kernel_main2(
     // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
+    let mut non_primary_cpus = BTreeSet::new();
+
+    if let Ok(platform_info) = acpi.platform_info() {
+        if let Some(processor_info) = platform_info.processor_info {
+            for p in processor_info.application_processors.iter() {
+                if matches!(p.state, ProcessorState::WaitingForSipi)
+                    && (matches!(type_apic, TypeApic::Xapic(_)) && p.local_apic_id < 255
+                        || matches!(type_apic, TypeApic::X2Apic(_)))
+                {
+                    non_primary_cpus.insert(p.local_apic_id);
+                }
+            }
+        } else {
+            log::error!("Failed to get the processor information.");
+            wait_forever();
+        }
+    } else {
+        log::error!("Failed to get the platform information.");
+        wait_forever();
+    };
+
+    let mut cpu_mapping = BTreeMap::<usize, usize>::new();
+    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
+        let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
+        cpu_mapping.insert(*raw_cpu_id as usize, cpu_id);
+        log::info!(
+            "CPU ID mapping: Raw CPU ID #{raw_cpu_id} -> CPU ID #{}",
+            cpu_id
+        );
+    }
+    unsafe { awkernel_lib::arch::x86_64::cpu::set_raw_cpu_id_to_cpu_id(cpu_mapping) };
+
     let apic_result = match type_apic {
         TypeApic::Xapic(mut xapic) => {
-            let result = wake_non_primary_cpus(&xapic, &acpi, offset, mpboot_start);
+            let result = wake_non_primary_cpus(&xapic, &non_primary_cpus, offset, mpboot_start);
 
             // Initialize timer.
             init_apic_timer(&mut xapic);
@@ -217,7 +253,7 @@ fn kernel_main2(
             result
         }
         TypeApic::X2Apic(mut x2apic) => {
-            let result = wake_non_primary_cpus(&x2apic, &acpi, offset, mpboot_start);
+            let result = wake_non_primary_cpus(&x2apic, &non_primary_cpus, offset, mpboot_start);
 
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
@@ -281,6 +317,8 @@ fn kernel_main2(
     while BOOTED_APS.load(Ordering::Relaxed) != 0 {
         core::hint::spin_loop();
     }
+
+    log::info!("All CPUs are ready.");
 
     let kernel_info = KernelInfo {
         info: Some(boot_info),
@@ -380,31 +418,13 @@ fn write_boot_images(offset: u64, mpboot_start: u64) {
 
 fn wake_non_primary_cpus(
     apic: &dyn Apic,
-    acpi: &AcpiTables<AcpiMapper>,
+    non_primary_cpus: &BTreeSet<u32>,
     offset: u64,
     mpboot_start: u64,
 ) -> Result<(), &'static str> {
-    let processor_info = if let Ok(platform_info) = acpi.platform_info() {
-        if let Some(processor_info) = platform_info.processor_info {
-            processor_info
-        } else {
-            return Err("Failed processor_info().");
-        }
-    } else {
-        return Err("Failed platform_info().");
-    };
+    BOOTED_APS.store(non_primary_cpus.len(), Ordering::Release);
 
-    let mut aps = BTreeSet::new();
-
-    for ap in processor_info.application_processors.iter() {
-        if ap.local_apic_id < 255 && matches!(ap.state, ProcessorState::WaitingForSipi) {
-            aps.insert(ap.local_apic_id);
-        }
-    }
-
-    BOOTED_APS.store(aps.len(), Ordering::Release);
-
-    for ap in aps.iter() {
+    for ap in non_primary_cpus.iter() {
         log::info!("Waking up AP #{}", ap);
         send_ipi(apic, *ap, offset, mpboot_start);
     }
