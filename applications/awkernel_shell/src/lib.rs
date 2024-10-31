@@ -219,7 +219,7 @@ fn ifconfig_ffi() {
 }
 
 #[embedded]
-fn perf_ffi(){
+fn perf_ffi() {
     console::print("TODO...\r\n");
 }
 
