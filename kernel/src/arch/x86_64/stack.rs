@@ -1,10 +1,7 @@
 use crate::config::{STACK_SIZE, STACK_START};
-use acpi::AcpiTables;
 use alloc::collections::BTreeMap;
 use awkernel_lib::{
-    arch::x86_64::{acpi::AcpiMapper, page_allocator::VecPageAllocator},
-    heap::InitErr,
-    paging::PAGESIZE,
+    arch::x86_64::page_allocator::VecPageAllocator, heap::InitErr, paging::PAGESIZE,
 };
 use x86_64::{
     structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags, Size4KiB},
@@ -12,25 +9,10 @@ use x86_64::{
 };
 
 pub(super) fn map_stack(
-    acpi: &AcpiTables<AcpiMapper>,
     cpu_to_numa: &BTreeMap<u32, u32>,
     page_table: &mut OffsetPageTable<'static>,
     page_allocators: &mut BTreeMap<u32, VecPageAllocator>,
 ) -> Result<(), InitErr> {
-    let num_cpu = if let Ok(platform_info) = acpi.platform_info() {
-        if let Some(processor_info) = platform_info.processor_info {
-            processor_info.application_processors.len()
-        } else {
-            log::error!("Failed processor_info().");
-            return Err(InitErr::InvalidACPI);
-        }
-    } else {
-        log::error!("Failed platform_info().");
-        return Err(InitErr::InvalidACPI);
-    };
-
-    log::info!("Found {} cores.", num_cpu + 1);
-
     let flags = PageTableFlags::PRESENT
         | PageTableFlags::WRITABLE
         | PageTableFlags::NO_EXECUTE
@@ -62,6 +44,12 @@ pub(super) fn map_stack(
                     .flush()
             };
         }
+
+        log::info!(
+            "Mapped stack for CPU {i} to {:#x} - {:#x}",
+            page_range.start.start_address(),
+            page_range.end.start_address() + page_range.end.size()
+        );
     }
 
     Ok(())

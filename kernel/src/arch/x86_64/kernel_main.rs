@@ -173,7 +173,27 @@ fn kernel_main2(
     }
 
     // 9. Initialize stack memory regions for non-primary CPUs.
-    if map_stack(&acpi, &cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
+    let mut cpus = BTreeSet::new();
+    cpus.insert(0);
+
+    if let Ok(platform_info) = acpi.platform_info() {
+        if let Some(processor_info) = platform_info.processor_info {
+            for p in processor_info.application_processors.iter() {
+                if p.local_apic_id < 255 && matches!(p.state, ProcessorState::WaitingForSipi) {
+                    cpus.insert(p.local_apic_id);
+                    log::info!("CPU: Local APIC ID = {}", p.local_apic_id);
+                }
+            }
+        } else {
+            log::error!("Failed to get the processor information.");
+            wait_forever();
+        }
+    } else {
+        log::error!("Failed to get the platform information.");
+        wait_forever();
+    };
+
+    if map_stack(&cpu_to_numa, &mut page_table, &mut page_allocators).is_err() {
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
