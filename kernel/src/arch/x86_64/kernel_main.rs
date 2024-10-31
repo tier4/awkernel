@@ -30,6 +30,7 @@ use awkernel_lib::{
     },
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
+    dvfs::Dvfs,
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
     unwind::catch_unwind,
@@ -484,6 +485,11 @@ fn non_primary_kernel_main() -> ! {
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
+
+    // Fix the frequency of current CPU to the maximum.
+    let max_freq = awkernel_lib::arch::x86_64::X86::get_max_freq();
+    awkernel_lib::arch::x86_64::X86::fix_freq(max_freq);
+    log::info!("CPU #{}: Frequency if fixed to {}.", cpu_id, max_freq);
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 

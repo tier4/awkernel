@@ -3,13 +3,19 @@ use crate::dvfs::Dvfs;
 use super::AArch64;
 
 impl Dvfs for AArch64 {
-    /// Set the frequency of the current CPU.
-    fn set_freq(&self, _freq: u64) {
+    /// Fix the frequency of the current CPU.
+    fn fix_freq(_freq: u64) {
         // TODO: Implement this.
     }
 
+    /// Get the maximum frequency of the current CPU.
+    fn get_max_freq() -> u64 {
+        // TODO: Implement this.
+        0
+    }
+
     /// Get the frequency of the current CPU.
-    fn get_freq(&self) -> u64 {
+    fn get_curr_freq() -> u64 {
         // TODO: Implement this.
         0
     }
