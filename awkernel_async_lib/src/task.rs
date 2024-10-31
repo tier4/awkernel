@@ -331,6 +331,9 @@ pub mod perf {
     static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
 
+    static mut KERNEL_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut KERNEL_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
     static mut IDLE_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut IDLE_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
@@ -387,6 +390,30 @@ pub mod perf {
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
+    }
+
+    pub fn add_kernel_time_start(cpu_id: usize, time: u64) {
+        unsafe { write_volatile(&mut KERNEL_TIMES_STARTS[cpu_id], time) };
+    }
+
+    pub fn add_kernel_time_end(cpu_id: usize, time: u64) {
+        let start = unsafe { read_volatile(&KERNEL_TIMES_STARTS[cpu_id]) };
+
+        if start != 0 && time > start {
+            let current_exec_time = time - start;
+            unsafe {
+                let sum_idle_time = read_volatile(&KERNEL_TIMES_SUM[cpu_id]);
+                write_volatile(
+                    &mut KERNEL_TIMES_SUM[cpu_id],
+                    current_exec_time + sum_idle_time,
+                );
+                write_volatile(&mut KERNEL_TIMES_STARTS[cpu_id], 0)
+            };
+        }
+    }
+
+    pub fn get_kernel_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&KERNEL_TIMES_SUM[cpu_id]) }
     }
 
     pub fn add_idle_time_start(cpu_id: usize, time: u64) {
@@ -562,11 +589,13 @@ pub mod perf {
 }
 
 pub fn run_main() {
-    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
     CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
         .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
+    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
     loop {
+        perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
             {
@@ -579,7 +608,7 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     perf::add_context_save_start(
                         perf::ContextSwitchType::Yield,
                         awkernel_lib::cpu::cpu_id(),
@@ -593,7 +622,7 @@ pub fn run_main() {
                         awkernel_lib::cpu::cpu_id(),
                         cpu_counter(),
                     );
-                    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     continue;
                 }
             }
@@ -645,14 +674,14 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
                     perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
@@ -690,6 +719,7 @@ pub fn run_main() {
                         drop(info);
                         task.clone().wake();
                     }
+                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
@@ -705,6 +735,7 @@ pub fn run_main() {
                     let mut tasks = TASKS.lock(&mut node);
                     perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
+                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Err(_) => {
                     // Caught panic.
@@ -715,9 +746,11 @@ pub fn run_main() {
                     let mut tasks = TASKS.lock(&mut node);
                     perf::reset_task_exec(task.id);
                     tasks.remove(task.id);
+                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
             }
         } else {
+            perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
             #[cfg(feature = "std")]
             awkernel_lib::delay::wait_microsec(50);
 
@@ -733,6 +766,7 @@ pub fn run_main() {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+            perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
         }
     }
 }
