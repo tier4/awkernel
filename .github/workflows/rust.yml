@@ -27,10 +27,14 @@ jobs:
         run: rustup component add rust-src llvm-tools-preview clippy rustfmt
       - name: Add Rust targets
         run: rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf riscv64gc-unknown-none-elf
+      - name: Install libssl1.1
+        run: wget http://nz2.archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1-1ubuntu2.1~18.04.23_amd64.deb && dpkg -i libssl-dev_1.1.1f-1ubuntu2.23_amd64.deb
+      - name: Install cargo-binstall
+        run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
       - name: Install cargo-binutils
-        run: cargo install cargo-binutils
+        run: cargo binstall cargo-binutils
       - name: Install cargo-udeps
-        run: cargo install cargo-udeps --locked
+        run: cargo binstall cargo-udeps
 
       - name: Cargo fmt
         run: cargo fmt && git diff --exit-code

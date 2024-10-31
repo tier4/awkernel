@@ -508,8 +508,8 @@ fn map_mpboot_page(
     {
         region.start
     } else {
-        unsafe { unsafe_puts("No page is available for `mpboot.img`.\r\n") };
-        wait_forever();
+        unsafe { unsafe_puts("No page is available for `mpboot.img`. Forces use of page #0.\r\n") };
+        0
     };
 
     let flags = awkernel_lib::paging::Flags {
