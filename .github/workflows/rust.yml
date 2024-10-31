@@ -32,9 +32,9 @@ jobs:
       - name: Install cargo-binstall
         run: curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
       - name: Install cargo-binutils
-        run: cargo binstall cargo-binutils
+        run: cargo binstall cargo-binutils -y
       - name: Install cargo-udeps
-        run: cargo binstall cargo-udeps
+        run: cargo binstall cargo-udeps -y
 
       - name: Cargo fmt
         run: cargo fmt && git diff --exit-code
