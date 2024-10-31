@@ -125,11 +125,11 @@ impl InterruptController for BCM2835IntCtrl {
         Box::new(self.iter())
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u32) {
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32) {
         assert!(irq < 32);
 
         registers::MAILBOX0_WRITE_SET
-            .write(1 << irq as u32, self.local_base + 16 * (target as usize));
+            .write(1 << irq as u32, self.local_base + 16 * (cpu_id as usize));
     }
 
     fn send_ipi_broadcast(&mut self, irq: u16) {
