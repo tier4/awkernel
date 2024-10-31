@@ -46,7 +46,7 @@ pub(super) fn map_stack(
         }
 
         log::info!(
-            "Mapped stack for CPU {i} to {:#x} - {:#x}",
+            "CPU #{i}'s stack memory: {:#x} - {:#x} ",
             page_range.start.start_address(),
             page_range.end.start_address() + page_range.end.size()
         );

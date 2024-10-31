@@ -303,6 +303,8 @@ xapic:
 end:
     // APIC ID is now in EBX
 
+    call print_relocation_base
+
     // Set stack pointer.
     movl    %ebx, %eax
     movl    $STACK_SIZE, %ecx
@@ -323,6 +325,33 @@ end:
 spin:
     hlt
     jmp     spin
+
+# Send a character to COM1
+# %ebx: relocation base
+print_relocation_base:
+    pushq   %rax
+    pushq   %rdx
+
+wait:
+    mov     $0x3FD, %dx    # status register of COM1
+    in      (%dx), %al     # read status
+    test    $0x20, %al     # check Tx Empty bit
+    jz      wait           # if not empty, wait
+
+    xorl    %eax, %eax
+
+    mov     $0x3F8, %dx    # data register of COM1
+    movb    $0x30, %al     # set character
+    addl    %ebx, %eax     # Add the relocation base
+    cmp     $127, %eax
+    jg      end_print_relocation_base
+    out     %al, (%dx)     # send character
+
+end_print_relocation_base:
+    popq    %rdx
+    popq    %rax
+
+    ret
 
 # Bootstrap GDT
 # force 4 byte alignment

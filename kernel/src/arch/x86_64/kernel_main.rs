@@ -28,7 +28,7 @@ use awkernel_lib::{
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
-    console::unsafe_puts,
+    console::{self, unsafe_puts},
     delay::{wait_forever, wait_microsec},
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
@@ -233,10 +233,7 @@ fn kernel_main2(
     for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
         let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
         cpu_mapping.insert(*raw_cpu_id as usize, cpu_id);
-        log::info!(
-            "CPU ID mapping: Raw CPU ID #{raw_cpu_id} -> CPU ID #{}",
-            cpu_id
-        );
+        log::info!("Raw CPU ID/CPU ID: {raw_cpu_id}/{cpu_id}");
     }
     unsafe { awkernel_lib::arch::x86_64::cpu::set_raw_cpu_id_to_cpu_id(cpu_mapping) };
 
@@ -425,9 +422,12 @@ fn wake_non_primary_cpus(
     BOOTED_APS.store(non_primary_cpus.len(), Ordering::Release);
 
     for ap in non_primary_cpus.iter() {
-        log::info!("Waking up AP #{}", ap);
         send_ipi(apic, *ap, offset, mpboot_start);
+        wait_microsec(1000);
     }
+
+    console::print("\r\n");
+    log::info!("Sent IPIs to wake non-primary CPUs up.");
 
     Ok(())
 }
