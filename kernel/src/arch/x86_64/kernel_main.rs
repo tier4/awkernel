@@ -14,7 +14,7 @@ use crate::{
 use acpi::{platform::ProcessorState, AcpiTables};
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, VecDeque},
+    collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
     vec::Vec,
 };
 use awkernel_drivers::interrupt_controller::apic::{
@@ -70,6 +70,8 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 static BSP_READY: AtomicBool = AtomicBool::new(false);
 static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 
+const MPBOOT_REGION_END: u64 = 1024 * 1024;
+
 /// The entry point of x86_64.
 ///
 /// 1. Enable FPU.
@@ -83,7 +85,7 @@ static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
 /// 9. Initialize stack memory regions for non-primary CPUs.
 /// 10. Initialize `awkernel_lib`.
 /// 11. Initialize APIC.
-/// 12. Map the page #0.
+/// 12. Map a page for `mpboot.img`.
 /// 13. Write boot images to wake non-primary CPUs up.
 /// 14. Boot non-primary CPUs.
 /// 15. Initialize the primary heap memory allocator.
@@ -176,7 +178,7 @@ fn kernel_main2(
         wait_forever();
     }
 
-    let type_apic = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
+    let (type_apic, mpboot_start) = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
         // 10. Initialize `awkernel_lib` and `awkernel_driver`
         let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
         awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
@@ -187,24 +189,24 @@ fn kernel_main2(
             page_allocator0,
         );
 
-        // 12. Map the page #0.
-        map_page0(boot_info, &mut awkernel_page_table, page_allocator0);
+        // 12. Map a page for `mpboot.img`.
+        let mpboot_start = map_mpboot_page(boot_info, &mut awkernel_page_table, page_allocator0);
 
-        type_apic
+        (type_apic, mpboot_start)
     } else {
         log::error!("No page allocator for NUMA #0.");
         awkernel_lib::delay::wait_forever();
     };
 
     // 13. Write boot images to wake non-primary CPUs up.
-    write_boot_images(offset);
+    write_boot_images(offset, mpboot_start);
 
     // 14. Boot non-primary CPUs.
     log::info!("Waking non-primary CPUs up.");
 
     let apic_result = match type_apic {
         TypeApic::Xapic(mut xapic) => {
-            let result = wake_non_primary_cpus(&xapic, &acpi, offset);
+            let result = wake_non_primary_cpus(&xapic, &acpi, offset, mpboot_start);
 
             // Initialize timer.
             init_apic_timer(&mut xapic);
@@ -215,7 +217,7 @@ fn kernel_main2(
             result
         }
         TypeApic::X2Apic(mut x2apic) => {
-            let result = wake_non_primary_cpus(&x2apic, &acpi, offset);
+            let result = wake_non_primary_cpus(&x2apic, &acpi, offset, mpboot_start);
 
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
@@ -336,18 +338,18 @@ fn enable_fpu() {
     unsafe { Cr4::write(cr4flags) };
 }
 
-const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
+// const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
 const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
 const FLAG_POS: u64 = CR3_POS + 8;
 
-fn write_boot_images(offset: u64) {
+fn write_boot_images(offset: u64, mpboot_start: u64) {
     // Calculate address.
     let mpboot = include_bytes!("../../../asm/x86/mpboot.img");
-    let mpboot_phy_addr = VirtAddr::new(NON_PRIMARY_START + offset);
+    let mpboot_phy_addr = VirtAddr::new(mpboot_start + offset);
 
-    let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset);
-    let cr3_phy_addr = VirtAddr::new(CR3_POS + offset);
+    let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset + mpboot_start);
+    let cr3_phy_addr = VirtAddr::new(CR3_POS + offset + mpboot_start);
 
     // Store CR3.
     let mut cr3: u64;
@@ -380,6 +382,7 @@ fn wake_non_primary_cpus(
     apic: &dyn Apic,
     acpi: &AcpiTables<AcpiMapper>,
     offset: u64,
+    mpboot_start: u64,
 ) -> Result<(), &'static str> {
     let processor_info = if let Ok(platform_info) = acpi.platform_info() {
         if let Some(processor_info) = platform_info.processor_info {
@@ -391,30 +394,26 @@ fn wake_non_primary_cpus(
         return Err("Failed platform_info().");
     };
 
-    let num_aps = processor_info
-        .application_processors
-        .iter()
-        .fold(0, |acc, p| {
-            if matches!(p.state, ProcessorState::WaitingForSipi) {
-                acc + 1
-            } else {
-                acc
-            }
-        });
-
-    BOOTED_APS.store(num_aps, Ordering::Release);
+    let mut aps = BTreeSet::new();
 
     for ap in processor_info.application_processors.iter() {
-        if matches!(ap.state, ProcessorState::WaitingForSipi) {
-            send_ipi(apic, ap.local_apic_id, offset);
+        if ap.local_apic_id < 255 && matches!(ap.state, ProcessorState::WaitingForSipi) {
+            aps.insert(ap.local_apic_id);
         }
+    }
+
+    BOOTED_APS.store(aps.len(), Ordering::Release);
+
+    for ap in aps.iter() {
+        log::info!("Waking up AP #{}", ap);
+        send_ipi(apic, *ap, offset, mpboot_start);
     }
 
     Ok(())
 }
 
-fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
-    let flag_addr = VirtAddr::new(FLAG_POS + offset);
+fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64) {
+    let flag_addr = VirtAddr::new(FLAG_POS + offset + mpboot_start);
     unsafe { write_volatile::<u64>(flag_addr.as_mut_ptr(), 0) };
 
     // INIT IPI, ASSERT
@@ -445,7 +444,7 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8,
+        (mpboot_start >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
@@ -462,7 +461,7 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64) {
         DestinationShorthand::NoShorthand,
         IcrFlags::ASSERT,
         DeliveryMode::StartUp,
-        (NON_PRIMARY_START >> 12) as u8,
+        (mpboot_start >> 12) as u8,
     );
 
     wait_microsec(200); // Wait 200[us]
@@ -497,21 +496,19 @@ fn non_primary_kernel_main() -> ! {
     wait_forever();
 }
 
-fn map_page0(
+fn map_mpboot_page(
     boot_info: &mut BootInfo,
     page_table: &mut awkernel_lib::arch::x86_64::page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
-) {
-    let mut page0 = None;
-    for region in boot_info.memory_regions.iter() {
-        if region.kind == MemoryRegionKind::Usable && region.start == 0 {
-            page0 = Some(*region);
-            break;
-        }
-    }
-
-    if page0.is_none() {
-        unsafe { unsafe_puts("The page #0 is not available.\r\n") };
+) -> u64 {
+    let start = if let Some(region) = boot_info
+        .memory_regions
+        .iter()
+        .find(|r| r.kind == MemoryRegionKind::Usable && r.start < MPBOOT_REGION_END)
+    {
+        region.start
+    } else {
+        unsafe { unsafe_puts("No page is available for `mpboot.img`.\r\n") };
         wait_forever();
     };
 
@@ -525,14 +522,14 @@ fn map_page0(
 
     unsafe {
         match page_table.map_to(
-            awkernel_lib::addr::virt_addr::VirtAddr::new(0),
-            awkernel_lib::addr::phy_addr::PhyAddr::new(0),
+            awkernel_lib::addr::virt_addr::VirtAddr::new(start as usize),
+            awkernel_lib::addr::phy_addr::PhyAddr::new(start as usize),
             flags,
             page_allocator,
         ) {
-            Ok(_) => {}
+            Ok(_) => start,
             Err(_) => {
-                unsafe_puts("Failed to map the page #0.\r\n");
+                unsafe_puts("Failed to map the page for `mpboot.img`.\r\n");
                 wait_forever();
             }
         }
@@ -546,6 +543,7 @@ fn init_backup_heap(
     let mut backup_heap_region = None;
     for region in boot_info.memory_regions.iter() {
         if region.kind == MemoryRegionKind::Usable
+            && region.start >= MPBOOT_REGION_END
             && region.end - region.start >= BACKUP_HEAP_SIZE as u64 * 2
         {
             backup_heap_region = Some(*region);
@@ -645,7 +643,7 @@ fn get_numa_info(
             for mem in boot_info
                 .memory_regions
                 .iter()
-                .filter(|m| m.kind == MemoryRegionKind::Usable)
+                .filter(|m| m.kind == MemoryRegionKind::Usable && m.start >= MPBOOT_REGION_END)
             {
                 numa_id_to_memory
                     .entry(0)
@@ -666,7 +664,7 @@ fn get_numa_info(
     let mut usable_regions: VecDeque<MemoryRegion> = boot_info
         .memory_regions
         .iter()
-        .filter(|m| m.kind == MemoryRegionKind::Usable)
+        .filter(|m| m.kind == MemoryRegionKind::Usable && m.start >= MPBOOT_REGION_END)
         .copied()
         .collect();
 
