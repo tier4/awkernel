@@ -338,6 +338,18 @@ pub mod perf {
     static mut YIELD_CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
     static YIELD_CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+    static mut PREEMPT_CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PREEMPT_CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static PREEMPT_CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static mut PREEMPT_CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PREEMPT_CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static PREEMPT_CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    pub enum ContextSwitchType {
+        Yield,
+        Preempt,
+    }
+
     pub fn add_task_start(cpu_id: usize, time: u64) {
         unsafe { write_volatile(&mut TASKS_STARTS[cpu_id], time) };
     }
@@ -374,43 +386,105 @@ pub mod perf {
         unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
     }
 
-    pub fn add_yield_context_save_start(cpu_id: usize, time: u64) {
-        unsafe { write_volatile(&mut YIELD_CONTEXT_SAVE_STARTS[cpu_id], time) };
+    pub fn add_context_save_start(context_type: ContextSwitchType, cpu_id: usize, time: u64) {
+        unsafe {
+            match context_type {
+                ContextSwitchType::Yield => {
+                    write_volatile(&mut YIELD_CONTEXT_SAVE_STARTS[cpu_id], time)
+                }
+                ContextSwitchType::Preempt => {
+                    write_volatile(&mut PREEMPT_CONTEXT_SAVE_STARTS[cpu_id], time)
+                }
+            }
+        };
     }
 
-    pub fn add_yield_context_save_end(cpu_id: usize, time: u64) {
-        let start = unsafe { read_volatile(&YIELD_CONTEXT_SAVE_STARTS[cpu_id]) };
+    pub fn add_context_save_end(context_type: ContextSwitchType, cpu_id: usize, time: u64) {
+        let start = unsafe {
+            match context_type {
+                ContextSwitchType::Yield => read_volatile(&YIELD_CONTEXT_SAVE_STARTS[cpu_id]),
+                ContextSwitchType::Preempt => read_volatile(&PREEMPT_CONTEXT_SAVE_STARTS[cpu_id]),
+            }
+        };
+
         if start != 0 && time > start {
             let context_save_overhead = time - start;
-            let index = YIELD_CSO_COUNT.fetch_add(1, Ordering::Relaxed);
-            unsafe {
-                write_volatile(
-                    &mut YIELD_CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
-                    context_save_overhead,
-                )
+
+            let index = match context_type {
+                ContextSwitchType::Yield => YIELD_CSO_COUNT.fetch_add(1, Ordering::Relaxed),
+                ContextSwitchType::Preempt => PREEMPT_CSO_COUNT.fetch_add(1, Ordering::Relaxed),
             };
 
-            unsafe { write_volatile(&mut YIELD_CONTEXT_SAVE_STARTS[cpu_id], 0) };
+            unsafe {
+                match context_type {
+                    ContextSwitchType::Yield => {
+                        write_volatile(
+                            &mut YIELD_CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                            context_save_overhead,
+                        );
+                        write_volatile(&mut YIELD_CONTEXT_SAVE_STARTS[cpu_id], 0);
+                    }
+                    ContextSwitchType::Preempt => {
+                        write_volatile(
+                            &mut PREEMPT_CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                            context_save_overhead,
+                        );
+                        write_volatile(&mut PREEMPT_CONTEXT_SAVE_STARTS[cpu_id], 0);
+                    }
+                }
+            };
         }
     }
 
-    pub fn add_yield_context_restore_start(cpu_id: usize, time: u64) {
-        unsafe { write_volatile(&mut YIELD_CONTEXT_RESTORE_STARTS[cpu_id], time) };
+    pub fn add_context_restore_start(context_type: ContextSwitchType, cpu_id: usize, time: u64) {
+        unsafe {
+            match context_type {
+                ContextSwitchType::Yield => {
+                    write_volatile(&mut YIELD_CONTEXT_RESTORE_STARTS[cpu_id], time)
+                }
+                ContextSwitchType::Preempt => {
+                    write_volatile(&mut PREEMPT_CONTEXT_RESTORE_STARTS[cpu_id], time)
+                }
+            }
+        }
     }
 
-    pub fn add_yield_context_restore_end(cpu_id: usize, time: u64) {
-        let start = unsafe { read_volatile(&YIELD_CONTEXT_RESTORE_STARTS[cpu_id]) };
+    pub fn add_context_restore_end(context_type: ContextSwitchType, cpu_id: usize, time: u64) {
+        let start = unsafe {
+            match context_type {
+                ContextSwitchType::Yield => read_volatile(&YIELD_CONTEXT_RESTORE_STARTS[cpu_id]),
+                ContextSwitchType::Preempt => {
+                    read_volatile(&PREEMPT_CONTEXT_RESTORE_STARTS[cpu_id])
+                }
+            }
+        };
+
         if start != 0 && time > start {
             let context_restore_overhead = time - start;
-            let index = YIELD_CRO_COUNT.fetch_add(1, Ordering::Relaxed);
-            unsafe {
-                write_volatile(
-                    &mut YIELD_CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
-                    context_restore_overhead,
-                )
+
+            let index = match context_type {
+                ContextSwitchType::Yield => YIELD_CRO_COUNT.fetch_add(1, Ordering::Relaxed),
+                ContextSwitchType::Preempt => PREEMPT_CRO_COUNT.fetch_add(1, Ordering::Relaxed),
             };
 
-            unsafe { write_volatile(&mut YIELD_CONTEXT_RESTORE_STARTS[cpu_id], 0) };
+            unsafe {
+                match context_type {
+                    ContextSwitchType::Yield => {
+                        write_volatile(
+                            &mut YIELD_CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                            context_restore_overhead,
+                        );
+                        write_volatile(&mut YIELD_CONTEXT_RESTORE_STARTS[cpu_id], 0);
+                    }
+                    ContextSwitchType::Preempt => {
+                        write_volatile(
+                            &mut PREEMPT_CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
+                            context_restore_overhead,
+                        );
+                        write_volatile(&mut PREEMPT_CONTEXT_RESTORE_STARTS[cpu_id], 0);
+                    }
+                }
+            };
         }
     }
 
@@ -438,11 +512,24 @@ pub mod perf {
         }
     }
 
-    pub fn calc_yield_context_switch_overhead() -> (f64, f64, f64, f64) {
-        let (avg_save, worst_save) =
-            calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_SAVE_OVERHEADS) });
-        let (avg_restore, worst_restore) =
-            calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_RESTORE_OVERHEADS) });
+    pub fn calc_context_switch_overhead(context_type: ContextSwitchType) -> (f64, f64, f64, f64) {
+        let (avg_save, worst_save, avg_restore, worst_restore) = match context_type {
+            ContextSwitchType::Yield => {
+                let (avg_save, worst_save) =
+                    calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_SAVE_OVERHEADS) });
+                let (avg_restore, worst_restore) =
+                    calc_overheads(unsafe { &*addr_of!(YIELD_CONTEXT_RESTORE_OVERHEADS) });
+                (avg_save, worst_save, avg_restore, worst_restore)
+            }
+            ContextSwitchType::Preempt => {
+                let (avg_save, worst_save) =
+                    calc_overheads(unsafe { &*addr_of!(PREEMPT_CONTEXT_SAVE_OVERHEADS) });
+                let (avg_restore, worst_restore) =
+                    calc_overheads(unsafe { &*addr_of!(PREEMPT_CONTEXT_RESTORE_OVERHEADS) });
+                (avg_save, worst_save, avg_restore, worst_restore)
+            }
+        };
+
         (avg_save, worst_save, avg_restore, worst_restore)
     }
 }
@@ -464,7 +551,19 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
+                    perf::add_context_save_start(
+                        perf::ContextSwitchType::Yield,
+                        awkernel_lib::cpu::cpu_id(),
+                        cpu_counter(),
+                    );
+
                     unsafe { preempt::yield_and_pool(ctx) };
+
+                    perf::add_context_restore_end(
+                        perf::ContextSwitchType::Yield,
+                        awkernel_lib::cpu::cpu_id(),
+                        cpu_counter(),
+                    );
                     continue;
                 }
             }
@@ -516,17 +615,12 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    // Only the subscriber's cooperative context switch overhead is measured.
-                    if task.name.contains("subscriber") {
-                        perf::add_yield_context_restore_start(cpu_id, cpu_counter());
-                    }
                     perf::add_task_start(cpu_id, cpu_counter());
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
                     perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_yield_context_save_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
