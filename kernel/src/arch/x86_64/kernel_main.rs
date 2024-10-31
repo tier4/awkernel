@@ -14,7 +14,7 @@ use crate::{
 use acpi::{platform::ProcessorState, AcpiTables};
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, VecDeque},
+    collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
     vec::Vec,
 };
 use awkernel_drivers::interrupt_controller::apic::{
@@ -394,23 +394,19 @@ fn wake_non_primary_cpus(
         return Err("Failed platform_info().");
     };
 
-    let num_aps = processor_info
-        .application_processors
-        .iter()
-        .fold(0, |acc, p| {
-            if matches!(p.state, ProcessorState::WaitingForSipi) {
-                acc + 1
-            } else {
-                acc
-            }
-        });
-
-    BOOTED_APS.store(num_aps, Ordering::Release);
+    let mut aps = BTreeSet::new();
 
     for ap in processor_info.application_processors.iter() {
-        if matches!(ap.state, ProcessorState::WaitingForSipi) {
-            send_ipi(apic, ap.local_apic_id, offset, mpboot_start);
+        if ap.local_apic_id < 255 && matches!(ap.state, ProcessorState::WaitingForSipi) {
+            aps.insert(ap.local_apic_id);
         }
+    }
+
+    BOOTED_APS.store(aps.len(), Ordering::Release);
+
+    for ap in aps.iter() {
+        log::info!("Waking up AP #{}", ap);
+        send_ipi(apic, *ap, offset, mpboot_start);
     }
 
     Ok(())
