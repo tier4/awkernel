@@ -21,13 +21,6 @@ impl Dvfs for X86 {
             // Enable Enhanced Intel SpeedStep Technology
             value |= 1 << 16;
 
-            // Check if the Intel Turbo Boost Technology is disabled.
-            // IA32_MISC_ENABLE[38] 1: disable, 0: enable
-            if (value & 1 << 38) == 0 {
-                log::info!("Turbo Boost is enabled, so it is disabled.");
-                value |= 1 << 38;
-            }
-
             misc_enable.write(value);
         }
 
@@ -44,6 +37,11 @@ impl Dvfs for X86 {
         unsafe {
             let mut perf_ctl = Msr::new(IA32_PERF_CTL);
             let mut value = perf_ctl.read();
+
+            // Disable Dynamic Acceleration Technology and Turbo Boost Technology
+            value |= 1 << 32;
+
+            // Set target pstate
             value &= !0xFFFF;
             value |= target_pstate;
             perf_ctl.write(value);
