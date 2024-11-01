@@ -17,9 +17,9 @@ pub(super) fn map_stack(
         | PageTableFlags::WRITABLE
         | PageTableFlags::NO_EXECUTE
         | PageTableFlags::GLOBAL;
-    for (i, numa_id) in cpu_to_numa.iter() {
-        let stack_start = STACK_START + STACK_SIZE * (*i as usize) + PAGESIZE;
-        let stack_end = STACK_START + STACK_SIZE * ((i + 1) as usize) - PAGESIZE;
+    for (i, (apic_id, numa_id)) in cpu_to_numa.iter().enumerate() {
+        let stack_start = STACK_START + STACK_SIZE * i + PAGESIZE;
+        let stack_end = STACK_START + STACK_SIZE * (i + 1) - PAGESIZE;
 
         let page_range = {
             let stack_start_page: Page<Size4KiB> =
@@ -46,7 +46,7 @@ pub(super) fn map_stack(
         }
 
         log::info!(
-            "CPU #{i}'s stack memory: {:#x} - {:#x}",
+            "CPU #{apic_id}'s stack memory: {:#x} - {:#x}",
             page_range.start.start_address(),
             page_range.end.start_address() + page_range.end.size()
         );

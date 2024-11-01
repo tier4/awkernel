@@ -230,7 +230,7 @@ fn kernel_main2(
     };
 
     let mut cpu_mapping = BTreeMap::<usize, usize>::new();
-    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
+    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().rev().enumerate() {
         let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
         cpu_mapping.insert(*raw_cpu_id as usize, cpu_id);
         log::info!("Raw CPU ID/CPU ID: {raw_cpu_id}/{cpu_id}");
@@ -376,7 +376,7 @@ fn enable_fpu() {
 // const NON_PRIMARY_START: u64 = 0; // Entry point of 16-bit mode (protected mode).
 const NON_PRIMARY_KERNEL_MAIN: u64 = 2048;
 const CR3_POS: u64 = NON_PRIMARY_KERNEL_MAIN + 8;
-const FLAG_POS: u64 = CR3_POS + 8;
+const CPU_ID_POS: u64 = CR3_POS + 8;
 
 fn write_boot_images(offset: u64, mpboot_start: u64) {
     // Calculate address.
@@ -385,6 +385,7 @@ fn write_boot_images(offset: u64, mpboot_start: u64) {
 
     let main_addr = VirtAddr::new(NON_PRIMARY_KERNEL_MAIN + offset + mpboot_start);
     let cr3_phy_addr = VirtAddr::new(CR3_POS + offset + mpboot_start);
+    let cpu_id_addr = VirtAddr::new(CPU_ID_POS + offset + mpboot_start);
 
     // Store CR3.
     let mut cr3: u64;
@@ -406,6 +407,9 @@ fn write_boot_images(offset: u64, mpboot_start: u64) {
         log::info!("write CR3 of 0x{cr3:08x} to 0x{cr3_phy_addr:08x}");
         write_volatile(cr3_phy_addr.as_mut_ptr(), cr3);
 
+        // Write CPU ID.
+        write_volatile(cpu_id_addr.as_mut_ptr(), 1);
+
         asm!(
             "wbinvd
              mfence"
@@ -421,9 +425,8 @@ fn wake_non_primary_cpus(
 ) -> Result<(), &'static str> {
     BOOTED_APS.store(non_primary_cpus.len(), Ordering::Release);
 
-    for ap in non_primary_cpus.iter() {
-        send_ipi(apic, *ap, offset, mpboot_start);
-        wait_microsec(1000);
+    for (i, ap) in non_primary_cpus.iter().enumerate() {
+        send_ipi(apic, *ap, offset, mpboot_start, i as u64 + 1);
     }
 
     console::print("\r\n");
@@ -432,10 +435,7 @@ fn wake_non_primary_cpus(
     Ok(())
 }
 
-fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64) {
-    let flag_addr = VirtAddr::new(FLAG_POS + offset + mpboot_start);
-    unsafe { write_volatile::<u64>(flag_addr.as_mut_ptr(), 0) };
-
+fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64, cpu_id: u64) {
     // INIT IPI, ASSERT
     apic.interrupt(
         apic_id,
@@ -469,9 +469,10 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64) {
 
     wait_microsec(200); // Wait 200[us]
 
+    let cpu_id_addr = VirtAddr::new(CPU_ID_POS + offset + mpboot_start);
     unsafe {
-        if read_volatile::<u64>(flag_addr.as_ptr()) != 0 {
-            return;
+        while read_volatile::<u64>(cpu_id_addr.as_ptr()) == cpu_id {
+            core::hint::spin_loop();
         }
     }
 
@@ -535,7 +536,7 @@ fn map_mpboot_page(
     let flags = awkernel_lib::paging::Flags {
         execute: true,
         write: true,
-        cache: true,
+        cache: false,
         device: false,
         write_through: false,
     };

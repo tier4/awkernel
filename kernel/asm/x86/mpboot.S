@@ -166,7 +166,7 @@
 
 #define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
 #define CPU0_CR3  (1024 * 2 +  8)
-#define FLAG (1024 * 2 +  16)
+#define CPU_ID (1024 * 2 +  16)
 
 #define CR0_DEFAULT	(CR0_PE|CR0_PG|CR0_NE|CR0_WP)
 #define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
@@ -268,54 +268,22 @@ ljmp64:
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
-    // Get local APIC ID.
-    movl    $1, %eax
-    cpuid
+    movq    $CPU_ID, %r8
+    orq     %rbx, %r8       # Add the relocation base
+    movq    (%r8), %r9      # Get CPU ID
 
-    test    $0x80000000, %ecx // check Hypervisor
-    jnz     xapic
-
-    test    $0x200000, %ecx    // Check if x2APIC is supported (bit 21 of ECX)
-    jz      xapic
-
-    // Get maximum CPUID leaf number
-    xorl    %eax, %eax
-    cpuid
-    cmpl    $0x1F, %eax
-    jb      use_leaf_0b
-
-    // Use leaf 0x1F
-    movl    $0x1F, %eax
-    jmp     assign_apic_id
-
-use_leaf_0b:
-    movl    $0x0B, %eax
-
-assign_apic_id:
-    cpuid
-    movl    %edx, %ebx
-    jmp     end
-
-xapic:
-    shrl    $24, %ebx          // 31:24 is local APIC ID
-    andl    $0xFF, %ebx
-
-end:
-    // APIC ID is now in EBX
-
-    call print_relocation_base
+    call    print_cpu_id
 
     // Set stack pointer.
-    movl    %ebx, %eax
+    movq    %r9, %rax
     movl    $STACK_SIZE, %ecx
     mull    %ecx
     addl    $STACK_START, %eax
     movl    %eax, %esp
     movl    %eax, %ebp
 
-    movq    $FLAG, %rax
-    orq     %rsi, %rax      # Add the relocation base
-    movq    $1, (%rax)
+    addq    $1, %r9
+    movq    %r9, (%r8)      # Save the next CPU ID
 
     movl    %esi, %ecx      # Restore saved relocation base
     orq     $NON_PRIMARY_KERNEL_MAIN, %rcx
@@ -328,7 +296,7 @@ spin:
 
 # Send a character to COM1
 # %ebx: relocation base
-print_relocation_base:
+print_cpu_id:
     pushq   %rax
     pushq   %rdx
 
@@ -342,12 +310,12 @@ wait:
 
     mov     $0x3F8, %dx    # data register of COM1
     movb    $0x30, %al     # set character
-    addl    %ebx, %eax     # Add the relocation base
+    addq    %r9, %rax      # Add CPU ID
     cmp     $127, %eax
-    jg      end_print_relocation_base
+    jg      end_print_cpu_id
     out     %al, (%dx)     # send character
 
-end_print_relocation_base:
+end_print_cpu_id:
     popq    %rdx
     popq    %rax
 
