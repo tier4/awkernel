@@ -230,7 +230,7 @@ fn kernel_main2(
     };
 
     let mut cpu_mapping = BTreeMap::<usize, usize>::new();
-    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().rev().enumerate() {
+    for (cpu_id, raw_cpu_id) in non_primary_cpus.iter().enumerate() {
         let cpu_id = cpu_id + 1; // Non-primary CPU ID starts from 1.
         cpu_mapping.insert(*raw_cpu_id as usize, cpu_id);
         log::info!("Raw CPU ID/CPU ID: {raw_cpu_id}/{cpu_id}");
