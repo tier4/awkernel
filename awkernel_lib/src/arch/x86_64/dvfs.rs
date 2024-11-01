@@ -59,7 +59,7 @@ impl Dvfs for X86 {
         }
     }
 
-    /// Get the frequency of the current CPU.
+    /// Get the current frequency of the current CPU.
     fn get_curr_freq() -> u64 {
         // Check if the CPU supports the IA32_PERF_MPERF and IA32_PERF_APERF MSRs.
         let cpuid = unsafe { __cpuid(0x6) };

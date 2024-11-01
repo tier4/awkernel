@@ -14,7 +14,7 @@ impl Dvfs for AArch64 {
         0
     }
 
-    /// Get the frequency of the current CPU.
+    /// Get the current frequency of the current CPU.
     fn get_curr_freq() -> u64 {
         // TODO: Implement this.
         0
