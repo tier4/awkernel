@@ -725,7 +725,6 @@ macro_rules! impl_tuple_to_pub_sub {
             type Publishers = ();
 
             fn create_publishers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Publishers {
-                ()
             }
         }
 
@@ -733,7 +732,6 @@ macro_rules! impl_tuple_to_pub_sub {
             type Subscribers = ();
 
             fn create_subscribers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Subscribers {
-                ()
             }
         }
     };
@@ -770,29 +768,43 @@ impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
 
 macro_rules! impl_async_receiver_for_tuple {
-    ($(($T:ident, $idx:tt, $idx2:tt)),*) => {
+    () => {
+        impl MultipleReceiver for () {
+            type Item = ();
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                Box::pin(async move{})
+            }
+        }
+
+        impl MultipleSender for () {
+            type Item = ();
+            fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                Box::pin(async move{})
+            }
+        }
+    };
+    ($(($T:ident, $idx:tt, $idx2:tt)),+) => {
         impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
-            type Item = ($($T,)*);
+            type Item = ($($T,)+);
 
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
-                let ($($idx,)*) = self;
+                let ($($idx,)+) = self;
                 Box::pin(async move {
-                    ($($idx.recv().await.data,)*)
+                    ($($idx.recv().await.data,)+)
                 })
             }
         }
 
-        impl<$($T: Clone + Sync + Send + 'static),*> MultipleSender for ($(Publisher<$T>,)*) {
-            type Item = ($($T,)*);
+        impl<$($T: Clone + Sync + Send + 'static),+> MultipleSender for ($(Publisher<$T>,)+) {
+            type Item = ($($T,)+);
 
             fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-                let ($($idx,)*) = self;
-                let ($($idx2,)*) = item;
+                let ($($idx,)+) = self;
+                let ($($idx2,)+) = item;
                 Box::pin(async move {
                     $(
                         $idx.send($idx2).await;
-                    )*
-                    ()
+                    )+
                 })
             }
         }
