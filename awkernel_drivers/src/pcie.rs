@@ -454,19 +454,18 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
     Ok(())
 }
 
-#[cfg(not(feature = "raspi"))]
-const MAX_DEVICE: u8 = 32;
-
-#[cfg(feature = "raspi")]
-const MAX_DEVICE: u8 = 2;
-
 /// Scan for devices on the physical PCIe bus.
 #[inline]
-fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
-where
+fn check_bus<F>(
+    bus: &mut PCIeBus,
+    bus_tree: &mut PCIeTree,
+    visited: &mut BTreeSet<u8>,
+    f: &F,
+    max_device: u8,
+) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    for device in 0..MAX_DEVICE {
+    for device in 0..max_device {
         check_device(bus, device, bus_tree, visited, f);
     }
 }
@@ -540,7 +539,12 @@ where
 
                 // Recursively check the bus
                 visited.insert(secondary_bus);
-                check_bus(&mut bus_child, bus_tree, visited, f);
+
+                #[cfg(not(feature = "raspi"))]
+                check_bus(&mut bus_child, bus_tree, visited, f, 32);
+
+                #[cfg(feature = "raspi")]
+                check_bus(&mut bus_child, bus_tree, visited, f, 2);
 
                 bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
@@ -569,12 +573,6 @@ pub fn init_with_addr(
     );
 }
 
-#[cfg(not(feature = "raspi"))]
-const MAX_BUS: u8 = 255;
-
-#[cfg(feature = "raspi")]
-const MAX_BUS: u8 = 0;
-
 fn init<F>(
     segment_group: u16,
     base_address: Option<VirtAddr>,
@@ -591,7 +589,7 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    for bus_number in 0..=MAX_BUS {
+    for bus_number in 0..=255 {
         if visited.contains(&bus_number) {
             continue;
         }
@@ -616,9 +614,19 @@ fn init<F>(
         let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
 
         visited.insert(bus_number);
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
+
+        #[cfg(not(feature = "raspi"))]
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, 32);
+
+        // raspi5 has functions only on device 1 and 2.
+        #[cfg(feature = "raspi")]
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, 2);
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
+
+        // raspi5 has devices only on PCIe bus 0.
+        #[cfg(feature = "raspi")]
+        break;
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);
@@ -886,10 +894,7 @@ impl PCIeInfo {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
             | registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE => 2,
-            #[cfg(feature = "raspi")]
             _ => return Err(PCIeDeviceErr::ReadFailure),
-            #[cfg(not(feature = "raspi"))]
-            _ => panic!("Unrecognized header type: {:#x}", self.header_type),
         };
 
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
