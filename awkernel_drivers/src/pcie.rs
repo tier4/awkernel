@@ -32,11 +32,13 @@ use self::{
 pub mod pcie_device_tree;
 
 mod base_address;
+pub mod broadcom;
 mod capability;
 mod config_space;
 pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
+pub mod raspi;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -51,6 +53,7 @@ pub enum PCIeDeviceErr {
     Interrupt,
     NotImplemented,
     BARFailure,
+    RevisionIDMismatch,
 }
 
 impl fmt::Display for PCIeDeviceErr {
@@ -89,6 +92,9 @@ impl fmt::Display for PCIeDeviceErr {
             }
             Self::BARFailure => {
                 write!(f, "Failed to read the base address register.")
+            }
+            Self::RevisionIDMismatch => {
+                write!(f, "Revision ID mismatch.")
             }
         }
     }
@@ -151,11 +157,16 @@ pub(crate) mod registers {
     pub const MESSAGE_CONTROL_NEXT_PTR_CAP_ID: usize = 0x00;
 
     pub const BAR0: usize = 0x10;
+    pub const BAR1: usize = 0x14;
 }
 
 /// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
-pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr> {
+pub fn init_with_acpi(
+    acpi: &AcpiTables<AcpiMapper>,
+    max_bus: u8,
+    max_device: u8,
+) -> Result<(), PCIeDeviceErr> {
     use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
 
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
@@ -185,7 +196,13 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         }
 
         let base_address = segment.physical_address;
-        init_with_addr(segment.segment_group, VirtAddr::new(base_address), None);
+        init_with_addr(
+            segment.segment_group,
+            VirtAddr::new(base_address),
+            None,
+            max_bus,
+            max_device,
+        );
     }
 
     Ok(())
@@ -193,8 +210,8 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
 
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
-pub fn init_with_io() {
-    init(0, None, PCIeInfo::from_io, None);
+pub fn init_with_io(max_bus: u8, max_device: u8) {
+    init(0, None, PCIeInfo::from_io, None, max_bus, max_device);
 }
 
 /// Structure representing a PCIe device after it has been attached.
@@ -449,12 +466,17 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
 
 /// Scan for devices on the physical PCIe bus.
 #[inline]
-fn check_bus<F>(bus: &mut PCIeBus, bus_tree: &mut PCIeTree, visited: &mut BTreeSet<u8>, f: &F)
-where
+fn check_bus<F>(
+    bus: &mut PCIeBus,
+    bus_tree: &mut PCIeTree,
+    visited: &mut BTreeSet<u8>,
+    f: &F,
+    max_device: u8,
+) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
-    for device in 0..32 {
-        check_device(bus, device, bus_tree, visited, f);
+    for device in 0..max_device {
+        check_device(bus, device, bus_tree, visited, f, max_device);
     }
 }
 
@@ -465,11 +487,12 @@ fn check_device<F>(
     bus_tree: &mut PCIeTree,
     visited: &mut BTreeSet<u8>,
     f: &F,
+    max_device: u8,
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
     for function in 0..8 {
-        check_function(bus, device, function, bus_tree, visited, f);
+        check_function(bus, device, function, bus_tree, visited, f, max_device);
     }
 }
 
@@ -480,6 +503,7 @@ fn check_function<F>(
     bus_tree: &mut PCIeTree,
     visited: &mut BTreeSet<u8>,
     f: &F,
+    max_device: u8,
 ) -> bool
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
@@ -527,7 +551,8 @@ where
 
                 // Recursively check the bus
                 visited.insert(secondary_bus);
-                check_bus(&mut bus_child, bus_tree, visited, f);
+
+                check_bus(&mut bus_child, bus_tree, visited, f, max_device);
 
                 bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
@@ -547,12 +572,16 @@ pub fn init_with_addr(
     segment_group: u16,
     base_address: VirtAddr,
     ranges: Option<&mut [PCIeRange]>,
+    max_bus: u8,
+    max_device: u8,
 ) {
     init(
         segment_group,
         Some(base_address),
         PCIeInfo::from_addr,
         ranges,
+        max_bus,
+        max_device,
     );
 }
 
@@ -561,9 +590,15 @@ fn init<F>(
     base_address: Option<VirtAddr>,
     f: F,
     ranges: Option<&mut [PCIeRange]>,
+    max_bus: u8,
+    mut max_device: u8,
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
+    if max_device > 32 {
+        max_device = 32;
+    }
+
     let mut visited = BTreeSet::new();
 
     let mut bus_tree = PCIeTree {
@@ -572,7 +607,7 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    for bus_number in 0..=255 {
+    for bus_number in 0..=max_bus {
         if visited.contains(&bus_number) {
             continue;
         }
@@ -597,7 +632,8 @@ fn init<F>(
         let mut bus = PCIeBus::new(segment_group, bus_number, base_address, None);
 
         visited.insert(bus_number);
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &f);
+
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, max_device);
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
     }
@@ -744,7 +780,7 @@ impl PCIeInfo {
             bridge_function_number: None,
         };
 
-        result.read_bar();
+        result.read_bar()?;
 
         Ok(result)
     }
@@ -862,12 +898,12 @@ impl PCIeInfo {
         capability::read(self);
     }
 
-    fn read_bar(&mut self) {
+    fn read_bar(&mut self) -> Result<(), PCIeDeviceErr> {
         let num_reg = match self.header_type {
             registers::HEADER_TYPE_GENERAL_DEVICE => 6,
             registers::HEADER_TYPE_PCI_TO_PCI_BRIDGE
             | registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE => 2,
-            _ => panic!("Unrecognized header type: {:#x}", self.header_type),
+            _ => return Err(PCIeDeviceErr::ReadFailure),
         };
 
         if self.header_type != registers::HEADER_TYPE_PCI_TO_CARDBUS_BRIDGE {
@@ -885,6 +921,8 @@ impl PCIeInfo {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub(crate) fn map_bar(&mut self) -> Result<(), MapError> {
@@ -956,7 +994,6 @@ impl PCIeInfo {
         let vendor = self.vendor;
         let id = self.id;
 
-        #[allow(clippy::single_match)] // TODO: To be removed
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 #[cfg(feature = "igb")]
@@ -972,6 +1009,16 @@ impl PCIeInfo {
                 // Example of the driver for Intel E1000e.
                 if intel::e1000e_example::match_device(self.vendor, self.id) {
                     return intel::e1000e_example::attach(self);
+                }
+            }
+            pcie_id::RASPI_VENDOR_ID => {
+                if raspi::rp1::match_device(self.vendor, self.id) {
+                    return raspi::rp1::attach(self);
+                }
+            }
+            pcie_id::BROADCOM_VENDOR_ID => {
+                if broadcom::bcm2712::match_device(self.vendor, self.id) {
+                    return broadcom::bcm2712::attach(self);
                 }
             }
             _ => (),

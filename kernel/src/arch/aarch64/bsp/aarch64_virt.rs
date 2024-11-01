@@ -456,6 +456,8 @@ impl AArch64Virt {
             0,
             VirtAddr::new(base.as_usize()),
             Some(ranges.as_mut_slice()),
+            255,
+            32,
         );
 
         Ok(())
