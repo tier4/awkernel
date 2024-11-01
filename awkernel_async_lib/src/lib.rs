@@ -32,7 +32,7 @@ mod yield_task;
 pub(crate) mod mini_task;
 
 use crate::scheduler::SchedulerType;
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
@@ -43,6 +43,8 @@ pub use awkernel_lib::{
     cpu::cpu_id,
     delay::{cpu_counter, uptime},
 };
+
+use pubsub::{Attribute, MultipleReceiver, MultipleSender, TupleToPublishers, TupleToSubscribers};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -162,5 +164,52 @@ where
         sched_type,
     );
 
+    JoinHandle::new(rx)
+}
+
+pub async fn spawn_reactor<F, Args, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) -> JoinHandle<()>
+where
+    F: Fn(
+            <Args::Subscribers as MultipleReceiver>::Item,
+        ) -> <Ret::Publishers as MultipleSender>::Item
+        + Send
+        + 'static,
+    Args: TupleToSubscribers,
+    Ret: TupleToPublishers,
+    Ret::Publishers: Send,
+    Args::Subscribers: Send,
+{
+    #[allow(unused_variables)] // tx not used
+    let (tx, rx) = oneshot::channel();
+
+    let future = async move {
+        let publishers = <Ret as TupleToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        let subscribers: <Args as TupleToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as TupleToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            let results = f(args);
+            publishers.send_all(results).await;
+        }
+
+        #[allow(unreachable_code)]
+        let _ = tx.send(());
+
+        Ok(())
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type);
     JoinHandle::new(rx)
 }

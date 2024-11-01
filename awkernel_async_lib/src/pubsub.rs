@@ -34,8 +34,10 @@ use super::{
 use crate::delay::uptime;
 use alloc::{
     borrow::Cow,
+    boxed::Box,
     collections::{BTreeMap, VecDeque},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::sync::{
@@ -43,6 +45,7 @@ use awkernel_lib::sync::{
     rwlock::RwLock,
 };
 use core::{
+    pin::Pin,
     task::{Poll, Waker},
     time::Duration,
 };
@@ -690,6 +693,116 @@ impl Default for Attribute {
         }
     }
 }
+
+pub trait MultipleReceiver {
+    type Item;
+
+    fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
+}
+
+pub trait MultipleSender {
+    type Item;
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+pub trait TupleToPublishers {
+    type Publishers: MultipleSender;
+
+    fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers;
+}
+
+pub trait TupleToSubscribers {
+    type Subscribers: MultipleReceiver;
+
+    fn create_subscribers(
+        topics: Vec<Cow<'static, str>>,
+        attribute: Attribute,
+    ) -> Self::Subscribers;
+}
+
+macro_rules! impl_tuple_to_pub_sub {
+    () => {
+        impl TupleToPublishers for () {
+            type Publishers = ();
+
+            fn create_publishers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Publishers {
+                ()
+            }
+        }
+
+        impl TupleToSubscribers for () {
+            type Subscribers = ();
+
+            fn create_subscribers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Subscribers {
+                ()
+            }
+        }
+    };
+    ($($T:ident),+) => {
+        impl<$($T: 'static + Send + Sync + Clone,)+> TupleToPublishers for ($($T,)+)
+        {
+            type Publishers = ($(Publisher<$T>,)+);
+
+            fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers {
+                let mut topics = topics.into_iter();
+                ($(
+                    create_publisher::<$T>(topics.next().unwrap(), attribute.clone()).unwrap(),
+                )+)
+            }
+        }
+
+        impl<$($T: 'static + Clone + Send,)+> TupleToSubscribers for ($($T,)+)
+        {
+            type Subscribers = ($(Subscriber<$T>,)+);
+
+            fn create_subscribers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Subscribers {
+                let mut topics = topics.into_iter();
+                ($(
+                    create_subscriber::<$T>(topics.next().unwrap(), attribute.clone()).unwrap(),
+                )+)
+            }
+        }
+    }
+}
+
+impl_tuple_to_pub_sub!();
+impl_tuple_to_pub_sub!(A);
+impl_tuple_to_pub_sub!(A, B);
+impl_tuple_to_pub_sub!(A, B, C);
+
+macro_rules! impl_async_receiver_for_tuple {
+    ($(($T:ident, $idx:tt, $idx2:tt)),*) => {
+        impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
+            type Item = ($($T,)*);
+
+            fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
+                let ($($idx,)*) = self;
+                Box::pin(async move {
+                    ($($idx.recv().await.data,)*)
+                })
+            }
+        }
+
+        impl<$($T: Clone + Sync + Send + 'static),*> MultipleSender for ($(Publisher<$T>,)*) {
+            type Item = ($($T,)*);
+
+            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)*) = self;
+                let ($($idx2,)*) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send($idx2).await;
+                    )*
+                    ()
+                })
+            }
+        }
+    };
+}
+
+impl_async_receiver_for_tuple!();
+impl_async_receiver_for_tuple!((A, a, p));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
 
 #[cfg(test)]
 mod tests {
