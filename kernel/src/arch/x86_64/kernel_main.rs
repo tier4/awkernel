@@ -199,9 +199,9 @@ fn kernel_main2(
         awkernel_lib::delay::wait_forever();
     };
 
-    // Fix the frequency of current CPU to the maximum.
+    // === For operation verification. Remove this after the verification. ===
     let target_freq_mhz = 800;
-    log::info!("CPU #0: Frequency if fixed to {}.", target_freq_mhz);
+    log::info!("CPU #0: Frequency is fixed to {}.", target_freq_mhz);
     awkernel_lib::arch::x86_64::X86::fix_freq(target_freq_mhz);
 
     loop {
@@ -209,6 +209,7 @@ fn kernel_main2(
         log::info!("Current frequency: {} MHz", curr_freq);
         awkernel_lib::delay::wait_microsec(1_000_000);
     }
+    // ========================================================================
 
     // 13. Write boot images to wake non-primary CPUs up.
     write_boot_images(offset, mpboot_start);
@@ -495,11 +496,6 @@ fn non_primary_kernel_main() -> ! {
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
-
-    // Fix the frequency of current CPU to the maximum.
-    let max_freq = awkernel_lib::arch::x86_64::X86::get_max_freq();
-    awkernel_lib::arch::x86_64::X86::fix_freq(max_freq);
-    log::info!("CPU #{}: Frequency if fixed to {}.", cpu_id, max_freq);
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 
