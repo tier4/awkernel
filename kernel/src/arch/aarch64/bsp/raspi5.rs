@@ -5,7 +5,10 @@ use crate::{
     config::DMA_SIZE,
 };
 
-use awkernel_drivers::pcie::pcie_device_tree::PCIeRange;
+use awkernel_drivers::{
+    pcie::pcie_device_tree::PCIeRange,
+    psci::{self, Affinity},
+};
 
 use alloc::vec::Vec;
 
@@ -41,7 +44,7 @@ impl super::SoC for Raspi5 {
         self.init_pcie_bridge();
         self.init_uart();
         let _ = self.get_pcie_mem();
-        self.init_gpio();
+        // self.init_gpio();
         Ok(())
     }
 
@@ -70,6 +73,29 @@ impl super::SoC for Raspi5 {
         if let Some((base, size)) = self.pcie_reg {
             vm.push_device_range(base, base + size)?;
         }
+
+        // temp regions.
+        // {
+        //     let reg_base_arm_gpio0_io: usize = 0x1f000d0000;
+        //     let reg_base_arm_gpio0_pads: usize = 0x1f000f0000;
+
+        //     let reg_size: usize = 0x0004000;
+
+        //     vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_io), PhyAddr::new(reg_base_arm_gpio0_io + reg_size))?;
+        //     vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_pads), PhyAddr::new(reg_base_arm_gpio0_pads + reg_size))?;
+
+        //     let reg_base_rp1_bar1_io_bank0: usize = 0xffcd0000;
+        //     let reg_base_rp1_bar1_pads_bank0: usize = 0xffcf0000;
+
+        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
+        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+
+        //     let reg_base_rp1_bar2_io_bank0: usize = 0x1000c0000;
+        //     let reg_base_rp1_bar2_pads_bank0: usize = 0x1000e0000;
+
+        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
+        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+        // }
 
         // Add heap memory regions.
         vm.add_heap_from_node(self.device_tree.root())?;
@@ -114,6 +140,7 @@ impl super::SoC for Raspi5 {
         if let Err(msg) = self.init_pcie() {
             log::warn!("failed to initialize PCIe: {}", msg);
         }
+        self.init_gpio();
 
         Ok(())
     }
@@ -185,6 +212,17 @@ impl Raspi5 {
 
     unsafe fn get_pcie_mem(&mut self) -> Result<(), &'static str> {
         // Find PCIe node.
+        // let Some(pcie_node) = self
+        //     .device_tree
+        //     .root()
+        //     .nodes()
+        //     .iter()
+        //     .find(|n| n.name().starts_with("pcie@"))
+        // else {
+        //     unsafe_puts("PCIe node not found.\r\n");
+        //     return Ok(());
+        // };
+
         let pcie_node = if let Some(axi) = self.device_tree.root().find_child("axi") {
             axi.nodes().iter().find(|n| {
                 let name = n.name();
@@ -206,8 +244,9 @@ impl Raspi5 {
             };
 
             let reg_base = reg.0.to_u128() as usize;
-
+            
             let reg_size = reg.1.to_u128() as usize;
+            // let reg_size = 0x10000000 as usize;
 
             let pcie_regs = (PhyAddr::new(reg_base), reg_size);
 
@@ -215,7 +254,7 @@ impl Raspi5 {
 
             Ok(())
         } else {
-            Err(err_msg!("PCIe: node not found"))
+            return Err(err_msg!("PCIe: node not found"));
         }
     }
 
@@ -306,16 +345,42 @@ impl Raspi5 {
         unsafe { unsafe_puts("uart0 has been successfully initialized.\r\n") };
     }
 
-    pub fn init_gpio(&mut self) {
+    pub fn init_gpio(&self) {
         let gpio_pin_14 = raspi5_gpio::GPIOPin::new(14);
         gpio_pin_14.set_alternate_function(4);
-        let gpio_pin_2 = raspi5_gpio::GPIOPin::new(2);
+        let gpio_pin_2 = raspi5_gpio::GPIOPin::new(16);
         gpio_pin_2.set_mode(raspi5_gpio::GPIOMode::Output);
+        gpio_pin_2.set_pull_mode(raspi5_gpio::TGPIOPullMode::Off);
+        let mode = gpio_pin_2.get_mode();
+
+        match mode {
+            raspi5_gpio::GPIOMode::Input => unsafe{ unsafe_puts("GPIO::Input\r\n"); },
+            raspi5_gpio::GPIOMode::Output => unsafe{ unsafe_puts("GPIO::Output\r\n"); },
+            raspi5_gpio::GPIOMode::InputPullUp => unsafe{ unsafe_puts("GPIO::InputPullUp\r\n"); },
+            raspi5_gpio::GPIOMode::InputPullDown => unsafe{ unsafe_puts("GPIO::InputPullDown\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction0 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction0\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction1 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction1\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction2 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction2\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction3 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction3\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction4 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction4\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction5 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction5\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction6 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction6\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction7 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction7\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction8 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction8\r\n"); },
+            raspi5_gpio::GPIOMode::GPIOModeUnknown => unsafe{ unsafe_puts("GPIO::GPIOModeUnknown\r\n"); },
+        }
+
         for _n in 1..10 {
+            unsafe{
+                unsafe_puts("gpio_pin_2.write(true);\r\n");
+            }
             gpio_pin_2.write(true);
-            awkernel_lib::delay::wait_microsec(1000000);
+            awkernel_lib::delay::wait_microsec(1_000_000);
+            unsafe{
+                unsafe_puts("gpio_pin_2.write(false);\r\n");
+            }
             gpio_pin_2.write(false);
-            awkernel_lib::delay::wait_microsec(1000000);
+            awkernel_lib::delay::wait_microsec(1_000_000);
         }
     }
 

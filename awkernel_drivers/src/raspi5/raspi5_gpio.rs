@@ -1,7 +1,15 @@
 use core::ptr::{read_volatile, write_volatile};
 
-const ARM_GPIO0_IO_BASE: u64 = 0x1F000D0000;
-const ARM_GPIO0_PADS_BASE: u64 = 0x1F000F0000;
+// const ARM_GPIO0_IO_BASE: u64 = 0x1F000D0000;
+const ARM_GPIO0_IO_BASE: u64 = 0x400D0000;
+// const ARM_GPIO0_IO_BASE: u64 = 0x10001F8014;
+// const ARM_GPIO0_IO_BASE: u64 = 0xffcd0000;
+// const ARM_GPIO0_IO_BASE: u64 = 0x1000c0000;
+// const ARM_GPIO0_PADS_BASE: u64 = 0x1F000F0000;
+const ARM_GPIO0_PADS_BASE: u64 = 0x400F0000;
+// const ARM_GPIO0_PADS_BASE: u64 = 0x1000218014;
+// const ARM_GPIO0_PADS_BASE: u64 = 0xffcf0000;
+// const ARM_GPIO0_PADS_BASE: u64 = 0x1000e0000;
 // const GPIO0_BANKS: usize = 3;
 // const MAX_BANK_PINS: usize = 32;
 
@@ -23,6 +31,13 @@ const CTRL_OEOVER_SHIFT: u32 = 14; // Output enable override shift
 const CTRL_OUTOVER_SHIFT: u32 = 12; // Output override shift
 const OUTOVER_LOW: u32 = 2; // Output low
 const OUTOVER_HIGH: u32 = 3; // Output high
+
+const OEOVER_FUNCSEL: u32 = 0;
+const OUTOVER_FUNCSEL: u32 = 0;
+const ARM_GPIO0_RIO_BASE: u64 =	0x1F000E0000;
+
+const RIO_SET_OFFSET: u32 = 0x2000;
+const RIO_CLR_OFFSET: u32 = 0x3000;
 
 /// Enumeration of GPIO pull modes.
 pub enum TGPIOPullMode {
@@ -166,11 +181,52 @@ impl GPIOPin {
         }
     }
 
+    fn rio0_out(bank: usize, offset: u32) -> *mut u32{
+        (ARM_GPIO0_RIO_BASE + (bank as u64) * 0x4000 + (offset as u64) + 0) as *mut u32
+    }
+
     /// Sets the mode of the GPIO pin.
     ///
     /// # Arguments
     ///
     /// * `mode` - The desired mode as defined by `GPIOMode`.
+    // pub fn set_mode(&self, mode: GPIOMode) {
+    //     let pads_reg = Self::pads0_ctrl(self.bank, self.bank_pin);
+    //     let ctrl_reg = Self::gpio0_ctrl(self.bank, self.bank_pin);
+
+    //     match mode {
+    //         GPIOMode::GPIOModeUnknown => {
+    //             unsafe{
+    //                 let mut ctrl_val = read_volatile(ctrl_reg);
+    //                 let mut pads_val = read_volatile(pads_reg);
+
+    //                 ctrl_val &= !CTRL_OUTOVER_MASK;
+    //                 ctrl_val |= OUTOVER_FUNCSEL << CTRL_OUTOVER_SHIFT;
+    //                 ctrl_val &= !CTRL_OEOVER_MASK;
+    //                 ctrl_val |= OEOVER_FUNCSEL << CTRL_OEOVER_SHIFT;
+    //                 ctrl_val &= !CTRL_FUNCSEL_MASK;
+    //                 ctrl_val |= FUNCSEL_NULL << CTRL_FUNCSEL_SHIFT;
+
+    //                 pads_val |= PADS_OD_MASK;
+    //                 pads_val &= !PADS_IE_MASK;
+    //                 pads_val |= PADS_PDE_MASK;
+    //                 pads_val &= !PADS_PUE_MASK;
+
+    //                 write_volatile(ctrl_reg, ctrl_val);
+    //                 write_volatile(pads_reg, pads_val);
+    //             }
+    //         },
+    //         GPIOMode::Output => {
+    //             self.set_pull_mode(TGPIOPullMode::Off);
+    //             unsafe{
+    //                 let rio0_out = Self::rio0_out(self.bank, RIO_SET_OFFSET);
+    //                 write_volatile(rio0_out, self.bank_pin as u32);
+    //             }
+    //         },
+    //         _ => {},
+    //     }
+
+    // }
     pub fn set_mode(&self, mode: GPIOMode) {
         let pads_reg = Self::pads0_ctrl(self.bank, self.bank_pin);
         let ctrl_reg = Self::gpio0_ctrl(self.bank, self.bank_pin);
