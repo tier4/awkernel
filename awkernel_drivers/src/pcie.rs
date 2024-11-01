@@ -590,11 +590,19 @@ fn init<F>(
     base_address: Option<VirtAddr>,
     f: F,
     ranges: Option<&mut [PCIeRange]>,
-    max_bus: u8,
-    max_device: u8,
+    mut max_bus: u8,
+    mut max_device: u8,
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
+    if max_bus > 255 {
+        max_bus = 255;
+    }
+
+    if max_device > 32 {
+        max_device = 32;
+    }
+
     let mut visited = BTreeSet::new();
 
     let mut bus_tree = PCIeTree {
@@ -603,7 +611,6 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    // for bus_number in 0..=255 {
     for bus_number in 0..=max_bus {
         if visited.contains(&bus_number) {
             continue;
