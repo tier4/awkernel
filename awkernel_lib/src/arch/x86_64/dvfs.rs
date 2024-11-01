@@ -18,19 +18,13 @@ impl Dvfs for X86 {
         unsafe {
             let mut misc_enable = Msr::new(IA32_MISC_ENABLE);
             let mut value = misc_enable.read();
+
             // Enable Enhanced Intel SpeedStep Technology
             value |= 1 << 16;
 
             misc_enable.write(value);
         }
 
-        // Check if the hardware controlled performance states is supported. (default: disabled)
-        let cpuid = unsafe { __cpuid(0x6) };
-        if (cpuid.eax & 0x80) == 1 {
-            unreachable!("Hardware controlled performance states is enabled.");
-        }
-
-        // Set target pstate
         let cpuid = unsafe { __cpuid(0x16) };
         let bus_freq_mhz = (cpuid.ecx & 0xffff) as u64;
         let target_pstate = ((freq_mhz / bus_freq_mhz) as u64) & 0xFFFF;
@@ -69,15 +63,15 @@ impl Dvfs for X86 {
         }
 
         unsafe {
-            let mut perf_mperf = Msr::new(IA32_PERF_MPERF);
-            let mut perf_aperf = Msr::new(IA32_PERF_APERF);
-            perf_aperf.write(0);
-            perf_mperf.write(0);
+            let mut mperf = Msr::new(IA32_PERF_MPERF);
+            let mut aperf = Msr::new(IA32_PERF_APERF);
+            aperf.write(0);
+            mperf.write(0);
 
             wait_millisec(100);
 
-            let mperf_delta = perf_mperf.read();
-            let aperf_delta = perf_aperf.read();
+            let mperf_delta = mperf.read();
+            let aperf_delta = aperf.read();
 
             aperf_delta * Self::get_max_freq() / mperf_delta
         }
