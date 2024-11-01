@@ -1,15 +1,15 @@
 use core::ptr::{read_volatile, write_volatile};
 
 // const ARM_GPIO0_IO_BASE: u64 = 0x1F000D0000;
-const ARM_GPIO0_IO_BASE: u64 = 0x400D0000;
+// const ARM_GPIO0_IO_BASE: u64 = 0x400D0000; //rp1
 // const ARM_GPIO0_IO_BASE: u64 = 0x10001F8014;
-// const ARM_GPIO0_IO_BASE: u64 = 0xffcd0000;
-// const ARM_GPIO0_IO_BASE: u64 = 0x1000c0000;
+// const ARM_GPIO0_IO_BASE: u64 = 0xffcd0000; //bar1
+const ARM_GPIO0_IO_BASE: u64 = 0x1000c0000; //bar2
 // const ARM_GPIO0_PADS_BASE: u64 = 0x1F000F0000;
-const ARM_GPIO0_PADS_BASE: u64 = 0x400F0000;
+// const ARM_GPIO0_PADS_BASE: u64 = 0x400F0000; //rp1
 // const ARM_GPIO0_PADS_BASE: u64 = 0x1000218014;
-// const ARM_GPIO0_PADS_BASE: u64 = 0xffcf0000;
-// const ARM_GPIO0_PADS_BASE: u64 = 0x1000e0000;
+// const ARM_GPIO0_PADS_BASE: u64 = 0xffcf0000; //bar1
+const ARM_GPIO0_PADS_BASE: u64 = 0x1000e0000; //bar2
 // const GPIO0_BANKS: usize = 3;
 // const MAX_BANK_PINS: usize = 32;
 

@@ -75,27 +75,27 @@ impl super::SoC for Raspi5 {
         }
 
         // temp regions.
-        // {
-        //     let reg_base_arm_gpio0_io: usize = 0x1f000d0000;
-        //     let reg_base_arm_gpio0_pads: usize = 0x1f000f0000;
+        {
+            let reg_base_arm_gpio0_io: usize = 0x1f000d0000;
+            let reg_base_arm_gpio0_pads: usize = 0x1f000f0000;
 
-        //     let reg_size: usize = 0x0004000;
+            let reg_size: usize = 0x0004000;
 
-        //     vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_io), PhyAddr::new(reg_base_arm_gpio0_io + reg_size))?;
-        //     vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_pads), PhyAddr::new(reg_base_arm_gpio0_pads + reg_size))?;
+            vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_io), PhyAddr::new(reg_base_arm_gpio0_io + reg_size))?;
+            vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_pads), PhyAddr::new(reg_base_arm_gpio0_pads + reg_size))?;
 
-        //     let reg_base_rp1_bar1_io_bank0: usize = 0xffcd0000;
-        //     let reg_base_rp1_bar1_pads_bank0: usize = 0xffcf0000;
+            let reg_base_rp1_bar1_io_bank0: usize = 0xffcd0000;
+            let reg_base_rp1_bar1_pads_bank0: usize = 0xffcf0000;
 
-        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
-        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
+            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
 
-        //     let reg_base_rp1_bar2_io_bank0: usize = 0x1000c0000;
-        //     let reg_base_rp1_bar2_pads_bank0: usize = 0x1000e0000;
+            let reg_base_rp1_bar2_io_bank0: usize = 0x1000c0000;
+            let reg_base_rp1_bar2_pads_bank0: usize = 0x1000e0000;
 
-        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
-        //     vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
-        // }
+            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
+            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+        }
 
         // Add heap memory regions.
         vm.add_heap_from_node(self.device_tree.root())?;
