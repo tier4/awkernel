@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -48,8 +48,6 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
-static CPUID_TO_RAWCPUID: [AtomicUsize; NUM_MAX_CPU] =
-    array![_ => AtomicUsize::new(0); NUM_MAX_CPU]; // CPU ID to RAW CPU ID
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -589,11 +587,6 @@ pub mod perf {
 }
 
 pub fn run_main() {
-    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
-    CPUID_TO_RAWCPUID[awkernel_lib::cpu::cpu_id()]
-        .store(awkernel_lib::cpu::raw_cpu_id(), Ordering::Relaxed);
-    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-
     loop {
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
         if let Some(task) = get_next_task() {
@@ -838,11 +831,6 @@ pub fn get_num_preemption() -> usize {
     {
         0
     }
-}
-
-#[inline(always)]
-pub fn get_raw_cpu_id(cpu_id: usize) -> usize {
-    CPUID_TO_RAWCPUID[cpu_id].load(Ordering::Relaxed)
 }
 
 #[inline(always)]
