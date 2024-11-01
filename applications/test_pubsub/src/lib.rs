@@ -171,7 +171,7 @@ pub async fn run() {
 
     spawn_reactor::<_, (i32, i32), ()>(
         "reactor_node4".into(),
-        |(a, b): (i32, i32)| -> () {
+        |(a, b): (i32, i32)| {
             log::debug!("value={} in reactor_node4", a + b);
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
