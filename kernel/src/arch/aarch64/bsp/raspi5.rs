@@ -283,6 +283,8 @@ impl Raspi5 {
                 0,
                 VirtAddr::new(base.as_usize()),
                 Some(ranges.as_mut_slice()),
+                0,
+                2,
             );
 
             unsafe {

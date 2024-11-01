@@ -162,7 +162,11 @@ pub(crate) mod registers {
 
 /// Initialize the PCIe with ACPI.
 #[cfg(feature = "x86")]
-pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr> {
+pub fn init_with_acpi(
+    acpi: &AcpiTables<AcpiMapper>,
+    max_bus: u8,
+    max_device: u8,
+) -> Result<(), PCIeDeviceErr> {
     use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
 
     const CONFIG_SPACE_SIZE: usize = 256 * 1024 * 1024; // 256 MiB
@@ -192,7 +196,13 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
         }
 
         let base_address = segment.physical_address;
-        init_with_addr(segment.segment_group, VirtAddr::new(base_address), None);
+        init_with_addr(
+            segment.segment_group,
+            VirtAddr::new(base_address),
+            None,
+            max_bus,
+            max_device,
+        );
     }
 
     Ok(())
@@ -200,8 +210,8 @@ pub fn init_with_acpi(acpi: &AcpiTables<AcpiMapper>) -> Result<(), PCIeDeviceErr
 
 /// Initialize the PCIe with IO port.
 #[cfg(feature = "x86")]
-pub fn init_with_io() {
-    init(0, None, PCIeInfo::from_io, None);
+pub fn init_with_io(max_bus: u8, max_device: u8) {
+    init(0, None, PCIeInfo::from_io, None, max_bus, max_device);
 }
 
 /// Structure representing a PCIe device after it has been attached.
@@ -466,7 +476,7 @@ fn check_bus<F>(
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
     for device in 0..max_device {
-        check_device(bus, device, bus_tree, visited, f);
+        check_device(bus, device, bus_tree, visited, f, max_device);
     }
 }
 
@@ -477,11 +487,12 @@ fn check_device<F>(
     bus_tree: &mut PCIeTree,
     visited: &mut BTreeSet<u8>,
     f: &F,
+    max_device: u8,
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
     for function in 0..8 {
-        check_function(bus, device, function, bus_tree, visited, f);
+        check_function(bus, device, function, bus_tree, visited, f, max_device);
     }
 }
 
@@ -492,6 +503,7 @@ fn check_function<F>(
     bus_tree: &mut PCIeTree,
     visited: &mut BTreeSet<u8>,
     f: &F,
+    max_device: u8,
 ) -> bool
 where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
@@ -540,11 +552,7 @@ where
                 // Recursively check the bus
                 visited.insert(secondary_bus);
 
-                #[cfg(not(feature = "raspi"))]
-                check_bus(&mut bus_child, bus_tree, visited, f, 32);
-
-                #[cfg(feature = "raspi")]
-                check_bus(&mut bus_child, bus_tree, visited, f, 2);
+                check_bus(&mut bus_child, bus_tree, visited, f, max_device);
 
                 bus.devices.push(ChildDevice::Bus(Box::new(bus_child)));
             }
@@ -564,12 +572,16 @@ pub fn init_with_addr(
     segment_group: u16,
     base_address: VirtAddr,
     ranges: Option<&mut [PCIeRange]>,
+    max_bus: u8,
+    max_device: u8,
 ) {
     init(
         segment_group,
         Some(base_address),
         PCIeInfo::from_addr,
         ranges,
+        max_bus,
+        max_device,
     );
 }
 
@@ -578,6 +590,8 @@ fn init<F>(
     base_address: Option<VirtAddr>,
     f: F,
     ranges: Option<&mut [PCIeRange]>,
+    max_bus: u8,
+    max_device: u8,
 ) where
     F: Fn(u16, u8, u8, u8, VirtAddr) -> Result<PCIeInfo, PCIeDeviceErr>,
 {
@@ -589,7 +603,8 @@ fn init<F>(
 
     let mut host_bridge_bus = 0;
 
-    for bus_number in 0..=255 {
+    // for bus_number in 0..=255 {
+    for bus_number in 0..=max_bus {
         if visited.contains(&bus_number) {
             continue;
         }
@@ -615,18 +630,9 @@ fn init<F>(
 
         visited.insert(bus_number);
 
-        #[cfg(not(feature = "raspi"))]
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, 32);
-
-        // raspi5 has functions only on device 1 and 2.
-        #[cfg(feature = "raspi")]
-        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, 2);
+        check_bus(&mut bus, &mut bus_tree, &mut visited, &f, max_device);
 
         bus_tree.tree.insert(bus_number, Box::new(bus));
-
-        // raspi5 has devices only on PCIe bus 0.
-        #[cfg(feature = "raspi")]
-        break;
     }
 
     bus_tree.update_bridge_info(host_bridge_bus, 0, 0);

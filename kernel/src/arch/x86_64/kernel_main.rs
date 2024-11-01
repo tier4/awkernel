@@ -252,9 +252,9 @@ fn kernel_main2(
     init_primary_heap(&mut page_table, &mut page_allocators);
 
     // 16. Initialize PCIe devices.
-    if awkernel_drivers::pcie::init_with_acpi(&acpi).is_err() {
+    if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
         // fallback
-        awkernel_drivers::pcie::init_with_io();
+        awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
     // 17. Initialize interrupt handlers.
