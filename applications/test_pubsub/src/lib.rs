@@ -155,7 +155,7 @@ pub async fn run() {
         (a as f64, b.is_empty())
     };
 
-    let ret = spawn_reactor::<_, (i32, String), _>(
+    spawn_reactor::<_, (i32, String), (f64, bool)>(
         "my_reactor".into(),
         f,
         vec![Cow::from("topic1"), Cow::from("topic2")],
@@ -164,5 +164,34 @@ pub async fn run() {
     )
     .await;
 
-    ret.await;
+    let g = |(a,): (f64,)| -> () {
+        log::debug!("g received {}", a);
+        ()
+    };
+
+    spawn_reactor::<_, (f64,), ()>(
+        "my_reactor2".into(),
+        |(a,): (f64,)| -> () {
+            log::debug!("g received {}", a);
+            ()
+        },
+        vec![Cow::from("result1")],
+        vec![],
+        SchedulerType::FIFO,
+    )
+    .await;
+
+    let h = |(a,): (String,)| -> () {
+        log::debug!("h received {}", a);
+        ()
+    };
+
+    spawn_reactor::<_, (String,), ()>(
+        "my_reactor3".into(),
+        h,
+        vec![Cow::from("topic2")],
+        vec![],
+        SchedulerType::FIFO,
+    )
+    .await;
 }

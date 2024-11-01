@@ -31,7 +31,7 @@ mod yield_task;
 #[cfg(test)]
 pub(crate) mod mini_task;
 
-use crate::pubsub::AsyncReceiver;
+use crate::pubsub::MultipleReceiver;
 use crate::scheduler::SchedulerType;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
@@ -41,7 +41,8 @@ use core::pin::Pin;
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
-use pubsub::{Attribute, Subscriber, TupleToPublishers, TupleToSubscribers};
+use log::warn;
+use pubsub::{Attribute, MultipleSender, Subscriber, TupleToPublishers, TupleToSubscribers};
 
 pub use futures::select_biased;
 
@@ -177,43 +178,43 @@ pub async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>
-/*-> JoinHandle<T>*/
+) -> JoinHandle<()>
 where
-    F: Fn(<Args::Subscribers as AsyncReceiver>::Item) -> Ret + Send + 'static,
-    Args: TupleToSubscribers,
-    Ret: TupleToPublishers,
-    Args::Subscribers: AsyncReceiver + 'static,
-    <Args::Subscribers as AsyncReceiver>::Item: Send,
+    F: Fn(
+            <Args::Subscribers as MultipleReceiver>::Item,
+        ) -> <Ret::Publishers as MultipleSender>::Item
+        + Send
+        + 'static,
+    Args: TupleToSubscribers + 'static,
+    Ret: TupleToPublishers + 'static,
+    Ret::Publishers: Send,
+    Args::Subscribers: MultipleReceiver + Send,
+    <Args::Subscribers as MultipleReceiver>::Item: Send,
+    Arc<Args::Subscribers>: Send,
+    <Ret::Publishers as MultipleSender>::Item: Send,
 {
-    let publishers =
-        <Ret as TupleToPublishers>::create_publishers(publish_topic_names, Attribute::default());
+    let (tx, rx) = oneshot::channel();
 
-    let subscribers = Arc::new(Args::create_subscribers(
-        subscribe_topic_names,
-        Attribute::default(),
-    ));
+    let future = async move {
+        let publishers = <Ret as TupleToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
 
-    Box::pin(async move {
+        let subscribers: Arc<<Args as TupleToSubscribers>::Subscribers> = Arc::new(
+            Args::create_subscribers(subscribe_topic_names, Attribute::default()),
+        );
+
         loop {
-            let args = subscribers.recv_all().await;
+            let args: <<Args as TupleToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
             let results = f(args);
-            //publishers.publish_all(results).await;
+            publishers.send_all(results).await;
         }
-    })
 
-    /*
-    crate::task::spawn(
-        reactor_name,
-        async move {
-            loop {
-                for subscriber in subscribers.iter() {
-                    let ret = subscriber.recv().await;
-                    let _ = ret;
-                }
-            }
-        },
-        sched_type,
-    );
-    */
+        let _ = tx.send(());
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type);
+    JoinHandle::new(rx)
 }

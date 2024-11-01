@@ -693,29 +693,29 @@ impl Default for Attribute {
 }
 
 pub trait TupleToPublishers {
-    type Publishers;
+    type Publishers: MultipleSender;
+
     fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers;
 }
 
-pub trait TupleToSubscribers: Send + 'static {
-    type Subscribers: AsyncReceiver + 'static;
+pub trait TupleToSubscribers {
+    type Subscribers: MultipleReceiver;
+
     fn create_subscribers(
         topics: Vec<Cow<'static, str>>,
         attribute: Attribute,
     ) -> Self::Subscribers;
 }
 
-pub trait AsyncReceiver: Send + Sync {
-    type Item: Send;
+pub trait MultipleReceiver {
+    type Item;
+
     fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>>;
 }
 
-impl<T: Clone + Send + 'static> AsyncReceiver for Subscriber<T> {
-    type Item = T;
-
-    fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
-        Box::pin(async move { self.recv().await.data })
-    }
+pub trait MultipleSender {
+    type Item;
+    fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 
 macro_rules! impl_tuple_to_pub_sub {
@@ -737,7 +737,7 @@ macro_rules! impl_tuple_to_pub_sub {
         }
     };
     ($($T:ident),+) => {
-        impl<$($T: 'static + Send,)+> TupleToPublishers for ($($T,)+)
+        impl<$($T: 'static + Send + Sync + Clone,)+> TupleToPublishers for ($($T,)+)
         {
             type Publishers = ($(Publisher<$T>,)+);
 
@@ -767,20 +767,31 @@ impl_tuple_to_pub_sub!();
 impl_tuple_to_pub_sub!(A);
 impl_tuple_to_pub_sub!(A, B);
 impl_tuple_to_pub_sub!(A, B, C);
-impl_tuple_to_pub_sub!(A, B, C, D);
 
 macro_rules! impl_async_receiver_for_tuple {
-    ($($T:ident),*) => {
-        impl<$($T: Clone + Send + 'static),*> AsyncReceiver for ($(Subscriber<$T>,)*) {
+    ($(($T:ident, $idx:tt, $idx2:tt)),*) => {
+        impl<$($T: Clone + Send + 'static),*> MultipleReceiver for ($(Subscriber<$T>,)*) {
             type Item = ($($T,)*);
 
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
-                #[allow(non_snake_case)]
-                let ($($T,)*) = self;
+                let ($($idx,)*) = self;
                 Box::pin(async move {
-                    ($(
-                        $T.recv_all().await,
-                    )*)
+                    ($($idx.recv().await.data,)*)
+                })
+            }
+        }
+
+        impl<$($T: Clone + Sync + Send + 'static),*> MultipleSender for ($(Publisher<$T>,)*) {
+            type Item = ($($T,)*);
+
+            fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                let ($($idx,)*) = self;
+                let ($($idx2,)*) = item;
+                Box::pin(async move {
+                    $(
+                        $idx.send($idx2.clone()).await;
+                    )*
+                    ()
                 })
             }
         }
@@ -788,10 +799,9 @@ macro_rules! impl_async_receiver_for_tuple {
 }
 
 impl_async_receiver_for_tuple!();
-impl_async_receiver_for_tuple!(A);
-impl_async_receiver_for_tuple!(A, B);
-impl_async_receiver_for_tuple!(A, B, C);
-impl_async_receiver_for_tuple!(A, B, C, D);
+impl_async_receiver_for_tuple!((A, a, p));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q));
+impl_async_receiver_for_tuple!((A, a, p), (B, b, q), (C, c, r));
 
 #[cfg(test)]
 mod tests {
