@@ -30,7 +30,6 @@ use awkernel_lib::{
     },
     console::unsafe_puts,
     delay::{wait_forever, wait_microsec},
-    dvfs::Dvfs,
     interrupt::register_interrupt_controller,
     paging::{PageTable, PAGESIZE},
     unwind::catch_unwind,
