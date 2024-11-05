@@ -9,12 +9,12 @@ use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(8, 0, 2, 64);
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
 // const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(8, 0, 2, 2);
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
 const UDP_DST_PORT: u16 = 26099;
 
@@ -22,7 +22,7 @@ const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -203,7 +203,7 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
 async fn udp_test() {
     // Create a UDP socket on interface 0.
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(1, Default::default()).unwrap();
 
     let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 

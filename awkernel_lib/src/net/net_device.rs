@@ -1,3 +1,8 @@
+use crate::{
+    dma_pool::DMAPool,
+    paging::PAGESIZE,
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
 use alloc::borrow::Cow;
 use bitflags::bitflags;
 use core::fmt::Display;
@@ -145,11 +150,17 @@ pub struct EtherFrameBuf {
     pub vlan: Option<u16>,
 }
 
+#[derive(Debug)]
+pub struct EtherFrameDMA {
+    pub data: DMAPool<[u8; PAGESIZE]>,
+    pub vlan: Option<u16>,
+}
+
 /// Because the network will have multiple queues
 /// and the queues will be processed in parallel,
 /// the network device must be thread-safe.
 pub trait NetDevice {
-    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError>;
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError>;
     fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError>;
 
     fn flags(&self) -> NetFlags;

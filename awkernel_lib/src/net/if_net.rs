@@ -27,12 +27,17 @@ use smoltcp::{
     wire::HardwareAddress,
 };
 
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use crate::{
+    dma_pool::DMAPool,
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
     multicast::ipv4_addr_to_mac_addr,
-    net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
+    net_device::{
+        EtherFrameBuf, EtherFrameDMA, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags,
+    },
     NetManagerError,
 };
 
@@ -43,13 +48,13 @@ struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
     rx_que_id: usize,
 
-    rx_ringq: Mutex<RingQ<EtherFrameBuf>>,
+    rx_ringq: Mutex<RingQ<EtherFrameDMA>>,
 }
 
 struct NetDriverRef<'a> {
     inner: &'a Arc<dyn NetDevice + Sync + Send>,
 
-    rx_ringq: Option<&'a mut RingQ<EtherFrameBuf>>,
+    rx_ringq: Option<&'a mut RingQ<EtherFrameDMA>>,
     tx_ringq: &'a mut RingQ<Vec<u8>>,
 }
 
@@ -612,8 +617,12 @@ impl IfNet {
     }
 }
 
+//pub struct NRxToken {
+//data: EtherFrameBuf,
+//}
+
 pub struct NRxToken {
-    data: EtherFrameBuf,
+    data: EtherFrameDMA,
 }
 
 impl phy::RxToken for NRxToken {
@@ -624,7 +633,7 @@ impl phy::RxToken for NRxToken {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut self.data.data)
+        f(self.data.data.as_mut())
     }
 }
 

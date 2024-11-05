@@ -20,8 +20,8 @@ use awkernel_lib::{
         ipv6::Ip6Hdr,
         multicast::MulticastAddrs,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
-            NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameDMA, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
+            NetDevice, NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -2061,26 +2061,27 @@ impl NetDevice for Igb {
         inner.hw.get_mac_addr()
     }
 
-    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
-        {
-            let mut node = MCSNode::new();
-            let mut rx = self.que[que_id].rx.lock(&mut node);
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError> {
+        //{
+        //let mut node = MCSNode::new();
+        //let mut rx = self.que[que_id].rx.lock(&mut node);
 
-            let data = rx.read_queue.pop();
-            if data.is_some() {
-                return Ok(data);
-            }
-        }
+        //let data = rx.read_queue.pop();
+        //if data.is_some() {
+        //return Ok(data);
+        //}
+        //}
 
-        self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
+        //self.rx_recv(que_id).or(Err(NetDevError::DeviceError))?;
 
-        let mut node = MCSNode::new();
-        let mut rx = self.que[que_id].rx.lock(&mut node);
-        if let Some(data) = rx.read_queue.pop() {
-            Ok(Some(data))
-        } else {
-            Ok(None)
-        }
+        //let mut node = MCSNode::new();
+        //let mut rx = self.que[que_id].rx.lock(&mut node);
+        //if let Some(data) = rx.read_queue.pop() {
+        //Ok(Some(data))
+        //} else {
+        //Ok(None)
+        //}
+        Err(NetDevError::DeviceError)
     }
 
     fn can_send(&self) -> bool {

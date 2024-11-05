@@ -28,8 +28,8 @@ use awkernel_lib::{
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
-            NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameDMA, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
+            NetDevice, NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -90,7 +90,7 @@ pub struct Rx {
     rx_desc_head: u32,
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool<RxRing>,
-    read_queue: RingQ<EtherFrameBuf>,
+    read_queue: RingQ<EtherFrameDMA>,
 }
 
 pub struct Queue {
@@ -160,7 +160,7 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
-    phy_to_virt_addr: HashMap<u64, u64>,
+    phy_to_virt_addr: HashMap<u64, (u64, usize, usize)>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -404,7 +404,7 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
-            phy_to_virt_addr: HashMap::with_capacity(DEFAULT_RXD),
+            phy_to_virt_addr: HashMap::with_capacity(DEFAULT_RXD * 16),
         };
 
         Ok((ixgbe, que))
@@ -748,7 +748,7 @@ impl IxgbeInner {
     }
 
     fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        for que in que.iter() {
+        for (j, que) in que.iter().enumerate() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
@@ -764,11 +764,16 @@ impl IxgbeInner {
                 let buf_phy_addr = read_buf.get_phy_addr().as_usize();
 
                 desc.data = [0; 2];
-                desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+                desc.read.pkt_addr = buf_phy_addr as u64;
                 self.phy_to_virt_addr.insert(
-                    (buf_phy_addr + i * MCLBYTES as usize) as u64,
-                    (read_buf.get_virt_addr().as_usize() + i * MCLBYTES as usize) as u64,
+                    (j * 16 + i) as u64,
+                    (
+                        read_buf.get_virt_addr().as_usize() as u64,
+                        buf_phy_addr,
+                        self.info.get_segment_group() as usize,
+                    ),
                 );
+                let _ = read_buf.leak();
             }
         }
 
@@ -1621,32 +1626,39 @@ impl Ixgbe {
                     drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let virt_addr;
-                    unsafe {
-                        virt_addr = inner.phy_to_virt_addr.remove(&desc.read.pkt_addr).unwrap();
-                    }
-                    let ptr = virt_addr as *const u8;
+                    let index = (i + 16 * que_id) as u64;
+                    let (virt_addr, phy_addr, numa_id) =
+                        inner.phy_to_virt_addr.get(&index).copied().unwrap();
+                    let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
 
                     unsafe {
-                        data = Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize);
+                        data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
+                            ptr, phy_addr, PAGESIZE, numa_id,
+                        )
+                        .unwrap();
                     }
 
-                    for byte in &data {
-                        log::debug!("{:02x}", byte);
-                    }
-
+                    let numa_id = inner.info.get_segment_group() as usize;
                     let read_buf: DMAPool<[u8; PAGESIZE]> =
-                        DMAPool::new(inner.info.get_segment_group() as usize, 1)
-                            .ok_or(IxgbeDriverErr::DMAPool)?;
+                        DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.read.pkt_addr = buf_phy_addr as u64;
+                    inner.phy_to_virt_addr.insert(
+                        (que_id * 16 + i) as u64,
+                        (
+                            read_buf.get_virt_addr().as_usize() as u64,
+                            buf_phy_addr,
+                            numa_id,
+                        ),
+                    );
+
                     // Need clflush
                     unsafe {
                         self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
                     }
 
-                    rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
+                    rx.read_queue.push(EtherFrameDMA { data, vlan }).unwrap();
                 }
 
                 i += 1;
@@ -2133,7 +2145,7 @@ impl NetDevice for Ixgbe {
         inner.hw.get_mac_addr()
     }
 
-    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[que_id].rx.lock(&mut node);

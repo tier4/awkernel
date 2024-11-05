@@ -121,7 +121,7 @@ impl NetDevice for E1000eExample {
     fn recv(
         &self,
         _que_id: usize,
-    ) -> Result<Option<net_device::EtherFrameBuf>, net_device::NetDevError> {
+    ) -> Result<Option<net_device::EtherFrameDMA>, net_device::NetDevError> {
         todo!("recv");
     }
 
