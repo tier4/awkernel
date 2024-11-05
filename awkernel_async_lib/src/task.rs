@@ -328,6 +328,7 @@ pub mod perf {
 
     static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut TASKS_EXEC_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     static mut KERNEL_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut KERNEL_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
@@ -370,10 +371,15 @@ pub mod perf {
         if start != 0 && time > start {
             let current_exec_time = time - start;
             unsafe {
-                let sum_exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
+                let sum_exec_time = read_volatile(&TASKS_EXEC_TIMES_SUM[cpu_id]);
+                write_volatile(
+                    &mut TASKS_EXEC_TIMES_SUM[cpu_id],
+                    current_exec_time + sum_exec_time,
+                );
+                let total_exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
                 write_volatile(
                     &mut TASKS_EXEC_TIMES[task_index],
-                    current_exec_time + sum_exec_time,
+                    current_exec_time + total_exec_time,
                 );
                 write_volatile(&mut TASKS_STARTS[cpu_id], 0);
             }
@@ -388,6 +394,10 @@ pub mod perf {
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
+    }
+
+    pub fn get_task_exec_sum(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&TASKS_EXEC_TIMES_SUM[cpu_id]) }
     }
 
     pub fn add_kernel_time_start(cpu_id: usize, time: u64) {
