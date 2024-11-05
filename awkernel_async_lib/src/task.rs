@@ -326,9 +326,9 @@ pub mod perf {
 
     pub const MAX_MEASURE_SIZE: usize = 1024 * 8;
 
-    static mut TASKS_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
-    static mut TASKS_EXEC_TIMES: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
-    static mut TASKS_EXEC_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_EXEC_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_EXEC_TIMES_PER_TASK: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut TASK_EXEC_TIMES_PER_CORE: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     static mut KERNEL_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut KERNEL_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
@@ -356,7 +356,7 @@ pub mod perf {
     }
 
     pub fn add_task_start(cpu_id: usize, time: u64) {
-        unsafe { write_volatile(&mut TASKS_STARTS[cpu_id], time) };
+        unsafe { write_volatile(&mut TASK_EXEC_TIMES_STARTS[cpu_id], time) };
     }
 
     pub fn add_task_end(cpu_id: usize, time: u64) {
@@ -366,38 +366,38 @@ pub mod perf {
             return;
         }
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
-        let start = unsafe { read_volatile(&TASKS_STARTS[cpu_id]) };
+        let start = unsafe { read_volatile(&TASK_EXEC_TIMES_STARTS[cpu_id]) };
 
         if start != 0 && time > start {
             let current_exec_time = time - start;
             unsafe {
-                let sum_exec_time = read_volatile(&TASKS_EXEC_TIMES_SUM[cpu_id]);
+                let sum_core_exec_time = read_volatile(&TASK_EXEC_TIMES_PER_CORE[cpu_id]);
                 write_volatile(
-                    &mut TASKS_EXEC_TIMES_SUM[cpu_id],
-                    current_exec_time + sum_exec_time,
+                    &mut TASK_EXEC_TIMES_PER_CORE[cpu_id],
+                    current_exec_time + sum_core_exec_time,
                 );
-                let total_exec_time = read_volatile(&TASKS_EXEC_TIMES[task_index]);
+                let sum_task_exec_time = read_volatile(&TASK_EXEC_TIMES_PER_TASK[task_index]);
                 write_volatile(
-                    &mut TASKS_EXEC_TIMES[task_index],
-                    current_exec_time + total_exec_time,
+                    &mut TASK_EXEC_TIMES_PER_TASK[task_index],
+                    current_exec_time + sum_task_exec_time,
                 );
-                write_volatile(&mut TASKS_STARTS[cpu_id], 0);
+                write_volatile(&mut TASK_EXEC_TIMES_STARTS[cpu_id], 0);
             }
         }
     }
 
     pub fn reset_task_exec(task_id: u32) {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
-        unsafe { write_volatile(&mut TASKS_EXEC_TIMES[task_index], 0) };
+        unsafe { write_volatile(&mut TASK_EXEC_TIMES_PER_TASK[task_index], 0) };
     }
 
     pub fn get_task_exec(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
-        unsafe { read_volatile(&TASKS_EXEC_TIMES[task_index]) }
+        unsafe { read_volatile(&TASK_EXEC_TIMES_PER_TASK[task_index]) }
     }
 
     pub fn get_task_exec_sum(cpu_id: usize) -> u64 {
-        unsafe { read_volatile(&TASKS_EXEC_TIMES_SUM[cpu_id]) }
+        unsafe { read_volatile(&TASK_EXEC_TIMES_PER_CORE[cpu_id]) }
     }
 
     pub fn add_kernel_time_start(cpu_id: usize, time: u64) {
