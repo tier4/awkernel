@@ -1,3 +1,4 @@
+#![warn(dead_code)]
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
@@ -39,7 +40,8 @@ use awkernel_lib::{
         rwlock::RwLock,
     },
 };
-use core::fmt::Debug;
+use core::fmt::{self, Debug};
+use hashbrown::HashMap;
 use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
@@ -203,32 +205,18 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IxgbeDriverErr {
-    MemoryMapFailure,
     InitializeInterrupt,
     UnknownDeviceID,
-    UnknownRevisionID,
     NotPciExpress,
     NoBar0,
-    NoBar1,
-    Bar1IsNotMMIO,
     ReadFailure,
-    NotSupported,
-    FailedFlashDescriptor,
-    MasterDisableTimeout,
-    PhyReset,
-    PhyType,
     DMAPool,
     Eeprom,
     EepromChecksum,
     Phy,
     Config,
-    Param,
-    MacType,
-    UnknownPhy,
     LinkSetup,
-    AdapterStopped,
     InvalidMacAddr,
-    DeviceNotSupported,
     MasterRequestsPending,
     InvalidLinkSettings,
     AutonegNotComplete,
@@ -239,24 +227,12 @@ pub enum IxgbeDriverErr {
     SfpNotSupported,
     SfpNotPresent,
     SfpNoInitSeqPresent,
-    NoSanAddrPtr,
-    FdirReinitFailed,
     EepromVersion,
-    NoSpace,
     Overtemp,
     FcNotNegotiated,
-    FcNotSupported,
     SfpSetupNotComplete,
-    PbaSection,
     InvalidArgument,
     HostInterfaceCommand,
-    OutOfMem,
-    BypassFwWriteFailure,
-    FeatureNotSupported,
-    EepromProtectedRegion,
-    FdirCmdIncomplete,
-    FwRespInvalid,
-    TokenRetry,
     NotImplemented,
     InvalidPacket,
 }
@@ -277,11 +253,49 @@ enum PCIeInt {
 
 impl From<IxgbeDriverErr> for PCIeDeviceErr {
     fn from(value: IxgbeDriverErr) -> Self {
+        log::error!("ixgbe: {:?}", value);
         match value {
             IxgbeDriverErr::NotImplemented => PCIeDeviceErr::NotImplemented,
             IxgbeDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
             IxgbeDriverErr::InvalidPacket => PCIeDeviceErr::CommandFailure,
             _ => PCIeDeviceErr::InitFailure,
+        }
+    }
+}
+
+impl fmt::Display for IxgbeDriverErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::InitializeInterrupt => write!(f, "Interrupt initialization failure."),
+            Self::UnknownDeviceID => write!(f, "Unknown device id."),
+            Self::NotPciExpress => write!(f, "Not a pci express device."),
+            Self::NoBar0 => write!(f, "No BAR0."),
+            Self::ReadFailure => write!(f, "Read failure."),
+            Self::DMAPool => write!(f, "DMA pool failure."),
+            Self::Eeprom => write!(f, "Eeprom failure."),
+            Self::EepromChecksum => write!(f, "Wrong Eeprom checksum."),
+            Self::Phy => write!(f, "PHY failure."),
+            Self::Config => write!(f, "Configuration failure."),
+            Self::LinkSetup => write!(f, "Link setup failure."),
+            Self::InvalidMacAddr => write!(f, "Invalid Mac Address."),
+            Self::MasterRequestsPending => write!(f, "Master requests pending."),
+            Self::InvalidLinkSettings => write!(f, "Invalid link settings."),
+            Self::AutonegNotComplete => write!(f, "Auto negotiation is not completed."),
+            Self::ResetFailed => write!(f, "Reset failure"),
+            Self::I2c => write!(f, "I2c failure."),
+            Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
+            Self::PhyAddrInvalid => write!(f, "Phy address invalid."),
+            Self::SfpNotSupported => write!(f, "Sfp not supported."),
+            Self::SfpNotPresent => write!(f, "Sfp not present."),
+            Self::SfpNoInitSeqPresent => write!(f, "Sfp no init sequence present."),
+            Self::EepromVersion => write!(f, "Wrong eeprom version."),
+            Self::Overtemp => write!(f, "Over temperature."),
+            Self::FcNotNegotiated => write!(f, "Flow control not negotiated."),
+            Self::SfpSetupNotComplete => write!(f, "Sfp setup not complete."),
+            Self::InvalidArgument => write!(f, "Invalid argument."),
+            Self::HostInterfaceCommand => write!(f, "Host interface command failure."),
+            Self::NotImplemented => write!(f, "Not implemented."),
+            Self::InvalidPacket => write!(f, "Invalid packet."),
         }
     }
 }
@@ -1273,9 +1287,9 @@ impl IxgbeInner {
             }
             IxgbeMacX550 | IxgbeMacX550EMX | IxgbeMacX550EMA => {
                 mask |= IXGBE_EIMS_ECC;
-                /* MAC thermal sensor is automatically enabled */
+                // MAC thermal sensor is automatically enabled
                 mask |= IXGBE_EIMS_TS;
-                /* Some devices use SDP0 for important information */
+                // Some devices use SDP0 for important information
                 if self.info.id == IXGBE_DEV_ID_X550EM_X_SFP
                     || self.info.id == IXGBE_DEV_ID_X550EM_X_10G_T
                 {
@@ -1502,7 +1516,6 @@ impl Ixgbe {
     #[allow(dead_code)]
     /// This is for X550em.
     fn handle_phy(&self) -> Result<(), IxgbeDriverErr> {
-        log::error!("handle_phy: Not implemented");
         Err(IxgbeDriverErr::NotImplemented)
     }
 
