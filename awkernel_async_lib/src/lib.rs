@@ -173,7 +173,7 @@ pub async fn spawn_reactor<F, Args, Ret>(
     subscribe_topic_names: Vec<Cow<'static, str>>,
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-) -> JoinHandle<()>
+) -> u32
 where
     F: Fn(
             <Args::Subscribers as MultipleReceiver>::Item,
@@ -185,9 +185,6 @@ where
     Ret::Publishers: Send,
     Args::Subscribers: Send,
 {
-    #[allow(unused_variables)] // tx not used
-    let (tx, rx) = oneshot::channel();
-
     let future = async move {
         let publishers = <Ret as TupleToPublishers>::create_publishers(
             publish_topic_names,
@@ -203,13 +200,7 @@ where
             let results = f(args);
             publishers.send_all(results).await;
         }
-
-        #[allow(unreachable_code)]
-        let _ = tx.send(());
-
-        Ok(())
     };
 
-    crate::task::spawn(reactor_name, future, sched_type);
-    JoinHandle::new(rx)
+    crate::task::spawn(reactor_name, future, sched_type)
 }
