@@ -1,5 +1,5 @@
 <!DOCTYPE HTML>
-<html lang="en" class="light" dir="ltr">
+<html lang="en" class="sidebar-visible no-js light">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
@@ -8,9 +8,10 @@
 
         <!-- Custom HTML head -->
         
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#ffffff">
+        <meta name="theme-color" content="#ffffff" />
 
         <link rel="icon" href="../favicon.svg">
         <link rel="shortcut icon" href="../favicon.png">
@@ -31,16 +32,15 @@
         <!-- Custom theme stylesheets -->
 
     </head>
-    <body class="sidebar-visible no-js">
-    <div id="body-container">
+    <body>
         <!-- Provide site root to javascript -->
-        <script>
+        <script type="text/javascript">
             var path_to_root = "../";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
-        <script>
+        <script type="text/javascript">
             try {
                 var theme = localStorage.getItem('mdbook-theme');
                 var sidebar = localStorage.getItem('mdbook-sidebar');
@@ -56,81 +56,50 @@
         </script>
 
         <!-- Set the theme before any content is loaded, prevents flash -->
-        <script>
+        <script type="text/javascript">
             var theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
             var html = document.querySelector('html');
+            html.classList.remove('no-js')
             html.classList.remove('light')
             html.classList.add(theme);
-            var body = document.querySelector('body');
-            body.classList.remove('no-js')
-            body.classList.add('js');
+            html.classList.add('js');
         </script>
 
-        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
-
         <!-- Hide / unhide sidebar before it is displayed -->
-        <script>
-            var body = document.querySelector('body');
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
-            } else {
-                sidebar = 'hidden';
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            body.classList.remove('sidebar-visible');
-            body.classList.add("sidebar-" + sidebar);
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
                 <ol class="chapter"><li class="chapter-item expanded "><a href="../index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="../internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="../internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="../internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="../internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="../internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="../internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="../internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="../internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="../internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="../internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="../internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="../internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="../internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="../internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="../internal/PCIe.html" class="active"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
-            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
-                <div class="sidebar-resize-indicator"></div>
-            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
-
-        <!-- Track and set sidebar scroll position -->
-        <script>
-            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
-            sidebarScrollbox.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
-                }
-            }, { passive: true });
-            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
-            sessionStorage.removeItem('sidebar-scroll');
-            if (sidebarScrollTop) {
-                // preserve sidebar scroll position when navigating via links within sidebar
-                sidebarScrollbox.scrollTop = sidebarScrollTop;
-            } else {
-                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
-                var activeSection = document.querySelector('#sidebar .active');
-                if (activeSection) {
-                    activeSection.scrollIntoView({ block: 'center' });
-                }
-            }
-        </script>
 
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
                                 <div id="menu-bar-hover-placeholder"></div>
-                <div id="menu-bar" class="menu-bar sticky">
+                <div id="menu-bar" class="menu-bar sticky bordered">
                     <div class="left-buttons">
-                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
                             <i class="fa fa-bars"></i>
-                        </label>
+                        </button>
                         <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
-                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
@@ -163,7 +132,7 @@
                 </div>
 
                 <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
-                <script>
+                <script type="text/javascript">
                     document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
                     document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
                     Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
@@ -184,7 +153,8 @@
     // - Value: PCIeBus
     tree: BTreeMap&lt;u8, Box&lt;PCIeBus&gt;&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding the <code>PCIeTree</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bridge information for each bus in the tree.</td></tr>
@@ -199,14 +169,15 @@
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         for (_, bus) in self.tree.iter() {
             if !bus.devices.is_empty() {
-                write!(f, "{}", bus)?;
+                write!(f, &quot;{}&quot;, bus)?;
             }
         }
 
         Ok(())
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pciebus"><a class="header" href="#pciebus">PCIeBus</a></h2>
 <p><code>PCIeBus</code> is a structure that represents individual PCIe buses.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -218,7 +189,8 @@
     info: Option&lt;PCIeInfo&gt;,
     devices: Vec&lt;ChildDevice&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding the <code>PCIeBus</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeBus</code> structure.</td></tr>
@@ -234,10 +206,10 @@
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
         if let Some(info) = self.info.as_ref() {
             let bfd = info.get_bfd();
-            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            let name = format!(&quot;{bfd}: Bridge, Bus #{:02x}&quot;, self.bus_number);
             name.into()
         } else {
-            let name = format!("Bus #{:02x}", self.bus_number);
+            let name = format!(&quot;Bus #{:02x}&quot;, self.bus_number);
             name.into()
         }
     }
@@ -246,7 +218,8 @@
         Some(&amp;self.devices)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
 <p><code>PCIeBus</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -256,7 +229,8 @@
         print_pcie_devices(self, f, 0)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pcieinfo"><a class="header" href="#pcieinfo">PCIeInfo</a></h2>
 <p><code>PCIeInfo</code> is a structure used to store the essential information required to initialize a PCIe device.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -286,7 +260,8 @@ pub struct PCIeInfo {
     bridge_device_number: Option&lt;u8&gt;,
     bridge_function_number: Option&lt;u8&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding <code>PCIeInfo</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn from_io(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
@@ -325,7 +300,7 @@ pub struct PCIeInfo {
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         write!(
             f,
-            "{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}",
+            &quot;{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}&quot;,
             self.segment_group,
             self.bus_number,
             self.device_number,
@@ -335,7 +310,8 @@ pub struct PCIeInfo {
         )
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="childdevice"><a class="header" href="#childdevice">ChildDevice</a></h2>
 <p><code>ChildDevice</code> is an enum that represents different types of devices and their attachment states on a PCIe bus.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -346,7 +322,8 @@ pub struct PCIeInfo {
     Attaching,
     Unattached(Box&lt;PCIeInfo&gt;),
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding <code>ChildDevice</code> enum.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach a child PCIe device.</td></tr>
@@ -366,7 +343,8 @@ pub struct PCIeInfo {
     id: u16,
     pcie_class: pcie_class::PCIeClass,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
 <p><code>UnknownDevice</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -374,12 +352,12 @@ pub struct PCIeInfo {
 </span>impl PCIeDevice for PCIeBus {
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
         let bfd = format!(
-            "{:04x}:{:02x}:{:02x}.{:01x}",
+            &quot;{:04x}:{:02x}:{:02x}.{:01x}&quot;,
             self.segment_group, self.bus_number, self.device_number, self.function_number
         );
 
         let name = format!(
-            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            &quot;{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}&quot;,
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
@@ -389,7 +367,8 @@ pub struct PCIeInfo {
         None
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pciedeviceerr"><a class="header" href="#pciedeviceerr">PCIeDeviceErr</a></h2>
 <p><code>PCIeDeviceErr</code> is an enum that represents various error types related to PCIe devices.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -406,7 +385,8 @@ pub enum PCIeDeviceErr {
     NotImplemented,
     BARFailure,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl fmt::Display -->
 <p><code>PCIeDeviceErr</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -415,20 +395,21 @@ pub enum PCIeDeviceErr {
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         match self {
             Self::InitFailure =&gt; {
-                write!(f, "Failed to initialize the device driver.")
+                write!(f, &quot;Failed to initialize the device driver.&quot;)
             }
             // omitted
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="initialization"><a class="header" href="#initialization">Initialization</a></h2>
 <h3 id="x86"><a class="header" href="#x86">x86</a></h3>
 <p>For x86, the PCIe is initialized with ACPI or I/O port by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_acpi</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_io</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Initialize the PCIe with ACPI.
-#[cfg(feature = "x86")]
+#[cfg(feature = &quot;x86&quot;)]
 pub fn init_with_acpi(acpi: &amp;AcpiTables&lt;AcpiMapper&gt;) -&gt; Result&lt;(), PCIeDeviceErr&gt; {
     use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
 
@@ -464,15 +445,17 @@ pub fn init_with_acpi(acpi: &amp;AcpiTables&lt;AcpiMapper&gt;) -&gt; Result&lt;(
 
     Ok(())
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Initialize the PCIe with IO port.
-#[cfg(feature = "x86")]
+#[cfg(feature = &quot;x86&quot;)]
 pub fn init_with_io() {
     init(0, None, PCIeInfo::from_io, None);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="others"><a class="header" href="#others">Others</a></h3>
 <p>The PCIe is initialized with the base address by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_addr</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -490,7 +473,8 @@ pub fn init_with_addr(
         ranges,
     );
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn init&lt;F&gt;(
@@ -519,13 +503,14 @@ pub fn init_with_addr(
 
     bus_tree.attach();
 
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+    log::info!(&quot;PCIe: segment_group = {segment_group:04x}\r\n{}&quot;, bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&amp;mut node);
     pcie_trees.insert(segment_group, Arc::new(bus_tree));
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="checking-the-pci-buses"><a class="header" href="#checking-the-pci-buses">Checking the PCI Buses</a></h2>
 <p>The following functions are used to check all devices on the PCIe bus.</p>
 <h3 id="check_bus"><a class="header" href="#check_bus">check_bus</a></h3>
@@ -541,7 +526,8 @@ where
         check_device(bus, device, bus_tree, visited, f);
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="check_device"><a class="header" href="#check_device">check_device</a></h3>
 <p>Check eight functions on the device.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -560,7 +546,8 @@ fn check_device&lt;F&gt;(
         check_function(bus, device, function, bus_tree, visited, f);
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="check_function"><a class="header" href="#check_function">check_function</a></h3>
 <p>Retrieve PCIe bus information and store it in the <code>PCIeTree</code> structure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -595,7 +582,8 @@ where
     }
 }
 
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="read-the-base-address"><a class="header" href="#read-the-base-address">Read the base address</a></h2>
 <p>Read the base address specified by the offset from the PCIe device's configuration space.</p>
 <h3 id="read_bar"><a class="header" href="#read_bar">read_bar</a></h3>
@@ -628,7 +616,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
     }
 }
 
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="print-the-pcie-devices"><a class="header" href="#print-the-pcie-devices">Print the PCIe devices</a></h2>
 <p>Print the configuration of the devices on the PCIe bus.</p>
 <h3 id="print_pcie_devices"><a class="header" href="#print_pcie_devices">print_pcie_devices</a></h3>
@@ -636,8 +625,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn print_pcie_devices(device: &amp;dyn PCIeDevice, f: &amp;mut fmt::Formatter, indent: u8) -&gt; fmt::Result {
-    let indent_str = " ".repeat(indent as usize * 4);
-    write!(f, "{}{}\r\n", indent_str, device.device_name())?;
+    let indent_str = &quot; &quot;.repeat(indent as usize * 4);
+    write!(f, &quot;{}{}\r\n&quot;, indent_str, device.device_name())?;
 
     if let Some(children) = device.children() {
         for child in children.iter() {
@@ -647,7 +636,7 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
                 }
                 ChildDevice::Unattached(info) =&gt; {
                     let name = format!(
-                        "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
+                        &quot;{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}&quot;,
                         info.get_bfd(),
                         info.vendor,
                         info.id,
@@ -657,8 +646,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
                         info.bridge_function_number,
                     );
 
-                    let indent_str = " ".repeat((indent as usize + 1) * 4);
-                    write!(f, "{}{}\r\n", indent_str, name)?;
+                    let indent_str = &quot; &quot;.repeat((indent as usize + 1) * 4);
+                    write!(f, &quot;{}{}\r\n&quot;, indent_str, name)?;
                 }
                 ChildDevice::Bus(bus) =&gt; {
                     print_pcie_devices(bus.as_ref(), f, indent + 1)?;
@@ -670,7 +659,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 
     Ok(())
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 
                     </main>
 
@@ -698,24 +688,23 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 
 
 
-        <script>
+        <script type="text/javascript">
             window.playground_copyable = true;
         </script>
 
 
-        <script src="../elasticlunr.min.js"></script>
-        <script src="../mark.min.js"></script>
-        <script src="../searcher.js"></script>
+        <script src="../elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../searcher.js" type="text/javascript" charset="utf-8"></script>
 
-        <script src="../clipboard.min.js"></script>
-        <script src="../highlight.js"></script>
-        <script src="../book.js"></script>
+        <script src="../clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="../book.js" type="text/javascript" charset="utf-8"></script>
 
         <!-- Custom JS scripts -->
-        <script src="../mermaid.min.js"></script>
-        <script src="../mermaid-init.js"></script>
+        <script type="text/javascript" src="../mermaid.min.js"></script>
+        <script type="text/javascript" src="../mermaid-init.js"></script>
 
 
-    </div>
     </body>
 </html>

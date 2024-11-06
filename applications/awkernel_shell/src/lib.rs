@@ -41,6 +41,7 @@ async fn console_handler() -> TaskResult {
             Box::new(TaskFfi),
             Box::new(InterruptFfi),
             Box::new(IfconfigFfi),
+            Box::new(PerfFfi),
         ],
     )
     .unwrap();
@@ -150,6 +151,9 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
+
+(export perf () (IO (-> () []))
+    (perf_ffi))
 ";
 
 #[embedded]
@@ -212,6 +216,11 @@ fn ifconfig_ffi() {
         let msg = format!("{netif}\r\n\r\n");
         console::print(&msg);
     }
+}
+
+#[embedded]
+fn perf_ffi() {
+    console::print("TODO...\r\n");
 }
 
 fn print_tasks() {

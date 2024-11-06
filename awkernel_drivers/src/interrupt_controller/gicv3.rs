@@ -381,11 +381,11 @@ impl InterruptController for GICv3 {
         self.init_per_cpu();
     }
 
-    fn send_ipi(&mut self, irq: u16, target: u32) {
+    fn send_ipi(&mut self, irq: u16, cpu_id: u32) {
         const ICC_CTLR_RSS: u64 = 1 << 18;
         const GICD_TYPER_RSS: u32 = 1 << 26;
 
-        let Some((aff0, aff1, aff2, aff3)) = get_affinity(target as usize) else {
+        let Some((aff0, aff1, aff2, aff3)) = get_affinity(cpu_id as usize) else {
             return;
         };
 
