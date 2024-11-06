@@ -1,4 +1,3 @@
-#![warn(dead_code)]
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
@@ -41,7 +40,6 @@ use awkernel_lib::{
     },
 };
 use core::fmt::{self, Debug};
-use hashbrown::HashMap;
 use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
@@ -281,7 +279,7 @@ impl fmt::Display for IxgbeDriverErr {
             Self::MasterRequestsPending => write!(f, "Master requests pending."),
             Self::InvalidLinkSettings => write!(f, "Invalid link settings."),
             Self::AutonegNotComplete => write!(f, "Auto negotiation is not completed."),
-            Self::ResetFailed => write!(f, "Reset failure"),
+            Self::ResetFailed => write!(f, "Reset failure."),
             Self::I2c => write!(f, "I2c failure."),
             Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
             Self::PhyAddrInvalid => write!(f, "Phy address invalid."),
