@@ -183,8 +183,8 @@ where
 /// let f = |(a, b) : (u32, String)| -> (u64, bool) { /* do something */ };
 ///
 /// let _ = spawn_reactor::<_, (u32, String), (u64, bool)>(
-/// 	“reactor”.into(),
-///    	f,
+///     “reactor”.into(),
+///     f,
 ///     vec!([Cow::from("topic1"), Cow::from("topic2")]),
 ///     vec!([Cow::from("topic3"), Cow::from("topic4")]),
 ///     SchedulerType::FIFO,
