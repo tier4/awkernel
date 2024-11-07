@@ -178,18 +178,23 @@ where
 /// # Example
 ///
 /// ```
-/// use awkernel_async_lib::{self, scheduler::SchedulerType};
+/// extern crate alloc;
 ///
-/// let f = |(a, b) : (u32, String)| -> (u64, bool) { /* do something */ };
+/// use awkernel_async_lib::{scheduler::SchedulerType, spawn_reactor};
+/// use alloc::borrow::Cow;
 ///
-/// let _ = spawn_reactor::<_, (u32, String), (u64, bool)>(
-///     “reactor”.into(),
-///     f,
-///     vec!([Cow::from("topic1"), Cow::from("topic2")]),
-///     vec!([Cow::from("topic3"), Cow::from("topic4")]),
-///     SchedulerType::FIFO,
-/// )
-/// .await;
+/// let f = |(a, b) : (u32, String)| -> (u64, bool) { /* do something */ (0, false) };
+///
+/// let _ = async {
+///     let _ = spawn_reactor::<_, (u32, String), (u64, bool)>(
+///         "reactor".into(),
+///         f,
+///         vec![Cow::from("topic1"), Cow::from("topic2")],
+///         vec![Cow::from("topic3"), Cow::from("topic4")],
+///         SchedulerType::FIFO,
+///     )
+///     .await;
+/// };
 /// ```
 pub async fn spawn_reactor<F, Args, Ret>(
     reactor_name: Cow<'static, str>,
