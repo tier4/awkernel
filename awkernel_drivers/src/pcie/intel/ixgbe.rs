@@ -41,7 +41,6 @@ use awkernel_lib::{
     },
 };
 use core::fmt::{self, Debug};
-use hashbrown::HashMap;
 use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
@@ -160,7 +159,7 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
-    phy_to_virt_addr: HashMap<u64, (u64, usize, usize)>,
+    dma_info: Vec<(u64, usize, usize)>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -404,7 +403,7 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
-            phy_to_virt_addr: HashMap::with_capacity(DEFAULT_RXD * 16),
+            dma_info: Vec::with_capacity(DEFAULT_RXD * 16),
         };
 
         Ok((ixgbe, que))
@@ -748,16 +747,17 @@ impl IxgbeInner {
     }
 
     fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        for (j, que) in que.iter().enumerate() {
+        for (i, que) in que.iter().enumerate() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
             rx.rx_desc_tail = 0;
-            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
+            let rx_desc_ring_len = rx.rx_desc_ring.as_ref().len();
+            rx.rx_desc_head = rx_desc_ring_len as u32 - 1;
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
 
-            for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+            for (j, desc) in rx_desc_ring.iter_mut().enumerate() {
                 let read_buf: DMAPool<[u8; PAGESIZE]> =
                     DMAPool::new(self.info.get_segment_group() as usize, 1)
                         .ok_or(IxgbeDriverErr::DMAPool)?;
@@ -765,15 +765,11 @@ impl IxgbeInner {
 
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
-                self.phy_to_virt_addr.insert(
-                    (j * 16 + i) as u64,
-                    (
-                        read_buf.get_virt_addr().as_usize() as u64,
-                        buf_phy_addr,
-                        self.info.get_segment_group() as usize,
-                    ),
+                self.dma_info[rx_desc_ring_len * i + j] = (
+                    read_buf.get_virt_addr().as_usize() as u64,
+                    buf_phy_addr,
+                    self.info.get_segment_group() as usize,
                 );
-                let _ = read_buf.leak();
             }
         }
 
@@ -1626,9 +1622,8 @@ impl Ixgbe {
                     drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let index = (i + 16 * que_id) as u64;
-                    let (virt_addr, phy_addr, numa_id) =
-                        inner.phy_to_virt_addr.get(&index).copied().unwrap();
+                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let (virt_addr, phy_addr, numa_id) = inner.dma_info[index];
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
 
@@ -1644,13 +1639,10 @@ impl Ixgbe {
                         DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.read.pkt_addr = buf_phy_addr as u64;
-                    inner.phy_to_virt_addr.insert(
-                        (que_id * 16 + i) as u64,
-                        (
-                            read_buf.get_virt_addr().as_usize() as u64,
-                            buf_phy_addr,
-                            numa_id,
-                        ),
+                    inner.dma_info[index] = (
+                        read_buf.get_virt_addr().as_usize() as u64,
+                        buf_phy_addr,
+                        numa_id,
                     );
 
                     // Need clflush
