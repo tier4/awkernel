@@ -167,6 +167,30 @@ where
     JoinHandle::new(rx)
 }
 
+/// Spawn a detached reactor. To spawn the reactor below, write code shown in the example.
+///
+/// topic1 (u32)              topic3 (u64)
+///        |    +-----------+    |
+///        +--->|  reactor  |--->+
+///        |    +-----------+    |
+/// topic2 (String)           topic4 (bool)
+///
+/// # Example
+///
+/// ```
+/// use awkernel_async_lib::{self, scheduler::SchedulerType};
+///
+/// let f = |(a, b) : (u32, String)| -> (u64, bool) { /* do something */ };
+///
+/// let _ = spawn_reactor::<_, (u32, String), (u64, bool)>(
+/// 	“reactor”.into(),
+///    	f,
+///     vec!([Cow::from("topic1"), Cow::from("topic2")]),
+///     vec!([Cow::from("topic3"), Cow::from("topic4")]),
+///     SchedulerType::FIFO,
+/// )
+/// .await;
+/// ```
 pub async fn spawn_reactor<F, Args, Ret>(
     reactor_name: Cow<'static, str>,
     f: F,
