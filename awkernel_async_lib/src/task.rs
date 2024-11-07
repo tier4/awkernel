@@ -781,7 +781,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
-                    perf::reset_task_exec(task.id);
+                    perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
@@ -792,7 +792,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
-                    perf::reset_task_exec(task.id);
+                    perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
