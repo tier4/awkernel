@@ -493,17 +493,27 @@ fn non_primary_kernel_main() -> ! {
     let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
     let cpu_id = (ebx >> 24) & 0xff;
 
+    unsafe { unsafe_puts("A") };
+
     while !BSP_READY.load(Ordering::Relaxed) {
         core::hint::spin_loop();
     }
     fence(Ordering::Acquire);
 
+    unsafe { unsafe_puts("B") };
+
     enable_fpu(); // Enable SSE.
 
     unsafe { interrupt_handler::load() };
 
+    unsafe { unsafe_puts("C") };
+
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
+
+    unsafe { unsafe_puts("D") };
+
+    log::debug!("E: cpu_id = {},", awkernel_lib::cpu::cpu_id());
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
 

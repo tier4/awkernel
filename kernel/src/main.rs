@@ -87,9 +87,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         PRIMARY_READY.store(true, Ordering::SeqCst);
 
+        log::debug!("Primary F,");
+
         while NUM_READY_WORKER.load(Ordering::SeqCst) > 0 {
             awkernel_lib::delay::wait_microsec(10);
         }
+
+        log::debug!("Primary G,");
 
         loop {
             awkernel_lib::interrupt::disable();
@@ -120,9 +124,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     // Non-primary CPUs.
     #[cfg(not(feature = "std"))]
     {
+        log::debug!("Non-primary F: cpu_id = {},", awkernel_lib::cpu::cpu_id());
+
         while !PRIMARY_READY.load(Ordering::SeqCst) {
             awkernel_lib::delay::wait_microsec(10);
         }
+
+        log::debug!("Non-primary G: cpu_id = {},", awkernel_lib::cpu::cpu_id());
 
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
