@@ -44,7 +44,9 @@ pub use awkernel_lib::{
     delay::{cpu_counter, uptime},
 };
 
-use pubsub::{Attribute, MultipleReceiver, MultipleSender, TupleToPublishers, TupleToSubscribers};
+use pubsub::{
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
+};
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -209,22 +211,22 @@ where
         ) -> <Ret::Publishers as MultipleSender>::Item
         + Send
         + 'static,
-    Args: TupleToSubscribers,
-    Ret: TupleToPublishers,
+    Args: VectorToSubscribers,
+    Ret: VectorToPublishers,
     Ret::Publishers: Send,
     Args::Subscribers: Send,
 {
     let future = async move {
-        let publishers = <Ret as TupleToPublishers>::create_publishers(
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
             publish_topic_names,
             Attribute::default(),
         );
 
-        let subscribers: <Args as TupleToSubscribers>::Subscribers =
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
             Args::create_subscribers(subscribe_topic_names, Attribute::default());
 
         loop {
-            let args: <<Args as TupleToSubscribers>::Subscribers as MultipleReceiver>::Item =
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
             let results = f(args);
             publishers.send_all(results).await;

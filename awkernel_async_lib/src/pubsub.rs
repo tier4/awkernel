@@ -702,15 +702,16 @@ pub trait MultipleReceiver {
 
 pub trait MultipleSender {
     type Item;
+
     fn send_all(&self, item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
-pub trait TupleToPublishers {
+pub trait VectorToPublishers {
     type Publishers: MultipleSender;
 
     fn create_publishers(topics: Vec<Cow<'static, str>>, attribute: Attribute) -> Self::Publishers;
 }
 
-pub trait TupleToSubscribers {
+pub trait VectorToSubscribers {
     type Subscribers: MultipleReceiver;
 
     fn create_subscribers(
@@ -721,14 +722,14 @@ pub trait TupleToSubscribers {
 
 macro_rules! impl_tuple_to_pub_sub {
     () => {
-        impl TupleToPublishers for () {
+        impl VectorToPublishers for () {
             type Publishers = ();
 
             fn create_publishers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Publishers {
             }
         }
 
-        impl TupleToSubscribers for () {
+        impl VectorToSubscribers for () {
             type Subscribers = ();
 
             fn create_subscribers(_topics: Vec<Cow<'static, str>>, _attribute: Attribute) -> Self::Subscribers {
@@ -736,7 +737,7 @@ macro_rules! impl_tuple_to_pub_sub {
         }
     };
     ($($T:ident),+) => {
-        impl<$($T: 'static + Send + Sync + Clone,)+> TupleToPublishers for ($($T,)+)
+        impl<$($T: 'static + Send + Sync + Clone,)+> VectorToPublishers for ($($T,)+)
         {
             type Publishers = ($(Publisher<$T>,)+);
 
@@ -748,7 +749,7 @@ macro_rules! impl_tuple_to_pub_sub {
             }
         }
 
-        impl<$($T: 'static + Clone + Send,)+> TupleToSubscribers for ($($T,)+)
+        impl<$($T: 'static + Clone + Send,)+> VectorToSubscribers for ($($T,)+)
         {
             type Subscribers = ($(Subscriber<$T>,)+);
 
@@ -771,6 +772,7 @@ macro_rules! impl_async_receiver_for_tuple {
     () => {
         impl MultipleReceiver for () {
             type Item = ();
+
             fn recv_all(&self) -> Pin<Box<dyn Future<Output = Self::Item> + Send + '_>> {
                 Box::pin(async move{})
             }
@@ -778,6 +780,7 @@ macro_rules! impl_async_receiver_for_tuple {
 
         impl MultipleSender for () {
             type Item = ();
+
             fn send_all(&self, _item: Self::Item) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
                 Box::pin(async move{})
             }
