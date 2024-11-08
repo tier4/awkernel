@@ -8,3 +8,18 @@ pub trait Dvfs {
     /// Get the frequency of the current CPU.
     fn get_curr_freq() -> u64;
 }
+
+/// Fix the frequency of the current CPU.
+pub fn fix_freq(freq: u64) {
+    crate::arch::ArchImpl::fix_freq(freq);
+}
+
+/// Get the maximum frequency of the current CPU.
+pub fn get_max_freq() -> u64 {
+    crate::arch::ArchImpl::get_max_freq()
+}
+
+/// Get the frequency of the current CPU.
+pub fn get_curr_freq() -> u64 {
+    crate::arch::ArchImpl::get_curr_freq()
+}
