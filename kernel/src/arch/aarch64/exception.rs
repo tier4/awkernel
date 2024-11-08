@@ -1,3 +1,10 @@
+use awkernel_async_lib::{
+    cpu_counter,
+    task::perf::{
+        add_context_restore_end, add_context_save_start, add_task_end, add_task_start,
+        ContextSwitchType,
+    },
+};
 use awkernel_lib::{
     arch::aarch64::exception_saved_regs::Context, console::unsafe_puts, delay::wait_forever,
     interrupt,
@@ -216,7 +223,21 @@ ESR  = 0x{:x}
 
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
+    add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+    add_context_save_start(
+        ContextSwitchType::Preempt,
+        awkernel_lib::cpu::cpu_id(),
+        cpu_counter(),
+    );
+
     interrupt::handle_irqs();
+
+    add_context_restore_end(
+        ContextSwitchType::Preempt,
+        awkernel_lib::cpu::cpu_id(),
+        cpu_counter(),
+    );
+    add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 }
 
 #[no_mangle]

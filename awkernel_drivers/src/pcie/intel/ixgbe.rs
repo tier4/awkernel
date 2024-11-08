@@ -278,7 +278,7 @@ impl fmt::Display for IxgbeDriverErr {
             Self::MasterRequestsPending => write!(f, "Master requests pending."),
             Self::InvalidLinkSettings => write!(f, "Invalid link settings."),
             Self::AutonegNotComplete => write!(f, "Auto negotiation is not completed."),
-            Self::ResetFailed => write!(f, "Reset failure"),
+            Self::ResetFailed => write!(f, "Reset failure."),
             Self::I2c => write!(f, "I2c failure."),
             Self::SwfwSync => write!(f, "Software firmware synchronization failure."),
             Self::PhyAddrInvalid => write!(f, "Phy address invalid."),

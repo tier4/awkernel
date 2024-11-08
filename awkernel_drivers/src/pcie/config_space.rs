@@ -89,6 +89,69 @@ impl ConfigSpace {
         }
     }
 
+    pub fn write_u8(&self, data: u8, offset: usize) {
+        match self {
+            #[allow(unused_variables)]
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+
+                    let addr = *base | ((offset as u32) & 0xfc);
+                    unsafe {
+                        port1.write(addr);
+                        // Ensure we write the correct part of the 32-bit port
+                        let shift = (offset & 3) * 8;
+                        port2.write((data as u32) << shift);
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::Mmio(base) => {
+                let addr = *base + offset;
+                unsafe { write_volatile(addr.as_mut_ptr(), data) }
+            }
+        }
+    }
+
+    pub fn write_u16(&self, data: u16, offset: usize) {
+        match self {
+            #[allow(unused_variables)]
+            Self::IO(base) => {
+                #[cfg(feature = "x86")]
+                {
+                    let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                    let mut port2 = x86_64::instructions::port::PortWriteOnly::new(0xCFC);
+
+                    let addr = *base | ((offset as u32) & 0xfc);
+                    unsafe {
+                        port1.write(addr);
+                        // Ensure we write the correct part of the 32-bit port
+                        if (offset & 2) == 0 {
+                            port2.write(data as u32 & 0xFFFF);
+                        } else {
+                            port2.write((data as u32) << 16);
+                        }
+                    }
+                }
+
+                #[cfg(not(feature = "x86"))]
+                {
+                    unreachable!()
+                }
+            }
+            Self::Mmio(base) => {
+                let addr = *base + offset;
+                unsafe { write_volatile(addr.as_mut_ptr(), data) }
+            }
+        }
+    }
+
     pub fn write_u32(&self, data: u32, offset: usize) {
         match self {
             #[allow(unused_variables)]

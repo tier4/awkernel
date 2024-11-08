@@ -32,7 +32,7 @@ mod yield_task;
 pub(crate) mod mini_task;
 
 use crate::scheduler::SchedulerType;
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
@@ -42,6 +42,10 @@ pub use futures::select_biased;
 pub use awkernel_lib::{
     cpu::cpu_id,
     delay::{cpu_counter, uptime},
+};
+
+use pubsub::{
+    Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
 
 pub trait Cancel: Future + Unpin {
@@ -163,4 +167,71 @@ where
     );
 
     JoinHandle::new(rx)
+}
+
+/// Spawn a detached reactor. To spawn the reactor below, write code shown in the example.
+///
+/// topic1 (u32)              topic3 (u64)
+///        |    +-----------+    |
+///        +--->|  reactor  |--->+
+///        |    +-----------+    |
+/// topic2 (String)           topic4 (bool)
+///
+/// # Example
+///
+/// ```
+/// extern crate alloc;
+///
+/// use awkernel_async_lib::{scheduler::SchedulerType, spawn_reactor};
+/// use alloc::borrow::Cow;
+///
+/// let f = |(a, b) : (u32, String)| -> (u64, bool) { /* do something */ (0, false) };
+///
+/// let _ = async {
+///     let _ = spawn_reactor::<_, (u32, String), (u64, bool)>(
+///         "reactor".into(),
+///         f,
+///         vec![Cow::from("topic1"), Cow::from("topic2")],
+///         vec![Cow::from("topic3"), Cow::from("topic4")],
+///         SchedulerType::FIFO,
+///     )
+///     .await;
+/// };
+/// ```
+pub async fn spawn_reactor<F, Args, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) -> u32
+where
+    F: Fn(
+            <Args::Subscribers as MultipleReceiver>::Item,
+        ) -> <Ret::Publishers as MultipleSender>::Item
+        + Send
+        + 'static,
+    Args: VectorToSubscribers,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+    Args::Subscribers: Send,
+{
+    let future = async move {
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            let results = f(args);
+            publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
 }

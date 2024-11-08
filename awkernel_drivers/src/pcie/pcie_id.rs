@@ -5,3 +5,5 @@ pub enum PCIeID {
 }
 
 pub const INTEL_VENDOR_ID: u16 = 0x8086;
+pub const RASPI_VENDOR_ID: u16 = 0x1DE4;
+pub const BROADCOM_VENDOR_ID: u16 = 0x14E4;
