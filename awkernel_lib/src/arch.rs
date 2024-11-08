@@ -41,4 +41,7 @@ trait Arch:
 
 #[allow(dead_code)]
 #[cfg(feature = "std")]
-trait Arch: super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU {}
+trait Arch:
+    super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::dvfs::Dvfs
+{
+}
