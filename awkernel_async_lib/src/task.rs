@@ -380,7 +380,7 @@ pub mod perf {
 
     static mut TASK_EXEC_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut TASK_EXEC_TIMES_PER_TASK: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
-    static mut TASK_EXEC_TIMES_PER_CORE: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_EXEC_TIMES_PER_CPU: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     static mut KERNEL_TIMES_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut KERNEL_TIMES_SUM: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
@@ -390,16 +390,20 @@ pub mod perf {
 
     static mut YIELD_CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut YIELD_CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut YIELD_CONTEXT_SAVE_OVERHEADS_PER_CPU: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static YIELD_CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
     static mut YIELD_CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut YIELD_CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut YIELD_CONTEXT_RESTORE_OVERHEADS_PER_CPU: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static YIELD_CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
 
     static mut PREEMPT_CONTEXT_SAVE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PREEMPT_CONTEXT_SAVE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut PREEMPT_CONTEXT_SAVE_OVERHEADS_PER_CPU: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static PREEMPT_CSO_COUNT: AtomicUsize = AtomicUsize::new(0);
     static mut PREEMPT_CONTEXT_RESTORE_STARTS: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PREEMPT_CONTEXT_RESTORE_OVERHEADS: [u64; MAX_MEASURE_SIZE] = [0; MAX_MEASURE_SIZE];
+    static mut PREEMPT_CONTEXT_RESTORE_OVERHEADS_PER_CPU: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static PREEMPT_CRO_COUNT: AtomicUsize = AtomicUsize::new(0);
 
     pub enum ContextSwitchType {
@@ -423,10 +427,10 @@ pub mod perf {
         if start != 0 && time > start {
             let current_exec_time = time - start;
             unsafe {
-                let sum_core_exec_time = read_volatile(&TASK_EXEC_TIMES_PER_CORE[cpu_id]);
+                let sum_cpu_time = read_volatile(&TASK_EXEC_TIMES_PER_CPU[cpu_id]);
                 write_volatile(
-                    &mut TASK_EXEC_TIMES_PER_CORE[cpu_id],
-                    current_exec_time + sum_core_exec_time,
+                    &mut TASK_EXEC_TIMES_PER_CPU[cpu_id],
+                    current_exec_time + sum_cpu_time,
                 );
                 let sum_task_exec_time = read_volatile(&TASK_EXEC_TIMES_PER_TASK[task_index]);
                 write_volatile(
@@ -438,18 +442,18 @@ pub mod perf {
         }
     }
 
-    pub fn reset_task_exec(task_id: u32) {
+    pub fn reset_task_exec_time(task_id: u32) {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { write_volatile(&mut TASK_EXEC_TIMES_PER_TASK[task_index], 0) };
     }
 
-    pub fn get_task_exec(task_id: u32) -> u64 {
+    pub fn get_task_exec_time(task_id: u32) -> u64 {
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         unsafe { read_volatile(&TASK_EXEC_TIMES_PER_TASK[task_index]) }
     }
 
-    pub fn get_task_exec_sum(cpu_id: usize) -> u64 {
-        unsafe { read_volatile(&TASK_EXEC_TIMES_PER_CORE[cpu_id]) }
+    pub fn get_cpu_time(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&TASK_EXEC_TIMES_PER_CPU[cpu_id]) }
     }
 
     pub fn add_kernel_time_start(cpu_id: usize, time: u64) {
@@ -536,12 +540,24 @@ pub mod perf {
                             &mut YIELD_CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
                             context_save_overhead,
                         );
+                        let sum_context_save_overhead =
+                            read_volatile(&YIELD_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id]);
+                        write_volatile(
+                            &mut YIELD_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id],
+                            context_save_overhead + sum_context_save_overhead,
+                        );
                         write_volatile(&mut YIELD_CONTEXT_SAVE_STARTS[cpu_id], 0);
                     }
                     ContextSwitchType::Preempt => {
                         write_volatile(
                             &mut PREEMPT_CONTEXT_SAVE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
                             context_save_overhead,
+                        );
+                        let sum_context_save_overhead =
+                            read_volatile(&PREEMPT_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id]);
+                        write_volatile(
+                            &mut PREEMPT_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id],
+                            context_save_overhead + sum_context_save_overhead,
                         );
                         write_volatile(&mut PREEMPT_CONTEXT_SAVE_STARTS[cpu_id], 0);
                     }
@@ -588,6 +604,12 @@ pub mod perf {
                             &mut YIELD_CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
                             context_restore_overhead,
                         );
+                        let sum_context_restore_overhead =
+                            read_volatile(&YIELD_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id]);
+                        write_volatile(
+                            &mut YIELD_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id],
+                            context_restore_overhead + sum_context_restore_overhead,
+                        );
                         write_volatile(&mut YIELD_CONTEXT_RESTORE_STARTS[cpu_id], 0);
                     }
                     ContextSwitchType::Preempt => {
@@ -595,10 +617,33 @@ pub mod perf {
                             &mut PREEMPT_CONTEXT_RESTORE_OVERHEADS[index & (MAX_MEASURE_SIZE - 1)],
                             context_restore_overhead,
                         );
+                        let sum_context_restore_overhead =
+                            read_volatile(&PREEMPT_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id]);
+                        write_volatile(
+                            &mut PREEMPT_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id],
+                            context_restore_overhead + sum_context_restore_overhead,
+                        );
                         write_volatile(&mut PREEMPT_CONTEXT_RESTORE_STARTS[cpu_id], 0);
                     }
                 }
             };
+        }
+    }
+
+    pub fn get_overheads(context_type: ContextSwitchType, cpu_id: usize) -> (u64, u64) {
+        unsafe {
+            match context_type {
+                ContextSwitchType::Yield => {
+                    let save = read_volatile(&YIELD_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id]);
+                    let restore = read_volatile(&YIELD_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id]);
+                    (save, restore)
+                }
+                ContextSwitchType::Preempt => {
+                    let save = read_volatile(&PREEMPT_CONTEXT_SAVE_OVERHEADS_PER_CPU[cpu_id]);
+                    let restore = read_volatile(&PREEMPT_CONTEXT_RESTORE_OVERHEADS_PER_CPU[cpu_id]);
+                    (save, restore)
+                }
+            }
         }
     }
 
@@ -809,7 +854,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
-                    perf::reset_task_exec(task.id);
+                    perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
@@ -831,7 +876,7 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
-                    perf::reset_task_exec(task.id);
+                    perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }

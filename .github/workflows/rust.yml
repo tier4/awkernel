@@ -73,3 +73,6 @@ jobs:
 
       - name: udeps
         run: make udeps
+
+      - name: test
+        run: make test
