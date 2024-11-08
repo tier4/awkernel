@@ -3,24 +3,26 @@ pub enum Event {
     Spawn,
     Wake,
     GetNext,
-    Preempt,
+    SetPreempted,
     PollPending,
     PollReady,
     Panic,
-    SetNeedSched,
+    SetNeedPreemption,
+    PreemptionStart,
 }
 
 impl core::fmt::Display for Event {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
+            Self::Spawn => write!(f, "Spawn"),
             Self::Wake => write!(f, "Wake"),
             Self::GetNext => write!(f, "GetNext"),
-            Self::Spawn => write!(f, "Spawn"),
-            Self::Preempt => write!(f, "Preempt"),
+            Self::SetPreempted => write!(f, "SetPreempted"),
             Self::PollPending => write!(f, "PollPending"),
             Self::PollReady => write!(f, "PollReady"),
             Self::Panic => write!(f, "Panic"),
-            Self::SetNeedSched => write!(f, "SetNeedSched"),
+            Self::SetNeedPreemption => write!(f, "SetNeedPreemption"),
+            Self::PreemptionStart => write!(f, "PreemptionStart"),
         }
     }
 }

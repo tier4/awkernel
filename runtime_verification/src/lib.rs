@@ -3,10 +3,10 @@
 extern crate alloc;
 
 pub mod event;
-mod model;
-pub mod task;
+pub mod model;
+mod state;
 
 use alloc::collections::btree_map::BTreeMap;
 use awkernel_lib::sync::mutex::Mutex;
 
-pub static MODELS: Mutex<BTreeMap<u32, crate::task::TaskModel>> = Mutex::new(BTreeMap::new());
+pub static MODELS: Mutex<BTreeMap<u32, crate::model::TaskModel>> = Mutex::new(BTreeMap::new());

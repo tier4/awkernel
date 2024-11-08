@@ -86,9 +86,7 @@ impl ArcWake for Task {
             let models = &mut runtime_verification::MODELS.lock(&mut node);
 
             let model = models.get_mut(&self.id).unwrap();
-            model
-                .next(&runtime_verification::event::Event::Wake)
-                .unwrap();
+            model.transition(&runtime_verification::event::Event::Wake);
         }
 
         {
@@ -250,6 +248,15 @@ impl Tasks {
                 e.insert(Arc::new(task));
                 self.candidate_id = id;
 
+                #[cfg(feature = "runtime_verification")]
+                {
+                    let mut node = MCSNode::new();
+                    let mut models = runtime_verification::MODELS.lock(&mut node);
+                    let mut model = runtime_verification::model::TaskModel::new();
+                    model.transition(&runtime_verification::event::Event::Spawn);
+                    models.insert(id, model);
+                }
+
                 return id;
             } else {
                 // The candidate task ID is already used.
@@ -299,18 +306,6 @@ pub fn spawn(
     let mut tasks = TASKS.lock(&mut node);
     let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
 
-    #[cfg(feature = "runtime_verification")]
-    {
-        let mut node = MCSNode::new();
-        let mut models = runtime_verification::MODELS.lock(&mut node);
-
-        let mut model = runtime_verification::task::new_task_model();
-        model
-            .next(&runtime_verification::event::Event::Spawn)
-            .unwrap();
-        models.insert(id, model);
-    }
-
     tasks.wake(id);
 
     id
@@ -344,9 +339,7 @@ fn get_next_task() -> Option<Arc<Task>> {
                 let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                 let model = models.get_mut(&next.id).unwrap();
-                model
-                    .next(&runtime_verification::event::Event::GetNext)
-                    .unwrap();
+                model.transition(&runtime_verification::event::Event::GetNext);
             }
 
             return Some(next);
@@ -361,9 +354,7 @@ fn get_next_task() -> Option<Arc<Task>> {
             let models = &mut runtime_verification::MODELS.lock(&mut node);
 
             let model = models.get_mut(&task.id).unwrap();
-            model
-                .next(&runtime_verification::event::Event::GetNext)
-                .unwrap();
+            model.transition(&runtime_verification::event::Event::GetNext);
         }
     }
 
@@ -818,9 +809,7 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model
-                            .next(&runtime_verification::event::Event::PollPending)
-                            .unwrap();
+                        model.transition(&runtime_verification::event::Event::PollPending);
                     }
 
                     info.state = State::Waiting;
@@ -840,9 +829,7 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model
-                            .next(&runtime_verification::event::Event::PollReady)
-                            .unwrap();
+                        model.transition(&runtime_verification::event::Event::PollReady);
                     }
 
                     info.state = State::Terminated;
@@ -866,9 +853,7 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model
-                            .next(&runtime_verification::event::Event::Panic)
-                            .unwrap();
+                        model.transition(&runtime_verification::event::Event::Panic);
                     }
 
                     info.state = State::Panicked;
@@ -1001,20 +986,17 @@ pub fn set_need_preemption(task_id: u32) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
-    #[cfg(feature = "runtime_verification")]
-    {
-        let mut node = MCSNode::new();
-        let models = &mut runtime_verification::MODELS.lock(&mut node);
-
-        let model = models.get_mut(&task_id).unwrap();
-        model
-            .next(&runtime_verification::event::Event::SetNeedSched)
-            .unwrap();
-    }
-
     if let Some(task) = tasks.id_to_task.get(&task_id) {
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
+        #[cfg(feature = "runtime_verification")]
+        {
+            let mut node = MCSNode::new();
+            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+            let model = models.get_mut(&task_id).unwrap();
+            model.transition(&runtime_verification::event::Event::SetNeedPreemption);
+        }
         info.need_preemption = true;
     }
 }

@@ -84,7 +84,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         );
 
         #[cfg(feature = "runtime_verification")]
-        for _ in 0..20 {
+        //for _ in 0..20 {
+        for _ in 0..2 {
             task::spawn("RR Task".into(), async move { loop {} }, SchedulerType::RR);
         }
 

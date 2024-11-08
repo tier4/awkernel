@@ -122,3 +122,4 @@ aarch64_virt = [
 ]
 spinlock = ["awkernel_lib/spinlock"]
 linux = []
+runtime_verification = ["dep:runtime_verification", "awkernel_async_lib/runtime_verification"]
