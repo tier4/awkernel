@@ -11,16 +11,17 @@ pub async fn run() {
     log::debug!("test gedf num_cpu={}", num_cpu());
 
     // for i in 1..num_cpu() * 2 {
-    //     spawn(
-    //         "infinite_loop".into(),
-    //         async move {
-    //             loop {
-    //                 log::debug!("infinite loop task, no={i}");
-    //                 wait_millisec(100);
-    //             }
-    //         },
-    //         SchedulerType::RR,
-    //     )
-    //     .await;
+        spawn(
+            "infinite_loop".into(),
+            async move {
+                loop {
+                    log::debug!("infinite loop task, no=1");
+                    wait_millisec(100);
+                    awkernel_async_lib::r#yield().await;
+                }
+            },
+            SchedulerType::GEDF(1000, 60),
+        )
+        .await;
     // }
 }
