@@ -241,16 +241,24 @@ fn kernel_main2(
         TypeApic::Xapic(mut xapic) => {
             let result = wake_non_primary_cpus(&xapic, &non_primary_cpus, offset, mpboot_start);
 
+            log::debug!("primary a: Xapic");
+
             // Initialize timer.
             init_apic_timer(&mut xapic);
 
+            log::debug!("primary b: Xapic");
+
             // Register interrupt controller.
             unsafe { register_interrupt_controller(Box::new(xapic)) };
+
+            log::debug!("primary c: Xapic");
 
             result
         }
         TypeApic::X2Apic(mut x2apic) => {
             let result = wake_non_primary_cpus(&x2apic, &non_primary_cpus, offset, mpboot_start);
+
+            log::debug!("primary a: X2apic");
 
             // Initialize the interrupt remapping table.
             if let Err(e) = unsafe {
@@ -264,11 +272,17 @@ fn kernel_main2(
                 wait_forever();
             }
 
+            log::debug!("primary b: X2apic");
+
             // Initialize timer.
             init_apic_timer(&mut x2apic);
 
+            log::debug!("primary c: X2apic");
+
             // Register interrupt controller.
             unsafe { register_interrupt_controller(Box::new(x2apic)) };
+
+            log::debug!("primary d: X2apic");
 
             result
         }
@@ -278,6 +292,8 @@ fn kernel_main2(
         }
     };
 
+    log::debug!("primary e");
+
     if let Err(e) = apic_result {
         log::error!("Failed to initialize APIC. {}", e);
         wait_forever();
@@ -286,14 +302,20 @@ fn kernel_main2(
     // 15. Initialize the primary heap memory allocator.
     init_primary_heap(&mut page_table, &mut page_allocators);
 
+    log::debug!("primary f");
+
     // 16. Initialize PCIe devices.
     if awkernel_drivers::pcie::init_with_acpi(&acpi, 255, 32).is_err() {
         // fallback
         awkernel_drivers::pcie::init_with_io(255, 32);
     }
 
+    log::debug!("primary g");
+
     // 17. Initialize interrupt handlers.
     unsafe { interrupt_handler::init() };
+
+    log::debug!("primary h");
 
     if let Some(framebuffer) = boot_info.framebuffer.take() {
         let info = framebuffer.info();
@@ -308,6 +330,8 @@ fn kernel_main2(
 
         unsafe { awkernel_drivers::ic::x86_64::lfb::init(info, buffer) };
     }
+
+    log::debug!("primary i");
 
     BSP_READY.store(true, Ordering::SeqCst);
 
@@ -493,25 +517,25 @@ fn non_primary_kernel_main() -> ! {
     let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
     let cpu_id = (ebx >> 24) & 0xff;
 
-    unsafe { unsafe_puts("A") };
+    unsafe { unsafe_puts("a") };
 
     while !BSP_READY.load(Ordering::Relaxed) {
         core::hint::spin_loop();
     }
     fence(Ordering::Acquire);
 
-    unsafe { unsafe_puts("B") };
+    unsafe { unsafe_puts("b") };
 
     enable_fpu(); // Enable SSE.
 
     unsafe { interrupt_handler::load() };
 
-    unsafe { unsafe_puts("C") };
+    unsafe { unsafe_puts("c") };
 
     // use the primary and backup allocator
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
-    unsafe { unsafe_puts("D") };
+    unsafe { unsafe_puts("d") };
 
     log::debug!("E: cpu_id = {},", awkernel_lib::cpu::cpu_id());
 
