@@ -14,11 +14,11 @@ use awkernel_lib::{
 use alloc::boxed::Box;
 
 mod fifo;
+pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
 mod priority_based_rr;
 mod rr;
-mod gedf;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
@@ -35,7 +35,7 @@ pub enum SchedulerType {
 
     PriorityBasedRR(u8),
 
-    GEDF(u64, u64), // period, relative deadline
+    GEDF(u64, u64, u64), // period, relative deadline, base time
 
     Panicked,
 }
@@ -103,7 +103,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::RR => &rr::SCHEDULER,
         SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
-        SchedulerType::GEDF(_,_) => &gedf::SCHEDULER,
+        SchedulerType::GEDF(_, _, _) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
@@ -182,6 +182,8 @@ pub fn wake_task() {
             }
         }
     }
+
+    gedf::SCHEDULER.check_waiting_queue();
 
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);

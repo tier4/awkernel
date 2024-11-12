@@ -93,8 +93,14 @@ impl ArcWake for Task {
                 Terminated | Panicked => {
                     return;
                 }
-                Ready | Waiting => {
+                Ready => {
                     info.state = Runnable;
+                }
+                Waiting => {
+                    if let SchedulerType::GEDF(_, _, _) = info.scheduler_type {
+                    } else {
+                        info.state = Runnable;
+                    }
                 }
             }
 
