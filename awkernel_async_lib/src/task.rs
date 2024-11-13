@@ -95,8 +95,7 @@ impl ArcWake for Task {
                     info.state = Runnable;
                 }
                 Waiting => {
-                    if let SchedulerType::GEDF(_, _, _) = info.scheduler_type {
-                    } else {
+                    if !matches!(info.scheduler_type, SchedulerType::GEDF(_, _, _)) {
                         info.state = Runnable;
                     }
                 }
