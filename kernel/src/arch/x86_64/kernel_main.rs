@@ -76,6 +76,7 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 
 /// The entry point of x86_64.
 ///
+/// 0. Initialize the configuration.
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
@@ -96,7 +97,7 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 18. Synchronize RDTSC.
 /// 19. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
-    unsafe { crate::config::init() };
+    unsafe { crate::config::init() }; // 0. Initialize the configuration.
 
     enable_fpu(); // 1. Enable SSE.
 
@@ -331,14 +332,6 @@ fn kernel_main2(
         info: Some(boot_info),
         cpu_id: 0,
     };
-
-    loop {
-        let t0 = awkernel_lib::delay::uptime_nano();
-        let t1 = awkernel_lib::delay::uptime_nano();
-        log::debug!("{} [ns]", t1 - t0);
-
-        awkernel_lib::delay::wait_microsec(1_000_000);
-    }
 
     // 19. Call `crate::main()`.
     crate::main(kernel_info);

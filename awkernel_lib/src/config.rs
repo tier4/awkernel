@@ -11,6 +11,7 @@ pub unsafe fn set_stack_size(size: usize) {
 }
 
 /// Get the stack size.
+#[inline(always)]
 pub fn get_stack_size() -> usize {
     unsafe { STACK_SIZE }
 }
@@ -25,6 +26,7 @@ pub unsafe fn set_stack_start(start: usize) {
 }
 
 /// Get the stack start.
+#[inline(always)]
 pub fn get_stack_start() -> usize {
     unsafe { STACK_START }
 }
