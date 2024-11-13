@@ -24,6 +24,8 @@ use awkernel_drivers::interrupt_controller::apic::{
 use awkernel_lib::{
     arch::x86_64::{
         acpi::AcpiMapper,
+        cpu::set_raw_cpu_id_to_numa,
+        delay::synchronize_rdtsc,
         interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
@@ -74,6 +76,7 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 
 /// The entry point of x86_64.
 ///
+/// 0. Initialize the configuration.
 /// 1. Enable FPU.
 /// 2. Initialize a serial port.
 /// 3. Initialize the virtual memory.
@@ -91,8 +94,11 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 15. Initialize the primary heap memory allocator.
 /// 16. Initialize PCIe devices.
 /// 17. Initialize interrupt handlers.
-/// 18. Call `crate::main()`.
+/// 18. Synchronize RDTSC.
+/// 19. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    unsafe { crate::config::init() }; // 0. Initialize the configuration.
+
     enable_fpu(); // 1. Enable SSE.
 
     super::console::init_device(); // 2. Initialize the serial port.
@@ -181,6 +187,8 @@ fn kernel_main2(
         log::error!("Failed to map stack memory.");
         wait_forever();
     }
+
+    unsafe { set_raw_cpu_id_to_numa(cpu_to_numa) };
 
     let (type_apic, mpboot_start) = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
         // 10. Initialize `awkernel_lib` and `awkernel_driver`
@@ -315,6 +323,9 @@ fn kernel_main2(
         core::hint::spin_loop();
     }
 
+    // 18. Synchronize RDTSC.
+    unsafe { synchronize_rdtsc() };
+
     log::info!("All CPUs are ready.");
 
     let kernel_info = KernelInfo {
@@ -322,7 +333,7 @@ fn kernel_main2(
         cpu_id: 0,
     };
 
-    // 18. Call `crate::main()`.
+    // 19. Call `crate::main()`.
     crate::main(kernel_info);
 }
 
@@ -506,6 +517,12 @@ fn non_primary_kernel_main() -> ! {
     unsafe { awkernel_lib::heap::TALLOC.use_primary_then_backup() };
 
     BOOTED_APS.fetch_sub(1, Ordering::Relaxed);
+
+    while BOOTED_APS.load(Ordering::Relaxed) != 0 {
+        core::hint::spin_loop();
+    }
+
+    unsafe { synchronize_rdtsc() };
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,

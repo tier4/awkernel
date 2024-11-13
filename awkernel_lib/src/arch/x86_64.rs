@@ -3,7 +3,7 @@ use ::acpi::AcpiTables;
 
 pub mod acpi;
 pub mod cpu;
-pub(super) mod delay;
+pub mod delay;
 pub(super) mod dvfs;
 pub(super) mod interrupt;
 pub mod interrupt_remap;
