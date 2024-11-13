@@ -9,10 +9,10 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::{
-    cpu_counter,
-    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
-};
+#[cfg(feature = "perf")]
+use crate::cpu_counter;
+
+use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -49,6 +49,69 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
+pub struct TaskList {
+    head: Option<Arc<Task>>,
+    tail: Option<Arc<Task>>,
+}
+
+impl Default for TaskList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TaskList {
+    pub fn new() -> Self {
+        Self {
+            head: None,
+            tail: None,
+        }
+    }
+
+    pub fn push_back(&mut self, task: Arc<Task>) {
+        match self.tail.take() {
+            Some(old_tail) => {
+                {
+                    let mut node = MCSNode::new();
+                    let mut next = task.next.lock(&mut node);
+                    *next = None;
+                }
+
+                {
+                    let mut node = MCSNode::new();
+                    let mut next = old_tail.next.lock(&mut node);
+                    *next = Some(task.clone());
+                }
+
+                self.tail = Some(task);
+            }
+            None => {
+                self.head = Some(task.clone());
+                self.tail = Some(task);
+            }
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<Arc<Task>> {
+        match self.head.take() {
+            Some(old_head) => {
+                {
+                    let mut node = MCSNode::new();
+                    let mut next = old_head.next.lock(&mut node);
+                    self.head = next.take();
+                }
+
+                if self.head.is_none() {
+                    self.tail = None;
+                }
+
+                Some(old_head)
+            }
+            None => None,
+        }
+    }
+}
+
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
@@ -56,6 +119,7 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
+    next: Mutex<Option<Arc<Task>>>,
 }
 
 impl Task {
@@ -231,6 +295,7 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
+                    next: Mutex::new(None),
                 };
 
                 e.insert(Arc::new(task));
@@ -318,6 +383,7 @@ fn get_next_task() -> Option<Arc<Task>> {
     scheduler::get_next_task()
 }
 
+#[cfg(feature = "perf")]
 pub mod perf {
     use crate::task::get_current_task;
     use awkernel_lib::cpu::NUM_MAX_CPU;
@@ -643,7 +709,9 @@ pub mod perf {
 
 pub fn run_main() {
     loop {
+        #[cfg(feature = "perf")]
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
             {
@@ -656,21 +724,28 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_context_save_start(
-                        perf::ContextSwitchType::Yield,
-                        awkernel_lib::cpu::cpu_id(),
-                        cpu_counter(),
-                    );
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_context_save_start(
+                            perf::ContextSwitchType::Yield,
+                            awkernel_lib::cpu::cpu_id(),
+                            cpu_counter(),
+                        );
+                    }
 
                     unsafe { preempt::yield_and_pool(ctx) };
 
-                    perf::add_context_restore_end(
-                        perf::ContextSwitchType::Yield,
-                        awkernel_lib::cpu::cpu_id(),
-                        cpu_counter(),
-                    );
-                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_context_restore_end(
+                            perf::ContextSwitchType::Yield,
+                            awkernel_lib::cpu::cpu_id(),
+                            cpu_counter(),
+                        );
+                        perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    }
+
                     continue;
                 }
             }
@@ -722,14 +797,20 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_task_start(cpu_id, cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_task_start(cpu_id, cpu_counter());
+                    }
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    }
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
@@ -767,6 +848,8 @@ pub fn run_main() {
                         drop(info);
                         task.clone().wake();
                     }
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Ok(Poll::Ready(result)) => {
@@ -781,8 +864,13 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
+                    #[cfg(feature = "perf")]
                     perf::reset_task_exec_time(task.id);
+
                     tasks.remove(task.id);
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Err(_) => {
@@ -792,13 +880,19 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
+                    #[cfg(feature = "perf")]
                     perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
             }
         } else {
+            #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+
             #[cfg(feature = "std")]
             awkernel_lib::delay::wait_microsec(50);
 
@@ -814,6 +908,8 @@ pub fn run_main() {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
         }
     }
