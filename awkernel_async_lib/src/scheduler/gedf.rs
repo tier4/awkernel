@@ -6,8 +6,6 @@ use alloc::collections::BTreeMap;
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-static TASKMANAGER: Mutex<TaskManager> = Mutex::new(TaskManager::new());
-
 #[derive(Default)]
 struct TaskManager {
     tasks: BTreeMap<u32, u64>, // task_id -> ignition_count
@@ -27,23 +25,22 @@ impl TaskManager {
     fn get_ignition_count(&self, task_id: u32) -> Option<u64> {
         self.tasks.get(&task_id).copied()
     }
-}
 
-pub fn ignition_task(task_id: u32) {
-    let mut task_manager_node = MCSNode::new();
-    let mut task_manager = TASKMANAGER.lock(&mut task_manager_node);
-    if let Some(ignition_count) = task_manager.tasks.get_mut(&task_id) {
-        *ignition_count += 1;
+    fn ignition_task(&mut self,task_id: u32) {
+        if let Some(ignition_count) = self.tasks.get_mut(&task_id) {
+            *ignition_count += 1;
+        }
     }
 }
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // Run runnable_queue.
+    task_manager: Mutex<TaskManager>, // task_id -> ignition_count
 }
 
 struct GEDFTask {
     task: Arc<Task>,
-    judge_time: u64,
+    priority: u64, // Absolute deadline or runnable time.
     timestamp: u64,
 }
 
@@ -55,13 +52,13 @@ impl PartialOrd for GEDFTask {
 
 impl PartialEq for GEDFTask {
     fn eq(&self, other: &Self) -> bool {
-        self.judge_time == other.judge_time && self.timestamp == other.timestamp
+        self.priority == other.priority && self.timestamp == other.timestamp
     }
 }
 
 impl Ord for GEDFTask {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.judge_time.cmp(&other.judge_time).reverse() {
+        match self.priority.cmp(&other.priority).reverse() {
             core::cmp::Ordering::Equal => self.timestamp.cmp(&other.timestamp).reverse(),
             other => other,
         }
@@ -89,8 +86,8 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        let mut task_manager_node = MCSNode::new();
-        let mut task_manager = TASKMANAGER.lock(&mut task_manager_node);
+        let mut node = MCSNode::new();
+        let mut task_manager = self.task_manager.lock(&mut node);
 
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
@@ -116,7 +113,7 @@ impl Scheduler for GEDFScheduler {
                 info.state = State::Waiting;
                 data.waiting_queue.push(GEDFTask {
                     task: task.clone(),
-                    judge_time: runnable_time,
+                    priority: runnable_time,
                     timestamp: awkernel_lib::delay::uptime(),
                 });
                 return;
@@ -124,15 +121,16 @@ impl Scheduler for GEDFScheduler {
                 info.state = State::Runnable;
                 data.runnable_queue.push(GEDFTask {
                     task: task.clone(),
-                    judge_time: absolute_deadline,
+                    priority: absolute_deadline,
                     timestamp: awkernel_lib::delay::uptime(),
                 });
+                // TODO: preempt process
             }
         } else {
             let mut gedf_data = GEDFData::new();
             gedf_data.runnable_queue.push(GEDFTask {
                 task: task.clone(),
-                judge_time: absolute_deadline,
+                priority: absolute_deadline,
                 timestamp: awkernel_lib::delay::uptime(),
             });
             *data = Some(gedf_data);
@@ -179,6 +177,7 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
+    task_manager: Mutex::new(TaskManager::new()),
 };
 
 impl GEDFScheduler {
@@ -186,25 +185,39 @@ impl GEDFScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        if let Some(data) = data.as_mut() {
-            loop {
-                if let Some(top_task) = data.waiting_queue.peek() {
-                    if top_task.judge_time <= awkernel_lib::delay::uptime() {
-                        if let Some(task) = data.waiting_queue.pop() {
-                            {
-                                let mut node = MCSNode::new();
-                                let mut task_info = task.task.info.lock(&mut node);
-                                task_info.state = State::Runnable;
-                            }
-                            data.runnable_queue.push(task);
-                        }
-                    } else {
-                        break;
-                    }
-                } else {
-                    break;
-                }
+        let data = match data.as_mut() {
+            Some(data) => data,
+            None => return,
+        };
+
+        loop {
+            let top_task = match data.waiting_queue.peek() {
+                Some(task) => task,
+                None => break,
+            };
+
+            if top_task.priority > awkernel_lib::delay::uptime() {
+                // TODO: preempt process
+                break;
+            }
+
+            if let Some(mut task) = data.waiting_queue.pop() {
+                self.set_task_runnable(&mut task);
+                data.runnable_queue.push(task);
             }
         }
+    }
+
+    fn set_task_runnable(&self, task: &mut GEDFTask) {
+        let mut node = MCSNode::new();
+        let mut task_info = task.task.info.lock(&mut node);
+        task_info.state = State::Runnable;
+    }
+
+    pub fn ignition_task(&self,task_id: u32) {
+        let mut node = MCSNode::new();
+        let mut task_manager = self.task_manager.lock(&mut node);
+
+        task_manager.ignition_task(task_id);
     }
 }
