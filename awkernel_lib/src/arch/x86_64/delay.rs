@@ -1,7 +1,7 @@
-use super::{acpi::AcpiMapper, cpu::cpu_id_to_numa, page_allocator::VecPageAllocator};
+use super::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
-    cpu::{cpu_id, raw_cpu_id},
+    cpu::cpu_id,
     delay::{uptime, wait_forever, Delay},
     mmio_r, mmio_rw,
     paging::{Flags, PageTable},
@@ -9,7 +9,7 @@ use crate::{
 use acpi::AcpiTables;
 use core::sync::{
     self,
-    atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
@@ -25,7 +25,6 @@ static RDTSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 static mut RDTSC_FREQ: u128 = 0;
 
 static CPU0_RDTSC: AtomicU64 = AtomicU64::new(0);
-static RDTSC_OFFSET: [AtomicI64; 16] = array_macro::array![_ => AtomicI64::new(0); 16];
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -58,20 +57,6 @@ impl Delay for super::X86 {
         if hz == 0 {
             return 0;
         }
-
-        let id = cpu_id();
-        let numa_id = cpu_id_to_numa(id);
-
-        let now = if numa_id != 0 {
-            let offset = RDTSC_OFFSET[numa_id].load(Ordering::Relaxed);
-            if offset < 0 {
-                now - offset.unsigned_abs()
-            } else {
-                now + offset as u64
-            }
-        } else {
-            now
-        };
 
         let diff = now - start;
         diff as u128 * 1_000_000_000 / hz
@@ -195,14 +180,9 @@ fn read_rdtsc() -> u64 {
 ///
 /// This function must be called during the kernel initialization.
 pub unsafe fn synchronize_rdtsc() {
-    let raw_cpu_id = raw_cpu_id();
-    let numa_id = cpu_id_to_numa(raw_cpu_id);
+    let cpu_id = cpu_id();
 
-    if raw_cpu_id != 0 && numa_id == 0 {
-        return;
-    }
-
-    if raw_cpu_id == 0 {
+    if cpu_id == 0 {
         CPU0_RDTSC.store(read_rdtsc(), Ordering::Relaxed);
     } else {
         let cpu0_rdtsc = loop {
@@ -212,14 +192,9 @@ pub unsafe fn synchronize_rdtsc() {
             }
         };
 
-        let now = read_rdtsc();
+        const IA32_TIME_STAMP_COUNTER: u32 = 0x10;
 
-        let diff = if now <= cpu0_rdtsc {
-            (cpu0_rdtsc - now) as i64
-        } else {
-            (now - cpu0_rdtsc) as i64
-        };
-
-        RDTSC_OFFSET[numa_id].store(diff, Ordering::Relaxed);
+        // Initialize the RDTSC counter.
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_rdtsc);
     }
 }
