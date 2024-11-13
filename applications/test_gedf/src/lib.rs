@@ -1,5 +1,9 @@
 #![no_std]
 
+extern crate alloc;
+use alloc::string::String;
+use alloc::string::ToString;
+
 use awkernel_async_lib::scheduler::gedf;
 use awkernel_async_lib::task::get_current_task;
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
@@ -9,98 +13,39 @@ use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
 pub async fn run() {
     wait_microsec(1000000);
 
-    spawn(
-        "infinite_loop_1".into(),
-        async move {
-            gedf::SCHEDULER.register_task(get_current_task(cpu_id()).unwrap());
-            loop {
-                log::debug!(
-                    "infinite loop 1 task, task_id={}, cpu_id={}",
-                    get_current_task(cpu_id()).unwrap(),
-                    cpu_id()
-                );
-                wait_microsec(500000);
-                gedf::SCHEDULER.increment_ignition(get_current_task(cpu_id()).unwrap());
-                awkernel_async_lib::r#yield().await;
-            }
-        },
-        SchedulerType::GEDF(1000000, 600000, awkernel_lib::delay::uptime()),
-    )
-    .await;
+    spawn_infinite_loop("infinite_loop_1".to_string(), 500000, 1000000, 800000).await; // task exe 0.5s, period 1s, deadline 0.8s
+    spawn_infinite_loop("infinite_loop_2".to_string(), 1500000, 2000000, 1600000).await; // task exe 1.5s, period 2s, deadline 1.6s
+    spawn_infinite_loop("infinite_loop_3".to_string(), 2700000, 3000000, 2800000).await; // task exe 2.7s, period 3s, deadline 2.8s
+}
 
+/// Helper function to spawn an infinite loop task with specific parameters.
+async fn spawn_infinite_loop(
+    task_name: String,
+    wait_duration: u64,
+    period: u64,
+    deadline: u64,
+) {
+    let task_name_clone = task_name.clone(); // Clone `task_name` to avoid moving into async block
     spawn(
-        "infinite_loop_2".into(),
+        task_name.into(),
         async move {
             gedf::SCHEDULER.register_task(get_current_task(cpu_id()).unwrap());
             loop {
+                let start_time = awkernel_lib::delay::uptime();
+                wait_microsec(wait_duration);
+                let end_time = awkernel_lib::delay::uptime();
                 log::debug!(
-                    "infinite loop 2 task, task_id={}, cpu_id={}",
-                    get_current_task(cpu_id()).unwrap(),
-                    cpu_id()
+                    "task_name: {}, cpu_id: {}, start_time: {}, end_time: {}",
+                    task_name_clone,
+                    cpu_id(),
+                    start_time,
+                    end_time
                 );
-                wait_microsec(400000);
                 gedf::SCHEDULER.increment_ignition(get_current_task(cpu_id()).unwrap());
                 awkernel_async_lib::r#yield().await;
             }
         },
-        SchedulerType::GEDF(1500000, 500000, awkernel_lib::delay::uptime()),
-    )
-    .await;
-
-    spawn(
-        "infinite_loop_3".into(),
-        async move {
-            gedf::SCHEDULER.register_task(get_current_task(cpu_id()).unwrap());
-            loop {
-                log::debug!(
-                    "infinite loop 3 task, task_id={}, cpu_id={}",
-                    get_current_task(cpu_id()).unwrap(),
-                    cpu_id()
-                );
-                wait_microsec(300000);
-                gedf::SCHEDULER.increment_ignition(get_current_task(cpu_id()).unwrap());
-                awkernel_async_lib::r#yield().await;
-            }
-        },
-        SchedulerType::GEDF(2000000, 400000, awkernel_lib::delay::uptime()),
-    )
-    .await;
-
-    spawn(
-        "infinite_loop_4".into(),
-        async move {
-            gedf::SCHEDULER.register_task(get_current_task(cpu_id()).unwrap());
-            loop {
-                log::debug!(
-                    "infinite loop 4 task, task_id={}, cpu_id={}",
-                    get_current_task(cpu_id()).unwrap(),
-                    cpu_id()
-                );
-                wait_microsec(700000);
-                gedf::SCHEDULER.increment_ignition(get_current_task(cpu_id()).unwrap());
-                awkernel_async_lib::r#yield().await;
-            }
-        },
-        SchedulerType::GEDF(3000000, 800000, awkernel_lib::delay::uptime()),
-    )
-    .await;
-
-    spawn(
-        "infinite_loop_5".into(),
-        async move {
-            gedf::SCHEDULER.register_task(get_current_task(cpu_id()).unwrap());
-            loop {
-                log::debug!(
-                    "infinite loop 5 task, task_id={}, cpu_id={}",
-                    get_current_task(cpu_id()).unwrap(),
-                    cpu_id()
-                );
-                wait_microsec(600000);
-                gedf::SCHEDULER.increment_ignition(get_current_task(cpu_id()).unwrap());
-                awkernel_async_lib::r#yield().await;
-            }
-        },
-        SchedulerType::GEDF(1000000, 800000, awkernel_lib::delay::uptime()),
+        SchedulerType::GEDF(period, deadline, awkernel_lib::delay::uptime()),
     )
     .await;
 }
