@@ -5,8 +5,7 @@ use awkernel_async_lib::task::get_current_task;
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::{cpu::cpu_id, cpu::num_cpu, delay::wait_millisec};
 
-/// This test confirms that RR scheduler does not cause a starvation.
-/// There are more tasks than num_cpu(), but all tasks will be run infinite times.
+/// This test verifies that the GEDF scheduler adheres to the startup order and startup timing.
 pub async fn run() {
     wait_millisec(1000);
 

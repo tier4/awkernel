@@ -11,10 +11,17 @@ pub struct GEDFScheduler {
     task_manager: Mutex<IgnitionCounter>, // task_id -> ignition_count
 }
 
+/// A GEDF task has two types of priority attributes:
+/// - priority: This can represent either an absolute deadline or a release time:
+///   - absolute deadline: The time when the task must be completed. Runnable tasks have absolute deadline.
+///   - release time: The time when the task becomes release. Waiting tasks have release time.
+/// - timestamp: The time when the task is enqueued.
+// The task with the highest priority is executed first.
+// If two tasks have the same priority, the task with the earliest timestamp is executed first..
 struct GEDFTask {
     task: Arc<Task>,
-    priority: u64,  // Absolute deadline or runnable time.
-    timestamp: u64, // The time when the task is enqueued.
+    priority: u64,
+    timestamp: u64,
 }
 
 impl PartialOrd for GEDFTask {
@@ -66,6 +73,7 @@ impl IgnitionCounter {
         }
     }
 
+    /// Used immediately after the start of a periodic task.
     fn register_task(&mut self, task_id: u32) {
         self.ignition_counts.entry(task_id).or_insert(0);
     }
@@ -74,6 +82,7 @@ impl IgnitionCounter {
         *self.ignition_counts.get(&task_id).unwrap_or(&0)
     }
 
+    /// Used when the periodic task is executed.
     fn increment_ignition(&mut self, task_id: u32) {
         if let Some(ignition_count) = self.ignition_counts.get_mut(&task_id) {
             *ignition_count += 1;
@@ -83,19 +92,20 @@ impl IgnitionCounter {
 
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let (runnable_time, absolute_deadline) = self.calculate_runnable_and_deadline(&task);
+        let (release_time, absolute_deadline) = self.calculate_release_and_deadline(&task);
 
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
         if let Some(data) = data.as_mut() {
-            let task_state = if runnable_time > awkernel_lib::delay::uptime() {
+            // Determine whether a task is executable and enqueue it to a suitable queue.
+            let task_state = if release_time > awkernel_lib::delay::uptime() {
                 State::Waiting
             } else {
                 State::Runnable
             };
 
             let priority = if task_state == State::Waiting {
-                runnable_time
+                release_time
             } else {
                 absolute_deadline
             };
@@ -175,31 +185,27 @@ impl GEDFScheduler {
         if let SchedulerType::GEDF(period, relative_deadline, base_time) = info.scheduler_type {
             (period, relative_deadline, base_time)
         } else {
+            // Unreachable
             panic!("Expected SchedulerType::GEDF, but found a different type.");
         }
     }
 
-    fn calculate_runnable_and_deadline(&self, task: &Arc<Task>) -> (u64, u64) {
+    fn calculate_release_and_deadline(&self, task: &Arc<Task>) -> (u64, u64) {
         let (period, relative_deadline, base_time) = self.get_gedf_params(task);
         let ignition_count = {
             let mut node = MCSNode::new();
             let task_manager = self.task_manager.lock(&mut node);
             task_manager.get_ignition_count(task.id)
         };
-        let runnable_time = base_time + period * ignition_count;
-        let absolute_deadline = runnable_time + relative_deadline;
-        (runnable_time, absolute_deadline)
+        let release_time = base_time + period * ignition_count;
+        let absolute_deadline = release_time + relative_deadline;
+        (release_time, absolute_deadline)
     }
 
     fn set_task_state(&self, task: &mut Arc<Task>, task_state: State) {
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
         info.state = task_state;
-    }
-
-    /// This function should be called from only check_waiting_queue.
-    fn is_task_runnable(&self, top_task: &GEDFTask) -> bool {
-        top_task.priority <= awkernel_lib::delay::uptime() //priority is runnable_time
     }
 
     pub fn check_waiting_queue(&self) {
@@ -212,13 +218,15 @@ impl GEDFScheduler {
         };
 
         while let Some(top_task) = data.waiting_queue.peek() {
-            if !self.is_task_runnable(top_task) {
-                break;
+            // Priority is release_time
+            if top_task.priority >= awkernel_lib::delay::uptime() {
+                break; // Not executable
             }
 
+            // Move the task from the waiting_queue to the runnable_queue.
             if let Some(mut task) = data.waiting_queue.pop() {
                 self.set_task_state(&mut task.task, State::Runnable);
-                let (_, absolute_deadline) = self.calculate_runnable_and_deadline(&task.task);
+                let (_, absolute_deadline) = self.calculate_release_and_deadline(&task.task);
                 data.runnable_queue.push(GEDFTask {
                     task: task.task.clone(),
                     priority: absolute_deadline,
