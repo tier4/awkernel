@@ -35,7 +35,7 @@ pub enum SchedulerType {
 
     PriorityBasedRR(u8),
 
-    GEDF(u64, u64, u64), // period, relative deadline, base time
+    GEDF(u64, u64, u64), // period, relative deadline, spawn time
 
     Panicked,
 }

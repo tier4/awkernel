@@ -13,18 +13,16 @@ use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
 pub async fn run() {
     wait_microsec(1000000);
 
-    spawn_infinite_loop("infinite_loop_1".to_string(), 500000, 1000000, 800000).await; // task exe 0.5s, period 1s, deadline 0.8s
-    spawn_infinite_loop("infinite_loop_2".to_string(), 1500000, 2000000, 1600000).await; // task exe 1.5s, period 2s, deadline 1.6s
-    spawn_infinite_loop("infinite_loop_3".to_string(), 2700000, 3000000, 2800000).await; // task exe 2.7s, period 3s, deadline 2.8s
+    // task exe 0.5s, period 1s, deadline 0.8s
+    spawn_infinite_loop("infinite_loop_1".to_string(), 500000, 1000000, 800000).await;
+    // task exe 1.5s, period 2s, deadline 1.6s
+    spawn_infinite_loop("infinite_loop_2".to_string(), 1500000, 2000000, 1600000).await;
+    // task exe 2.7s, period 3s, deadline 2.8s
+    spawn_infinite_loop("infinite_loop_3".to_string(), 2700000, 3000000, 2800000).await;
 }
 
 /// Helper function to spawn an infinite loop task with specific parameters.
-async fn spawn_infinite_loop(
-    task_name: String,
-    wait_duration: u64,
-    period: u64,
-    deadline: u64,
-) {
+async fn spawn_infinite_loop(task_name: String, wait_duration: u64, period: u64, deadline: u64) {
     let task_name_clone = task_name.clone(); // Clone `task_name` to avoid moving into async block
     spawn(
         task_name.into(),
