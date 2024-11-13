@@ -17,6 +17,7 @@ use alloc::{
     collections::{btree_set::BTreeSet, BTreeMap, VecDeque},
     vec::Vec,
 };
+use awkernel_async_lib::uptime_nano;
 use awkernel_drivers::interrupt_controller::apic::{
     registers::{DeliveryMode, DestinationShorthand, IcrFlags},
     Apic, TypeApic,
