@@ -2,7 +2,7 @@ use super::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     cpu::cpu_id,
-    delay::{uptime, wait_forever, Delay},
+    delay::{uptime, wait_forever, wait_microsec, Delay},
     mmio_r, mmio_rw,
     paging::{Flags, PageTable},
 };
@@ -183,6 +183,7 @@ pub unsafe fn synchronize_rdtsc() {
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {
+        wait_microsec(10000);
         CPU0_RDTSC.store(read_rdtsc(), Ordering::Relaxed);
     } else {
         let cpu0_rdtsc = loop {
