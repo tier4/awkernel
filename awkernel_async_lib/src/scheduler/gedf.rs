@@ -6,42 +6,15 @@ use alloc::collections::BTreeMap;
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-#[derive(Default)]
-struct TaskManager {
-    tasks: BTreeMap<u32, u64>, // task_id -> ignition_count
-}
-
-impl TaskManager {
-    const fn new() -> Self {
-        TaskManager {
-            tasks: BTreeMap::new(),
-        }
-    }
-
-    fn add_task(&mut self, task_id: u32) {
-        self.tasks.entry(task_id).or_insert(0);
-    }
-
-    fn get_ignition_count(&self, task_id: u32) -> Option<u64> {
-        self.tasks.get(&task_id).copied()
-    }
-
-    fn ignition_task(&mut self, task_id: u32) {
-        if let Some(ignition_count) = self.tasks.get_mut(&task_id) {
-            *ignition_count += 1;
-        }
-    }
-}
-
 pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>,    // Run runnable_queue.
-    task_manager: Mutex<TaskManager>, // task_id -> ignition_count
+    data: Mutex<Option<GEDFData>>, // runnable_queue and waiting_queue.
+    task_manager: Mutex<IgnitionCounter>, // task_id -> ignition_count
 }
 
 struct GEDFTask {
     task: Arc<Task>,
-    priority: u64, // Absolute deadline or runnable time.
-    timestamp: u64,
+    priority: u64,  // Absolute deadline or runnable time.
+    timestamp: u64, // The time when the task is enqueued.
 }
 
 impl PartialOrd for GEDFTask {
@@ -81,51 +54,66 @@ impl GEDFData {
     }
 }
 
+#[derive(Default)]
+struct IgnitionCounter {
+    ignition_counts: BTreeMap<u32, u64>, // task_id -> ignition_count
+}
+
+impl IgnitionCounter {
+    const fn new() -> Self {
+        IgnitionCounter {
+            ignition_counts: BTreeMap::new(),
+        }
+    }
+
+    fn register_task(&mut self, task_id: u32) {
+        self.ignition_counts.entry(task_id).or_insert(0);
+    }
+
+    fn get_ignition_count(&self, task_id: u32) -> u64 {
+        *self.ignition_counts.get(&task_id).unwrap_or(&0)
+    }
+
+    fn increment_ignition(&mut self, task_id: u32) {
+        if let Some(ignition_count) = self.ignition_counts.get_mut(&task_id) {
+            *ignition_count += 1;
+        }
+    }
+}
+
 impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
+        let (runnable_time, absolute_deadline) = self.calculate_runnable_and_deadline(&task);
+
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
-
-        let mut node = MCSNode::new();
-        let mut task_manager = self.task_manager.lock(&mut node);
-
-        let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
-        let SchedulerType::GEDF(period, relative_deadline, base_time) = info.scheduler_type else {
-            return;
-        };
-
-        let task_id = task.id;
-        task_manager.add_task(task_id);
-        let ignition_count = task_manager.get_ignition_count(task_id).unwrap_or(0);
-        let runnable_time = base_time + period * ignition_count;
-        let absolute_deadline = runnable_time + relative_deadline;
-
-        log::debug!(
-            "task_id={}, ignition_count={}, absolute_deadline={}",
-            task_id,
-            ignition_count,
-            absolute_deadline
-        );
-
         if let Some(data) = data.as_mut() {
-            if runnable_time > awkernel_lib::delay::uptime() {
-                info.state = State::Waiting;
-                data.waiting_queue.push(GEDFTask {
-                    task: task.clone(),
-                    priority: runnable_time,
-                    timestamp: awkernel_lib::delay::uptime(),
-                });
-                return;
+            let task_state = if runnable_time > awkernel_lib::delay::uptime() {
+                State::Waiting
             } else {
-                info.state = State::Runnable;
-                data.runnable_queue.push(GEDFTask {
-                    task: task.clone(),
-                    priority: absolute_deadline,
-                    timestamp: awkernel_lib::delay::uptime(),
-                });
-                // TODO: preempt process
-            }
+                State::Runnable
+            };
+
+            let priority = if task_state == State::Waiting {
+                runnable_time
+            } else {
+                absolute_deadline
+            };
+
+            let queue = if task_state == State::Waiting {
+                &mut data.waiting_queue
+            } else {
+                &mut data.runnable_queue
+            };
+
+            let mut task = task.clone();
+            self.set_task_state(&mut task, task_state);
+
+            queue.push(GEDFTask {
+                task: task,
+                priority,
+                timestamp: awkernel_lib::delay::uptime(),
+            });
         } else {
             let mut gedf_data = GEDFData::new();
             gedf_data.runnable_queue.push(GEDFTask {
@@ -177,10 +165,43 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
-    task_manager: Mutex::new(TaskManager::new()),
+    task_manager: Mutex::new(IgnitionCounter::new()),
 };
 
 impl GEDFScheduler {
+    fn get_gedf_params(&self, task: &Arc<Task>) -> (u64, u64, u64) {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        if let SchedulerType::GEDF(period, relative_deadline, base_time) = info.scheduler_type {
+            (period, relative_deadline, base_time)
+        } else {
+            panic!("Expected SchedulerType::GEDF, but found a different type.");
+        }
+    }
+
+    fn calculate_runnable_and_deadline(&self, task: &Arc<Task>) -> (u64, u64) {
+        let (period, relative_deadline, base_time) = self.get_gedf_params(task);
+        let ignition_count = {
+            let mut node = MCSNode::new();
+            let task_manager = self.task_manager.lock(&mut node);
+            task_manager.get_ignition_count(task.id)
+        };
+        let runnable_time = base_time + period * ignition_count;
+        let absolute_deadline = runnable_time + relative_deadline;
+        (runnable_time, absolute_deadline)
+    }
+
+    fn set_task_state(&self, task: &mut Arc<Task>, task_state: State) {
+        let mut node = MCSNode::new();
+        let mut info = task.info.lock(&mut node);
+        info.state = task_state;
+    }
+
+    /// This function should be called from only check_waiting_queue.
+    fn is_task_runnable(&self, top_task: &GEDFTask) -> bool {
+        top_task.priority <= awkernel_lib::delay::uptime() //priority is runnable_time
+    }
+
     pub fn check_waiting_queue(&self) {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
@@ -190,34 +211,32 @@ impl GEDFScheduler {
             None => return,
         };
 
-        loop {
-            let top_task = match data.waiting_queue.peek() {
-                Some(task) => task,
-                None => break,
-            };
-
-            if top_task.priority > awkernel_lib::delay::uptime() {
-                // TODO: preempt process
+        while let Some(top_task) = data.waiting_queue.peek() {
+            if !self.is_task_runnable(top_task) {
                 break;
             }
 
             if let Some(mut task) = data.waiting_queue.pop() {
-                self.set_task_runnable(&mut task);
-                data.runnable_queue.push(task);
+                self.set_task_state(&mut task.task, State::Runnable);
+                let (_, absolute_deadline) = self.calculate_runnable_and_deadline(&task.task);
+                data.runnable_queue.push(GEDFTask {
+                    task: task.task.clone(),
+                    priority: absolute_deadline,
+                    timestamp: awkernel_lib::delay::uptime(),
+                });
             }
         }
     }
 
-    fn set_task_runnable(&self, task: &mut GEDFTask) {
-        let mut node = MCSNode::new();
-        let mut task_info = task.task.info.lock(&mut node);
-        task_info.state = State::Runnable;
-    }
-
-    pub fn ignition_task(&self, task_id: u32) {
+    pub fn register_task(&self, task_id: u32) {
         let mut node = MCSNode::new();
         let mut task_manager = self.task_manager.lock(&mut node);
+        task_manager.register_task(task_id);
+    }
 
-        task_manager.ignition_task(task_id);
+    pub fn increment_ignition(&self, task_id: u32) {
+        let mut node = MCSNode::new();
+        let mut task_manager = self.task_manager.lock(&mut node);
+        task_manager.increment_ignition(task_id);
     }
 }
