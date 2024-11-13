@@ -2,18 +2,8 @@
 
 extern crate alloc;
 
-use alloc::{borrow::Cow, format, vec};
-use awkernel_async_lib::{
-    channel::bounded,
-    pubsub::{self, create_publisher, create_subscriber},
-    scheduler::SchedulerType,
-    sleep, spawn, spawn_reactor, uptime_nano,
-};
-use core::{
-    ptr::write_volatile,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
+use alloc::format;
+use awkernel_async_lib::{channel::bounded, scheduler::SchedulerType, spawn, uptime_nano};
 
 pub async fn run() {
     for i in 0..10 {
