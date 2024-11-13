@@ -111,7 +111,7 @@ pub fn uptime() -> u64 {
 /// # Example
 ///
 /// ```
-/// use awkernel_lib::delay::uptime;
+/// use awkernel_lib::delay::uptime_nano;
 /// let start = uptime_nano();
 /// let end = uptime_nano();
 /// log::info!("{} [ns]", end - start);
