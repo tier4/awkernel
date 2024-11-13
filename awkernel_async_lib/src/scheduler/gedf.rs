@@ -8,7 +8,7 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // runnable_queue and waiting_queue.
-    task_manager: Mutex<IgnitionCounter>, // task_id -> ignition_count
+    ignition_counter: Mutex<IgnitionCounter>, // task_id -> ignition_count
 }
 
 /// A GEDF task has two types of priority attributes:
@@ -175,15 +175,15 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
-    task_manager: Mutex::new(IgnitionCounter::new()),
+    ignition_counter: Mutex::new(IgnitionCounter::new()),
 };
 
 impl GEDFScheduler {
     fn get_gedf_params(&self, task: &Arc<Task>) -> (u64, u64, u64) {
         let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
-        if let SchedulerType::GEDF(period, relative_deadline, base_time) = info.scheduler_type {
-            (period, relative_deadline, base_time)
+        if let SchedulerType::GEDF(period, relative_deadline, spawn_time) = info.scheduler_type {
+            (period, relative_deadline, spawn_time)
         } else {
             // Unreachable
             panic!("Expected SchedulerType::GEDF, but found a different type.");
@@ -191,13 +191,13 @@ impl GEDFScheduler {
     }
 
     fn calculate_release_and_deadline(&self, task: &Arc<Task>) -> (u64, u64) {
-        let (period, relative_deadline, base_time) = self.get_gedf_params(task);
+        let (period, relative_deadline, spawn_time) = self.get_gedf_params(task);
         let ignition_count = {
             let mut node = MCSNode::new();
-            let task_manager = self.task_manager.lock(&mut node);
-            task_manager.get_ignition_count(task.id)
+            let ignition_counter = self.ignition_counter.lock(&mut node);
+            ignition_counter.get_ignition_count(task.id)
         };
-        let release_time = base_time + period * ignition_count;
+        let release_time = spawn_time + period * ignition_count;
         let absolute_deadline = release_time + relative_deadline;
         (release_time, absolute_deadline)
     }
@@ -238,13 +238,13 @@ impl GEDFScheduler {
 
     pub fn register_task(&self, task_id: u32) {
         let mut node = MCSNode::new();
-        let mut task_manager = self.task_manager.lock(&mut node);
-        task_manager.register_task(task_id);
+        let mut ignition_counter = self.ignition_counter.lock(&mut node);
+        ignition_counter.register_task(task_id);
     }
 
     pub fn increment_ignition(&self, task_id: u32) {
         let mut node = MCSNode::new();
-        let mut task_manager = self.task_manager.lock(&mut node);
-        task_manager.increment_ignition(task_id);
+        let mut ignition_counter = self.ignition_counter.lock(&mut node);
+        ignition_counter.increment_ignition(task_id);
     }
 }
