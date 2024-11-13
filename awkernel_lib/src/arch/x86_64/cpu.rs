@@ -1,9 +1,5 @@
-use core::arch::asm;
-
 use crate::{
-    config::{get_stack_size, get_stack_start},
     cpu::{CPU, NUM_MAX_CPU},
-    paging::PAGESIZE,
     sync::rwlock::RwLock,
 };
 use alloc::collections::btree_map::BTreeMap;
@@ -15,19 +11,23 @@ static mut CPU_ID_NUMA_ID: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
 impl CPU for super::X86 {
     fn cpu_id() -> usize {
-        // Calculate the CPU ID from the stack pointer.
-        let rsp = get_rsp() - PAGESIZE;
-        let stack_start = get_stack_start();
-        let stack_size = get_stack_size();
-
-        if rsp < stack_start || rsp >= stack_start + stack_size * NUM_MAX_CPU {
+        let raw_cpu_id = Self::raw_cpu_id();
+        if raw_cpu_id == 0 {
             return 0;
         }
 
-        let offset = rsp - stack_start;
-        let shift = stack_size.trailing_zeros();
+        let mapping = RAW_CPU_ID_TO_CPU_ID.read();
 
-        (offset >> shift) + 1
+        if let Some(mapping) = mapping.as_ref() {
+            let id = mapping.get(&raw_cpu_id);
+            if let Some(id) = id {
+                return *id;
+            }
+        }
+        panic!(
+            "CPU ID mapping is not set for CPU ID {}",
+            Self::raw_cpu_id()
+        );
     }
 
     fn raw_cpu_id() -> usize {
@@ -115,10 +115,4 @@ pub unsafe fn set_raw_cpu_id_to_numa(mapping: BTreeMap<u32, u32>) {
 /// Get the NUMA ID from the raw CPU ID.
 pub fn cpu_id_to_numa(cpu_id: usize) -> usize {
     unsafe { CPU_ID_NUMA_ID[cpu_id] as usize }
-}
-
-fn get_rsp() -> usize {
-    let rsp: usize;
-    unsafe { asm!("mov {}, rsp", out(reg) rsp, options(nomem, nostack, preserves_flags)) };
-    rsp
 }

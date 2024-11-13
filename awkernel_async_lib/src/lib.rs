@@ -41,7 +41,7 @@ pub use futures::select_biased;
 
 pub use awkernel_lib::{
     cpu::cpu_id,
-    delay::{cpu_counter, uptime},
+    delay::{cpu_counter, uptime, uptime_nano},
 };
 
 use pubsub::{
