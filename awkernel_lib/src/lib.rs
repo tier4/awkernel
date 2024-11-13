@@ -8,6 +8,7 @@ use alloc::rc::Rc;
 
 pub mod addr;
 pub mod arch;
+pub mod config;
 pub mod console;
 pub mod cpu;
 pub mod delay;

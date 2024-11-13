@@ -1,9 +1,8 @@
-use alloc::collections::btree_map::BTreeMap;
-
 use crate::{
     cpu::{CPU, NUM_MAX_CPU},
     sync::rwlock::RwLock,
 };
+use alloc::collections::btree_map::BTreeMap;
 
 static RAW_CPU_ID_TO_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);
 static CPU_ID_TO_RAW_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);

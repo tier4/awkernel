@@ -96,6 +96,8 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 18. Synchronize RDTSC.
 /// 19. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
+    unsafe { crate::config::init() };
+
     enable_fpu(); // 1. Enable SSE.
 
     super::console::init_device(); // 2. Initialize the serial port.

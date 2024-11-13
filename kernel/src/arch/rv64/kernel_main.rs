@@ -31,6 +31,8 @@ global_asm!(include_str!("boot.S"));
 
 #[no_mangle]
 pub unsafe extern "C" fn kernel_main() {
+    unsafe { crate::config::init() };
+
     let hartid: usize = cpu::cpu_id();
     if hartid == 0 {
         primary_hart(hartid);
