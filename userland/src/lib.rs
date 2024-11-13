@@ -31,5 +31,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_async_mutex")]
     test_async_mutex::run().await; // test for async_mutex
 
+    #[cfg(feature = "measure_channel")]
+    measure_channel::run().await; // measure channel
+
     Ok(())
 }

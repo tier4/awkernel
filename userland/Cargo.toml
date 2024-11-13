@@ -46,8 +46,12 @@ optional = true
 path = "../applications/test_async_mutex"
 optional = true
 
+[dependencies.measure_channel]
+path = "../applications/measure_channel"
+optional = true
+
 [features]
-default = ["test_pubsub"]
+default = ["measure_channel"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
@@ -57,3 +61,6 @@ test_prioritized_fifo = ["dep:test_prioritized_fifo"]
 test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
+
+# Measurements
+measure_channel = ["dep:measure_channel"]
