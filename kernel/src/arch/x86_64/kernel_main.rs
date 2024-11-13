@@ -330,7 +330,15 @@ fn kernel_main2(
         cpu_id: 0,
     };
 
-    // 18. Call `crate::main()`.
+    loop {
+        let t0 = awkernel_lib::delay::uptime_nano();
+        let t1 = awkernel_lib::delay::uptime_nano();
+        log::debug!("{} [ns]", t1 - t0);
+
+        awkernel_lib::delay::wait_microsec(1_000_000);
+    }
+
+    // 19. Call `crate::main()`.
     crate::main(kernel_info);
 }
 

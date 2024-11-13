@@ -51,8 +51,8 @@ impl Delay for super::X86 {
     }
 
     fn uptime_nano() -> u128 {
-        let start = RDTSC_COUNTER_START.load(Ordering::Relaxed);
         let now = read_rdtsc();
+        let start = RDTSC_COUNTER_START.load(Ordering::Relaxed);
         let hz = unsafe { RDTSC_FREQ };
 
         if hz == 0 {
@@ -62,11 +62,15 @@ impl Delay for super::X86 {
         let id = cpu_id();
         let numa_id = cpu_id_to_numa(id);
 
-        let offset = RDTSC_OFFSET[numa_id].load(Ordering::Relaxed);
-        let now = if offset < 0 {
-            now - offset.unsigned_abs()
+        let now = if numa_id != 0 {
+            let offset = RDTSC_OFFSET[numa_id].load(Ordering::Relaxed);
+            if offset < 0 {
+                now - offset.unsigned_abs()
+            } else {
+                now + offset as u64
+            }
         } else {
-            now + offset as u64
+            now
         };
 
         let diff = now - start;

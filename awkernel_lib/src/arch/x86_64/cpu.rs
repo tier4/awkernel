@@ -7,7 +7,6 @@ use crate::{
 
 static RAW_CPU_ID_TO_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);
 static CPU_ID_TO_RAW_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);
-// static RAW_CPU_ID_NUMA_ID: RwLock<Option<BTreeMap<u32, u32>>> = RwLock::new(None);
 
 static mut CPU_ID_NUMA_ID: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
