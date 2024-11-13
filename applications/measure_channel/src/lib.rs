@@ -24,8 +24,10 @@ struct Barrier {
 
 impl Barrier {
     fn new(count: usize) -> Self {
-        let mut attr = Attribute::default();
-        attr.queue_size = 1;
+        let attr = Attribute {
+            queue_size: 1,
+            ..Attribute::default()
+        };
         let (tx, rx) = pubsub::create_pubsub(attr);
 
         Self {
