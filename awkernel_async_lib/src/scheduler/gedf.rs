@@ -26,7 +26,7 @@ impl TaskManager {
         self.tasks.get(&task_id).copied()
     }
 
-    fn ignition_task(&mut self,task_id: u32) {
+    fn ignition_task(&mut self, task_id: u32) {
         if let Some(ignition_count) = self.tasks.get_mut(&task_id) {
             *ignition_count += 1;
         }
@@ -34,7 +34,7 @@ impl TaskManager {
 }
 
 pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>, // Run runnable_queue.
+    data: Mutex<Option<GEDFData>>,    // Run runnable_queue.
     task_manager: Mutex<TaskManager>, // task_id -> ignition_count
 }
 
@@ -214,7 +214,7 @@ impl GEDFScheduler {
         task_info.state = State::Runnable;
     }
 
-    pub fn ignition_task(&self,task_id: u32) {
+    pub fn ignition_task(&self, task_id: u32) {
         let mut node = MCSNode::new();
         let mut task_manager = self.task_manager.lock(&mut node);
 
