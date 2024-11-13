@@ -60,7 +60,9 @@ async fn client_task(tx1: bounded::Sender<()>, rx2: bounded::Receiver<()>) {
 
     result.sort();
 
+    let p50 = result[NUM_TRIAL / 100 * 50]; // 50th percentile
     let p99 = result[NUM_TRIAL / 100 * 99]; // 99th percentile
 
+    log::debug!("50th percentile =  {p50} [ns]");
     log::debug!("99th percentile =  {p99} [ns]");
 }

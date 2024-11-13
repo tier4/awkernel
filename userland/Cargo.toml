@@ -52,6 +52,7 @@ optional = true
 
 [features]
 default = ["measure_channel"]
+perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]

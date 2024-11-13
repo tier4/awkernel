@@ -1,8 +1,8 @@
 //! A basic RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
-use alloc::{collections::VecDeque, sync::Arc};
+use crate::task::{get_last_executed_by_task_id, set_need_preemption, State, TaskList};
+use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RRScheduler {
@@ -13,40 +13,26 @@ pub struct RRScheduler {
     priority: u8,
 
     // Run queue
-    data: Mutex<Option<RRData>>,
-}
-
-struct RRData {
-    queue: VecDeque<Arc<Task>>,
-}
-
-impl RRData {
-    fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
-        }
-    }
+    queue: Mutex<Option<TaskList>>,
 }
 
 impl Scheduler for RRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
-        let mut guard = self.data.lock(&mut node);
-
-        let data = guard.get_or_insert_with(RRData::new);
-        data.queue.push_back(task.clone());
+        let mut guard = self.queue.lock(&mut node);
+        guard.get_or_insert_with(TaskList::new).push_back(task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        let mut guard = self.data.lock(&mut node);
+        let mut guard = self.queue.lock(&mut node);
 
-        let data = match guard.as_mut() {
+        let queue = match guard.as_mut() {
             Some(d) => d,
             None => return None,
         };
 
-        while let Some(task) = data.queue.pop_front() {
+        while let Some(task) = queue.pop_front() {
             {
                 let mut node = MCSNode::new();
                 let mut task_info = task.info.lock(&mut node);
@@ -80,7 +66,7 @@ pub static SCHEDULER: RRScheduler = RRScheduler {
     // TODO: Temporarily set to the lowest priority
     priority: 16,
 
-    data: Mutex::new(None),
+    queue: Mutex::new(None),
 };
 
 impl RRScheduler {
