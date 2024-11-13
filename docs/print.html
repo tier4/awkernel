@@ -1,17 +1,18 @@
 <!DOCTYPE HTML>
-<html lang="en" class="light" dir="ltr">
+<html lang="en" class="sidebar-visible no-js light">
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
         <title>Awkernel</title>
-        <meta name="robots" content="noindex">
+        <meta name="robots" content="noindex" />
 
 
         <!-- Custom HTML head -->
         
+        <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
         <meta name="description" content="">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="theme-color" content="#ffffff">
+        <meta name="theme-color" content="#ffffff" />
 
         <link rel="icon" href="favicon.svg">
         <link rel="shortcut icon" href="favicon.png">
@@ -32,16 +33,15 @@
         <!-- Custom theme stylesheets -->
 
     </head>
-    <body class="sidebar-visible no-js">
-    <div id="body-container">
+    <body>
         <!-- Provide site root to javascript -->
-        <script>
+        <script type="text/javascript">
             var path_to_root = "";
             var default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "navy" : "light";
         </script>
 
         <!-- Work around some values being stored in localStorage wrapped in quotes -->
-        <script>
+        <script type="text/javascript">
             try {
                 var theme = localStorage.getItem('mdbook-theme');
                 var sidebar = localStorage.getItem('mdbook-sidebar');
@@ -57,81 +57,50 @@
         </script>
 
         <!-- Set the theme before any content is loaded, prevents flash -->
-        <script>
+        <script type="text/javascript">
             var theme;
             try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
             if (theme === null || theme === undefined) { theme = default_theme; }
             var html = document.querySelector('html');
+            html.classList.remove('no-js')
             html.classList.remove('light')
             html.classList.add(theme);
-            var body = document.querySelector('body');
-            body.classList.remove('no-js')
-            body.classList.add('js');
+            html.classList.add('js');
         </script>
 
-        <input type="checkbox" id="sidebar-toggle-anchor" class="hidden">
-
         <!-- Hide / unhide sidebar before it is displayed -->
-        <script>
-            var body = document.querySelector('body');
-            var sidebar = null;
-            var sidebar_toggle = document.getElementById("sidebar-toggle-anchor");
+        <script type="text/javascript">
+            var html = document.querySelector('html');
+            var sidebar = 'hidden';
             if (document.body.clientWidth >= 1080) {
                 try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
                 sidebar = sidebar || 'visible';
-            } else {
-                sidebar = 'hidden';
             }
-            sidebar_toggle.checked = sidebar === 'visible';
-            body.classList.remove('sidebar-visible');
-            body.classList.add("sidebar-" + sidebar);
+            html.classList.remove('sidebar-visible');
+            html.classList.add("sidebar-" + sidebar);
         </script>
 
         <nav id="sidebar" class="sidebar" aria-label="Table of contents">
             <div class="sidebar-scrollbox">
                 <ol class="chapter"><li class="chapter-item expanded "><a href="index.html"><strong aria-hidden="true">1.</strong> Introduction</a></li><li class="chapter-item expanded "><a href="internal/index.html"><strong aria-hidden="true">2.</strong> Internal</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/synchronization.html"><strong aria-hidden="true">2.1.</strong> Synchronization</a></li><li class="chapter-item expanded "><a href="internal/console.html"><strong aria-hidden="true">2.2.</strong> Console</a></li><li class="chapter-item expanded "><a href="internal/logger.html"><strong aria-hidden="true">2.3.</strong> Logger</a></li><li class="chapter-item expanded "><a href="internal/boot.html"><strong aria-hidden="true">2.4.</strong> Boot</a></li><li class="chapter-item expanded "><a href="internal/arch/index.html"><strong aria-hidden="true">2.5.</strong> Architecture Abstraction</a></li><li><ol class="section"><li class="chapter-item expanded "><a href="internal/arch/delay.html"><strong aria-hidden="true">2.5.1.</strong> Delay</a></li><li class="chapter-item expanded "><a href="internal/arch/cpu.html"><strong aria-hidden="true">2.5.2.</strong> CPU</a></li><li class="chapter-item expanded "><a href="internal/arch/interrupt.html"><strong aria-hidden="true">2.5.3.</strong> Interrupt</a></li><li class="chapter-item expanded "><a href="internal/arch/mapper.html"><strong aria-hidden="true">2.5.4.</strong> Mapper (Virtual Memory Management)</a></li></ol></li><li class="chapter-item expanded "><a href="internal/page_table.html"><strong aria-hidden="true">2.6.</strong> Page Table</a></li><li class="chapter-item expanded "><a href="internal/context_switch.html"><strong aria-hidden="true">2.7.</strong> Context Switch</a></li><li class="chapter-item expanded "><a href="internal/interrupt_controller.html"><strong aria-hidden="true">2.8.</strong> Interrupt Controller</a></li><li class="chapter-item expanded "><a href="internal/memory_allocator.html"><strong aria-hidden="true">2.9.</strong> Memory Allocator</a></li><li class="chapter-item expanded "><a href="internal/scheduler.html"><strong aria-hidden="true">2.10.</strong> Scheduler</a></li><li class="chapter-item expanded "><a href="internal/PCIe.html"><strong aria-hidden="true">2.11.</strong> PCIe</a></li></ol></li></ol>
             </div>
-            <div id="sidebar-resize-handle" class="sidebar-resize-handle">
-                <div class="sidebar-resize-indicator"></div>
-            </div>
+            <div id="sidebar-resize-handle" class="sidebar-resize-handle"></div>
         </nav>
-
-        <!-- Track and set sidebar scroll position -->
-        <script>
-            var sidebarScrollbox = document.querySelector('#sidebar .sidebar-scrollbox');
-            sidebarScrollbox.addEventListener('click', function(e) {
-                if (e.target.tagName === 'A') {
-                    sessionStorage.setItem('sidebar-scroll', sidebarScrollbox.scrollTop);
-                }
-            }, { passive: true });
-            var sidebarScrollTop = sessionStorage.getItem('sidebar-scroll');
-            sessionStorage.removeItem('sidebar-scroll');
-            if (sidebarScrollTop) {
-                // preserve sidebar scroll position when navigating via links within sidebar
-                sidebarScrollbox.scrollTop = sidebarScrollTop;
-            } else {
-                // scroll sidebar to current active section when navigating via "next/previous chapter" buttons
-                var activeSection = document.querySelector('#sidebar .active');
-                if (activeSection) {
-                    activeSection.scrollIntoView({ block: 'center' });
-                }
-            }
-        </script>
 
         <div id="page-wrapper" class="page-wrapper">
 
             <div class="page">
                                 <div id="menu-bar-hover-placeholder"></div>
-                <div id="menu-bar" class="menu-bar sticky">
+                <div id="menu-bar" class="menu-bar sticky bordered">
                     <div class="left-buttons">
-                        <label id="sidebar-toggle" class="icon-button" for="sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
+                        <button id="sidebar-toggle" class="icon-button" type="button" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="sidebar">
                             <i class="fa fa-bars"></i>
-                        </label>
+                        </button>
                         <button id="theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="theme-list">
                             <i class="fa fa-paint-brush"></i>
                         </button>
                         <ul id="theme-list" class="theme-popup" aria-label="Themes" role="menu">
-                            <li role="none"><button role="menuitem" class="theme" id="light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="light">Light (default)</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="rust">Rust</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="coal">Coal</button></li>
                             <li role="none"><button role="menuitem" class="theme" id="navy">Navy</button></li>
@@ -164,7 +133,7 @@
                 </div>
 
                 <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
-                <script>
+                <script type="text/javascript">
                     document.getElementById('sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
                     document.getElementById('sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
                     Array.from(document.querySelectorAll('#sidebar a')).forEach(function(link) {
@@ -197,7 +166,8 @@ let mut node = MCSNode::new();
 let guard = data.lock(&amp;mut node);
 
 *guard = 10;
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="rwlock"><a class="header" href="#rwlock">RwLock</a></h2>
 <p><code>RwLock</code> can be used as normal read-write lock as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -218,7 +188,8 @@ let data = Arc::new(RwLock::new(0));
     let guard = data.read();
     assert_eq!(*guard, 10);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="references"><a class="header" href="#references">References</a></h2>
 <ol>
 <li>J. M. Mellor-Crummey and M. L. Scott. Algorithms for scalable synchronization on shared-
@@ -254,7 +225,8 @@ memory multiprocessors. ACM Trans. Comput. Syst., 9(1), Feb. 1991.</li>
     /// Write a byte.
     fn put(&amp;mut self, data: u8);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several functions regarding the <code>Console</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/console.rs">awkernel_lib/src/console.rs</a>.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn register_unsafe_puts(console: unsafe fn(&amp;str))</code></td><td>Register the unsafe <code>puts</code> function.</td></tr>
@@ -334,7 +306,8 @@ impl Console for Uart {
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="aarch64"><a class="header" href="#aarch64">AArch64</a></h2>
 <p>AArch64 should equip PL011 UART serial ports, and Awkerenel uses the serial port to output messages as a console.
 PL011 UART's device driver is implemented in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/uart/pl011.rs">awkernel_drivers/src/uart/pl011.rs</a>,
@@ -377,7 +350,7 @@ and it implements the <code>Console</code> trait as follows.</p>
 
     fn put(&amp;mut self, data: u8) {
         // wait until we can send
-        unsafe { asm!("nop;") };
+        unsafe { asm!(&quot;nop;&quot;) };
         while registers::UART0_FR.read(self.base_addr) &amp; 0x20 != 0 {
             core::hint::spin_loop();
         }
@@ -386,26 +359,29 @@ and it implements the <code>Console</code> trait as follows.</p>
         registers::UART0_DR.write(data as u32, self.base_addr);
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="logger"><a class="header" href="#logger">Logger</a></h1>
 <p>Awkernel uses <a href="https://crates.io/crates/log">log</a> crate for logging.
 So, you can use the log macros like defined in this crate as follows.
 The logger uses the console module internally.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>log::error!("This is an error message.");
-log::warn!("This is a warning message.");
-log::info!("Hello, world!");
-log::debug!("This is a debug message.");
-log::trace!("This is a trace message.");
-<span class="boring">}</span></code></pre></pre>
+</span>log::error!(&quot;This is an error message.&quot;);
+log::warn!(&quot;This is a warning message.&quot;);
+log::info!(&quot;Hello, world!&quot;);
+log::debug!(&quot;This is a debug message.&quot;);
+log::trace!(&quot;This is a trace message.&quot;);
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>log::debug!</code> is useful when implementing and debugging the kernel
 because it displays a message with the file name and line number where the macro is called.</p>
 <p>You can use <code>log::set_max_level</code> function to set the maximum log level as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>log::set_max_level(log::LevelFilter::Trace);
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h1 id="buffered-logger"><a class="header" href="#buffered-logger">Buffered Logger</a></h1>
 <p>After booting Awkernel, the logger implementation defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/logger.rs">awkernel_lib/src/logger.rs</a> is switched to a buffered logger defined in <a href="https://github.com/tier4/awkernel/blob/main/applications/awkernel_services/src/buffered_logger.rs">applications/awkernel_services/src/buffered_logger.rs</a>.
 The buffered logger buffers log messages and writes them to the UART in a batch.
@@ -422,10 +398,10 @@ is called by UEFI.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>kernel_main2</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
-<pre class="mermaid">graph TD;
+<pre><code class="language-mermaid">graph TD;
     kernel_main:kernel_main.rs--&gt;kernel_main2:kernel_main.rs;
     kernel_main2:kernel_main.rs--&gt;main:main.rs;
-</pre>
+</code></pre>
 <p>During the primary core is booting,
 it wakes up non-primary cores by sending ACPI's IPIs.</p>
 <h3 id="non-primary-cores"><a class="header" href="#non-primary-cores">Non-primary Cores</a></h3>
@@ -436,10 +412,10 @@ It eventually calls <code>main</code> like the primary core.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/kernel_main.rs"><code>non_primary_kernel_main</code>:kernel/src/arch/x86_64/kernel_main.rs</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
-<pre class="mermaid">graph TD;
+<pre><code class="language-mermaid">graph TD;
     _start_cpu:mpboot.S--&gt;non_primary_kernel_main:kernel_main.rs;
     non_primary_kernel_main:kernel_main.rs--&gt;main:main.rs;
-</pre>
+</code></pre>
 <h2 id="aarch64-1"><a class="header" href="#aarch64-1">AArch64</a></h2>
 <h3 id="primary-and-non-primary-cores"><a class="header" href="#primary-and-non-primary-cores">Primary and Non-primary Cores</a></h3>
 <p><code>_start</code> defined in <code>boot.S</code> is the entry point for both the primary and non-primary cores.
@@ -457,13 +433,13 @@ Eventually, <code>main</code> is called.</p>
 </li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/kernel/src/main.rs"><code>main</code>:kernel/src/main.rs</a></li>
 </ol>
-<pre class="mermaid">graph TD;
+<pre><code class="language-mermaid">graph TD;
     _start:boot.S--&gt;kernel_main:kernel_main.rs;
     kernel_main:kernel_main.rs--&gt;primary_cpu:kernel_main.rs;
     kernel_main:kernel_main.rs--&gt;non_primary_cpu:kernel_main.rs;
     primary_cpu:kernel_main.rs--&gt;main:main.rs;
     non_primary_cpu:kernel_main.rs--&gt;main:main.rs;
-</pre>
+</code></pre>
 <h1 id="main-function"><a class="header" href="#main-function">Main Function</a></h1>
 <p>After booting, in the <code>main</code> function, the primary core wakes async/await tasks,
 and non-primary cores execute async/await tasks.</p>
@@ -476,10 +452,10 @@ and non-primary cores execute async/await tasks.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs"><code>wake_task</code>:awkernel_async_lib/src/scheduler.rs</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/net.rs"><code>poll</code>:awkernel_lib/src/net.rs</a></li>
 </ol>
-<pre class="mermaid">graph TD;
+<pre><code class="language-mermaid">graph TD;
     main:kernel/src/main.rs--&gt;wake_task:awkernel_async_lib/src/scheduler.rs;
     main:kernel/src/main.rs--&gt;poll:awkernel_lib/src/net.rs;
-</pre>
+</code></pre>
 <p><code>wake_task</code> is a function to wake sleeping async/await tasks up,
 and it will be explained in Sec. <a href="internal/./scheduler.html">Scheduler</a>.
 <code>poll</code> is a function to poll network interface controllers.
@@ -496,11 +472,11 @@ After that, it calls <code>run_main</code> to execute async/await tasks.</p>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task/preempt.rs"><code>init</code>:awkernel_async_lib/src/task/preempt.rs</a></li>
 <li><a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/task.rs"><code>run_main</code>:awkernel_async_lib/src/task.rs</a></li>
 </ol>
-<pre class="mermaid">graph TD;
+<pre><code class="language-mermaid">graph TD;
     main:kernel/src/main.rs--&gt;run:awkernel_async_lib/src/task.rs;
     run:awkernel_async_lib/src/task.rs--&gt;init:awkernel_async_lib/src/task/preempt.rs;
     run:awkernel_async_lib/src/task.rs--&gt;run_main:awkernel_async_lib/src/task.rs;
-</pre>
+</code></pre>
 <p><code>run_main</code> executes async/await tasks,
 and it will be explained in Sec. <a href="internal/./scheduler.html">Scheduler</a>.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="architecture-abstraction"><a class="header" href="#architecture-abstraction">Architecture Abstraction</a></h1>
@@ -510,22 +486,23 @@ The <code>Arch</code> trait requires the <code>Delay</code>, <code>Interrupt</co
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[allow(dead_code)]
-#[cfg(not(feature = "std"))]
+#[cfg(not(feature = &quot;std&quot;))]
 trait Arch:
     super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU + super::paging::Mapper
 {
 }
 
 #[allow(dead_code)]
-#[cfg(feature = "std")]
+#[cfg(feature = &quot;std&quot;)]
 trait Arch: super::delay::Delay + super::interrupt::Interrupt + super::cpu::CPU {}
-<span class="boring">}</span></code></pre></pre>
-<pre class="mermaid">graph LR;
+<span class="boring">}
+</span></code></pre></pre>
+<pre><code class="language-mermaid">graph LR;
     Arch:awkernel_lib/src/arch.rs--&gt;Delay:awkernel_lib/src/delay.rs;
     Arch:awkernel_lib/src/arch.rs--&gt;Interrupt:awkernel_lib/src/interrupt.rs;
     Arch:awkernel_lib/src/arch.rs--&gt;CPU:awkernel_lib/src/cpu.rs;
     Arch:awkernel_lib/src/arch.rs--&gt;Mapper:awkernel_lib/src/paging.rs;
-</pre>
+</code></pre>
 <p>The <code>Delay</code> trait provides a way to wait for a certain amount of time and to get the time.
 The <code>Interrupt</code> trait provides a way to enable and disable interrupts.
 The <code>CPU</code> trait provides a way to get the current CPU ID.
@@ -592,7 +569,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
         core::hint::spin_loop();
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several functions regarding the <code>Delay</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/delay.rs">awkernel_lib/src/delay.rs</a>.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn wait_interrupt()</code></td><td>Wait interrupt.</td></tr>
@@ -613,7 +591,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 </span><span class="boring">fn main() {
 </span>impl Delay for super::X86 {
     fn wait_interrupt() {
-        unsafe { core::arch::asm!("hlt") };
+        unsafe { core::arch::asm!(&quot;hlt&quot;) };
     }
 
     fn wait_microsec(usec: u64) {
@@ -647,7 +625,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
         unsafe { core::arch::x86_64::_rdtsc() }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>Awkernel currently uses High Precision Event Timer (HPET) to get uptime in microseconds.
 So, if you want to use Awkernel on KVM, you need to enable HPET in the virtual machine settings.
 To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.</p>
@@ -657,7 +636,7 @@ To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.
 </span><span class="boring">fn main() {
 </span>impl Delay for super::AArch64 {
     fn wait_interrupt() {
-        unsafe { core::arch::asm!("wfi") };
+        unsafe { core::arch::asm!(&quot;wfi&quot;) };
     }
 
     fn wait_microsec(usec: u64) {
@@ -686,7 +665,8 @@ To get the cpu cycle counter, Awkernel uses the <code>_rdtsc</code> instruction.
         awkernel_aarch64::pmccntr_el0::get()
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>To get uptime in microseconds, Awkernel uses the counter-timer frequency register (CNTFRQ_EL0) and the counter-timer virtual count register (CNTVCT_EL0) of AArch64.
 To get the cpu cycle counter, Awkernel uses the performance monitors cycle count register (PMCCNTR_EL0).</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="cpu"><a class="header" href="#cpu">CPU</a></h1>
@@ -702,7 +682,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     /// Raw CPU ID returns the ID of the CPU without any modification.
     fn raw_cpu_id() -&gt; usize;
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>cpu_id</code> method returns the current CPU ID.
 The ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
 The <code>num_cpu</code> function, which returns the number of CPUs,
@@ -746,7 +727,8 @@ but it may not be in the range of <code>0</code> to <code>num_cpu() - 1</code>.<
         Self::cpu_id()
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>Awkernel uses <code>core::arch::x86_64::__cpuid</code> to get the CPU ID.
 It assumes that the CPU ID is unique for each CPU and ranges from <code>0</code> to <code>num_cpu() - 1</code>.
 If you find any hardware that does not follow this assumption,
@@ -774,7 +756,8 @@ please let us know or send us a PR.</p>
         mpidr_el1::get() as usize
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>For AArch64, Awkernel calculates the CPU ID based on the <code>MPIDR_EL1</code> register and the affinity information variables.</p>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt"><a class="header" href="#interrupt">Interrupt</a></h1>
 <p>The <code>Interrupt</code> trait provides a way to enable and disable interrupts.
@@ -787,7 +770,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     fn enable();
     fn set_flag(flag: usize);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>get_flag</code> and <code>set_flag</code> methods get and set the interrupt flag.
 These methods are used to save and restore the interrupt flag when enabling and disabling interrupts and used in the <code>InterruptGuard</code> structure.</p>
 <h1 id="interrupt-guard"><a class="header" href="#interrupt-guard">Interrupt Guard</a></h1>
@@ -800,7 +784,8 @@ After the scope, interrupts are enabled automatically as follows.</p>
     let _int_guard = InterruptGuard::new();
     // interrupts are disabled.
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are <code>enable</code> and <code>disable</code> functions in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.
 You can use these functions rather than using the <code>InterruptGuard</code>.</p>
 <h1 id="implementation-4"><a class="header" href="#implementation-4">Implementation</a></h1>
@@ -834,7 +819,8 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>For x86_64, Awkernel uses the <a href="https://docs.rs/x86_64/latest/x86_64/index.html"><code>x86_64</code></a> crate to enable and disable interrupts.</p>
 <h2 id="aarch64-5"><a class="header" href="#aarch64-5">AArch64</a></h2>
 <p>For x86_64, the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64.rs"><code>AArch64</code></a> structure implements the <code>Interrupt</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/interrupt.rs">awkernel_lib/src/arch/aarch64/interrupt.rs</a> as follows.</p>
@@ -846,18 +832,19 @@ You can use these functions rather than using the <code>InterruptGuard</code>.</
     }
 
     fn disable() {
-        unsafe { core::arch::asm!("msr daifset, #0b0010",) };
+        unsafe { core::arch::asm!(&quot;msr daifset, #0b0010&quot;,) };
     }
 
     fn enable() {
-        unsafe { core::arch::asm!("msr daifclr, #0b0010",) };
+        unsafe { core::arch::asm!(&quot;msr daifclr, #0b0010&quot;,) };
     }
 
     fn set_flag(flag: usize) {
         unsafe { awkernel_aarch64::daif::set(flag as u64) };
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="mapper-virtual-memory-management"><a class="header" href="#mapper-virtual-memory-management">Mapper (Virtual Memory Management)</a></h1>
 <p><code>Mapper</code> is a trait that provides a way to map and unmap virtual memory.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
@@ -884,7 +871,8 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     /// - `vm_addr` must be being mapped.
     unsafe fn unmap(vm_addr: VirtAddr);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>Mapper</code> uses <code>VirtAddr</code> and <code>PhyAddr</code> types to represent virtual and physical addresses.
 These types are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/virt_addr.rs">awkernel_lib/src/addr/virt_addr.rs</a> and <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/addr/phy_addr.rs">awkernel_lib/src/addr/phy_addr.rs</a>.</p>
 <p>The <code>Flags</code> type is used to represent the flags of the page table entry.
@@ -901,7 +889,8 @@ pub struct Flags {
     pub write_through: bool, // write back if disabled
     pub device: bool,        // this page is for MMIO, ignored on x86
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are functions regarding the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> as follows.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn vm_to_phy(vm_addr: VirtAddr) -&gt; Option&lt;PhyAddr&gt;</code></td><td>Return the physical address of <code>vm_addr</code>.</td></tr>
@@ -913,7 +902,8 @@ pub struct Flags {
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>pub const PAGESIZE: usize = 4 * 1024;
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h1 id="implementation-5"><a class="header" href="#implementation-5">Implementation</a></h1>
 <h2 id="x86_64-6"><a class="header" href="#x86_64-6">x86_64</a></h2>
 <p>For x86_64, the <code>X86</code> structure implements the <code>Mapper</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/x86_64/paging.rs">awkernel_lib/src/arch/x86_64/paging.rs</a>.
@@ -944,7 +934,8 @@ where
         page_allocator: &amp;mut FA,
     ) -&gt; Result&lt;(), E&gt;;
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>map_to</code> method of <code>PageTable</code> is used to specify a page frame allocator,
 which allocates physical pages for the page table, when mapping pages.
 It is typically used when initializing the kernel's page tables or initializing device drivers.</p>
@@ -957,7 +948,8 @@ It is defined as follows.</p>
     fn set_address(&amp;mut self, addr: PhyAddr);
     fn size(&amp;self) -&gt; usize;
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>FrameAllocator</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs">awkernel_lib/src/paging.rs</a> is a trait to allocate physical pages.
 It is used by <code>PageTable</code> as described above.</p>
 <h1 id="implementation-6"><a class="header" href="#implementation-6">Implementation</a></h1>
@@ -969,7 +961,8 @@ is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/
 </span>pub struct PageTable&lt;'a&gt; {
     offset_page_table: &amp;'a mut OffsetPageTable&lt;'static&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -997,11 +990,12 @@ is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/
                 flusher.flush();
                 Ok(())
             }
-            Err(_) =&gt; Err("Failed to map page"),
+            Err(_) =&gt; Err(&quot;Failed to map page&quot;),
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="aarch64-7"><a class="header" href="#aarch64-7">AArch64</a></h2>
 <p>For AArch64, the <code>PageTable</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/arch/aarch64/page_table.rs">awkernel_lib/src/arch/aarch64/page_table.rs</a> as follows.</p>
@@ -1013,7 +1007,8 @@ is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/
 pub struct PageTable {
     root: PageTableEntry,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>PageTable</code> structure implements the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/paging.rs"><code>PageTable</code>:awkernel_lib/src/paging.rs</a> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
@@ -1047,7 +1042,8 @@ pub struct PageTable {
         self.map_to_aarch64(virt_addr, phy_addr, f, page_allocator)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="context-switch"><a class="header" href="#context-switch">Context Switch</a></h1>
 <p><code>Context</code> defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>
 is a trait that enables preemptive multitasking.
@@ -1064,34 +1060,36 @@ and argument of the context as follows.</p>
     /// # Safety
     ///
     /// This function must be called for only initialization purpose.
-    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize);
+    unsafe fn set_entry_point(&amp;mut self, entry: extern &quot;C&quot; fn(usize) -&gt; !, arg: usize);
 
     /// # Safety
     ///
     /// This function must be called for only initialization purpose.
     unsafe fn set_argument(&amp;mut self, arg: usize);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>context_switch</code> function must be implemented for each architecture
 to enable context switching.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>extern "C" {
+</span>extern &quot;C&quot; {
     /// Switch context from `current` to `next`.
     pub fn context_switch(current: *mut ArchContext, next: *const ArchContext);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>context_switch</code> function stores and restores CPU registers,
 and the <code>ArchContext</code> structure is an architecture-specific context structure.</p>
 <h1 id="disable-preemption"><a class="header" href="#disable-preemption">Disable Preemption</a></h1>
 <p>In <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/Cargo.toml">awkernel_async_lib/Cargo.toml</a>, there is the <code>no_preempt</code> feature to disable preemption.</p>
 <pre><code class="language-toml">[features]
 default = []
-std = ["awkernel_lib/std", "no_preempt"]
+std = [&quot;awkernel_lib/std&quot;, &quot;no_preempt&quot;]
 no_preempt = []
 </code></pre>
 <p>If you want to disable preemption, please enable the <code>no_preempt</code> feature as
-<code>default = ["no_preempt"]</code>.</p>
+<code>default = [&quot;no_preempt&quot;]</code>.</p>
 <h1 id="implementation-7"><a class="header" href="#implementation-7">Implementation</a></h1>
 <h2 id="x86_64-8"><a class="header" href="#x86_64-8">x86_64</a></h2>
 <p>For x86_64, the <code>Context</code> structure is defined in
@@ -1109,7 +1107,8 @@ pub struct Context {
     pub r14: u64,
     pub r15: u64,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
 <p>The <code>context_switch</code> function is implemented in assembly as follows.
 This stores and restores only general-purpose registers because
@@ -1117,7 +1116,7 @@ the floating-point registers are stored and restored by each interrupt handler.<
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>core::arch::global_asm!(
-    "
+    &quot;
 .global context_switch
 context_switch:
 // Store general purpose registers
@@ -1139,9 +1138,10 @@ mov r14, 40[rsi]
 mov r15, 48[rsi]
 
 ret
-"
+&quot;
 );
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/x86_64.rs"><code>Context</code>:awkernel_lib/src/context/x86_64.rs</a> structure as follows.
 These methods set the stack pointer, entry point, and argument of the context.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1151,17 +1151,17 @@ These methods set the stack pointer, entry point, and argument of the context.</
         self.rsp = sp as u64;
     }
 
-    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+    unsafe fn set_entry_point(&amp;mut self, entry: extern &quot;C&quot; fn(usize) -&gt; !, arg: usize) {
         self.r12 = arg as u64;
         self.r13 = entry as usize as u64;
 
         let entry_point_addr = entry_point as usize as u64;
 
         unsafe {
-            core::arch::asm!("mov {}, rsp", lateout(reg) self.r15);
-            core::arch::asm!("mov rsp, {}", in(reg) self.rsp);
-            core::arch::asm!("push {}", in(reg) entry_point_addr);
-            core::arch::asm!("mov rsp, {}", in(reg) self.r15);
+            core::arch::asm!(&quot;mov {}, rsp&quot;, lateout(reg) self.r15);
+            core::arch::asm!(&quot;mov rsp, {}&quot;, in(reg) self.rsp);
+            core::arch::asm!(&quot;push {}&quot;, in(reg) entry_point_addr);
+            core::arch::asm!(&quot;mov rsp, {}&quot;, in(reg) self.r15);
         }
 
         self.rsp -= 8;
@@ -1172,12 +1172,12 @@ These methods set the stack pointer, entry point, and argument of the context.</
     }
 }
 
-extern "C" {
+extern &quot;C&quot; {
     fn entry_point() -&gt; !;
 }
 
 global_asm!(
-    "
+    &quot;
 .global entry_point
 entry_point:
     mov  rdi, r12
@@ -1185,9 +1185,10 @@ entry_point:
 1:
     hlt
     jmp  1b
-"
+&quot;
 );
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="aarch64-8"><a class="header" href="#aarch64-8">AArch64</a></h2>
 <p>For AArch64, the <code>Context</code> structure is defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs">awkernel_lib/src/context/aarch64.rs</a> as follows.</p>
@@ -1210,13 +1211,14 @@ pub struct Context {
     pub sp: u64, // stack pointer
     _unused: [u8; 8],
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>Context</code> structure is imported as the <code>ArchContext</code> in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs">awkernel_lib/src/context.rs</a>.</p>
 <p>The <code>context_switch</code> function is implemented in assembly as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>core::arch::global_asm!(
-    "
+    &quot;
 .global context_switch
 context_switch:
 // Save the current context.
@@ -1261,9 +1263,10 @@ ldr     x9, [x1]
 mov     sp, x9
 
 ret
-"
+&quot;
 );
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context.rs"><code>Context</code>:awkernel_lib/src/context.rs</a> trait is implemented for the <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/context/aarch64.rs"><code>Context</code>:awkernel_lib/src/context/aarch64.rs</a> structure as follows.
 These methods set the stack pointer, entry point, and argument of the context.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1273,7 +1276,7 @@ These methods set the stack pointer, entry point, and argument of the context.</
         self.sp = sp as u64;
     }
 
-    unsafe fn set_entry_point(&amp;mut self, entry: extern "C" fn(usize) -&gt; !, arg: usize) {
+    unsafe fn set_entry_point(&amp;mut self, entry: extern &quot;C&quot; fn(usize) -&gt; !, arg: usize) {
         self.gp_regs.x19 = arg as u64;
         self.gp_regs.x20 = entry as usize as u64;
         self.gp_regs.x30 = entry_point as *const () as u64;
@@ -1284,12 +1287,12 @@ These methods set the stack pointer, entry point, and argument of the context.</
     }
 }
 
-extern "C" {
+extern &quot;C&quot; {
     fn entry_point() -&gt; !;
 }
 
 global_asm!(
-    "
+    &quot;
 .global entry_point
 entry_point:
     mov     x0, x19
@@ -1297,9 +1300,10 @@ entry_point:
 1:
     wfi
     b       1b
-"
+&quot;
 );
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="interrupt-controller"><a class="header" href="#interrupt-controller">Interrupt Controller</a></h1>
 <p><code>InterruptController</code> is a trait for interrupt controllers.
 It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
@@ -1311,7 +1315,7 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
     fn pending_irqs(&amp;self) -&gt; Box&lt;dyn Iterator&lt;Item = u16&gt;&gt;;
 
     /// Send an inter-process interrupt to `target` CPU.
-    fn send_ipi(&amp;mut self, irq: u16, target: u32);
+    fn send_ipi(&amp;mut self, irq: u16, cpu_id: u32);
 
     /// Send an inter-process interrupt to all CPUs.
     fn send_ipi_broadcast(&amp;mut self, irq: u16);
@@ -1345,17 +1349,18 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
         message_address: &amp;mut u32,
         message_address_upper: Option&lt;&amp;mut u32&gt;,
     ) -&gt; Result&lt;IRQ, &amp;'static str&gt; {
-        Err("Interrupt controller does not support PCIe MSI or MSI-X.")
+        Err(&quot;Interrupt controller does not support PCIe MSI or MSI-X.&quot;)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>Some related functions are defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a> as follows.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn register_handler&lt;F&gt;(...) -&gt; Result&lt;(), &amp;'static str&gt;</code></td><td>Register a handler for the interrupt.</td></tr>
 <tr><td><code>fn get_handlers() -&gt; BTreeMap&lt;u16, Cow&lt;'static, str&gt;&gt;</code></td><td>Return the list of IRQs and their handlers.</td></tr>
 <tr><td><code>fn enable_irq(irq: u16)</code></td><td>Enable the interrupt.</td></tr>
 <tr><td><code>fn disable_irq(irq: u16)</code></td><td>Disable the interrupt.</td></tr>
-<tr><td><code>fn send_ipi(irq: u16, target: u32)</code></td><td>Send an inter-process interrupt to <code>target</code> CPU.</td></tr>
+<tr><td><code>fn send_ipi(irq: u16, cpu_id: u32)</code></td><td>Send an inter-process interrupt to <code>cpu_id</code> CPU.</td></tr>
 <tr><td><code>fn send_ipi_broadcast(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs.</td></tr>
 <tr><td><code>fn send_ipi_broadcast_without_self(irq: u16)</code></td><td>Send an inter-process interrupt to all CPUs except the sender CPU.</td></tr>
 <tr><td><code>fn register_handler_pcie_msi&lt;F&gt;(...) -&gt; Result&lt;IRQ, &amp;'static str&gt;</code></td><td>Register a handler for PCIe MSI or MSI-X interrupt.</td></tr>
@@ -1377,13 +1382,14 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 </span><span class="boring">fn main() {
 </span>macro_rules! irq_handler {
     ($name:ident, $id:expr) =&gt; {
-        extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+        extern &quot;x86-interrupt&quot; fn $name(_stack_frame: InterruptStackFrame) {
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
         }
     };
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>irq_handler</code> macro is called in each interrupt handler.</p>
 <h2 id="aarch64-9"><a class="header" href="#aarch64-9">AArch64</a></h2>
 <p>The <code>handle_irqs</code> function is called in interrupt handlers defined in.
@@ -1391,10 +1397,11 @@ It is defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_l
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[no_mangle]
-pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
+pub extern &quot;C&quot; fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
     interrupt::handle_irqs();
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h1 id="handling-preemption"><a class="header" href="#handling-preemption">Handling Preemption</a></h1>
 <p>A preemption request can be sent by an inter process interrupt (IPI) to the target CPU.
 This means that the target CPU should handle the preemption request if it receives the IPI.</p>
@@ -1403,11 +1410,12 @@ This means that the target CPU should handle the preemption request if it receiv
 <a href="https://github.com/tier4/awkernel/blob/main/kernel/src/arch/x86_64/interrupt_handler.rs">kernel/src/arch/x86_64/interrupt_handler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
-</span>extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
+</span>extern &quot;x86-interrupt&quot; fn preemption(_stack_frame: InterruptStackFrame) {
     awkernel_lib::interrupt::eoi(); // End of interrupt.
     awkernel_lib::interrupt::handle_preemption();
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="aarch64-10"><a class="header" href="#aarch64-10">AArch64</a></h2>
 <p>For AArch64, handling preemption is performed in the <code>handle_irqs</code> function defined in
 <a href="https://github.com/tier4/awkernel/blob/main/awkernel_lib/src/interrupt.rs">awkernel_lib/src/interrupt.rs</a>.</p>
@@ -1415,7 +1423,7 @@ This means that the target CPU should handle the preemption request if it receiv
 </span><span class="boring">fn main() {
 </span>/// Handle all pending interrupt requests.
 /// This function will be used by only aarch64 and called from CPU's interrupt handlers.
-#[cfg(feature = "aarch64")]
+#[cfg(feature = &quot;aarch64&quot;)]
 pub fn handle_irqs() {
     use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;
@@ -1431,7 +1439,8 @@ pub fn handle_irqs() {
         preemption();
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h1 id="implementation-8"><a class="header" href="#implementation-8">Implementation</a></h1>
 <p>There are some device drivers for interrupt controllers in <a href="https://github.com/tier4/awkernel/tree/main/awkernel_drivers/src/interrupt_controller">awkernel_drivers/src/interrupt_controller</a>.</p>
 <h2 id="x86_64-11"><a class="header" href="#x86_64-11">x86_64</a></h2>
@@ -1461,7 +1470,7 @@ use both the primary and the backup allocators for safety.</p>
     loop {
         if let Some(task) = get_next_task() {
             // Use the primary memory allocator.
-            #[cfg(not(feature = "std"))]
+            #[cfg(not(feature = &quot;std&quot;))]
             unsafe {
                 awkernel_lib::heap::TALLOC.use_primary()
             };
@@ -1477,7 +1486,8 @@ use both the primary and the backup allocators for safety.</p>
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>In <code>run_main</code> function, a executable task is taken from the task queue by <code>get_next_task</code> function.
 Before executing the task, <code>awkernel_lib::heap::TALLOC.use_primary()</code> is called to use only the primary memory allocator.
 The task is executed by calling <code>poll_unpin</code> method in the <code>catch_unwind</code> block to catch a panic.
@@ -1502,13 +1512,15 @@ pub struct Talloc {
     backup_start: AtomicUsize,
     backup_size: AtomicUsize,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>The <code>Talloc</code> structure is defined as a global allocator as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>#[global_allocator]
 pub static TALLOC: Talloc = Talloc::new();
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are 2 functions to initialize memory regions of the primary and backup allocators.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn init_primary(primary_start: usize, primary_size: usize)</code></td><td>Initialize the memory region of the primary allocator.</td></tr>
@@ -1537,7 +1549,8 @@ before initializing the primary and backup allocators.</p>
 
     // omitted
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn init_backup_heap(
@@ -1555,7 +1568,8 @@ before initializing the primary and backup allocators.</p>
 
     (backup_pages, backup_heap_region, next_page)
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="aarch64-12"><a class="header" href="#aarch64-12">AArch64</a></h2>
 <p>For x86_64, the primary and backup allocators are initialized
 in <code>primary_cpu</code> function defined in
@@ -1576,7 +1590,8 @@ in <code>primary_cpu</code> function defined in
 
     // omitted
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <div style="break-before: page; page-break-before: always;"></div><h1 id="scheduler"><a class="header" href="#scheduler">Scheduler</a></h1>
 <p><code>Scheduler</code> is a trait for the scheduler and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1595,7 +1610,8 @@ in <code>primary_cpu</code> function defined in
     #[allow(dead_code)] // TODO: to be removed
     fn priority(&amp;self) -&gt; u8;
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several functions regarding the scheduler in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a>.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn get_next_task()</code></td><td>Get the next executable task.</td></tr>
@@ -1616,7 +1632,8 @@ in <code>primary_cpu</code> function defined in
 
     Panicked,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="sleepingtasks"><a class="header" href="#sleepingtasks">SleepingTasks</a></h2>
 <p><code>SleepingTasks</code> is a struct for managing sleeping tasks and defined in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_async_lib/src/scheduler.rs">awkernel_async_lib/src/scheduler.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1625,7 +1642,8 @@ in <code>primary_cpu</code> function defined in
     delta_list: DeltaList&lt;Box&lt;dyn FnOnce() + Send&gt;&gt;,
     base_time: u64,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p><code>SleepingTasks</code> struct has the following functions.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn new()</code></td><td>Create a new <code>SleepingTasks</code> instance.</td></tr>
@@ -1652,7 +1670,8 @@ Each scheduler must be registered in the following three locations.
     // - Value: PCIeBus
     tree: BTreeMap&lt;u8, Box&lt;PCIeBus&gt;&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding the <code>PCIeTree</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn update_bridge_info(...)</code></td><td>Update the bridge information for each bus in the tree.</td></tr>
@@ -1667,14 +1686,15 @@ Each scheduler must be registered in the following three locations.
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         for (_, bus) in self.tree.iter() {
             if !bus.devices.is_empty() {
-                write!(f, "{}", bus)?;
+                write!(f, &quot;{}&quot;, bus)?;
             }
         }
 
         Ok(())
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pciebus"><a class="header" href="#pciebus">PCIeBus</a></h2>
 <p><code>PCIeBus</code> is a structure that represents individual PCIe buses.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1686,7 +1706,8 @@ Each scheduler must be registered in the following three locations.
     info: Option&lt;PCIeInfo&gt;,
     devices: Vec&lt;ChildDevice&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding the <code>PCIeBus</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn new(...)</code></td><td>Construct the <code>PCIeBus</code> structure.</td></tr>
@@ -1702,10 +1723,10 @@ Each scheduler must be registered in the following three locations.
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
         if let Some(info) = self.info.as_ref() {
             let bfd = info.get_bfd();
-            let name = format!("{bfd}: Bridge, Bus #{:02x}", self.bus_number);
+            let name = format!(&quot;{bfd}: Bridge, Bus #{:02x}&quot;, self.bus_number);
             name.into()
         } else {
-            let name = format!("Bus #{:02x}", self.bus_number);
+            let name = format!(&quot;Bus #{:02x}&quot;, self.bus_number);
             name.into()
         }
     }
@@ -1714,7 +1735,8 @@ Each scheduler must be registered in the following three locations.
         Some(&amp;self.devices)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
 <p><code>PCIeBus</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1724,7 +1746,8 @@ Each scheduler must be registered in the following three locations.
         print_pcie_devices(self, f, 0)
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pcieinfo"><a class="header" href="#pcieinfo">PCIeInfo</a></h2>
 <p><code>PCIeInfo</code> is a structure used to store the essential information required to initialize a PCIe device.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1754,7 +1777,8 @@ pub struct PCIeInfo {
     bridge_device_number: Option&lt;u8&gt;,
     bridge_function_number: Option&lt;u8&gt;,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding <code>PCIeInfo</code> structure.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn from_io(...)</code></td><td>Construct the <code>PCIeInfo</code> structure using I/O ports (x86 only).</td></tr>
@@ -1793,7 +1817,7 @@ pub struct PCIeInfo {
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         write!(
             f,
-            "{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}",
+            &quot;{:04x}:{:02x}:{:02x}.{:01x}, Device ID = {:04x}, PCIe Class = {:?}&quot;,
             self.segment_group,
             self.bus_number,
             self.device_number,
@@ -1803,7 +1827,8 @@ pub struct PCIeInfo {
         )
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="childdevice"><a class="header" href="#childdevice">ChildDevice</a></h2>
 <p><code>ChildDevice</code> is an enum that represents different types of devices and their attachment states on a PCIe bus.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1814,7 +1839,8 @@ pub struct PCIeInfo {
     Attaching,
     Unattached(Box&lt;PCIeInfo&gt;),
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <p>There are several methods regarding <code>ChildDevice</code> enum.</p>
 <div class="table-wrapper"><table><thead><tr><th>function</th><th>description</th></tr></thead><tbody>
 <tr><td><code>fn attach(&amp;mut self)</code></td><td>Attach a child PCIe device.</td></tr>
@@ -1834,7 +1860,8 @@ pub struct PCIeInfo {
     id: u16,
     pcie_class: pcie_class::PCIeClass,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl PCIeDevice -->
 <p><code>UnknownDevice</code> structure implements the <code>PCIeDevice</code> trait in <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs">awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1842,12 +1869,12 @@ pub struct PCIeInfo {
 </span>impl PCIeDevice for PCIeBus {
     fn device_name(&amp;self) -&gt; Cow&lt;'static, str&gt; {
         let bfd = format!(
-            "{:04x}:{:02x}:{:02x}.{:01x}",
+            &quot;{:04x}:{:02x}:{:02x}.{:01x}&quot;,
             self.segment_group, self.bus_number, self.device_number, self.function_number
         );
 
         let name = format!(
-            "{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}",
+            &quot;{bfd}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}&quot;,
             self.vendor, self.id, self.pcie_class,
         );
         name.into()
@@ -1857,7 +1884,8 @@ pub struct PCIeInfo {
         None
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="pciedeviceerr"><a class="header" href="#pciedeviceerr">PCIeDeviceErr</a></h2>
 <p><code>PCIeDeviceErr</code> is an enum that represents various error types related to PCIe devices.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1874,7 +1902,8 @@ pub enum PCIeDeviceErr {
     NotImplemented,
     BARFailure,
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <!-- ### Impl fmt::Display -->
 <p><code>PCIeDeviceErr</code> structure implements the <code>fmt::Display</code> trait as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1883,20 +1912,21 @@ pub enum PCIeDeviceErr {
     fn fmt(&amp;self, f: &amp;mut fmt::Formatter&lt;'_&gt;) -&gt; fmt::Result {
         match self {
             Self::InitFailure =&gt; {
-                write!(f, "Failed to initialize the device driver.")
+                write!(f, &quot;Failed to initialize the device driver.&quot;)
             }
             // omitted
         }
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="initialization-1"><a class="header" href="#initialization-1">Initialization</a></h2>
 <h3 id="x86"><a class="header" href="#x86">x86</a></h3>
 <p>For x86, the PCIe is initialized with ACPI or I/O port by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_acpi</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_io</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Initialize the PCIe with ACPI.
-#[cfg(feature = "x86")]
+#[cfg(feature = &quot;x86&quot;)]
 pub fn init_with_acpi(acpi: &amp;AcpiTables&lt;AcpiMapper&gt;) -&gt; Result&lt;(), PCIeDeviceErr&gt; {
     use awkernel_lib::{addr::phy_addr::PhyAddr, paging::Flags};
 
@@ -1932,15 +1962,17 @@ pub fn init_with_acpi(acpi: &amp;AcpiTables&lt;AcpiMapper&gt;) -&gt; Result&lt;(
 
     Ok(())
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>/// Initialize the PCIe with IO port.
-#[cfg(feature = "x86")]
+#[cfg(feature = &quot;x86&quot;)]
 pub fn init_with_io() {
     init(0, None, PCIeInfo::from_io, None);
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="others"><a class="header" href="#others">Others</a></h3>
 <p>The PCIe is initialized with the base address by <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init_with_addr</code>:awkernel/awkernel_drivers/src/pcie.rs</a> or <a href="https://github.com/tier4/awkernel/blob/main/awkernel_drivers/src/pcie.rs"><code>init</code>:awkernel/awkernel_drivers/src/pcie.rs</a> as follows.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -1958,7 +1990,8 @@ pub fn init_with_addr(
         ranges,
     );
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn init&lt;F&gt;(
@@ -1987,13 +2020,14 @@ pub fn init_with_addr(
 
     bus_tree.attach();
 
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+    log::info!(&quot;PCIe: segment_group = {segment_group:04x}\r\n{}&quot;, bus_tree);
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&amp;mut node);
     pcie_trees.insert(segment_group, Arc::new(bus_tree));
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="checking-the-pci-buses"><a class="header" href="#checking-the-pci-buses">Checking the PCI Buses</a></h2>
 <p>The following functions are used to check all devices on the PCIe bus.</p>
 <h3 id="check_bus"><a class="header" href="#check_bus">check_bus</a></h3>
@@ -2009,7 +2043,8 @@ where
         check_device(bus, device, bus_tree, visited, f);
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="check_device"><a class="header" href="#check_device">check_device</a></h3>
 <p>Check eight functions on the device.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2028,7 +2063,8 @@ fn check_device&lt;F&gt;(
         check_function(bus, device, function, bus_tree, visited, f);
     }
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h3 id="check_function"><a class="header" href="#check_function">check_function</a></h3>
 <p>Retrieve PCIe bus information and store it in the <code>PCIeTree</code> structure.</p>
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
@@ -2063,7 +2099,8 @@ where
     }
 }
 
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="read-the-base-address"><a class="header" href="#read-the-base-address">Read the base address</a></h2>
 <p>Read the base address specified by the offset from the PCIe device's configuration space.</p>
 <h3 id="read_bar"><a class="header" href="#read_bar">read_bar</a></h3>
@@ -2096,7 +2133,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
     }
 }
 
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 <h2 id="print-the-pcie-devices"><a class="header" href="#print-the-pcie-devices">Print the PCIe devices</a></h2>
 <p>Print the configuration of the devices on the PCIe bus.</p>
 <h3 id="print_pcie_devices"><a class="header" href="#print_pcie_devices">print_pcie_devices</a></h3>
@@ -2104,8 +2142,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 <pre><pre class="playground"><code class="language-rust"><span class="boring">#![allow(unused)]
 </span><span class="boring">fn main() {
 </span>fn print_pcie_devices(device: &amp;dyn PCIeDevice, f: &amp;mut fmt::Formatter, indent: u8) -&gt; fmt::Result {
-    let indent_str = " ".repeat(indent as usize * 4);
-    write!(f, "{}{}\r\n", indent_str, device.device_name())?;
+    let indent_str = &quot; &quot;.repeat(indent as usize * 4);
+    write!(f, &quot;{}{}\r\n&quot;, indent_str, device.device_name())?;
 
     if let Some(children) = device.children() {
         for child in children.iter() {
@@ -2115,7 +2153,7 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
                 }
                 ChildDevice::Unattached(info) =&gt; {
                     let name = format!(
-                        "{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}",
+                        &quot;{}: Vendor ID = {:04x}, Device ID = {:04x}, PCIe Class = {:?}, bridge = {:?}-{:?}-{:?}&quot;,
                         info.get_bfd(),
                         info.vendor,
                         info.id,
@@ -2125,8 +2163,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
                         info.bridge_function_number,
                     );
 
-                    let indent_str = " ".repeat((indent as usize + 1) * 4);
-                    write!(f, "{}{}\r\n", indent_str, name)?;
+                    let indent_str = &quot; &quot;.repeat((indent as usize + 1) * 4);
+                    write!(f, &quot;{}{}\r\n&quot;, indent_str, name)?;
                 }
                 ChildDevice::Bus(bus) =&gt; {
                     print_pcie_devices(bus.as_ref(), f, indent + 1)?;
@@ -2138,7 +2176,8 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 
     Ok(())
 }
-<span class="boring">}</span></code></pre></pre>
+<span class="boring">}
+</span></code></pre></pre>
 
                     </main>
 
@@ -2160,29 +2199,28 @@ fn read_bar(config_space: &amp;ConfigSpace, offset: usize) -&gt; BaseAddress {
 
 
 
-        <script>
+        <script type="text/javascript">
             window.playground_copyable = true;
         </script>
 
 
-        <script src="elasticlunr.min.js"></script>
-        <script src="mark.min.js"></script>
-        <script src="searcher.js"></script>
+        <script src="elasticlunr.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="mark.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="searcher.js" type="text/javascript" charset="utf-8"></script>
 
-        <script src="clipboard.min.js"></script>
-        <script src="highlight.js"></script>
-        <script src="book.js"></script>
+        <script src="clipboard.min.js" type="text/javascript" charset="utf-8"></script>
+        <script src="highlight.js" type="text/javascript" charset="utf-8"></script>
+        <script src="book.js" type="text/javascript" charset="utf-8"></script>
 
         <!-- Custom JS scripts -->
-        <script src="mermaid.min.js"></script>
-        <script src="mermaid-init.js"></script>
+        <script type="text/javascript" src="mermaid.min.js"></script>
+        <script type="text/javascript" src="mermaid-init.js"></script>
 
-        <script>
+        <script type="text/javascript">
         window.addEventListener('load', function() {
             window.setTimeout(window.print, 100);
         });
         </script>
 
-    </div>
     </body>
 </html>

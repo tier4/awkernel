@@ -2,8 +2,8 @@ use self::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use ::acpi::AcpiTables;
 
 pub mod acpi;
-pub(super) mod cpu;
-pub(super) mod delay;
+pub mod cpu;
+pub mod delay;
 pub(super) mod dvfs;
 pub(super) mod interrupt;
 pub mod interrupt_remap;

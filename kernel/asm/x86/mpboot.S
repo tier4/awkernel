@@ -166,7 +166,7 @@
 
 #define NON_PRIMARY_KERNEL_MAIN (1024 * 2)
 #define CPU0_CR3  (1024 * 2 +  8)
-#define FLAG (1024 * 2 +  16)
+#define CPU_ID (1024 * 2 +  16)
 
 #define CR0_DEFAULT	(CR0_PE|CR0_PG|CR0_NE|CR0_WP)
 #define CR4_DEFAULT (CR4_PAE|CR4_PGE|CR4_PSE|CR4_OSFXSR|CR4_OSXMMEXCPT)
@@ -181,23 +181,34 @@
 
 .code16
 _start_cpu:
-    cli                         # BIOS enabled interrupts; disable
+    cli                          # BIOS enabled interrupts; disable
 
-    # Zero data segment registers DS, ES, and SS.
-    xorw    %ax, %ax             # Set %ax to zero
-    movw    %ax, %ds             # -> Data Segment
-    movw    %ax, %es             # -> Extra Segment
-    movw    %ax, %ss             # -> Stack Segment
+    mov	    %cs, %ax             # copy %cs to %ds.  Remember these
+	mov	    %ax, %ds             # are offsets rather than selectors
+	mov	    %ax, %ss
+
+    # Find the relocation base
+    xorl    %ebx, %ebx
+    mov     %cs, %bx
+    sall    $4, %ebx             # $ebx is the relocation base
+
+    orl     %ebx, (gdtdesc32 + 2) # add the relocation base to the GDT
+    orl     %ebx, (gdtdesc64 + 2) # add the relocation base to the GDT
+    orl     %ebx, (ljmp32 + 2)    # add the relocation base to the ljmpl's argument, $start32
+    orl     %ebx, (ljmp64 + 1)    # add the relocation base to the ljmpl's argument, $entry64
 
     addr32 lgdtl (gdtdesc32)
 
     movl    %cr0, %eax           # get cr0
     orl     $CR0_PE, %eax        # enable protected mode
     movl    %eax, %cr0           # doit
+
+ljmp32:
     ljmpl   $0x8, $start32
 
 .code32  # Tell assembler to generate 32-bit code now.
 start32:
+
     movl    $0x10, %eax    # data segment
     movw    %ax, %ds
     movw    %ax, %ss
@@ -205,7 +216,9 @@ start32:
     movw    %ax, %fs
     movw    %ax, %gs
 
-    movl    $STACK_TEMP, %esp
+    movl    $STACK_TEMP, %eax
+    addl    %ebx, %eax
+    movl    %eax, %esp
 
     /* First, reset the PSL. */
     pushl   $PSL_MBO
@@ -218,6 +231,7 @@ start32:
     movl    $MSR_EFER, %ecx
     rdmsr
     movl    %edx, %edi      # %edx is needed by wrmsr below
+    movl    %ebx, %esi      # save relocation base
 
     # Check if we need to enable NXE
     movl    $0x80000001, %eax
@@ -225,83 +239,87 @@ start32:
     andl    $CPUID_NXE, %edx
     xorl    %eax, %eax
     testl   %edx, %edx
-    jz    1f
+    jz      1f
     orl     $EFER_NXE, %eax
 1:
     orl     $(EFER_LME | EFER_SCE), %eax
 
     movl    %edi, %edx      # Restore saved %edx
-    movl    $MSR_EFER,%ecx
+    movl    %esi, %ebx      # Restore saved %ebx
+
+    movl    $MSR_EFER, %ecx
     wrmsr
 
     movl    $CPU0_CR3, %ecx
+    orl     %ebx, %ecx
     movl    (%ecx), %ecx
     movl    %ecx, %cr3      # load ptd addr into mmu
 
     movl    $gdtdesc64, %eax
+    orl     %ebx, %eax
     lgdt    (%eax)
 
     movl    %cr0, %ecx      # get control word
     orl     $CR0_DEFAULT, %ecx
     movl    %ecx, %cr0
 
+ljmp64:
     ljmpl   $0x8, $entry64
 
 .code64  # Tell assembler to generate 64-bit code now.
 entry64:
-    // Get local APIC ID.
-    movl    $1, %eax
-    cpuid
+    movq    $CPU_ID, %r8
+    orq     %rbx, %r8       # Add the relocation base
+    movq    (%r8), %r9      # Get CPU ID
 
-    test    $0x80000000, %ecx // check Hypervisor
-    jnz     xapic
-
-    test    $0x200000, %ecx    // Check if x2APIC is supported (bit 21 of ECX)
-    jz      xapic
-
-    // Get maximum CPUID leaf number
-    xorl    %eax, %eax
-    cpuid
-    cmpl    $0x1F, %eax
-    jb      use_leaf_0b
-
-    // Use leaf 0x1F
-    movl    $0x1F, %eax
-    jmp     assign_apic_id
-
-use_leaf_0b:
-    movl    $0x0B, %eax
-
-assign_apic_id:
-    cpuid
-    movl    %edx, %ebx
-    jmp     end
-
-xapic:
-    shrl    $24, %ebx          // 31:24 is local APIC ID
-    andl    $0xFF, %ebx
-
-end:
-    // APIC ID is now in EBX
+    call    print_cpu_id
 
     // Set stack pointer.
-    movl    %ebx, %eax
+    movq    %r9, %rax
     movl    $STACK_SIZE, %ecx
     mull    %ecx
     addl    $STACK_START, %eax
     movl    %eax, %esp
     movl    %eax, %ebp
 
-    movq    $FLAG, %rax
-    movq    $1, (%rax)
+    addq    $1, %r9
+    movq    %r9, (%r8)      # Save the next CPU ID
 
-    movq    $NON_PRIMARY_KERNEL_MAIN, %rbx
-    movq    (%rbx), %rax
+    movl    %esi, %ecx      # Restore saved relocation base
+    orq     $NON_PRIMARY_KERNEL_MAIN, %rcx
+    movq    (%rcx), %rax
     callq   *%rax
 
 spin:
     hlt
     jmp     spin
+
+# Send a character to COM1
+# %ebx: relocation base
+print_cpu_id:
+    pushq   %rax
+    pushq   %rdx
+
+wait:
+    mov     $0x3FD, %dx    # status register of COM1
+    in      (%dx), %al     # read status
+    test    $0x20, %al     # check Tx Empty bit
+    jz      wait           # if not empty, wait
+
+    xorl    %eax, %eax
+
+    mov     $0x3F8, %dx    # data register of COM1
+    movb    $0x30, %al     # set character
+    addq    %r9, %rax      # Add CPU ID
+    cmp     $127, %eax
+    jg      end_print_cpu_id
+    out     %al, (%dx)     # send character
+
+end_print_cpu_id:
+    popq    %rdx
+    popq    %rax
+
+    ret
 
 # Bootstrap GDT
 # force 4 byte alignment
