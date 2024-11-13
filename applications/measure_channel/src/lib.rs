@@ -70,8 +70,6 @@ pub async fn run() {
                         return;
                     }
 
-                    awkernel_lib::delay::wait_microsec(50);
-
                     if tx2.send(()).await.is_err() {
                         return;
                     }
