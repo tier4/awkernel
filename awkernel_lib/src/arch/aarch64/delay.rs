@@ -30,6 +30,17 @@ impl Delay for super::AArch64 {
         diff * 1_000_000 / frq
     }
 
+    fn uptime_nano() -> u128 {
+        let start = unsafe { read_volatile(addr_of!(COUNT_START)) };
+
+        let frq = awkernel_aarch64::cntfrq_el0::get();
+        let now = awkernel_aarch64::cntvct_el0::get();
+
+        let diff = now - start;
+
+        diff as u128 * 1_000_000_000 / frq as u128
+    }
+
     fn cpu_counter() -> u64 {
         awkernel_aarch64::pmccntr_el0::get()
     }
