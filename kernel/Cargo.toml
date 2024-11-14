@@ -64,6 +64,7 @@ optional = true
 
 [features]
 default = ["x86"]
+perf = ["awkernel_async_lib/perf", "userland/perf"]
 no_std_unwinding = ["dep:unwinding"]
 x86 = [
     "no_std_unwinding",
