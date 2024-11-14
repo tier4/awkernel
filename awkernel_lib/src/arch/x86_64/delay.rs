@@ -36,7 +36,14 @@ impl Delay for super::X86 {
     fn wait_microsec(usec: u64) {
         let start = uptime();
         loop {
-            let diff = uptime() - start;
+            let t = uptime();
+
+            if t < start {
+                core::hint::spin_loop();
+                continue;
+            }
+
+            let diff = t - start;
             if diff >= usec {
                 break;
             }

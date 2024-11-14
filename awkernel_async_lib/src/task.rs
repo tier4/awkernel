@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicPtr, AtomicU32, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -61,27 +61,19 @@ impl Default for TaskList {
 }
 
 impl TaskList {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             head: None,
             tail: None,
         }
     }
 
+    #[inline]
     pub fn push_back(&mut self, task: Arc<Task>) {
         match self.tail.take() {
             Some(old_tail) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = task.next.lock(&mut node);
-                    *next = None;
-                }
-
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_tail.next.lock(&mut node);
-                    *next = Some(task.clone());
-                }
+                task.assing_next_null();
+                old_tail.assing_next(task.clone());
 
                 self.tail = Some(task);
             }
@@ -92,14 +84,26 @@ impl TaskList {
         }
     }
 
+    #[inline]
+    pub fn push_front(&mut self, task: Arc<Task>) {
+        match self.head.take() {
+            Some(old_head) => {
+                task.assing_next(old_head);
+
+                self.head = Some(task);
+            }
+            None => {
+                self.head = Some(task.clone());
+                self.tail = Some(task);
+            }
+        }
+    }
+
+    #[inline]
     pub fn pop_front(&mut self) -> Option<Arc<Task>> {
         match self.head.take() {
             Some(old_head) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_head.next.lock(&mut node);
-                    self.head = next.take();
-                }
+                self.head = old_head.take_next();
 
                 if self.head.is_none() {
                     self.tail = None;
@@ -119,13 +123,49 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
-    next: Mutex<Option<Arc<Task>>>,
+    next: AtomicPtr<Task>,
 }
 
 impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
+    }
+
+    #[inline(always)]
+    fn assing_next(&self, task: Arc<Task>) {
+        // Drop `task.next`.
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if !next_ptr.is_null() {
+            unsafe { Arc::from_raw(next_ptr) };
+        }
+
+        // Assign.
+        let task_ptr = Arc::into_raw(task.clone()) as *mut Task;
+        self.next.store(task_ptr, Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn assing_next_null(&self) {
+        // Drop `task.next`.
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if !next_ptr.is_null() {
+            unsafe { Arc::from_raw(next_ptr) };
+        }
+
+        // Assign.
+        self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn take_next(&self) -> Option<Arc<Task>> {
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if next_ptr.is_null() {
+            None
+        } else {
+            self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
+            Some(unsafe { Arc::from_raw(next_ptr) })
+        }
     }
 }
 
@@ -295,7 +335,7 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
-                    next: Mutex::new(None),
+                    next: AtomicPtr::new(core::ptr::null_mut()),
                 };
 
                 e.insert(Arc::new(task));
@@ -778,13 +818,14 @@ pub fn run_main() {
                     info.update_last_executed();
                 }
 
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
                 unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
+                    awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                let cpu_id = awkernel_lib::cpu::cpu_id();
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
@@ -824,14 +865,15 @@ pub fn run_main() {
                 })
             };
 
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
-            let cpu_id = awkernel_lib::cpu::cpu_id();
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 

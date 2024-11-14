@@ -92,6 +92,8 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
 
                 for _ in 0..NUM_TRIAL {
                     if let Ok(data) = rx1.recv().await {
+                        awkernel_lib::delay::wait_microsec(50); // Simulate processing time.
+
                         if tx2.send(data).await.is_err() {
                             return;
                         }
