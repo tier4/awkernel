@@ -65,6 +65,7 @@ pub(crate) trait Scheduler {
 }
 
 /// Get the next executable task.
+#[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     if let Some(task) = fifo::SCHEDULER.get_next() {
         return Some(task);

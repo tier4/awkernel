@@ -61,13 +61,14 @@ impl Default for TaskList {
 }
 
 impl TaskList {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             head: None,
             tail: None,
         }
     }
 
+    #[inline]
     pub fn push_back(&mut self, task: Arc<Task>) {
         match self.tail.take() {
             Some(old_tail) => {
@@ -92,6 +93,26 @@ impl TaskList {
         }
     }
 
+    #[inline]
+    pub fn push_front(&mut self, task: Arc<Task>) {
+        match self.head.take() {
+            Some(old_head) => {
+                {
+                    let mut node = MCSNode::new();
+                    let mut next = task.next.lock(&mut node);
+                    *next = Some(old_head);
+                }
+
+                self.head = Some(task);
+            }
+            None => {
+                self.head = Some(task.clone());
+                self.tail = Some(task);
+            }
+        }
+    }
+
+    #[inline]
     pub fn pop_front(&mut self) -> Option<Arc<Task>> {
         match self.head.take() {
             Some(old_head) => {
@@ -707,12 +728,41 @@ pub mod perf {
     }
 }
 
+#[inline(always)]
+pub fn read_tsc() -> u64 {
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+    let tsc = unsafe { core::arch::x86_64::_rdtsc() };
+    core::sync::atomic::fence(core::sync::atomic::Ordering::Release);
+    tsc
+}
+
 pub fn run_main() {
+    [
+        167141694, 3904672, 138543238, 115322808, 267160, 112750862, 249889464, 6540718,
+    ];
+    let mut benchmark = [0; 9];
+    let mut num = 0;
+
     loop {
         #[cfg(feature = "perf")]
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
-        if let Some(task) = get_next_task() {
+        let t0 = read_tsc();
+        let next = get_next_task();
+        let t1 = read_tsc();
+
+        if num < 10000 && t1 > t0 {
+            benchmark[0] += t1 - t0;
+        }
+
+        if let Some(task) = next {
+            num += 1;
+            if num == 10000 {
+                log::info!("Benchmark: {:?}", benchmark);
+            }
+
+            let t0 = read_tsc();
+
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -746,6 +796,11 @@ pub fn run_main() {
                         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     }
 
+                    let t1 = read_tsc();
+                    if num < 10000 && t1 > t0 {
+                        benchmark[1] += t1 - t0;
+                    }
+
                     continue;
                 }
             }
@@ -753,17 +808,35 @@ pub fn run_main() {
             let w = waker_ref(&task);
             let mut ctx = Context::from_waker(&w);
 
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[1] += t1 - t0;
+            }
+
             let result = {
+                let t0 = read_tsc();
+
                 let mut node = MCSNode::new();
                 let Some(mut guard) = task.future.try_lock(&mut node) else {
                     // This task is running on another CPU,
                     // and re-schedule the task to avoid starvation just in case.
                     task.wake();
+
+                    let t1 = read_tsc();
+                    if num < 10000 && t1 > t0 {
+                        benchmark[2] += t1 - t0;
+                    }
+
                     continue;
                 };
 
                 // Can remove this?
                 if guard.is_terminated() {
+                    let t1 = read_tsc();
+                    if num < 10000 && t1 > t0 {
+                        benchmark[2] += t1 - t0;
+                    }
+
                     continue;
                 }
 
@@ -772,23 +845,49 @@ pub fn run_main() {
                     let mut info = task.info.lock(&mut node);
 
                     if matches!(info.state, State::Terminated | State::Panicked) {
+                        let t1 = read_tsc();
+                        if num < 10000 && t1 > t0 {
+                            benchmark[2] += t1 - t0;
+                        }
+
                         continue;
                     }
 
                     info.update_last_executed();
                 }
 
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
                 unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
+                    awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                let cpu_id = awkernel_lib::cpu::cpu_id();
+                let t1 = read_tsc();
+                if num < 10000 && t1 > t0 {
+                    benchmark[2] += t1 - t0;
+                }
+
+                let t0 = read_tsc();
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+
+                let t1 = read_tsc();
+                if num < 10000 && t1 > t0 {
+                    benchmark[3] += t1 - t0;
+                }
+
+                let t0 = read_tsc();
 
                 // Invoke a task.
                 catch_unwind(|| {
+                    let t1 = read_tsc();
+                    if num < 10000 && t1 > t0 {
+                        benchmark[4] += t1 - t0;
+                    }
+
+                    let t0 = read_tsc();
+
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
                         not(feature = "std")
@@ -820,20 +919,41 @@ pub fn run_main() {
                         awkernel_lib::interrupt::disable();
                     }
 
+                    let t1 = read_tsc();
+                    if num < 10000 && t1 > t0 {
+                        benchmark[5] += t1 - t0;
+                    }
+
                     result
                 })
             };
+
+            let t0 = read_tsc();
+
+            let cpu_id = awkernel_lib::cpu::cpu_id();
 
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
-            let cpu_id = awkernel_lib::cpu::cpu_id();
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[6] += t1 - t0;
+            }
+
+            let t0 = read_tsc();
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
+
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[7] += t1 - t0;
+            }
+
+            let t0 = read_tsc();
 
             let mut node = MCSNode::new();
             let mut info = task.info.lock(&mut node);
@@ -888,6 +1008,11 @@ pub fn run_main() {
                     #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
+            }
+
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[8] += t1 - t0;
             }
         } else {
             #[cfg(feature = "perf")]
