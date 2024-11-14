@@ -17,7 +17,7 @@ pub struct GEDFScheduler {
 ///   - release time: The time when the task becomes release. Waiting tasks have release time.
 /// - timestamp: The time when the task is enqueued.
 // The task with the highest priority is executed first.
-// If two tasks have the same priority, the task with the earliest timestamp is executed first..
+// If two tasks have the same priority, the task with the earliest timestamp is executed first.
 struct GEDFTask {
     task: Arc<Task>,
     priority: u64,
@@ -120,7 +120,7 @@ impl Scheduler for GEDFScheduler {
             self.set_task_state(&mut task, task_state);
 
             queue.push(GEDFTask {
-                task: task,
+                task,
                 priority,
                 timestamp: awkernel_lib::delay::uptime(),
             });
