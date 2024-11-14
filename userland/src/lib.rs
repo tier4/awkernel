@@ -10,6 +10,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_network")]
     test_network::run().await; // test for network
 
+    #[cfg(feature = "load_test_udp")]
+    load_test_udp::run().await; // load test for udp
+
     #[cfg(feature = "test_pubsub")]
     test_pubsub::run().await; // test for pubsub
 
