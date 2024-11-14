@@ -737,10 +737,7 @@ pub fn read_tsc() -> u64 {
 }
 
 pub fn run_main() {
-    [
-        167141694, 3904672, 138543238, 115322808, 267160, 112750862, 249889464, 6540718,
-    ];
-    let mut benchmark = [0; 9];
+    let mut benchmark = [0; 10];
     let mut num = 0;
 
     loop {
@@ -928,9 +925,21 @@ pub fn run_main() {
                 })
             };
 
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[5] += t1 - t0;
+            }
+
             let t0 = read_tsc();
 
             let cpu_id = awkernel_lib::cpu::cpu_id();
+
+            let t1 = read_tsc();
+            if num < 10000 && t1 > t0 {
+                benchmark[6] += t1 - t0;
+            }
+
+            let t0 = read_tsc();
 
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
@@ -941,7 +950,7 @@ pub fn run_main() {
 
             let t1 = read_tsc();
             if num < 10000 && t1 > t0 {
-                benchmark[6] += t1 - t0;
+                benchmark[7] += t1 - t0;
             }
 
             let t0 = read_tsc();
@@ -950,7 +959,7 @@ pub fn run_main() {
 
             let t1 = read_tsc();
             if num < 10000 && t1 > t0 {
-                benchmark[7] += t1 - t0;
+                benchmark[8] += t1 - t0;
             }
 
             let t0 = read_tsc();
@@ -1012,7 +1021,7 @@ pub fn run_main() {
 
             let t1 = read_tsc();
             if num < 10000 && t1 > t0 {
-                benchmark[8] += t1 - t0;
+                benchmark[9] += t1 - t0;
             }
         } else {
             #[cfg(feature = "perf")]
