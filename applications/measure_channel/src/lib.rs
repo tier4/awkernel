@@ -167,15 +167,15 @@ async fn client_task(
 ) -> alloc::vec::Vec<u128> {
     let mut result = alloc::vec::Vec::with_capacity(NUM_TRIAL);
 
-    for _ in 0..NUM_TRIAL {
-        let mut buf = Vec::with_capacity(buf_size);
-        for i in 0..buf_size {
-            buf.push(i as u8);
-        }
+    let mut buf = Vec::with_capacity(buf_size);
+    for i in 0..buf_size {
+        buf.push(i as u8);
+    }
 
+    for _ in 0..NUM_TRIAL {
         let start = uptime_nano();
         tx1.send(buf).await.unwrap();
-        rx2.recv().await.unwrap();
+        buf = rx2.recv().await.unwrap();
         let end = uptime_nano();
 
         if start <= end {
