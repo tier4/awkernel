@@ -388,6 +388,9 @@ impl IxgbeInner {
         ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
         ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext)?;
 
+        let mut dma_info = Vec::with_capacity(DEFAULT_RXD * 16);
+        dma_info.resize(DEFAULT_RXD * 16, (0, 0, 0));
+
         let ixgbe = Self {
             info,
             hw,
@@ -403,7 +406,7 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
-            dma_info: Vec::with_capacity(DEFAULT_RXD * 16),
+            dma_info,
         };
 
         Ok((ixgbe, que))
