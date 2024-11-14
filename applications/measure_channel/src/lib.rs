@@ -92,6 +92,8 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
 
                 for _ in 0..NUM_TRIAL {
                     if let Ok(data) = rx1.recv().await {
+                        awkernel_lib::delay::wait_microsec(50); // Simulate processing time.
+
                         if tx2.send(data).await.is_err() {
                             return;
                         }
@@ -100,7 +102,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
                     }
                 }
             },
-            SchedulerType::FIFO,
+            SchedulerType::RR,
         )
         .await;
 
@@ -113,7 +115,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
                 barrier2.wait().await;
                 client_task(tx1, rx2, num_bytes).await
             },
-            SchedulerType::FIFO,
+            SchedulerType::RR,
         )
         .await;
 
