@@ -10,11 +10,6 @@ pin-project = "1"
 log = "0.4"
 array-macro = "2.1"
 
-[dependencies.crossbeam-queue]
-version = "0.3"
-default-features = false
-features = ["alloc"]
-
 [dependencies.futures]
 version = "0.3"
 default-features = false
