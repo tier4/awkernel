@@ -1,93 +1,55 @@
 //! A basic FIFO scheduler.
 
-use core::sync::atomic::{AtomicUsize, Ordering};
-
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{State, TaskList};
 use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-const NUM_QUEUE: usize = 32;
-
 pub struct FIFOScheduler {
-    queue: [crossbeam_queue::SegQueue<Arc<Task>>; NUM_QUEUE],
-    num_task: AtomicUsize,
-    push_idx: AtomicUsize,
-    pop_idx: AtomicUsize,
+    queue: Mutex<Option<TaskList>>, // Run queue.
 }
 
 impl Scheduler for FIFOScheduler {
-    #[inline]
     fn wake_task(&self, task: Arc<Task>) {
-        let idx = self.push_idx.fetch_add(1, Ordering::Relaxed);
-        let idx = idx & (NUM_QUEUE - 1);
+        let mut node = MCSNode::new();
+        let mut queue = self.queue.lock(&mut node);
 
-        let queue = &self.queue[idx];
-
-        queue.push(task);
-        self.num_task
-            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+        if let Some(queue) = queue.as_mut() {
+            queue.push_back(task);
+        } else {
+            let mut q = TaskList::new();
+            q.push_back(task);
+            *queue = Some(q);
+        }
     }
 
-    #[inline]
     fn get_next(&self) -> Option<Arc<Task>> {
-        let idx = self.pop_idx.fetch_add(1, Ordering::Relaxed);
-        let idx = idx & (NUM_QUEUE - 1);
+        let mut node = MCSNode::new();
+        let mut queue = self.queue.lock(&mut node);
 
-        {
-            let queue = &self.queue[idx];
+        // Pop a task from the run queue.
+        let queue = match queue.as_mut() {
+            Some(q) => q,
+            None => return None,
+        };
 
-            loop {
-                let Some(task) = queue.pop() else { break };
-                self.num_task.fetch_sub(1, Ordering::Relaxed);
+        loop {
+            let task = queue.pop_front()?;
 
-                // Make the state of the task Running.
-                {
-                    let mut node = MCSNode::new();
-                    let mut task_info = task.info.lock(&mut node);
+            // Make the state of the task Running.
+            {
+                let mut node = MCSNode::new();
+                let mut task_info = task.info.lock(&mut node);
 
-                    if matches!(task_info.state, State::Terminated | State::Panicked) {
-                        continue;
-                    }
-
-                    task_info.state = State::Running;
+                if matches!(task_info.state, State::Terminated | State::Panicked) {
+                    continue;
                 }
 
-                return Some(task);
-            }
-        }
-
-        // Work-stealing.
-        let mut idx = idx + 1;
-
-        while self.num_task.load(Ordering::Relaxed) > 0 {
-            idx = idx & (NUM_QUEUE - 1);
-
-            let queue = &self.queue[idx];
-
-            loop {
-                let Some(task) = queue.pop() else { break };
-                self.num_task.fetch_sub(1, Ordering::Relaxed);
-
-                // Make the state of the task Running.
-                {
-                    let mut node = MCSNode::new();
-                    let mut task_info = task.info.lock(&mut node);
-
-                    if matches!(task_info.state, State::Terminated | State::Panicked) {
-                        continue;
-                    }
-
-                    task_info.state = State::Running;
-                }
-
-                return Some(task);
+                task_info.state = State::Running;
             }
 
-            idx += 1;
+            return Some(task);
         }
-
-        None
     }
 
     fn scheduler_name(&self) -> SchedulerType {
@@ -100,8 +62,5 @@ impl Scheduler for FIFOScheduler {
 }
 
 pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
-    queue: array_macro::array![_ => crossbeam_queue::SegQueue::<Arc<Task>>::new(); NUM_QUEUE],
-    num_task: AtomicUsize::new(0),
-    push_idx: AtomicUsize::new(0),
-    pop_idx: AtomicUsize::new(0),
+    queue: Mutex::new(None),
 };
