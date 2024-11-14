@@ -7,61 +7,39 @@ use crate::task::{State, TaskList};
 use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-const NUM_FIFO: usize = 32;
+const NUM_QUEUE: usize = 32;
 
 pub struct FIFOScheduler {
-    data: [Mutex<Option<FIFOData>>; NUM_FIFO], // Run queue.
-    next_push: AtomicUsize,
-    next_pop: AtomicUsize,
-    num_tasks: AtomicUsize,
-}
-
-struct FIFOData {
-    queue: TaskList,
-}
-
-impl FIFOData {
-    fn new() -> Self {
-        Self {
-            queue: TaskList::new(),
-        }
-    }
+    queue: [crossbeam_queue::SegQueue<Arc<Task>>; NUM_QUEUE],
+    num_task: AtomicUsize,
+    push_idx: AtomicUsize,
+    pop_idx: AtomicUsize,
 }
 
 impl Scheduler for FIFOScheduler {
+    #[inline]
     fn wake_task(&self, task: Arc<Task>) {
-        let idx = self.next_push.fetch_add(1, Ordering::Relaxed) & (NUM_FIFO - 1);
+        let idx = self.push_idx.fetch_add(1, Ordering::Relaxed);
+        let idx = idx & (NUM_QUEUE - 1);
 
-        let mut node = MCSNode::new();
-        let mut data = self.data[idx].lock(&mut node);
+        let queue = &self.queue[idx];
 
-        if let Some(data) = data.as_mut() {
-            data.queue.push_back(task);
-        } else {
-            let mut fifo_data = FIFOData::new();
-            fifo_data.queue.push_back(task);
-            *data = Some(fifo_data);
-        }
-
-        self.num_tasks.fetch_add(1, Ordering::Relaxed);
+        queue.push(task);
+        self.num_task
+            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     }
 
+    #[inline]
     fn get_next(&self) -> Option<Arc<Task>> {
-        while self.num_tasks.load(Ordering::Relaxed) > 0 {
-            let idx = self.next_pop.fetch_add(1, Ordering::Relaxed) & (NUM_FIFO - 1);
+        let idx = self.pop_idx.fetch_add(1, Ordering::Relaxed);
+        let idx = idx & (NUM_QUEUE - 1);
 
-            let mut node = MCSNode::new();
-            let mut data = self.data[idx].lock(&mut node);
-
-            // Pop a task from the run queue.
-            let data = match data.as_mut() {
-                Some(data) => data,
-                None => continue,
-            };
+        {
+            let queue = &self.queue[idx];
 
             loop {
-                let task = data.queue.pop_front()?;
-                self.num_tasks.fetch_sub(1, Ordering::Relaxed);
+                let Some(task) = queue.pop() else { break };
+                self.num_task.fetch_sub(1, Ordering::Relaxed);
 
                 // Make the state of the task Running.
                 {
@@ -79,6 +57,36 @@ impl Scheduler for FIFOScheduler {
             }
         }
 
+        // Work-stealing.
+        let mut idx = idx + 1;
+
+        while self.num_task.load(Ordering::Relaxed) > 0 {
+            idx = idx & (NUM_QUEUE - 1);
+
+            let queue = &self.queue[idx];
+
+            loop {
+                let Some(task) = queue.pop() else { break };
+                self.num_task.fetch_sub(1, Ordering::Relaxed);
+
+                // Make the state of the task Running.
+                {
+                    let mut node = MCSNode::new();
+                    let mut task_info = task.info.lock(&mut node);
+
+                    if matches!(task_info.state, State::Terminated | State::Panicked) {
+                        continue;
+                    }
+
+                    task_info.state = State::Running;
+                }
+
+                return Some(task);
+            }
+
+            idx += 1;
+        }
+
         None
     }
 
@@ -92,8 +100,8 @@ impl Scheduler for FIFOScheduler {
 }
 
 pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
-    data: array_macro::array![_ =>  Mutex::new(None); NUM_FIFO],
-    next_push: AtomicUsize::new(0),
-    next_pop: AtomicUsize::new(0),
-    num_tasks: AtomicUsize::new(0),
+    queue: array_macro::array![_ => crossbeam_queue::SegQueue::<Arc<Task>>::new(); NUM_QUEUE],
+    num_task: AtomicUsize::new(0),
+    push_idx: AtomicUsize::new(0),
+    pop_idx: AtomicUsize::new(0),
 };
