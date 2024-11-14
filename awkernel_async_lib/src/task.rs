@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicPtr, AtomicU32, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -72,17 +72,8 @@ impl TaskList {
     pub fn push_back(&mut self, task: Arc<Task>) {
         match self.tail.take() {
             Some(old_tail) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = task.next.lock(&mut node);
-                    *next = None;
-                }
-
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_tail.next.lock(&mut node);
-                    *next = Some(task.clone());
-                }
+                task.assing_next_null();
+                old_tail.assing_next(task.clone());
 
                 self.tail = Some(task);
             }
@@ -97,11 +88,7 @@ impl TaskList {
     pub fn push_front(&mut self, task: Arc<Task>) {
         match self.head.take() {
             Some(old_head) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = task.next.lock(&mut node);
-                    *next = Some(old_head);
-                }
+                task.assing_next(old_head);
 
                 self.head = Some(task);
             }
@@ -116,11 +103,7 @@ impl TaskList {
     pub fn pop_front(&mut self) -> Option<Arc<Task>> {
         match self.head.take() {
             Some(old_head) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_head.next.lock(&mut node);
-                    self.head = next.take();
-                }
+                self.head = old_head.take_next();
 
                 if self.head.is_none() {
                     self.tail = None;
@@ -140,13 +123,49 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
-    next: Mutex<Option<Arc<Task>>>,
+    next: AtomicPtr<Task>,
 }
 
 impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
+    }
+
+    #[inline(always)]
+    fn assing_next(&self, task: Arc<Task>) {
+        // Drop `task.next`.
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if !next_ptr.is_null() {
+            unsafe { Arc::from_raw(next_ptr) };
+        }
+
+        // Assign.
+        let task_ptr = Arc::into_raw(task.clone()) as *mut Task;
+        self.next.store(task_ptr, Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn assing_next_null(&self) {
+        // Drop `task.next`.
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if !next_ptr.is_null() {
+            unsafe { Arc::from_raw(next_ptr) };
+        }
+
+        // Assign.
+        self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    fn take_next(&self) -> Option<Arc<Task>> {
+        let next_ptr = self.next.load(Ordering::Relaxed);
+        if next_ptr.is_null() {
+            None
+        } else {
+            self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
+            Some(unsafe { Arc::from_raw(next_ptr) })
+        }
     }
 }
 
@@ -316,7 +335,7 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
-                    next: Mutex::new(None),
+                    next: AtomicPtr::new(core::ptr::null_mut()),
                 };
 
                 e.insert(Arc::new(task));
