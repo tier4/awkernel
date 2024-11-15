@@ -12,8 +12,8 @@ use awkernel_async_lib::{
 use core::{sync::atomic::AtomicUsize, time::Duration};
 use serde::Serialize;
 
-const NUM_TASKS: [usize; 7] = [1000, 10, 200, 400, 600, 800, 1000];
-const NUM_BYTES: [usize; 6] = [128, 2048, 8192, 8192 * 2, 8192 * 3, 8192 * 4];
+const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
+const NUM_BYTES: [usize; 11] = [1, 500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
 const NUM_TRIAL: usize = 10000;
 
 #[derive(Serialize)]
