@@ -75,8 +75,6 @@ const MCLBYTES: u32 = 1 << MCLSHIFT;
 const MAXMCLBYTES: u32 = 64 * 1024;
 
 type TxRing = [TxDescriptor; DEFAULT_TXD];
-type TxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_TXD];
-
 type RxRing = [AdvRxDesc; DEFAULT_RXD];
 
 pub struct Tx {
@@ -91,6 +89,7 @@ pub struct Rx {
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool<RxRing>,
     read_queue: RingQ<EtherFrameDMA>,
+    dma_info: Vec<(usize, usize, usize)>,
 }
 
 pub struct Queue {
@@ -160,7 +159,6 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
-    dma_info: Vec<(usize, usize, usize)>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -306,7 +304,7 @@ impl IxgbeInner {
         let mut que = Vec::new();
         let que_num = get_num_queues(&hw.mac.mac_type);
         for i in 0..que_num {
-            que.push(allocate_queue(&info, i)?);
+            que.push(allocate_queue(&info, que_num, i)?);
         }
 
         // ixgbe_identify_hardware()
@@ -407,7 +405,6 @@ impl IxgbeInner {
             irq_to_rx_tx_link,
             is_poll_mode,
             num_segs,
-            dma_info,
         };
 
         Ok((ixgbe, que))
@@ -657,17 +654,7 @@ impl IxgbeInner {
             tx.tx_desc_head = 0;
 
             let tx_desc_ring = tx.tx_desc_ring.as_mut();
-
-            //let tx_buffer_size = MCLBYTES as usize * DEFAULT_TXD;
-            //let write_buf = DMAPool::new(
-            //self.info.get_segment_group() as usize,
-            //tx_buffer_size / PAGESIZE,
-            //)
-            //.ok_or(IxgbeDriverErr::DMAPool)?;
-
-            //let buf_phy_addr = write_buf.get_phy_addr().as_usize();
-
-            for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
+            for desc in tx_desc_ring.iter_mut() {
                 desc.adv_tx.buffer_addr = 0;
                 desc.adv_tx.cmd_type_len = 0;
                 desc.adv_tx.olinfo_status = 0;
@@ -754,8 +741,9 @@ impl IxgbeInner {
             rx.rx_desc_head = rx_desc_ring_len as u32 - 1;
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
+            let mut dma_info_temp = Vec::new();
 
-            for (j, desc) in rx_desc_ring.iter_mut().enumerate() {
+            for desc in rx_desc_ring {
                 let read_buf: DMAPool<[u8; PAGESIZE]> =
                     DMAPool::new(self.info.get_segment_group() as usize, 1)
                         .ok_or(IxgbeDriverErr::DMAPool)?;
@@ -763,11 +751,15 @@ impl IxgbeInner {
 
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
-                self.dma_info[rx_desc_ring_len * i + j] = (
+                dma_info_temp.push((
                     read_buf.get_virt_addr().as_usize(),
                     buf_phy_addr,
                     self.info.get_segment_group() as usize,
-                );
+                ));
+            }
+
+            for (j, info) in dma_info_temp.iter().enumerate() {
+                rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
             }
         }
 
@@ -1582,7 +1574,12 @@ impl Ixgbe {
 
                 let rx_desc_ring = rx.rx_desc_ring.as_mut();
                 let rx_desc_ring_len = rx_desc_ring.len();
-                let desc = &mut rx_desc_ring[i];
+
+                // Get dma_info here since the compiler won't let us do that after we get the mutable ref to rx.rx_desc_ring
+                let index = (rx_desc_ring_len * que_id + i) as usize;
+                let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
+
+                let desc = &mut rx.rx_desc_ring.as_mut()[i];
 
                 let staterr;
                 unsafe {
@@ -1620,14 +1617,14 @@ impl Ixgbe {
                     drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let index = (rx_desc_ring_len * que_id + i) as usize;
-                    let (virt_addr, phy_addr, numa_id) = inner.dma_info[index];
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
 
                     unsafe {
                         data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
-                            ptr, phy_addr, PAGESIZE, numa_id,
+                            ptr, phy_addr,
+                            PAGESIZE, // Not using "len" here, might be better to give the "len" information somehow to protocol stack.
+                            numa_id,
                         )
                         .unwrap();
                     }
@@ -1637,7 +1634,7 @@ impl Ixgbe {
                         DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.read.pkt_addr = buf_phy_addr as u64;
-                    inner.dma_info[index] =
+                    rx.dma_info[index] =
                         (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
 
                     // Need clflush
@@ -1941,7 +1938,7 @@ impl Ixgbe {
 
         let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
 
-        let head = tx.tx_desc_head;
+        let head: usize = tx.tx_desc_head;
         let mut free = tx.tx_desc_tail;
         if free <= head {
             free += sc_tx_slots;
@@ -2067,7 +2064,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
 
 /// Allocate memory for the transmit and receive rings, and then
 /// the descriptors associated with each, called only once at attach.
-fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
+fn allocate_queue(info: &PCIeInfo, que_num: usize, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
     let tx_size = core::mem::size_of::<TxDescriptor>() * DEFAULT_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
 
@@ -2079,21 +2076,24 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
     let rx_desc_ring = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
         .ok_or(IxgbeDriverErr::DMAPool)?;
 
-    let mut dma_info = Vec::with_capacity(DEFAULT_TXD);
-    dma_info.resize(DEFAULT_TXD, (false, 0, 0, 0));
+    let mut dma_info_tx = Vec::with_capacity(DEFAULT_TXD);
+    dma_info_tx.resize(DEFAULT_TXD, (false, 0, 0, 0));
     let tx = Tx {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
         txd_cmd: IXGBE_TXD_CMD_IFCS,
-        dma_info,
+        dma_info: dma_info_tx,
     };
 
+    let mut dma_info_rx = Vec::with_capacity(DEFAULT_RXD * que_num as usize);
+    dma_info_rx.resize(DEFAULT_RXD * que_num as usize, (0, 0, 0));
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
         rx_desc_ring,
         read_queue: RingQ::new(RECV_QUEUE_SIZE),
+        dma_info: dma_info_rx,
     };
 
     let que = Queue {
