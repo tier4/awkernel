@@ -183,8 +183,6 @@ pub fn wake_task() {
         }
     }
 
-    gedf::SCHEDULER.check_waiting_queue();
-
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.wake_task();
