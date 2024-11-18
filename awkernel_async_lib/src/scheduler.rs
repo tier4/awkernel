@@ -35,7 +35,7 @@ pub enum SchedulerType {
 
     PriorityBasedRR(u8),
 
-    GEDF(u64, u64, u64), // period, relative deadline, spawn time
+    GEDF(u64), //relative deadline
 
     Panicked,
 }
@@ -103,7 +103,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::RR => &rr::SCHEDULER,
         SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
-        SchedulerType::GEDF(_, _, _) => &gedf::SCHEDULER,
+        SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
