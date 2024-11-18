@@ -22,14 +22,15 @@ use awkernel_lib::{
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_HDR_LEN,
+            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr,
+            ETHER_HDR_LEN,
         },
         in_cksum::in_pseudo,
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
-            EtherFrameBuf, EtherFrameDMA, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
-            NetDevice, NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameDMA, EtherFrameDMAcsum, EtherFrameRef, LinkStatus,
+            NetCapabilities, NetDevError, NetDevice, NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -83,7 +84,7 @@ pub struct Tx {
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool<TxRing>,
     txd_cmd: u32,
-    write_buf: Option<DMAPool<TxBuffer>>,
+    dma_info: Vec<(bool, usize, usize, usize)>,
 }
 pub struct Rx {
     rx_desc_head: u32,
@@ -159,7 +160,7 @@ struct IxgbeInner {
     //msix_mask: u32,
     is_poll_mode: bool,
     num_segs: u16,
-    dma_info: Vec<(u64, usize, usize)>,
+    dma_info: Vec<(usize, usize, usize)>,
 }
 
 /// Intel Gigabit Ethernet Controller driver
@@ -604,11 +605,7 @@ impl IxgbeInner {
         // ctrl_ext &= !IXGBE_CTRL_EXT_DRV_LOAD;
         // ixgbe_hw::write_reg(&self.info, IXGBE_CTRL_EXT, ctrl_ext);
 
-        for que in que.iter() {
-            let mut node = MCSNode::new();
-            let mut tx = que.tx.lock(&mut node);
-            tx.write_buf = None;
-        }
+        // Need to think about the deallocation of DMAPool
 
         self.update_link_status()?;
 
@@ -661,22 +658,20 @@ impl IxgbeInner {
 
             let tx_desc_ring = tx.tx_desc_ring.as_mut();
 
-            let tx_buffer_size = MCLBYTES as usize * DEFAULT_TXD;
-            let write_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                tx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IxgbeDriverErr::DMAPool)?;
+            //let tx_buffer_size = MCLBYTES as usize * DEFAULT_TXD;
+            //let write_buf = DMAPool::new(
+            //self.info.get_segment_group() as usize,
+            //tx_buffer_size / PAGESIZE,
+            //)
+            //.ok_or(IxgbeDriverErr::DMAPool)?;
 
-            let buf_phy_addr = write_buf.get_phy_addr().as_usize();
+            //let buf_phy_addr = write_buf.get_phy_addr().as_usize();
 
             for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.adv_tx.buffer_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+                desc.adv_tx.buffer_addr = 0;
                 desc.adv_tx.cmd_type_len = 0;
                 desc.adv_tx.olinfo_status = 0;
             }
-
-            tx.write_buf = Some(write_buf);
         }
 
         Ok(())
@@ -769,7 +764,7 @@ impl IxgbeInner {
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
                 self.dma_info[rx_desc_ring_len * i + j] = (
-                    read_buf.get_virt_addr().as_usize() as u64,
+                    read_buf.get_virt_addr().as_usize(),
                     buf_phy_addr,
                     self.info.get_segment_group() as usize,
                 );
@@ -1642,11 +1637,8 @@ impl Ixgbe {
                         DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.read.pkt_addr = buf_phy_addr as u64;
-                    inner.dma_info[index] = (
-                        read_buf.get_virt_addr().as_usize() as u64,
-                        buf_phy_addr,
-                        numa_id,
-                    );
+                    inner.dma_info[index] =
+                        (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
 
                     // Need clflush
                     unsafe {
@@ -1719,17 +1711,19 @@ impl Ixgbe {
     #[allow(clippy::type_complexity)]
     fn tx_offload(
         &self,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameDMAcsum,
     ) -> Result<(bool, u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
         let mut vlan_macip_lens = 0;
         let mut olinfo_status = 0;
         let mut offload = false;
 
-        let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
+        let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let ext = extract_headers(slice).or(Err(IxgbeDriverErr::InvalidPacket))?;
 
         // Depend on whether doing TSO or not
         // Indicate the whole packet as payload when not doing TSO
-        olinfo_status |= (ether_frame.data.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
+        olinfo_status |= (ether_frame.len as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
 
         vlan_macip_lens |=
             (core::mem::size_of::<EtherHeader>() as u32) << IXGBE_ADVTXD_MACLEN_SHIFT;
@@ -1808,7 +1802,7 @@ impl Ixgbe {
     fn tx_ctx_setup(
         &self,
         tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameDMAcsum,
         head: usize,
     ) -> Result<(u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
         let mut cmd_type_len = 0;
@@ -1836,6 +1830,19 @@ impl Ixgbe {
         type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
+        if used {
+            let ptr = virt_addr as *mut [u8; PAGESIZE];
+            let data;
+            unsafe {
+                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                    .unwrap();
+            }
+            drop(data);
+        }
+
+        tx.dma_info[head] = (false, 0, 0, 0);
+
         // Now copy bits into descriptor
         desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
         desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
@@ -1847,8 +1854,8 @@ impl Ixgbe {
 
     /// This routine maps the mbufs to tx descriptors, allowing the
     /// TX engine to transmit the packets.
-    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
-        let len = ether_frame.data.len();
+    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameDMAcsum) -> Result<usize, IxgbeDriverErr> {
+        let len = ether_frame.len;
         if len > MCLBYTES as usize {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
@@ -1867,22 +1874,41 @@ impl Ixgbe {
         if head == tx_slots {
             head = 0;
         }
-        let addr = unsafe {
-            let write_buf = tx.write_buf.as_mut().unwrap();
-            let dst = &mut write_buf.as_mut()[head];
-            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            // TODO: cksum offloading
-            //if let Some(cksum_offset) = cksum_offset {
-            //log::info!("cksum: {}", cksum_pseudo);
-            //core::ptr::write(
-            //dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
-            //cksum_pseudo.to_be(),
-            //);
-            //}
-            (write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
-        };
+        //let addr = unsafe {
+        //let write_buf = tx.write_buf.as_mut().unwrap();
+        //let dst = &mut write_buf.as_mut()[head];
+        //core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
+        //// TODO: cksum offloading
+        ////if let Some(cksum_offset) = cksum_offset {
+        ////log::info!("cksum: {}", cksum_pseudo);
+        ////core::ptr::write(
+        ////dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
+        ////cksum_pseudo.to_be(),
+        ////);
+        ////}
+        //(write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
+        //};
+        let addr = ether_frame.data.get_phy_addr().as_usize() as u64;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
+        if used {
+            let ptr = virt_addr as *mut [u8; PAGESIZE];
+            let data;
+            unsafe {
+                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                    .unwrap();
+            }
+            drop(data);
+        }
+
+        tx.dma_info[head] = (
+            true,
+            ether_frame.data.get_virt_addr().as_usize(),
+            ether_frame.data.get_phy_addr().as_usize(),
+            ether_frame.data.get_numa_id(),
+        );
+
         desc.adv_tx.buffer_addr = u64::to_le(addr);
         desc.adv_tx.cmd_type_len = u32::to_le(
             tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
@@ -1899,7 +1925,11 @@ impl Ixgbe {
         Ok(ntxc as usize + 1)
     }
 
-    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
+    fn send(
+        &self,
+        que_id: usize,
+        ether_frames: &[EtherFrameDMAcsum],
+    ) -> Result<(), IxgbeDriverErr> {
         let inner = self.inner.read();
 
         if !inner.link_active {
@@ -2049,12 +2079,14 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
     let rx_desc_ring = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
         .ok_or(IxgbeDriverErr::DMAPool)?;
 
+    let mut dma_info = Vec::with_capacity(DEFAULT_TXD);
+    dma_info.resize(DEFAULT_TXD, (false, 0, 0, 0));
     let tx = Tx {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
         txd_cmd: IXGBE_TXD_CMD_IFCS,
-        write_buf: None,
+        dma_info,
     };
 
     let rx = Rx {
@@ -2175,7 +2207,7 @@ impl NetDevice for Ixgbe {
         true
     }
 
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
         self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
     }
@@ -2332,5 +2364,11 @@ impl NetDevice for Ixgbe {
 
     fn tick_msec(&self) -> Option<u64> {
         Some(200)
+    }
+
+    fn get_segment_group(&self) -> Option<u16> {
+        let inner = self.inner.read();
+
+        Some(inner.info.get_segment_group())
     }
 }

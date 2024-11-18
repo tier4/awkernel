@@ -156,12 +156,20 @@ pub struct EtherFrameDMA {
     pub vlan: Option<u16>,
 }
 
+#[derive(Debug)]
+pub struct EtherFrameDMAcsum {
+    pub data: DMAPool<[u8; PAGESIZE]>,
+    pub len: usize,
+    pub vlan: Option<u16>,
+    pub csum_flags: PacketHeaderFlags,
+}
+
 /// Because the network will have multiple queues
 /// and the queues will be processed in parallel,
 /// the network device must be thread-safe.
 pub trait NetDevice {
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError>;
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError>;
+    fn send(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
@@ -225,6 +233,10 @@ pub trait NetDevice {
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
+
+    fn get_segment_group(&self) -> Option<u16> {
+        None
+    }
 }
 
 impl Display for LinkStatus {

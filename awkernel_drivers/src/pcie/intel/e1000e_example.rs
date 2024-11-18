@@ -127,7 +127,7 @@ impl NetDevice for E1000eExample {
 
     fn send(
         &self,
-        _data: net_device::EtherFrameRef,
+        _data: net_device::EtherFrameDMAcsum,
         _que_id: usize,
     ) -> Result<(), net_device::NetDevError> {
         todo!("send");

@@ -20,8 +20,8 @@ use awkernel_lib::{
         ipv6::Ip6Hdr,
         multicast::MulticastAddrs,
         net_device::{
-            EtherFrameBuf, EtherFrameDMA, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
-            NetDevice, NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameDMA, EtherFrameDMAcsum, EtherFrameRef, LinkStatus,
+            NetCapabilities, NetDevError, NetDevice, NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -2097,9 +2097,10 @@ impl NetDevice for Igb {
         true
     }
 
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
-        let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+    fn send(&self, _data: EtherFrameDMAcsum, _que_id: usize) -> Result<(), NetDevError> {
+        //let frames = [data];
+        //self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        Err(NetDevError::DeviceError)
     }
 
     fn up(&self) -> Result<(), NetDevError> {
