@@ -1,12 +1,12 @@
 //! A basic FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{State, TaskList};
-use alloc::sync::Arc;
+use crate::task::State;
+use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct FIFOScheduler {
-    queue: Mutex<Option<TaskList>>, // Run queue.
+    queue: Mutex<Option<VecDeque<Arc<Task>>>>, // Run queue.
 }
 
 impl Scheduler for FIFOScheduler {
@@ -17,7 +17,7 @@ impl Scheduler for FIFOScheduler {
         if let Some(queue) = queue.as_mut() {
             queue.push_back(task);
         } else {
-            let mut q = TaskList::new();
+            let mut q = VecDeque::new();
             q.push_back(task);
             *queue = Some(q);
         }

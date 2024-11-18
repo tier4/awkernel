@@ -1,8 +1,8 @@
 //! A basic RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, set_need_preemption, State, TaskList};
-use alloc::sync::Arc;
+use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
+use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RRScheduler {
@@ -13,14 +13,14 @@ pub struct RRScheduler {
     priority: u8,
 
     // Run queue
-    queue: Mutex<Option<TaskList>>,
+    queue: Mutex<Option<VecDeque<Arc<Task>>>>,
 }
 
 impl Scheduler for RRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut guard = self.queue.lock(&mut node);
-        guard.get_or_insert_with(TaskList::new).push_back(task);
+        guard.get_or_insert_with(VecDeque::new).push_back(task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
