@@ -17,8 +17,6 @@ use crate::task::{
     perf::{add_context_restore_start, add_context_save_end, ContextSwitchType},
 };
 
-use super::TaskList;
-
 pub mod thread;
 
 /// Threads to be moved to THREADS::pooled.
@@ -26,12 +24,12 @@ static THREAD_POOL: [Mutex<VecDeque<PtrWorkerThreadContext>>; NUM_MAX_CPU] =
     array![_ => Mutex::new(VecDeque::new()); NUM_MAX_CPU];
 
 /// Tasks to be rescheduled.
-static PREEMPTED_TASKS: [Mutex<TaskList>; NUM_MAX_CPU] =
-    array![_ => Mutex::new(TaskList::new()); NUM_MAX_CPU];
+static PREEMPTED_TASKS: [Mutex<VecDeque<Arc<Task>>>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(VecDeque::new()); NUM_MAX_CPU];
 
 /// Tasks to be executed next.
-static NEXT_TASK: [Mutex<TaskList>; NUM_MAX_CPU] =
-    array![_ => Mutex::new(TaskList::new()); NUM_MAX_CPU];
+static NEXT_TASK: [Mutex<VecDeque<Arc<Task>>>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(VecDeque::new()); NUM_MAX_CPU];
 
 static NUM_PREEMPTION: AtomicUsize = AtomicUsize::new(0);
 

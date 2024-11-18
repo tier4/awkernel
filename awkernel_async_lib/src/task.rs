@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicPtr, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -49,73 +49,6 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
-pub struct TaskList {
-    head: Option<Arc<Task>>,
-    tail: Option<Arc<Task>>,
-}
-
-impl Default for TaskList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TaskList {
-    pub const fn new() -> Self {
-        Self {
-            head: None,
-            tail: None,
-        }
-    }
-
-    #[inline]
-    pub fn push_back(&mut self, task: Arc<Task>) {
-        match self.tail.take() {
-            Some(old_tail) => {
-                task.assing_next_null();
-                old_tail.assing_next(task.clone());
-
-                self.tail = Some(task);
-            }
-            None => {
-                self.head = Some(task.clone());
-                self.tail = Some(task);
-            }
-        }
-    }
-
-    #[inline]
-    pub fn push_front(&mut self, task: Arc<Task>) {
-        match self.head.take() {
-            Some(old_head) => {
-                task.assing_next(old_head);
-
-                self.head = Some(task);
-            }
-            None => {
-                self.head = Some(task.clone());
-                self.tail = Some(task);
-            }
-        }
-    }
-
-    #[inline]
-    pub fn pop_front(&mut self) -> Option<Arc<Task>> {
-        match self.head.take() {
-            Some(old_head) => {
-                self.head = old_head.take_next();
-
-                if self.head.is_none() {
-                    self.tail = None;
-                }
-
-                Some(old_head)
-            }
-            None => None,
-        }
-    }
-}
-
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
@@ -123,49 +56,12 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
-    next: AtomicPtr<Task>,
 }
 
 impl Task {
     #[inline(always)]
     pub fn scheduler_name(&self) -> SchedulerType {
         self.scheduler.scheduler_name()
-    }
-
-    #[inline(always)]
-    fn assing_next(&self, task: Arc<Task>) {
-        // Drop `task.next`.
-        let next_ptr = self.next.load(Ordering::Relaxed);
-        if !next_ptr.is_null() {
-            unsafe { Arc::from_raw(next_ptr) };
-        }
-
-        // Assign.
-        let task_ptr = Arc::into_raw(task.clone()) as *mut Task;
-        self.next.store(task_ptr, Ordering::Relaxed);
-    }
-
-    #[inline(always)]
-    fn assing_next_null(&self) {
-        // Drop `task.next`.
-        let next_ptr = self.next.load(Ordering::Relaxed);
-        if !next_ptr.is_null() {
-            unsafe { Arc::from_raw(next_ptr) };
-        }
-
-        // Assign.
-        self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
-    }
-
-    #[inline(always)]
-    fn take_next(&self) -> Option<Arc<Task>> {
-        let next_ptr = self.next.load(Ordering::Relaxed);
-        if next_ptr.is_null() {
-            None
-        } else {
-            self.next.store(core::ptr::null_mut(), Ordering::Relaxed);
-            Some(unsafe { Arc::from_raw(next_ptr) })
-        }
     }
 }
 
@@ -335,7 +231,6 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
-                    next: AtomicPtr::new(core::ptr::null_mut()),
                 };
 
                 e.insert(Arc::new(task));
