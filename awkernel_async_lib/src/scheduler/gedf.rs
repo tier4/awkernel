@@ -2,13 +2,11 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::State;
-use alloc::collections::BTreeMap;
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>, // runnable_queue and waiting_queue.
-    ignition_counter: Mutex<IgnitionCounter>, // task_id -> ignition_count
+    data: Mutex<Option<GEDFData>>, // queue and waiting_queue.
 }
 
 struct GEDFTask {
@@ -25,13 +23,13 @@ impl PartialOrd for GEDFTask {
 
 impl PartialEq for GEDFTask {
     fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority && self.wake_time == other.wake_time
+        self.absolute_deadline == other.absolute_deadline && self.wake_time == other.wake_time
     }
 }
 
 impl Ord for GEDFTask {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.priority.cmp(&other.priority).reverse() {
+        match self.absolute_deadline.cmp(&other.absolute_deadline).reverse() {
             core::cmp::Ordering::Equal => self.wake_time.cmp(&other.wake_time).reverse(),
             other => other,
         }
@@ -41,14 +39,13 @@ impl Ord for GEDFTask {
 impl Eq for GEDFTask {}
 
 struct GEDFData {
-    runnable_queue: BinaryHeap<GEDFTask>,
-    waiting_queue: BinaryHeap<GEDFTask>,
+    queue: BinaryHeap<GEDFTask>,
 }
 
 impl GEDFData {
     fn new() -> Self {
         Self {
-            runnable_queue: BinaryHeap::new(),
+            queue: BinaryHeap::new(),
         }
     }
 }
@@ -61,7 +58,7 @@ impl Scheduler for GEDFScheduler {
         if let Some(data) = data.as_mut() {
             let mut node = MCSNode::new();
             let info = task.info.lock(&mut node);
-            let SchedulerType::GEDFScheduler(relative_deadline) = info.scheduler_type else {
+            let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
                 return;
             };
 
@@ -77,14 +74,14 @@ impl Scheduler for GEDFScheduler {
             let mut gedf_data = GEDFData::new();
             let mut node = MCSNode::new();
             let info = task.info.lock(&mut node);
-            let SchedulerType::GEDFScheduler(relative_deadline) = info.scheduler_type else {
+            let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
                 return;
             };
 
             let wake_time = awkernel_lib::delay::uptime();
             let absolute_deadline = wake_time + relative_deadline;
 
-            data.queue.push(GEDFTask {
+            gedf_data.queue.push(GEDFTask {
                 task: task.clone(),
                 absolute_deadline,
                 wake_time,
@@ -103,8 +100,8 @@ impl Scheduler for GEDFScheduler {
         };
 
         loop {
-            // Pop a task from the run runnable_queue.
-            let task = data.runnable_queue.pop()?;
+            // Pop a task from the run queue.
+            let task = data.queue.pop()?;
 
             // Make the state of the task Running.
             {
