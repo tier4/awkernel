@@ -20,7 +20,12 @@ pub async fn run() {
 }
 
 /// Helper function to spawn an infinite loop task with specific parameters.
-async fn spawn_infinite_loop(task_name: String, exe_time: u64, period: u64, relative_deadline: u64) {
+async fn spawn_infinite_loop(
+    task_name: String,
+    exe_time: u64,
+    period: u64,
+    relative_deadline: u64,
+) {
     let task_name_clone = task_name.clone(); // Clone `task_name` to avoid moving into async block
     spawn(
         task_name.into(),
