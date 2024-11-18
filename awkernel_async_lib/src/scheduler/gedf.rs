@@ -6,7 +6,7 @@ use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>, // queue and waiting_queue.
+    data: Mutex<Option<GEDFData>>, // Run queue.
 }
 
 struct GEDFTask {
