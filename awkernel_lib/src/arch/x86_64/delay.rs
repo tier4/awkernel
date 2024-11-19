@@ -65,6 +65,10 @@ impl Delay for super::X86 {
             return 0;
         }
 
+        if now < start {
+            return 0;
+        }
+
         let diff = now - start;
         diff as u128 * 1_000_000_000 / hz
     }

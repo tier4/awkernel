@@ -50,8 +50,12 @@ optional = true
 path = "../applications/measure_channel"
 optional = true
 
+[dependencies.measure_channel_heavy]
+path = "../applications/measure_channel_heavy"
+optional = true
+
 [features]
-default = ["measure_channel"]
+default = ["measure_channel_heavy"]
 perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
@@ -65,3 +69,4 @@ test_async_mutex = ["dep:test_async_mutex"]
 
 # Measurements
 measure_channel = ["dep:measure_channel"]
+measure_channel_heavy = ["dep:measure_channel_heavy"]
