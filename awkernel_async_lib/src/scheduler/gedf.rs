@@ -29,12 +29,8 @@ impl PartialEq for GEDFTask {
 
 impl Ord for GEDFTask {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self
-            .absolute_deadline
-            .cmp(&other.absolute_deadline)
-            .reverse()
-        {
-            core::cmp::Ordering::Equal => self.wake_time.cmp(&other.wake_time).reverse(),
+        match other.absolute_deadline.cmp(&self.absolute_deadline) {
+            core::cmp::Ordering::Equal => other.wake_time.cmp(&self.wake_time),
             other => other,
         }
     }
