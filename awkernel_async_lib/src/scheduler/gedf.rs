@@ -59,37 +59,29 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
-        if let Some(data) = data.as_mut() {
+        fn create_gedf_task(task: &Arc<Task>) -> GEDFTask {
             let mut node = MCSNode::new();
             let info = task.info.lock(&mut node);
+
             let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
-                return;
+                unreachable!();
             };
 
             let wake_time = awkernel_lib::delay::uptime();
             let absolute_deadline = wake_time + relative_deadline;
 
-            data.queue.push(GEDFTask {
+            GEDFTask {
                 task: task.clone(),
                 absolute_deadline,
                 wake_time,
-            });
+            }
+        }
+
+        if let Some(data) = data.as_mut() {
+            data.queue.push(create_gedf_task(&task));
         } else {
             let mut gedf_data = GEDFData::new();
-            let mut node = MCSNode::new();
-            let info = task.info.lock(&mut node);
-            let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
-                return;
-            };
-
-            let wake_time = awkernel_lib::delay::uptime();
-            let absolute_deadline = wake_time + relative_deadline;
-
-            gedf_data.queue.push(GEDFTask {
-                task: task.clone(),
-                absolute_deadline,
-                wake_time,
-            });
+            gedf_data.queue.push(create_gedf_task(&task));
             *data = Some(gedf_data);
         }
     }
@@ -127,6 +119,7 @@ impl Scheduler for GEDFScheduler {
         SchedulerType::GEDF(0)
     }
 
+    // TODO: Priority implementation between schedulers.
     fn priority(&self) -> u8 {
         0
     }
