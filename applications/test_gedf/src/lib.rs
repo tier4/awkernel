@@ -8,6 +8,7 @@ use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
 
 /// TODO: Test verification will be done after preemption implementation
+/// Currently, only the order in which tasks are started is checked.
 pub async fn run() {
     wait_microsec(1000000);
 
