@@ -37,6 +37,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "measure_channel")]
     measure_channel::run().await; // measure channel
 
+    #[cfg(feature = "measure_channel_heavy")]
+    measure_channel_heavy::run().await; // measure channel heavy
+
     #[cfg(feature = "load_test_udp")]
     load_test_udp::run().await; // load test udp
 
