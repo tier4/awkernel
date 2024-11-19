@@ -4,9 +4,7 @@ extern crate alloc;
 
 use core::{net::Ipv4Addr, time::Duration};
 
-use alloc::format;
-use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
-use awkernel_lib::net::NetManagerError;
+use awkernel_async_lib::net::{udp::UdpConfig, IpAddr};
 
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
 
@@ -57,7 +55,7 @@ async fn udp_server(port: u16) {
                 }
                 let received_data = &buf[..read_bytes];
 
-                if let Err(e) = socket.send(&received_data, &client_addr, port).await {
+                if let Err(e) = socket.send(received_data, &client_addr, port).await {
                     log::error!("Failed to send a UDP packet: {:?}", e);
                     awkernel_async_lib::sleep(Duration::from_secs(1)).await;
                     continue;
