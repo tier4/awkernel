@@ -58,32 +58,23 @@ impl Scheduler for GEDFScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
+        let data = data.get_or_insert_with(GEDFData::new);
 
-        fn create_gedf_task(task: &Arc<Task>) -> GEDFTask {
-            let mut node = MCSNode::new();
-            let info = task.info.lock(&mut node);
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
 
-            let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
-                unreachable!();
-            };
+        let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
+            unreachable!();
+        };
 
-            let wake_time = awkernel_lib::delay::uptime();
-            let absolute_deadline = wake_time + relative_deadline;
+        let wake_time = awkernel_lib::delay::uptime();
+        let absolute_deadline = wake_time + relative_deadline;
 
-            GEDFTask {
-                task: task.clone(),
-                absolute_deadline,
-                wake_time,
-            }
-        }
-
-        if let Some(data) = data.as_mut() {
-            data.queue.push(create_gedf_task(&task));
-        } else {
-            let mut gedf_data = GEDFData::new();
-            gedf_data.queue.push(create_gedf_task(&task));
-            *data = Some(gedf_data);
-        }
+        data.queue.push(GEDFTask {
+            task: task.clone(),
+            absolute_deadline,
+            wake_time,
+        })
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
