@@ -50,8 +50,12 @@ optional = true
 path = "../applications/measure_channel"
 optional = true
 
+[dependencies.load_test_udp]
+path = "../applications/load_test_udp"
+optional = true
+
 [features]
-default = ["measure_channel"]
+default = ["load_test_udp"]
 perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
