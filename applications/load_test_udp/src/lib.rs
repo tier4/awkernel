@@ -8,29 +8,38 @@ use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 2);
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
 
 const BASE_PORT: u16 = 20000;
-const NUM_WORKERS: usize = 100;
 
 pub async fn run() {
+    const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
     awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
-    for worker_id in 0..NUM_WORKERS {
-        let port = BASE_PORT + worker_id as u16;
+    for num_task in NUM_TASKS {
+        let mut join = alloc::vec::Vec::new();
+        for task_id in 0..num_task {
+            let port = BASE_PORT + task_id as u16;
 
-        awkernel_async_lib::spawn(
-            "test udp".into(),
-            udp_server(port),
-            awkernel_async_lib::scheduler::SchedulerType::FIFO,
-        )
-        .await;
+            let hdl = awkernel_async_lib::spawn(
+                "test udp".into(),
+                udp_server(port),
+                awkernel_async_lib::scheduler::SchedulerType::RR,
+            )
+            .await;
+
+            join.push(hdl);
+        }
+
+        for hdl in join {
+            let _ = hdl.join().await;
+        }
     }
 }
 
 async fn udp_server(port: u16) {
     let config = UdpConfig {
-        addr: IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 2)),
+        addr: IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 3)),
         port: Some(port),
         ..Default::default()
     };
@@ -43,6 +52,9 @@ async fn udp_server(port: u16) {
     loop {
         match socket.recv(&mut buf).await {
             Ok((read_bytes, client_addr, port)) => {
+                if read_bytes == 1 {
+                    break;
+                }
                 let received_data = &buf[..read_bytes];
 
                 if let Err(e) = socket.send(&received_data, &client_addr, port).await {
