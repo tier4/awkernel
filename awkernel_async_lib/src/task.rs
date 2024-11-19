@@ -49,69 +49,6 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 
-pub struct TaskList {
-    head: Option<Arc<Task>>,
-    tail: Option<Arc<Task>>,
-}
-
-impl Default for TaskList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TaskList {
-    pub fn new() -> Self {
-        Self {
-            head: None,
-            tail: None,
-        }
-    }
-
-    pub fn push_back(&mut self, task: Arc<Task>) {
-        match self.tail.take() {
-            Some(old_tail) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = task.next.lock(&mut node);
-                    *next = None;
-                }
-
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_tail.next.lock(&mut node);
-                    *next = Some(task.clone());
-                }
-
-                self.tail = Some(task);
-            }
-            None => {
-                self.head = Some(task.clone());
-                self.tail = Some(task);
-            }
-        }
-    }
-
-    pub fn pop_front(&mut self) -> Option<Arc<Task>> {
-        match self.head.take() {
-            Some(old_head) => {
-                {
-                    let mut node = MCSNode::new();
-                    let mut next = old_head.next.lock(&mut node);
-                    self.head = next.take();
-                }
-
-                if self.head.is_none() {
-                    self.tail = None;
-                }
-
-                Some(old_head)
-            }
-            None => None,
-        }
-    }
-}
-
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
     pub id: u32,
@@ -119,7 +56,6 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
-    next: Mutex<Option<Arc<Task>>>,
 }
 
 impl Task {
@@ -295,7 +231,6 @@ impl Tasks {
                     scheduler,
                     id,
                     info,
-                    next: Mutex::new(None),
                 };
 
                 e.insert(Arc::new(task));
@@ -778,13 +713,14 @@ pub fn run_main() {
                     info.update_last_executed();
                 }
 
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
                 unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
+                    awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                let cpu_id = awkernel_lib::cpu::cpu_id();
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
@@ -824,14 +760,15 @@ pub fn run_main() {
                 })
             };
 
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
-            let cpu_id = awkernel_lib::cpu::cpu_id();
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 

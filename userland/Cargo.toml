@@ -54,6 +54,10 @@ optional = true
 path = "../applications/measure_channel"
 optional = true
 
+[dependencies.load_test_udp]
+path = "../applications/load_test_udp"
+optional = true
+
 [features]
 default = ["test_gedf"]
 perf = ["awkernel_services/perf"]
