@@ -732,6 +732,10 @@ impl IxgbeInner {
     }
 
     fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+        log::info!(
+            "setup_receive_structures numa_id:{:?}",
+            self.info.get_segment_group()
+        );
         for (i, que) in que.iter().enumerate() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
@@ -748,7 +752,14 @@ impl IxgbeInner {
                     DMAPool::new(self.info.get_segment_group() as usize, 1)
                         .ok_or(IxgbeDriverErr::DMAPool)?;
                 let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
+                if i == 14 {
+                    log::info!(
+                        "i: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
+                        i,
+                        buf_phy_addr,
+                        read_buf.get_virt_addr().as_usize(),
+                    );
+                }
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
                 dma_info_temp.push((
@@ -756,9 +767,19 @@ impl IxgbeInner {
                     buf_phy_addr,
                     self.info.get_segment_group() as usize,
                 ));
+                read_buf.leak();
             }
 
             for (j, info) in dma_info_temp.iter().enumerate() {
+                let (virt_addr, buf_phy_addr, _segment_group) = info.clone();
+                //if i == 14 {
+                //log::info!(
+                //"index: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
+                //rx_desc_ring_len * i + j,
+                //buf_phy_addr,
+                //virt_addr,
+                //);
+                //}
                 rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
             }
         }
@@ -1575,10 +1596,6 @@ impl Ixgbe {
                 let rx_desc_ring = rx.rx_desc_ring.as_mut();
                 let rx_desc_ring_len = rx_desc_ring.len();
 
-                // Get dma_info here since the compiler won't let us do that after we get the mutable ref to rx.rx_desc_ring
-                let index = (rx_desc_ring_len * que_id + i) as usize;
-                let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
-
                 let desc = &mut rx.rx_desc_ring.as_mut()[i];
 
                 let staterr;
@@ -1617,9 +1634,22 @@ impl Ixgbe {
                     drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
+                    let numa_id = inner.info.get_segment_group() as usize;
+                    let read_buf: DMAPool<[u8; PAGESIZE]> =
+                        DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
+                    let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+                    desc.read.pkt_addr = buf_phy_addr as u64;
+
+                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
+
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
-
+                    unsafe {
+                        let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
+                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                        log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
+                    }
                     unsafe {
                         data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
                             ptr, phy_addr,
@@ -1629,11 +1659,15 @@ impl Ixgbe {
                         .unwrap();
                     }
 
-                    let numa_id = inner.info.get_segment_group() as usize;
-                    let read_buf: DMAPool<[u8; PAGESIZE]> =
-                        DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
-                    let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-                    desc.read.pkt_addr = buf_phy_addr as u64;
+                    //if que_id == 14 {
+                    //log::info!(
+                    //"index:{:?} buf_phy_addr:{:?} virt_addr:{:?}",
+                    //index,
+                    //buf_phy_addr,
+                    //read_buf.get_virt_addr().as_usize()
+                    //);
+                    //}
+
                     rx.dma_info[index] =
                         (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
 
@@ -1642,6 +1676,7 @@ impl Ixgbe {
                         self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
                     }
 
+                    read_buf.leak();
                     rx.read_queue.push(EtherFrameDMA { data, vlan }).unwrap();
                 }
 

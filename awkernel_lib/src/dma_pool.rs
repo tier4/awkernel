@@ -74,6 +74,8 @@ impl<T> DMAPool<T> {
         let phy_addr = paging::vm_to_phy(virt_addr).unwrap();
         let ptr = NonNull::new(pool.as_ptr() as *mut T)?;
 
+        //log::info!("buf_phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+
         Some(Self {
             virt_addr,
             phy_addr,

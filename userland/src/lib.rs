@@ -31,5 +31,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_async_mutex")]
     test_async_mutex::run().await; // test for async_mutex
 
+    #[cfg(feature = "load_test_udp")]
+    load_test_udp::run().await; // load test udp
+
     Ok(())
 }

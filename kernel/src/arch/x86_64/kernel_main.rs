@@ -773,6 +773,12 @@ fn init_dma(
 
     for region in numa_memory.iter_mut() {
         let end = region.start + DMA_SIZE as u64;
+        log::info!(
+            "numa_id:{:?} region.start:{:?} region.end:{:?}",
+            numa_id,
+            region.start,
+            region.end
+        );
         if region.end - region.start >= DMA_SIZE as u64 {
             dma_phy_region = Some(MemoryRegion {
                 start: region.start,
