@@ -752,14 +752,14 @@ impl IxgbeInner {
                     DMAPool::new(self.info.get_segment_group() as usize, 1)
                         .ok_or(IxgbeDriverErr::DMAPool)?;
                 let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-                if i == 14 {
-                    log::info!(
-                        "i: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
-                        i,
-                        buf_phy_addr,
-                        read_buf.get_virt_addr().as_usize(),
-                    );
-                }
+                //if i == 14 {
+                //log::info!(
+                //"i: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
+                //i,
+                //buf_phy_addr,
+                //read_buf.get_virt_addr().as_usize(),
+                //);
+                //}
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
                 dma_info_temp.push((
@@ -767,7 +767,7 @@ impl IxgbeInner {
                     buf_phy_addr,
                     self.info.get_segment_group() as usize,
                 ));
-                read_buf.leak();
+                //read_buf.leak();
             }
 
             for (j, info) in dma_info_temp.iter().enumerate() {
@@ -1646,9 +1646,11 @@ impl Ixgbe {
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
                     unsafe {
-                        let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
+                        //let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
                         log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
-                        log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
+                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                        //log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
                     }
                     unsafe {
                         data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
@@ -1676,7 +1678,7 @@ impl Ixgbe {
                         self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
                     }
 
-                    read_buf.leak();
+                    //read_buf.leak();
                     rx.read_queue.push(EtherFrameDMA { data, vlan }).unwrap();
                 }
 

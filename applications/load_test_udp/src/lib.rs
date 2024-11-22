@@ -13,7 +13,7 @@ const BASE_PORT: u16 = 20000;
 pub async fn run() {
     //const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
     const NUM_TASKS: [usize; 2] = [3, 5];
-    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
         log::info!("num_task:{:?}", num_task);
@@ -45,7 +45,7 @@ async fn udp_server(port: u16) {
         ..Default::default()
     };
 
-    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(1, config).unwrap();
 
     const MAX_DATAGRAM_SIZE: usize = 65_507;
     let mut buf = [0u8; MAX_DATAGRAM_SIZE];
