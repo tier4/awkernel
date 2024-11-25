@@ -43,6 +43,7 @@ impl<T: Send> RwLock<T> {
     }
 
     /// acquire reader lock
+    #[inline(always)]
     pub fn read(&self) -> RwLockReadGuard<T> {
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
 
@@ -82,6 +83,7 @@ impl<T: Send> RwLock<T> {
     }
 
     /// acquire writer lock
+    #[inline(always)]
     pub fn write(&self) -> RwLockWriteGuard<T> {
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
 
@@ -180,6 +182,7 @@ impl<T: Send> RwLockWriteGuard<'_, T> {
 
 #[cfg(not(loom))]
 impl<T: Send> AsMut<T> for RwLockWriteGuard<'_, T> {
+    #[inline(always)]
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *self.rwlock.data.get() }
     }
@@ -187,6 +190,7 @@ impl<T: Send> AsMut<T> for RwLockWriteGuard<'_, T> {
 
 #[cfg(not(loom))]
 impl<T: Send> AsRef<T> for RwLockWriteGuard<'_, T> {
+    #[inline(always)]
     fn as_ref(&self) -> &T {
         unsafe { &*self.rwlock.data.get() }
     }
@@ -197,6 +201,7 @@ unsafe impl<T: Send> Send for RwLock<T> {}
 
 #[cfg(not(loom))]
 impl<T: Send> AsMut<T> for RwLockReadGuard<'_, T> {
+    #[inline(always)]
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *self.rwlock.data.get() }
     }
@@ -204,6 +209,7 @@ impl<T: Send> AsMut<T> for RwLockReadGuard<'_, T> {
 
 #[cfg(not(loom))]
 impl<T: Send> AsRef<T> for RwLockReadGuard<'_, T> {
+    #[inline(always)]
     fn as_ref(&self) -> &T {
         unsafe { &*self.rwlock.data.get() }
     }
@@ -213,6 +219,7 @@ impl<T: Send> AsRef<T> for RwLockReadGuard<'_, T> {
 impl<T: Send> Deref for RwLockReadGuard<'_, T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.rwlock.data.get() }
     }
@@ -222,6 +229,7 @@ impl<T: Send> Deref for RwLockReadGuard<'_, T> {
 impl<T: Send> Deref for RwLockWriteGuard<'_, T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.rwlock.data.get() }
     }
@@ -229,6 +237,7 @@ impl<T: Send> Deref for RwLockWriteGuard<'_, T> {
 
 #[cfg(not(loom))]
 impl<T: Send> DerefMut for RwLockWriteGuard<'_, T> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.rwlock.data.get() }
     }
@@ -236,6 +245,7 @@ impl<T: Send> DerefMut for RwLockWriteGuard<'_, T> {
 
 /// release read lock
 impl<T: Send> Drop for RwLockReadGuard<'_, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         if self.rwlock.state.fetch_sub(2, Ordering::Release) == 3 {
             self.rwlock
@@ -247,6 +257,7 @@ impl<T: Send> Drop for RwLockReadGuard<'_, T> {
 
 /// release write lock
 impl<T: Send> Drop for RwLockWriteGuard<'_, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         self.rwlock.state.store(0, Ordering::Release);
         self.rwlock

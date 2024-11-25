@@ -21,6 +21,7 @@ impl<T> SpinLock<T> {
         }
     }
 
+    #[inline(always)]
     pub fn try_lock(&self) -> Option<SpinLockGuard<T>> {
         let _interrupt_guard = crate::interrupt::InterruptGuard::new();
         if self
@@ -38,6 +39,7 @@ impl<T> SpinLock<T> {
         }
     }
 
+    #[inline(always)]
     pub fn lock(&self) -> SpinLockGuard<T> {
         let _interrupt_guard = loop {
             if !self.lock_var.load(Ordering::Relaxed) {
@@ -67,6 +69,7 @@ pub struct SpinLockGuard<'a, T> {
 }
 
 impl<'a, T> Drop for SpinLockGuard<'a, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         self.spin_lock.lock_var.store(false, Ordering::Release);
     }
@@ -75,24 +78,28 @@ impl<'a, T> Drop for SpinLockGuard<'a, T> {
 impl<'a, T: Send> Deref for SpinLockGuard<'a, T> {
     type Target = T;
 
+    #[inline(always)]
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.spin_lock.data.get() }
     }
 }
 
 impl<'a, T: Send> DerefMut for SpinLockGuard<'a, T> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.spin_lock.data.get() }
     }
 }
 
 impl<'a, T: Send> AsMut<T> for SpinLockGuard<'a, T> {
+    #[inline(always)]
     fn as_mut(&mut self) -> &mut T {
         unsafe { &mut *self.spin_lock.data.get() }
     }
 }
 
 impl<'a, T: Send> AsRef<T> for SpinLockGuard<'a, T> {
+    #[inline(always)]
     fn as_ref(&self) -> &T {
         unsafe { &*self.spin_lock.data.get() }
     }
