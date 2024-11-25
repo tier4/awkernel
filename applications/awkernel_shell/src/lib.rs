@@ -3,14 +3,18 @@
 #[macro_use]
 extern crate alloc;
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use awkernel_async_lib::{
     scheduler::SchedulerType,
     sleep,
     task::{self, TaskResult},
 };
 use awkernel_lib::{console, sync::mutex::MCSNode, IS_STD};
-use blisp::embedded;
+use blisp::{embedded, runtime::FFI};
 use core::time::Duration;
 
 const SERVICE_NAME: &str = "[Awkernel] shell";
@@ -34,17 +38,24 @@ pub fn init() {
 async fn console_handler() -> TaskResult {
     log::info!("Start {SERVICE_NAME}.");
 
-    let exprs = blisp::init(
-        CODE,
-        vec![
-            Box::new(HelpFfi),
-            Box::new(TaskFfi),
-            Box::new(InterruptFfi),
-            Box::new(IfconfigFfi),
-            Box::new(PerfFfi),
-        ],
-    )
-    .unwrap();
+    #[allow(unused_mut)]
+    let mut functions: Vec<Box<dyn FFI + Send>> = vec![
+        Box::new(HelpFfi),
+        Box::new(TaskFfi),
+        Box::new(InterruptFfi),
+        Box::new(IfconfigFfi),
+    ];
+
+    #[cfg(feature = "perf")]
+    functions.push(Box::new(PerfFfi));
+
+    let code = if cfg!(feature = "perf") {
+        format!("{}\r\n{}", CODE, PERF_CODE)
+    } else {
+        CODE.to_string()
+    };
+
+    let exprs = blisp::init(&code, functions).unwrap();
     let blisp_ctx = blisp::typing(exprs).unwrap();
 
     let mut line = Vec::new();
@@ -151,10 +162,10 @@ const CODE: &str = "(export factorial (n) (Pure (-> (Int) Int))
 
 (export ifconfig () (IO (-> () []))
     (ifconfig_ffi))
-
-(export perf () (IO (-> () []))
-    (perf_ffi))
 ";
+
+const PERF_CODE: &str = "(export perf () (IO (-> () []))
+    (perf_ffi))";
 
 #[embedded]
 fn help_ffi() {
@@ -164,10 +175,14 @@ fn help_ffi() {
     console::print("BLisp functions:\r\n");
 
     let mut lines = String::new();
-    CODE.lines().for_each(|line| {
-        lines.push_str(line);
-        lines.push_str("\r\n");
-    });
+
+    lines.push_str("(help)      ; print this message\r\n");
+    lines.push_str("(task)      ; print tasks\r\n");
+    lines.push_str("(interrupt) ; print interrupt information\r\n");
+    lines.push_str("(ifconfig)  ; print network interfaces\r\n");
+
+    #[cfg(feature = "perf")]
+    lines.push_str("(perf)      ; print performance information\r\n");
 
     console::print(lines.as_str());
 }
@@ -218,6 +233,7 @@ fn ifconfig_ffi() {
     }
 }
 
+#[cfg(feature = "perf")]
 #[embedded]
 fn perf_ffi() {
     console::print("Perform non-primary CPU [tsc]:\r\n");

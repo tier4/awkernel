@@ -14,6 +14,7 @@ use awkernel_lib::{
 use alloc::boxed::Box;
 
 mod fifo;
+pub mod gedf;
 pub(super) mod panicked;
 mod prioritized_fifo;
 mod priority_based_rr;
@@ -33,6 +34,8 @@ pub enum SchedulerType {
     RR,
 
     PriorityBasedRR(u8),
+
+    GEDF(u64), //relative deadline
 
     Panicked,
 }
@@ -65,6 +68,7 @@ pub(crate) trait Scheduler {
 }
 
 /// Get the next executable task.
+#[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
     if let Some(task) = fifo::SCHEDULER.get_next() {
         return Some(task);
@@ -82,6 +86,11 @@ pub(crate) fn get_next_task() -> Option<Arc<Task>> {
         return Some(task);
     }
 
+    // TODO: Priority implementation between schedulers.
+    if let Some(task) = gedf::SCHEDULER.get_next() {
+        return Some(task);
+    }
+
     if let Some(task) = panicked::SCHEDULER.get_next() {
         return Some(task);
     }
@@ -96,6 +105,7 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::PrioritizedFIFO(_) => &prioritized_fifo::SCHEDULER,
         SchedulerType::RR => &rr::SCHEDULER,
         SchedulerType::PriorityBasedRR(_) => &priority_based_rr::SCHEDULER,
+        SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
 }
