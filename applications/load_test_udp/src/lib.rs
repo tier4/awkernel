@@ -57,12 +57,12 @@ async fn udp_server(port: u16) {
                     break;
                 }
                 let received_data = &buf[..read_bytes];
-                log::info!(
-                    "received_data:{:?} client_addr:{:?} client_port:{:?}",
-                    received_data,
-                    client_addr,
-                    client_port
-                );
+                //log::info!(
+                //"received_data:{:?} client_addr:{:?} client_port:{:?}",
+                //received_data,
+                //client_addr,
+                //client_port
+                //);
 
                 if let Err(e) = socket.send(received_data, &client_addr, client_port).await {
                     log::error!("Failed to send a UDP packet: {:?}", e);

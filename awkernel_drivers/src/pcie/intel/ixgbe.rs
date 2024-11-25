@@ -767,7 +767,7 @@ impl IxgbeInner {
                     buf_phy_addr,
                     self.info.get_segment_group() as usize,
                 ));
-                //read_buf.leak();
+                read_buf.leak();
             }
 
             for (j, info) in dma_info_temp.iter().enumerate() {
@@ -1647,8 +1647,8 @@ impl Ixgbe {
                     let data;
                     unsafe {
                         //let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
-                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
-                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                        //log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                        //log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
                         log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
                         //log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
                     }
@@ -1678,7 +1678,7 @@ impl Ixgbe {
                         self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
                     }
 
-                    //read_buf.leak();
+                    read_buf.leak();
                     rx.read_queue.push(EtherFrameDMA { data, vlan }).unwrap();
                 }
 
