@@ -1645,13 +1645,9 @@ impl Ixgbe {
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
                     let data;
-                    unsafe {
-                        //let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
-                        //log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
-                        //log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
-                        log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
-                        //log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
-                    }
+                    //let data = core::slice::from_raw_parts(ptr as *const u8, len as usize);
+                    //log::debug!("phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+                    //log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
                     unsafe {
                         data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
                             ptr, phy_addr,
@@ -1660,15 +1656,6 @@ impl Ixgbe {
                         )
                         .unwrap();
                     }
-
-                    //if que_id == 14 {
-                    //log::info!(
-                    //"index:{:?} buf_phy_addr:{:?} virt_addr:{:?}",
-                    //index,
-                    //buf_phy_addr,
-                    //read_buf.get_virt_addr().as_usize()
-                    //);
-                    //}
 
                     rx.dma_info[index] =
                         (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
@@ -2246,7 +2233,12 @@ impl NetDevice for Ixgbe {
 
     fn send(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        self.send(que_id, &frames)
+            .or(Err(NetDevError::DeviceError))?;
+        for data in frames {
+            data.data.leak();
+        }
+        Ok(())
     }
 
     fn up(&self) -> Result<(), NetDevError> {

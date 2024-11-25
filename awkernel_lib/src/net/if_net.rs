@@ -679,7 +679,12 @@ impl phy::TxToken for NTxToken<'_> {
         F: FnOnce(&mut [u8]) -> R,
     {
         let segment_group = self.driver_ref_inner.get_segment_group().unwrap_or(0);
-        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, PAGESIZE).unwrap(); // Not sure this unwrap is acceptable
+        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, 1).unwrap(); // Not sure this unwrap is acceptable
+                                                                                             //log::debug!(
+                                                                                             //"phy_addr:{:?} virt_addr:{:?}",
+                                                                                             //buf.get_phy_addr(),
+                                                                                             //buf.get_virt_addr()
+                                                                                             //);
 
         let ptr = buf.get_virt_addr().as_mut_ptr();
         let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
