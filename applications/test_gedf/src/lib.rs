@@ -15,8 +15,10 @@ pub async fn run() {
     // Generate tasks with pseudo-periods.
     // Assumption that periodic reactors are running.
     spawn_periodic_loop("periodic_loop_1".to_string(), 500000, 1000000, 800000).await;
-    spawn_periodic_loop("periodic_loop_2".to_string(), 500000, 2000000, 600000).await;
-    spawn_periodic_loop("periodic_loop_3".to_string(), 500000, 3000000, 2800000).await;
+    spawn_periodic_loop("periodic_loop_2".to_string(), 500000, 2000000, 700000).await;
+    spawn_periodic_loop("periodic_loop_3".to_string(), 500000, 3000000, 600000).await;
+
+    wait_microsec(100000000);
 }
 
 /// Spawn a pseudo-periodic task.

@@ -284,7 +284,12 @@ pub fn spawn(
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
     let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
-    tasks.wake(id);
+    let task = tasks.id_to_task.get(&id).cloned();
+    drop(tasks);
+
+    if let Some(task) = task {
+        task.wake();
+    }
 
     id
 }
