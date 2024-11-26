@@ -71,6 +71,7 @@ entry_point!(kernel_main, config = &BOOTLOADER_CONFIG);
 
 static BSP_READY: AtomicBool = AtomicBool::new(false);
 static BOOTED_APS: AtomicUsize = AtomicUsize::new(0);
+static NUM_CPUS: AtomicUsize = AtomicUsize::new(0);
 
 const MPBOOT_REGION_END: u64 = 1024 * 1024;
 
@@ -324,7 +325,7 @@ fn kernel_main2(
     }
 
     // 18. Synchronize RDTSC.
-    unsafe { synchronize_rdtsc() };
+    unsafe { synchronize_rdtsc(non_primary_cpus.len() + 1) };
 
     log::info!("All CPUs are ready.");
 
@@ -434,6 +435,7 @@ fn wake_non_primary_cpus(
     offset: u64,
     mpboot_start: u64,
 ) -> Result<(), &'static str> {
+    NUM_CPUS.store(non_primary_cpus.len() + 1, Ordering::SeqCst);
     BOOTED_APS.store(non_primary_cpus.len(), Ordering::Release);
 
     for (i, ap) in non_primary_cpus.iter().enumerate() {
@@ -522,7 +524,7 @@ fn non_primary_kernel_main() -> ! {
         core::hint::spin_loop();
     }
 
-    unsafe { synchronize_rdtsc() };
+    unsafe { synchronize_rdtsc(NUM_CPUS.load(Ordering::Relaxed)) };
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,

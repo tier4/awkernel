@@ -9,7 +9,7 @@ use crate::{
 use acpi::AcpiTables;
 use core::sync::{
     self,
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering},
 };
 
 mmio_r!(offset 0x00 => HPET_GENERAL_CAP<u64>);
@@ -184,13 +184,18 @@ fn read_rdtsc() -> u64 {
     now
 }
 
+const IA32_TIME_STAMP_COUNTER: u32 = 0x10;
+const SYNCRHONIZE_TRIES: usize = 11;
+static SYNCHRONIZE_CHANNEL: AtomicI64 = AtomicI64::new(0);
+static NEXT_CPU: AtomicUsize = AtomicUsize::new(1);
+
 /// Synchronize the RDTSC counter.
 /// Calculate the offset between the RDTSC counter of CPU0 and other CPUs.
 ///
 /// # Safety
 ///
 /// This function must be called during the kernel initialization.
-pub unsafe fn synchronize_rdtsc() {
+pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {
@@ -204,9 +209,110 @@ pub unsafe fn synchronize_rdtsc() {
             }
         };
 
-        const IA32_TIME_STAMP_COUNTER: u32 = 0x10;
+        // Initialize the TSC counter.
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_rdtsc);
+    }
+
+    // Synchronize the TSC counter.
+    // This algorithm is based on NTP's synchronization algorithm.
+    //
+    // - client:
+    //   - t0 = time();
+    //   - send to server
+    // - server:
+    //   - receive from client
+    //   - t1 = time(); // server receive time
+    //   - t2 = time(); // server send time
+    //   - send to client
+    // - client:
+    //   - receive from server
+    //   - t3 = time();
+    // - offset = ((t1 - t0) + (t2 - t3)) / 2
+    if cpu_id == 0 {
+        'outer: loop {
+            // Receive message
+            let t1 = {
+                loop {
+                    let msg = SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed);
+                    if msg == -2 {
+                        break 'outer;
+                    }
+
+                    if msg != 0 {
+                        break;
+                    }
+                    core::hint::spin_loop();
+                }
+
+                // Receive time
+                let t1 = read_rdtsc() as i64;
+                t1
+            };
+
+            // Send time
+            let t2 = read_rdtsc() as i64;
+
+            // Send message
+            SYNCHRONIZE_CHANNEL.store(t1 + t2, Ordering::Relaxed);
+
+            // Wait for the next synchronization.
+            while SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed) != 0 {
+                core::hint::spin_loop();
+            }
+        }
+
+        log::info!("CPU0: RDTSC synchronization is done.");
+    } else {
+        while NEXT_CPU.load(Ordering::Relaxed) != cpu_id {
+            core::hint::spin_loop();
+        }
+
+        let mut time_offset = [0; SYNCRHONIZE_TRIES];
+
+        for offset in time_offset.iter_mut() {
+            // Send message to CPU0.
+            let t0 = read_rdtsc() as i64;
+            SYNCHRONIZE_CHANNEL.store(-1, Ordering::Relaxed);
+
+            // Receive message from CPU0.
+            let t1_t2 = loop {
+                let t1_t2 = SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed);
+                if t1_t2 != -1 {
+                    break t1_t2;
+                }
+
+                core::hint::spin_loop();
+            };
+
+            // Receive time
+            let t3 = read_rdtsc() as i64;
+
+            *offset = (t1_t2 - t0 - t3) / 2;
+
+            // Notify end of the synchronization to CPU0.
+            SYNCHRONIZE_CHANNEL.store(0, Ordering::Relaxed);
+
+            let n0 = crate::delay::cpu_counter();
+            loop {
+                let n1 = crate::delay::cpu_counter();
+                if n1 - n0 >= 100_000 {
+                    break;
+                }
+            }
+        }
+
+        time_offset.sort_unstable();
+
+        let rdtsc = (read_rdtsc() as i64 + time_offset[SYNCRHONIZE_TRIES / 2]) as u64;
 
         // Initialize the RDTSC counter.
-        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_rdtsc);
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(rdtsc);
+
+        // Notify the next CPU.
+        NEXT_CPU.fetch_add(1, Ordering::Relaxed);
+
+        if cpu_id == num_cpu - 1 {
+            SYNCHRONIZE_CHANNEL.store(-2, Ordering::Relaxed);
+        }
     }
 }
