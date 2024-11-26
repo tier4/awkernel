@@ -1,3 +1,4 @@
+pub mod bravo_rwlock;
 pub mod mcs;
 pub mod mutex;
 pub mod rwlock;
