@@ -134,7 +134,7 @@ impl<T: Send> BravoRwLock<T> {
         let guard = inner.underlying.read();
 
         #[cfg(not(loom))]
-        if inner.rbias.load(Ordering::Relaxed) == false
+        if !inner.rbias.load(Ordering::Relaxed)
             && crate::delay::uptime() >= inner.inhibit_until.load(Ordering::Relaxed)
         {
             inner.rbias.store(true, Ordering::Relaxed);
