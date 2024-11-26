@@ -67,7 +67,6 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_raspi
 	cargo +$(RUSTV) clippy_raspi5
 	cargo +$(RUSTV) clippy_aarch64_virt
-	cargo +$(RUSTV) clippy_rv32
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
 
@@ -187,17 +186,6 @@ debug-x86_64:
 gdb-x86_64:
 	gdb-multiarch -x scripts/x86-debug.gdb
 
-# riscv32
-
-riscv32:
-	cargo +$(RUSTV) rv32 $(OPT)
-
-check_riscv32: $(X86ASM)
-	cargo +$(RUSTV) check_rv32
-
-qemu-riscv32: target/riscv32imac-unknown-none-elf/$(BUILD)/awkernel
-	qemu-system-riscv32 -machine virt -bios none -kernel $< -m 1G -nographic -smp 4 -monitor telnet::5556,server,nowait
-
 # riscv64
 
 riscv64:
@@ -235,6 +223,7 @@ test: FORCE
 loom: FORCE
 	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_mcslock --release -- --nocapture
 	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_rwlock --release -- --nocapture
+#	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_bravo_rwlock --release -- --nocapture
 
 # Format
 
