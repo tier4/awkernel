@@ -245,8 +245,7 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
                 }
 
                 // Receive time
-                let t1 = read_rdtsc() as i64;
-                t1
+                read_rdtsc() as i64
             };
 
             // Send time
