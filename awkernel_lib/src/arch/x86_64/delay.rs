@@ -21,10 +21,10 @@ static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 
 static mut HPET_MULTIPLIER_NANO: u128 = 0;
 
-static RDTSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
-static mut RDTSC_FREQ: u128 = 0;
+static TSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
+static mut TSC_FREQ: u128 = 0;
 
-static CPU0_RDTSC: AtomicU64 = AtomicU64::new(0);
+static CPU0_TSC: AtomicU64 = AtomicU64::new(0);
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -57,9 +57,9 @@ impl Delay for super::X86 {
     }
 
     fn uptime_nano() -> u128 {
-        let now = read_rdtsc();
-        let start = RDTSC_COUNTER_START.load(Ordering::Relaxed);
-        let hz = unsafe { RDTSC_FREQ };
+        let now = read_tsc();
+        let start = TSC_COUNTER_START.load(Ordering::Relaxed);
+        let hz = unsafe { TSC_FREQ };
 
         if hz == 0 {
             return 0;
@@ -130,19 +130,19 @@ pub(super) fn init(
     let counter = HPET_MAIN_COUNTER.read(base);
     HPET_COUNTER_START.store(counter, Ordering::Relaxed);
 
-    // Calculate RDTSC frequency.
-    let t0 = read_rdtsc();
+    // Calculate TSC frequency.
+    let t0 = read_tsc();
     hpet_wait_nano(100_000_000);
-    let t1 = read_rdtsc();
+    let t1 = read_tsc();
 
     let hz = (t1 - t0) as u128 * 10;
-    log::info!("RDTSC Frequency = {} Hz", hz);
+    log::info!("TSC Frequency = {} Hz", hz);
 
-    unsafe { RDTSC_FREQ = hz };
+    unsafe { TSC_FREQ = hz };
 
-    // Initialize RDTSC counter.
-    let counter = read_rdtsc();
-    RDTSC_COUNTER_START.store(counter, Ordering::Relaxed);
+    // Initialize TSC counter.
+    let counter = read_tsc();
+    TSC_COUNTER_START.store(counter, Ordering::Relaxed);
 }
 
 #[inline(always)]
@@ -176,7 +176,7 @@ fn hpet_wait_nano(nsec: u128) {
 }
 
 #[inline(always)]
-fn read_rdtsc() -> u64 {
+fn read_tsc() -> u64 {
     sync::atomic::fence(Ordering::Acquire);
     let now = unsafe { core::arch::x86_64::_rdtsc() };
     sync::atomic::fence(Ordering::Release);
@@ -189,28 +189,28 @@ const SYNCRHONIZE_TRIES: usize = 11;
 static SYNCHRONIZE_CHANNEL: AtomicI64 = AtomicI64::new(0);
 static NEXT_CPU: AtomicUsize = AtomicUsize::new(1);
 
-/// Synchronize the RDTSC counter.
-/// Calculate the offset between the RDTSC counter of CPU0 and other CPUs.
+/// Synchronize the TSC.
+/// Calculate the offset between the TSC of CPU0 and other CPUs.
 ///
 /// # Safety
 ///
 /// This function must be called during the kernel initialization.
-pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
+pub unsafe fn synchronize_tsc(num_cpu: usize) {
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {
         wait_microsec(10000);
-        CPU0_RDTSC.store(read_rdtsc(), Ordering::Relaxed);
+        CPU0_TSC.store(read_tsc(), Ordering::Relaxed);
     } else {
-        let cpu0_rdtsc = loop {
-            let cpu0_rdtsc = CPU0_RDTSC.load(Ordering::Relaxed);
-            if cpu0_rdtsc != 0 {
-                break cpu0_rdtsc;
+        let cpu0_tsc = loop {
+            let cpu0_tsc = CPU0_TSC.load(Ordering::Relaxed);
+            if cpu0_tsc != 0 {
+                break cpu0_tsc;
             }
         };
 
         // Initialize the TSC counter.
-        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_rdtsc);
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_tsc);
     }
 
     // Synchronize the TSC counter.
@@ -245,11 +245,11 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
                 }
 
                 // Receive time
-                read_rdtsc() as i64
+                read_tsc() as i64
             };
 
             // Send time
-            let t2 = read_rdtsc() as i64;
+            let t2 = read_tsc() as i64;
 
             // Send message
             SYNCHRONIZE_CHANNEL.store(t1 + t2, Ordering::Relaxed);
@@ -260,7 +260,7 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
             }
         }
 
-        log::info!("CPU0: RDTSC synchronization is done.");
+        log::info!("CPU0: TSC synchronization is done.");
     } else {
         while NEXT_CPU.load(Ordering::Relaxed) != cpu_id {
             core::hint::spin_loop();
@@ -270,7 +270,7 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
 
         for offset in time_offset.iter_mut() {
             // Send message to CPU0.
-            let t0 = read_rdtsc() as i64;
+            let t0 = read_tsc() as i64;
             SYNCHRONIZE_CHANNEL.store(-1, Ordering::Relaxed);
 
             // Receive message from CPU0.
@@ -284,7 +284,7 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
             };
 
             // Receive time
-            let t3 = read_rdtsc() as i64;
+            let t3 = read_tsc() as i64;
 
             *offset = (t1_t2 - t0 - t3) / 2;
 
@@ -302,10 +302,10 @@ pub unsafe fn synchronize_rdtsc(num_cpu: usize) {
 
         time_offset.sort_unstable();
 
-        let rdtsc = (read_rdtsc() as i64 + time_offset[SYNCRHONIZE_TRIES / 2]) as u64;
+        let tsc = (read_tsc() as i64 + time_offset[SYNCRHONIZE_TRIES / 2]) as u64;
 
-        // Initialize the RDTSC counter.
-        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(rdtsc);
+        // Initialize the TSC counter.
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(tsc);
 
         // Notify the next CPU.
         NEXT_CPU.fetch_add(1, Ordering::Relaxed);

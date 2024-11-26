@@ -25,7 +25,7 @@ use awkernel_lib::{
     arch::x86_64::{
         acpi::AcpiMapper,
         cpu::set_raw_cpu_id_to_numa,
-        delay::synchronize_rdtsc,
+        delay::synchronize_tsc,
         interrupt_remap::init_interrupt_remap,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
@@ -95,7 +95,7 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 15. Initialize the primary heap memory allocator.
 /// 16. Initialize PCIe devices.
 /// 17. Initialize interrupt handlers.
-/// 18. Synchronize RDTSC.
+/// 18. Synchronize TSC.
 /// 19. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { crate::config::init() }; // 0. Initialize the configuration.
@@ -324,8 +324,8 @@ fn kernel_main2(
         core::hint::spin_loop();
     }
 
-    // 18. Synchronize RDTSC.
-    unsafe { synchronize_rdtsc(non_primary_cpus.len() + 1) };
+    // 18. Synchronize TSC.
+    unsafe { synchronize_tsc(non_primary_cpus.len() + 1) };
 
     log::info!("All CPUs are ready.");
 
@@ -524,7 +524,7 @@ fn non_primary_kernel_main() -> ! {
         core::hint::spin_loop();
     }
 
-    unsafe { synchronize_rdtsc(NUM_CPUS.load(Ordering::Relaxed)) };
+    unsafe { synchronize_tsc(NUM_CPUS.load(Ordering::Relaxed)) };
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,
