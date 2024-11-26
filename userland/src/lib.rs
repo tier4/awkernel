@@ -43,5 +43,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "load_test_udp")]
     load_test_udp::run().await; // load test udp
 
+    #[cfg(feature = "test_bravo_rwlock")]
+    test_bravo_rwlock::run().await; // test BRAVO rw-lock
+
     Ok(())
 }
