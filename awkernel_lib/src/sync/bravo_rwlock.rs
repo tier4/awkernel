@@ -133,9 +133,15 @@ impl<T: Send> BravoRwLock<T> {
 
         let guard = inner.underlying.read();
 
+        #[cfg(not(loom))]
         if inner.rbias.load(Ordering::Relaxed) == false
             && crate::delay::uptime() >= inner.inhibit_until.load(Ordering::Relaxed)
         {
+            inner.rbias.store(true, Ordering::Relaxed);
+        }
+
+        #[cfg(loom)]
+        if inner.rbias.load(Ordering::Relaxed) == false {
             inner.rbias.store(true, Ordering::Relaxed);
         }
 
@@ -171,7 +177,10 @@ impl<T: Send> BravoRwLock<T> {
             fence(Ordering::SeqCst);
 
             inner.rbias.store(false, Ordering::Relaxed);
+
+            #[cfg(not(loom))]
             let start = crate::delay::uptime();
+
             for reader in get_visible_readers().iter() {
                 while reader.load(Ordering::Relaxed) == inner as *const _ as *mut () {
                     hint::spin_loop();
@@ -180,15 +189,17 @@ impl<T: Send> BravoRwLock<T> {
                     loom::thread::yield_now();
                 }
             }
+            #[cfg(not(loom))]
+            {
+                let now = crate::delay::uptime();
 
-            let now = crate::delay::uptime();
-
-            if now > start {
-                inner
-                    .inhibit_until
-                    .store(now + (now - start) * N, Ordering::Relaxed);
-            } else {
-                inner.inhibit_until.store(now, Ordering::Relaxed);
+                if now > start {
+                    inner
+                        .inhibit_until
+                        .store(now + (now - start) * N, Ordering::Relaxed);
+                } else {
+                    inner.inhibit_until.store(now, Ordering::Relaxed);
+                }
             }
         }
 
