@@ -2,51 +2,39 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::State;
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct FIFOScheduler {
-    data: Mutex<Option<FIFOData>>, // Run queue.
-}
-
-struct FIFOData {
-    queue: VecDeque<Arc<Task>>,
-}
-
-impl FIFOData {
-    fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
-        }
-    }
+    queue: Mutex<Option<VecDeque<Arc<Task>>>>, // Run queue.
 }
 
 impl Scheduler for FIFOScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
-        let mut data = self.data.lock(&mut node);
+        let mut queue = self.queue.lock(&mut node);
 
-        if let Some(data) = data.as_mut() {
-            data.queue.push_back(task);
+        if let Some(queue) = queue.as_mut() {
+            queue.push_back(task);
         } else {
-            let mut fifo_data = FIFOData::new();
-            fifo_data.queue.push_back(task);
-            *data = Some(fifo_data);
+            let mut q = VecDeque::new();
+            q.push_back(task);
+            *queue = Some(q);
         }
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
-        let mut data = self.data.lock(&mut node);
+        let mut queue = self.queue.lock(&mut node);
 
         // Pop a task from the run queue.
-        let data = match data.as_mut() {
-            Some(data) => data,
+        let queue = match queue.as_mut() {
+            Some(q) => q,
             None => return None,
         };
 
         loop {
-            let task = data.queue.pop_front()?;
+            let task = queue.pop_front()?;
 
             // Make the state of the task Running.
             {
@@ -74,5 +62,5 @@ impl Scheduler for FIFOScheduler {
 }
 
 pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
-    data: Mutex::new(None),
+    queue: Mutex::new(None),
 };

@@ -70,31 +70,37 @@ impl<T: Send> Mutex<T> {
     }
 
     #[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+    #[inline(always)]
     pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> LockGuard<'a, T> {
         self.mutex.lock(node)
     }
 
     #[cfg(all(not(feature = "std"), feature = "spinlock"))]
+    #[inline(always)]
     pub fn lock<'a>(&'a self, _node: &'a mut MCSNode<T>) -> LockGuard<'a, T> {
         self.mutex.lock()
     }
 
     #[cfg(feature = "std")]
+    #[inline(always)]
     pub fn lock<'a>(&'a self, _node: &mut MCSNode<T>) -> LockGuard<'a, T> {
         self.mutex.lock()
     }
 
     #[cfg(all(not(feature = "std"), not(feature = "spinlock")))]
+    #[inline(always)]
     pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
         self.mutex.try_lock(node)
     }
 
     #[cfg(all(not(feature = "std"), feature = "spinlock"))]
+    #[inline(always)]
     pub fn try_lock<'a>(&'a self, _node: &'a mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
         self.mutex.try_lock()
     }
 
     #[cfg(feature = "std")]
+    #[inline(always)]
     pub fn try_lock<'a>(&'a self, _node: &mut MCSNode<T>) -> Option<LockGuard<'a, T>> {
         self.mutex.try_lock()
     }

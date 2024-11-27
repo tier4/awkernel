@@ -9,10 +9,10 @@
 #[cfg(not(feature = "no_preempt"))]
 mod preempt;
 
-use crate::{
-    cpu_counter,
-    scheduler::{self, get_scheduler, Scheduler, SchedulerType},
-};
+#[cfg(feature = "perf")]
+use crate::cpu_counter;
+
+use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -361,6 +361,7 @@ fn get_next_task() -> Option<Arc<Task>> {
     next
 }
 
+#[cfg(feature = "perf")]
 pub mod perf {
     use crate::task::get_current_task;
     use awkernel_lib::cpu::NUM_MAX_CPU;
@@ -686,7 +687,9 @@ pub mod perf {
 
 pub fn run_main() {
     loop {
+        #[cfg(feature = "perf")]
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+
         if let Some(task) = get_next_task() {
             #[cfg(not(feature = "no_preempt"))]
             {
@@ -699,21 +702,28 @@ pub fn run_main() {
                     info.update_last_executed();
                     drop(info);
 
-                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_context_save_start(
-                        perf::ContextSwitchType::Yield,
-                        awkernel_lib::cpu::cpu_id(),
-                        cpu_counter(),
-                    );
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_context_save_start(
+                            perf::ContextSwitchType::Yield,
+                            awkernel_lib::cpu::cpu_id(),
+                            cpu_counter(),
+                        );
+                    }
 
                     unsafe { preempt::yield_and_pool(ctx) };
 
-                    perf::add_context_restore_end(
-                        perf::ContextSwitchType::Yield,
-                        awkernel_lib::cpu::cpu_id(),
-                        cpu_counter(),
-                    );
-                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_context_restore_end(
+                            perf::ContextSwitchType::Yield,
+                            awkernel_lib::cpu::cpu_id(),
+                            cpu_counter(),
+                        );
+                        perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    }
+
                     continue;
                 }
             }
@@ -746,13 +756,14 @@ pub fn run_main() {
                     info.update_last_executed();
                 }
 
+                let cpu_id = awkernel_lib::cpu::cpu_id();
+
                 // Use the primary memory allocator.
                 #[cfg(not(feature = "std"))]
                 unsafe {
-                    awkernel_lib::heap::TALLOC.use_primary()
+                    awkernel_lib::heap::TALLOC.use_primary_cpu_id(cpu_id)
                 };
 
-                let cpu_id = awkernel_lib::cpu::cpu_id();
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
 
                 // Invoke a task.
@@ -765,14 +776,20 @@ pub fn run_main() {
                         awkernel_lib::interrupt::enable();
                     }
 
-                    perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_task_start(cpu_id, cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_task_start(cpu_id, cpu_counter());
+                    }
 
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
 
-                    perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-                    perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    #[cfg(feature = "perf")]
+                    {
+                        perf::add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                        perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+                    }
 
                     #[cfg(all(
                         any(target_arch = "aarch64", target_arch = "x86_64"),
@@ -786,14 +803,15 @@ pub fn run_main() {
                 })
             };
 
+            let cpu_id = awkernel_lib::cpu::cpu_id();
+
             // If the primary memory allocator is available, it will be used.
             // If the primary memory allocator is exhausted, the backup allocator will be used.
             #[cfg(not(feature = "std"))]
             unsafe {
-                awkernel_lib::heap::TALLOC.use_primary_then_backup()
+                awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
-            let cpu_id = awkernel_lib::cpu::cpu_id();
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 
@@ -819,6 +837,8 @@ pub fn run_main() {
                         drop(info);
                         task.clone().wake();
                     }
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Ok(Poll::Ready(result)) => {
@@ -841,8 +861,13 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
+                    #[cfg(feature = "perf")]
                     perf::reset_task_exec_time(task.id);
+
                     tasks.remove(task.id);
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
                 Err(_) => {
@@ -861,13 +886,19 @@ pub fn run_main() {
 
                     let mut node = MCSNode::new();
                     let mut tasks = TASKS.lock(&mut node);
+
+                    #[cfg(feature = "perf")]
                     perf::reset_task_exec_time(task.id);
                     tasks.remove(task.id);
+
+                    #[cfg(feature = "perf")]
                     perf::add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
                 }
             }
         } else {
+            #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+
             #[cfg(feature = "std")]
             awkernel_lib::delay::wait_microsec(50);
 
@@ -883,6 +914,8 @@ pub fn run_main() {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
         }
     }

@@ -40,6 +40,8 @@ pub unsafe extern "C" fn kernel_main() {
 }
 
 unsafe fn primary_hart(hartid: usize) {
+    unsafe { crate::config::init() };
+
     // setup interrupt; TODO;
 
     super::console::init_port(UART_BASE);

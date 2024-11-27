@@ -44,6 +44,25 @@ impl Delay for super::StdCommon {
         }
     }
 
+    fn uptime_nano() -> u128 {
+        let mut tp = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut tp) };
+
+        let ptr = &raw mut TIME_START;
+        let t0 = unsafe { read_volatile(&*addr_of!((*ptr).tv_sec)) as u128 } * 1_000_000_000
+            + unsafe { read_volatile(&(*ptr).tv_nsec) as u128 };
+        let t1 = tp.tv_sec as u128 * 1_000_000_000 + tp.tv_nsec as u128;
+
+        if t0 == 0 {
+            0
+        } else {
+            t1 - t0
+        }
+    }
+
     fn pause() {
         nanosleep(0, 100);
     }

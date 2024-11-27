@@ -46,8 +46,29 @@ optional = true
 path = "../applications/test_async_mutex"
 optional = true
 
+[dependencies.test_gedf]
+path = "../applications/test_gedf"
+optional = true
+
+[dependencies.measure_channel]
+path = "../applications/measure_channel"
+optional = true
+
+[dependencies.measure_channel_heavy]
+path = "../applications/measure_channel_heavy"
+optional = true
+
+[dependencies.load_test_udp]
+path = "../applications/load_test_udp"
+optional = true
+
+[dependencies.test_bravo_rwlock]
+path = "../applications/test_bravo_rwlock"
+optional = true
+
 [features]
-default = ["test_pubsub"]
+default = ["test_bravo_rwlock"]
+perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
@@ -57,3 +78,10 @@ test_prioritized_fifo = ["dep:test_prioritized_fifo"]
 test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
+test_gedf = ["dep:test_gedf"]
+load_test_udp = ["dep:load_test_udp"]
+test_bravo_rwlock = ["dep:test_bravo_rwlock"]
+
+# Measurements
+measure_channel = ["dep:measure_channel"]
+measure_channel_heavy = ["dep:measure_channel_heavy"]

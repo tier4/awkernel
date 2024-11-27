@@ -32,6 +32,7 @@ impl<T> Default for MCSNode<T> {
 }
 
 impl<T> MCSNode<T> {
+    #[inline(always)]
     pub fn new() -> Self {
         MCSNode {
             next: AtomicPtr::new(null_mut()),
@@ -57,6 +58,7 @@ impl<T: Send> MCSLock<T> {
         }
     }
 
+    #[inline(always)]
     pub fn try_lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> Option<MCSLockGuard<'a, T>> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
@@ -87,6 +89,7 @@ impl<T: Send> MCSLock<T> {
     }
 
     /// acquire lock
+    #[inline(always)]
     pub fn lock<'a>(&'a self, node: &'a mut MCSNode<T>) -> MCSLockGuard<'a, T> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
@@ -149,6 +152,7 @@ impl<T: Send> MCSLockGuard<'_, T> {
 }
 
 impl<T: Send> Drop for MCSLockGuard<'_, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         if !self.need_unlock {
             return;

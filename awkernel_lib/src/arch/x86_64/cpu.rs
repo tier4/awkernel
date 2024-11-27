@@ -1,9 +1,18 @@
+use crate::cpu::{CPU, NUM_MAX_CPU};
 use alloc::collections::btree_map::BTreeMap;
 
-use crate::{cpu::CPU, sync::rwlock::RwLock};
+#[derive(Debug, Clone, Copy)]
+struct RawCpuIdAndCpuId {
+    raw_cpu_id: usize,
+    cpu_id: usize,
+}
 
-static RAW_CPU_ID_TO_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);
-static CPU_ID_TO_RAW_CPU_ID: RwLock<Option<BTreeMap<usize, usize>>> = RwLock::new(None);
+static mut CPU_ID_NUMA_ID: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+static mut RAW_CPU_ID_AND_CPU_ID: [RawCpuIdAndCpuId; NUM_MAX_CPU] = [RawCpuIdAndCpuId {
+    raw_cpu_id: 0,
+    cpu_id: 0,
+}; NUM_MAX_CPU];
 
 impl CPU for super::X86 {
     fn cpu_id() -> usize {
@@ -12,13 +21,8 @@ impl CPU for super::X86 {
             return 0;
         }
 
-        let mapping = RAW_CPU_ID_TO_CPU_ID.read();
-
-        if let Some(mapping) = mapping.as_ref() {
-            let id = mapping.get(&raw_cpu_id);
-            if let Some(id) = id {
-                return *id;
-            }
+        if let Some(id) = raw_cpu_id_to_cpu_id(raw_cpu_id) {
+            return id;
         }
 
         panic!(
@@ -57,21 +61,73 @@ pub unsafe fn set_raw_cpu_id_to_cpu_id(mapping: BTreeMap<usize, usize>) {
         cpu_id_to_raw_cpu_id.insert(*cpu_id, *raw_cpu_id);
     }
 
-    {
-        let mut guard = CPU_ID_TO_RAW_CPU_ID.write();
-        *guard = Some(cpu_id_to_raw_cpu_id);
+    for (raw_cpu_id, cpu_id) in mapping.iter() {
+        unsafe {
+            RAW_CPU_ID_AND_CPU_ID[*cpu_id] = RawCpuIdAndCpuId {
+                raw_cpu_id: *raw_cpu_id,
+                cpu_id: *cpu_id,
+            };
+        }
+    }
+}
+
+/// Get the raw CPU ID from the CPU ID.
+#[inline(always)]
+pub fn cpu_id_to_raw_cpu_id(cpu_id: usize) -> Option<usize> {
+    if cpu_id == 0 {
+        return Some(0);
     }
 
-    let mut guard = RAW_CPU_ID_TO_CPU_ID.write();
-    *guard = Some(mapping);
+    unsafe {
+        let ptr = &raw const RAW_CPU_ID_AND_CPU_ID;
+        let r = &*ptr;
+        for ids in r.iter() {
+            if ids.cpu_id == cpu_id {
+                return Some(ids.raw_cpu_id);
+            }
+        }
+    }
+
+    None
 }
 
 /// Get the CPU ID from the raw CPU ID.
-pub fn cpu_id_to_raw_cpu_id(cpu_id: usize) -> Option<usize> {
-    let guard = CPU_ID_TO_RAW_CPU_ID.read();
-    if let Some(mapping) = guard.as_ref() {
-        mapping.get(&cpu_id).copied()
-    } else {
-        None
+#[inline(always)]
+pub fn raw_cpu_id_to_cpu_id(raw_cpu_id: usize) -> Option<usize> {
+    if raw_cpu_id == 0 {
+        return Some(0);
     }
+
+    unsafe {
+        let ptr = &raw const RAW_CPU_ID_AND_CPU_ID;
+        let r = &*ptr;
+        for ids in r.iter() {
+            if ids.raw_cpu_id == raw_cpu_id {
+                return Some(ids.cpu_id);
+            }
+        }
+    }
+
+    None
+}
+
+/// Set the raw CPU ID to NUMA ID mapping.
+///
+/// # Safety
+///
+/// This function must be called before at the beginning of the kernel.
+pub unsafe fn set_raw_cpu_id_to_numa(mapping: BTreeMap<u32, u32>) {
+    for (raw_cpu_id, numa_id) in mapping.iter() {
+        if let Some(id) = raw_cpu_id_to_cpu_id(*raw_cpu_id as usize) {
+            unsafe {
+                CPU_ID_NUMA_ID[id] = *numa_id as u8;
+            }
+        }
+    }
+}
+
+/// Get the NUMA ID from the raw CPU ID.
+#[inline(always)]
+pub fn cpu_id_to_numa(cpu_id: usize) -> usize {
+    unsafe { CPU_ID_NUMA_ID[cpu_id] as usize }
 }
