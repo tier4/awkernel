@@ -147,6 +147,7 @@ fn push_to_thread_pool(ctx: PtrWorkerThreadContext) {
 
 /// Take the current task ID from, `super::RUNNING[cpu_id]`, and assign 0 to there.
 /// `super::RUNNING[cpu_id]` will be restored after dropping.
+#[derive(Debug)]
 struct RunningTaskGuard(u32);
 
 impl RunningTaskGuard {
@@ -185,6 +186,8 @@ unsafe fn do_preemption() {
     let Some(task_id) = RunningTaskGuard::take() else {
         return;
     };
+
+    log::debug!("time: {}, task_id: {:?}", awkernel_lib::delay::uptime(), task_id);
 
     {
         let mut node = MCSNode::new();
