@@ -4,11 +4,11 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::string::ToString;
 
-use awkernel_async_lib::{scheduler::SchedulerType, spawn};
-use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
 use awkernel_async_lib::sleep;
-use core::time::Duration;
+use awkernel_async_lib::{scheduler::SchedulerType, spawn};
 use awkernel_lib::delay::uptime;
+use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
+use core::time::Duration;
 
 pub async fn run() {
     wait_microsec(2000000);

@@ -187,7 +187,11 @@ unsafe fn do_preemption() {
         return;
     };
 
-    log::debug!("time: {}, task_id: {:?}", awkernel_lib::delay::uptime(), task_id);
+    log::debug!(
+        "time: {}, task_id: {:?}",
+        awkernel_lib::delay::uptime(),
+        task_id
+    );
 
     {
         let mut node = MCSNode::new();

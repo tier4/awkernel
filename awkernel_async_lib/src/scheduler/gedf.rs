@@ -1,19 +1,17 @@
 //! A GEDF scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_tasks_running, set_need_preemption, State};
-use alloc::{
-    collections::{BTreeMap, BinaryHeap},
-    sync::Arc,
+use crate::task::{
+    get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State,
 };
+use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
     cpu::num_cpu,
     sync::mutex::{MCSNode, Mutex},
 };
 
 pub struct GEDFScheduler {
-    data: Mutex<Option<GEDFData>>,      // Run queue.
-    manager: Mutex<BTreeMap<u32, u64>>, // Task ID, Absolute Deadline
+    data: Mutex<Option<GEDFData>>, // Run queue.
 }
 
 struct GEDFTask {
@@ -64,17 +62,16 @@ impl Scheduler for GEDFScheduler {
         let data = data.get_or_insert_with(GEDFData::new);
 
         let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
+        let mut info = task.info.lock(&mut node);
 
-        let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
+        let SchedulerType::GEDF(relative_deadline) = info.get_scheduler_type() else {
             unreachable!();
         };
 
         let wake_time = awkernel_lib::delay::uptime();
         let absolute_deadline = wake_time + relative_deadline;
 
-        self.remove_manager();
-        self.insert_manager(task.id, absolute_deadline);
+        info.update_absolute_deadline(absolute_deadline);
 
         data.queue.push(GEDFTask {
             task: task.clone(),
@@ -126,51 +123,33 @@ impl Scheduler for GEDFScheduler {
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
-    manager: Mutex::new(BTreeMap::new()),
 };
 
 impl GEDFScheduler {
-    fn insert_manager(&self, task_id: u32, absolute_deadline: u64) {
-        let mut node = MCSNode::new();
-        let mut manager = self.manager.lock(&mut node);
-        manager.insert(task_id, absolute_deadline);
-    }
-
-    fn remove_manager(&self) {
-        let mut node = MCSNode::new();
-        let mut manager = self.manager.lock(&mut node);
-        let now = awkernel_lib::delay::uptime();
-        manager.retain(|_, deadline| *deadline > now);
-    }
-
     fn invoke_preemption(&self, absolute_deadline: u64) {
         // Get running tasks and filter out tasks with task_id == 0.
         let mut tasks = get_tasks_running();
         tasks.retain(|task| task.task_id != 0);
 
         // If the number of running tasks is less than the number of non-primary CPUs, preempt is not required.
-        if tasks.len() < num_cpu() - 1 {
+        let num_non_primary_cpus = num_cpu() - 1;
+        if tasks.len() < num_non_primary_cpus {
             return;
         }
 
-        // Check the priority of the task with the absolute deadline.
-        let mut node = MCSNode::new();
-        let manager = self.manager.lock(&mut node);
-
-        // Get the task with the latest deadline among the tasks registered in manager and corresponding to task_id.
-        let filter_task = tasks
+        let max_task_and_deadline = tasks
             .iter()
-            .filter_map(|task| manager.get(&task.task_id).map(|&deadline| (task, deadline)))
-            .max_by_key(|(_, deadline)| *deadline);
+            .filter_map(|task| {
+                get_absolute_deadline_by_task_id(task.task_id).map(|deadline| (task, deadline))
+            })
+            .max_by_key(|&(_, deadline)| deadline);
 
-        if let Some((task, deadline)) = filter_task {
-            if deadline < absolute_deadline {
-                return;
+        if let Some((max_task, max_deadline)) = max_task_and_deadline {
+            if max_deadline > absolute_deadline {
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                set_need_preemption(max_task.task_id);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, max_task.cpu_id as u32);
             }
-            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-            set_need_preemption(task.task_id);
-            awkernel_lib::interrupt::send_ipi(preempt_irq, task.cpu_id as u32);
         }
-
     }
 }
