@@ -15,9 +15,9 @@ pub async fn run() {
 
     // Generate tasks with pseudo-periods.
     // Assumption that periodic reactors are running.
-    // heave_1 is preempted by light_1.
-    log::info!("spawn heave_1: {:?}", uptime());
-    spawn_periodic_loop("heave_1".to_string(), 9800000, 10000000, 9900000).await; // Task id = 8
+    // heavy_1 is preempted by light_1.
+    log::info!("spawn heavy_1: {:?}", uptime());
+    spawn_periodic_loop("heavy_1".to_string(), 9600000, 10000000, 9900000).await; // Task id = 8
     log::info!("spawn task_1: {:?}", uptime());
     spawn_periodic_loop("task_1".to_string(), 9800000, 10000000, 9800000).await; // Task id = 9
     log::info!("spawn light_1: {:?}", uptime());
