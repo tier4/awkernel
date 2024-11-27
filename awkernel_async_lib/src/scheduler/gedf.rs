@@ -64,7 +64,7 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
 
-        let SchedulerType::GEDF(relative_deadline) = info.get_scheduler_type() else {
+        let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
             unreachable!();
         };
 
