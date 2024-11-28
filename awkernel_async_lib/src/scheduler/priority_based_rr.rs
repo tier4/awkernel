@@ -2,7 +2,8 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::sync::Arc;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PriorityBasedRRScheduler {
@@ -15,17 +16,17 @@ pub struct PriorityBasedRRScheduler {
 
 struct PriorityBasedRRTask {
     task: Arc<Task>,
-    priority: u8,
+    _priority: u8,
 }
 
 struct PriorityBasedRRData {
-    queue: VecDeque<PriorityBasedRRTask>,
+    queue: PriorityQueue<PriorityBasedRRTask>,
 }
 
 impl PriorityBasedRRData {
     fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
+            queue: PriorityQueue::new(),
         }
     }
 }
@@ -39,23 +40,13 @@ impl Scheduler for PriorityBasedRRScheduler {
         };
         let new_task = PriorityBasedRRTask {
             task: task.clone(),
-            priority,
+            _priority: priority,
         };
 
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
         let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-
-        // NOTE: This is a simple linear search.
-        // If you want to improve performance, please refactor it.
-        for i in 0..data.queue.len() {
-            if priority < data.queue[i].priority {
-                data.queue.insert(i, new_task);
-                return;
-            }
-        }
-
-        data.queue.push_back(new_task);
+        data.queue.push(priority as usize, new_task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -67,7 +58,7 @@ impl Scheduler for PriorityBasedRRScheduler {
             None => return None,
         };
 
-        while let Some(rr_task) = data.queue.pop_front() {
+        while let Some(rr_task) = data.queue.pop() {
             {
                 let mut node = MCSNode::new();
                 let mut task_info = rr_task.task.info.lock(&mut node);
