@@ -137,18 +137,18 @@ impl GEDFScheduler {
             return;
         }
 
-        let max_task_and_deadline = tasks
+        let task_with_max_deadline = tasks
             .iter()
             .filter_map(|task| {
                 get_absolute_deadline_by_task_id(task.task_id).map(|deadline| (task, deadline))
             })
             .max_by_key(|&(_, deadline)| deadline);
 
-        if let Some((max_task, max_deadline)) = max_task_and_deadline {
-            if max_deadline > absolute_deadline {
+        if let Some((task, max_absolute_deadline)) = task_with_max_deadline {
+            if max_absolute_deadline > absolute_deadline {
                 let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                set_need_preemption(max_task.task_id);
-                awkernel_lib::interrupt::send_ipi(preempt_irq, max_task.cpu_id as u32);
+                set_need_preemption(task.task_id);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, task.cpu_id as u32);
             }
         }
     }
