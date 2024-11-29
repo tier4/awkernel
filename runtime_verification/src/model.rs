@@ -4,12 +4,14 @@ use super::{
 };
 
 pub struct TaskModel {
+    id: u32,
     current_state: TaskState,
 }
 
 impl TaskModel {
-    pub fn new() -> Self {
+    pub fn new(id: u32) -> Self {
         Self {
+            id,
             current_state: TaskState {
                 state: State::Uninitialized,
                 need_sched: false,
@@ -17,9 +19,10 @@ impl TaskModel {
             },
         }
     }
-    pub fn transition(&mut self, event: &Event) {
+    pub fn transition(&mut self, event: &Event, runtime: &TaskState) {
+        let id = self.id;
         let current = &mut self.current_state;
-        log::debug!("[RV] current: {}, event: {}", current, event);
+        log::debug!("[RV] id: {id}, current: {current}, event: {event}");
         match (
             current.state,
             current.need_sched,
@@ -137,7 +140,19 @@ impl TaskModel {
                 current.need_preemption = false;
             }
             _ => {
-                unreachable!()
+                let (runtime_state, runtime_need_sched, runtime_need_preemption) =
+                    (runtime.state, runtime.need_sched, runtime.need_preemption);
+
+                let (model_need_sched, model_need_preemption) =
+                    (current.need_sched, current.need_preemption);
+
+                log::debug!(
+                    "[RV ERROR] id: {id}\n\
+                current(impl): {runtime_state}, current(model): {current})\n\
+                event: {event}\n\
+                need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}\n\
+                need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
+                );
             }
         }
     }

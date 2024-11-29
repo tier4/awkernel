@@ -17,6 +17,9 @@ use crate::task::{
     perf::{add_context_restore_start, add_context_save_end, ContextSwitchType},
 };
 
+#[cfg(feature = "runtime_verification")]
+use runtime_verification::state::TaskState;
+
 pub mod thread;
 
 /// Threads to be moved to THREADS::pooled.
@@ -82,7 +85,14 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
             let models = &mut runtime_verification::MODELS.lock(&mut node);
 
             let model = models.get_mut(&current_task.id).unwrap();
-            model.transition(&runtime_verification::event::Event::SetPreempted);
+            model.transition(
+                &runtime_verification::event::Event::SetPreempted,
+                &TaskState {
+                    state: info.state.into(),
+                    need_sched: info.need_sched,
+                    need_preemption: info.need_preemption,
+                },
+            );
         }
     }
 
@@ -211,7 +221,14 @@ unsafe fn do_preemption() {
                 let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                 let model = models.get_mut(&task.id).unwrap();
-                model.transition(&runtime_verification::event::Event::PreemptionStart);
+                model.transition(
+                    &runtime_verification::event::Event::PreemptionStart,
+                    &TaskState {
+                        state: info.state.into(),
+                        need_sched: info.need_sched,
+                        need_preemption: info.need_preemption,
+                    },
+                );
             }
         }
     }

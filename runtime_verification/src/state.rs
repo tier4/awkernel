@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum State {
+pub enum State {
     Uninitialized,
     Ready,
     Runnable,
@@ -26,10 +26,10 @@ impl core::fmt::Display for State {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub(crate) struct TaskState {
-    pub(crate) state: State,
-    pub(crate) need_sched: bool,
-    pub(crate) need_preemption: bool,
+pub struct TaskState {
+    pub state: State,
+    pub need_sched: bool,
+    pub need_preemption: bool,
 }
 
 impl core::fmt::Display for TaskState {

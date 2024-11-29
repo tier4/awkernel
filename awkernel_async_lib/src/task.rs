@@ -46,6 +46,9 @@ use preempt::thread::PtrWorkerThreadContext;
 #[cfg(feature = "runtime_verification")]
 use runtime_verification;
 
+#[cfg(feature = "runtime_verification")]
+use runtime_verification::state::TaskState;
+
 /// Return type of futures taken by `awkernel_async_lib::task::spawn`.
 pub type TaskResult = Result<(), Cow<'static, str>>;
 
@@ -80,20 +83,27 @@ impl ArcWake for Task {
     fn wake(self: Arc<Self>) {
         let panicked;
 
-        #[cfg(feature = "runtime_verification")]
-        {
-            let mut node = MCSNode::new();
-            let models = &mut runtime_verification::MODELS.lock(&mut node);
-
-            let model = models.get_mut(&self.id).unwrap();
-            model.transition(&runtime_verification::event::Event::Wake);
-        }
-
         {
             use State::*;
 
             let mut node = MCSNode::new();
             let mut info = self.info.lock(&mut node);
+
+            #[cfg(feature = "runtime_verification")]
+            {
+                let mut node = MCSNode::new();
+                let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                let model = models.get_mut(&self.id).unwrap();
+                model.transition(
+                    &runtime_verification::event::Event::Wake,
+                    &TaskState {
+                        state: info.state.into(),
+                        need_sched: info.need_sched,
+                        need_preemption: info.need_preemption,
+                    },
+                );
+            }
 
             match info.state {
                 Running | Runnable | Preempted => {
@@ -194,6 +204,21 @@ pub enum State {
     Panicked,
 }
 
+#[cfg(feature = "runtime_verification")]
+impl Into<runtime_verification::state::State> for State {
+    fn into(self) -> runtime_verification::state::State {
+        match self {
+            State::Ready => runtime_verification::state::State::Ready,
+            State::Running => runtime_verification::state::State::Running,
+            State::Runnable => runtime_verification::state::State::Runnable,
+            State::Waiting => runtime_verification::state::State::Waiting,
+            State::Preempted => runtime_verification::state::State::Preempted,
+            State::Terminated => runtime_verification::state::State::Terminated,
+            State::Panicked => runtime_verification::state::State::Panicked,
+        }
+    }
+}
+
 /// Tasks.
 #[derive(Default)]
 struct Tasks {
@@ -245,17 +270,26 @@ impl Tasks {
                     info,
                 };
 
-                e.insert(Arc::new(task));
-                self.candidate_id = id;
-
                 #[cfg(feature = "runtime_verification")]
                 {
                     let mut node = MCSNode::new();
                     let mut models = runtime_verification::MODELS.lock(&mut node);
-                    let mut model = runtime_verification::model::TaskModel::new();
-                    model.transition(&runtime_verification::event::Event::Spawn);
+                    let mut model = runtime_verification::model::TaskModel::new(id);
+                    let mut node2 = MCSNode::new();
+                    let info = task.info.lock(&mut node2);
+                    model.transition(
+                        &runtime_verification::event::Event::Spawn,
+                        &TaskState {
+                            state: info.state.into(),
+                            need_sched: info.need_sched,
+                            need_preemption: info.need_preemption,
+                        },
+                    );
                     models.insert(id, model);
                 }
+
+                e.insert(Arc::new(task));
+                self.candidate_id = id;
 
                 return id;
             } else {
@@ -337,9 +371,18 @@ fn get_next_task() -> Option<Arc<Task>> {
             {
                 let mut node = MCSNode::new();
                 let models = &mut runtime_verification::MODELS.lock(&mut node);
+                let mut node2 = MCSNode::new();
+                let info = next.info.lock(&mut node2);
 
                 let model = models.get_mut(&next.id).unwrap();
-                model.transition(&runtime_verification::event::Event::GetNext);
+                model.transition(
+                    &runtime_verification::event::Event::GetNext,
+                    &TaskState {
+                        state: info.state.into(),
+                        need_sched: info.need_sched,
+                        need_preemption: info.need_preemption,
+                    },
+                );
             }
 
             return Some(next);
@@ -352,9 +395,18 @@ fn get_next_task() -> Option<Arc<Task>> {
         if let Some(ref task) = next {
             let mut node = MCSNode::new();
             let models = &mut runtime_verification::MODELS.lock(&mut node);
+            let mut node2 = MCSNode::new();
+            let info = task.info.lock(&mut node2);
 
             let model = models.get_mut(&task.id).unwrap();
-            model.transition(&runtime_verification::event::Event::GetNext);
+            model.transition(
+                &runtime_verification::event::Event::GetNext,
+                &TaskState {
+                    state: info.state.into(),
+                    need_sched: info.need_sched,
+                    need_preemption: info.need_preemption,
+                },
+            );
         }
     }
 
@@ -827,7 +879,14 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model.transition(&runtime_verification::event::Event::PollPending);
+                        model.transition(
+                            &runtime_verification::event::Event::PollPending,
+                            &TaskState {
+                                state: info.state.into(),
+                                need_sched: info.need_sched,
+                                need_preemption: info.need_preemption,
+                            },
+                        );
                     }
 
                     info.state = State::Waiting;
@@ -849,7 +908,14 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model.transition(&runtime_verification::event::Event::PollReady);
+                        model.transition(
+                            &runtime_verification::event::Event::PollReady,
+                            &TaskState {
+                                state: info.state.into(),
+                                need_sched: info.need_sched,
+                                need_preemption: info.need_preemption,
+                            },
+                        );
                     }
 
                     info.state = State::Terminated;
@@ -878,7 +944,14 @@ pub fn run_main() {
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
                         let model = models.get_mut(&task.id).unwrap();
-                        model.transition(&runtime_verification::event::Event::Panic);
+                        model.transition(
+                            &runtime_verification::event::Event::Panic,
+                            &TaskState {
+                                state: info.state.into(),
+                                need_sched: info.need_sched,
+                                need_preemption: info.need_preemption,
+                            },
+                        );
                     }
 
                     info.state = State::Panicked;
@@ -1028,7 +1101,14 @@ pub fn set_need_preemption(task_id: u32) {
             let models = &mut runtime_verification::MODELS.lock(&mut node);
 
             let model = models.get_mut(&task_id).unwrap();
-            model.transition(&runtime_verification::event::Event::SetNeedPreemption);
+            model.transition(
+                &runtime_verification::event::Event::SetNeedPreemption,
+                &TaskState {
+                    state: info.state.into(),
+                    need_sched: info.need_sched,
+                    need_preemption: info.need_preemption,
+                },
+            );
         }
         info.need_preemption = true;
     }

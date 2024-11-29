@@ -4,7 +4,7 @@ extern crate alloc;
 
 pub mod event;
 pub mod model;
-mod state;
+pub mod state;
 
 use alloc::collections::btree_map::BTreeMap;
 use awkernel_lib::sync::mutex::Mutex;
