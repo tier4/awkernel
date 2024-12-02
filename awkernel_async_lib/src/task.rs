@@ -89,6 +89,53 @@ impl ArcWake for Task {
             let mut node = MCSNode::new();
             let mut info = self.info.lock(&mut node);
 
+            match info.state {
+                Running | Runnable | Preempted => {
+                    info.need_sched = true;
+                    #[cfg(feature = "runtime_verification")]
+                    {
+                        let mut node = MCSNode::new();
+                        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                        let model = models.get_mut(&self.id).unwrap();
+                        model.transition(
+                            &runtime_verification::event::Event::Wake,
+                            &TaskState {
+                                state: info.state.into(),
+                                need_sched: info.need_sched,
+                                need_preemption: info.need_preemption,
+                            },
+                        );
+                    }
+
+                    return;
+                }
+                Terminated | Panicked => {
+                    #[cfg(feature = "runtime_verification")]
+                    {
+                        let mut node = MCSNode::new();
+                        let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                        let model = models.get_mut(&self.id).unwrap();
+                        model.transition(
+                            &runtime_verification::event::Event::Wake,
+                            &TaskState {
+                                state: info.state.into(),
+                                need_sched: info.need_sched,
+                                need_preemption: info.need_preemption,
+                            },
+                        );
+                    }
+
+                    return;
+                }
+                Ready | Waiting => {
+                    info.state = Runnable;
+                }
+            }
+
+            panicked = info.panicked;
+
             #[cfg(feature = "runtime_verification")]
             {
                 let mut node = MCSNode::new();
@@ -104,21 +151,6 @@ impl ArcWake for Task {
                     },
                 );
             }
-
-            match info.state {
-                Running | Runnable | Preempted => {
-                    info.need_sched = true;
-                    return;
-                }
-                Terminated | Panicked => {
-                    return;
-                }
-                Ready | Waiting => {
-                    info.state = Runnable;
-                }
-            }
-
-            panicked = info.panicked;
         }
 
         if panicked {
