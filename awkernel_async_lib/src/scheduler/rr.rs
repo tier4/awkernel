@@ -3,6 +3,7 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
+use awkernel_lib::net::if_net::get_and_update_received_port;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RRScheduler {
@@ -32,7 +33,21 @@ impl Scheduler for RRScheduler {
             None => return None,
         };
 
-        while let Some(task) = queue.pop_front() {
+        let port = get_and_update_received_port();
+
+        let index;
+        if port == 0 {
+            index = 0;
+        } else {
+            let task_id = (port + 44) as u32;
+            index = queue
+                .iter()
+                .position(|task| task.id == task_id)
+                .unwrap_or(0);
+        }
+
+        //while let Some(task) = queue.pop_front() {
+        while let Some(task) = queue.remove(index) {
             {
                 let mut node = MCSNode::new();
                 let mut task_info = task.info.lock(&mut node);

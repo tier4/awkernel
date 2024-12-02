@@ -1,18 +1,38 @@
 #![no_std]
 
 extern crate alloc;
+use alloc::format;
 
 use core::{net::Ipv4Addr, time::Duration};
 
 use awkernel_async_lib::net::{udp::UdpConfig, IpAddr};
+use awkernel_lib::delay::uptime_nano;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
 
 const BASE_PORT: u16 = 20000;
 
+static mut COUNT: u64 = 0;
+static mut SUM: u64 = 0;
+static LOCK: AtomicBool = AtomicBool::new(false);
+
+fn acquire_lock() {
+    while LOCK
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        core::hint::spin_loop();
+    }
+}
+
+fn release_lock() {
+    LOCK.store(false, Ordering::Release);
+}
+
 pub async fn run() {
     //const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-    const NUM_TASKS: [usize; 3] = [3, 5, 100];
+    const NUM_TASKS: [usize; 1] = [100];
     awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
@@ -20,10 +40,12 @@ pub async fn run() {
         let mut join = alloc::vec::Vec::new();
         for task_id in 0..num_task {
             let port = BASE_PORT + task_id as u16;
+
             log::info!("port:{:?}", port);
 
+            let name = format!("udp_server:{}", port);
             let hdl = awkernel_async_lib::spawn(
-                "test udp".into(),
+                name.into(),
                 udp_server(port),
                 awkernel_async_lib::scheduler::SchedulerType::RR,
             )
@@ -56,13 +78,35 @@ async fn udp_server(port: u16) {
                 if read_bytes == 1 {
                     break;
                 }
-                let received_data = &buf[..read_bytes];
-                //log::info!(
-                //"received_data:{:?} client_addr:{:?} client_port:{:?}",
-                //received_data,
-                //client_addr,
-                //client_port
-                //);
+                let received_data = &mut buf[..read_bytes];
+                //if received_data[0] == 100 && received_data[1] % 4 == 0 && port == 20048 {
+                if port == 20048 {
+                    //let read_bytes: [u8; 16] = received_data[2..18].try_into().unwrap();
+                    //let read_value = u128::from_le_bytes(read_bytes);
+                    ////log::info!("recv rx_recv time: {:?}", read_value);
+                    //let read_bytes: [u8; 16] = received_data[18..34].try_into().unwrap();
+                    //let read_value = u128::from_le_bytes(read_bytes);
+                    ////log::info!("recv poll_rx time: {:?}", read_value);
+                    //let read_bytes: [u8; 16] = received_data[34..50].try_into().unwrap();
+                    //let read_value = u128::from_le_bytes(read_bytes);
+                    ////log::info!("recv recv time: {:?}", read_value);
+
+                    let t = uptime_nano();
+                    let bytes = t.to_le_bytes();
+                    received_data[50..66].copy_from_slice(&bytes);
+                    //log::info!(
+                    //"app recv time {:?} id:{:?} {:?}",
+                    //t,
+                    //received_data[0],
+                    //received_data[1]
+                    //);
+                    //log::info!(
+                    //"received_data:{:?} client_addr:{:?} client_port:{:?}",
+                    //received_data,
+                    //client_addr,
+                    //client_port
+                    //);
+                }
 
                 if let Err(e) = socket.send(received_data, &client_addr, client_port).await {
                     log::error!("Failed to send a UDP packet: {:?}", e);

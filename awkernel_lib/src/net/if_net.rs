@@ -26,6 +26,7 @@ use smoltcp::{
     time::Instant,
     wire::HardwareAddress,
 };
+use x86_64::instructions::port;
 
 use crate::{
     addr::{virt_addr, Addr},
@@ -43,6 +44,24 @@ use super::{
     },
     NetManagerError,
 };
+
+static RECEIVED_PORTS: Mutex<Vec<bool>> = Mutex::new(Vec::new());
+
+pub fn get_and_update_received_port() -> u32 {
+    let mut node = MCSNode::new();
+    let mut received_ports = RECEIVED_PORTS.lock(&mut node);
+
+    for i in 0..100 {
+        if received_ports[i] {
+            received_ports[i] = false;
+            return i as u32;
+        }
+    }
+
+    0
+}
+
+use super::super::delay::uptime_nano;
 
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
@@ -211,6 +230,59 @@ impl IfNetInner {
     }
 }
 
+fn update_udp_checksum(frame: &mut [u8]) {
+    let ip_header_len = ((frame[14] & 0x0F) * 4) as usize;
+    let udp_start = 14 + ip_header_len;
+
+    // チェックサムフィールドを0にする
+    frame[udp_start + 6] = 0;
+    frame[udp_start + 7] = 0;
+
+    let mut sum: u32 = 0;
+
+    // 擬似ヘッダ
+    // 送信元IPアドレス (4バイト)
+    for i in (26..30).step_by(2) {
+        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
+    }
+    // 宛先IPアドレス (4バイト)
+    for i in (30..34).step_by(2) {
+        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
+    }
+
+    // プロトコル (UDP = 17)
+    sum += frame[23] as u32;
+
+    // UDPパケット長
+    let udp_len = ((frame[udp_start + 4] as u16) << 8 | frame[udp_start + 5] as u16) as u32;
+    sum += udp_len;
+
+    // UDPヘッダとデータの処理
+    let udp_end = udp_start + udp_len as usize;
+    for i in (udp_start..udp_end).step_by(2) {
+        if i + 1 < frame.len() {
+            sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
+        } else {
+            sum += (frame[i] as u32) << 8;
+        }
+    }
+
+    // 上位ビットを折り返して加算
+    while (sum >> 16) > 0 {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+
+    // 1の補数を取る
+    let checksum = !sum as u16;
+
+    // チェックサム 0 は 0xFFFFとして送信
+    let checksum = if checksum == 0 { 0xFFFF } else { checksum };
+
+    // チェックサムを挿入
+    frame[udp_start + 6] = (checksum >> 8) as u8;
+    frame[udp_start + 7] = (checksum & 0xFF) as u8;
+}
+
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
         let interface = {
@@ -282,6 +354,12 @@ impl IfNet {
         let socket_set = SocketSet::new(vec![]);
 
         let is_poll_mode = net_device.poll_mode();
+
+        let mut node = MCSNode::new();
+        let mut received_ports = RECEIVED_PORTS.lock(&mut node);
+        for _ in 0..100 {
+            received_ports.push(false);
+        }
 
         IfNet {
             vlan,
@@ -506,8 +584,26 @@ impl IfNet {
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
-                let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, len) };
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
+                //if len > 100
+                //&& slice[42] == 100
+                //&& slice[43] % 4 == 0
+                //&& slice[36] == 78
+                //&& slice[37] == 80
+                //{
+                if len > 100 && slice[36] == 78 && slice[37] == 80 {
+                    let t = uptime_nano();
+                    let bytes = t.to_le_bytes();
+                    slice[108..124].copy_from_slice(&bytes);
+
+                    //log::info!(
+                    //"poll_tx_only: time {:?} id:{:?} {:?}",
+                    //t,
+                    //slice[42],
+                    //slice[43]
+                    //);
+                }
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -539,7 +635,28 @@ impl IfNet {
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
             if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
+                let port_bytes;
+                unsafe {
+                    let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
+                    let len = 142;
+                    let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+                    //if data[42] == 100 && data[43] % 4 == 0 && data[36] == 78 && data[37] == 80 {
+                    if data[36] == 78 && data[37] == 80 {
+                        let t = uptime_nano();
+                        let bytes = t.to_le_bytes();
+                        data[60..76].copy_from_slice(&bytes);
+                        update_udp_checksum(data);
+                    }
+                    port_bytes = data[36..38].try_into().unwrap();
+                }
                 let _ = rx_ringq.push(data);
+                let port = u16::from_be_bytes(port_bytes);
+                if 20000 <= port && port < 20100 {
+                    let port = u16::from_be_bytes(port_bytes);
+                    let mut node = MCSNode::new();
+                    let mut received_ports = RECEIVED_PORTS.lock(&mut node);
+                    received_ports[port as usize - 20000] = true;
+                }
             } else {
                 break;
             }
@@ -569,8 +686,25 @@ impl IfNet {
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
-                let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, len) };
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
+                //if len > 100
+                //&& slice[42] == 100
+                //&& slice[43] % 4 == 0
+                //&& slice[36] == 78
+                //&& slice[37] == 80
+                //{
+                if len > 100 && slice[36] == 78 && slice[37] == 80 {
+                    let t = uptime_nano();
+                    let bytes = t.to_le_bytes();
+                    slice[108..124].copy_from_slice(&bytes);
+                    //log::info!(
+                    //"poll_rx send: time {:?} id:{:?} {:?}",
+                    //t,
+                    //slice[42],
+                    //slice[43]
+                    //);
+                }
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -635,6 +769,18 @@ impl IfNet {
 pub struct NRxToken {
     data: EtherFrameDMA,
 }
+
+//impl phy::RxToken for NRxToken {
+///// Store packet data into the buffer.
+///// Closure f will map the raw bytes to the form that
+///// could be used in the higher layer of `smoltcp`.
+//fn consume<R, F>(mut self, f: F) -> R
+//where
+//F: FnOnce(&mut [u8]) -> R,
+//{
+//f(&mut self.data.data)
+//}
+//}
 
 impl phy::RxToken for NRxToken {
     /// Store packet data into the buffer.

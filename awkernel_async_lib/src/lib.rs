@@ -156,7 +156,19 @@ where
 {
     let (tx, rx) = oneshot::channel();
 
-    crate::task::spawn(
+    let mut flag = false;
+    let port = if let Some(port_str) = name.as_ref().strip_prefix("udp_server:") {
+        flag = true;
+        port_str.parse::<u16>().unwrap()
+    } else {
+        //log::info!("parse error");
+        0
+    };
+    //if port == 20048 {
+    //flag = true;
+    //}
+
+    let id = crate::task::spawn(
         name,
         async move {
             let result = future.await;
@@ -165,6 +177,9 @@ where
         },
         sched_type,
     );
+    if flag {
+        log::info!("id:{:?} port:{:?}", id, port);
+    }
 
     JoinHandle::new(rx)
 }
