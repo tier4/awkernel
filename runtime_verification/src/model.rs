@@ -26,9 +26,6 @@ impl TaskModel {
         let (runtime_state, runtime_need_sched, runtime_need_preemption) =
             (runtime.state, runtime.need_sched, runtime.need_preemption);
 
-        let (model_need_sched, model_need_preemption) =
-            (current.need_sched, current.need_preemption);
-
         log::debug!("[RV] id: {id}, current: {current}, event: {event}");
         match (
             current.state,
@@ -147,15 +144,19 @@ impl TaskModel {
                 current.need_preemption = false;
             }
             _ => {
+                let (model_state, model_need_sched, model_need_preemption) =
+                    (current.state, current.need_sched, current.need_preemption);
                 log::debug!(
-                    "[RV ERROR] Unknown Transition Found: id: {id}, current(impl): {runtime_state}, current(model): {current}, event: {event}, need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}, need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
+                    "[RV ERROR] Unknown Transition Found: id: {id}, current(impl): {runtime_state}, current(model): {model_state}, event: {event}, need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}, need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
                 );
             }
         }
 
         if current != runtime {
+            let (model_state, model_need_sched, model_need_preemption) =
+                (current.state, current.need_sched, current.need_preemption);
             log::debug!(
-                "[RV ERROR] State Mismatch Detected: id: {id}, current(impl): {runtime_state}, current(model): {current}, event: {event}, need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}, need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
+                "[RV ERROR] State Mismatch Detected: id: {id}, current(impl): {runtime_state}, current(model): {model_state}, event: {event}, need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}, need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
             );
         }
     }
