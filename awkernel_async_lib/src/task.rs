@@ -905,8 +905,30 @@ pub fn run_main() {
             match result {
                 Ok(Poll::Pending) => {
                     // The task has not been terminated yet.
-                    #[cfg(feature = "runtime_verification")]
-                    {
+                    info.state = State::Waiting;
+
+                    if info.need_sched {
+                        info.need_sched = false;
+
+                        #[cfg(feature = "runtime_verification")]
+                        {
+                            let mut node = MCSNode::new();
+                            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+                            let model = models.get_mut(&task.id).unwrap();
+                            model.transition(
+                                &runtime_verification::event::Event::PollPending,
+                                &TaskState {
+                                    state: info.state.into(),
+                                    need_sched: info.need_sched,
+                                    need_preemption: info.need_preemption,
+                                },
+                            );
+                        }
+
+                        drop(info);
+                        task.clone().wake();
+                    } else if cfg!(feature = "runtime_verification") {
                         let mut node = MCSNode::new();
                         let models = &mut runtime_verification::MODELS.lock(&mut node);
 
@@ -919,14 +941,6 @@ pub fn run_main() {
                                 need_preemption: info.need_preemption,
                             },
                         );
-                    }
-
-                    info.state = State::Waiting;
-
-                    if info.need_sched {
-                        info.need_sched = false;
-                        drop(info);
-                        task.clone().wake();
                     }
 
                     #[cfg(feature = "perf")]
@@ -1127,6 +1141,8 @@ pub fn set_need_preemption(task_id: u32) {
     if let Some(task) = tasks.id_to_task.get(&task_id) {
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
+
+        info.need_preemption = true;
         #[cfg(feature = "runtime_verification")]
         {
             let mut node = MCSNode::new();
@@ -1142,7 +1158,6 @@ pub fn set_need_preemption(task_id: u32) {
                 },
             );
         }
-        info.need_preemption = true;
     }
 }
 
