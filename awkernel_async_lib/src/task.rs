@@ -113,6 +113,7 @@ pub struct TaskInfo {
     pub(crate) scheduler_type: SchedulerType,
     pub(crate) num_preempt: u64,
     last_executed_time: u64,
+    absolute_deadline: Option<u64>,
     need_sched: bool,
     need_preemption: bool,
     panicked: bool,
@@ -157,6 +158,16 @@ impl TaskInfo {
     #[inline(always)]
     pub fn get_last_executed(&self) -> u64 {
         self.last_executed_time
+    }
+
+    #[inline(always)]
+    pub fn update_absolute_deadline(&mut self, deadline: u64) {
+        self.absolute_deadline = Some(deadline);
+    }
+
+    #[inline(always)]
+    pub fn get_absolute_deadline(&self) -> Option<u64> {
+        self.absolute_deadline
     }
 
     #[inline(always)]
@@ -217,6 +228,7 @@ impl Tasks {
                     state: State::Ready,
                     num_preempt: 0,
                     last_executed_time: 0,
+                    absolute_deadline: None,
                     need_sched: false,
                     need_preemption: false,
                     panicked: false,
@@ -284,7 +296,12 @@ pub fn spawn(
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
     let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
-    tasks.wake(id);
+    let task = tasks.id_to_task.get(&id).cloned();
+    drop(tasks);
+
+    if let Some(task) = task {
+        task.wake();
+    }
 
     id
 }
@@ -942,6 +959,18 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
         let mut node = MCSNode::new();
         let info = task.info.lock(&mut node);
         info.get_scheduler_type()
+    })
+}
+
+#[inline(always)]
+pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
+    let mut node = MCSNode::new();
+    let tasks = TASKS.lock(&mut node);
+
+    tasks.id_to_task.get(&task_id).and_then(|task| {
+        let mut node = MCSNode::new();
+        let info = task.info.lock(&mut node);
+        info.get_absolute_deadline()
     })
 }
 

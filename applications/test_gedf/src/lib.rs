@@ -4,19 +4,26 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::string::ToString;
 
+use awkernel_async_lib::sleep;
 use awkernel_async_lib::{scheduler::SchedulerType, spawn};
+use awkernel_lib::delay::uptime;
 use awkernel_lib::{cpu::cpu_id, delay::wait_microsec};
+use core::time::Duration;
 
-/// TODO: Test verification will be done after preemption implementation
-/// Currently, only the order in which tasks are started is checked.
 pub async fn run() {
-    wait_microsec(1000000);
+    wait_microsec(2000000);
 
     // Generate tasks with pseudo-periods.
     // Assumption that periodic reactors are running.
-    spawn_periodic_loop("periodic_loop_1".to_string(), 500000, 1000000, 800000).await;
-    spawn_periodic_loop("periodic_loop_2".to_string(), 500000, 2000000, 600000).await;
-    spawn_periodic_loop("periodic_loop_3".to_string(), 500000, 3000000, 2800000).await;
+    // heavy_1 is preempted by light_1.
+    log::info!("spawn heavy_1: {:?}", uptime());
+    spawn_periodic_loop("heavy_1".to_string(), 9600000, 10000000, 9900000).await; // Task id = 8
+    log::info!("spawn task_1: {:?}", uptime());
+    spawn_periodic_loop("task_1".to_string(), 9800000, 10000000, 9800000).await; // Task id = 9
+    log::info!("spawn light_1: {:?}", uptime());
+    spawn_periodic_loop("light_1".to_string(), 900000, 1000000, 990000).await; // Task id = 10
+
+    wait_microsec(100000000);
 }
 
 /// Spawn a pseudo-periodic task.
@@ -41,7 +48,7 @@ async fn spawn_periodic_loop(
                     start_time,
                     end_time
                 );
-                wait_microsec(period - exe_time);
+                sleep(Duration::from_micros(period - exe_time)).await;
                 awkernel_async_lib::r#yield().await;
             }
         },
