@@ -22,12 +22,12 @@ impl TaskModel {
     pub fn transition(&mut self, event: &Event, runtime: &TaskState) {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let id = self.id;
+        let prev = self.current_state.clone();
         let current = &mut self.current_state;
 
         let (runtime_state, runtime_need_sched, runtime_need_preemption) =
             (runtime.state, runtime.need_sched, runtime.need_preemption);
 
-        log::debug!("[RV] cpu id: {cpu_id}, task id: {id}, current: {current}, event: {event}");
         match (
             current.state,
             current.need_sched,
@@ -160,5 +160,7 @@ impl TaskModel {
                 "[RV ERROR] State Mismatch Detected: cpu id: {cpu_id}, task id: {id}, current(impl): {runtime_state}, current(model): {model_state}, event: {event}, need_sched(impl): {runtime_need_sched}, need_sched(model): {model_need_sched}, need_preemption(impl): {runtime_need_preemption}, need_preemption(model): {model_need_preemption}"
             );
         }
+
+        log::debug!("[RV] cpu id: {cpu_id}, task id: {id}, current: {prev}, event: {event}, next: {current}");
     }
 }
