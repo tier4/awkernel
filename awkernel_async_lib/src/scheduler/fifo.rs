@@ -28,6 +28,7 @@ impl Scheduler for FIFOScheduler {
         let mut queue = self.queue.lock(&mut node);
 
         // Pop a task from the run queue.
+        #[allow(clippy::question_mark)]
         let queue = match queue.as_mut() {
             Some(q) => q,
             None => return None,

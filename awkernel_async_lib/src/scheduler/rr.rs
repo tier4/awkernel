@@ -27,6 +27,7 @@ impl Scheduler for RRScheduler {
         let mut node = MCSNode::new();
         let mut guard = self.queue.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let queue = match guard.as_mut() {
             Some(d) => d,
             None => return None,

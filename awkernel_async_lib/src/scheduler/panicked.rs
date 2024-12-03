@@ -42,6 +42,7 @@ impl Scheduler for PanickedScheduler {
 
         // Pop a task from the run queue.
         // let data = data.as_mut()?;
+        #[allow(clippy::question_mark)]
         let data = match data.as_mut() {
             Some(data) => data,
             None => return None,
