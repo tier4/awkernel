@@ -40,16 +40,29 @@ pub enum SchedulerType {
     Panicked,
 }
 
+static PRIORITY_LIST: [SchedulerType; 6] = [
+    SchedulerType::GEDF(0),
+    SchedulerType::FIFO,
+    SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::RR,
+    SchedulerType::PriorityBasedRR(0),
+    SchedulerType::Panicked,
+];
+
 /// # Priority
 ///
 /// `priority()` returns the priority of the scheduler for preemption.
+/// The priority ranges from 0 to 255.
 ///
-/// - 0: The highest priority.
+/// TODO: Discuss the priority of each scheduler.
+/// - 1: The highest priority.
+///   - GEDF scheduler.
+/// - 2: The second highest priority.
 ///   - FIFO scheduler.
 ///   - Prioritized FIFO scheduler.
-///   - Tasks using these schedulers will not be preempted.
-/// - 1 - 16
+/// - 3: The third highest priority.
 ///   - Round-Robin scheduler.
+///   - Priority-based Round-Robin scheduler.
 /// - 255: The lowest priority.
 ///   - Panicked scheduler.
 pub(crate) trait Scheduler {
@@ -70,32 +83,9 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
-    if let Some(task) = fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = prioritized_fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = priority_based_rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    // TODO: Priority implementation between schedulers.
-    if let Some(task) = gedf::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = panicked::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    None
+    PRIORITY_LIST
+        .iter()
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next())
 }
 
 /// Get a scheduler.
