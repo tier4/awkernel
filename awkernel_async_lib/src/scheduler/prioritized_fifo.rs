@@ -2,7 +2,8 @@
 
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::State;
-use alloc::{collections::BinaryHeap, sync::Arc};
+use alloc::sync::Arc;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PrioritizedFIFOScheduler {
@@ -11,37 +12,17 @@ pub struct PrioritizedFIFOScheduler {
 
 struct PrioritizedFIFOTask {
     task: Arc<Task>,
-    priority: u8,
+    _priority: u8,
 }
-
-impl PartialOrd for PrioritizedFIFOTask {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for PrioritizedFIFOTask {
-    fn eq(&self, other: &Self) -> bool {
-        self.priority == other.priority
-    }
-}
-
-impl Ord for PrioritizedFIFOTask {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        self.priority.cmp(&other.priority).reverse()
-    }
-}
-
-impl Eq for PrioritizedFIFOTask {}
 
 struct PrioritizedFIFOData {
-    queue: BinaryHeap<PrioritizedFIFOTask>,
+    queue: PriorityQueue<PrioritizedFIFOTask>,
 }
 
 impl PrioritizedFIFOData {
     fn new() -> Self {
         Self {
-            queue: BinaryHeap::new(),
+            queue: PriorityQueue::new(),
         }
     }
 }
@@ -58,10 +39,13 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 return;
             };
 
-            data.queue.push(PrioritizedFIFOTask {
-                task: task.clone(),
-                priority,
-            });
+            data.queue.push(
+                priority as usize,
+                PrioritizedFIFOTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
         } else {
             let mut prioritized_fifo_data = PrioritizedFIFOData::new();
             let mut node = MCSNode::new();
@@ -70,10 +54,13 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 return;
             };
 
-            prioritized_fifo_data.queue.push(PrioritizedFIFOTask {
-                task: task.clone(),
-                priority,
-            });
+            prioritized_fifo_data.queue.push(
+                priority as usize,
+                PrioritizedFIFOTask {
+                    task: task.clone(),
+                    _priority: priority,
+                },
+            );
             *data = Some(prioritized_fifo_data);
         }
     }
