@@ -40,6 +40,21 @@ pub enum SchedulerType {
     Panicked,
 }
 
+/// # Priority
+///
+/// `priority()` returns the priority of the scheduler for preemption.
+///
+/// TODO: Discuss the priority of each scheduler.
+/// - The highest priority.
+///   - GEDF scheduler.
+/// - The second highest priority.
+///   - FIFO scheduler.
+///   - Prioritized FIFO scheduler.
+/// - The third highest priority.
+///   - Round-Robin scheduler.
+///   - Priority-based Round-Robin scheduler.
+/// - The lowest priority.
+///   - Panicked scheduler.
 static PRIORITY_LIST: [SchedulerType; 6] = [
     SchedulerType::GEDF(0),
     SchedulerType::FIFO,
@@ -49,22 +64,6 @@ static PRIORITY_LIST: [SchedulerType; 6] = [
     SchedulerType::Panicked,
 ];
 
-/// # Priority
-///
-/// `priority()` returns the priority of the scheduler for preemption.
-/// The priority ranges from 0 to 255.
-///
-/// TODO: Discuss the priority of each scheduler.
-/// - 1: The highest priority.
-///   - GEDF scheduler.
-/// - 2: The second highest priority.
-///   - FIFO scheduler.
-///   - Prioritized FIFO scheduler.
-/// - 3: The third highest priority.
-///   - Round-Robin scheduler.
-///   - Priority-based Round-Robin scheduler.
-/// - 255: The lowest priority.
-///   - Panicked scheduler.
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
