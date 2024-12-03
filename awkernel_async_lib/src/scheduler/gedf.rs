@@ -86,6 +86,7 @@ impl Scheduler for GEDFScheduler {
         let mut node = MCSNode::new();
         let mut data = self.data.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let data = match data.as_mut() {
             Some(data) => data,
             None => return None,

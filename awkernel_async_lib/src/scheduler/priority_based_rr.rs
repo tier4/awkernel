@@ -62,6 +62,7 @@ impl Scheduler for PriorityBasedRRScheduler {
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let data = match guard.as_mut() {
             Some(data) => data,
             None => return None,
