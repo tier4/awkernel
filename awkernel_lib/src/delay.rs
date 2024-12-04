@@ -1,7 +1,10 @@
 //! `delay` provides `Delay` trait to represent architecture specific delay functions.
 //! Users can call the delay functions transparently by calling functions defined this module.
 
-use crate::arch::ArchImpl;
+use crate::{
+    arch::ArchImpl,
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
 
 pub trait Delay {
     /// Wait interrupt.
@@ -92,6 +95,7 @@ pub fn wait_forever() -> ! {
 }
 
 /// Return uptime in microseconds.
+/// Note that this function may not monotonically increase.
 ///
 /// # Example
 ///
@@ -107,6 +111,7 @@ pub fn uptime() -> u64 {
 }
 
 /// Return uptime in nanoseconds.
+/// Note that this function may not monotonically increase.
 ///
 /// # Example
 ///

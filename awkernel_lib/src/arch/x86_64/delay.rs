@@ -73,16 +73,7 @@ impl Delay for super::X86 {
         }
 
         let diff = now - start;
-        let result = diff as u128 * 1_000_000_000 / hz;
-
-        let mut node = MCSNode::new();
-        let mut last = LAST_UPTIME.lock(&mut node);
-        if *last < result {
-            *last = result;
-            result
-        } else {
-            *last
-        }
+        diff as u128 * 1_000_000_000 / hz
     }
 
     fn cpu_counter() -> u64 {
