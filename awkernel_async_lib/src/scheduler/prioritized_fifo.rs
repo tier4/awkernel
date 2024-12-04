@@ -100,7 +100,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        1
     }
 }
 

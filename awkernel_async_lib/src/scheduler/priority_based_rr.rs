@@ -82,7 +82,7 @@ impl Scheduler for PriorityBasedRRScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        2
     }
 }
 

@@ -64,8 +64,7 @@ pub static SCHEDULER: RRScheduler = RRScheduler {
     // Time quantum (20 ms)
     interval: 20_000,
 
-    // TODO: Temporarily set to the lowest priority
-    priority: 16,
+    priority: 2,
 
     queue: Mutex::new(None),
 };

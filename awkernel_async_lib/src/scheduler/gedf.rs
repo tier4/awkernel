@@ -116,7 +116,6 @@ impl Scheduler for GEDFScheduler {
         SchedulerType::GEDF(0)
     }
 
-    // TODO: Priority implementation between schedulers.
     fn priority(&self) -> u8 {
         0
     }
