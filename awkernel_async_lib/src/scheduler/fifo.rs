@@ -21,6 +21,8 @@ impl Scheduler for FIFOScheduler {
             q.push_back(task);
             *queue = Some(q);
         }
+
+        self.scheduler_preemption();
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {

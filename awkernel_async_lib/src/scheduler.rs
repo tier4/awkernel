@@ -1,7 +1,10 @@
 //! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
-use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use crate::task::{
+    get_current_task, get_last_executed_by_task_id, get_scheduler_type_by_task_id,
+    get_tasks_running, set_need_preemption,
+};
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
@@ -24,7 +27,7 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
-/// 0 is the highest priority and 255 is the lowest priority.
+/// 0 is the highest priority and 99 is the lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
     FIFO,
@@ -44,7 +47,6 @@ pub enum SchedulerType {
 ///
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
-/// TODO: Discuss the priority of each scheduler.
 /// - The highest priority.
 ///   - GEDF scheduler.
 /// - The second highest priority.
@@ -75,12 +77,67 @@ pub(crate) trait Scheduler {
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 
-    #[allow(dead_code)] // TODO: to be removed
+    /// Get the priority of the scheduler.
     fn priority(&self) -> u8 {
         PRIORITY_LIST
             .iter()
             .position(|&x| x == self.scheduler_name())
             .unwrap_or(PRIORITY_LIST.len()) as u8
+    }
+
+    /// Invoke preemption.
+    fn scheduler_preemption(&self) -> bool {
+        // Get running tasks and filter out tasks with task_id == 0.
+        let mut tasks = get_tasks_running();
+        tasks.retain(|task| task.task_id != 0);
+
+        // If the number of running tasks is less than the number of non-primary CPUs, preempt is not required.
+        let num_non_primary_cpus = num_cpu() - 1;
+        if tasks.len() < num_non_primary_cpus {
+            return false;
+        }
+
+        let mut lowest_task_info: Option<(u8, usize, u32)> = None;
+
+        // Find the lowest priority task.
+        for task in tasks {
+            if let Some(task_sched_type) = get_scheduler_type_by_task_id(task.task_id) {
+                let task_priority = get_scheduler(task_sched_type).priority();
+                match lowest_task_info {
+                    // If the priority of the scheduler is lower than the lowest priority task.
+                    Some((lowest_priority, _, _)) if task_priority > lowest_priority => {
+                        lowest_task_info = Some((task_priority, task.cpu_id, task.task_id));
+                    }
+                    // If the priority of the scheduler is the same as the lowest priority task.
+                    Some((lowest_priority, _, task_id)) if task_priority == lowest_priority => {
+                        if get_last_executed_by_task_id(task.task_id)
+                            < get_last_executed_by_task_id(task_id)
+                        {
+                            lowest_task_info = Some((task_priority, task.cpu_id, task.task_id));
+                        }
+                    }
+                    // If the priority of the scheduler is higher than the lowest priority task.
+                    Some((lowest_priority, _, _)) if task_priority < lowest_priority => {
+                        // Do nothing.
+                    }
+                    // The first task.
+                    _ => {
+                        lowest_task_info = Some((task_priority, task.cpu_id, task.task_id));
+                    }
+                }
+            }
+        }
+
+        // Preempt the task if the priority of the scheduler is higher than the lowest priority task.
+        if let Some((lowest_priority, cpu_id, task_id)) = lowest_task_info {
+            if lowest_priority > self.priority() {
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                set_need_preemption(task_id);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+                return true;
+            }
+        }
+        return false;
     }
 }
 
