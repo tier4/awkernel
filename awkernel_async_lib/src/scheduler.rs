@@ -92,7 +92,7 @@ pub(crate) trait Scheduler {
         tasks.retain(|task| task.task_id != 0);
 
         // If the number of running tasks is less than the number of non-primary CPUs, preempt is not required.
-        let num_non_primary_cpus = num_cpu() - 1;
+        let num_non_primary_cpus = num_cpu().saturating_sub(1);
         if tasks.len() < num_non_primary_cpus {
             return false;
         }
