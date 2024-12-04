@@ -92,6 +92,7 @@ pub fn wait_forever() -> ! {
 }
 
 /// Return uptime in microseconds.
+/// Note that this function may not monotonically increase.
 ///
 /// # Example
 ///
@@ -107,6 +108,7 @@ pub fn uptime() -> u64 {
 }
 
 /// Return uptime in nanoseconds.
+/// Note that this function may not monotonically increase.
 ///
 /// # Example
 ///
