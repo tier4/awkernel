@@ -46,5 +46,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_bravo_rwlock")]
     test_bravo_rwlock::run().await; // test BRAVO rw-lock
 
+    #[cfg(feature = "test_sched_preempt")]
+    test_sched_preempt::run().await; // test for scheduler preemption
+
     Ok(())
 }

@@ -97,7 +97,7 @@ pub(crate) trait Scheduler {
             return false;
         }
 
-        let mut lowest_task_info: Option<(u8, usize, u32)> = None;
+        let mut lowest_task_info: Option<(u8, usize, u32)> = None; // (priority, cpu_id, task_id)
 
         // Find the lowest priority task.
         for task in tasks {

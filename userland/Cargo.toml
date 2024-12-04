@@ -66,8 +66,12 @@ optional = true
 path = "../applications/test_bravo_rwlock"
 optional = true
 
+[dependencies.test_sched_preempt]
+path = "../applications/test_sched_preempt"
+optional = true
+
 [features]
-default = ["test_bravo_rwlock"]
+default = ["test_sched_preempt"]
 perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]
@@ -81,6 +85,7 @@ test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
 load_test_udp = ["dep:load_test_udp"]
 test_bravo_rwlock = ["dep:test_bravo_rwlock"]
+test_sched_preempt = ["dep:test_sched_preempt"]
 
 # Measurements
 measure_channel = ["dep:measure_channel"]
