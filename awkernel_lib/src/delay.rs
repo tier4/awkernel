@@ -1,10 +1,7 @@
 //! `delay` provides `Delay` trait to represent architecture specific delay functions.
 //! Users can call the delay functions transparently by calling functions defined this module.
 
-use crate::{
-    arch::ArchImpl,
-    sync::{mcs::MCSNode, mutex::Mutex},
-};
+use crate::arch::ArchImpl;
 
 pub trait Delay {
     /// Wait interrupt.
