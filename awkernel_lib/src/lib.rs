@@ -22,7 +22,6 @@ pub mod mmio;
 pub mod net;
 pub mod sanity;
 pub mod sync;
-pub mod time_eval;
 pub mod timer;
 pub mod unwind;
 

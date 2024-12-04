@@ -5,7 +5,6 @@ use alloc::{
     format,
     sync::Arc,
 };
-use core::sync::atomic::{AtomicBool, Ordering};
 use core::{fmt::Display, net::Ipv4Addr};
 use net_device::NetDevError;
 use smoltcp::wire::{IpAddress, IpCidr};
@@ -16,8 +15,6 @@ use self::{
     tcp::TcpPort,
 };
 
-use super::delay::uptime_nano;
-
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
@@ -26,10 +23,6 @@ use crate::sync::rwlock_dummy::RwLock;
 
 #[cfg(not(loom))]
 use crate::sync::rwlock::RwLock;
-
-static mut COUNT: u64 = 0;
-static mut SUM: u64 = 0;
-static LOCK: AtomicBool = AtomicBool::new(false);
 
 pub mod ether;
 pub mod ethertypes;
@@ -579,23 +572,9 @@ pub fn poll() {
     }
 }
 
-fn acquire_lock() {
-    while LOCK
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        core::hint::spin_loop();
-    }
-}
-
-fn release_lock() {
-    LOCK.store(false, Ordering::SeqCst);
-}
-
 /// If some packets are processed, true is returned.
 /// If true is returned, the caller should call this function again.
 pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
-    //let t1 = uptime_nano();
     let interface = {
         let net_manager = NET_MANAGER.read();
 
@@ -607,20 +586,7 @@ pub fn handle_interrupt(interface_id: u64, irq: u16) -> bool {
     };
 
     let _ = interface.net_device.interrupt(irq);
-    let ret = interface.poll_rx_irq(irq);
-    //let t2 = uptime_nano();
-    //unsafe {
-    //acquire_lock();
-    //SUM += (t2 - t1) as u64;
-    //COUNT += 1;
-    //if COUNT == 10000 {
-    //log::info!("get lock: {:?}", SUM / COUNT);
-    //SUM = 0;
-    //COUNT = 0;
-    //}
-    //release_lock();
-    //}
-    ret
+    interface.poll_rx_irq(irq)
 }
 
 /// Enable the network interface.

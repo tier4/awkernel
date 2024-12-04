@@ -45,22 +45,6 @@ use super::{
     NetManagerError,
 };
 
-static RECEIVED_PORTS: Mutex<Vec<bool>> = Mutex::new(Vec::new());
-
-pub fn get_and_update_received_port() -> u32 {
-    let mut node = MCSNode::new();
-    let mut received_ports = RECEIVED_PORTS.lock(&mut node);
-
-    for i in 0..100 {
-        if received_ports[i] {
-            received_ports[i] = false;
-            return i as u32;
-        }
-    }
-
-    0
-}
-
 use super::super::delay::uptime_nano;
 
 #[cfg(not(feature = "std"))]
@@ -355,12 +339,6 @@ impl IfNet {
 
         let is_poll_mode = net_device.poll_mode();
 
-        let mut node = MCSNode::new();
-        let mut received_ports = RECEIVED_PORTS.lock(&mut node);
-        for _ in 0..100 {
-            received_ports.push(false);
-        }
-
         IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
@@ -586,23 +564,10 @@ impl IfNet {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                //if len > 100
-                //&& slice[42] == 100
-                //&& slice[43] % 4 == 0
-                //&& slice[36] == 78
-                //&& slice[37] == 80
-                //{
                 if len > 100 && slice[36] == 78 && slice[37] == 80 {
                     let t = uptime_nano();
                     let bytes = t.to_le_bytes();
                     slice[108..124].copy_from_slice(&bytes);
-
-                    //log::info!(
-                    //"poll_tx_only: time {:?} id:{:?} {:?}",
-                    //t,
-                    //slice[42],
-                    //slice[43]
-                    //);
                 }
 
                 let data = EtherFrameDMAcsum {
@@ -635,7 +600,6 @@ impl IfNet {
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
             if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
-                let port_bytes;
                 unsafe {
                     let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
                     let len = 142;
@@ -647,16 +611,8 @@ impl IfNet {
                         data[60..76].copy_from_slice(&bytes);
                         update_udp_checksum(data);
                     }
-                    port_bytes = data[36..38].try_into().unwrap();
                 }
                 let _ = rx_ringq.push(data);
-                let port = u16::from_be_bytes(port_bytes);
-                if 20000 <= port && port < 20100 {
-                    let port = u16::from_be_bytes(port_bytes);
-                    let mut node = MCSNode::new();
-                    let mut received_ports = RECEIVED_PORTS.lock(&mut node);
-                    received_ports[port as usize - 20000] = true;
-                }
             } else {
                 break;
             }
@@ -688,22 +644,10 @@ impl IfNet {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                //if len > 100
-                //&& slice[42] == 100
-                //&& slice[43] % 4 == 0
-                //&& slice[36] == 78
-                //&& slice[37] == 80
-                //{
                 if len > 100 && slice[36] == 78 && slice[37] == 80 {
                     let t = uptime_nano();
                     let bytes = t.to_le_bytes();
                     slice[108..124].copy_from_slice(&bytes);
-                    //log::info!(
-                    //"poll_rx send: time {:?} id:{:?} {:?}",
-                    //t,
-                    //slice[42],
-                    //slice[43]
-                    //);
                 }
 
                 let data = EtherFrameDMAcsum {

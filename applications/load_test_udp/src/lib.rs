@@ -13,35 +13,15 @@ const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
 
 const BASE_PORT: u16 = 20000;
 
-static mut COUNT: u64 = 0;
-static mut SUM: u64 = 0;
-static LOCK: AtomicBool = AtomicBool::new(false);
-
-fn acquire_lock() {
-    while LOCK
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
-    }
-}
-
-fn release_lock() {
-    LOCK.store(false, Ordering::Release);
-}
-
 pub async fn run() {
     //const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
     const NUM_TASKS: [usize; 1] = [100];
     awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
-        log::info!("num_task:{:?}", num_task);
         let mut join = alloc::vec::Vec::new();
         for task_id in 0..num_task {
             let port = BASE_PORT + task_id as u16;
-
-            log::info!("port:{:?}", port);
 
             let name = format!("udp_server:{}", port);
             let hdl = awkernel_async_lib::spawn(

@@ -1,15 +1,9 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
-use awkernel_lib::delay::uptime_nano;
 use awkernel_lib::net::NetManagerError;
-use core::sync::atomic::{AtomicBool, Ordering};
 use futures::Future;
 use pin_project::pin_project;
-
-static mut COUNT: u64 = 0;
-static mut SUM: u64 = 0;
-static LOCK: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdpSocketError {
@@ -24,19 +18,6 @@ pub struct UdpConfig {
     pub port: Option<u16>,
     pub rx_buffer_size: usize,
     pub tx_buffer_size: usize,
-}
-
-fn acquire_lock() {
-    while LOCK
-        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-        .is_err()
-    {
-        core::hint::spin_loop();
-    }
-}
-
-fn release_lock() {
-    LOCK.store(false, Ordering::Release);
 }
 
 impl Default for UdpConfig {
@@ -112,7 +93,6 @@ impl Future for UdpSender<'_> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        //let t1 = uptime_nano();
         let ret = match self.socket.socket_handle.send_to(
             self.data,
             self.dst_addr,
@@ -126,18 +106,6 @@ impl Future for UdpSender<'_> {
             }
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),
         };
-        //let t2 = uptime_nano();
-        //unsafe {
-        //acquire_lock();
-        //SUM += (t2 - t1) as u64;
-        //COUNT += 1;
-        //if COUNT == 1000 {
-        //log::info!("send_to avg: {:?}", SUM / COUNT);
-        //SUM = 0;
-        //COUNT = 0;
-        //}
-        //release_lock();
-        //}
 
         ret
     }
@@ -159,24 +127,11 @@ impl Future for UdpReceiver<'_> {
 
         let (socket, buf) = (this.socket, this.buf);
 
-        //let t1 = uptime_nano();
         let ret = match socket.socket_handle.recv(buf, cx.waker()) {
             Ok(Some(result)) => core::task::Poll::Ready(Ok(result)),
             Ok(None) => core::task::Poll::Pending,
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),
         };
-        //let t2 = uptime_nano();
-        //unsafe {
-        //acquire_lock();
-        //SUM += (t2 - t1) as u64;
-        //COUNT += 1;
-        //if COUNT == 1000 {
-        //log::info!("send_to avg: {:?}", SUM / COUNT);
-        //SUM = 0;
-        //COUNT = 0;
-        //}
-        //release_lock();
-        //}
 
         ret
     }
