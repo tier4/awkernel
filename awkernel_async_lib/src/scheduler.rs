@@ -137,7 +137,7 @@ pub(crate) trait Scheduler {
                 return true;
             }
         }
-        return false;
+        false
     }
 }
 
