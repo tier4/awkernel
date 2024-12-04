@@ -115,10 +115,6 @@ impl Scheduler for GEDFScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::GEDF(0)
     }
-
-    fn priority(&self) -> u8 {
-        0
-    }
 }
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {

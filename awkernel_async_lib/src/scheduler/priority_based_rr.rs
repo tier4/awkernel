@@ -80,10 +80,6 @@ impl Scheduler for PriorityBasedRRScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::PriorityBasedRR(0)
     }
-
-    fn priority(&self) -> u8 {
-        2
-    }
 }
 
 pub static SCHEDULER: PriorityBasedRRScheduler = PriorityBasedRRScheduler {

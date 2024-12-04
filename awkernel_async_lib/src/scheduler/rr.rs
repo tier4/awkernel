@@ -9,9 +9,6 @@ pub struct RRScheduler {
     // Time quantum
     interval: u64,
 
-    // Priority of this scheduler
-    priority: u8,
-
     // Run queue
     queue: Mutex<Option<VecDeque<Arc<Task>>>>,
 }
@@ -54,17 +51,11 @@ impl Scheduler for RRScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::RR
     }
-
-    fn priority(&self) -> u8 {
-        self.priority
-    }
 }
 
 pub static SCHEDULER: RRScheduler = RRScheduler {
     // Time quantum (20 ms)
     interval: 20_000,
-
-    priority: 2,
 
     queue: Mutex::new(None),
 };

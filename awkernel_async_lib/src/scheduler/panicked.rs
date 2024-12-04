@@ -70,10 +70,6 @@ impl Scheduler for PanickedScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::FIFO
     }
-
-    fn priority(&self) -> u8 {
-        255
-    }
 }
 
 pub static SCHEDULER: PanickedScheduler = PanickedScheduler {

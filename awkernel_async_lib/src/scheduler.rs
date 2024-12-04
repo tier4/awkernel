@@ -55,6 +55,15 @@ pub enum SchedulerType {
 ///   - Priority-based Round-Robin scheduler.
 /// - The lowest priority.
 ///   - Panicked scheduler.
+static PRIORITY_LIST: [SchedulerType; 6] = [
+    SchedulerType::GEDF(0),
+    SchedulerType::FIFO,
+    SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::RR,
+    SchedulerType::PriorityBasedRR(0),
+    SchedulerType::Panicked,
+];
+
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
@@ -67,37 +76,20 @@ pub(crate) trait Scheduler {
     fn scheduler_name(&self) -> SchedulerType;
 
     #[allow(dead_code)] // TODO: to be removed
-    fn priority(&self) -> u8;
+    fn priority(&self) -> u8 {
+        PRIORITY_LIST
+            .iter()
+            .position(|&x| x == self.scheduler_name())
+            .unwrap_or(PRIORITY_LIST.len()) as u8
+    }
 }
 
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
-    if let Some(task) = gedf::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = prioritized_fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = priority_based_rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = panicked::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    None
+    PRIORITY_LIST
+        .iter()
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next())
 }
 
 /// Get a scheduler.

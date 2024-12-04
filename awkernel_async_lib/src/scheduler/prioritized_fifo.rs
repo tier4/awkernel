@@ -98,10 +98,6 @@ impl Scheduler for PrioritizedFIFOScheduler {
     fn scheduler_name(&self) -> SchedulerType {
         SchedulerType::PrioritizedFIFO(0)
     }
-
-    fn priority(&self) -> u8 {
-        1
-    }
 }
 
 pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
