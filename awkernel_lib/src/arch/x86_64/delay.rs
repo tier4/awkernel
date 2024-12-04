@@ -5,6 +5,7 @@ use crate::{
     delay::{uptime, wait_forever, wait_microsec, Delay},
     mmio_r, mmio_rw,
     paging::{Flags, PageTable},
+    sync::{mcs::MCSNode, mutex::Mutex},
 };
 use acpi::AcpiTables;
 use core::sync::{
@@ -27,6 +28,8 @@ static mut TSC_FREQ: u128 = 0;
 static CPU0_TSC: AtomicU64 = AtomicU64::new(0);
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
+
+static LAST_UPTIME: Mutex<u128> = Mutex::new(0);
 
 impl Delay for super::X86 {
     fn wait_interrupt() {
@@ -70,7 +73,16 @@ impl Delay for super::X86 {
         }
 
         let diff = now - start;
-        diff as u128 * 1_000_000_000 / hz
+        let result = diff as u128 * 1_000_000_000 / hz;
+
+        let mut node = MCSNode::new();
+        let mut last = LAST_UPTIME.lock(&mut node);
+        if *last < result {
+            *last = result;
+            result
+        } else {
+            *last
+        }
     }
 
     fn cpu_counter() -> u64 {
