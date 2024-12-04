@@ -2097,7 +2097,13 @@ impl NetDevice for Igb {
         true
     }
 
-    fn send(&self, _data: EtherFrameDMAcsum, _que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, _que_id: usize) -> Result<(), NetDevError> {
+        //let frames = [data];
+        //self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        Err(NetDevError::DeviceError)
+    }
+
+    fn push(&self, _data: EtherFrameDMAcsum, _que_id: usize) -> Result<(), NetDevError> {
         //let frames = [data];
         //self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
         Err(NetDevError::DeviceError)

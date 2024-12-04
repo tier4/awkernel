@@ -576,13 +576,19 @@ impl IfNet {
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
-
-                if self.net_device.send(data, que_id).is_err() {
-                    log::error!("Failed to send a packet.");
+                if self.net_device.push(data, que_id).is_err() {
+                    log::error!("Failed to push a packet.");
                 }
             } else {
                 break;
             }
+        }
+
+        drop(device_ref);
+        drop(tx_ringq);
+
+        if self.net_device.send(que_id).is_err() {
+            log::error!("Failed to send a packet.");
         }
 
         result
@@ -590,16 +596,12 @@ impl IfNet {
 
     fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
         let que_id = ref_net_driver.rx_que_id;
-        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
-            return false;
-        };
-
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
 
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
-            if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
+            if let Ok(Some(data)) = ref_net_driver.inner.recv(que_id) {
                 unsafe {
                     let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
                     let len = 142;
@@ -618,6 +620,9 @@ impl IfNet {
             }
         }
 
+        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
+            return false;
+        };
         let mut node = MCSNode::new();
         let mut tx_ringq = tx_ringq.lock(&mut node);
 
@@ -656,12 +661,15 @@ impl IfNet {
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
-
-                let _ = self.net_device.send(data, ref_net_driver.rx_que_id);
+                if self.net_device.push(data, que_id).is_err() {
+                    log::error!("Failed to push a packet.");
+                }
             } else {
                 break;
             }
         }
+
+        let _ = self.net_device.send(que_id);
 
         result
     }

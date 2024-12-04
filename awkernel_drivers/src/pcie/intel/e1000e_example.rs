@@ -125,7 +125,11 @@ impl NetDevice for E1000eExample {
         todo!("recv");
     }
 
-    fn send(
+    fn send(&self, _que_id: usize) -> Result<(), net_device::NetDevError> {
+        todo!("send");
+    }
+
+    fn push(
         &self,
         _data: net_device::EtherFrameDMAcsum,
         _que_id: usize,

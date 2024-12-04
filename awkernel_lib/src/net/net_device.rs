@@ -169,7 +169,8 @@ pub struct EtherFrameDMAcsum {
 /// the network device must be thread-safe.
 pub trait NetDevice {
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError>;
-    fn send(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError>;
+    fn send(&self, que_id: usize) -> Result<(), NetDevError>;
+    fn push(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;

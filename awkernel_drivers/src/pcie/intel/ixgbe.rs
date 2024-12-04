@@ -67,6 +67,7 @@ const DEVICE_NAME: &str = "Intel 10 Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "ixgbe";
 
 const RECV_QUEUE_SIZE: usize = 32;
+const SEND_QUEUE_SIZE: usize = 32;
 
 pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
@@ -83,6 +84,7 @@ pub struct Tx {
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool<TxRing>,
     txd_cmd: u32,
+    write_queue: RingQ<EtherFrameDMAcsum>,
     dma_info: Vec<(bool, usize, usize, usize)>,
 }
 pub struct Rx {
@@ -1631,7 +1633,9 @@ impl Ixgbe {
         let que = &self.que[que_id];
 
         {
-            let inner = self.inner.write();
+            let inner = self.inner.read();
+            let numa_id = inner.info.get_segment_group() as usize;
+            drop(inner);
 
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
@@ -1685,10 +1689,8 @@ impl Ixgbe {
 
                 if !eop {
                     drop(rx);
-                    drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let numa_id = inner.info.get_segment_group() as usize;
                     let read_buf: DMAPool<[u8; PAGESIZE]> =
                         DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
@@ -1952,14 +1954,11 @@ impl Ixgbe {
         unsafe {
             if len > 100 {
                 let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                //if data[42] == 100 && data[43] % 4 == 0 && data[36] == 78 && data[37] == 80 {
                 if data[36] == 78 && data[37] == 80 {
-                    //log::info!("data:{:?}", data);
                     let t = uptime_nano();
                     let bytes = t.to_le_bytes();
                     data[124..140].copy_from_slice(&bytes);
                     update_udp_checksum(data);
-                    //log::info!("encap: time {:?} id:{:?} {:?}", t, data[42], data[43]);
                 }
             }
         }
@@ -2029,16 +2028,14 @@ impl Ixgbe {
         Ok(ntxc as usize + 1)
     }
 
-    fn send(
-        &self,
-        que_id: usize,
-        ether_frames: &[EtherFrameDMAcsum],
-    ) -> Result<(), IxgbeDriverErr> {
+    fn send(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
         let inner = self.inner.read();
 
         if !inner.link_active {
             return Ok(());
         }
+        let num_segs = inner.num_segs;
+        drop(inner);
 
         let mut node = MCSNode::new();
         let mut tx = self.que[que_id].tx.lock(&mut node);
@@ -2053,24 +2050,27 @@ impl Ixgbe {
         free -= head;
 
         let mut post = false;
-        for ether_frame in ether_frames.iter() {
+        //for ether_frame in tx.write_queue.iter() {
+        while !tx.write_queue.is_empty() {
+            let ether_frame = tx.write_queue.pop().unwrap();
             // Check that we have the minimal number of TX descriptors.
             // use 2 because cksum setup can use an extra slot
-            if free <= inner.num_segs as usize + 2 {
+            if free <= num_segs as usize + 2 {
                 break;
             }
 
-            let used = self.encap(&mut tx, ether_frame)?;
+            let used = self.encap(&mut tx, &ether_frame)?;
 
             free -= used;
 
             post = true;
+            ether_frame.data.leak();
         }
 
+        let inner = self.inner.read();
         if post {
             ixgbe_hw::write_reg(&inner.info, IXGBE_TDT(que_id), tx.tx_desc_head as u32)?;
         }
-
         drop(inner);
 
         Ok(())
@@ -2189,6 +2189,7 @@ fn allocate_queue(info: &PCIeInfo, que_num: usize, que_id: usize) -> Result<Queu
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
+        write_queue: RingQ::new(SEND_QUEUE_SIZE),
         txd_cmd: IXGBE_TXD_CMD_IFCS,
         dma_info: dma_info_tx,
     };
@@ -2314,13 +2315,19 @@ impl NetDevice for Ixgbe {
         true
     }
 
-    fn send(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError> {
-        let frames = [data];
-        self.send(que_id, &frames)
-            .or(Err(NetDevError::DeviceError))?;
-        for data in frames {
-            data.data.leak();
+    fn send(&self, que_id: usize) -> Result<(), NetDevError> {
+        self.send(que_id).or(Err(NetDevError::DeviceError))
+    }
+
+    fn push(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError> {
+        let mut node = MCSNode::new();
+        let mut tx = self.que[que_id].tx.lock(&mut node);
+
+        let e = tx.write_queue.push(data);
+        if e.is_err() {
+            return Err(NetDevError::DeviceError); // TODO: Need to create something else for this error.
         }
+
         Ok(())
     }
 
