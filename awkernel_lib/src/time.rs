@@ -18,9 +18,9 @@
 /// for _ in 0..10 {
 ///    // Do something
 /// }
-/// let diff = time.elapsed();
+/// time.elapsed();
 ///
-/// log::info!("Elapsed: {} [ms]", diff.as_millis());
+/// log::info!("Elapsed: {} [ms]", time.elapsed().as_millis());
 /// ```
 use core::time::Duration;
 
@@ -64,9 +64,9 @@ impl Time {
     /// for _ in 0..10 {
     ///     // Do something
     /// }
-    /// let diff = time.elapsed();
+    /// time.elapsed();
     ///
-    /// log::info!("Elapsed: {} [ms]", diff.as_millis());
+    /// log::info!("Elapsed: {} [ms]", time.elapsed().as_millis());
     #[inline]
     pub fn elapsed(&self) -> Duration {
         let now = crate::delay::uptime_nano();
