@@ -1700,15 +1700,14 @@ impl Ixgbe {
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
-                    unsafe {
-                        let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                        //if data[42] == 100 && data[43] % 4 == 0 && data[36] == 78 && data[37] == 80
-                        if data[36] == 78 && data[37] == 80 {
-                            let t = uptime_nano();
-                            let bytes = t.to_le_bytes();
-                            data[44..60].copy_from_slice(&bytes);
-                        }
-                    }
+                    //unsafe {
+                    //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+                    //if data[36] == 78 && data[37] == 80 {
+                    //let t = uptime_nano();
+                    //let bytes = t.to_le_bytes();
+                    //data[44..60].copy_from_slice(&bytes);
+                    //}
+                    //}
                     let data;
                     //log::debug!(
                     //"que_id: {:?} phy_addr:{:?} virt_addr:{:?}",
@@ -1950,18 +1949,18 @@ impl Ixgbe {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
 
-        let ptr = ether_frame.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
-        unsafe {
-            if len > 100 {
-                let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                if data[36] == 78 && data[37] == 80 {
-                    let t = uptime_nano();
-                    let bytes = t.to_le_bytes();
-                    data[124..140].copy_from_slice(&bytes);
-                    update_udp_checksum(data);
-                }
-            }
-        }
+        //let ptr = ether_frame.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
+        //unsafe {
+        //if len > 100 {
+        //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+        //if data[36] == 78 && data[37] == 80 {
+        //let t = uptime_nano();
+        //let bytes = t.to_le_bytes();
+        //data[124..140].copy_from_slice(&bytes);
+        //update_udp_checksum(data);
+        //}
+        //}
+        //}
 
         let mut head = tx.tx_desc_head;
 

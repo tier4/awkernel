@@ -4,6 +4,7 @@ use alloc::{collections::BTreeMap, format};
 use awkernel_async_lib::{
     future::FutureExt, pubsub, scheduler::SchedulerType, select_biased, session_types::*,
 };
+use awkernel_lib::net::NetManagerError;
 
 const NETWORK_SERVICE_RENDEZVOUS: &str = "/awkernel/network_service";
 
@@ -25,6 +26,7 @@ pub async fn run() {
     let mut ch_irq_handlers = BTreeMap::new();
     let mut ch_poll_handlers = BTreeMap::new();
     let mut ch_tick_handlers = BTreeMap::new();
+    let mut ch_transmit_handlers = BTreeMap::new();
 
     for if_status in awkernel_lib::net::get_all_interface() {
         log::info!("Waking {} up.", if_status.device_name);
@@ -34,6 +36,7 @@ pub async fn run() {
                 &mut ch_irq_handlers,
                 &mut ch_poll_handlers,
                 &mut ch_tick_handlers,
+                &mut ch_transmit_handlers,
             )
             .await;
         }
@@ -68,6 +71,7 @@ pub async fn run() {
                     &mut ch_irq_handlers,
                     &mut ch_poll_handlers,
                     &mut ch_tick_handlers,
+                    &mut ch_transmit_handlers,
                 )
                 .await;
             }
@@ -95,6 +99,22 @@ pub async fn run() {
                     let (ch, _) = ch.recv().await;
                     ch.close();
                 }
+
+                // Close tick handlers.
+                if let Some(ch) = ch_tick_handlers.remove(&if_status.interface_id) {
+                    let ch = ch.send(()).await;
+                    let (ch, _) = ch.recv().await;
+                    ch.close();
+                }
+
+                // Close transmit handlers.
+                if let Some(chs) = ch_transmit_handlers.remove(&if_status.interface_id) {
+                    for (_, ch) in chs {
+                        let ch = ch.send(()).await;
+                        let (ch, _) = ch.recv().await;
+                        ch.close();
+                    }
+                }
             }
             _ => (),
         }
@@ -106,6 +126,7 @@ async fn spawn_handlers(
     ch_irq_handlers: &mut BTreeMap<u16, ChanProtoInterruptHandlerDual>,
     ch_poll_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
     ch_tick_handlers: &mut BTreeMap<u64, ChanProtoInterruptHandlerDual>,
+    ch_transmit_handlers: &mut BTreeMap<u64, BTreeMap<usize, ChanProtoInterruptHandlerDual>>,
 ) {
     for irq in if_status.irqs {
         let (server, client) = session_channel::<ProtoInterruptHandler>();
@@ -143,19 +164,41 @@ async fn spawn_handlers(
         .await;
     }
 
-    if let Some(tick_msec) = if_status.tick_msec {
-        let (server, client) = session_channel::<ProtoInterruptHandler>();
-        ch_tick_handlers.insert(if_status.interface_id, client);
+    //if let Some(tick_msec) = if_status.tick_msec {
+    //let (server, client) = session_channel::<ProtoInterruptHandler>();
+    //ch_tick_handlers.insert(if_status.interface_id, client);
 
+    //let name = format!(
+    //"{}:{}: tick = {tick_msec} [msec]",
+    //crate::NETWORK_SERVICE_NAME,
+    //if_status.device_name,
+    //);
+
+    //awkernel_async_lib::spawn(
+    //name.into(),
+    //tick_handler(if_status.interface_id, tick_msec, server),
+    //SchedulerType::FIFO,
+    //)
+    //.await;
+    //}
+
+    for que_id in 0..if_status.num_queues {
         let name = format!(
-            "{}:{}: tick = {tick_msec} [msec]",
+            "{}:{}: transmitter, que_id = {que_id}",
             crate::NETWORK_SERVICE_NAME,
             if_status.device_name,
         );
 
+        let (server, client) = session_channel::<ProtoInterruptHandler>();
+
+        ch_transmit_handlers
+            .entry(if_status.interface_id)
+            .or_insert_with(BTreeMap::new)
+            .insert(que_id, client);
+
         awkernel_async_lib::spawn(
             name.into(),
-            tick_handler(if_status.interface_id, tick_msec, server),
+            transmitter(if_status.interface_id, que_id, server),
             SchedulerType::FIFO,
         )
         .await;
@@ -327,5 +370,71 @@ async fn tick_handler(interface_id: u64, tick: u64, ch: Chan<(), ProtoInterruptH
             },
             _ = sleeper => {},
         }
+    }
+}
+
+// Transmit
+
+struct NetworkTransmit {
+    interface_id: u64,
+    que_id: usize,
+    wait: bool,
+}
+
+impl Future for NetworkTransmit {
+    type Output = Result<(), NetManagerError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let m = self.get_mut();
+
+        if !m.wait {
+            return Poll::Ready(Ok(()));
+        }
+
+        m.wait = false;
+
+        match awkernel_lib::net::register_waker_for_transmit(
+            m.interface_id,
+            m.que_id,
+            cx.waker().clone(),
+        ) {
+            Ok(true) => Poll::Pending,
+            Ok(false) => Poll::Ready(Ok(())),
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+}
+
+async fn transmitter(interface_id: u64, que_id: usize, ch: Chan<(), ProtoInterruptHandler>) {
+    let mut ch = ch.recv().boxed().fuse();
+    let dur: Duration = Duration::from_micros(50);
+
+    loop {
+        // Register the waker.
+        let mut wait_transmit = NetworkTransmit {
+            interface_id,
+            que_id,
+            wait: true,
+        }
+        .fuse();
+
+        select_biased! {
+            (ch, _) = ch => {
+                let ch = ch.send(()).await;
+                ch.close();
+                return;
+            },
+            _ = wait_transmit => {},
+        }
+
+        awkernel_async_lib::sleep(dur).await;
+
+        // Transmit the packet.
+        awkernel_lib::net::transmit(interface_id, que_id);
+
+        // awkernel_async_lib::r#yield().await;
     }
 }

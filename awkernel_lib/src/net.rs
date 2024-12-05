@@ -52,6 +52,7 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+    InvalidQueueID,
 
     // Multicast
     MulticastInvalidIpv4Address,
@@ -75,6 +76,7 @@ pub struct IfStatus {
     pub capabilities: NetCapabilities,
     pub poll_mode: bool,
     pub tick_msec: Option<u64>,
+    pub num_queues: usize,
 }
 
 impl Display for IfStatus {
@@ -344,6 +346,8 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
 
     let tick_msec = inner.tick_msec();
 
+    let num_queues = inner.num_queues();
+
     let if_status = IfStatus {
         interface_id,
         device_name: inner.device_short_name(),
@@ -357,6 +361,7 @@ pub fn get_interface(interface_id: u64) -> Result<IfStatus, NetManagerError> {
         capabilities,
         poll_mode,
         tick_msec,
+        num_queues,
     };
 
     Ok(if_status)
@@ -681,4 +686,54 @@ pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, Net
     };
 
     if_net.leave_multicast_v4(addr)
+}
+
+/// The old waker will be replaced.
+/// The waker will be called when calling `wake_transmitter()`
+/// and it will be removed after it is called.
+///
+/// Returns true if the waker is registered successfully.
+/// Returns false if it is already notified.
+pub fn register_waker_for_transmit(
+    interface_id: u64,
+    que_id: usize,
+    waker: core::task::Waker,
+) -> Result<bool, NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let if_net = Arc::clone(if_net);
+    drop(net_manager);
+
+    if_net.register_waker_for_transmitter(que_id, waker)
+}
+
+pub fn wake_transmitter(interface_id: u64, que_id: usize) {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let if_net = Arc::clone(if_net);
+    drop(net_manager);
+
+    if_net.wake_transmitter(que_id);
+}
+
+#[inline(always)]
+pub fn transmit(interface_id: u64, que_id: usize) {
+    let net_manager = NET_MANAGER.read();
+
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let if_net = Arc::clone(if_net);
+    drop(net_manager);
+
+    if_net.poll_tx_only(que_id);
 }

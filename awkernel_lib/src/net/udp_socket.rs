@@ -4,7 +4,7 @@ use crate::{
 };
 
 use super::super::delay::uptime_nano;
-use super::NetManagerError;
+use super::{wake_transmitter, NetManagerError};
 
 use alloc::vec;
 
@@ -174,15 +174,6 @@ impl UdpSocket {
             .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_send() {
-            //if buf[0] == 100 && buf[1] % 4 == 0 && self.port == 20000 {
-            //let t = uptime_nano();
-            //log::info!(
-            //"before send_slice: time {:?} id:{:?} {:?}",
-            //t,
-            //buf[0],
-            //buf[1]
-            //);
-            //}
             socket
                 .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
@@ -190,7 +181,8 @@ impl UdpSocket {
             drop(inner);
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
-            if_net.poll_tx_only(que_id);
+            //if_net.poll_tx_only(que_id);
+            wake_transmitter(self.interface_id, que_id);
 
             Ok(true)
         } else {
@@ -227,17 +219,16 @@ impl UdpSocket {
             .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_recv() {
-            let t = uptime_nano();
+            //let t = uptime_nano();
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
 
             let len = buf.len().min(data.len());
 
             unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), buf.as_mut_ptr(), len) };
-            //if data[0] == 100 && data[1] % 4 == 0 && self.port == 20048 {
-            if self.port == 20048 {
-                let bytes = t.to_le_bytes();
-                buf[34..50].copy_from_slice(&bytes);
-            }
+            //if self.port == 20048 {
+            //let bytes = t.to_le_bytes();
+            //buf[34..50].copy_from_slice(&bytes);
+            //}
 
             Ok(Some((
                 len,

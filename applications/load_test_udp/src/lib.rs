@@ -15,7 +15,7 @@ const BASE_PORT: u16 = 20000;
 
 pub async fn run() {
     //const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-    const NUM_TASKS: [usize; 1] = [100];
+    const NUM_TASKS: [usize; 1] = [10];
     awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
@@ -59,34 +59,11 @@ async fn udp_server(port: u16) {
                     break;
                 }
                 let received_data = &mut buf[..read_bytes];
-                //if received_data[0] == 100 && received_data[1] % 4 == 0 && port == 20048 {
-                if port == 20048 {
-                    //let read_bytes: [u8; 16] = received_data[2..18].try_into().unwrap();
-                    //let read_value = u128::from_le_bytes(read_bytes);
-                    ////log::info!("recv rx_recv time: {:?}", read_value);
-                    //let read_bytes: [u8; 16] = received_data[18..34].try_into().unwrap();
-                    //let read_value = u128::from_le_bytes(read_bytes);
-                    ////log::info!("recv poll_rx time: {:?}", read_value);
-                    //let read_bytes: [u8; 16] = received_data[34..50].try_into().unwrap();
-                    //let read_value = u128::from_le_bytes(read_bytes);
-                    ////log::info!("recv recv time: {:?}", read_value);
-
-                    let t = uptime_nano();
-                    let bytes = t.to_le_bytes();
-                    received_data[50..66].copy_from_slice(&bytes);
-                    //log::info!(
-                    //"app recv time {:?} id:{:?} {:?}",
-                    //t,
-                    //received_data[0],
-                    //received_data[1]
-                    //);
-                    //log::info!(
-                    //"received_data:{:?} client_addr:{:?} client_port:{:?}",
-                    //received_data,
-                    //client_addr,
-                    //client_port
-                    //);
-                }
+                //if port == 20048 {
+                //let t = uptime_nano();
+                //let bytes = t.to_le_bytes();
+                //received_data[50..66].copy_from_slice(&bytes);
+                //}
 
                 if let Err(e) = socket.send(received_data, &client_addr, client_port).await {
                     log::error!("Failed to send a UDP packet: {:?}", e);

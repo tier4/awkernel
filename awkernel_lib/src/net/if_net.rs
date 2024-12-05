@@ -50,6 +50,12 @@ use super::super::delay::uptime_nano;
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 
+enum TransmitWakeState {
+    None,
+    Notified,
+    Wake(core::task::Waker),
+}
+
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
     rx_que_id: usize,
@@ -63,6 +69,8 @@ struct NetDriverRef<'a> {
     rx_ringq: Option<&'a mut RingQ<EtherFrameDMA>>,
     tx_ringq: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
 }
+
+static COUNT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
 impl NetDriverRef<'_> {
     fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
@@ -182,6 +190,7 @@ pub(super) struct IfNet {
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
+    transmitter: Vec<Mutex<TransmitWakeState>>,
 }
 
 pub(super) struct IfNetInner {
@@ -286,6 +295,11 @@ impl IfNet {
             Interface::new(config, &mut net_driver_ref, instant)
         };
 
+        let mut transmitter = Vec::new();
+        for _ in 0..net_device.num_queues() {
+            transmitter.push(Mutex::new(TransmitWakeState::None));
+        }
+
         // Create NetDrivers.
         let mut rx_irq_to_driver = BTreeMap::new();
         let mut tx_only_ringq = Vec::new();
@@ -354,6 +368,7 @@ impl IfNet {
             is_poll_mode,
             poll_driver,
             tick_driver,
+            transmitter,
         }
     }
 
@@ -558,17 +573,18 @@ impl IfNet {
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
+        let mut count = 0;
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                if len > 100 && slice[36] == 78 && slice[37] == 80 {
-                    let t = uptime_nano();
-                    let bytes = t.to_le_bytes();
-                    slice[108..124].copy_from_slice(&bytes);
-                }
+                //if len > 100 && slice[36] == 78 && slice[37] == 80 {
+                //let t = uptime_nano();
+                //let bytes = t.to_le_bytes();
+                //slice[108..124].copy_from_slice(&bytes);
+                //}
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -579,9 +595,20 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
+                count += 1;
             } else {
                 break;
             }
+        }
+
+        let mut node = MCSNode::new();
+        let mut count_vec = COUNT.lock(&mut node);
+        count_vec.push(count);
+        if count_vec.len() == 10000 {
+            if let Some(slice) = count_vec.as_slice().get(100..110) {
+                log::info!("count:{:?}", slice);
+            }
+            count_vec.clear();
         }
 
         drop(device_ref);
@@ -602,18 +629,17 @@ impl IfNet {
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
             if let Ok(Some(data)) = ref_net_driver.inner.recv(que_id) {
-                unsafe {
-                    let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
-                    let len = 142;
-                    let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                    //if data[42] == 100 && data[43] % 4 == 0 && data[36] == 78 && data[37] == 80 {
-                    if data[36] == 78 && data[37] == 80 {
-                        let t = uptime_nano();
-                        let bytes = t.to_le_bytes();
-                        data[60..76].copy_from_slice(&bytes);
-                        update_udp_checksum(data);
-                    }
-                }
+                //unsafe {
+                //let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
+                //let len = 142;
+                //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
+                //if data[36] == 78 && data[37] == 80 {
+                //let t = uptime_nano();
+                //let bytes = t.to_le_bytes();
+                //data[60..76].copy_from_slice(&bytes);
+                //update_udp_checksum(data);
+                //}
+                //}
                 let _ = rx_ringq.push(data);
             } else {
                 break;
@@ -643,17 +669,18 @@ impl IfNet {
             interface.poll(timestamp, &mut device_ref, socket_set)
         };
 
+        let mut count = 0;
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                if len > 100 && slice[36] == 78 && slice[37] == 80 {
-                    let t = uptime_nano();
-                    let bytes = t.to_le_bytes();
-                    slice[108..124].copy_from_slice(&bytes);
-                }
+                //if len > 100 && slice[36] == 78 && slice[37] == 80 {
+                //let t = uptime_nano();
+                //let bytes = t.to_le_bytes();
+                //slice[108..124].copy_from_slice(&bytes);
+                //}
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -664,9 +691,20 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
+                count += 1;
             } else {
                 break;
             }
+        }
+
+        let mut node = MCSNode::new();
+        let mut count_vec = COUNT.lock(&mut node);
+        count_vec.push(count);
+        if count_vec.len() == 10000 {
+            if let Some(slice) = count_vec.as_slice().get(100..110) {
+                log::info!("count:{:?}", slice);
+            }
+            count_vec.clear();
         }
 
         let _ = self.net_device.send(que_id);
@@ -710,6 +748,53 @@ impl IfNet {
             self.poll_rx(ref_net_driver)
         } else {
             false
+        }
+    }
+
+    #[inline(always)]
+    pub fn wake_transmitter(&self, que_id: usize) {
+        let Some(waker) = self.transmitter.get(que_id) else {
+            return;
+        };
+
+        let mut node = MCSNode::new();
+        let mut waker = waker.lock(&mut node);
+
+        let TransmitWakeState::Wake(w) = waker.as_ref() else {
+            *waker = TransmitWakeState::Notified;
+            return;
+        };
+
+        w.wake_by_ref();
+
+        *waker = TransmitWakeState::None;
+    }
+
+    /// Returns true if the waker is registered successfully.
+    /// Returns false if it is already notified.
+    #[inline(always)]
+    pub fn register_waker_for_transmitter(
+        &self,
+        que_id: usize,
+        waker: core::task::Waker,
+    ) -> Result<bool, NetManagerError> {
+        let Some(w) = self.transmitter.get(que_id) else {
+            return Err(NetManagerError::InvalidQueueID);
+        };
+
+        let mut node = MCSNode::new();
+        let mut guard = w.lock(&mut node);
+
+        match guard.as_ref() {
+            TransmitWakeState::None => {
+                *guard = TransmitWakeState::Wake(waker);
+                Ok(true)
+            }
+            TransmitWakeState::Notified => Ok(false),
+            TransmitWakeState::Wake(_) => {
+                *guard = TransmitWakeState::Wake(waker);
+                Ok(false)
+            }
         }
     }
 }
