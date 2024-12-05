@@ -10,24 +10,24 @@ impl Delay for super::RV64 {
     }
 
     fn wait_microsec(usec: u64) {
-        let mtime = ACLINT_MTIME_BASE as *const u64;
-        let end = unsafe { *mtime + ((RISCV_TIMEBASE_FREQ / 1000) * usec) / 1000 };
-        while unsafe { core::ptr::read_volatile(mtime) < end } {}
+        let mtime = ACLINT_MTIME_BASE as *const u32;
+        let end = unsafe { (*mtime as u64) + ((RISCV_TIMEBASE_FREQ / 1000) * usec) / 1000 };
+        while unsafe { (core::ptr::read_volatile(mtime) as u64) < end } {}
     }
 
     fn uptime() -> u64 {
         // as microsec
         unsafe {
-            let mtime = ACLINT_MTIME_BASE as *const u64;
-            *mtime * 1_000_000 / RISCV_TIMEBASE_FREQ
+            let mtime = ACLINT_MTIME_BASE as *const u32;
+            (*mtime as u64) * 1_000_000 / RISCV_TIMEBASE_FREQ
         }
     }
 
-    fn uptime_nano() -> u128 {
+    fn uptime_nano() -> u64 {
         // as microsec
         unsafe {
-            let mtime = ACLINT_MTIME_BASE as *const u128;
-            *mtime * 1_000_000_000 / RISCV_TIMEBASE_FREQ as u128
+            let mtime = ACLINT_MTIME_BASE as *const u32;
+            (*mtime as u64) * 1_000_000_000 / RISCV_TIMEBASE_FREQ
         }
     }
 
