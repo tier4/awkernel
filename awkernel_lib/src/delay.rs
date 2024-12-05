@@ -33,7 +33,7 @@ pub trait Delay {
     fn uptime() -> u64;
 
     /// This function returns uptime in nanoseconds.
-    fn uptime_nano() -> u64;
+    fn uptime_nano() -> u128;
 
     /// Return CPU cycle counter.
     fn cpu_counter() -> u64;
@@ -119,7 +119,7 @@ pub fn uptime() -> u64 {
 /// log::info!("{} [ns]", end - start);
 /// ```
 #[inline(always)]
-pub fn uptime_nano() -> u64 {
+pub fn uptime_nano() -> u128 {
     ArchImpl::uptime_nano()
 }
 

@@ -23,7 +23,6 @@ pub mod net;
 pub mod priority_queue;
 pub mod sanity;
 pub mod sync;
-pub mod time;
 pub mod timer;
 pub mod unwind;
 
