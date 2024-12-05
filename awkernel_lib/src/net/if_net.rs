@@ -71,6 +71,7 @@ struct NetDriverRef<'a> {
 }
 
 static COUNT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static RECV_COUNT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
 impl NetDriverRef<'_> {
     fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
@@ -606,7 +607,7 @@ impl IfNet {
         count_vec.push(count);
         if count_vec.len() == 10000 {
             if let Some(slice) = count_vec.as_slice().get(100..110) {
-                log::info!("count:{:?}", slice);
+                log::info!("poll_tx_only count:{:?}", slice);
             }
             count_vec.clear();
         }
@@ -698,11 +699,11 @@ impl IfNet {
         }
 
         let mut node = MCSNode::new();
-        let mut count_vec = COUNT.lock(&mut node);
+        let mut count_vec = RECV_COUNT.lock(&mut node);
         count_vec.push(count);
         if count_vec.len() == 10000 {
             if let Some(slice) = count_vec.as_slice().get(100..110) {
-                log::info!("count:{:?}", slice);
+                log::info!("poll_rx count:{:?}", slice);
             }
             count_vec.clear();
         }
