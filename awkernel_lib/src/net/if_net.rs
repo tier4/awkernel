@@ -791,10 +791,13 @@ impl IfNet {
                 *guard = TransmitWakeState::Wake(waker);
                 Ok(true)
             }
-            TransmitWakeState::Notified => Ok(false),
+            TransmitWakeState::Notified => {
+                *guard = TransmitWakeState::None;
+                Ok(false)
+            }
             TransmitWakeState::Wake(_) => {
                 *guard = TransmitWakeState::Wake(waker);
-                Ok(false)
+                Ok(true)
             }
         }
     }
