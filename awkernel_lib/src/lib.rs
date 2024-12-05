@@ -20,7 +20,6 @@ pub mod local_heap;
 pub mod logger;
 pub mod mmio;
 pub mod net;
-pub mod priority_queue;
 pub mod sanity;
 pub mod sync;
 pub mod timer;
