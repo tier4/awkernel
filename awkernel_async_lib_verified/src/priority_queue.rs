@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 
 pub struct PriorityQueue<T> {
-    queue: [Option<VecDeque<T>>; 32],
+    queue: [VecDeque<T>; 32],
     has_entry: u32,
 }
 
@@ -15,12 +15,8 @@ impl<T> PriorityQueue<T> {
 
     pub fn push(&mut self, priority: u32, val: T) {
         assert!(priority < 32);
-        if let Some(queue) = self.queue[priority as usize].as_mut() {
-            queue.push_back(val);
-        } else {
-            let queue = VecDeque::from([val]);
-            self.queue[priority as usize] = Some(queue);
-        }
+        let queue = &mut self.queue[priority as usize];
+        queue.push_back(val);
         self.has_entry |= 1 << priority;
     }
 
@@ -30,9 +26,9 @@ impl<T> PriorityQueue<T> {
             return None;
         }
 
-        let queue = self.queue[next_priority as usize].as_mut().unwrap();
+        let queue = &mut self.queue[next_priority as usize];
         let next = queue.pop_front();
-
+        assert!(next.is_some());
         if queue.is_empty() {
             self.has_entry &= !(1 << next_priority);
         }
