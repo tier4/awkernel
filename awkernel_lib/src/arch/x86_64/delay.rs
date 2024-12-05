@@ -19,10 +19,10 @@ mmio_r!(offset 0xf0 => HPET_MAIN_COUNTER<u64>);
 static HPET_BASE: AtomicUsize = AtomicUsize::new(0);
 static HPET_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 
-static mut HPET_MULTIPLIER_NANO: u128 = 0;
+static mut HPET_MULTIPLIER_NANO: u64 = 0;
 
 static TSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
-static mut TSC_FREQ: u128 = 0;
+static mut TSC_FREQ: u64 = 0;
 
 static CPU0_TSC: AtomicU64 = AtomicU64::new(0);
 
@@ -53,10 +53,10 @@ impl Delay for super::X86 {
     }
 
     fn uptime() -> u64 {
-        (Self::uptime_nano() / 1_000) as u64
+        Self::uptime_nano() / 1_000
     }
 
-    fn uptime_nano() -> u128 {
+    fn uptime_nano() -> u64 {
         let now = read_tsc();
         let start = TSC_COUNTER_START.load(Ordering::Relaxed);
         let hz = unsafe { TSC_FREQ };
@@ -70,7 +70,7 @@ impl Delay for super::X86 {
         }
 
         let diff = now - start;
-        diff as u128 * 1_000_000_000 / hz
+        diff * 1_000_000_000 / hz
     }
 
     fn cpu_counter() -> u64 {
@@ -120,7 +120,7 @@ pub(super) fn init(
     let capabilities = HPET_GENERAL_CAP.read(base);
     let hz = 1_000_000_000_000_000 / (capabilities >> 32);
     log::info!("HPET frequency = {hz}[Hz]");
-    unsafe { HPET_MULTIPLIER_NANO = 1_000_000_000 / (hz as u128) };
+    unsafe { HPET_MULTIPLIER_NANO = 1_000_000_000 / hz };
 
     // Enable HPET.
     let conf = HPET_GENERAL_CONF.read(base);
@@ -135,7 +135,7 @@ pub(super) fn init(
     hpet_wait_nano(100_000_000);
     let t1 = read_tsc();
 
-    let hz = (t1 - t0) as u128 * 10;
+    let hz = (t1 - t0) * 10;
     log::info!("TSC Frequency = {} Hz", hz);
 
     unsafe { TSC_FREQ = hz };
@@ -146,7 +146,7 @@ pub(super) fn init(
 }
 
 #[inline(always)]
-fn hpet_uptime_nano() -> u128 {
+fn hpet_uptime_nano() -> u64 {
     let base = HPET_BASE.load(Ordering::Relaxed);
     let start = HPET_COUNTER_START.load(Ordering::Relaxed);
 
@@ -155,7 +155,7 @@ fn hpet_uptime_nano() -> u128 {
             0
         } else {
             let now = HPET_MAIN_COUNTER.read(base);
-            let diff = (now - start) as u128;
+            let diff = now - start;
 
             diff * HPET_MULTIPLIER_NANO
         }
@@ -163,7 +163,7 @@ fn hpet_uptime_nano() -> u128 {
 }
 
 #[inline(always)]
-fn hpet_wait_nano(nsec: u128) {
+fn hpet_wait_nano(nsec: u64) {
     let start = hpet_uptime_nano();
     loop {
         let diff = hpet_uptime_nano() - start;
