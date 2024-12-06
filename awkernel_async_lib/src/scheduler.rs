@@ -121,7 +121,7 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
         }
         priority += 1;
     }
-    priority as u8 // if not found, return the length of the list
+    panic!("Scheduler type not registered or invalid implementation of equals.");
 }
 
 /// Maintain sleeping tasks by a delta list.
