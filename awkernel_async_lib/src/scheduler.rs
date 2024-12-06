@@ -37,15 +37,15 @@ pub enum SchedulerType {
 
 impl SchedulerType {
     pub const fn equals(&self, other: &Self) -> bool {
-        match (self, other) {
-            (SchedulerType::GEDF(_), SchedulerType::GEDF(_)) => true,
-            (SchedulerType::FIFO, SchedulerType::FIFO) => true,
-            (SchedulerType::PrioritizedFIFO(_), SchedulerType::PrioritizedFIFO(_)) => true,
-            (SchedulerType::RR, SchedulerType::RR) => true,
-            (SchedulerType::PriorityBasedRR(_), SchedulerType::PriorityBasedRR(_)) => true,
-            (SchedulerType::Panicked, SchedulerType::Panicked) => true,
-            _ => false,
-        }
+        matches!(
+            (self, other),
+            (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
+                | (SchedulerType::FIFO, SchedulerType::FIFO)
+                | (SchedulerType::PrioritizedFIFO(_), SchedulerType::PrioritizedFIFO(_))
+                | (SchedulerType::RR, SchedulerType::RR)
+                | (SchedulerType::PriorityBasedRR(_), SchedulerType::PriorityBasedRR(_))
+                | (SchedulerType::Panicked, SchedulerType::Panicked)
+        )
     }
 }
 
