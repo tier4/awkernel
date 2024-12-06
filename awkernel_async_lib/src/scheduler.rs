@@ -121,7 +121,7 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
         }
         priority += 1;
     }
-    panic!("Scheduler type not registered or invalid implementation of equals.");
+    panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
 }
 
 /// Maintain sleeping tasks by a delta list.
