@@ -1,7 +1,7 @@
 //! A prioritized FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::{task::State, scheduler::get_priority};
+use crate::{scheduler::get_priority, task::State};
 use alloc::sync::Arc;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};

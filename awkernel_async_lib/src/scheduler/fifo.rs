@@ -1,7 +1,7 @@
 //! A basic FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::{task::State, scheduler::get_priority};
+use crate::{scheduler::get_priority, task::State};
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 

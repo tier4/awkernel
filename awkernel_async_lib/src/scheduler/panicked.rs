@@ -2,7 +2,7 @@
 //! Panicked tasks will be the lowest priority.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::{task::State, scheduler::get_priority};
+use crate::{scheduler::get_priority, task::State};
 use alloc::{collections::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
