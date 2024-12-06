@@ -1,12 +1,13 @@
 //! A basic FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::State;
+use crate::{task::State, scheduler::get_priority};
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct FIFOScheduler {
     queue: Mutex<Option<VecDeque<Arc<Task>>>>, // Run queue.
+    priority: u8,
 }
 
 impl Scheduler for FIFOScheduler {
@@ -58,10 +59,11 @@ impl Scheduler for FIFOScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: FIFOScheduler = FIFOScheduler {
     queue: Mutex::new(None),
+    priority: get_priority(SchedulerType::FIFO),
 };

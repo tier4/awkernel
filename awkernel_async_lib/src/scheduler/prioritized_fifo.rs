@@ -1,13 +1,14 @@
 //! A prioritized FIFO scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::State;
+use crate::{task::State, scheduler::get_priority};
 use alloc::sync::Arc;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PrioritizedFIFOScheduler {
     data: Mutex<Option<PrioritizedFIFOData>>, // Run queue.
+    priority: u8,
 }
 
 struct PrioritizedFIFOTask {
@@ -100,10 +101,11 @@ impl Scheduler for PrioritizedFIFOScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: PrioritizedFIFOScheduler = PrioritizedFIFOScheduler {
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::PrioritizedFIFO(0)),
 };

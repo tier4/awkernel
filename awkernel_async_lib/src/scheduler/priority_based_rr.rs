@@ -1,7 +1,10 @@
 //! A Priority Based RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
+use crate::{
+    task::{get_last_executed_by_task_id, set_need_preemption, State},
+    scheduler::get_priority,
+};
 use alloc::sync::Arc;
 use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
@@ -9,9 +12,8 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 pub struct PriorityBasedRRScheduler {
     // Time quantum
     interval: u64,
-
-    // Run queue
     data: Mutex<Option<PriorityBasedRRData>>,
+    priority: u8,
 }
 
 struct PriorityBasedRRTask {
@@ -82,15 +84,15 @@ impl Scheduler for PriorityBasedRRScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: PriorityBasedRRScheduler = PriorityBasedRRScheduler {
     // Time quantum (100 ms)
     interval: 100_000,
-
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::PriorityBasedRR(0)),
 };
 
 impl PriorityBasedRRScheduler {
