@@ -41,9 +41,15 @@ impl SchedulerType {
             (self, other),
             (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
                 | (SchedulerType::FIFO, SchedulerType::FIFO)
-                | (SchedulerType::PrioritizedFIFO(_), SchedulerType::PrioritizedFIFO(_))
+                | (
+                    SchedulerType::PrioritizedFIFO(_),
+                    SchedulerType::PrioritizedFIFO(_)
+                )
                 | (SchedulerType::RR, SchedulerType::RR)
-                | (SchedulerType::PriorityBasedRR(_), SchedulerType::PriorityBasedRR(_))
+                | (
+                    SchedulerType::PriorityBasedRR(_),
+                    SchedulerType::PriorityBasedRR(_)
+                )
                 | (SchedulerType::Panicked, SchedulerType::Panicked)
         )
     }
