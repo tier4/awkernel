@@ -27,7 +27,7 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 /// 0 is the highest priority and 99 is the lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
-    GEDF(u64),  // relative deadline
+    GEDF(u64), // relative deadline
     FIFO,
     PrioritizedFIFO(u8),
     RR,
