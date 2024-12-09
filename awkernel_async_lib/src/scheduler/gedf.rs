@@ -1,8 +1,9 @@
 //! A GEDF scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{
-    get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State,
+use crate::{
+    scheduler::get_priority,
+    task::{get_absolute_deadline_by_task_id, get_tasks_running, set_need_preemption, State},
 };
 use alloc::{collections::BinaryHeap, sync::Arc};
 use awkernel_lib::{
@@ -12,6 +13,7 @@ use awkernel_lib::{
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // Run queue.
+    priority: u8,
 }
 
 struct GEDFTask {
@@ -116,14 +118,14 @@ impl Scheduler for GEDFScheduler {
         SchedulerType::GEDF(0)
     }
 
-    // TODO: Priority implementation between schedulers.
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::GEDF(0)),
 };
 
 impl GEDFScheduler {
