@@ -81,7 +81,12 @@ impl Scheduler for GEDFScheduler {
             wake_time,
         });
 
-        self.invoke_preemption(absolute_deadline);
+        let is_preempt = self.invoke_sched_preemption();
+        if is_preempt {
+            return;
+        }
+
+        self.invoke_task_preemption(absolute_deadline);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -129,7 +134,7 @@ pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
 };
 
 impl GEDFScheduler {
-    fn invoke_preemption(&self, absolute_deadline: u64) {
+    fn invoke_task_preemption(&self, absolute_deadline: u64) {
         // Get running tasks and filter out tasks with task_id == 0.
         let mut tasks = get_tasks_running();
         tasks.retain(|task| task.task_id != 0);

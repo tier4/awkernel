@@ -1081,6 +1081,7 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
     lowest_task_info
 }
 
+/// If the current task has a lower priority than the lowest priority task, return true.
 pub fn compare_tasks(current_task_id: u32, lowest_task_id: u32) -> bool {
     match get_scheduler_type_by_task_id(current_task_id) {
         Some(SchedulerType::GEDF(_)) => {
