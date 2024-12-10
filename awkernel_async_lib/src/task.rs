@@ -20,7 +20,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    cpu::NUM_MAX_CPU,
+    cpu::{num_cpu, NUM_MAX_CPU},
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -963,6 +963,15 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 }
 
 #[inline(always)]
+pub fn get_task_priority_by_task_id(task_id: u32) -> Option<u8> {
+    match get_scheduler_type_by_task_id(task_id) {
+        Some(SchedulerType::PrioritizedFIFO(priority)) => Some(priority),
+        Some(SchedulerType::PriorityBasedRR(priority)) => Some(priority),
+        _ => None,
+    }
+}
+
+#[inline(always)]
 pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
@@ -1010,4 +1019,109 @@ pub fn panicking() {
     unsafe {
         preempt::preemption();
     }
+}
+
+pub fn get_preemptable_tasks() -> Option<Vec<RunningTask>> {
+    // Get running tasks and filter out tasks with task_id == 0.
+    let tasks: Vec<RunningTask> = get_tasks_running()
+        .into_iter()
+        .filter(|task| task.task_id != 0)
+        .collect();
+
+    // Calculate the number of non-primary CPUs.
+    let num_non_primary_cpus = num_cpu().saturating_sub(1);
+
+    // If the number of running tasks is less than the number of non-primary CPUs, preemption is not required.
+    if tasks.len() < num_non_primary_cpus {
+        None
+    } else {
+        Some(tasks)
+    }
+}
+
+pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<(u8, usize, u32)> {
+    let mut lowest_task_info: Option<(u8, usize, u32)> = None;
+
+    for preemptable_task in preemptable_tasks {
+        let preemptable_task_sched_type =
+            match get_scheduler_type_by_task_id(preemptable_task.task_id) {
+                Some(sched_type) => sched_type,
+                None => continue,
+            };
+
+        let preemptable_task_sched_priority = get_scheduler(preemptable_task_sched_type).priority();
+        let current_task_info = (
+            preemptable_task_sched_priority,
+            preemptable_task.cpu_id,
+            preemptable_task.task_id,
+        );
+
+        lowest_task_info = match lowest_task_info {
+            None => Some(current_task_info),
+            Some((lowest_sched_priority, _, _))
+                if preemptable_task_sched_priority > lowest_sched_priority =>
+            {
+                Some(current_task_info)
+            }
+            Some((lowest_sched_priority, _, _))
+                if preemptable_task_sched_priority < lowest_sched_priority =>
+            {
+                lowest_task_info
+            }
+            Some((_, _, lowest_task_id)) => {
+                if compare_tasks(preemptable_task.task_id, lowest_task_id) {
+                    Some(current_task_info)
+                } else {
+                    lowest_task_info
+                }
+            }
+        };
+    }
+
+    lowest_task_info
+}
+
+pub fn compare_tasks(current_task_id: u32, lowest_task_id: u32) -> bool {
+    match get_scheduler_type_by_task_id(current_task_id) {
+        Some(SchedulerType::GEDF(_)) => {
+            let current_absolute_deadline = get_absolute_deadline_by_task_id(current_task_id);
+            let lowest_absolute_deadline = get_absolute_deadline_by_task_id(lowest_task_id);
+
+            match (current_absolute_deadline, lowest_absolute_deadline) {
+                (Some(current_absolute_deadline), Some(lowest_absolute_deadline)) => {
+                    current_absolute_deadline > lowest_absolute_deadline
+                }
+                _ => false,
+            }
+        }
+        Some(SchedulerType::PrioritizedFIFO(_)) | Some(SchedulerType::PriorityBasedRR(_)) => {
+            let current_task_priority = get_task_priority_by_task_id(current_task_id);
+            let lowest_task_priority = get_task_priority_by_task_id(lowest_task_id);
+
+            match (current_task_priority, lowest_task_priority) {
+                (Some(current_task_priority), Some(lowest_task_priority)) => {
+                    current_task_priority > lowest_task_priority
+                }
+                _ => false,
+            }
+        }
+        None => false,
+        _ => {
+            let current_last_executed = get_last_executed_by_task_id(current_task_id);
+            let lowest_last_executed = get_last_executed_by_task_id(lowest_task_id);
+
+            match (current_last_executed, lowest_last_executed) {
+                (Some(current_last_executed), Some(lowest_last_executed)) => {
+                    current_last_executed < lowest_last_executed
+                }
+                _ => false,
+            }
+        }
+    }
+}
+
+pub fn preempt_task(task_id: u32, cpu_id: usize) {
+    let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+    set_need_preemption(task_id);
+    awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
 }

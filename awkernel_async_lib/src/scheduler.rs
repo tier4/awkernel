@@ -1,7 +1,10 @@
 //! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
-use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use crate::task::{
+    compare_tasks, find_lowest_priority_task, get_current_task, get_preemptable_tasks,
+    get_scheduler_type_by_task_id, preempt_task,
+};
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
@@ -89,8 +92,34 @@ pub(crate) trait Scheduler {
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 
-    #[allow(dead_code)] // TODO: to be removed
+    /// Get the priority of the scheduler.
     fn priority(&self) -> u8;
+
+    #[allow(dead_code)]
+    fn invoke_preemption(&self, wake_task_id: u32) {
+        let preemptable_tasks = match get_preemptable_tasks() {
+            Some(preemptable_tasks) => preemptable_tasks,
+            None => return,
+        };
+
+        let (lowest_sched_priority, cpu_id, task_id) =
+            match find_lowest_priority_task(preemptable_tasks) {
+                Some(lowest_task_info) => lowest_task_info,
+                None => return,
+            };
+
+        if self.priority() < lowest_sched_priority {
+            preempt_task(task_id, cpu_id);
+            return;
+        }
+
+        if self.priority() == lowest_sched_priority
+            && self.scheduler_name() == SchedulerType::GEDF(0)
+            && !compare_tasks(wake_task_id, task_id)
+        {
+            preempt_task(task_id, cpu_id);
+        }
+    }
 }
 
 /// Get the next executable task.
