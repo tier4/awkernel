@@ -5,14 +5,14 @@ use core::{
     cell::UnsafeCell,
     hint,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering, fence},
+    sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
 };
 
 #[cfg(loom)]
 use loom::{
     cell::UnsafeCell,
     hint,
-    sync::atomic::{AtomicBool, AtomicPtr, Ordering, fence},
+    sync::atomic::{fence, AtomicBool, AtomicPtr, Ordering},
 };
 
 pub struct MCSLock<T: Send> {
