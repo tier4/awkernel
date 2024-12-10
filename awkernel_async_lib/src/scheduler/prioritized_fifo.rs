@@ -39,7 +39,6 @@ impl Scheduler for PrioritizedFIFOScheduler {
                 return;
             };
 
-            // FIXME
             data.queue.push(
                 priority as u32,
                 PrioritizedFIFOTask {
