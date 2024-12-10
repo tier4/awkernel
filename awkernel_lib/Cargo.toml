@@ -2,7 +2,6 @@
 name = "awkernel_lib"
 version = "0.1.0"
 edition = "2021"
-build = "build.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -13,6 +12,9 @@ bitflags = "2.3"
 array-macro = "2.1"
 embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
+
+[dependencies.awkernel_sync]
+path = "../awkernel_sync"
 
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
@@ -42,10 +44,6 @@ optional = true
 path = "../awkernel_aarch64"
 optional = true
 
-[dependencies.parking_lot]
-version = "0.12"
-optional = true
-
 [dependencies.unwinding]
 # version = "0.2"
 git = "https://github.com/nbdd0121/unwinding.git"
@@ -72,15 +70,9 @@ version = "0.11.0"
 
 [features]
 default = ["x86"]
-x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api"]
-aarch64 = ["dep:awkernel_aarch64"]
+x86 = ["dep:x86_64", "dep:acpi", "dep:bootloader_api", "awkernel_sync/x86"]
+aarch64 = ["dep:awkernel_aarch64", "awkernel_sync/aarch64"]
 rv32 = []
-rv64 = []
-std = ["dep:libc", "dep:parking_lot"]
-spinlock = []
-
-[target.'cfg(loom)'.dependencies]
-loom = "0.7"
-
-[dev-dependencies]
-loom = "0.7"
+rv64 = ["awkernel_sync/rv64"]
+std = ["dep:libc", "awkernel_sync/std"]
+spinlock = ["awkernel_sync/spinlock"]

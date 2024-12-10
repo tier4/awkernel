@@ -1,0 +1,34 @@
+[package]
+name = "awkernel_sync"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[features]
+default = []
+std = ["dep:parking_lot"]
+x86 = ["dep:x86_64"]
+aarch64 = ["dep:awkernel_aarch64"]
+rv64 = []
+rv32 = []
+spinlock = []
+
+[dependencies.x86_64]
+version = "0.15"
+optional = true
+
+[dependencies.awkernel_aarch64]
+path = "../awkernel_aarch64"
+optional = true
+
+[dependencies.parking_lot]
+version = "0.12"
+optional = true
+
+[dependencies]
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+[dev-dependencies]
+loom = "0.7"

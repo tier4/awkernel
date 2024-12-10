@@ -24,34 +24,60 @@ static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
-/// 0 is the highest priority and 255 is the lowest priority.
+/// 0 is the highest priority and 99 is the lowest priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerType {
+    GEDF(u64), // relative deadline
     FIFO,
-
     PrioritizedFIFO(u8),
-
     RR,
-
     PriorityBasedRR(u8),
-
-    GEDF(u64), //relative deadline
-
     Panicked,
+}
+
+impl SchedulerType {
+    pub const fn equals(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (SchedulerType::GEDF(_), SchedulerType::GEDF(_))
+                | (SchedulerType::FIFO, SchedulerType::FIFO)
+                | (
+                    SchedulerType::PrioritizedFIFO(_),
+                    SchedulerType::PrioritizedFIFO(_)
+                )
+                | (SchedulerType::RR, SchedulerType::RR)
+                | (
+                    SchedulerType::PriorityBasedRR(_),
+                    SchedulerType::PriorityBasedRR(_)
+                )
+                | (SchedulerType::Panicked, SchedulerType::Panicked)
+        )
+    }
 }
 
 /// # Priority
 ///
 /// `priority()` returns the priority of the scheduler for preemption.
 ///
-/// - 0: The highest priority.
+/// - The highest priority.
+///   - GEDF scheduler.
+/// - The second highest priority.
 ///   - FIFO scheduler.
 ///   - Prioritized FIFO scheduler.
-///   - Tasks using these schedulers will not be preempted.
-/// - 1 - 16
+/// - The third highest priority.
 ///   - Round-Robin scheduler.
-/// - 255: The lowest priority.
+///   - Priority-based Round-Robin scheduler.
+/// - The lowest priority.
 ///   - Panicked scheduler.
+static PRIORITY_LIST: [SchedulerType; 6] = [
+    SchedulerType::GEDF(0),
+    SchedulerType::PrioritizedFIFO(0),
+    SchedulerType::FIFO,
+    SchedulerType::PriorityBasedRR(0),
+    SchedulerType::RR,
+    SchedulerType::Panicked,
+];
+
 pub(crate) trait Scheduler {
     /// Enqueue an executable task.
     /// The enqueued task will be taken by `get_next()`.
@@ -70,32 +96,9 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
-    if let Some(task) = fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = prioritized_fifo::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = priority_based_rr::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    // TODO: Priority implementation between schedulers.
-    if let Some(task) = gedf::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    if let Some(task) = panicked::SCHEDULER.get_next() {
-        return Some(task);
-    }
-
-    None
+    PRIORITY_LIST
+        .iter()
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next())
 }
 
 /// Get a scheduler.
@@ -108,6 +111,17 @@ pub(crate) fn get_scheduler(sched_type: SchedulerType) -> &'static dyn Scheduler
         SchedulerType::GEDF(_) => &gedf::SCHEDULER,
         SchedulerType::Panicked => &panicked::SCHEDULER,
     }
+}
+
+pub const fn get_priority(sched_type: SchedulerType) -> u8 {
+    let mut priority = 0;
+    while priority < PRIORITY_LIST.len() {
+        if PRIORITY_LIST[priority].equals(&sched_type) {
+            return priority as u8;
+        }
+        priority += 1;
+    }
+    panic!("Scheduler type not registered in PRIORITY_LIST or equals()")
 }
 
 /// Maintain sleeping tasks by a delta list.

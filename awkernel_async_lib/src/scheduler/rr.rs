@@ -1,19 +1,18 @@
 //! A basic RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
+use crate::{
+    scheduler::get_priority,
+    task::{get_last_executed_by_task_id, set_need_preemption, State},
+};
 use alloc::{collections::vec_deque::VecDeque, sync::Arc};
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct RRScheduler {
     // Time quantum
     interval: u64,
-
-    // Priority of this scheduler
-    priority: u8,
-
-    // Run queue
     queue: Mutex<Option<VecDeque<Arc<Task>>>>,
+    priority: u8,
 }
 
 impl Scheduler for RRScheduler {
@@ -27,6 +26,7 @@ impl Scheduler for RRScheduler {
         let mut node = MCSNode::new();
         let mut guard = self.queue.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let queue = match guard.as_mut() {
             Some(d) => d,
             None => return None,
@@ -62,11 +62,8 @@ impl Scheduler for RRScheduler {
 pub static SCHEDULER: RRScheduler = RRScheduler {
     // Time quantum (20 ms)
     interval: 20_000,
-
-    // TODO: Temporarily set to the lowest priority
-    priority: 16,
-
     queue: Mutex::new(None),
+    priority: get_priority(SchedulerType::RR),
 };
 
 impl RRScheduler {

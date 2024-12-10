@@ -18,10 +18,6 @@ use self::{
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
-#[cfg(loom)]
-use crate::sync::rwlock_dummy::RwLock;
-
-#[cfg(not(loom))]
 use crate::sync::rwlock::RwLock;
 
 pub mod ether;
