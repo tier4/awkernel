@@ -22,7 +22,7 @@ version = "0.2"
 optional = true
 
 [dependencies.x86_64]
-version = "0.15"
+version = "0.14"
 optional = true
 
 [dependencies.riscv]
@@ -53,7 +53,7 @@ default-features = false
 features = ["panic"]
 
 [dependencies.smoltcp]
-version = "0.11.0"
+path = "../smoltcp"  # プロジェクトルートからの相対パス
 default-features = false
 features = [
     "alloc",
@@ -67,6 +67,8 @@ features = [
     "medium-ethernet",
     "proto-igmp",
 ]
+version = "0.11.0"
+#path = "/home/awkernel/.cargo/registry/src/index.crates.io-6f17d22bba15001f/smoltcp-0.11.0"
 
 [features]
 default = ["x86"]

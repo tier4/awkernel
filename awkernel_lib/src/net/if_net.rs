@@ -28,6 +28,8 @@ use smoltcp::{
 };
 use x86_64::instructions::port;
 
+#[cfg(not(loom))]
+use crate::sync::rwlock::RwLock;
 use crate::{
     addr::{virt_addr, Addr},
     dma_pool::DMAPool,
@@ -185,6 +187,7 @@ impl Device for NetDriverRef<'_> {
 pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
+    pub(super) socket_set: RwLock<SocketSet<'static>>,
     rx_irq_to_driver: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
@@ -196,7 +199,6 @@ pub(super) struct IfNet {
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
-    pub(super) socket_set: SocketSet<'static>,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 
     multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
@@ -205,8 +207,12 @@ pub(super) struct IfNetInner {
 
 impl IfNetInner {
     #[inline(always)]
-    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
-        (&mut self.interface, &mut self.socket_set)
+    //pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
+    //(&mut self.interface, &mut self.socket_set)
+    //}
+
+    pub fn get_interface(&mut self) -> &mut Interface {
+        &mut self.interface
     }
 
     #[inline(always)]
@@ -358,11 +364,11 @@ impl IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
                 interface,
-                socket_set,
                 default_gateway_ipv4: None,
                 multicast_addr_ipv4: BTreeSet::new(),
                 multicast_addr_mac: BTreeMap::new(),
             }),
+            socket_set: RwLock::new(socket_set),
             rx_irq_to_driver,
             net_device,
             tx_only_ringq,
@@ -570,8 +576,8 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            let interface = inner.get_interface();
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         let mut count = 0;
@@ -596,21 +602,21 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
-                count += 1;
+                //count += 1;
             } else {
                 break;
             }
         }
 
-        let mut node = MCSNode::new();
-        let mut count_vec = COUNT.lock(&mut node);
-        count_vec.push(count);
-        if count_vec.len() == 10000 {
-            if let Some(slice) = count_vec.as_slice().get(100..110) {
-                log::info!("poll_tx_only count:{:?}", slice);
-            }
-            count_vec.clear();
-        }
+        //let mut node = MCSNode::new();
+        //let mut count_vec = COUNT.lock(&mut node);
+        //count_vec.push(count);
+        //if count_vec.len() == 10000 {
+        //if let Some(slice) = count_vec.as_slice().get(100..110) {
+        //log::info!("poll_tx_only count:{:?}", slice);
+        //}
+        //count_vec.clear();
+        //}
 
         drop(device_ref);
         drop(tx_ringq);
@@ -665,9 +671,9 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
+            let interface = inner.get_interface();
 
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         let mut count = 0;
@@ -692,21 +698,21 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
-                count += 1;
+                //count += 1;
             } else {
                 break;
             }
         }
 
-        let mut node = MCSNode::new();
-        let mut count_vec = RECV_COUNT.lock(&mut node);
-        count_vec.push(count);
-        if count_vec.len() == 10000 {
-            if let Some(slice) = count_vec.as_slice().get(100..110) {
-                log::info!("poll_rx count:{:?}", slice);
-            }
-            count_vec.clear();
-        }
+        //let mut node = MCSNode::new();
+        //let mut count_vec = RECV_COUNT.lock(&mut node);
+        //count_vec.push(count);
+        //if count_vec.len() == 10000 {
+        //if let Some(slice) = count_vec.as_slice().get(100..110) {
+        //log::info!("poll_rx count:{:?}", slice);
+        //}
+        //count_vec.clear();
+        //}
 
         let _ = self.net_device.send(que_id);
 
@@ -791,10 +797,13 @@ impl IfNet {
                 *guard = TransmitWakeState::Wake(waker);
                 Ok(true)
             }
-            TransmitWakeState::Notified => Ok(false),
+            TransmitWakeState::Notified => {
+                *guard = TransmitWakeState::None;
+                Ok(false)
+            }
             TransmitWakeState::Wake(_) => {
                 *guard = TransmitWakeState::Wake(waker);
-                Ok(false)
+                Ok(true)
             }
         }
     }

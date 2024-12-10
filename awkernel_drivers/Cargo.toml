@@ -19,7 +19,7 @@ default-features = false
 optional = true
 
 [dependencies.x86_64]
-version = "0.15"
+version = "0.14"
 optional = true
 
 [dependencies.memoffset]
@@ -55,7 +55,7 @@ version = "0.11"
 optional = true
 
 [dependencies.smoltcp]
-version = "0.11"
+path = "../smoltcp"  # プロジェクトルートからの相対パス
 default-features = false
 features = [
     "alloc",
@@ -65,9 +65,12 @@ features = [
     "socket-tcp",
     "proto-ipv4",
     "proto-ipv6",
+    "socket-icmp",
     "medium-ethernet",
     "proto-igmp",
 ]
+#version = "0.11"
+#path = "/home/awkernel/.cargo/registry/src/index.crates.io-6f17d22bba15001f/smoltcp-0.11.0"
 
 [features]
 default = []
