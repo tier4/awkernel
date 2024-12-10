@@ -3,7 +3,7 @@
 use super::{Scheduler, SchedulerType, Task};
 use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
 use alloc::sync::Arc;
-use awkernel_async_lib_verified::priority_queue::PriorityQueue;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PriorityBasedRRScheduler {

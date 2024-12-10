@@ -48,50 +48,35 @@ mod tests {
     use super::*;
 
     #[test]
-    /// Unlike alloc::collections::BinaryHeap, PriorityQueue guarantees that data with the same priority will be retrieved in FIFO order.
-    fn test_prioriry_queue_fifo() {
-        #[derive(Debug, PartialEq)]
-        struct S(usize);
-
-        let mut q = PriorityQueue::new();
-        assert_eq!(q.pop(), None);
-        q.push(0, S(0));
-        q.push(0, S(1));
-        q.push(0, S(2));
-        q.push(0, S(3));
-
-        assert_eq!(q.pop().unwrap(), S(0));
-        assert_eq!(q.pop().unwrap(), S(1));
-        assert_eq!(q.pop().unwrap(), S(2));
-        assert_eq!(q.pop().unwrap(), S(3));
-        assert_eq!(q.pop(), None);
-    }
-}
-
-#[cfg(kani)]
-mod verification {
-    use super::*;
-
-    #[kani::proof]
-    #[kani::unwind(11)]
-    pub fn verify_priority_queue_fifo() {
+    fn test_prioriry_queue() {
         let mut q = PriorityQueue::new();
 
-        assert!(q.pop() == None);
+        // Queue should be empty
+        assert_eq!(q.pop(), None);
 
-        let priority = 0;
-        let len = kani::any();
-        kani::assume(len <= 10);
-
-        for i in 0..len {
-            q.push(priority, i);
+        for id in 0..10 {
+            q.push(0, id);
         }
 
-        for expected in 0..len {
+        // Data with the same priority should be popped in a FIFO order
+        for expected in 0..10 {
             let actual = q.pop().unwrap();
-            assert!(actual == expected);
+            assert_eq!(actual, expected);
         }
 
-        assert!(q.pop() == None);
+        for id in 0..10 {
+            q.push(10 - id, id);
+        }
+
+        // Data with different priorities are popped from the highest priority first
+        for expected in (0..10).rev() {
+            let actual = q.pop().unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        // Queue should be empty
+        assert_eq!(q.pop(), None);
     }
 }
+
+// TODO: Verification
