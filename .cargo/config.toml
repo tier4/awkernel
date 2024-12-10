@@ -5,6 +5,7 @@ rv32 = "build --package awkernel --no-default-features --features rv32 --target 
 rv64 = "build --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 std = "build --package awkernel --no-default-features --features std"
 
+test_awkernel_sync = "test --package awkernel_sync --no-default-features --features std"
 test_awkernel_lib = "test --package awkernel_lib --no-default-features --features std"
 test_awkernel_async_lib = "test --package awkernel_async_lib --no-default-features --features std"
 test_awkernel_drivers = "test --package awkernel_drivers --no-default-features --features std"

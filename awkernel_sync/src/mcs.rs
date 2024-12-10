@@ -63,7 +63,7 @@ impl<T: Send> MCSLock<T> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
 
-        let _interrupt_guard = crate::interrupt::InterruptGuard::new();
+        let _interrupt_guard = crate::interrupt_guard::InterruptGuard::new();
 
         // set myself as the last node
         let mut guard = MCSLockGuard {
@@ -94,7 +94,7 @@ impl<T: Send> MCSLock<T> {
         node.next.store(null_mut(), Ordering::Relaxed);
         node.locked.store(false, Ordering::Relaxed);
 
-        let _interrupt_guard = crate::interrupt::InterruptGuard::new();
+        let _interrupt_guard = crate::interrupt_guard::InterruptGuard::new();
 
         // set myself as the last node
         let guard = MCSLockGuard {
@@ -137,7 +137,7 @@ pub struct MCSLockGuard<'a, T: Send> {
     node: &'a mut MCSNode<T>,
     mcs_lock: &'a MCSLock<T>,
     need_unlock: bool,
-    _interrupt_guard: crate::interrupt::InterruptGuard,
+    _interrupt_guard: crate::interrupt_guard::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
