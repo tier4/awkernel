@@ -15,57 +15,58 @@ path = "../awkernel_async_lib"
 path = "../applications/awkernel_services"
 
 [dependencies.test_pubsub]
-path = "../applications/test_pubsub"
+path = "../applications/tests/test_pubsub"
 optional = true
 
 [dependencies.test_network]
-path = "../applications/test_network"
+path = "../applications/tests/test_network"
 optional = true
 
 [dependencies.test_rpi_hal]
-path = "../applications/test_rpi_hal"
+path = "../applications/tests/test_rpi_hal"
 optional = true
 
 [dependencies.test_graphics]
-path = "../applications/test_graphics"
+path = "../applications/tests/test_graphics"
 optional = true
 
 [dependencies.test_prioritized_fifo]
-path = "../applications/test_prioritized_fifo"
+path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
 [dependencies.test_rr]
-path = "../applications/test_rr"
+path = "../applications/tests/test_rr"
 optional = true
 
 [dependencies.test_priority_based_rr]
-path = "../applications/test_priority_based_rr"
+path = "../applications/tests/test_priority_based_rr"
 optional = true
 
 [dependencies.test_async_mutex]
-path = "../applications/test_async_mutex"
+path = "../applications/tests/test_async_mutex"
 optional = true
 
 [dependencies.test_gedf]
-path = "../applications/test_gedf"
+path = "../applications/tests/test_gedf"
 optional = true
 
-[dependencies.measure_channel]
-path = "../applications/measure_channel"
+[dependencies.test_measure_channel]
+path = "../applications/tests/test_measure_channel"
 optional = true
 
-[dependencies.measure_channel_heavy]
-path = "../applications/measure_channel_heavy"
+[dependencies.test_measure_channel_heavy]
+path = "../applications/tests/test_measure_channel_heavy"
 optional = true
 
-[dependencies.load_test_udp]
-path = "../applications/load_test_udp"
+[dependencies.test_load_udp]
+path = "../applications/tests/test_load_udp"
 optional = true
 
 [features]
 default = ["test_gedf"]
 perf = ["awkernel_services/perf"]
-raspi = ["dep:test_rpi_hal"]
+
+# Test applications
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]
@@ -75,8 +76,6 @@ test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
-load_test_udp = ["dep:load_test_udp"]
-
-# Measurements
-measure_channel = ["dep:measure_channel"]
-measure_channel_heavy = ["dep:measure_channel_heavy"]
+test_load_udp = ["dep:test_load_udp"]
+test_measure_channel = ["dep:test_measure_channel"]
+test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
