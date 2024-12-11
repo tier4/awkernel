@@ -792,6 +792,12 @@ fn init_dma(
 
     for region in numa_memory.iter_mut() {
         let end = region.start + DMA_SIZE as u64;
+        log::info!(
+            "numa_id:{:?} region.start:{:?} region.end:{:?}",
+            numa_id,
+            region.start,
+            region.end
+        );
         if region.end - region.start >= DMA_SIZE as u64 {
             dma_phy_region = Some(MemoryRegion {
                 start: region.start,
@@ -814,7 +820,7 @@ fn init_dma(
     let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
     let flags = PageTableFlags::PRESENT
         | PageTableFlags::WRITABLE
-        // | PageTableFlags::NO_CACHE
+        | PageTableFlags::NO_CACHE
         | PageTableFlags::NO_EXECUTE
         | PageTableFlags::GLOBAL;
 

@@ -23,7 +23,7 @@ default-features = false
 path = "../awkernel_async_lib_verified"
 
 [dependencies.smoltcp]
-version = "0.11.0"
+path = "../smoltcp"
 default-features = false
 features = [
     "alloc",
@@ -37,6 +37,8 @@ features = [
     "medium-ethernet",
     "proto-igmp",
 ]
+#version = "0.11.0"
+#path = "/home/awkernel/.cargo/registry/src/index.crates.io-6f17d22bba15001f/smoltcp-0.11.0"
 
 [features]
 default = []

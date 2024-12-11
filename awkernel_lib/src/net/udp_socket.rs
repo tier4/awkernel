@@ -3,7 +3,10 @@ use crate::{
     sync::mcs::MCSNode,
 };
 
-use super::NetManagerError;
+use super::super::delay::uptime_nano;
+use super::{wake_transmitter, NetManagerError};
+use smoltcp::iface::SocketSet;
+//use spin::Mutex;
 
 use alloc::vec;
 
@@ -83,15 +86,6 @@ impl UdpSocket {
             }
         };
 
-        // Find the interface that has the specified address.
-        let if_net = net_manager
-            .interfaces
-            .get(&interface_id)
-            .ok_or(NetManagerError::InvalidInterfaceID)?
-            .clone();
-
-        drop(net_manager);
-
         // Create a UDP socket.
         use smoltcp::socket::udp;
         let udp_rx_buffer = udp::PacketBuffer::new(
@@ -125,13 +119,17 @@ impl UdpSocket {
             }
         }
 
-        // Add the socket to the interface.
-        let handle = {
-            let mut node = MCSNode::new();
-            let mut if_net_inner = if_net.inner.lock(&mut node);
+        // Find the interface that has the specified address.
+        let if_net = net_manager
+            .interfaces
+            .get(&interface_id)
+            .ok_or(NetManagerError::InvalidInterfaceID)?
+            .clone();
 
-            if_net_inner.socket_set.add(socket)
-        };
+        drop(net_manager);
+
+        // Add the socket to the interface.
+        let handle = { if_net.socket_set.write().add(socket) };
 
         Ok(UdpSocket {
             handle,
@@ -165,22 +163,17 @@ impl UdpSocket {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
-
-        let socket = inner
-            .socket_set
-            .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_set = if_net.socket_set.read();
+        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_send() {
             socket
                 .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
 
-            drop(inner);
-
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
-            if_net.poll_tx_only(que_id);
+            //if_net.poll_tx_only(que_id);
+            wake_transmitter(self.interface_id, que_id);
 
             Ok(true)
         } else {
@@ -209,12 +202,8 @@ impl UdpSocket {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
-
-        let socket = inner
-            .socket_set
-            .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_set = if_net.socket_set.read();
+        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
@@ -248,9 +237,7 @@ impl Drop for UdpSocket {
         }
 
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
-            let mut node = MCSNode::new();
-            let mut if_net_inner = if_net.inner.lock(&mut node);
-            if_net_inner.socket_set.remove(self.handle);
+            if_net.socket_set.write().remove(self.handle);
         }
     }
 }

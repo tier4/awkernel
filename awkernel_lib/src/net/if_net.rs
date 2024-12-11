@@ -26,31 +26,50 @@ use smoltcp::{
     time::Instant,
     wire::HardwareAddress,
 };
+use x86_64::instructions::port;
 
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
+#[cfg(not(loom))]
+use crate::sync::rwlock::RwLock;
+use crate::{
+    addr::{virt_addr, Addr},
+    dma_pool::DMAPool,
+    paging::PAGESIZE,
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
     multicast::ipv4_addr_to_mac_addr,
-    net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
+    net_device::{
+        EtherFrameBuf, EtherFrameDMA, EtherFrameDMAcsum, EtherFrameRef, NetCapabilities, NetDevice,
+        PacketHeaderFlags,
+    },
     NetManagerError,
 };
 
+use super::super::delay::uptime_nano;
+
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+
+enum TransmitWakeState {
+    None,
+    Notified,
+    Wake(core::task::Waker),
+}
 
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
     rx_que_id: usize,
 
-    rx_ringq: Mutex<RingQ<EtherFrameBuf>>,
+    rx_ringq: Mutex<RingQ<EtherFrameDMA>>,
 }
 
 struct NetDriverRef<'a> {
     inner: &'a Arc<dyn NetDevice + Sync + Send>,
 
-    rx_ringq: Option<&'a mut RingQ<EtherFrameBuf>>,
-    tx_ringq: &'a mut RingQ<Vec<u8>>,
+    rx_ringq: Option<&'a mut RingQ<EtherFrameDMA>>,
+    tx_ringq: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
 }
 
 impl NetDriverRef<'_> {
@@ -101,9 +120,9 @@ impl Device for NetDriverRef<'_> {
 
         let capabilities = self.inner.capabilities();
 
-        if capabilities.contains(NetCapabilities::CSUM_IPv4) {
-            cap.checksum.ipv4 = Checksum::Rx;
-        }
+        //if capabilities.contains(NetCapabilities::CSUM_IPv4) {
+        //cap.checksum.ipv4 = Checksum::Rx;
+        //}
 
         // Note: Awkernel doen't yet support Ipv6.
         // Additionally, tests for TCP functionality have not yet been conducted.
@@ -117,9 +136,9 @@ impl Device for NetDriverRef<'_> {
         //     cap.checksum.udp = Checksum::Rx;
         // }
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
-            cap.checksum.udp = Checksum::Rx;
-        }
+        //if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+        //cap.checksum.udp = Checksum::Rx;
+        //}
 
         cap
     }
@@ -136,6 +155,7 @@ impl Device for NetDriverRef<'_> {
                     NRxToken { data },
                     NTxToken {
                         tx_ring: self.tx_ringq,
+                        driver_ref_inner: self.inner,
                     },
                 ));
             }
@@ -156,6 +176,7 @@ impl Device for NetDriverRef<'_> {
 
         Some(NTxToken {
             tx_ring: self.tx_ringq,
+            driver_ref_inner: self.inner,
         })
     }
 }
@@ -163,17 +184,18 @@ impl Device for NetDriverRef<'_> {
 pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
+    pub(super) socket_set: RwLock<SocketSet<'static>>,
     rx_irq_to_driver: BTreeMap<u16, NetDriver>,
-    tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
+    tx_only_ringq: Vec<Mutex<RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
+    transmitter: Vec<Mutex<TransmitWakeState>>,
 }
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
-    pub(super) socket_set: SocketSet<'static>,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 
     multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
@@ -182,8 +204,8 @@ pub(super) struct IfNetInner {
 
 impl IfNetInner {
     #[inline(always)]
-    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
-        (&mut self.interface, &mut self.socket_set)
+    pub fn get_interface(&mut self) -> &mut Interface {
+        &mut self.interface
     }
 
     #[inline(always)]
@@ -219,6 +241,11 @@ impl IfNet {
 
             Interface::new(config, &mut net_driver_ref, instant)
         };
+
+        let mut transmitter = Vec::new();
+        for _ in 0..net_device.num_queues() {
+            transmitter.push(Mutex::new(TransmitWakeState::None));
+        }
 
         // Create NetDrivers.
         let mut rx_irq_to_driver = BTreeMap::new();
@@ -277,17 +304,18 @@ impl IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
                 interface,
-                socket_set,
                 default_gateway_ipv4: None,
                 multicast_addr_ipv4: BTreeSet::new(),
                 multicast_addr_mac: BTreeMap::new(),
             }),
+            socket_set: RwLock::new(socket_set),
             rx_irq_to_driver,
             net_device,
             tx_only_ringq,
             is_poll_mode,
             poll_driver,
             tick_driver,
+            transmitter,
         }
     }
 
@@ -488,27 +516,36 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            let interface = inner.get_interface();
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            if let Some((data, len)) = device_ref.tx_ringq.pop() {
+                let ptr = data.get_virt_addr().as_mut_ptr();
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
-                let data = EtherFrameRef {
-                    data: &data,
+                let data = EtherFrameDMAcsum {
+                    data,
+                    len,
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
-
-                if self.net_device.send(data, que_id).is_err() {
-                    log::error!("Failed to send a packet.");
+                if self.net_device.push(data, que_id).is_err() {
+                    log::error!("Failed to push a packet.");
                 }
             } else {
                 break;
             }
+        }
+
+        drop(device_ref);
+        drop(tx_ringq);
+
+        if self.net_device.send(que_id).is_err() {
+            log::error!("Failed to send a packet.");
         }
 
         result
@@ -516,22 +553,21 @@ impl IfNet {
 
     fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
         let que_id = ref_net_driver.rx_que_id;
-        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
-            return false;
-        };
-
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
 
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
-            if let Ok(Some(data)) = ref_net_driver.inner.recv(ref_net_driver.rx_que_id) {
+            if let Ok(Some(data)) = ref_net_driver.inner.recv(que_id) {
                 let _ = rx_ringq.push(data);
             } else {
                 break;
             }
         }
 
+        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
+            return false;
+        };
         let mut node = MCSNode::new();
         let mut tx_ringq = tx_ringq.lock(&mut node);
 
@@ -547,27 +583,33 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
+            let interface = inner.get_interface();
 
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            if let Some((data, len)) = device_ref.tx_ringq.pop() {
+                let ptr = data.get_virt_addr().as_mut_ptr();
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
-                let data = EtherFrameRef {
-                    data: &data,
+                let data = EtherFrameDMAcsum {
+                    data,
+                    len,
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
-
-                let _ = self.net_device.send(data, ref_net_driver.rx_que_id);
+                if self.net_device.push(data, que_id).is_err() {
+                    log::error!("Failed to push a packet.");
+                }
             } else {
                 break;
             }
         }
+
+        let _ = self.net_device.send(que_id);
 
         result
     }
@@ -610,10 +652,60 @@ impl IfNet {
             false
         }
     }
+
+    #[inline(always)]
+    pub fn wake_transmitter(&self, que_id: usize) {
+        let Some(waker) = self.transmitter.get(que_id) else {
+            return;
+        };
+
+        let mut node = MCSNode::new();
+        let mut waker = waker.lock(&mut node);
+
+        let TransmitWakeState::Wake(w) = waker.as_ref() else {
+            *waker = TransmitWakeState::Notified;
+            return;
+        };
+
+        w.wake_by_ref();
+
+        *waker = TransmitWakeState::None;
+    }
+
+    /// Returns true if the waker is registered successfully.
+    /// Returns false if it is already notified.
+    #[inline(always)]
+    pub fn register_waker_for_transmitter(
+        &self,
+        que_id: usize,
+        waker: core::task::Waker,
+    ) -> Result<bool, NetManagerError> {
+        let Some(w) = self.transmitter.get(que_id) else {
+            return Err(NetManagerError::InvalidQueueID);
+        };
+
+        let mut node = MCSNode::new();
+        let mut guard = w.lock(&mut node);
+
+        match guard.as_ref() {
+            TransmitWakeState::None => {
+                *guard = TransmitWakeState::Wake(waker);
+                Ok(true)
+            }
+            TransmitWakeState::Notified => {
+                *guard = TransmitWakeState::None;
+                Ok(false)
+            }
+            TransmitWakeState::Wake(_) => {
+                *guard = TransmitWakeState::Wake(waker);
+                Ok(true)
+            }
+        }
+    }
 }
 
 pub struct NRxToken {
-    data: EtherFrameBuf,
+    data: EtherFrameDMA,
 }
 
 impl phy::RxToken for NRxToken {
@@ -624,12 +716,13 @@ impl phy::RxToken for NRxToken {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut self.data.data)
+        f(self.data.data.as_mut())
     }
 }
 
 pub struct NTxToken<'a> {
-    tx_ring: &'a mut RingQ<Vec<u8>>,
+    tx_ring: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
+    driver_ref_inner: &'a Arc<dyn NetDevice + Sync + Send>,
 }
 
 impl phy::TxToken for NTxToken<'_> {
@@ -637,16 +730,15 @@ impl phy::TxToken for NTxToken<'_> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buf = Vec::with_capacity(len);
+        let segment_group = self.driver_ref_inner.get_segment_group().unwrap_or(0);
+        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, 1).unwrap(); // RECONSIDER: Not sure this unwrap is acceptable
 
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            buf.set_len(len);
-        };
+        let ptr = buf.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
 
-        let result = f(&mut buf[..len]);
+        let result: R = f(slice);
 
-        let _ = self.tx_ring.push(buf);
+        let _ = self.tx_ring.push((buf, len));
 
         result
     }

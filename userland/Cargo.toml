@@ -63,7 +63,7 @@ path = "../applications/load_test_udp"
 optional = true
 
 [features]
-default = ["test_graphics"]
+default = ["load_test_udp"]
 perf = ["awkernel_services/perf"]
 raspi = ["dep:test_rpi_hal"]
 test_network = ["dep:test_network"]

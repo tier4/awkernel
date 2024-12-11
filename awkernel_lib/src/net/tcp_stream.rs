@@ -44,17 +44,17 @@ impl Drop for TcpStream {
             let mut node = MCSNode::new();
             let mut inner = if_net.inner.lock(&mut node);
 
-            let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+            //let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
 
-            // If the socket is already closed, remove it from the socket set.
-            if matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
-                inner.socket_set.remove(self.handle);
+            //// If the socket is already closed, remove it from the socket set.
+            //if matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
+            //inner.socket_set.remove(self.handle);
 
-                return;
-            }
+            //return;
+            //}
 
             // Otherwise, close the socket.
-            socket.close();
+            //socket.close();
         }
 
         let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
@@ -101,17 +101,17 @@ pub fn close_connections() {
                 let mut node = MCSNode::new();
                 let mut inner = if_net.inner.lock(&mut node);
 
-                while let Some((handle, port)) = v.pop_front() {
-                    let socket: &mut smoltcp::socket::tcp::Socket =
-                        inner.socket_set.get_mut(handle);
-                    if socket.state() == smoltcp::socket::tcp::State::Closed {
-                        // If the socket is already closed, remove it from the socket set.
-                        inner.socket_set.remove(handle);
-                    } else {
-                        socket.close();
-                        remain_v.push_back((handle, port));
-                    }
-                }
+                //while let Some((handle, port)) = v.pop_front() {
+                //let socket: &mut smoltcp::socket::tcp::Socket =
+                //inner.socket_set.get_mut(handle);
+                //if socket.state() == smoltcp::socket::tcp::State::Closed {
+                //// If the socket is already closed, remove it from the socket set.
+                //inner.socket_set.remove(handle);
+                //} else {
+                //socket.close();
+                //remain_v.push_back((handle, port));
+                //}
+                //}
             }
 
             if_net.poll_tx_only(crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1));
@@ -175,38 +175,39 @@ impl TcpStream {
 
         let socket = smoltcp::socket::tcp::Socket::new(rx_buffer, tx_buffer);
 
-        let handle;
+        //let handle;
         {
             let mut node = MCSNode::new();
             let mut inner = if_net.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
+            //let (interface, socket_set) = inner.split();
 
-            handle = socket_set.add(socket);
+            //handle = socket_set.add(socket);
 
-            let socket: &mut smoltcp::socket::tcp::Socket = socket_set.get_mut(handle);
+            //let socket: &mut smoltcp::socket::tcp::Socket = socket_set.get_mut(handle);
 
-            if socket
-                .connect(
-                    interface.context(),
-                    (remote_addr.addr, remote_port),
-                    local_port.port(),
-                )
-                .is_err()
-            {
-                socket_set.remove(handle);
-                return Err(NetManagerError::InvalidState);
-            }
+            //if socket
+            //.connect(
+            //interface.context(),
+            //(remote_addr.addr, remote_port),
+            //local_port.port(),
+            //)
+            //.is_err()
+            //{
+            //socket_set.remove(handle);
+            //return Err(NetManagerError::InvalidState);
+            //}
         }
 
         let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
         if_net.poll_tx_only(que_id);
 
-        Ok(TcpStream {
-            handle,
-            interface_id,
-            port: Some(local_port),
-        })
+        //Ok(TcpStream {
+        //handle,
+        //interface_id,
+        //port: Some(local_port),
+        //})
+        Err(NetManagerError::InvalidState)
     }
 
     /// Send a TCP packet.
@@ -230,27 +231,28 @@ impl TcpStream {
         let mut node = MCSNode::new();
         let mut inner = if_net.inner.lock(&mut node);
 
-        let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+        //let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
 
-        if socket.state() == smoltcp::socket::tcp::State::SynSent {
-            socket.register_recv_waker(waker);
-            return TcpResult::WouldBlock;
-        }
+        //if socket.state() == smoltcp::socket::tcp::State::SynSent {
+        //socket.register_recv_waker(waker);
+        //return TcpResult::WouldBlock;
+        //}
 
-        if !socket.may_send() {
-            return TcpResult::CloseLocal;
-        }
+        //if !socket.may_send() {
+        //return TcpResult::CloseLocal;
+        //}
 
-        if !socket.can_send() {
-            socket.register_send_waker(waker);
-            return TcpResult::WouldBlock;
-        }
+        //if !socket.can_send() {
+        //socket.register_send_waker(waker);
+        //return TcpResult::WouldBlock;
+        //}
 
-        let Ok(len) = socket.send_slice(buf) else {
-            return TcpResult::InvalidState;
-        };
+        //let Ok(len) = socket.send_slice(buf) else {
+        //return TcpResult::InvalidState;
+        //};
 
-        TcpResult::Ok(len)
+        //TcpResult::Ok(len)
+        TcpResult::InvalidState
     }
 
     /// Receive a TCP packet.
@@ -274,27 +276,28 @@ impl TcpStream {
         let mut node = MCSNode::new();
         let mut inner = if_net.inner.lock(&mut node);
 
-        let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+        //let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
 
-        if socket.state() == smoltcp::socket::tcp::State::SynSent {
-            socket.register_recv_waker(waker);
-            return TcpResult::WouldBlock;
-        }
+        //if socket.state() == smoltcp::socket::tcp::State::SynSent {
+        //socket.register_recv_waker(waker);
+        //return TcpResult::WouldBlock;
+        //}
 
-        if !socket.may_recv() {
-            return TcpResult::CloseRemote;
-        }
+        //if !socket.may_recv() {
+        //return TcpResult::CloseRemote;
+        //}
 
-        if !socket.can_recv() {
-            socket.register_recv_waker(waker);
-            return TcpResult::WouldBlock;
-        }
+        //if !socket.can_recv() {
+        //socket.register_recv_waker(waker);
+        //return TcpResult::WouldBlock;
+        //}
 
-        let Ok(len) = socket.recv_slice(buf) else {
-            return TcpResult::InvalidState;
-        };
+        //let Ok(len) = socket.recv_slice(buf) else {
+        //return TcpResult::InvalidState;
+        //};
 
-        TcpResult::Ok(len)
+        //TcpResult::Ok(len)
+        TcpResult::InvalidState
     }
 
     pub fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError> {
@@ -311,18 +314,18 @@ impl TcpStream {
         let mut node = MCSNode::new();
         let inner = if_net.inner.lock(&mut node);
 
-        let socket: &smoltcp::socket::tcp::Socket = inner.socket_set.get(self.handle);
+        //let socket: &smoltcp::socket::tcp::Socket = inner.socket_set.get(self.handle);
 
-        if let Some(endpoint) = socket.remote_endpoint() {
-            Ok((
-                IpAddr {
-                    addr: endpoint.addr,
-                },
-                endpoint.port,
-            ))
-        } else {
-            Err(NetManagerError::InvalidState)
-        }
+        //if let Some(endpoint) = socket.remote_endpoint() {
+        //Ok((
+        //IpAddr {
+        //addr: endpoint.addr,
+        //},
+        //endpoint.port,
+        //))
+        //} else {
+        Err(NetManagerError::InvalidState)
+        //}
     }
 
     pub fn split(self) -> (TcpStreamTx, TcpStreamRx) {

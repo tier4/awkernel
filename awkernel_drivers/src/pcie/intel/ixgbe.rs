@@ -1,3 +1,4 @@
+#![warn(dead_code)]
 //! # Intel 10 Gigabit Ethernet Controller
 
 use crate::pcie::{
@@ -16,19 +17,20 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    delay::wait_microsec,
+    delay::{uptime_nano, wait_microsec},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
         ether::{
-            extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr, ETHER_HDR_LEN,
+            self, extract_headers, EtherExtracted, EtherHeader, NetworkHdr, TransportHdr,
+            ETHER_HDR_LEN,
         },
         in_cksum::in_pseudo,
         ip::Ip,
         ipv6::Ip6Hdr,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
-            NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, EtherFrameDMA, EtherFrameDMAcsum, EtherFrameRef, LinkStatus,
+            NetCapabilities, NetDevError, NetDevice, NetFlags, PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -40,6 +42,7 @@ use awkernel_lib::{
     },
 };
 use core::fmt::{self, Debug};
+use core::sync::atomic::{AtomicBool, Ordering};
 use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
@@ -64,6 +67,7 @@ const DEVICE_NAME: &str = "Intel 10 Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "ixgbe";
 
 const RECV_QUEUE_SIZE: usize = 32;
+const SEND_QUEUE_SIZE: usize = 512;
 
 pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 
@@ -73,25 +77,22 @@ const MCLBYTES: u32 = 1 << MCLSHIFT;
 const MAXMCLBYTES: u32 = 64 * 1024;
 
 type TxRing = [TxDescriptor; DEFAULT_TXD];
-type TxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_TXD];
-
 type RxRing = [AdvRxDesc; DEFAULT_RXD];
-type RxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_RXD];
 
 pub struct Tx {
     tx_desc_head: usize,
     tx_desc_tail: usize,
     tx_desc_ring: DMAPool<TxRing>,
     txd_cmd: u32,
-    write_buf: Option<DMAPool<TxBuffer>>,
+    write_queue: RingQ<EtherFrameDMAcsum>,
+    dma_info: Vec<(bool, usize, usize, usize)>,
 }
 pub struct Rx {
     rx_desc_head: u32,
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool<RxRing>,
-    read_buf: Option<DMAPool<RxBuffer>>,
-
-    read_queue: RingQ<EtherFrameBuf>,
+    read_queue: RingQ<EtherFrameDMA>,
+    dma_info: Vec<(usize, usize, usize)>,
 }
 
 pub struct Queue {
@@ -306,7 +307,7 @@ impl IxgbeInner {
         let mut que = Vec::new();
         let que_num = get_num_queues(&hw.mac.mac_type);
         for i in 0..que_num {
-            que.push(allocate_queue(&info, i)?);
+            que.push(allocate_queue(&info, que_num, i)?);
         }
 
         // ixgbe_identify_hardware()
@@ -388,6 +389,9 @@ impl IxgbeInner {
         let mut ctrl_ext = ixgbe_hw::read_reg(&info, IXGBE_CTRL_EXT)?;
         ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
         ixgbe_hw::write_reg(&info, IXGBE_CTRL_EXT, ctrl_ext)?;
+
+        let mut dma_info = Vec::with_capacity(DEFAULT_RXD * 16);
+        dma_info.resize(DEFAULT_RXD * 16, (0, 0, 0));
 
         let ixgbe = Self {
             info,
@@ -601,15 +605,7 @@ impl IxgbeInner {
         // ctrl_ext &= !IXGBE_CTRL_EXT_DRV_LOAD;
         // ixgbe_hw::write_reg(&self.info, IXGBE_CTRL_EXT, ctrl_ext);
 
-        for que in que.iter() {
-            let mut node = MCSNode::new();
-            let mut tx = que.tx.lock(&mut node);
-            tx.write_buf = None;
-
-            let mut node = MCSNode::new();
-            let mut rx = que.rx.lock(&mut node);
-            rx.read_buf = None;
-        }
+        // Need to think about the deallocation of DMAPool
 
         self.update_link_status()?;
 
@@ -661,23 +657,11 @@ impl IxgbeInner {
             tx.tx_desc_head = 0;
 
             let tx_desc_ring = tx.tx_desc_ring.as_mut();
-
-            let tx_buffer_size = MCLBYTES as usize * DEFAULT_TXD;
-            let write_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                tx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IxgbeDriverErr::DMAPool)?;
-
-            let buf_phy_addr = write_buf.get_phy_addr().as_usize();
-
-            for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.adv_tx.buffer_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+            for desc in tx_desc_ring.iter_mut() {
+                desc.adv_tx.buffer_addr = 0;
                 desc.adv_tx.cmd_type_len = 0;
                 desc.adv_tx.olinfo_status = 0;
             }
-
-            tx.write_buf = Some(write_buf);
         }
 
         Ok(())
@@ -751,30 +735,56 @@ impl IxgbeInner {
     }
 
     fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
-        for que in que.iter() {
+        log::info!(
+            "setup_receive_structures numa_id:{:?}",
+            self.info.get_segment_group()
+        );
+        for (i, que) in que.iter().enumerate() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
             rx.rx_desc_tail = 0;
-            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
+            let rx_desc_ring_len = rx.rx_desc_ring.as_ref().len();
+            rx.rx_desc_head = rx_desc_ring_len as u32 - 1;
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
+            let mut dma_info_temp = Vec::new();
 
-            let rx_buffer_size = MCLBYTES as usize * DEFAULT_RXD;
-            let read_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                rx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IxgbeDriverErr::DMAPool)?;
-
-            let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
-            for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+            for desc in rx_desc_ring {
+                let read_buf: DMAPool<[u8; PAGESIZE]> =
+                    DMAPool::new(self.info.get_segment_group() as usize, 1)
+                        .ok_or(IxgbeDriverErr::DMAPool)?;
+                let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+                //if i == 14 {
+                //log::info!(
+                //"i: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
+                //i,
+                //buf_phy_addr,
+                //read_buf.get_virt_addr().as_usize(),
+                //);
+                //}
                 desc.data = [0; 2];
-                desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
+                desc.read.pkt_addr = buf_phy_addr as u64;
+                dma_info_temp.push((
+                    read_buf.get_virt_addr().as_usize(),
+                    buf_phy_addr,
+                    self.info.get_segment_group() as usize,
+                ));
+                read_buf.leak();
             }
 
-            rx.read_buf = Some(read_buf);
+            for (j, info) in dma_info_temp.iter().enumerate() {
+                let (virt_addr, buf_phy_addr, _segment_group) = info.clone();
+                //if i == 14 {
+                //log::info!(
+                //"index: {:?}, buf_phy_addr:{:?} virt_addr:{:?}",
+                //rx_desc_ring_len * i + j,
+                //buf_phy_addr,
+                //virt_addr,
+                //);
+                //}
+                rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
+            }
         }
 
         Ok(())
@@ -1552,18 +1562,30 @@ impl Ixgbe {
         Ok(())
     }
 
+    unsafe fn invalidate_cache(&self, addr: *const u8) -> Result<(), IxgbeDriverErr> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            core::arch::x86_64::_mm_clflush(addr);
+            Ok(())
+        }
+
+        #[cfg(not(any(target_arch = "x86_64")))]
+        {
+            let _ = addr;
+            Err(IxgbeDriverErr::NotSupported)
+        }
+    }
+
     fn rx_recv(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
         let que = &self.que[que_id];
 
         {
             let inner = self.inner.read();
+            let numa_id = inner.info.get_segment_group() as usize;
+            drop(inner);
 
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
-
-            if rx.read_buf.is_none() {
-                return Ok(());
-            }
 
             let mut i = rx.rx_desc_tail;
 
@@ -1576,9 +1598,10 @@ impl Ixgbe {
                     break;
                 }
 
-                let rx_desc_ring = rx.rx_desc_ring.as_ref();
+                let rx_desc_ring = rx.rx_desc_ring.as_mut();
                 let rx_desc_ring_len = rx_desc_ring.len();
-                let desc = &rx_desc_ring[i];
+
+                let desc = &mut rx.rx_desc_ring.as_mut()[i];
 
                 let staterr;
                 unsafe {
@@ -1613,13 +1636,37 @@ impl Ixgbe {
 
                 if !eop {
                     drop(rx);
-                    drop(inner);
                     return self.recv_jumbo(que_id);
                 } else {
-                    let read_buf = rx.read_buf.as_ref().unwrap();
-                    let src = &read_buf.as_ref()[i];
-                    let data = src[0..len as usize].to_vec();
-                    rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
+                    let read_buf: DMAPool<[u8; PAGESIZE]> =
+                        DMAPool::new(numa_id, 1).ok_or(IxgbeDriverErr::DMAPool)?;
+                    let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+                    desc.read.pkt_addr = buf_phy_addr as u64;
+
+                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
+
+                    let ptr = virt_addr as *mut [u8; PAGESIZE];
+                    let data;
+                    unsafe {
+                        data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
+                            ptr, phy_addr,
+                            PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
+                            numa_id,
+                        )
+                        .unwrap();
+                    }
+
+                    rx.dma_info[index] =
+                        (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
+
+                    // Need clflush
+                    unsafe {
+                        self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
+                    }
+
+                    read_buf.leak();
+                    rx.read_queue.push(EtherFrameDMA { data, vlan }).unwrap();
                 }
 
                 i += 1;
@@ -1685,17 +1732,19 @@ impl Ixgbe {
     #[allow(clippy::type_complexity)]
     fn tx_offload(
         &self,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameDMAcsum,
     ) -> Result<(bool, u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
         let mut vlan_macip_lens = 0;
         let mut olinfo_status = 0;
         let mut offload = false;
 
-        let ext = extract_headers(ether_frame.data).or(Err(IxgbeDriverErr::InvalidPacket))?;
+        let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let ext = extract_headers(slice).or(Err(IxgbeDriverErr::InvalidPacket))?;
 
         // Depend on whether doing TSO or not
         // Indicate the whole packet as payload when not doing TSO
-        olinfo_status |= (ether_frame.data.len() as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
+        olinfo_status |= (ether_frame.len as u32) << IXGBE_ADVTXD_PAYLEN_SHIFT;
 
         vlan_macip_lens |=
             (core::mem::size_of::<EtherHeader>() as u32) << IXGBE_ADVTXD_MACLEN_SHIFT;
@@ -1774,7 +1823,7 @@ impl Ixgbe {
     fn tx_ctx_setup(
         &self,
         tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameDMAcsum,
         head: usize,
     ) -> Result<(u32, u32, u32, u16, Option<u8>), IxgbeDriverErr> {
         let mut cmd_type_len = 0;
@@ -1802,6 +1851,19 @@ impl Ixgbe {
         type_tucmd_mlhl |= IXGBE_ADVTXD_DCMD_DEXT | IXGBE_ADVTXD_DTYP_CTXT;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
+        if used {
+            let ptr = virt_addr as *mut [u8; PAGESIZE];
+            let data;
+            unsafe {
+                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                    .unwrap();
+            }
+            drop(data);
+        }
+
+        tx.dma_info[head] = (false, 0, 0, 0);
+
         // Now copy bits into descriptor
         desc.adv_ctx.vlan_macip_lens = u32::to_le(vlan_macip_lens);
         desc.adv_ctx.type_tucmd_mlhl = u32::to_le(type_tucmd_mlhl);
@@ -1813,8 +1875,8 @@ impl Ixgbe {
 
     /// This routine maps the mbufs to tx descriptors, allowing the
     /// TX engine to transmit the packets.
-    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameRef) -> Result<usize, IxgbeDriverErr> {
-        let len = ether_frame.data.len();
+    fn encap(&self, tx: &mut Tx, ether_frame: &EtherFrameDMAcsum) -> Result<usize, IxgbeDriverErr> {
+        let len = ether_frame.len;
         if len > MCLBYTES as usize {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
@@ -1833,22 +1895,37 @@ impl Ixgbe {
         if head == tx_slots {
             head = 0;
         }
-        let addr = unsafe {
-            let write_buf = tx.write_buf.as_mut().unwrap();
-            let dst = &mut write_buf.as_mut()[head];
-            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            // TODO: cksum offloading
-            //if let Some(cksum_offset) = cksum_offset {
-            //log::info!("cksum: {}", cksum_pseudo);
-            //core::ptr::write(
-            //dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
-            //cksum_pseudo.to_be(),
-            //);
-            //}
-            (write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
-        };
+        //// TODO: cksum offloading
+        ////if let Some(cksum_offset) = cksum_offset {
+        ////log::info!("cksum: {}", cksum_pseudo);
+        ////core::ptr::write(
+        ////dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
+        ////cksum_pseudo.to_be(),
+        ////);
+        ////}
+        //(write_buf.get_phy_addr().as_usize() + head * MCLBYTES as usize) as u64
+        //};
+        let addr = ether_frame.data.get_phy_addr().as_usize() as u64;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
+        if used {
+            let ptr = virt_addr as *mut [u8; PAGESIZE];
+            let data;
+            unsafe {
+                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                    .unwrap();
+            }
+            drop(data);
+        }
+
+        tx.dma_info[head] = (
+            true,
+            ether_frame.data.get_virt_addr().as_usize(),
+            ether_frame.data.get_phy_addr().as_usize(),
+            ether_frame.data.get_numa_id(),
+        );
+
         desc.adv_tx.buffer_addr = u64::to_le(addr);
         desc.adv_tx.cmd_type_len = u32::to_le(
             tx.txd_cmd | cmd_type_len | IXGBE_TXD_CMD_EOP | IXGBE_TXD_CMD_RS | len as u32,
@@ -1865,19 +1942,21 @@ impl Ixgbe {
         Ok(ntxc as usize + 1)
     }
 
-    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IxgbeDriverErr> {
+    fn send(&self, que_id: usize) -> Result<(), IxgbeDriverErr> {
         let inner = self.inner.read();
 
         if !inner.link_active {
             return Ok(());
         }
+        let num_segs = inner.num_segs;
+        drop(inner);
 
         let mut node = MCSNode::new();
         let mut tx = self.que[que_id].tx.lock(&mut node);
 
         let sc_tx_slots = tx.tx_desc_ring.as_ref().len();
 
-        let head = tx.tx_desc_head;
+        let head: usize = tx.tx_desc_head;
         let mut free = tx.tx_desc_tail;
         if free <= head {
             free += sc_tx_slots;
@@ -1885,24 +1964,27 @@ impl Ixgbe {
         free -= head;
 
         let mut post = false;
-        for ether_frame in ether_frames.iter() {
+        //for ether_frame in tx.write_queue.iter() {
+        while !tx.write_queue.is_empty() {
+            let ether_frame = tx.write_queue.pop().unwrap();
             // Check that we have the minimal number of TX descriptors.
             // use 2 because cksum setup can use an extra slot
-            if free <= inner.num_segs as usize + 2 {
+            if free <= num_segs as usize + 2 {
                 break;
             }
 
-            let used = self.encap(&mut tx, ether_frame)?;
+            let used = self.encap(&mut tx, &ether_frame)?;
 
             free -= used;
 
             post = true;
+            ether_frame.data.leak();
         }
 
+        let inner = self.inner.read();
         if post {
             ixgbe_hw::write_reg(&inner.info, IXGBE_TDT(que_id), tx.tx_desc_head as u32)?;
         }
-
         drop(inner);
 
         Ok(())
@@ -2003,7 +2085,7 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IxgbeDriverErr> {
 
 /// Allocate memory for the transmit and receive rings, and then
 /// the descriptors associated with each, called only once at attach.
-fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
+fn allocate_queue(info: &PCIeInfo, que_num: usize, que_id: usize) -> Result<Queue, IxgbeDriverErr> {
     let tx_size = core::mem::size_of::<TxDescriptor>() * DEFAULT_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
 
@@ -2015,20 +2097,25 @@ fn allocate_queue(info: &PCIeInfo, que_id: usize) -> Result<Queue, IxgbeDriverEr
     let rx_desc_ring = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
         .ok_or(IxgbeDriverErr::DMAPool)?;
 
+    let mut dma_info_tx = Vec::with_capacity(DEFAULT_TXD);
+    dma_info_tx.resize(DEFAULT_TXD, (false, 0, 0, 0));
     let tx = Tx {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
+        write_queue: RingQ::new(SEND_QUEUE_SIZE),
         txd_cmd: IXGBE_TXD_CMD_IFCS,
-        write_buf: None,
+        dma_info: dma_info_tx,
     };
 
+    let mut dma_info_rx = Vec::with_capacity(DEFAULT_RXD * que_num as usize);
+    dma_info_rx.resize(DEFAULT_RXD * que_num as usize, (0, 0, 0));
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
         rx_desc_ring,
-        read_buf: None,
         read_queue: RingQ::new(RECV_QUEUE_SIZE),
+        dma_info: dma_info_rx,
     };
 
     let que = Queue {
@@ -2107,7 +2194,7 @@ impl NetDevice for Ixgbe {
         inner.hw.get_mac_addr()
     }
 
-    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+    fn recv(&self, que_id: usize) -> Result<Option<EtherFrameDMA>, NetDevError> {
         {
             let mut node = MCSNode::new();
             let mut rx = self.que[que_id].rx.lock(&mut node);
@@ -2142,9 +2229,20 @@ impl NetDevice for Ixgbe {
         true
     }
 
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
-        let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+    fn send(&self, que_id: usize) -> Result<(), NetDevError> {
+        self.send(que_id).or(Err(NetDevError::DeviceError))
+    }
+
+    fn push(&self, data: EtherFrameDMAcsum, que_id: usize) -> Result<(), NetDevError> {
+        let mut node = MCSNode::new();
+        let mut tx = self.que[que_id].tx.lock(&mut node);
+
+        let e = tx.write_queue.push(data);
+        if e.is_err() {
+            return Err(NetDevError::DeviceError); // TODO: Need to create something else for this error.
+        }
+
+        Ok(())
     }
 
     fn up(&self) -> Result<(), NetDevError> {
@@ -2299,5 +2397,11 @@ impl NetDevice for Ixgbe {
 
     fn tick_msec(&self) -> Option<u64> {
         Some(200)
+    }
+
+    fn get_segment_group(&self) -> Option<u16> {
+        let inner = self.inner.read();
+
+        Some(inner.info.get_segment_group())
     }
 }

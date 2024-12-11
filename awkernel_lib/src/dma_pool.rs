@@ -74,6 +74,8 @@ impl<T> DMAPool<T> {
         let phy_addr = paging::vm_to_phy(virt_addr).unwrap();
         let ptr = NonNull::new(pool.as_ptr() as *mut T)?;
 
+        //log::info!("buf_phy_addr:{:?} virt_addr:{:?}", phy_addr, virt_addr);
+
         Some(Self {
             virt_addr,
             phy_addr,
@@ -87,6 +89,28 @@ impl<T> DMAPool<T> {
         let ptr = self.ptr;
         core::mem::forget(self);
         ptr
+    }
+
+    pub unsafe fn from_raw_parts(
+        ptr: *mut T,
+        phy_addr: usize,
+        size: usize,
+        numa_id: usize,
+    ) -> Option<Self> {
+        assert!(numa_id < NUMA_NUM_MAX);
+
+        let virt_addr = VirtAddr::new(ptr as usize);
+        let phy_addr = PhyAddr::new(phy_addr);
+        let ptr = NonNull::new(ptr)?;
+        //let ptr = NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr, size));
+
+        Some(Self {
+            virt_addr,
+            phy_addr,
+            size,
+            numa_id,
+            ptr,
+        })
     }
 
     #[inline(always)]
