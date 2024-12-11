@@ -221,9 +221,8 @@ test: FORCE
 	cargo test_awkernel_drivers
 
 loom: FORCE
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_mcslock --release -- --nocapture
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_rwlock --release -- --nocapture
-#	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_bravo_rwlock --release -- --nocapture
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_sync --test model_check_mcslock --release -- --nocapture
+	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_sync --test model_check_rwlock --release -- --nocapture
 
 # Format
 

@@ -62,10 +62,6 @@ optional = true
 path = "../applications/load_test_udp"
 optional = true
 
-[dependencies.test_bravo_rwlock]
-path = "../applications/test_bravo_rwlock"
-optional = true
-
 [features]
 default = ["test_gedf"]
 perf = ["awkernel_services/perf"]
@@ -80,7 +76,6 @@ test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
 load_test_udp = ["dep:load_test_udp"]
-test_bravo_rwlock = ["dep:test_bravo_rwlock"]
 
 # Measurements
 measure_channel = ["dep:measure_channel"]

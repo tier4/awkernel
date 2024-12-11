@@ -45,7 +45,7 @@ impl<T: Send> RwLock<T> {
     /// acquire reader lock
     #[inline(always)]
     pub fn read(&self) -> RwLockReadGuard<T> {
-        let _interrupt_guard = crate::interrupt::InterruptGuard::new();
+        let _interrupt_guard = crate::interrupt_guard::InterruptGuard::new();
 
         let mut s = self.state.load(Ordering::Relaxed);
         loop {
@@ -61,7 +61,7 @@ impl<T: Send> RwLock<T> {
                             rwlock: self,
                             _interrupt_guard,
                             _phantom: Default::default(),
-                        }
+                        };
                     }
                     Err(e) => s = e,
                 }
@@ -85,7 +85,7 @@ impl<T: Send> RwLock<T> {
     /// acquire writer lock
     #[inline(always)]
     pub fn write(&self) -> RwLockWriteGuard<T> {
-        let _interrupt_guard = crate::interrupt::InterruptGuard::new();
+        let _interrupt_guard = crate::interrupt_guard::InterruptGuard::new();
 
         let mut s = self.state.load(Ordering::Relaxed);
         loop {
@@ -101,7 +101,7 @@ impl<T: Send> RwLock<T> {
                             rwlock: self,
                             _interrupt_guard,
                             _phantom: Default::default(),
-                        }
+                        };
                     }
                     Err(e) => {
                         s = e;
@@ -144,7 +144,7 @@ impl<T: Send> RwLock<T> {
 
 pub struct RwLockReadGuard<'a, T: Send> {
     rwlock: &'a RwLock<T>,
-    _interrupt_guard: crate::interrupt::InterruptGuard,
+    _interrupt_guard: crate::interrupt_guard::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 
@@ -163,7 +163,7 @@ impl<T: Send> RwLockReadGuard<'_, T> {
 
 pub struct RwLockWriteGuard<'a, T: Send> {
     rwlock: &'a RwLock<T>,
-    _interrupt_guard: crate::interrupt::InterruptGuard,
+    _interrupt_guard: crate::interrupt_guard::InterruptGuard,
     _phantom: PhantomData<*mut ()>,
 }
 

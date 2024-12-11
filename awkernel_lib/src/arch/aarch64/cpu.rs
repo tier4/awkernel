@@ -50,10 +50,10 @@ pub unsafe fn set_max_affinity(aff0_max: u64, aff1_max: u64, aff2_max: u64, aff3
     AFF0_X_AFF1_X_AFF2 = aff0_max * aff1_max * aff2_max;
 
     let mut id = 0;
-    for aff3 in 0..aff3_max {
-        for aff2 in 0..aff2_max {
-            for aff1 in 0..aff1_max {
-                for aff0 in 0..aff0_max {
+    for aff3 in 0..=aff3_max {
+        for aff2 in 0..=aff2_max {
+            for aff1 in 0..=aff1_max {
+                for aff0 in 0..=aff0_max {
                     CPU_LIST[id] = Some((aff0 as u8, aff1 as u8, aff2 as u8, aff3 as u8));
                     id += 1;
                 }
