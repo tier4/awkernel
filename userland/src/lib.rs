@@ -34,8 +34,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_gedf")]
     test_gedf::run().await; // test for Global Earliest Deadline First scheduler
 
-    #[cfg(feature = "measure_channel")]
-    measure_channel::run().await; // measure channel
+    #[cfg(feature = "test_measure_channel")]
+    test_measure_channel::run().await; // measure channel
 
     #[cfg(feature = "measure_channel_heavy")]
     measure_channel_heavy::run().await; // measure channel heavy
