@@ -54,8 +54,8 @@ optional = true
 path = "../applications/tests/test_measure_channel"
 optional = true
 
-[dependencies.measure_channel_heavy]
-path = "../applications/measure_channel_heavy"
+[dependencies.test_measure_channel_heavy]
+path = "../applications/tests/test_measure_channel_heavy"
 optional = true
 
 [dependencies.load_test_udp]
@@ -78,6 +78,4 @@ test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
 load_test_udp = ["dep:load_test_udp"]
 test_measure_channel = ["dep:test_measure_channel"]
-
-# Measurements
-measure_channel_heavy = ["dep:measure_channel_heavy"]
+test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
