@@ -963,7 +963,7 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
 }
 
 #[inline(always)]
-pub fn get_task_priority_by_task_id(task_id: u32) -> Option<u8> {
+fn get_task_priority_by_task_id(task_id: u32) -> Option<u8> {
     match get_scheduler_type_by_task_id(task_id) {
         Some(SchedulerType::PrioritizedFIFO(priority)) => Some(priority),
         Some(SchedulerType::PriorityBasedRR(priority)) => Some(priority),
@@ -972,7 +972,7 @@ pub fn get_task_priority_by_task_id(task_id: u32) -> Option<u8> {
 }
 
 #[inline(always)]
-pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
+fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
@@ -1069,8 +1069,12 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
                 lowest_task_info
             }
             Some((_, _, lowest_task_id)) => {
-                if compare_tasks(preemptable_task.task_id, lowest_task_id) {
-                    Some(current_task_info)
+                if let Some(lower_priority_task_id) = get_lower_priority_task(preemptable_task.task_id, lowest_task_id) {
+                    if lower_priority_task_id == preemptable_task.task_id {
+                        Some(current_task_info)
+                    } else {
+                        lowest_task_info
+                    }
                 } else {
                     lowest_task_info
                 }
@@ -1081,43 +1085,79 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
     lowest_task_info
 }
 
-/// If the current task has a lower priority than the lowest priority task, return true.
-pub fn compare_tasks(current_task_id: u32, lowest_task_id: u32) -> bool {
-    match get_scheduler_type_by_task_id(current_task_id) {
-        Some(SchedulerType::GEDF(_)) => {
-            let current_absolute_deadline = get_absolute_deadline_by_task_id(current_task_id);
-            let lowest_absolute_deadline = get_absolute_deadline_by_task_id(lowest_task_id);
+/// Compare two tasks based on the current scheduler's criteria.
+/// Returns `Some(task_b_id)` if `task_a_id` has a lower priority than `task_b_id`,
+/// otherwise returns `None`.
+pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {
+    let scheduler_a = get_scheduler_type_by_task_id(task_a_id);
+    let scheduler_b = get_scheduler_type_by_task_id(task_b_id);
 
-            match (current_absolute_deadline, lowest_absolute_deadline) {
-                (Some(current_absolute_deadline), Some(lowest_absolute_deadline)) => {
-                    current_absolute_deadline > lowest_absolute_deadline
-                }
-                _ => false,
-            }
+    if scheduler_a.is_none() || scheduler_b.is_none() {
+        log::warn!(
+            "Invalid task IDs: task_a_id = {}, task_b_id = {}",
+            task_a_id,
+            task_b_id
+        );
+        return None;
+    }
+
+    if core::mem::discriminant(&scheduler_a) != core::mem::discriminant(&scheduler_b) {
+        log::warn!(
+            "Tasks have different scheduler types: {:?} (task_a) vs {:?} (task_b)",
+            scheduler_a,
+            scheduler_b
+        );
+        return None;
+    }
+
+    match scheduler_a {
+        Some(SchedulerType::GEDF(_)) => {
+            compare_values(
+                get_absolute_deadline_by_task_id(task_a_id),
+                get_absolute_deadline_by_task_id(task_b_id),
+                task_a_id,
+                task_b_id,
+                true, // Larger absolute deadline is a lower priority.
+            )
         }
         Some(SchedulerType::PrioritizedFIFO(_)) | Some(SchedulerType::PriorityBasedRR(_)) => {
-            let current_task_priority = get_task_priority_by_task_id(current_task_id);
-            let lowest_task_priority = get_task_priority_by_task_id(lowest_task_id);
+            compare_values(
+                get_task_priority_by_task_id(task_a_id),
+                get_task_priority_by_task_id(task_b_id),
+                task_a_id,
+                task_b_id,
+                true, // Larger priority is a lower priority.
+            )
+        }
+        Some(_) => {
+            compare_values(
+                get_last_executed_by_task_id(task_a_id),
+                get_last_executed_by_task_id(task_b_id),
+                task_a_id,
+                task_b_id,
+                false, // Smaller last executed time is a lower priority.
+            )
+        }
+        None => None,
+    }
+}
 
-            match (current_task_priority, lowest_task_priority) {
-                (Some(current_task_priority), Some(lowest_task_priority)) => {
-                    current_task_priority > lowest_task_priority
-                }
-                _ => false,
+fn compare_values<T: Ord>(
+    value_a: Option<T>,
+    value_b: Option<T>,
+    task_a_id: u32,
+    task_b_id: u32,
+    larger_is_low_priority: bool,
+) -> Option<u32> {
+    match (value_a, value_b) {
+        (Some(value_a), Some(value_b)) => {
+            if (value_a > value_b) == larger_is_low_priority {
+                Some(task_a_id)
+            } else {
+                Some(task_b_id)
             }
         }
-        None => false,
-        _ => {
-            let current_last_executed = get_last_executed_by_task_id(current_task_id);
-            let lowest_last_executed = get_last_executed_by_task_id(lowest_task_id);
-
-            match (current_last_executed, lowest_last_executed) {
-                (Some(current_last_executed), Some(lowest_last_executed)) => {
-                    current_last_executed < lowest_last_executed
-                }
-                _ => false,
-            }
-        }
+        _ => None,
     }
 }
 

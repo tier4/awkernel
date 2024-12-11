@@ -3,7 +3,7 @@
 
 use crate::task::{
     find_lowest_priority_task, get_current_task, get_preemptable_tasks,
-    get_scheduler_type_by_task_id, preempt_task,
+    get_scheduler_type_by_task_id, preempt_task, get_lower_priority_task,
 };
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
@@ -24,7 +24,6 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
-static PREEMPT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -96,26 +95,36 @@ pub(crate) trait Scheduler {
     /// Get the priority of the scheduler.
     fn priority(&self) -> u8;
 
-    fn invoke_sched_preemption(&self) -> bool {
-        let mut node = MCSNode::new();
-        let _guard = PREEMPT_LOCK.lock(&mut node);
+    fn invoke_preemption(&self, wake_task_id:u32) {
         let preemptable_tasks = match get_preemptable_tasks() {
             Some(preemptable_tasks) => preemptable_tasks,
-            None => return false,
+            None => return,
         };
 
         let (lowest_sched_priority, cpu_id, task_id) =
             match find_lowest_priority_task(preemptable_tasks) {
                 Some(lowest_task_info) => lowest_task_info,
-                None => return false,
+                None => return,
             };
 
         if self.priority() < lowest_sched_priority {
             preempt_task(task_id, cpu_id);
-            return true;
+            // log::info!("SCHED task_id: {} on CPU: {} is preempted by task_id: {} ", task_id, cpu_id, wake_task_id);
+            return;
         }
 
-        false
+        if self.priority() == lowest_sched_priority {
+            match self.scheduler_name() {
+                SchedulerType::GEDF(_) => {
+                    if let Some(lower_priority_task_id) = get_lower_priority_task(task_id, wake_task_id) {
+                        if lower_priority_task_id == task_id {
+                            preempt_task(task_id, cpu_id);
+                        }
+                    }
+                }
+                _ => {} // Do nothing
+            }
+        }
     }
 }
 
