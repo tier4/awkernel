@@ -202,59 +202,6 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-fn update_udp_checksum(frame: &mut [u8]) {
-    let ip_header_len = ((frame[14] & 0x0F) * 4) as usize;
-    let udp_start = 14 + ip_header_len;
-
-    // チェックサムフィールドを0にする
-    frame[udp_start + 6] = 0;
-    frame[udp_start + 7] = 0;
-
-    let mut sum: u32 = 0;
-
-    // 擬似ヘッダ
-    // 送信元IPアドレス (4バイト)
-    for i in (26..30).step_by(2) {
-        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-    }
-    // 宛先IPアドレス (4バイト)
-    for i in (30..34).step_by(2) {
-        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-    }
-
-    // プロトコル (UDP = 17)
-    sum += frame[23] as u32;
-
-    // UDPパケット長
-    let udp_len = ((frame[udp_start + 4] as u16) << 8 | frame[udp_start + 5] as u16) as u32;
-    sum += udp_len;
-
-    // UDPヘッダとデータの処理
-    let udp_end = udp_start + udp_len as usize;
-    for i in (udp_start..udp_end).step_by(2) {
-        if i + 1 < frame.len() {
-            sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-        } else {
-            sum += (frame[i] as u32) << 8;
-        }
-    }
-
-    // 上位ビットを折り返して加算
-    while (sum >> 16) > 0 {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-
-    // 1の補数を取る
-    let checksum = !sum as u16;
-
-    // チェックサム 0 は 0xFFFFとして送信
-    let checksum = if checksum == 0 { 0xFFFF } else { checksum };
-
-    // チェックサムを挿入
-    frame[udp_start + 6] = (checksum >> 8) as u8;
-    frame[udp_start + 7] = (checksum & 0xFF) as u8;
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IxgbeDriverErr {
     InitializeInterrupt,
@@ -1700,26 +1647,11 @@ impl Ixgbe {
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
-                    //unsafe {
-                    //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                    //if data[36] == 78 && data[37] == 80 {
-                    //let t = uptime_nano();
-                    //let bytes = t.to_le_bytes();
-                    //data[44..60].copy_from_slice(&bytes);
-                    //}
-                    //}
                     let data;
-                    //log::debug!(
-                    //"que_id: {:?} phy_addr:{:?} virt_addr:{:?}",
-                    //que_id,
-                    //phy_addr,
-                    //virt_addr,
-                    //);
-                    //log::debug!("que_id:{:?} i:{:?} Packet dump: {:02x?}", que_id, i, data);
                     unsafe {
                         data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
                             ptr, phy_addr,
-                            PAGESIZE, // Not using "len" here, might be better to give the "len" information somehow to protocol stack.
+                            PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
                             numa_id,
                         )
                         .unwrap();
@@ -1949,19 +1881,6 @@ impl Ixgbe {
             return Err(IxgbeDriverErr::InvalidPacket);
         }
 
-        //let ptr = ether_frame.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
-        //unsafe {
-        //if len > 100 {
-        //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-        //if data[36] == 78 && data[37] == 80 {
-        //let t = uptime_nano();
-        //let bytes = t.to_le_bytes();
-        //data[124..140].copy_from_slice(&bytes);
-        //update_udp_checksum(data);
-        //}
-        //}
-        //}
-
         let mut head = tx.tx_desc_head;
 
         let (ntxc, mut cmd_type_len, olinfo_status, _cksum_pseudo, _cksum_offset) =
@@ -1976,10 +1895,6 @@ impl Ixgbe {
         if head == tx_slots {
             head = 0;
         }
-        //let addr = unsafe {
-        //let write_buf = tx.write_buf.as_mut().unwrap();
-        //let dst = &mut write_buf.as_mut()[head];
-        //core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
         //// TODO: cksum offloading
         ////if let Some(cksum_offset) = cksum_offset {
         ////log::info!("cksum: {}", cksum_pseudo);

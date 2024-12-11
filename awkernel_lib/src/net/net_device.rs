@@ -150,6 +150,7 @@ pub struct EtherFrameBuf {
     pub vlan: Option<u16>,
 }
 
+// RECONSIDER: Might be better to merge EtherFrameDMA and EtherFrameDMAcsum
 #[derive(Debug)]
 pub struct EtherFrameDMA {
     pub data: DMAPool<[u8; PAGESIZE]>,

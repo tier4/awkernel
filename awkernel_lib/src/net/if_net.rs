@@ -72,9 +72,6 @@ struct NetDriverRef<'a> {
     tx_ringq: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
 }
 
-static COUNT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-static RECV_COUNT: Mutex<Vec<u32>> = Mutex::new(Vec::new());
-
 impl NetDriverRef<'_> {
     fn tx_packet_header_flags(&self, data: &[u8]) -> PacketHeaderFlags {
         let mut flags = PacketHeaderFlags::empty();
@@ -207,10 +204,6 @@ pub(super) struct IfNetInner {
 
 impl IfNetInner {
     #[inline(always)]
-    //pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
-    //(&mut self.interface, &mut self.socket_set)
-    //}
-
     pub fn get_interface(&mut self) -> &mut Interface {
         &mut self.interface
     }
@@ -228,59 +221,6 @@ impl IfNetInner {
 
         self.default_gateway_ipv4 = Some(gateway);
     }
-}
-
-fn update_udp_checksum(frame: &mut [u8]) {
-    let ip_header_len = ((frame[14] & 0x0F) * 4) as usize;
-    let udp_start = 14 + ip_header_len;
-
-    // チェックサムフィールドを0にする
-    frame[udp_start + 6] = 0;
-    frame[udp_start + 7] = 0;
-
-    let mut sum: u32 = 0;
-
-    // 擬似ヘッダ
-    // 送信元IPアドレス (4バイト)
-    for i in (26..30).step_by(2) {
-        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-    }
-    // 宛先IPアドレス (4バイト)
-    for i in (30..34).step_by(2) {
-        sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-    }
-
-    // プロトコル (UDP = 17)
-    sum += frame[23] as u32;
-
-    // UDPパケット長
-    let udp_len = ((frame[udp_start + 4] as u16) << 8 | frame[udp_start + 5] as u16) as u32;
-    sum += udp_len;
-
-    // UDPヘッダとデータの処理
-    let udp_end = udp_start + udp_len as usize;
-    for i in (udp_start..udp_end).step_by(2) {
-        if i + 1 < frame.len() {
-            sum += ((frame[i] as u32) << 8 | frame[i + 1] as u32) as u32;
-        } else {
-            sum += (frame[i] as u32) << 8;
-        }
-    }
-
-    // 上位ビットを折り返して加算
-    while (sum >> 16) > 0 {
-        sum = (sum & 0xFFFF) + (sum >> 16);
-    }
-
-    // 1の補数を取る
-    let checksum = !sum as u16;
-
-    // チェックサム 0 は 0xFFFFとして送信
-    let checksum = if checksum == 0 { 0xFFFF } else { checksum };
-
-    // チェックサムを挿入
-    frame[udp_start + 6] = (checksum >> 8) as u8;
-    frame[udp_start + 7] = (checksum & 0xFF) as u8;
 }
 
 impl IfNet {
@@ -580,18 +520,12 @@ impl IfNet {
             interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
-        let mut count = 0;
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                //if len > 100 && slice[36] == 78 && slice[37] == 80 {
-                //let t = uptime_nano();
-                //let bytes = t.to_le_bytes();
-                //slice[108..124].copy_from_slice(&bytes);
-                //}
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -602,21 +536,10 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
-                //count += 1;
             } else {
                 break;
             }
         }
-
-        //let mut node = MCSNode::new();
-        //let mut count_vec = COUNT.lock(&mut node);
-        //count_vec.push(count);
-        //if count_vec.len() == 10000 {
-        //if let Some(slice) = count_vec.as_slice().get(100..110) {
-        //log::info!("poll_tx_only count:{:?}", slice);
-        //}
-        //count_vec.clear();
-        //}
 
         drop(device_ref);
         drop(tx_ringq);
@@ -636,17 +559,6 @@ impl IfNet {
         // receive packets from the RX queue.
         while !rx_ringq.is_full() {
             if let Ok(Some(data)) = ref_net_driver.inner.recv(que_id) {
-                //unsafe {
-                //let ptr = data.data.get_virt_addr().as_usize() as *mut [u8; PAGESIZE];
-                //let len = 142;
-                //let data = core::slice::from_raw_parts_mut(ptr as *mut u8, len as usize);
-                //if data[36] == 78 && data[37] == 80 {
-                //let t = uptime_nano();
-                //let bytes = t.to_le_bytes();
-                //data[60..76].copy_from_slice(&bytes);
-                //update_udp_checksum(data);
-                //}
-                //}
                 let _ = rx_ringq.push(data);
             } else {
                 break;
@@ -676,18 +588,12 @@ impl IfNet {
             interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
-        let mut count = 0;
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
                 let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
-                //if len > 100 && slice[36] == 78 && slice[37] == 80 {
-                //let t = uptime_nano();
-                //let bytes = t.to_le_bytes();
-                //slice[108..124].copy_from_slice(&bytes);
-                //}
 
                 let data = EtherFrameDMAcsum {
                     data,
@@ -698,21 +604,10 @@ impl IfNet {
                 if self.net_device.push(data, que_id).is_err() {
                     log::error!("Failed to push a packet.");
                 }
-                //count += 1;
             } else {
                 break;
             }
         }
-
-        //let mut node = MCSNode::new();
-        //let mut count_vec = RECV_COUNT.lock(&mut node);
-        //count_vec.push(count);
-        //if count_vec.len() == 10000 {
-        //if let Some(slice) = count_vec.as_slice().get(100..110) {
-        //log::info!("poll_rx count:{:?}", slice);
-        //}
-        //count_vec.clear();
-        //}
 
         let _ = self.net_device.send(que_id);
 
@@ -809,25 +704,9 @@ impl IfNet {
     }
 }
 
-//pub struct NRxToken {
-//data: EtherFrameBuf,
-//}
-
 pub struct NRxToken {
     data: EtherFrameDMA,
 }
-
-//impl phy::RxToken for NRxToken {
-///// Store packet data into the buffer.
-///// Closure f will map the raw bytes to the form that
-///// could be used in the higher layer of `smoltcp`.
-//fn consume<R, F>(mut self, f: F) -> R
-//where
-//F: FnOnce(&mut [u8]) -> R,
-//{
-//f(&mut self.data.data)
-//}
-//}
 
 impl phy::RxToken for NRxToken {
     /// Store packet data into the buffer.
@@ -846,38 +725,13 @@ pub struct NTxToken<'a> {
     driver_ref_inner: &'a Arc<dyn NetDevice + Sync + Send>,
 }
 
-//impl phy::TxToken for NTxToken<'_> {
-//fn consume<R, F>(self, len: usize, f: F) -> R
-//where
-//F: FnOnce(&mut [u8]) -> R,
-//{
-//let mut buf = Vec::with_capacity(len);
-
-//#[allow(clippy::uninit_vec)]
-//unsafe {
-//buf.set_len(len);
-//};
-
-//let result = f(&mut buf[..len]);
-
-//let _ = self.tx_ring.push(buf);
-
-//result
-//}
-//}
-
 impl phy::TxToken for NTxToken<'_> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
         let segment_group = self.driver_ref_inner.get_segment_group().unwrap_or(0);
-        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, 1).unwrap(); // Not sure this unwrap is acceptable
-                                                                                             //log::debug!(
-                                                                                             //"phy_addr:{:?} virt_addr:{:?}",
-                                                                                             //buf.get_phy_addr(),
-                                                                                             //buf.get_virt_addr()
-                                                                                             //);
+        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, 1).unwrap(); // RECONSIDER: Not sure this unwrap is acceptable
 
         let ptr = buf.get_virt_addr().as_mut_ptr();
         let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
