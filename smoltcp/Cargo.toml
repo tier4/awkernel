@@ -176,8 +176,8 @@ required-features = [
     "socket-dns",
 ]
 
-#[dependencies]
-#awkernel_lib = { path = "../awkernel_lib" }
+[dependencies]
+awkernel_sync = { path = "../awkernel_sync" }
 
 [dependencies.bitflags]
 version = "1.0"

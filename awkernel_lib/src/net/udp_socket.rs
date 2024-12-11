@@ -220,7 +220,7 @@ impl UdpSocket {
         //let socket = inner
         //.socket_set
         //.get_mut::<smoltcp::socket::udp::Socket>(self.handle);
-        let mut socket_set = if_net.socket_set.read(); // RECONSIDER Read lock correct?
+        let socket_set = if_net.socket_set.read(); // RECONSIDER Read lock correct?
         let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_recv() {

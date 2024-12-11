@@ -15,6 +15,8 @@ use crate::wire::{Icmpv4Packet, Icmpv4Repr, Ipv4Repr};
 use crate::wire::{Icmpv6Packet, Icmpv6Repr, Ipv6Repr};
 use crate::wire::{IpAddress, IpListenEndpoint, IpProtocol, IpRepr};
 use crate::wire::{UdpPacket, UdpRepr};
+use alloc::vec::Vec;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 /// Error returned by [`Socket::bind`]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -114,10 +116,10 @@ pub type PacketBuffer<'a> = crate::storage::PacketBuffer<'a, IpAddress>;
 ///
 /// [IcmpEndpoint]: enum.IcmpEndpoint.html
 /// [bind]: #method.bind
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Socket<'a> {
     rx_buffer: PacketBuffer<'a>,
-    tx_buffer: PacketBuffer<'a>,
+    tx_buffer: Mutex<PacketBuffer<'a>>,
     /// The endpoint this socket is communicating with
     endpoint: Endpoint,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -125,7 +127,7 @@ pub struct Socket<'a> {
     #[cfg(feature = "async")]
     rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
-    tx_waker: WakerRegistration,
+    tx_waker: RwLock<WakerRegistration>,
 }
 
 impl<'a> Socket<'a> {
@@ -133,13 +135,13 @@ impl<'a> Socket<'a> {
     pub fn new(rx_buffer: PacketBuffer<'a>, tx_buffer: PacketBuffer<'a>) -> Socket<'a> {
         Socket {
             rx_buffer,
-            tx_buffer,
+            tx_buffer: Mutex::new(tx_buffer),
             endpoint: Default::default(),
             hop_limit: None,
             #[cfg(feature = "async")]
             rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
-            tx_waker: WakerRegistration::new(),
+            tx_waker: RwLock::new(WakerRegistration::new()),
         }
     }
 
@@ -175,7 +177,7 @@ impl<'a> Socket<'a> {
     ///   necessarily changed.
     #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &Waker) {
-        self.tx_waker.register(waker)
+        self.tx_waker.write().register(waker)
     }
 
     /// Return the time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
@@ -274,7 +276,7 @@ impl<'a> Socket<'a> {
         #[cfg(feature = "async")]
         {
             self.rx_waker.wake();
-            self.tx_waker.wake();
+            self.tx_waker.write().wake();
         }
 
         Ok(())
@@ -283,7 +285,9 @@ impl<'a> Socket<'a> {
     /// Check whether the transmit buffer is full.
     #[inline]
     pub fn can_send(&self) -> bool {
-        !self.tx_buffer.is_full()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        !guard.is_full()
     }
 
     /// Check whether the receive buffer is not empty.
@@ -301,7 +305,9 @@ impl<'a> Socket<'a> {
     /// Return the maximum number packets the socket can transmit.
     #[inline]
     pub fn packet_send_capacity(&self) -> usize {
-        self.tx_buffer.packet_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        guard.packet_capacity()
     }
 
     /// Return the maximum number of bytes inside the recv buffer.
@@ -313,7 +319,9 @@ impl<'a> Socket<'a> {
     /// Return the maximum number of bytes inside the transmit buffer.
     #[inline]
     pub fn payload_send_capacity(&self) -> usize {
-        self.tx_buffer.payload_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        guard.payload_capacity()
     }
 
     /// Check whether the socket is open.
@@ -328,18 +336,19 @@ impl<'a> Socket<'a> {
     /// This function returns `Err(Error::Exhausted)` if the transmit buffer is full,
     /// `Err(Error::Truncated)` if the requested size is larger than the packet buffer
     /// size, and `Err(Error::Unaddressable)` if the remote address is unspecified.
-    pub fn send(&mut self, size: usize, endpoint: IpAddress) -> Result<&mut [u8], SendError> {
+    pub fn send(&mut self, size: usize, endpoint: IpAddress) -> Result<Vec<u8>, SendError> {
         if endpoint.is_unspecified() {
             return Err(SendError::Unaddressable);
         }
 
-        let packet_buf = self
-            .tx_buffer
+        let mut node = MCSNode::new();
+        let mut guard = self.tx_buffer.lock(&mut node);
+        let packet_buf = guard
             .enqueue(size, endpoint)
             .map_err(|_| SendError::BufferFull)?;
 
         net_trace!("icmp:{}: buffer to send {} octets", endpoint, size);
-        Ok(packet_buf)
+        Ok(packet_buf.to_vec())
     }
 
     /// Enqueue a packet to be send to a given remote address and pass the buffer
@@ -360,8 +369,9 @@ impl<'a> Socket<'a> {
             return Err(SendError::Unaddressable);
         }
 
-        let size = self
-            .tx_buffer
+        let mut node = MCSNode::new();
+        let mut guard = self.tx_buffer.lock(&mut node);
+        let size = guard
             .enqueue_with_infallible(max_size, endpoint, f)
             .map_err(|_| SendError::BufferFull)?;
 
@@ -373,7 +383,7 @@ impl<'a> Socket<'a> {
     ///
     /// See also [send](#method.send).
     pub fn send_slice(&mut self, data: &[u8], endpoint: IpAddress) -> Result<(), SendError> {
-        let packet_buf = self.send(data.len(), endpoint)?;
+        let mut packet_buf = self.send(data.len(), endpoint)?;
         packet_buf.copy_from_slice(data);
         Ok(())
     }
@@ -525,102 +535,108 @@ impl<'a> Socket<'a> {
         self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&self, cx: &mut Context, emit: F) -> Result<(), E>
     where
         F: FnOnce(&mut Context, (IpRepr, IcmpRepr)) -> Result<(), E>,
     {
         let hop_limit = self.hop_limit.unwrap_or(64);
-        let res = self.tx_buffer.dequeue_with(|remote_endpoint, packet_buf| {
-            net_trace!(
-                "icmp:{}: sending {} octets",
-                remote_endpoint,
-                packet_buf.len()
-            );
-            match *remote_endpoint {
-                #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv4(&dst_addr) {
-                        Some(addr) => addr,
-                        None => {
-                            net_trace!(
-                                "icmp:{}: not find suitable source address, dropping",
-                                remote_endpoint
-                            );
-                            return Ok(());
-                        }
-                    };
-                    let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
-                    let repr = match Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored()) {
-                        Ok(x) => x,
-                        Err(_) => {
-                            net_trace!(
-                                "icmp:{}: malformed packet in queue, dropping",
-                                remote_endpoint
-                            );
-                            return Ok(());
-                        }
-                    };
-                    let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-                        src_addr,
-                        dst_addr,
-                        next_header: IpProtocol::Icmp,
-                        payload_len: repr.buffer_len(),
-                        hop_limit,
-                    });
-                    emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
+        let mut node = MCSNode::new();
+        let res = self
+            .tx_buffer
+            .lock(&mut node)
+            .dequeue_with(|remote_endpoint, packet_buf| {
+                net_trace!(
+                    "icmp:{}: sending {} octets",
+                    remote_endpoint,
+                    packet_buf.len()
+                );
+                match *remote_endpoint {
+                    #[cfg(feature = "proto-ipv4")]
+                    IpAddress::Ipv4(dst_addr) => {
+                        let src_addr = match cx.get_source_address_ipv4(&dst_addr) {
+                            Some(addr) => addr,
+                            None => {
+                                net_trace!(
+                                    "icmp:{}: not find suitable source address, dropping",
+                                    remote_endpoint
+                                );
+                                return Ok(());
+                            }
+                        };
+                        let packet = Icmpv4Packet::new_unchecked(&*packet_buf);
+                        let repr =
+                            match Icmpv4Repr::parse(&packet, &ChecksumCapabilities::ignored()) {
+                                Ok(x) => x,
+                                Err(_) => {
+                                    net_trace!(
+                                        "icmp:{}: malformed packet in queue, dropping",
+                                        remote_endpoint
+                                    );
+                                    return Ok(());
+                                }
+                            };
+                        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+                            src_addr,
+                            dst_addr,
+                            next_header: IpProtocol::Icmp,
+                            payload_len: repr.buffer_len(),
+                            hop_limit,
+                        });
+                        emit(cx, (ip_repr, IcmpRepr::Ipv4(repr)))
+                    }
+                    #[cfg(feature = "proto-ipv6")]
+                    IpAddress::Ipv6(dst_addr) => {
+                        let src_addr = match cx.get_source_address_ipv6(&dst_addr) {
+                            Some(addr) => addr,
+                            None => {
+                                net_trace!(
+                                    "icmp:{}: not find suitable source address, dropping",
+                                    remote_endpoint
+                                );
+                                return Ok(());
+                            }
+                        };
+                        let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
+                        let repr = match Icmpv6Repr::parse(
+                            &src_addr.into(),
+                            &dst_addr.into(),
+                            &packet,
+                            &ChecksumCapabilities::ignored(),
+                        ) {
+                            Ok(x) => x,
+                            Err(_) => {
+                                net_trace!(
+                                    "icmp:{}: malformed packet in queue, dropping",
+                                    remote_endpoint
+                                );
+                                return Ok(());
+                            }
+                        };
+                        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+                            src_addr,
+                            dst_addr,
+                            next_header: IpProtocol::Icmpv6,
+                            payload_len: repr.buffer_len(),
+                            hop_limit,
+                        });
+                        emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
+                    }
                 }
-                #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(dst_addr) => {
-                    let src_addr = match cx.get_source_address_ipv6(&dst_addr) {
-                        Some(addr) => addr,
-                        None => {
-                            net_trace!(
-                                "icmp:{}: not find suitable source address, dropping",
-                                remote_endpoint
-                            );
-                            return Ok(());
-                        }
-                    };
-                    let packet = Icmpv6Packet::new_unchecked(&*packet_buf);
-                    let repr = match Icmpv6Repr::parse(
-                        &src_addr.into(),
-                        &dst_addr.into(),
-                        &packet,
-                        &ChecksumCapabilities::ignored(),
-                    ) {
-                        Ok(x) => x,
-                        Err(_) => {
-                            net_trace!(
-                                "icmp:{}: malformed packet in queue, dropping",
-                                remote_endpoint
-                            );
-                            return Ok(());
-                        }
-                    };
-                    let ip_repr = IpRepr::Ipv6(Ipv6Repr {
-                        src_addr,
-                        dst_addr,
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: repr.buffer_len(),
-                        hop_limit,
-                    });
-                    emit(cx, (ip_repr, IcmpRepr::Ipv6(repr)))
-                }
-            }
-        });
+            });
         match res {
             Err(Empty) => Ok(()),
             Ok(Err(e)) => Err(e),
             Ok(Ok(())) => {
                 #[cfg(feature = "async")]
-                self.tx_waker.wake();
+                self.tx_waker.write().wake();
                 Ok(())
             }
         }
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
-        if self.tx_buffer.is_empty() {
+        let mut node = MCSNode::new();
+        if self.tx_buffer.lock(&mut node).is_empty() {
             PollAt::Ingress
         } else {
             PollAt::Now

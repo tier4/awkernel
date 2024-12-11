@@ -235,7 +235,7 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv4<'frame>(
         &mut self,
-        _sockets: &mut SocketSet,
+        _sockets: &RwLock<SocketSet>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -247,6 +247,7 @@ impl InterfaceInner {
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
         for icmp_socket in _sockets
+            .write()
             .items_mut()
             .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
         {

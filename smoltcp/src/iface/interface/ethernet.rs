@@ -10,7 +10,7 @@ use crate::phy::TxToken;
 use crate::wire::*;
 
 #[cfg(not(loom))]
-use awkernel_lib::sync::rwlock::RwLock;
+use awkernel_sync::rwlock::RwLock;
 
 impl InterfaceInner {
     #[cfg(feature = "medium-ethernet")]

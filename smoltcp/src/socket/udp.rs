@@ -9,6 +9,8 @@ use crate::socket::PollAt;
 use crate::socket::WakerRegistration;
 use crate::storage::Empty;
 use crate::wire::{IpEndpoint, IpListenEndpoint, IpProtocol, IpRepr, UdpRepr};
+use alloc::vec::Vec;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 /// Metadata for a sent or received UDP packet.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -107,17 +109,18 @@ impl std::error::Error for RecvError {}
 ///
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Socket<'a> {
     endpoint: IpListenEndpoint,
     rx_buffer: Mutex<PacketBuffer<'a>>,
-    tx_buffer: PacketBuffer<'a>,
+    tx_buffer: Mutex<PacketBuffer<'a>>,
     /// The time-to-live (IPv4) or hop limit (IPv6) value used in outgoing packets.
     hop_limit: Option<u8>,
     #[cfg(feature = "async")]
-    rx_waker: Mutex<WakerRegistration>,
+    rx_waker: RwLock<WakerRegistration>,
+    //rx_waker: WakerRegistration,
     #[cfg(feature = "async")]
-    tx_waker: WakerRegistration,
+    tx_waker: RwLock<WakerRegistration>,
 }
 
 impl<'a> Socket<'a> {
@@ -126,12 +129,13 @@ impl<'a> Socket<'a> {
         Socket {
             endpoint: IpListenEndpoint::default(),
             rx_buffer: Mutex::new(rx_buffer),
-            tx_buffer,
+            tx_buffer: Mutex::new(tx_buffer),
             hop_limit: None,
             #[cfg(feature = "async")]
-            rx_waker: Mutex::new(WakerRegistration::new()),
+            rx_waker: RwLock::new(WakerRegistration::new()),
+            //rx_waker: WakerRegistration::new(),
             #[cfg(feature = "async")]
-            tx_waker: WakerRegistration::new(),
+            tx_waker: RwLock::new(WakerRegistration::new()),
         }
     }
 
@@ -148,9 +152,9 @@ impl<'a> Socket<'a> {
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
-    pub fn register_recv_waker(&mut self, waker: &Waker) {
-        let mut node = MCSNode::new();
-        self.rx_waker.lock(&mut node).register(waker)
+    pub fn register_recv_waker(&self, waker: &Waker) {
+        self.rx_waker.write().register(waker)
+        //self.rx_waker.register(waker)
     }
 
     /// Register a waker for send operations.
@@ -167,8 +171,8 @@ impl<'a> Socket<'a> {
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
     #[cfg(feature = "async")]
-    pub fn register_send_waker(&mut self, waker: &Waker) {
-        self.tx_waker.register(waker)
+    pub fn register_send_waker(&self, waker: &Waker) {
+        self.tx_waker.write().register(waker)
     }
 
     /// Return the bound endpoint.
@@ -223,9 +227,9 @@ impl<'a> Socket<'a> {
 
         #[cfg(feature = "async")]
         {
-            let mut node = MCSNode::new();
-            self.rx_waker.lock(&mut node).wake();
-            self.tx_waker.wake();
+            self.rx_waker.write().wake();
+            //self.rx_waker.wake();
+            self.tx_waker.write().wake();
         }
 
         Ok(())
@@ -237,14 +241,20 @@ impl<'a> Socket<'a> {
         self.endpoint = IpListenEndpoint::default();
 
         // Reset the RX and TX buffers of the socket.
-        self.tx_buffer.reset();
-        self.rx_buffer.reset();
+        let mut node = MCSNode::new();
+        {
+            self.tx_buffer.lock(&mut node).reset();
+        }
+        let mut node = MCSNode::new();
+        {
+            self.rx_buffer.lock(&mut node).reset();
+        }
 
         #[cfg(feature = "async")]
         {
-            let mut node = MCSNode::new();
-            self.rx_waker.lock(&mut node).wake();
-            self.tx_waker.wake();
+            self.rx_waker.write().wake();
+            //self.rx_waker.wake();
+            self.tx_waker.write().wake();
         }
     }
 
@@ -257,37 +267,49 @@ impl<'a> Socket<'a> {
     /// Check whether the transmit buffer is full.
     #[inline]
     pub fn can_send(&self) -> bool {
-        !self.tx_buffer.is_full()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        !guard.is_full()
     }
 
     /// Check whether the receive buffer is not empty.
     #[inline]
     pub fn can_recv(&self) -> bool {
-        !self.rx_buffer.is_empty()
+        let mut node = MCSNode::new();
+        let guard = self.rx_buffer.lock(&mut node);
+        !guard.is_empty()
     }
 
     /// Return the maximum number packets the socket can receive.
     #[inline]
     pub fn packet_recv_capacity(&self) -> usize {
-        self.rx_buffer.packet_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.rx_buffer.lock(&mut node);
+        guard.packet_capacity()
     }
 
     /// Return the maximum number packets the socket can transmit.
     #[inline]
     pub fn packet_send_capacity(&self) -> usize {
-        self.tx_buffer.packet_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        guard.packet_capacity()
     }
 
     /// Return the maximum number of bytes inside the recv buffer.
     #[inline]
     pub fn payload_recv_capacity(&self) -> usize {
-        self.rx_buffer.payload_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.rx_buffer.lock(&mut node);
+        guard.payload_capacity()
     }
 
     /// Return the maximum number of bytes inside the transmit buffer.
     #[inline]
     pub fn payload_send_capacity(&self) -> usize {
-        self.tx_buffer.payload_capacity()
+        let mut node = MCSNode::new();
+        let guard = self.tx_buffer.lock(&mut node);
+        guard.payload_capacity()
     }
 
     /// Enqueue a packet to be sent to a given remote endpoint, and return a pointer
@@ -297,11 +319,7 @@ impl<'a> Socket<'a> {
     /// `Err(Error::Unaddressable)` if local or remote port, or remote address are unspecified,
     /// and `Err(Error::Truncated)` if there is not enough transmit buffer capacity
     /// to ever send this packet.
-    pub fn send(
-        &mut self,
-        size: usize,
-        meta: impl Into<UdpMetadata>,
-    ) -> Result<&mut [u8], SendError> {
+    pub fn send(&self, size: usize, meta: impl Into<UdpMetadata>) -> Result<Vec<u8>, SendError> {
         let meta = meta.into();
         if self.endpoint.port == 0 {
             return Err(SendError::Unaddressable);
@@ -313,8 +331,9 @@ impl<'a> Socket<'a> {
             return Err(SendError::Unaddressable);
         }
 
-        let payload_buf = self
-            .tx_buffer
+        let mut node = MCSNode::new();
+        let mut guard = self.tx_buffer.lock(&mut node);
+        let payload_buf = guard
             .enqueue(size, meta)
             .map_err(|_| SendError::BufferFull)?;
 
@@ -324,7 +343,7 @@ impl<'a> Socket<'a> {
             meta.endpoint,
             size
         );
-        Ok(payload_buf)
+        Ok(payload_buf.to_vec())
     }
 
     /// Enqueue a packet to be send to a given remote endpoint and pass the buffer
@@ -352,8 +371,10 @@ impl<'a> Socket<'a> {
             return Err(SendError::Unaddressable);
         }
 
+        let mut node = MCSNode::new();
         let size = self
             .tx_buffer
+            .lock(&mut node)
             .enqueue_with_infallible(max_size, meta, f)
             .map_err(|_| SendError::BufferFull)?;
 
@@ -369,11 +390,7 @@ impl<'a> Socket<'a> {
     /// Enqueue a packet to be sent to a given remote endpoint, and fill it from a slice.
     ///
     /// See also [send](#method.send).
-    pub fn send_slice(
-        &mut self,
-        data: &[u8],
-        meta: impl Into<UdpMetadata>,
-    ) -> Result<(), SendError> {
+    pub fn send_slice(&self, data: &[u8], meta: impl Into<UdpMetadata>) -> Result<(), SendError> {
         self.send(data.len(), meta)?.copy_from_slice(data);
         Ok(())
     }
@@ -382,13 +399,10 @@ impl<'a> Socket<'a> {
     /// as a pointer to the payload.
     ///
     /// This function returns `Err(Error::Exhausted)` if the receive buffer is empty.
-    pub fn recv(&mut self) -> Result<(&[u8], UdpMetadata), RecvError> {
+    pub fn recv(&self) -> Result<(Vec<u8>, UdpMetadata), RecvError> {
         let mut node = MCSNode::new();
-        let (remote_endpoint, payload_buf) = self
-            .rx_buffer
-            .lock(&mut node)
-            .dequeue()
-            .map_err(|_| RecvError::Exhausted)?;
+        let mut guard = self.rx_buffer.lock(&mut node);
+        let (remote_endpoint, payload_buf) = guard.dequeue().map_err(|_| RecvError::Exhausted)?;
 
         net_trace!(
             "udp:{}:{}: receive {} buffered octets",
@@ -396,7 +410,7 @@ impl<'a> Socket<'a> {
             remote_endpoint.endpoint,
             payload_buf.len()
         );
-        Ok((payload_buf, remote_endpoint))
+        Ok((payload_buf.to_vec(), remote_endpoint))
     }
 
     /// Dequeue a packet received from a remote endpoint, copy the payload into the given slice,
@@ -424,18 +438,19 @@ impl<'a> Socket<'a> {
     ///
     /// It returns `Err(Error::Exhausted)` if the receive buffer is empty.
     pub fn peek(&mut self) -> Result<(&[u8], &UdpMetadata), RecvError> {
-        let endpoint = self.endpoint;
-        self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
-            |(remote_endpoint, payload_buf)| {
-                net_trace!(
-                    "udp:{}:{}: peek {} buffered octets",
-                    endpoint,
-                    remote_endpoint.endpoint,
-                    payload_buf.len()
-                );
-                (payload_buf, remote_endpoint)
-            },
-        )
+        //let endpoint = self.endpoint;
+        //self.rx_buffer.peek().map_err(|_| RecvError::Exhausted).map(
+        //|(remote_endpoint, payload_buf)| {
+        //net_trace!(
+        //"udp:{}:{}: peek {} buffered octets",
+        //endpoint,
+        //remote_endpoint.endpoint,
+        //payload_buf.len()
+        //);
+        //(payload_buf, remote_endpoint)
+        //},
+        //)
+        Err(RecvError::Exhausted)
     }
 
     /// Peek at a packet received from a remote endpoint, copy the payload into the given slice,
@@ -475,7 +490,7 @@ impl<'a> Socket<'a> {
     }
 
     pub(crate) fn process(
-        &mut self,
+        &self,
         cx: &mut Context,
         meta: PacketMeta,
         ip_repr: &IpRepr,
@@ -502,78 +517,86 @@ impl<'a> Socket<'a> {
             endpoint: remote_endpoint,
             meta,
         };
-
-        match self.rx_buffer.enqueue(size, metadata) {
-            Ok(buf) => buf.copy_from_slice(payload),
-            Err(_) => net_trace!(
-                "udp:{}:{}: buffer full, dropped incoming packet",
-                self.endpoint,
-                remote_endpoint
-            ),
+        {
+            let mut node = MCSNode::new();
+            let mut guard = self.rx_buffer.lock(&mut node);
+            match guard.enqueue(size, metadata) {
+                Ok(buf) => buf.copy_from_slice(payload),
+                Err(_) => net_trace!(
+                    "udp:{}:{}: buffer full, dropped incoming packet",
+                    self.endpoint,
+                    remote_endpoint
+                ),
+            }
         }
 
         #[cfg(feature = "async")]
-        let mut node = MCSNode::new();
-        self.rx_waker.lock(&mut node).wake();
+        self.rx_waker.write().wake();
+        //self.rx_waker.wake();
     }
 
-    pub(crate) fn dispatch<F, E>(&mut self, cx: &mut Context, emit: F) -> Result<(), E>
+    pub(crate) fn dispatch<F, E>(&self, cx: &mut Context, emit: F) -> Result<(), E>
     where
         F: FnOnce(&mut Context, PacketMeta, (IpRepr, UdpRepr, &[u8])) -> Result<(), E>,
     {
         let endpoint = self.endpoint;
         let hop_limit = self.hop_limit.unwrap_or(64);
 
-        let res = self.tx_buffer.dequeue_with(|packet_meta, payload_buf| {
-            let src_addr = match endpoint.addr {
-                Some(addr) => addr,
-                None => match cx.get_source_address(&packet_meta.endpoint.addr) {
+        let mut node = MCSNode::new();
+        let res = self
+            .tx_buffer
+            .lock(&mut node)
+            .dequeue_with(|packet_meta, payload_buf| {
+                let src_addr = match endpoint.addr {
                     Some(addr) => addr,
-                    None => {
-                        net_trace!(
-                            "udp:{}:{}: cannot find suitable source address, dropping.",
-                            endpoint,
-                            packet_meta.endpoint
-                        );
-                        return Ok(());
-                    }
-                },
-            };
+                    None => match cx.get_source_address(&packet_meta.endpoint.addr) {
+                        Some(addr) => addr,
+                        None => {
+                            net_trace!(
+                                "udp:{}:{}: cannot find suitable source address, dropping.",
+                                endpoint,
+                                packet_meta.endpoint
+                            );
+                            return Ok(());
+                        }
+                    },
+                };
 
-            net_trace!(
-                "udp:{}:{}: sending {} octets",
-                endpoint,
-                packet_meta.endpoint,
-                payload_buf.len()
-            );
+                net_trace!(
+                    "udp:{}:{}: sending {} octets",
+                    endpoint,
+                    packet_meta.endpoint,
+                    payload_buf.len()
+                );
 
-            let repr = UdpRepr {
-                src_port: endpoint.port,
-                dst_port: packet_meta.endpoint.port,
-            };
-            let ip_repr = IpRepr::new(
-                src_addr,
-                packet_meta.endpoint.addr,
-                IpProtocol::Udp,
-                repr.header_len() + payload_buf.len(),
-                hop_limit,
-            );
+                let repr = UdpRepr {
+                    src_port: endpoint.port,
+                    dst_port: packet_meta.endpoint.port,
+                };
+                let ip_repr = IpRepr::new(
+                    src_addr,
+                    packet_meta.endpoint.addr,
+                    IpProtocol::Udp,
+                    repr.header_len() + payload_buf.len(),
+                    hop_limit,
+                );
 
-            emit(cx, packet_meta.meta, (ip_repr, repr, payload_buf))
-        });
+                emit(cx, packet_meta.meta, (ip_repr, repr, payload_buf))
+            });
         match res {
             Err(Empty) => Ok(()),
             Ok(Err(e)) => Err(e),
             Ok(Ok(())) => {
                 #[cfg(feature = "async")]
-                self.tx_waker.wake();
+                self.tx_waker.write().wake();
                 Ok(())
             }
         }
     }
 
     pub(crate) fn poll_at(&self, _cx: &mut Context) -> PollAt {
-        if self.tx_buffer.is_empty() {
+        let mut node = MCSNode::new();
+        if self.tx_buffer.lock(&mut node).is_empty() {
             PollAt::Ingress
         } else {
             PollAt::Now

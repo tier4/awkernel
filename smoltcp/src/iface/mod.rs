@@ -22,4 +22,3 @@ pub use self::interface::{Config, Interface, InterfaceInner as Context};
 
 pub use self::route::{Route, RouteTableFull, Routes};
 pub use self::socket_set::{SocketHandle, SocketSet, SocketStorage};
-pub use super::awkernel_lib::sync::RwLock;

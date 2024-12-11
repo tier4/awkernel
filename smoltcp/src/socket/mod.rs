@@ -55,7 +55,7 @@ pub(crate) enum PollAt {
 ///
 /// [AnySocket]: trait.AnySocket.html
 /// [SocketSet::get]: struct.SocketSet.html#method.get
-#[derive(Debug)]
+//#[derive(Debug)]
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
     Raw(raw::Socket<'a>),

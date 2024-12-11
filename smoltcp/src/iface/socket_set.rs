@@ -1,3 +1,4 @@
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use core::fmt;
 use managed::ManagedSlice;
 
@@ -8,7 +9,7 @@ use crate::socket::{AnySocket, Socket};
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
-#[derive(Debug, Default)]
+//#[derive(Debug, Default)]
 pub struct SocketStorage<'a> {
     inner: Option<Item<'a>>,
 }
@@ -18,9 +19,9 @@ impl<'a> SocketStorage<'a> {
 }
 
 /// An item of a socket set.
-#[derive(Debug)]
+//#[derive(Debug)]
 pub(crate) struct Item<'a> {
-    pub(crate) meta: Meta,
+    pub(crate) meta: Mutex<Meta>,
     pub(crate) socket: Socket<'a>,
 }
 
@@ -40,7 +41,7 @@ impl fmt::Display for SocketHandle {
 /// The lifetime `'a` is used when storing a `Socket<'a>`.  If you're using
 /// owned buffers for your sockets (passed in as `Vec`s) you can use
 /// `SocketSet<'static>`.
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct SocketSet<'a> {
     sockets: ManagedSlice<'a, SocketStorage<'a>>,
 }
@@ -65,8 +66,12 @@ impl<'a> SocketSet<'a> {
             let handle = SocketHandle(index);
             let mut meta = Meta::default();
             meta.handle = handle;
+            let meta_mutex = Mutex::new(meta);
             *slot = SocketStorage {
-                inner: Some(Item { meta, socket }),
+                inner: Some(Item {
+                    meta: meta_mutex,
+                    socket,
+                }),
             };
             handle
         }
@@ -131,12 +136,16 @@ impl<'a> SocketSet<'a> {
 
     /// Get an iterator to the inner sockets.
     pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
-        self.items().map(|i| (i.meta.handle, &i.socket))
+        let mut node = MCSNode::new();
+        self.items()
+            .map(move |i| (i.meta.lock(&mut node).handle, &i.socket))
     }
 
     /// Get a mutable iterator to the inner sockets.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
-        self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
+        let mut node = MCSNode::new();
+        self.items_mut()
+            .map(move |i| (i.meta.lock(&mut node).handle, &mut i.socket))
     }
 
     /// Iterate every socket in this set.

@@ -67,7 +67,7 @@ const DEVICE_NAME: &str = "Intel 10 Gigabit Ethernet Controller";
 const DEVICE_SHORT_NAME: &str = "ixgbe";
 
 const RECV_QUEUE_SIZE: usize = 32;
-const SEND_QUEUE_SIZE: usize = 32;
+const SEND_QUEUE_SIZE: usize = 512;
 
 pub const MAX_NUM_MULTICAST_ADDRESSES: usize = 128;
 

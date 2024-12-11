@@ -15,7 +15,7 @@ const BASE_PORT: u16 = 20000;
 
 pub async fn run() {
     //const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-    const NUM_TASKS: [usize; 1] = [10];
+    const NUM_TASKS: [usize; 1] = [100];
     awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {

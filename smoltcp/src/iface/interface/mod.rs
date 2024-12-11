@@ -20,6 +20,7 @@ mod sixlowpan;
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 
+use awkernel_sync::mcs::MCSNode;
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
 
@@ -53,7 +54,7 @@ use crate::time::{Duration, Instant};
 use crate::wire::*;
 
 #[cfg(not(loom))]
-use awkernel_lib::sync::rwlock::RwLock;
+use awkernel_sync::rwlock::RwLock;
 
 macro_rules! check {
     ($e:expr) => {
@@ -495,10 +496,9 @@ impl Interface {
             .items()
             .filter_map(move |item| {
                 let socket_poll_at = item.socket.poll_at(inner);
-                match item
-                    .meta
-                    .poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr))
-                {
+                let mut node = MCSNode::new();
+                let guard = item.meta.lock(&mut node);
+                match guard.poll_at(socket_poll_at, |ip_addr| inner.has_neighbor(&ip_addr)) {
                     PollAt::Ingress => None,
                     PollAt::Time(instant) => Some(instant),
                     PollAt::Now => Some(Instant::from_millis(0)),
@@ -606,9 +606,11 @@ impl Interface {
         }
 
         let mut emitted_any = false;
-        for item in sockets.lock().items() {
+        for item in sockets.read().items() {
+            let mut node = MCSNode::new();
             if !item
                 .meta
+                .lock(&mut node)
                 .egress_permitted(self.inner.now, |ip_addr| self.inner.has_neighbor(&ip_addr))
             {
                 continue;
@@ -700,7 +702,8 @@ impl Interface {
                     // requests from the socket. However, without an additional rate limiting
                     // mechanism, we would spin on every socket that has yet to discover its
                     // neighbor.
-                    item.meta.neighbor_missing(
+                    let mut node = MCSNode::new();
+                    item.meta.lock(&mut node).neighbor_missing(
                         self.inner.now,
                         neighbor_addr.expect("non-IP response packet"),
                     );
@@ -1128,8 +1131,8 @@ impl InterfaceInner {
     ) -> Option<Packet<'frame>> {
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
-            .write()
-            .items_mut()
+            .read()
+            .items()
             .filter_map(|i| udp::Socket::downcast(&i.socket))
         {
             if udp_socket.accepts(self, &ip_repr, &udp_repr) {
