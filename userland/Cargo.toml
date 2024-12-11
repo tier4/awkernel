@@ -15,39 +15,39 @@ path = "../awkernel_async_lib"
 path = "../applications/awkernel_services"
 
 [dependencies.test_pubsub]
-path = "../applications/test_pubsub"
+path = "../applications/tests/test_pubsub"
 optional = true
 
 [dependencies.test_network]
-path = "../applications/test_network"
+path = "../applications/tests/test_network"
 optional = true
 
 [dependencies.test_rpi_hal]
-path = "../applications/test_rpi_hal"
+path = "../applications/tests/test_rpi_hal"
 optional = true
 
 [dependencies.test_graphics]
-path = "../applications/test_graphics"
+path = "../applications/tests/test_graphics"
 optional = true
 
 [dependencies.test_prioritized_fifo]
-path = "../applications/test_prioritized_fifo"
+path = "../applications/tests/test_prioritized_fifo"
 optional = true
 
 [dependencies.test_rr]
-path = "../applications/test_rr"
+path = "../applications/tests/test_rr"
 optional = true
 
 [dependencies.test_priority_based_rr]
-path = "../applications/test_priority_based_rr"
+path = "../applications/tests/test_priority_based_rr"
 optional = true
 
 [dependencies.test_async_mutex]
-path = "../applications/test_async_mutex"
+path = "../applications/tests/test_async_mutex"
 optional = true
 
 [dependencies.test_gedf]
-path = "../applications/test_gedf"
+path = "../applications/tests/test_gedf"
 optional = true
 
 [dependencies.measure_channel]
@@ -65,7 +65,8 @@ optional = true
 [features]
 default = ["test_graphics"]
 perf = ["awkernel_services/perf"]
-raspi = ["dep:test_rpi_hal"]
+
+# Test applications
 test_network = ["dep:test_network"]
 test_pubsub = ["dep:test_pubsub"]
 test_rpi_hal = ["dep:test_rpi_hal"]

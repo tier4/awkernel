@@ -99,7 +99,6 @@ raspi = [
     "aarch64",
     "awkernel_drivers/raspi",
     "awkernel_drivers/pl011",
-    "userland/raspi",
     "dep:embedded-hal",
 ]
 

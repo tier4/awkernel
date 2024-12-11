@@ -11,10 +11,10 @@ embedded-hal = "1.0"
 embedded-hal-nb = "1.0"
 
 [dependencies.awkernel_async_lib]
-path = "../../awkernel_async_lib"
+path = "../../../awkernel_async_lib"
 default-features = false
 
 [dependencies.awkernel_drivers]
-path = "../../awkernel_drivers"
+path = "../../../awkernel_drivers"
 default-features = false
 features = ["aarch64", "raspi"]
