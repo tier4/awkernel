@@ -58,8 +58,8 @@ optional = true
 path = "../applications/tests/test_measure_channel_heavy"
 optional = true
 
-[dependencies.load_test_udp]
-path = "../applications/load_test_udp"
+[dependencies.test_load_udp]
+path = "../applications/tests/test_load_udp"
 optional = true
 
 [features]
@@ -76,6 +76,6 @@ test_rr = ["dep:test_rr"]
 test_priority_based_rr = ["dep:test_priority_based_rr"]
 test_async_mutex = ["dep:test_async_mutex"]
 test_gedf = ["dep:test_gedf"]
-load_test_udp = ["dep:load_test_udp"]
+test_load_udp = ["dep:test_load_udp"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
