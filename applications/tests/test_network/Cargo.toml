@@ -1,5 +1,5 @@
 [package]
-name = "load_test_udp"
+name = "test_network"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,9 +9,9 @@ edition = "2021"
 log = "0.4"
 
 [dependencies.awkernel_async_lib]
-path = "../../awkernel_async_lib"
+path = "../../../awkernel_async_lib"
 default-features = false
 
 [dependencies.awkernel_lib]
-path = "../../awkernel_lib"
+path = "../../../awkernel_lib"
 default-features = false
