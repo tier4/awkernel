@@ -27,11 +27,19 @@ struct MeasureResult {
     average: f64,
 }
 
-#[derive(Clone)]
 struct Barrier {
-    count: Arc<AtomicUsize>,
-    tx: Arc<Publisher<()>>,
+    count: AtomicUsize,
+    tx: Publisher<()>,
     rx: Subscriber<()>,
+}
+
+/// `BarrierWaitResult` is returned by `Barrier::wait` when all threads in `Barrier` have rendezvoused.
+pub struct BarrierWaitResult(bool);
+
+impl BarrierWaitResult {
+    pub fn is_reader(&self) -> bool {
+        self.0
+    }
 }
 
 impl Barrier {
@@ -43,21 +51,23 @@ impl Barrier {
         let (tx, rx) = pubsub::create_pubsub(attr);
 
         Self {
-            count: Arc::new(AtomicUsize::new(count)),
-            tx: Arc::new(tx),
+            count: AtomicUsize::new(count),
+            tx,
             rx,
         }
     }
 
-    async fn wait(&mut self) {
+    async fn wait(&self) -> BarrierWaitResult {
         if self
             .count
             .fetch_sub(1, core::sync::atomic::Ordering::Relaxed)
             == 1
         {
             self.tx.send(()).await;
+            BarrierWaitResult(true)
         } else {
             self.rx.recv().await;
+            BarrierWaitResult(false)
         }
     }
 }
@@ -76,7 +86,7 @@ pub async fn run() {
 }
 
 async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
-    let barrier = Barrier::new(num_task * 2);
+    let barrier = Arc::new(Barrier::new(num_task * 2));
     let mut server_join = alloc::vec::Vec::new();
     let mut client_join = alloc::vec::Vec::new();
 
@@ -84,7 +94,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
         let (tx1, rx1) = bounded::new::<Vec<u8>>(bounded::Attribute::default());
         let (tx2, rx2) = bounded::new::<Vec<u8>>(bounded::Attribute::default());
 
-        let mut barrier2 = barrier.clone();
+        let barrier2 = barrier.clone();
         let hdl = spawn(
             format!("{i}-server").into(),
             async move {
@@ -108,7 +118,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
 
         server_join.push(hdl);
 
-        let mut barrier2 = barrier.clone();
+        let barrier2 = barrier.clone();
         let hdl = spawn(
             format!("{i}-client").into(),
             async move {
