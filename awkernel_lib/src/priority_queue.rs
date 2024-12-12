@@ -13,13 +13,16 @@ impl<T> PriorityQueue<T> {
         }
     }
 
+    /// Push the value with the specified priority
+    /// Note: the priority is set to min(priority, 31)
     pub fn push(&mut self, priority: u32, val: T) {
-        assert!(priority < 32);
+        let priority = priority.min(31);
         let queue = &mut self.queue[priority as usize];
         queue.push_back(val);
         self.has_entry |= 1 << priority;
     }
 
+    /// Pop the value with the highest priority
     pub fn pop(&mut self) -> Option<T> {
         let next_priority = self.has_entry.trailing_zeros();
         if next_priority == 32 {
@@ -54,22 +57,33 @@ mod tests {
         // Queue should be empty
         assert_eq!(q.pop(), None);
 
+        // Data with the same priority should be popped in a FIFO order
         for id in 0..10 {
             q.push(0, id);
         }
 
-        // Data with the same priority should be popped in a FIFO order
         for expected in 0..10 {
             let actual = q.pop().unwrap();
             assert_eq!(actual, expected);
         }
 
+        // Data with different priorities are popped from the highest priority first
         for id in 0..10 {
             q.push(10 - id, id);
         }
 
-        // Data with different priorities are popped from the highest priority first
         for expected in (0..10).rev() {
+            let actual = q.pop().unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        //  The priority is set to min(priority, 31)
+        for id in (0..10).step_by(2) {
+            q.push(31, id);
+            q.push(32, id + 1);
+        }
+
+        for expected in 0..10 {
             let actual = q.pop().unwrap();
             assert_eq!(actual, expected);
         }
