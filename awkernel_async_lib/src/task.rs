@@ -1050,28 +1050,27 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
             };
 
         let preemptable_task_sched_priority = get_scheduler(preemptable_task_sched_type).priority();
-        let current_task_info = (
+        let preemptable_task_info = (
             preemptable_task_sched_priority,
             preemptable_task.cpu_id,
             preemptable_task.task_id,
         );
 
         lowest_task_info = match lowest_task_info {
-            None => Some(current_task_info),
             Some((lowest_sched_priority, _, _))
                 if preemptable_task_sched_priority > lowest_sched_priority =>
             {
-                Some(current_task_info)
+                Some(preemptable_task_info) // Update the lowest priority task.
             }
             Some((lowest_sched_priority, _, _))
                 if preemptable_task_sched_priority < lowest_sched_priority =>
             {
-                lowest_task_info
+                lowest_task_info // Keep the lowest priority task.
             }
             Some((_, _, lowest_task_id)) => {
                 if let Some(lower_priority_task_id) = get_lower_priority_task(preemptable_task.task_id, lowest_task_id) {
                     if lower_priority_task_id == preemptable_task.task_id {
-                        Some(current_task_info)
+                        Some(preemptable_task_info)
                     } else {
                         lowest_task_info
                     }
@@ -1079,13 +1078,13 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
                     lowest_task_info
                 }
             }
+            None => Some(preemptable_task_info), // The first task.
         };
     }
 
     lowest_task_info
 }
 
-/// Compare two tasks based on the current scheduler's criteria.
 /// Returns `Some(task_b_id)` if `task_a_id` has a lower priority than `task_b_id`,
 /// otherwise returns `None`.
 pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {

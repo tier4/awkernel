@@ -108,8 +108,7 @@ pub(crate) trait Scheduler {
             };
 
         if self.priority() < lowest_sched_priority {
-            preempt_task(task_id, cpu_id);
-            // log::info!("SCHED task_id: {} on CPU: {} is preempted by task_id: {} ", task_id, cpu_id, wake_task_id);
+            preempt_task(task_id, cpu_id); // Preemption between schedulers.
             return;
         }
 
@@ -118,7 +117,7 @@ pub(crate) trait Scheduler {
                 SchedulerType::GEDF(_) => {
                     if let Some(lower_priority_task_id) = get_lower_priority_task(task_id, wake_task_id) {
                         if lower_priority_task_id == task_id {
-                            preempt_task(task_id, cpu_id);
+                            preempt_task(task_id, cpu_id); // Preemption between tasks.
                         }
                     }
                 }
