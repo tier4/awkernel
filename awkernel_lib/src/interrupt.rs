@@ -11,10 +11,6 @@ use alloc::boxed::Box;
 #[cfg(feature = "x86")]
 use crate::arch::x86_64::interrupt_remap;
 
-#[cfg(loom)]
-use crate::sync::rwlock_dummy::RwLock;
-
-#[cfg(not(loom))]
 use crate::sync::rwlock::RwLock;
 
 pub trait Interrupt {
