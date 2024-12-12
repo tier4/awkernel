@@ -4,12 +4,9 @@ extern crate alloc;
 
 use alloc::{format, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
-    channel::bounded,
-    pubsub::{self, Attribute, Publisher, Subscriber},
-    scheduler::SchedulerType,
-    spawn, uptime_nano,
+    channel::bounded, scheduler::SchedulerType, spawn, sync::barrier::Barrier, uptime_nano,
 };
-use core::{sync::atomic::AtomicUsize, time::Duration};
+use core::time::Duration;
 use serde::Serialize;
 
 const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
@@ -25,51 +22,6 @@ struct MeasureResult {
     p90: f64,
     p50: f64,
     average: f64,
-}
-
-struct Barrier {
-    count: AtomicUsize,
-    tx: Publisher<()>,
-    rx: Subscriber<()>,
-}
-
-/// `BarrierWaitResult` is returned by `Barrier::wait` when all threads in `Barrier` have rendezvoused.
-pub struct BarrierWaitResult(bool);
-
-impl BarrierWaitResult {
-    pub fn is_reader(&self) -> bool {
-        self.0
-    }
-}
-
-impl Barrier {
-    fn new(count: usize) -> Self {
-        let attr = Attribute {
-            queue_size: 1,
-            ..Attribute::default()
-        };
-        let (tx, rx) = pubsub::create_pubsub(attr);
-
-        Self {
-            count: AtomicUsize::new(count),
-            tx,
-            rx,
-        }
-    }
-
-    async fn wait(&self) -> BarrierWaitResult {
-        if self
-            .count
-            .fetch_sub(1, core::sync::atomic::Ordering::Relaxed)
-            == 1
-        {
-            self.tx.send(()).await;
-            BarrierWaitResult(true)
-        } else {
-            self.rx.recv().await;
-            BarrierWaitResult(false)
-        }
-    }
 }
 
 pub async fn run() {
