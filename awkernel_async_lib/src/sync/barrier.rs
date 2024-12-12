@@ -49,3 +49,35 @@ impl Barrier {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn test_simple_async_barrier() {
+        let barrier = Arc::new(Barrier::new(10));
+        let num_waits = Arc::new(AtomicUsize::new(0));
+        let num_leaders = Arc::new(AtomicUsize::new(0));
+        let tasks = crate::mini_task::Tasks::new();
+
+        for _ in 0..10 {
+            let barrier = barrier.clone();
+            let num_waits = num_waits.clone();
+            let num_leaders = num_leaders.clone();
+            let task = async move {
+                num_waits.fetch_add(1, Ordering::Relaxed);
+                if barrier.wait().await.is_reader() {
+                    num_leaders.fetch_add(1, Ordering::Relaxed);
+                }
+                assert_eq!(num_waits.load(Ordering::Relaxed), 10);
+            };
+            tasks.spawn(task);
+        }
+        tasks.run();
+
+        assert_eq!(num_leaders.load(Ordering::Relaxed), 1);
+    }
+}
