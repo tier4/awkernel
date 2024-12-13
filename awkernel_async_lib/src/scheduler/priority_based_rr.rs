@@ -35,20 +35,22 @@ impl PriorityBasedRRData {
 
 impl Scheduler for PriorityBasedRRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
-        let mut node = MCSNode::new();
-        let info = task.info.lock(&mut node);
-        let SchedulerType::PriorityBasedRR(priority) = info.scheduler_type else {
-            return;
-        };
-        let new_task = PriorityBasedRRTask {
-            task: task.clone(),
-            _priority: priority,
-        };
+        {
+            let mut node = MCSNode::new();
+            let info = task.info.lock(&mut node);
+            let SchedulerType::PriorityBasedRR(priority) = info.scheduler_type else {
+                return;
+            };
+            let new_task = PriorityBasedRRTask {
+                task: task.clone(),
+                _priority: priority,
+            };
 
-        let mut node = MCSNode::new();
-        let mut guard = self.data.lock(&mut node);
-        let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-        data.queue.push(priority as usize, new_task);
+            let mut node = MCSNode::new();
+            let mut guard = self.data.lock(&mut node);
+            let data = guard.get_or_insert_with(PriorityBasedRRData::new);
+            data.queue.push(priority as usize, new_task);
+        }
 
         self.invoke_preemption(task.id);
     }

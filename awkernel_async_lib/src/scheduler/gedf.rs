@@ -57,25 +57,25 @@ impl Scheduler for GEDFScheduler {
         let mut data = self.data.lock(&mut node);
         let data = data.get_or_insert_with(GEDFData::new);
 
-        let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let mut info = task.info.lock(&mut node);
 
-        let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
-            unreachable!();
-        };
+            let SchedulerType::GEDF(relative_deadline) = info.scheduler_type else {
+                unreachable!();
+            };
 
-        let wake_time = awkernel_lib::delay::uptime();
-        let absolute_deadline = wake_time + relative_deadline;
+            let wake_time = awkernel_lib::delay::uptime();
+            let absolute_deadline = wake_time + relative_deadline;
 
-        info.update_absolute_deadline(absolute_deadline);
+            info.update_absolute_deadline(absolute_deadline);
 
-        data.queue.push(GEDFTask {
-            task: task.clone(),
-            absolute_deadline,
-            wake_time,
-        });
-
-        drop(info);
+            data.queue.push(GEDFTask {
+                task: task.clone(),
+                absolute_deadline,
+                wake_time,
+            });
+        }
 
         self.invoke_preemption(task.id);
     }
