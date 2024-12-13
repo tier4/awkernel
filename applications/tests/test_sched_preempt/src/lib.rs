@@ -180,7 +180,11 @@ async fn check_find_lowest_equal() {
 }
 
 async fn check_sched_preempt() {
-    log::info!("[{}] test_sched_preempt is start at cpu_id: {}", uptime(), cpu_id());
+    log::info!(
+        "[{}] test_sched_preempt is start at cpu_id: {}",
+        uptime(),
+        cpu_id()
+    );
     log::info!("[{}] GEDF_H1 spawn", uptime());
     spawn(
         "GEDF_H1".into(),
@@ -225,11 +229,20 @@ async fn check_sched_preempt() {
         SchedulerType::GEDF(98000000),
     )
     .await;
-    log::info!("[{}] test_sched_preempt is end at cpu_id: {}", uptime(), cpu_id());
+
+    log::info!(
+        "[{}] test_sched_preempt is end at cpu_id: {}",
+        uptime(),
+        cpu_id()
+    );
 }
 
 async fn check_task_preempt() {
-    log::info!("[{}] test_sched_preempt is start at cpu_id: {}", uptime(), cpu_id());
+    log::info!(
+        "[{}] test_sched_preempt is start at cpu_id: {}",
+        uptime(),
+        cpu_id()
+    );
     log::info!("[{}] GEDF_L1 spawn", uptime());
     spawn(
         "GEDF_L1".into(),
@@ -256,14 +269,18 @@ async fn check_task_preempt() {
     spawn(
         "GEDF_H1".into(),
         async move {
-                log::info!("[{}] GEDF_H1 is start at cpu_id: {}", uptime(), cpu_id());
-                wait_microsec(10000);
-                log::info!("[{}] GEDF_H1 is end at cpu_id: {}", uptime(), cpu_id());
+            log::info!("[{}] GEDF_H1 is start at cpu_id: {}", uptime(), cpu_id());
+            wait_microsec(10000);
+            log::info!("[{}] GEDF_H1 is end at cpu_id: {}", uptime(), cpu_id());
         },
         SchedulerType::GEDF(80000),
     )
     .await;
 
     wait_microsec(100000);
-    log::info!("[{}] test_sched_preempt is end at cpu_id: {}", uptime(), cpu_id());
+    log::info!(
+        "[{}] test_sched_preempt is end at cpu_id: {}",
+        uptime(),
+        cpu_id()
+    );
 }

@@ -2,7 +2,7 @@
 //! This module contains `SleepingTasks` for sleeping.
 
 use crate::task::{
-    find_lowest_priority_task, get_current_task, get_lower_priority_task, get_preemptable_tasks,
+    find_lowest_priority_task, get_current_task, get_lower_priority_task_id, get_preemptable_tasks,
     get_scheduler_type_by_task_id, preempt_task,
 };
 use crate::{delay::uptime, task::Task};
@@ -96,6 +96,9 @@ pub(crate) trait Scheduler {
     /// Get the priority of the scheduler.
     fn priority(&self) -> u8;
 
+    /// Invoke preemption between schedulers or tasks.
+    /// A lock is required to ensure that `get_preemptable_tasks` does not execute
+    /// before the preemption process is complete, as this could lead to inconsistent state.
     fn invoke_preemption(&self, wake_task_id: u32) {
         let mut node = MCSNode::new();
         let _guard = PREEMPT_LOCK.lock(&mut node);
@@ -122,7 +125,8 @@ pub(crate) trait Scheduler {
         if self.priority() == lowest_sched_priority
             && matches!(self.scheduler_name(), SchedulerType::GEDF(_))
         {
-            if let Some(lower_priority_task_id) = get_lower_priority_task(task_id, wake_task_id) {
+            if let Some(lower_priority_task_id) = get_lower_priority_task_id(task_id, wake_task_id)
+            {
                 if lower_priority_task_id == task_id {
                     preempt_task(task_id, cpu_id);
                 }
@@ -228,9 +232,9 @@ pub fn wake_task() {
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
             match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
+                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id),
                 Some(SchedulerType::PriorityBasedRR(_)) => {
-                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
+                    priority_based_rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id)
                 }
                 _ => (),
             }

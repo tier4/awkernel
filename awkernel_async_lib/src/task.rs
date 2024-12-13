@@ -1028,7 +1028,6 @@ pub fn get_preemptable_tasks() -> Option<Vec<RunningTask>> {
         .filter(|task| task.task_id != 0)
         .collect();
 
-    // Calculate the number of non-primary CPUs.
     let num_non_primary_cpus = num_cpu().saturating_sub(1);
 
     // If the number of running tasks is less than the number of non-primary CPUs, preemption is not required.
@@ -1039,15 +1038,15 @@ pub fn get_preemptable_tasks() -> Option<Vec<RunningTask>> {
     }
 }
 
+/// Returns the task ID of the lowest priority task.
+/// First, the scheduler priority is compared.
+/// If the scheduler priority is the same, the task priority is compared.
 pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<(u8, usize, u32)> {
     let mut lowest_task_info: Option<(u8, usize, u32)> = None;
 
     for preemptable_task in preemptable_tasks {
-        let preemptable_task_sched_type =
-            match get_scheduler_type_by_task_id(preemptable_task.task_id) {
-                Some(sched_type) => sched_type,
-                None => continue,
-            };
+        // It was running when preemptable_tasks was acquired, but is now terminated. Therefore, a free CPU exists.
+        let preemptable_task_sched_type = get_scheduler_type_by_task_id(preemptable_task.task_id)?;
 
         let preemptable_task_sched_priority = get_scheduler(preemptable_task_sched_type).priority();
         let preemptable_task_info = (
@@ -1060,22 +1059,19 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
             Some((lowest_sched_priority, _, _))
                 if preemptable_task_sched_priority > lowest_sched_priority =>
             {
-                Some(preemptable_task_info) // Update the lowest priority task.
+                Some(preemptable_task_info)
             }
             Some((lowest_sched_priority, _, _))
                 if preemptable_task_sched_priority < lowest_sched_priority =>
             {
-                lowest_task_info // Keep the lowest priority task.
+                lowest_task_info
             }
+            // If the scheduler priority is the same, compare the task priority.
             Some((_, _, lowest_task_id)) => {
-                if let Some(lower_priority_task_id) =
-                    get_lower_priority_task(preemptable_task.task_id, lowest_task_id)
-                {
-                    if lower_priority_task_id == preemptable_task.task_id {
-                        Some(preemptable_task_info)
-                    } else {
-                        lowest_task_info
-                    }
+                let lower_priority_task_id =
+                    get_lower_priority_task_id(preemptable_task.task_id, lowest_task_id)?;
+                if lower_priority_task_id == preemptable_task.task_id {
+                    Some(preemptable_task_info)
                 } else {
                     lowest_task_info
                 }
@@ -1089,30 +1085,17 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
 
 /// Returns `Some(task_b_id)` if `task_a_id` has a lower priority than `task_b_id`,
 /// otherwise returns `None`.
-pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {
-    let scheduler_a = get_scheduler_type_by_task_id(task_a_id);
-    let scheduler_b = get_scheduler_type_by_task_id(task_b_id);
-
-    if scheduler_a.is_none() || scheduler_b.is_none() {
-        log::warn!(
-            "Invalid task IDs: task_a_id = {}, task_b_id = {}",
-            task_a_id,
-            task_b_id
-        );
-        return None;
-    }
+/// The scheduler types of the two tasks must be the same.
+pub fn get_lower_priority_task_id(task_a_id: u32, task_b_id: u32) -> Option<u32> {
+    let scheduler_a = get_scheduler_type_by_task_id(task_a_id)?;
+    let scheduler_b = get_scheduler_type_by_task_id(task_b_id)?;
 
     if core::mem::discriminant(&scheduler_a) != core::mem::discriminant(&scheduler_b) {
-        log::warn!(
-            "Tasks have different scheduler types: {:?} (task_a) vs {:?} (task_b)",
-            scheduler_a,
-            scheduler_b
-        );
-        return None;
+        unreachable!();
     }
 
     match scheduler_a {
-        Some(SchedulerType::GEDF(_)) => {
+        SchedulerType::GEDF(_) => {
             compare_values(
                 get_absolute_deadline_by_task_id(task_a_id),
                 get_absolute_deadline_by_task_id(task_b_id),
@@ -1121,7 +1104,7 @@ pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {
                 true, // Larger absolute deadline is a lower priority.
             )
         }
-        Some(SchedulerType::PrioritizedFIFO(_)) | Some(SchedulerType::PriorityBasedRR(_)) => {
+        SchedulerType::PrioritizedFIFO(_) | SchedulerType::PriorityBasedRR(_) => {
             compare_values(
                 get_task_priority_by_task_id(task_a_id),
                 get_task_priority_by_task_id(task_b_id),
@@ -1130,7 +1113,7 @@ pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {
                 true, // Larger priority is a lower priority.
             )
         }
-        Some(_) => {
+        _ => {
             compare_values(
                 get_last_executed_by_task_id(task_a_id),
                 get_last_executed_by_task_id(task_b_id),
@@ -1139,7 +1122,6 @@ pub fn get_lower_priority_task(task_a_id: u32, task_b_id: u32) -> Option<u32> {
                 false, // Smaller last executed time is a lower priority.
             )
         }
-        None => None,
     }
 }
 
@@ -1150,16 +1132,15 @@ fn compare_values<T: Ord>(
     task_b_id: u32,
     larger_is_low_priority: bool,
 ) -> Option<u32> {
-    match (value_a, value_b) {
-        (Some(value_a), Some(value_b)) => {
-            if (value_a > value_b) == larger_is_low_priority {
-                Some(task_a_id)
-            } else {
-                Some(task_b_id)
-            }
-        }
-        _ => None,
+    if let (Some(value_a), Some(value_b)) = (value_a, value_b) {
+        return if (value_a > value_b) == larger_is_low_priority {
+            Some(task_a_id)
+        } else {
+            Some(task_b_id)
+        };
     }
+
+    None //It was running when task_a_id and task_b_id was acquired, but is now terminated. Therefore, a free CPU exists.
 }
 
 pub fn preempt_task(task_id: u32, cpu_id: usize) {
