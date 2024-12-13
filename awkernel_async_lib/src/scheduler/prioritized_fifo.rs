@@ -64,6 +64,8 @@ impl Scheduler for PrioritizedFIFOScheduler {
             );
             *data = Some(prioritized_fifo_data);
         }
+
+        self.invoke_preemption(task.id);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {

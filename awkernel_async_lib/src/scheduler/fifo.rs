@@ -14,6 +14,7 @@ impl Scheduler for FIFOScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut queue = self.queue.lock(&mut node);
+        let task_id = task.id;
 
         if let Some(queue) = queue.as_mut() {
             queue.push_back(task);
@@ -22,6 +23,8 @@ impl Scheduler for FIFOScheduler {
             q.push_back(task);
             *queue = Some(q);
         }
+
+        self.invoke_preemption(task_id);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {

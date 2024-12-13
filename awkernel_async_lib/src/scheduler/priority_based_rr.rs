@@ -49,6 +49,8 @@ impl Scheduler for PriorityBasedRRScheduler {
         let mut guard = self.data.lock(&mut node);
         let data = guard.get_or_insert_with(PriorityBasedRRData::new);
         data.queue.push(priority as usize, new_task);
+
+        self.invoke_preemption(task.id);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
@@ -97,7 +99,7 @@ pub static SCHEDULER: PriorityBasedRRScheduler = PriorityBasedRRScheduler {
 
 impl PriorityBasedRRScheduler {
     // Invoke a preemption if the task exceeds the time quantum
-    pub fn invoke_preemption(&self, cpu_id: usize, task_id: u32) {
+    pub fn invoke_rr_preemption(&self, cpu_id: usize, task_id: u32) {
         let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
         if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
             let elapsed = awkernel_lib::delay::uptime() - last_executed;
