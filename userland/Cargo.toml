@@ -62,8 +62,12 @@ optional = true
 path = "../applications/tests/test_load_udp"
 optional = true
 
+[dependencies.test_sched_preempt]
+path = "../applications/tests/test_sched_preempt"
+optional = true
+
 [features]
-default = ["test_gedf"]
+default = ["test_sched_preempt"]
 perf = ["awkernel_services/perf"]
 
 # Test applications
@@ -79,3 +83,4 @@ test_gedf = ["dep:test_gedf"]
 test_load_udp = ["dep:test_load_udp"]
 test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
+test_sched_preempt = ["dep:test_sched_preempt"]

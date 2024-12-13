@@ -43,5 +43,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_load_udp")]
     load_test_udp::run().await; // load test udp
 
+    #[cfg(feature = "test_sched_preempt")]
+    test_sched_preempt::run().await; // test for preemptive scheduling
+
     Ok(())
 }

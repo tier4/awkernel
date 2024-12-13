@@ -2,8 +2,8 @@
 //! This module contains `SleepingTasks` for sleeping.
 
 use crate::task::{
-    find_lowest_priority_task, get_current_task, get_preemptable_tasks,
-    get_scheduler_type_by_task_id, preempt_task, get_lower_priority_task,
+    find_lowest_priority_task, get_current_task, get_lower_priority_task, get_preemptable_tasks,
+    get_scheduler_type_by_task_id, preempt_task,
 };
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
@@ -24,6 +24,7 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
+static PREEMPT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -95,7 +96,11 @@ pub(crate) trait Scheduler {
     /// Get the priority of the scheduler.
     fn priority(&self) -> u8;
 
-    fn invoke_preemption(&self, wake_task_id:u32) {
+    fn invoke_preemption(&self, wake_task_id: u32) {
+        let mut node = MCSNode::new();
+        let _guard = PREEMPT_LOCK.lock(&mut node);
+
+        // Check if preemption is required.
         let preemptable_tasks = match get_preemptable_tasks() {
             Some(preemptable_tasks) => preemptable_tasks,
             None => return,
@@ -107,21 +112,20 @@ pub(crate) trait Scheduler {
                 None => return,
             };
 
+        // Preemption between schedulers.
         if self.priority() < lowest_sched_priority {
-            preempt_task(task_id, cpu_id); // Preemption between schedulers.
+            preempt_task(task_id, cpu_id);
             return;
         }
 
-        if self.priority() == lowest_sched_priority {
-            match self.scheduler_name() {
-                SchedulerType::GEDF(_) => {
-                    if let Some(lower_priority_task_id) = get_lower_priority_task(task_id, wake_task_id) {
-                        if lower_priority_task_id == task_id {
-                            preempt_task(task_id, cpu_id); // Preemption between tasks.
-                        }
-                    }
+        // Preemption between tasks.
+        if self.priority() == lowest_sched_priority
+            && matches!(self.scheduler_name(), SchedulerType::GEDF(_))
+        {
+            if let Some(lower_priority_task_id) = get_lower_priority_task(task_id, wake_task_id) {
+                if lower_priority_task_id == task_id {
+                    preempt_task(task_id, cpu_id);
                 }
-                _ => {} // Do nothing
             }
         }
     }

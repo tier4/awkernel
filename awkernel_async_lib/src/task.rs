@@ -1068,7 +1068,9 @@ pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<
                 lowest_task_info // Keep the lowest priority task.
             }
             Some((_, _, lowest_task_id)) => {
-                if let Some(lower_priority_task_id) = get_lower_priority_task(preemptable_task.task_id, lowest_task_id) {
+                if let Some(lower_priority_task_id) =
+                    get_lower_priority_task(preemptable_task.task_id, lowest_task_id)
+                {
                     if lower_priority_task_id == preemptable_task.task_id {
                         Some(preemptable_task_info)
                     } else {

@@ -1,14 +1,9 @@
 //! A GEDF scheduler.
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::{
-    scheduler::get_priority,
-    task::State,
-};
+use crate::{scheduler::get_priority, task::State};
 use alloc::{collections::BinaryHeap, sync::Arc};
-use awkernel_lib::{
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct GEDFScheduler {
     data: Mutex<Option<GEDFData>>, // Run queue.
