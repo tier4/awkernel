@@ -15,6 +15,7 @@ impl<T> PriorityQueue<T> {
 
     /// Push the value with the specified priority
     /// Note: the priority is set to min(priority, 31)
+    #[inline(always)]
     pub fn push(&mut self, priority: u32, val: T) {
         let priority = priority.min(31);
         let queue = &mut self.queue[priority as usize];
@@ -23,6 +24,7 @@ impl<T> PriorityQueue<T> {
     }
 
     /// Pop the value with the highest priority
+    #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
         let next_priority = self.has_entry.trailing_zeros();
         if next_priority == 32 {
