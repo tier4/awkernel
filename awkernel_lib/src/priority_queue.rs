@@ -1,35 +1,44 @@
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::VecDeque;
 
 pub struct PriorityQueue<T> {
-    queue: BTreeMap<usize, VecDeque<T>>,
+    queue: [VecDeque<T>; 32],
+    has_entry: u32,
 }
 
 impl<T> PriorityQueue<T> {
     pub fn new() -> Self {
         Self {
-            queue: BTreeMap::new(),
+            queue: Default::default(),
+            has_entry: 0,
         }
     }
 
-    pub fn push(&mut self, priority: usize, val: T) {
-        if let Some(queue) = self.queue.get_mut(&priority) {
-            queue.push_back(val);
-        } else {
-            self.queue.insert(priority, VecDeque::from([val]));
-        }
+    /// Push the value with the specified priority
+    /// Note: the priority is set to min(priority, 31)
+    #[inline(always)]
+    pub fn push(&mut self, priority: u32, val: T) {
+        let priority = priority.min(31);
+        let queue = &mut self.queue[priority as usize];
+        queue.push_back(val);
+        self.has_entry |= 1 << priority;
     }
 
+    /// Pop the value with the highest priority
+    #[inline(always)]
     pub fn pop(&mut self) -> Option<T> {
-        if let Some((priority, mut queue)) = self.queue.pop_first() {
-            assert!(!queue.is_empty());
-            let next_val = queue.pop_front();
-            if !queue.is_empty() {
-                self.queue.insert(priority, queue);
-            }
-            next_val
-        } else {
-            None
+        let next_priority = self.has_entry.trailing_zeros();
+        if next_priority == 32 {
+            return None;
         }
+
+        let queue = &mut self.queue[next_priority as usize];
+        let next = queue.pop_front();
+        assert!(next.is_some());
+        if queue.is_empty() {
+            self.has_entry &= !(1 << next_priority);
+        }
+
+        next
     }
 }
 
@@ -44,20 +53,46 @@ mod tests {
     use super::*;
 
     #[test]
-    /// Unlike alloc::collections::BinaryHeap, PriorityQueue guarantees that data with the same priority will be retrieved in FIFO order.
-    fn test_prioriry_queue_fifo() {
-        #[derive(Debug, PartialEq)]
-        struct S(usize);
-
+    fn test_prioriry_queue() {
         let mut q = PriorityQueue::new();
-        q.push(0, S(0));
-        q.push(0, S(1));
-        q.push(0, S(2));
-        q.push(0, S(3));
 
-        assert_eq!(q.pop().unwrap(), S(0));
-        assert_eq!(q.pop().unwrap(), S(1));
-        assert_eq!(q.pop().unwrap(), S(2));
-        assert_eq!(q.pop().unwrap(), S(3));
+        // Queue should be empty
+        assert_eq!(q.pop(), None);
+
+        // Data with the same priority should be popped in a FIFO order
+        for id in 0..10 {
+            q.push(0, id);
+        }
+
+        for expected in 0..10 {
+            let actual = q.pop().unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        // Data with different priorities are popped from the highest priority first
+        for id in 0..10 {
+            q.push(10 - id, id);
+        }
+
+        for expected in (0..10).rev() {
+            let actual = q.pop().unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        //  The priority is set to min(priority, 31)
+        for id in (0..10).step_by(2) {
+            q.push(31, id);
+            q.push(32, id + 1);
+        }
+
+        for expected in 0..10 {
+            let actual = q.pop().unwrap();
+            assert_eq!(actual, expected);
+        }
+
+        // Queue should be empty
+        assert_eq!(q.pop(), None);
     }
 }
+
+// TODO: Verification
