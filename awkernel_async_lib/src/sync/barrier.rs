@@ -83,7 +83,7 @@ mod tests {
                 // Verify that Barrier synchronizes the specified number of threads
                 assert_eq!(num_waits.load(Ordering::Relaxed), 10);
 
-                // it is safe to call Barrier::wait more than count times
+                // it is safe to call Barrier::wait again
                 barrier.wait().await;
             };
 
@@ -91,7 +91,7 @@ mod tests {
         }
         tasks.run();
 
-        // Vefify that only one thread receives BarrierWaitResult(true)
+        // Verify that only one thread receives BarrierWaitResult(true)
         assert_eq!(num_leaders.load(Ordering::Relaxed), 1);
     }
 }
