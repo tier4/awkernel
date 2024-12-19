@@ -2,7 +2,7 @@
 //! This module contains `SleepingTasks` for sleeping.
 
 use crate::task::{
-    find_lowest_priority_task, get_current_task, get_lower_priority_task_id, get_preemptable_tasks,
+    get_current_task, get_lower_priority_task_id, get_lowest_task_info, get_preemptable_tasks,
     get_scheduler_type_by_task_id, preempt_task,
 };
 use crate::{delay::uptime, task::Task};
@@ -104,31 +104,30 @@ pub(crate) trait Scheduler {
         let _guard = PREEMPT_LOCK.lock(&mut node);
 
         // Check if preemption is required.
-        let preemptable_tasks = match get_preemptable_tasks() {
-            Some(preemptable_tasks) => preemptable_tasks,
+        if get_preemptable_tasks().is_none() {
+            return;
+        }
+
+        let lowest_task_info = match get_lowest_task_info() {
+            Some(lowest_task_info) => lowest_task_info,
             None => return,
         };
 
-        let (lowest_sched_priority, cpu_id, task_id) =
-            match find_lowest_priority_task(preemptable_tasks) {
-                Some(lowest_task_info) => lowest_task_info,
-                None => return,
-            };
-
         // Preemption between schedulers.
-        if self.priority() < lowest_sched_priority {
-            preempt_task(task_id, cpu_id);
+        if self.priority() < lowest_task_info.sched_priority {
+            preempt_task(lowest_task_info.task_id, lowest_task_info.cpu_id);
             return;
         }
 
         // Preemption between tasks.
-        if self.priority() == lowest_sched_priority
+        if self.priority() == lowest_task_info.sched_priority
             && matches!(self.scheduler_name(), SchedulerType::GEDF(_))
         {
-            if let Some(lower_priority_task_id) = get_lower_priority_task_id(task_id, wake_task_id)
+            if let Some(lower_priority_task_id) =
+                get_lower_priority_task_id(lowest_task_info.task_id, wake_task_id)
             {
-                if lower_priority_task_id == task_id {
-                    preempt_task(task_id, cpu_id);
+                if lower_priority_task_id == lowest_task_info.task_id {
+                    preempt_task(lowest_task_info.task_id, lowest_task_info.cpu_id);
                 }
             }
         }

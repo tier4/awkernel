@@ -20,7 +20,7 @@ use alloc::{
 };
 use array_macro::array;
 use awkernel_lib::{
-    cpu::{num_cpu, NUM_MAX_CPU},
+    cpu::{cpu_id, num_cpu, NUM_MAX_CPU},
     sync::mutex::{MCSNode, Mutex},
     unwind::catch_unwind,
 };
@@ -739,6 +739,7 @@ pub fn run_main() {
                 };
 
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+                update_lowest_task_info_on_dispatch(task.id);
 
                 // Invoke a task.
                 catch_unwind(|| {
@@ -787,6 +788,7 @@ pub fn run_main() {
             };
 
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+            update_lowest_task_info_on_exit(running_id);
             assert_eq!(running_id, task.id);
 
             let mut node = MCSNode::new();
@@ -1038,42 +1040,123 @@ pub fn get_preemptable_tasks() -> Option<Vec<RunningTask>> {
     }
 }
 
+pub static LOWEST_TASK_INFO: Mutex<Option<LowestTaskInfo>> = Mutex::new(None);
+
+#[derive(Clone)]
+pub struct LowestTaskInfo {
+    pub sched_priority: u8,
+    pub cpu_id: usize,
+    pub task_id: u32,
+}
+
+impl LowestTaskInfo {
+    fn new(sched_priority: u8, cpu_id: usize, task_id: u32) -> Self {
+        Self {
+            sched_priority,
+            cpu_id,
+            task_id,
+        }
+    }
+}
+
+pub fn get_lowest_task_info() -> Option<LowestTaskInfo> {
+    let mut node = MCSNode::new();
+    let lowest_task_info = LOWEST_TASK_INFO.lock(&mut node);
+    lowest_task_info.clone()
+}
+
+fn update_lowest_task_info_on_dispatch(task_id: u32) {
+    let mut node = MCSNode::new();
+    let mut lowest_task_info = LOWEST_TASK_INFO.lock(&mut node);
+
+    if let Some(info) = create_task_info_by_task_id(task_id) {
+        match lowest_task_info.as_mut() {
+            Some(lowest_task_info) if info.sched_priority > lowest_task_info.sched_priority => {
+                *lowest_task_info = info;
+            }
+            Some(lowest_task_info) if info.sched_priority == lowest_task_info.sched_priority => {
+                if get_lower_priority_task_id(info.task_id, lowest_task_info.task_id)
+                    == Some(info.task_id)
+                {
+                    *lowest_task_info = info;
+                }
+            }
+            None => {
+                *lowest_task_info = Some(info);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn create_task_info_by_task_id(task_id: u32) -> Option<LowestTaskInfo> {
+    let task_sched_type = get_scheduler_type_by_task_id(task_id)?;
+    let task_sched_priority = get_scheduler(task_sched_type).priority();
+    Some(LowestTaskInfo::new(task_sched_priority, cpu_id(), task_id))
+}
+
+fn update_lowest_task_info_on_exit(task_id: u32) {
+    let mut node = MCSNode::new();
+    let mut lowest_task_info = LOWEST_TASK_INFO.lock(&mut node);
+
+    if let Some(info) = &*lowest_task_info {
+        if task_id != info.task_id {
+            return;
+        }
+    }
+
+    let tasks: Vec<RunningTask> = get_tasks_running()
+        .into_iter()
+        .filter(|task| task.task_id != 0)
+        .collect();
+
+    if tasks.is_empty() {
+        *lowest_task_info = None;
+        return;
+    }
+
+    if let Some(find_lowest_task_info) = find_lowest_priority_task(tasks) {
+        *lowest_task_info = Some(find_lowest_task_info);
+    }
+}
+
+
 /// Returns the task ID of the lowest priority task.
 /// First, the scheduler priority is compared.
 /// If the scheduler priority is the same, the task priority is compared.
-pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<(u8, usize, u32)> {
-    let mut lowest_task_info: Option<(u8, usize, u32)> = None;
+pub fn find_lowest_priority_task(preemptable_tasks: Vec<RunningTask>) -> Option<LowestTaskInfo> {
+    let mut lowest_task_info: Option<LowestTaskInfo> = None;
 
     for preemptable_task in preemptable_tasks {
         // If return value is None, the task is terminated.
         let preemptable_task_sched_type = get_scheduler_type_by_task_id(preemptable_task.task_id)?;
 
         let preemptable_task_sched_priority = get_scheduler(preemptable_task_sched_type).priority();
-        let preemptable_task_info = (
+        let preemptable_task_info = LowestTaskInfo::new(
             preemptable_task_sched_priority,
             preemptable_task.cpu_id,
             preemptable_task.task_id,
         );
 
         lowest_task_info = match lowest_task_info {
-            Some((lowest_sched_priority, _, _))
-                if preemptable_task_sched_priority > lowest_sched_priority =>
+            Some(lowest_task_info)
+                if preemptable_task_info.sched_priority > lowest_task_info.sched_priority =>
             {
                 Some(preemptable_task_info)
             }
-            Some((lowest_sched_priority, _, _))
-                if preemptable_task_sched_priority < lowest_sched_priority =>
+            Some(lowest_task_info)
+                if preemptable_task_info.sched_priority < lowest_task_info.sched_priority =>
             {
-                lowest_task_info
+                Some(lowest_task_info)
             }
-            Some((_, _, lowest_task_id)) => {
+            Some(lowest_task_info) => {
                 // If return value is None, the task is terminated.
                 let lower_priority_task_id =
-                    get_lower_priority_task_id(preemptable_task.task_id, lowest_task_id)?;
+                    get_lower_priority_task_id(preemptable_task.task_id, lowest_task_info.task_id)?;
                 if lower_priority_task_id == preemptable_task.task_id {
                     Some(preemptable_task_info)
                 } else {
-                    lowest_task_info
+                    Some(lowest_task_info)
                 }
             }
             None => Some(preemptable_task_info), // The first task.

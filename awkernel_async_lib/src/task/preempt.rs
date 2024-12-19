@@ -1,4 +1,6 @@
-use crate::task::{get_current_task, Task};
+use crate::task::{
+    get_current_task, update_lowest_task_info_on_dispatch, update_lowest_task_info_on_exit, Task,
+};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -153,6 +155,7 @@ impl RunningTaskGuard {
     fn take() -> Option<Self> {
         let cpu_id = awkernel_lib::cpu::cpu_id();
         let task_id = super::RUNNING[cpu_id].swap(0, Ordering::Relaxed);
+        update_lowest_task_info_on_exit(task_id);
         if task_id != 0 {
             Some(Self(task_id))
         } else {
@@ -164,18 +167,22 @@ impl RunningTaskGuard {
 impl Drop for RunningTaskGuard {
     fn drop(&mut self) {
         let cpu_id = awkernel_lib::cpu::cpu_id();
-
-        let mut node = MCSNode::new();
-        let tasks = super::TASKS.lock(&mut node);
-        let task = tasks.id_to_task.get(&self.0).unwrap();
+        let task_id;
 
         {
             let mut node = MCSNode::new();
-            let mut info = task.info.lock(&mut node);
-            info.update_last_executed();
+            let tasks = super::TASKS.lock(&mut node);
+            let task = tasks.id_to_task.get(&self.0).unwrap();
+            task_id = task.id;
+            {
+                let mut node = MCSNode::new();
+                let mut info = task.info.lock(&mut node);
+                info.update_last_executed();
+            }
         }
 
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
+        update_lowest_task_info_on_dispatch(task_id);
     }
 }
 
