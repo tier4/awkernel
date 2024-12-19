@@ -41,7 +41,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
             };
 
             data.queue.push(
-                priority as usize,
+                priority as u32,
                 PrioritizedFIFOTask {
                     task: task.clone(),
                     _priority: priority,
@@ -56,7 +56,7 @@ impl Scheduler for PrioritizedFIFOScheduler {
             };
 
             prioritized_fifo_data.queue.push(
-                priority as usize,
+                priority as u32,
                 PrioritizedFIFOTask {
                     task: task.clone(),
                     _priority: priority,
