@@ -54,14 +54,25 @@ impl Tasks {
             let w = waker_ref(&head);
             let mut cx = Context::from_waker(&w);
 
-            let mut node = MCSNode::new();
-            let mut future = head.future.lock(&mut node);
+            let result = {
+                let mut node = MCSNode::new();
+                let mut future = head.future.lock(&mut node);
 
-            if future.is_terminated() {
-                continue;
+                if future.is_terminated() {
+                    continue;
+                }
+
+                future.poll_unpin(&mut cx)
+            };
+
+            match result {
+                core::task::Poll::Ready(()) => {}
+                core::task::Poll::Pending => {
+                    let mut node = MCSNode::new();
+                    let mut queue = self.queue.lock(&mut node);
+                    queue.push_back(head);
+                }
             }
-
-            let _ = future.poll_unpin(&mut cx);
         }
     }
 

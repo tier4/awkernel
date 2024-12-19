@@ -48,7 +48,7 @@ impl Scheduler for PriorityBasedRRScheduler {
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
         let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-        data.queue.push(priority as usize, new_task);
+        data.queue.push(priority as u32, new_task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
