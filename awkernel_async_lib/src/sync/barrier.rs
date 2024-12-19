@@ -44,7 +44,7 @@ impl Barrier {
             self.tx.send(()).await;
             BarrierWaitResult(true)
         } else {
-            self.rx.recv().await;
+            self.rx.clone().recv().await;
             BarrierWaitResult(false)
         }
     }
