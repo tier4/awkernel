@@ -1102,7 +1102,7 @@ fn update_lowest_task_info_on_exit(task_id: u32) {
 
     // If no lowest task is exited, the lowest task information is not updated.
     if let Some(info) = &*lowest_task_info {
-        if task_id != info.task_id { 
+        if task_id != info.task_id {
             return;
         }
     }
