@@ -1065,6 +1065,9 @@ pub fn get_lowest_task_info() -> Option<LowestTaskInfo> {
     lowest_task_info.clone()
 }
 
+/// Update the lowest task information when a task is dispatched.
+/// If LOWEST_TASK_INFO is None, set the task information.
+/// Otherwise, compare the task information with the current lowest task information.
 fn update_lowest_task_info_on_dispatch(task_id: u32) {
     let mut node = MCSNode::new();
     let mut lowest_task_info = LOWEST_TASK_INFO.lock(&mut node);
@@ -1095,6 +1098,9 @@ fn create_task_info_by_task_id(task_id: u32) -> Option<LowestTaskInfo> {
     Some(LowestTaskInfo::new(task_sched_priority, cpu_id(), task_id))
 }
 
+/// Update the lowest task information when a task is exited.
+/// If no lowest task is exited, the lowest task information is not updated.
+/// If the lowest task is exited and there are other tasks, the lowest task information is updated.
 fn update_lowest_task_info_on_exit(task_id: u32) {
     let mut node = MCSNode::new();
     let mut lowest_task_info = LOWEST_TASK_INFO.lock(&mut node);
