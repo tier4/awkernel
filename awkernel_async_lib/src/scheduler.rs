@@ -24,7 +24,6 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
-static PREEMPT_LOCK: Mutex<()> = Mutex::new(());
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -100,9 +99,6 @@ pub(crate) trait Scheduler {
     /// A lock is required to ensure that `get_lowest_task_info` does not execute
     /// before the preemption process is complete, as this could lead to inconsistent state.
     fn invoke_preemption(&self, wake_task_id: u32) {
-        let mut node = MCSNode::new();
-        let _guard = PREEMPT_LOCK.lock(&mut node);
-
         // Check if preemption is required.
         if get_preemptable_tasks().is_none() {
             return;
