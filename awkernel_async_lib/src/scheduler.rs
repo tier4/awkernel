@@ -97,7 +97,7 @@ pub(crate) trait Scheduler {
     fn priority(&self) -> u8;
 
     /// Invoke preemption between schedulers or tasks.
-    /// A lock is required to ensure that `get_preemptable_tasks` does not execute
+    /// A lock is required to ensure that `get_lowest_task_info` does not execute
     /// before the preemption process is complete, as this could lead to inconsistent state.
     fn invoke_preemption(&self, wake_task_id: u32) {
         let mut node = MCSNode::new();
