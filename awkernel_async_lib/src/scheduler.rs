@@ -121,7 +121,7 @@ pub(crate) trait Scheduler {
 
         // Preemption between tasks.
         if self.priority() == lowest_task_info.sched_priority
-            && matches!(self.scheduler_name(), SchedulerType::GEDF(_))
+            && self.is_task_preempt_enable()
         {
             if let Some(lower_priority_task_id) =
                 get_lower_priority_task_id(lowest_task_info.task_id, wake_task_id)
@@ -131,6 +131,10 @@ pub(crate) trait Scheduler {
                 }
             }
         }
+    }
+
+    fn is_task_preempt_enable(&self) -> bool {
+        return false;
     }
 }
 

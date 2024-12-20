@@ -117,6 +117,10 @@ impl Scheduler for GEDFScheduler {
     fn priority(&self) -> u8 {
         self.priority
     }
+
+    fn is_task_preempt_enable(&self) -> bool {
+        true
+    }
 }
 
 pub static SCHEDULER: GEDFScheduler = GEDFScheduler {
