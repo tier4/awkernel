@@ -132,7 +132,7 @@ pub(crate) trait Scheduler {
     }
 
     fn is_task_preempt_enable(&self) -> bool {
-        return false;
+        false
     }
 }
 
