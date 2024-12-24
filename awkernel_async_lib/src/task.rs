@@ -1102,7 +1102,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, PriorityInfo)> {
         if let Some(priority_info) = create_priority_info(task_id) {
             if lowest_task
                 .as_ref()
-                .map_or(true, |(_, current)| &priority_info < current)
+                .is_none_or(|(_, current)| &priority_info < current)
             {
                 lowest_task = Some((task_id, priority_info));
             }
