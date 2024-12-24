@@ -962,12 +962,14 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
     })
 }
 
+static NONE_TASK_PRIORITY: u64 = 256;
+
 fn get_task_priority_by_task_id(task_id: u32) -> Option<u64> {
     match get_scheduler_type_by_task_id(task_id) {
         Some(SchedulerType::GEDF(_)) => Some(get_absolute_deadline_by_task_id(task_id)?),
-        Some(SchedulerType::FIFO) => Some(get_last_executed_by_task_id(task_id)?),
+        Some(SchedulerType::FIFO) => Some(NONE_TASK_PRIORITY),
         Some(SchedulerType::PrioritizedFIFO(priority)) => Some(priority as u64),
-        Some(SchedulerType::RR) => Some(get_last_executed_by_task_id(task_id)?),
+        Some(SchedulerType::RR) => Some(NONE_TASK_PRIORITY),
         Some(SchedulerType::PriorityBasedRR(priority)) => Some(priority as u64),
         _ => None,
     }
@@ -1026,14 +1028,21 @@ pub fn panicking() {
 pub struct PriorityInfo {
     pub scheduler_priority: u8,
     pub task_priority: u64,
+    pub last_executed_time: u64,
     pub cpu_id: usize,
 }
 
 impl PriorityInfo {
-    fn new(scheduler_priority: u8, task_priority: u64, cpu_id: usize) -> Self {
+    fn new(
+        scheduler_priority: u8,
+        task_priority: u64,
+        last_executed_time: u64,
+        cpu_id: usize,
+    ) -> Self {
         Self {
             scheduler_priority,
             task_priority,
+            last_executed_time,
             cpu_id,
         }
     }
@@ -1068,6 +1077,7 @@ impl Ord for PriorityInfo {
             }
             other => other,
         }
+        .then(other.last_executed_time.cmp(&self.last_executed_time))
         .then(self.cpu_id.cmp(&other.cpu_id))
     }
 }
@@ -1077,11 +1087,13 @@ impl Eq for PriorityInfo {}
 fn create_priority_info(task_id: u32) -> Option<PriorityInfo> {
     let scheduler_type = get_scheduler_type_by_task_id(task_id)?;
     let scheduler_priority = get_scheduler(scheduler_type).priority();
+    let last_executed_time = get_last_executed_by_task_id(task_id)?;
     let task_priority = get_task_priority_by_task_id(task_id)?;
 
     Some(PriorityInfo::new(
         scheduler_priority,
         task_priority,
+        last_executed_time,
         awkernel_lib::cpu::cpu_id(),
     ))
 }
@@ -1097,7 +1109,10 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, PriorityInfo)> {
 
         let task_id = task.load(Ordering::Relaxed);
         if let Some(priority_info) = create_priority_info(task_id) {
-            if lowest_task.as_ref().map_or(true, |(_, current)| &priority_info > current) {
+            if lowest_task
+                .as_ref()
+                .map_or(true, |(_, current)| &priority_info > current)
+            {
                 lowest_task = Some((task_id, priority_info));
             }
         }
