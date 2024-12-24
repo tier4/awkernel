@@ -1065,7 +1065,8 @@ impl PartialEq for PriorityInfo {
 
 impl Ord for PriorityInfo {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        other.scheduler_priority
+        other
+            .scheduler_priority
             .cmp(&self.scheduler_priority)
             .then_with(|| other.task_priority.cmp(&self.task_priority))
             .then_with(|| self.last_executed_time.cmp(&other.last_executed_time))
