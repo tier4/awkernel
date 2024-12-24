@@ -1064,12 +1064,11 @@ impl PartialEq for PriorityInfo {
 
 impl Ord for PriorityInfo {
     fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        match self.scheduler_priority.cmp(&other.scheduler_priority) {
-            core::cmp::Ordering::Equal => self.task_priority.cmp(&other.task_priority),
-            other => other,
-        }
-        .then(other.last_executed_time.cmp(&self.last_executed_time))
-        .then(self.cpu_id.cmp(&other.cpu_id))
+        other.scheduler_priority
+            .cmp(&self.scheduler_priority)
+            .then_with(|| other.task_priority.cmp(&self.task_priority))
+            .then_with(|| self.last_executed_time.cmp(&other.last_executed_time))
+            .then_with(|| other.cpu_id.cmp(&self.cpu_id))
     }
 }
 
@@ -1102,7 +1101,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, PriorityInfo)> {
         if let Some(priority_info) = create_priority_info(task_id) {
             if lowest_task
                 .as_ref()
-                .map_or(true, |(_, current)| &priority_info > current)
+                .map_or(true, |(_, current)| &priority_info < current)
             {
                 lowest_task = Some((task_id, priority_info));
             }
