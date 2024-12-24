@@ -40,7 +40,7 @@ impl Barrier {
     }
 
     /// Blocks the current thread until all threads have redezvoused here.
-    /// A single (arbitrary) thread will receive `BarrierWaitResult(true)` when returning fron this function, and other threads will receive `BarrierWaitResult(false)`.
+    /// A single (arbitrary) thread will receive `BarrierWaitResult(true)` when returning from this function, and other threads will receive `BarrierWaitResult(false)`.
     pub async fn wait(&self) -> BarrierWaitResult {
         let count = self
             .count
@@ -49,7 +49,7 @@ impl Barrier {
             self.rxs[count].recv().await;
             BarrierWaitResult(false)
         } else {
-            // Safety: count mut be set to 0 before calling Sender::poll, as it switches to a task waiting to receive.
+            // Safety: count must be set to 0 before calling Sender::poll, as it switches to a task waiting to receive.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             self.tx.send(()).await;
             BarrierWaitResult(true)
