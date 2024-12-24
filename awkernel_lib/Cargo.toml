@@ -14,7 +14,7 @@ embedded-graphics-core = "0.4"
 embedded-graphics = "0.8"
 
 [dependencies.awkernel_sync]
-path = "../awkernel_sync"
+git = "https://github.com/tier4/awkernel_sync.git"
 
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"

@@ -13,7 +13,6 @@ members = [
     "applications/awkernel_services",
     "applications/awkernel_shell",
     "applications/tests/*",
-    "awkernel_sync",
 ]
 
 resolver = "2"
