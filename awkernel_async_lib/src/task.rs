@@ -1077,12 +1077,11 @@ impl Eq for PriorityInfo {}
 
 fn create_priority_info(task_id: u32) -> Option<PriorityInfo> {
     let scheduler_type = get_scheduler_type_by_task_id(task_id)?;
-    let scheduler_priority = get_scheduler(scheduler_type).priority();
-    let last_executed_time = get_last_executed_by_task_id(task_id)?;
     let task_priority = get_task_priority_by_task_id(task_id)?;
+    let last_executed_time = get_last_executed_by_task_id(task_id)?;
 
     Some(PriorityInfo::new(
-        scheduler_priority,
+        get_scheduler(scheduler_type).priority(),
         task_priority,
         last_executed_time,
         awkernel_lib::cpu::cpu_id(),
