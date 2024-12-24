@@ -6,13 +6,12 @@ use awkernel_lib::{
     delay::{uptime, wait_microsec},
 };
 
-/// Tests related to preemption between schedulers
-
 #[allow(dead_code)]
 enum TestType {
     GetlowestTask,
 }
 
+/// Tests related to preemption between schedulers
 pub async fn run() {
     // TASK ID:1
     wait_microsec(100000);
