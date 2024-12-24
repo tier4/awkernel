@@ -1058,6 +1058,7 @@ impl PartialEq for PriorityInfo {
     fn eq(&self, other: &Self) -> bool {
         self.scheduler_priority == other.scheduler_priority
             && self.task_priority == other.task_priority
+            && self.last_executed_time == other.last_executed_time
             && self.cpu_id == other.cpu_id
     }
 }
