@@ -239,13 +239,12 @@ impl Tasks {
                     thread: None,
                 });
 
+                // Set the task priority.
+                // If the scheduler is GEDF, the task priority will update later.
                 let task_priority = match scheduler_type {
-                    SchedulerType::GEDF(_) => NONE_TASK_PRIORITY, // Update the priority in the GEDF scheduler.
-                    SchedulerType::FIFO => NONE_TASK_PRIORITY,
-                    SchedulerType::PrioritizedFIFO(priority) => priority as u64,
-                    SchedulerType::RR => NONE_TASK_PRIORITY,
-                    SchedulerType::PriorityBasedRR(priority) => priority as u64,
-                    SchedulerType::Panicked => NONE_TASK_PRIORITY,
+                    SchedulerType::PrioritizedFIFO(priority)
+                    | SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    _ => NONE_TASK_PRIORITY,
                 };
 
                 let task = Task {
@@ -1030,18 +1029,21 @@ pub struct PriorityInfo {
 
 impl PriorityInfo {
     fn new(scheduler_priority: u8, task_priority: u64) -> Self {
-        assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
-        let combined_priority =
-            ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
         PriorityInfo {
-            priority: AtomicU64::new(combined_priority),
+            priority: AtomicU64::new(Self::combine_priority(scheduler_priority, task_priority)),
         }
     }
 
     pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
-        let combined_priority =
-            ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
-        self.priority.store(combined_priority, Ordering::Relaxed);
+        self.priority.store(
+            Self::combine_priority(scheduler_priority, task_priority),
+            Ordering::Relaxed,
+        );
+    }
+
+    fn combine_priority(scheduler_priority: u8, task_priority: u64) -> u64 {
+        assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
+        ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1))
     }
 }
 
@@ -1082,11 +1084,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
 
-    for (cpu_id, task) in RUNNING.iter().enumerate() {
-        if cpu_id >= num_cpus {
-            break;
-        }
-
+    for (cpu_id, task) in RUNNING.iter().enumerate().take(num_cpus) {
         let task_id = task.load(Ordering::Relaxed);
         if task_id == 0 {
             continue;
@@ -1102,16 +1100,14 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
         };
 
         if let Some(priority_info) = priority_info {
-            match &lowest_task {
-                Some((_, _, lowest_priority_info)) if priority_info > *lowest_priority_info => {
-                    lowest_task = Some((task_id, cpu_id, priority_info));
-                }
-                None => {
-                    lowest_task = Some((task_id, cpu_id, priority_info));
-                }
-                _ => {}
+            if lowest_task
+                .as_ref()
+                .map_or(true, |(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+            {
+                lowest_task = Some((task_id, cpu_id, priority_info));
             }
         }
+
     }
 
     lowest_task
