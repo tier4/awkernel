@@ -1028,22 +1028,16 @@ pub fn panicking() {
 pub struct PriorityInfo {
     pub scheduler_priority: u8,
     pub task_priority: u64,
-    pub last_executed_time: u64,
-    pub cpu_id: usize,
 }
 
 impl PriorityInfo {
     fn new(
         scheduler_priority: u8,
         task_priority: u64,
-        last_executed_time: u64,
-        cpu_id: usize,
     ) -> Self {
         Self {
             scheduler_priority,
             task_priority,
-            last_executed_time,
-            cpu_id,
         }
     }
 }
@@ -1058,8 +1052,6 @@ impl PartialEq for PriorityInfo {
     fn eq(&self, other: &Self) -> bool {
         self.scheduler_priority == other.scheduler_priority
             && self.task_priority == other.task_priority
-            && self.last_executed_time == other.last_executed_time
-            && self.cpu_id == other.cpu_id
     }
 }
 
@@ -1069,8 +1061,6 @@ impl Ord for PriorityInfo {
             .scheduler_priority
             .cmp(&self.scheduler_priority)
             .then_with(|| other.task_priority.cmp(&self.task_priority))
-            .then_with(|| self.last_executed_time.cmp(&other.last_executed_time))
-            .then_with(|| other.cpu_id.cmp(&self.cpu_id))
     }
 }
 
@@ -1079,13 +1069,10 @@ impl Eq for PriorityInfo {}
 fn create_priority_info(task_id: u32) -> Option<PriorityInfo> {
     let scheduler_type = get_scheduler_type_by_task_id(task_id)?;
     let task_priority = get_task_priority_by_task_id(task_id)?;
-    let last_executed_time = get_last_executed_by_task_id(task_id)?;
 
     Some(PriorityInfo::new(
         get_scheduler(scheduler_type).priority(),
         task_priority,
-        last_executed_time,
-        awkernel_lib::cpu::cpu_id(),
     ))
 }
 

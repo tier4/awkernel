@@ -67,11 +67,10 @@ async fn check_lowest_task() {
     // FIFO TASK ID:1 is the lowest priority task
     if let Some((task_id, priority_info)) = get_lowest_priority_task_info() {
         log::debug!(
-            "Task ID: {}, sched_priority: {:?}, task_priority: {:?}, cpu_id: {}",
+            "Task ID: {}, sched_priority: {:?}, task_priority: {:?}",
             task_id,
             priority_info.scheduler_priority,
             priority_info.task_priority,
-            priority_info.cpu_id
         );
     }
 }
