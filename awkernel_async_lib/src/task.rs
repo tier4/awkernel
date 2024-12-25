@@ -1100,12 +1100,13 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
         if let Some(priority_info) = priority_info {
             if lowest_task
                 .as_ref()
-                .map_or(true, |(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+                .map_or(true, |(_, _, lowest_priority_info)| {
+                    priority_info > *lowest_priority_info
+                })
             {
                 lowest_task = Some((task_id, cpu_id, priority_info));
             }
         }
-
     }
 
     lowest_task
