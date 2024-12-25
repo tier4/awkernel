@@ -1079,31 +1079,30 @@ impl Ord for PriorityInfo {
 }
 
 pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
-    let num_cpus = awkernel_lib::cpu::num_cpu();
     let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
 
-    for (cpu_id, task) in RUNNING.iter().enumerate().take(num_cpus) {
-        let task_id = task.load(Ordering::Relaxed);
-        if task_id == 0 {
-            continue;
-        }
+    let running_tasks = get_tasks_running();
 
-        let priority_info = {
-            let mut node = MCSNode::new();
-            let tasks = TASKS.lock(&mut node);
-            tasks
-                .id_to_task
-                .get(&task_id)
-                .map(|task| task.priority.clone())
-        };
+    let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+        running_tasks
+            .into_iter()
+            .filter_map(|task| {
+                tasks
+                    .id_to_task
+                    .get(&task.task_id)
+                    .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
+            })
+            .collect()
+    };
 
-        if let Some(priority_info) = priority_info {
-            if lowest_task
-                .as_ref()
-                .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
-            {
-                lowest_task = Some((task_id, cpu_id, priority_info));
-            }
+    for (task_id, cpu_id, priority_info) in priority_infos {
+        if lowest_task
+            .as_ref()
+            .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+        {
+            lowest_task = Some((task_id, cpu_id, priority_info));
         }
     }
 
