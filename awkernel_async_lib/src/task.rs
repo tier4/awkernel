@@ -1066,9 +1066,7 @@ impl Eq for PriorityInfo {}
 
 impl PartialOrd for PriorityInfo {
     fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        self.priority
-            .load(Ordering::Relaxed)
-            .partial_cmp(&other.priority.load(Ordering::Relaxed))
+        Some(self.cmp(other))
     }
 }
 
