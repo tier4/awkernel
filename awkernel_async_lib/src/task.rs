@@ -1081,7 +1081,10 @@ impl Ord for PriorityInfo {
 pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
 
-    let running_tasks = get_tasks_running();
+    let running_tasks: Vec<RunningTask> = get_tasks_running()
+        .into_iter()
+        .filter(|task| task.task_id != 0)
+        .collect();
 
     let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
         let mut node = MCSNode::new();
