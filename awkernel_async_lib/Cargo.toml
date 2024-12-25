@@ -11,9 +11,10 @@ log = "0.4"
 array-macro = "2.1"
 
 [dependencies.futures]
-version = "0.3"
+git = "https://github.com/ytakano/futures-rs.git"
+# version = "0.3"
 default-features = false
-features = ["alloc", "async-await", "cfg-target-has-atomic"]
+features = ["alloc", "async-await"]
 
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
