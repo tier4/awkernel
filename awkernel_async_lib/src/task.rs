@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32,AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -48,6 +48,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+static NONE_TASK_PRIORITY: u64 = 256;
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -56,6 +57,7 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
+    pub priority: PriorityInfo,
 }
 
 impl Task {
@@ -237,12 +239,22 @@ impl Tasks {
                     thread: None,
                 });
 
+                let task_priority = match scheduler_type {
+                    SchedulerType::GEDF(_) => NONE_TASK_PRIORITY, // Update the priority in the GEDF scheduler.
+                    SchedulerType::FIFO => NONE_TASK_PRIORITY,
+                    SchedulerType::PrioritizedFIFO(priority) => priority as u64,
+                    SchedulerType::RR => NONE_TASK_PRIORITY,
+                    SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    SchedulerType::Panicked => NONE_TASK_PRIORITY,
+                };
+
                 let task = Task {
                     name,
                     future: Mutex::new(future),
                     scheduler,
                     id,
                     info,
+                    priority: PriorityInfo::new(scheduler.priority(), task_priority),
                 };
 
                 e.insert(Arc::new(task));
@@ -962,19 +974,6 @@ pub fn get_scheduler_type_by_task_id(task_id: u32) -> Option<SchedulerType> {
     })
 }
 
-static NONE_TASK_PRIORITY: u64 = 256;
-
-fn get_task_priority_by_task_id(task_id: u32) -> Option<u64> {
-    match get_scheduler_type_by_task_id(task_id) {
-        Some(SchedulerType::GEDF(_)) => Some(get_absolute_deadline_by_task_id(task_id)?),
-        Some(SchedulerType::FIFO) => Some(NONE_TASK_PRIORITY),
-        Some(SchedulerType::PrioritizedFIFO(priority)) => Some(priority as u64),
-        Some(SchedulerType::RR) => Some(NONE_TASK_PRIORITY),
-        Some(SchedulerType::PriorityBasedRR(priority)) => Some(priority as u64),
-        _ => None,
-    }
-}
-
 #[inline(always)]
 pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
     let mut node = MCSNode::new();
@@ -1026,59 +1025,61 @@ pub fn panicking() {
 }
 
 pub struct PriorityInfo {
-    pub scheduler_priority: u8,
-    pub task_priority: u64,
+    pub priority: AtomicU64
 }
 
 impl PriorityInfo {
-    fn new(
-        scheduler_priority: u8,
-        task_priority: u64,
-    ) -> Self {
-        Self {
-            scheduler_priority,
-            task_priority,
+    fn new(scheduler_priority: u8, task_priority: u64) -> Self {
+        assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
+        let combined_priority = ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
+        PriorityInfo {
+            priority: AtomicU64::new(combined_priority),
         }
+    }
+
+    pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
+        let combined_priority = ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
+        self.priority.store(combined_priority, Ordering::Relaxed);
     }
 }
 
-impl PartialOrd for PriorityInfo {
-    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
-        Some(self.cmp(other))
+impl Clone for PriorityInfo {
+    fn clone(&self) -> Self {
+        let value = self.priority.load(Ordering::Relaxed);
+        PriorityInfo {
+            priority: AtomicU64::new(value),
+        }
     }
 }
 
 impl PartialEq for PriorityInfo {
     fn eq(&self, other: &Self) -> bool {
-        self.scheduler_priority == other.scheduler_priority
-            && self.task_priority == other.task_priority
-    }
-}
-
-impl Ord for PriorityInfo {
-    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
-        other
-            .scheduler_priority
-            .cmp(&self.scheduler_priority)
-            .then_with(|| other.task_priority.cmp(&self.task_priority))
+        self.priority.load(Ordering::Relaxed)
+            == other.priority.load(Ordering::Relaxed)
     }
 }
 
 impl Eq for PriorityInfo {}
 
-fn create_priority_info(task_id: u32) -> Option<PriorityInfo> {
-    let scheduler_type = get_scheduler_type_by_task_id(task_id)?;
-    let task_priority = get_task_priority_by_task_id(task_id)?;
-
-    Some(PriorityInfo::new(
-        get_scheduler(scheduler_type).priority(),
-        task_priority,
-    ))
+impl PartialOrd for PriorityInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        self.priority
+            .load(Ordering::Relaxed)
+            .partial_cmp(&other.priority.load(Ordering::Relaxed))
+    }
 }
 
-pub fn get_lowest_priority_task_info() -> Option<(u32, PriorityInfo)> {
+impl Ord for PriorityInfo {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.priority
+            .load(Ordering::Relaxed)
+            .cmp(&other.priority.load(Ordering::Relaxed))
+    }
+}
+
+pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     let num_cpus = awkernel_lib::cpu::num_cpu();
-    let mut lowest_task: Option<(u32, PriorityInfo)> = None; // (task_id, priority_info)
+    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
 
     for (cpu_id, task) in RUNNING.iter().enumerate() {
         if cpu_id >= num_cpus {
@@ -1086,12 +1087,25 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, PriorityInfo)> {
         }
 
         let task_id = task.load(Ordering::Relaxed);
-        if let Some(priority_info) = create_priority_info(task_id) {
-            if lowest_task
-                .as_ref()
-                .is_none_or(|(_, current)| &priority_info < current)
-            {
-                lowest_task = Some((task_id, priority_info));
+        if task_id == 0 {
+            continue;
+        }
+
+        let priority_info = {
+            let mut node = MCSNode::new();
+            let tasks = TASKS.lock(&mut node);
+            tasks.id_to_task.get(&task_id).map(|task| task.priority.clone())
+        };
+
+        if let Some(priority_info) = priority_info {
+            match &lowest_task {
+                Some((_, _, lowest_priority_info)) if priority_info > *lowest_priority_info => {
+                    lowest_task = Some((task_id, cpu_id, priority_info));
+                }
+                None => {
+                    lowest_task = Some((task_id, cpu_id, priority_info));
+                }
+                _ => {}
             }
         }
     }
