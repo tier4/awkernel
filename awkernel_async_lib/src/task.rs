@@ -48,7 +48,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
-static NONE_TASK_PRIORITY: u64 = 256;
+static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -244,7 +244,7 @@ impl Tasks {
                 let task_priority = match scheduler_type {
                     SchedulerType::PrioritizedFIFO(priority)
                     | SchedulerType::PriorityBasedRR(priority) => priority as u64,
-                    _ => NONE_TASK_PRIORITY,
+                    _ => MAX_TASK_PRIORITY,
                 };
 
                 let task = Task {
