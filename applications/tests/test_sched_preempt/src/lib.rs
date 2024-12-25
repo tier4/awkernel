@@ -66,10 +66,6 @@ async fn check_lowest_task() {
     // FIFO TASK ID:1 < FIFO TASK ID:9 < GEDF TASK ID:8
     // In FIFO tasks, the task with the smaller CPU ID has the lowest priority.
     if let Some((task_id, cpu_id, _)) = get_lowest_priority_task_info() {
-        log::debug!(
-            "Task ID: {}, cpu_id: {}",
-            task_id,
-            cpu_id,
-        );
+        log::debug!("Task ID: {}, cpu_id: {}", task_id, cpu_id,);
     }
 }

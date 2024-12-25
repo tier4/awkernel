@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32,AtomicU64, Ordering},
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -1025,20 +1025,22 @@ pub fn panicking() {
 }
 
 pub struct PriorityInfo {
-    pub priority: AtomicU64
+    pub priority: AtomicU64,
 }
 
 impl PriorityInfo {
     fn new(scheduler_priority: u8, task_priority: u64) -> Self {
         assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
-        let combined_priority = ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
+        let combined_priority =
+            ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
         PriorityInfo {
             priority: AtomicU64::new(combined_priority),
         }
     }
 
     pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
-        let combined_priority = ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
+        let combined_priority =
+            ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1));
         self.priority.store(combined_priority, Ordering::Relaxed);
     }
 }
@@ -1054,8 +1056,7 @@ impl Clone for PriorityInfo {
 
 impl PartialEq for PriorityInfo {
     fn eq(&self, other: &Self) -> bool {
-        self.priority.load(Ordering::Relaxed)
-            == other.priority.load(Ordering::Relaxed)
+        self.priority.load(Ordering::Relaxed) == other.priority.load(Ordering::Relaxed)
     }
 }
 
@@ -1094,7 +1095,10 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
         let priority_info = {
             let mut node = MCSNode::new();
             let tasks = TASKS.lock(&mut node);
-            tasks.id_to_task.get(&task_id).map(|task| task.priority.clone())
+            tasks
+                .id_to_task
+                .get(&task_id)
+                .map(|task| task.priority.clone())
         };
 
         if let Some(priority_info) = priority_info {
