@@ -240,7 +240,7 @@ impl Tasks {
                 });
 
                 // Set the task priority.
-                // If the scheduler is GEDF, the task priority will update later.
+                // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
                 let task_priority = match scheduler_type {
                     SchedulerType::PrioritizedFIFO(priority)
                     | SchedulerType::PriorityBasedRR(priority) => priority as u64,
