@@ -1,7 +1,7 @@
 # Specification of Barrier implementation
 ## How to run
 
-1. download tla2tools (https://github.com/tlaplus/tlaplus/releases)
+1. Download tla2tools (https://github.com/tlaplus/tlaplus/releases)
 
 2. Translate PlusCal to TLA+
 ```bash
