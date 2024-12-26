@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -48,6 +48,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -56,6 +57,7 @@ pub struct Task {
     future: Mutex<Fuse<BoxFuture<'static, TaskResult>>>,
     pub info: Mutex<TaskInfo>,
     scheduler: &'static dyn Scheduler,
+    pub priority: PriorityInfo,
 }
 
 impl Task {
@@ -237,12 +239,21 @@ impl Tasks {
                     thread: None,
                 });
 
+                // Set the task priority.
+                // If the scheduler implements dynamic priority scheduling, the task priority will be updated later.
+                let task_priority = match scheduler_type {
+                    SchedulerType::PrioritizedFIFO(priority)
+                    | SchedulerType::PriorityBasedRR(priority) => priority as u64,
+                    _ => MAX_TASK_PRIORITY,
+                };
+
                 let task = Task {
                     name,
                     future: Mutex::new(future),
                     scheduler,
                     id,
                     info,
+                    priority: PriorityInfo::new(scheduler.priority(), task_priority),
                 };
 
                 e.insert(Arc::new(task));
@@ -1010,4 +1021,93 @@ pub fn panicking() {
     unsafe {
         preempt::preemption();
     }
+}
+
+pub struct PriorityInfo {
+    pub priority: AtomicU64,
+}
+
+impl PriorityInfo {
+    fn new(scheduler_priority: u8, task_priority: u64) -> Self {
+        PriorityInfo {
+            priority: AtomicU64::new(Self::combine_priority(scheduler_priority, task_priority)),
+        }
+    }
+
+    pub fn update_priority_info(&self, scheduler_priority: u8, task_priority: u64) {
+        self.priority.store(
+            Self::combine_priority(scheduler_priority, task_priority),
+            Ordering::Relaxed,
+        );
+    }
+
+    fn combine_priority(scheduler_priority: u8, task_priority: u64) -> u64 {
+        assert!(task_priority < (1 << 56), "Task priority exceeds 56 bits");
+        ((scheduler_priority as u64) << 56) | (task_priority & ((1 << 56) - 1))
+    }
+}
+
+impl Clone for PriorityInfo {
+    fn clone(&self) -> Self {
+        let value = self.priority.load(Ordering::Relaxed);
+        PriorityInfo {
+            priority: AtomicU64::new(value),
+        }
+    }
+}
+
+impl PartialEq for PriorityInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority.load(Ordering::Relaxed) == other.priority.load(Ordering::Relaxed)
+    }
+}
+
+impl Eq for PriorityInfo {}
+
+impl PartialOrd for PriorityInfo {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PriorityInfo {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        self.priority
+            .load(Ordering::Relaxed)
+            .cmp(&other.priority.load(Ordering::Relaxed))
+    }
+}
+
+pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
+    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
+
+    let running_tasks: Vec<RunningTask> = get_tasks_running()
+        .into_iter()
+        .filter(|task| task.task_id != 0)
+        .collect();
+
+    let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
+        let mut node = MCSNode::new();
+        let tasks = TASKS.lock(&mut node);
+        running_tasks
+            .into_iter()
+            .filter_map(|task| {
+                tasks
+                    .id_to_task
+                    .get(&task.task_id)
+                    .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
+            })
+            .collect()
+    };
+
+    for (task_id, cpu_id, priority_info) in priority_infos {
+        if lowest_task
+            .as_ref()
+            .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+        {
+            lowest_task = Some((task_id, cpu_id, priority_info));
+        }
+    }
+
+    lowest_task
 }

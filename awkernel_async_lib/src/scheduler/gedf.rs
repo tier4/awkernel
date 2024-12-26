@@ -73,6 +73,8 @@ impl Scheduler for GEDFScheduler {
         let wake_time = awkernel_lib::delay::uptime();
         let absolute_deadline = wake_time + relative_deadline;
 
+        task.priority
+            .update_priority_info(self.priority, absolute_deadline);
         info.update_absolute_deadline(absolute_deadline);
 
         data.queue.push(GEDFTask {
