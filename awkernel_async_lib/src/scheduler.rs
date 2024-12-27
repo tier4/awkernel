@@ -1,7 +1,10 @@
 //! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
-use crate::task::{get_current_task, get_scheduler_type_by_task_id};
+use crate::task::{
+    get_current_task, get_lowest_priority_task_info, get_scheduler_type_by_task_id,
+    set_need_preemption, PriorityInfo,
+};
 use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
@@ -89,8 +92,23 @@ pub(crate) trait Scheduler {
     /// Get the scheduler name.
     fn scheduler_name(&self) -> SchedulerType;
 
-    #[allow(dead_code)] // TODO: to be removed
+    /// Get the priority of the scheduler.
     fn priority(&self) -> u8;
+
+    /// Invoke preemption.
+    fn invoke_preemption(&self, wake_task_priority: PriorityInfo) {
+        let (task_id, cpu_id, lowest_priority_info) = match get_lowest_priority_task_info() {
+            Some(info) => info,
+            None => return,
+        };
+
+        if wake_task_priority < lowest_priority_info {
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(task_id);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+        }
+        return;
+    }
 }
 
 /// Get the next executable task.
@@ -190,9 +208,9 @@ pub fn wake_task() {
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
             match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
+                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id),
                 Some(SchedulerType::PriorityBasedRR(_)) => {
-                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
+                    priority_based_rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id)
                 }
                 _ => (),
             }

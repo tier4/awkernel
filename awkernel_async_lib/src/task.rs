@@ -1086,6 +1086,10 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
         .filter(|task| task.task_id != 0)
         .collect();
 
+    if running_tasks.len() != awkernel_lib::cpu::num_cpu().saturating_sub(1) {
+        return None;
+    }
+
     let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
         let mut node = MCSNode::new();
         let tasks = TASKS.lock(&mut node);

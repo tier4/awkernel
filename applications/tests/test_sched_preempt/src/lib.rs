@@ -9,6 +9,7 @@ use awkernel_lib::{
 #[allow(dead_code)]
 enum TestType {
     GetlowestTask,
+    SchedPreempt,
 }
 
 /// Tests related to preemption between schedulers
@@ -21,9 +22,10 @@ pub async fn run() {
         cpu_id()
     );
 
-    let test_type = TestType::GetlowestTask;
+    let test_type = TestType::SchedPreempt;
     match test_type {
         TestType::GetlowestTask => check_lowest_task().await,
+        TestType::SchedPreempt => check_sched_preempt().await,
     }
 
     log::info!(
@@ -68,4 +70,51 @@ async fn check_lowest_task() {
     if let Some((task_id, cpu_id, _)) = get_lowest_priority_task_info() {
         log::debug!("Task ID: {}, cpu_id: {}", task_id, cpu_id,);
     }
+}
+
+async fn check_sched_preempt() {
+    log::info!("[{}] GEDF_H1 spawn", uptime());
+    spawn(
+        "GEDF_H1".into(),
+        async move {
+            log::info!("[{}] GEDF_H1 is start at cpu_id: {}", uptime(), cpu_id());
+            wait_microsec(10000000);
+            log::info!("[{}] GEDF_H1 is end at cpu_id: {}", uptime(), cpu_id());
+        },
+        SchedulerType::GEDF(99000000),
+    )
+    .await;
+    log::info!("[{}] FIFO_L1 spawn", uptime());
+    spawn(
+        "FIFO_M1".into(),
+        async move {
+            log::info!("[{}] FIFO_M1 is start at cpu_id: {}", uptime(), cpu_id());
+            wait_microsec(10000000);
+            log::info!("[{}] FIFO_M1 is end at cpu_id: {}", uptime(), cpu_id());
+        },
+        SchedulerType::FIFO,
+    )
+    .await;
+    log::info!("[{}] RR_L1 spawn", uptime());
+    spawn(
+        "RR_L1".into(),
+        async move {
+            log::info!("[{}] RR_L1 is start at cpu_id: {}", uptime(), cpu_id());
+            wait_microsec(10000000);
+            log::info!("[{}] RR_L1 is end at cpu_id: {}", uptime(), cpu_id());
+        },
+        SchedulerType::RR,
+    )
+    .await;
+    log::info!("[{}] GEDF_H2 spawn", uptime());
+    spawn(
+        "GEDF_H2".into(),
+        async move {
+            log::info!("[{}] GEDF_H2 is start at cpu_id: {}", uptime(), cpu_id());
+            wait_microsec(10000000);
+            log::info!("[{}] GEDF_H2 is end at cpu_id: {}", uptime(), cpu_id());
+        },
+        SchedulerType::GEDF(98000000),
+    )
+    .await;
 }

@@ -64,6 +64,9 @@ impl Scheduler for PrioritizedFIFOScheduler {
             );
             *data = Some(prioritized_fifo_data);
         }
+
+        let wake_task_priority = task.priority.clone();
+        self.invoke_preemption(wake_task_priority);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
