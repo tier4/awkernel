@@ -24,7 +24,7 @@ default-features = false
 path = "../awkernel_async_lib_verified"
 
 [dependencies.smoltcp]
-version = "0.11.0"
+path = "../smoltcp"
 default-features = false
 features = [
     "alloc",

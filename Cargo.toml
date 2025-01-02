@@ -10,6 +10,7 @@ members = [
     "awkernel_lib",
     "awkernel_aarch64",
     "awkernel_drivers",
+    "smoltcp",
     "applications/awkernel_services",
     "applications/awkernel_shell",
     "applications/tests/*",
