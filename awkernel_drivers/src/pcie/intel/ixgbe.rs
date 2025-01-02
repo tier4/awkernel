@@ -1623,15 +1623,12 @@ impl Ixgbe {
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
-                    let data;
-                    unsafe {
-                        data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
-                            ptr, phy_addr,
-                            PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
-                            numa_id,
-                        )
-                        .unwrap();
-                    }
+                    let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
+                        ptr, phy_addr,
+                        PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
+                        numa_id,
+                    )
+                    .unwrap();
 
                     rx.dma_info[index] =
                         (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
@@ -1837,11 +1834,8 @@ impl Ixgbe {
         let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
         if used {
             let ptr = virt_addr as *mut [u8; PAGESIZE];
-            let data;
-            unsafe {
-                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
-                    .unwrap();
-            }
+            let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                .unwrap();
             drop(data);
         }
 
@@ -1886,11 +1880,8 @@ impl Ixgbe {
         let (used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
         if used {
             let ptr = virt_addr as *mut [u8; PAGESIZE];
-            let data;
-            unsafe {
-                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
-                    .unwrap();
-            }
+            let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                .unwrap();
             drop(data);
         }
 

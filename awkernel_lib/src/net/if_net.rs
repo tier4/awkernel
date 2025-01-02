@@ -44,6 +44,8 @@ use super::{
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
 
+type DMABuffer = DMAPool<[u8; PAGESIZE]>;
+
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
     rx_que_id: usize,
@@ -55,7 +57,7 @@ struct NetDriverRef<'a> {
     inner: &'a Arc<dyn NetDevice + Sync + Send>,
 
     rx_ringq: Option<&'a mut RingQ<EtherFrameBuf>>,
-    tx_ringq: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
+    tx_ringq: &'a mut RingQ<(DMABuffer, usize)>,
 }
 
 impl NetDriverRef<'_> {
@@ -171,7 +173,7 @@ pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
     rx_irq_to_driver: BTreeMap<u16, NetDriver>,
-    tx_only_ringq: Vec<Mutex<RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>>>,
+    tx_only_ringq: Vec<Mutex<RingQ<(DMABuffer, usize)>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
@@ -503,7 +505,7 @@ impl IfNet {
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
-                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
                 let data = EtherFrameBuf {
@@ -565,7 +567,7 @@ impl IfNet {
         while !device_ref.tx_ringq.is_empty() {
             if let Some((data, len)) = device_ref.tx_ringq.pop() {
                 let ptr = data.get_virt_addr().as_mut_ptr();
-                let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
                 let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
                 let data = EtherFrameBuf {
@@ -640,7 +642,7 @@ impl phy::RxToken for NRxToken {
 }
 
 pub struct NTxToken<'a> {
-    tx_ring: &'a mut RingQ<(DMAPool<[u8; PAGESIZE]>, usize)>,
+    tx_ring: &'a mut RingQ<(DMABuffer, usize)>,
     driver_ref_inner: &'a Arc<dyn NetDevice + Sync + Send>,
 }
 
@@ -650,10 +652,10 @@ impl phy::TxToken for NTxToken<'_> {
         F: FnOnce(&mut [u8]) -> R,
     {
         let segment_group = self.driver_ref_inner.get_segment_group().unwrap_or(0);
-        let buf: DMAPool<[u8; PAGESIZE]> = DMAPool::new(segment_group as usize, 1).unwrap(); // RECONSIDER: Not sure this unwrap is acceptable
+        let buf: DMABuffer = DMAPool::new(segment_group as usize, 1).unwrap(); // RECONSIDER: Not sure this unwrap is acceptable
 
         let ptr = buf.get_virt_addr().as_mut_ptr();
-        let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
+        let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
 
         let result = f(slice);
 

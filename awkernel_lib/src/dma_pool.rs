@@ -89,7 +89,7 @@ impl<T> DMAPool<T> {
         ptr
     }
 
-    pub unsafe fn from_raw_parts(
+    pub fn from_raw_parts(
         ptr: *mut T,
         phy_addr: usize,
         size: usize,
@@ -100,7 +100,6 @@ impl<T> DMAPool<T> {
         let virt_addr = VirtAddr::new(ptr as usize);
         let phy_addr = PhyAddr::new(phy_addr);
         let ptr = NonNull::new(ptr)?;
-        //let ptr = NonNull::new_unchecked(core::ptr::slice_from_raw_parts_mut(ptr, size));
 
         Some(Self {
             virt_addr,
