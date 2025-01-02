@@ -22,7 +22,7 @@ use crate::sync::rwlock::RwLock;
 
 pub mod ether;
 pub mod ethertypes;
-mod if_net;
+pub mod if_net;
 pub mod in_cksum;
 pub mod ip;
 pub mod ip_addr;

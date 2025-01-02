@@ -20,8 +20,8 @@ use awkernel_lib::{
         ipv6::Ip6Hdr,
         multicast::MulticastAddrs,
         net_device::{
-            EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice,
-            NetFlags, PacketHeaderFlags,
+            EtherFrameBuf, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+            PacketHeaderFlags,
         },
         tcp::TCPHdr,
         udp::UDPHdr,
@@ -128,9 +128,8 @@ struct Rx {
     rx_desc_tail: usize,
     rx_desc_ring: DMAPool<RxRing>,
 
-    read_buf: Option<DMAPool<RxBuffer>>,
-
     read_queue: RingQ<EtherFrameBuf>,
+    dma_info: Vec<(usize, usize, usize)>,
 
     // Statistics
     dropped_pkts: u64,
@@ -151,8 +150,7 @@ struct Tx {
     txd_cmd: u32,
 
     active_checksum_context: ActiveChecksumContext,
-
-    write_buf: Option<DMAPool<TxBuffer>>,
+    dma_info: Vec<(bool, usize, usize, usize)>,
 }
 
 struct Queue {
@@ -421,7 +419,7 @@ impl IgbInner {
 
         let mut que = Vec::new();
         for i in 0..que_num {
-            que.push(allocate_desc_rings(&info, i)?);
+            que.push(allocate_desc_rings(&info, que_num, i)?);
         }
 
         let is_poll_mode;
@@ -503,6 +501,9 @@ impl IgbInner {
         hw.clear_hw_cntrs(&info)?;
 
         hw.set_get_link_status(true);
+
+        let mut dma_info = Vec::with_capacity(MAX_RXD * que_num);
+        dma_info.resize(MAX_RXD * que_num, (0, 0, 0));
 
         let igb = Self {
             info,
@@ -906,54 +907,50 @@ impl IgbInner {
             tx.tx_desc_head = 0;
 
             let tx_desc_ring = tx.tx_desc_ring.as_mut();
-
-            let tx_buffer_size = TXBUFFER_2048 as usize * MAX_TXD;
-            let write_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                tx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IgbDriverErr::DMAPool)?;
-
-            let buf_phy_addr = write_buf.get_phy_addr().as_usize();
-
-            for (i, desc) in tx_desc_ring.iter_mut().enumerate() {
-                desc.legacy.buf = (buf_phy_addr + i * TXBUFFER_2048 as usize) as u64;
+            for desc in tx_desc_ring.iter_mut() {
+                desc.legacy.buf = 0;
                 desc.legacy.lower.raw = 0;
                 desc.legacy.upper.raw = 0;
             }
-
-            tx.write_buf = Some(write_buf);
         }
 
         Ok(())
     }
 
     fn setup_receive_structures(&mut self, que: &[Queue]) -> Result<(), IgbDriverErr> {
-        for que in que.iter() {
+        for (i, que) in que.iter().enumerate() {
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
 
             rx.rx_desc_tail = 0;
-            rx.rx_desc_head = rx.rx_desc_ring.as_ref().len() as u32 - 1;
+            let rx_desc_ring_len = rx.rx_desc_ring.as_ref().len();
+            rx.rx_desc_head = rx_desc_ring_len as u32 - 1;
 
             let rx_desc_ring = rx.rx_desc_ring.as_mut();
+            let mut dma_info_temp = Vec::new();
 
-            let rx_buffer_size = RXBUFFER_2048 as usize * MAX_RXD;
-            let read_buf = DMAPool::new(
-                self.info.get_segment_group() as usize,
-                rx_buffer_size / PAGESIZE,
-            )
-            .ok_or(IgbDriverErr::DMAPool)?;
-
-            let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
-            for (i, desc) in rx_desc_ring.iter_mut().enumerate() {
+            for desc in rx_desc_ring {
+                let read_buf: DMAPool<[u8; PAGESIZE]> =
+                    DMAPool::new(self.info.get_segment_group() as usize, 1)
+                        .ok_or(IgbDriverErr::DMAPool)?;
+                let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                 desc.data = [0; 2];
-                desc.desc.buf = (buf_phy_addr + i * RXBUFFER_2048 as usize) as u64;
-                desc.desc.len = RXBUFFER_2048 as u16;
+
+                desc.desc.buf = buf_phy_addr as u64;
+
+                desc.desc.len = RXBUFFER_2048 as u16; // TODO: Need to check if we really need this.
+
+                dma_info_temp.push((
+                    read_buf.get_virt_addr().as_usize(),
+                    buf_phy_addr,
+                    self.info.get_segment_group() as usize,
+                ));
+                read_buf.leak();
             }
 
-            rx.read_buf = Some(read_buf);
+            for (j, info) in dma_info_temp.iter().enumerate() {
+                rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
+            }
         }
 
         Ok(())
@@ -974,15 +971,7 @@ impl IgbInner {
             self.hw.reset_hw(&self.info)?;
         }
 
-        for que in que.iter() {
-            let mut node = MCSNode::new();
-            let mut tx = que.tx.lock(&mut node);
-            tx.write_buf = None;
-
-            let mut node = MCSNode::new();
-            let mut rx = que.rx.lock(&mut node);
-            rx.read_buf = None;
-        }
+        // TODO: Need to think about the deallocation of DMAPool
 
         Ok(())
     }
@@ -1186,6 +1175,21 @@ impl Igb {
         Ok(())
     }
 
+    // TODO: Not sure if we really need this
+    unsafe fn invalidate_cache(&self, addr: *const u8) -> Result<(), IgbDriverErr> {
+        #[cfg(target_arch = "x86_64")]
+        {
+            core::arch::x86_64::_mm_clflush(addr);
+            Ok(())
+        }
+
+        #[cfg(not(any(target_arch = "x86_64")))]
+        {
+            let _ = addr;
+            Err(IxgbeDriverErr::NotSupported)
+        }
+    }
+
     fn rx_recv(&self, que_id: usize) -> Result<(), IgbDriverErr> {
         let mac_type = self.inner.read().hw.get_mac_type();
 
@@ -1193,13 +1197,10 @@ impl Igb {
 
         {
             let inner = self.inner.read();
+            let numa_id = inner.info.get_segment_group() as usize;
 
             let mut node = MCSNode::new();
             let mut rx = que.rx.lock(&mut node);
-
-            if rx.read_buf.is_none() {
-                return Ok(());
-            }
 
             let mut i = rx.rx_desc_tail;
 
@@ -1212,10 +1213,11 @@ impl Igb {
                     break;
                 }
 
-                let rx_desc_ring = rx.rx_desc_ring.as_ref();
+                let mut dropped_pkts = rx.dropped_pkts;
+                let rx_desc_ring = rx.rx_desc_ring.as_mut();
                 let rx_desc_ring_len = rx_desc_ring.len();
 
-                let desc = unsafe { &rx_desc_ring[i].desc };
+                let desc = unsafe { &mut rx_desc_ring.as_mut()[i].desc };
                 let status = desc.status;
                 let errors = desc.error;
 
@@ -1251,7 +1253,7 @@ impl Igb {
                         len -= 1;
                         true
                     } else {
-                        rx.dropped_pkts += 1;
+                        dropped_pkts += 1;
                         false
                     }
                 } else {
@@ -1259,12 +1261,45 @@ impl Igb {
                 };
 
                 if is_accept {
-                    let read_buf = rx.read_buf.as_ref().unwrap();
-                    let src = &read_buf.as_ref()[i];
-                    let data = src[0..len].to_vec();
+                    let read_buf: DMAPool<[u8; PAGESIZE]> =
+                        DMAPool::new(numa_id, 1).ok_or(IgbDriverErr::DMAPool)?;
+                    let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+                    desc.buf = buf_phy_addr as u64;
 
-                    rx.read_queue.push(EtherFrameBuf { data, vlan }).unwrap();
+                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
+
+                    let ptr = virt_addr as *mut [u8; PAGESIZE];
+                    let data;
+                    unsafe {
+                        data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
+                            ptr, phy_addr,
+                            PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
+                            numa_id,
+                        )
+                        .unwrap();
+                    }
+
+                    rx.dma_info[index] =
+                        (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
+
+                    // Need clflush
+                    unsafe {
+                        self.invalidate_cache(read_buf.get_virt_addr().as_usize() as *const u8)?;
+                    }
+
+                    read_buf.leak();
+                    rx.read_queue
+                        .push(EtherFrameBuf {
+                            data,
+                            len: len as usize,
+                            vlan,
+                            csum_flags: PacketHeaderFlags::EMPTY,
+                        })
+                        .unwrap();
                 };
+
+                rx.dropped_pkts = dropped_pkts;
 
                 i += 1;
                 if i == rx_desc_ring_len {
@@ -1312,13 +1347,15 @@ impl Igb {
     fn transmit_checksum_setup(
         &self,
         tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameBuf,
         head: usize,
     ) -> Result<(usize, u32, u32, u16, Option<u8>), IgbDriverErr> {
         let txd_upper;
         let txd_lower;
 
-        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+        let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let ext = extract_headers(slice).or(Err(IgbDriverErr::InvalidPacket))?;
         if !(matches!(ext.network, NetworkHdr::Ipv4(_))
             && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
         {
@@ -1398,7 +1435,7 @@ impl Igb {
         mac_type: MacType,
         me: usize,
         tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameBuf,
         head: usize,
     ) -> Result<(usize, u32, u32, u16, Option<u8>), IgbDriverErr> {
         let mut olinfo_status = 0;
@@ -1414,7 +1451,9 @@ impl Igb {
             off = true;
         }
 
-        let ext = extract_headers(ether_frame.data).or(Err(IgbDriverErr::InvalidPacket))?;
+        let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let ext = extract_headers(slice).or(Err(IgbDriverErr::InvalidPacket))?;
 
         vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << ADVTXD_MACLEN_SHIFT;
 
@@ -1443,7 +1482,7 @@ impl Igb {
 
         let mut mss_l4len_idx = 0;
 
-        let mut paylen = ether_frame.data.len() as u32;
+        let mut paylen = ether_frame.len as u32;
         match ext.transport {
             TransportHdr::Tcp(tcp) => {
                 type_tucmd_mlhl |= ADVTXD_TUCMD_L4T_TCP;
@@ -1457,7 +1496,7 @@ impl Igb {
                     cmd_type_len |= ADVTXD_DCMD_TSE;
                     off = true;
 
-                    paylen = ether_frame.data.len() as u32 - header_len;
+                    paylen = ether_frame.len as u32 - header_len;
                 }
             }
             TransportHdr::Udp(_udp) => {
@@ -1471,13 +1510,13 @@ impl Igb {
                     mss_l4len_idx |= (mem::size_of::<UDPHdr>() as u32) << 8;
                     off = true;
 
-                    paylen = ether_frame.data.len() as u32 - header_len;
+                    paylen = ether_frame.len as u32 - header_len;
                 }
             }
             _ => (),
         }
 
-        olinfo_status |= (ether_frame.data.len() as u32) << ADVTXD_PAYLEN_SHIFT;
+        olinfo_status |= (ether_frame.len as u32) << ADVTXD_PAYLEN_SHIFT;
 
         if !off {
             return Ok((0, cmd_type_len, olinfo_status, 0, None));
@@ -1588,9 +1627,9 @@ impl Igb {
         mac_type: MacType,
         me: usize,
         tx: &mut Tx,
-        ether_frame: &EtherFrameRef,
+        ether_frame: &EtherFrameBuf,
     ) -> Result<usize, IgbDriverErr> {
-        let len = ether_frame.data.len();
+        let len = ether_frame.len;
         if len > TXBUFFER_2048 as usize {
             return Err(IgbDriverErr::InvalidPacket);
         }
@@ -1615,20 +1654,27 @@ impl Igb {
             head -= tx_slots;
         }
 
-        let addr = unsafe {
-            let write_buf = tx.write_buf.as_mut().unwrap();
-            let dst = &mut write_buf.as_mut()[head];
-            core::ptr::copy_nonoverlapping(ether_frame.data.as_ptr(), dst.as_mut_ptr(), len);
-            if let Some(cksum_offset) = cksum_offset {
-                core::ptr::write(
-                    dst.as_mut_ptr().add(cksum_offset as usize) as *mut u16,
-                    cksum_pseudo.to_be(),
-                );
-            }
-            (write_buf.get_phy_addr().as_usize() + head * TXBUFFER_2048 as usize) as u64
-        };
+        // TODO: Checksum Offloading
+        let addr = ether_frame.data.get_phy_addr().as_usize() as u64;
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
+        let (prev_used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
+        if prev_used {
+            let ptr = virt_addr as *mut [u8; PAGESIZE];
+            let data;
+            unsafe {
+                data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                    .unwrap();
+            }
+            drop(data);
+        }
+
+        tx.dma_info[head] = (
+            true,
+            ether_frame.data.get_virt_addr().as_usize(),
+            ether_frame.data.get_phy_addr().as_usize(),
+            ether_frame.data.get_numa_id(),
+        );
 
         desc.legacy.buf = u64::to_le(addr);
         desc.legacy.lower.raw = u32::to_le(tx.txd_cmd | txd_lower | (len & 0xffff) as u32);
@@ -1661,7 +1707,7 @@ impl Igb {
         Ok(used)
     }
 
-    fn send(&self, que_id: usize, ether_frames: &[EtherFrameRef]) -> Result<(), IgbDriverErr> {
+    fn send(&self, que_id: usize, ether_frames: &[EtherFrameBuf]) -> Result<(), IgbDriverErr> {
         let inner = self.inner.read();
 
         if !inner.link_active {
@@ -1877,7 +1923,11 @@ fn allocate_msi(info: &mut PCIeInfo) -> Result<PCIeInt, IgbDriverErr> {
     }
 }
 
-fn allocate_desc_rings(info: &PCIeInfo, que_id: usize) -> Result<Queue, IgbDriverErr> {
+fn allocate_desc_rings(
+    info: &PCIeInfo,
+    que_num: usize,
+    que_id: usize,
+) -> Result<Queue, IgbDriverErr> {
     let tx_size = core::mem::size_of::<TxDescriptor>() * MAX_TXD;
     assert_eq!(tx_size & (PAGESIZE - 1), 0);
 
@@ -1889,22 +1939,27 @@ fn allocate_desc_rings(info: &PCIeInfo, que_id: usize) -> Result<Queue, IgbDrive
     let rx_desc_ring = DMAPool::new(info.segment_group as usize, rx_size / PAGESIZE)
         .ok_or(IgbDriverErr::DMAPool)?;
 
+    let mut dma_info_tx = Vec::with_capacity(MAX_TXD);
+    dma_info_tx.resize(MAX_TXD, (false, 0, 0, 0));
+
     let tx = Tx {
         tx_desc_head: 0,
         tx_desc_tail: 0,
         tx_desc_ring,
         txd_cmd: TXD32_CMD_IFCS,
         active_checksum_context: ActiveChecksumContext::None,
-        write_buf: None,
+        dma_info: dma_info_tx,
     };
 
+    let mut dma_info_rx = Vec::with_capacity(MAX_RXD * que_num as usize);
+    dma_info_rx.resize(MAX_RXD * que_num as usize, (0, 0, 0));
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
         rx_desc_ring,
-        read_buf: None,
         read_queue: RingQ::new(RECV_QUEUE_SIZE),
         dropped_pkts: 0,
+        dma_info: dma_info_rx,
     };
 
     let que = Queue {
@@ -2096,9 +2151,14 @@ impl NetDevice for Igb {
         true
     }
 
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameBuf, que_id: usize) -> Result<(), NetDevError> {
         let frames = [data];
-        self.send(que_id, &frames).or(Err(NetDevError::DeviceError))
+        self.send(que_id, &frames)
+            .or(Err(NetDevError::DeviceError))?;
+        for data in frames {
+            data.data.leak();
+        }
+        Ok(())
     }
 
     fn up(&self) -> Result<(), NetDevError> {
