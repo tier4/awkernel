@@ -3,8 +3,8 @@ import sys
 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-#addr = ('localhost', 26099)
-addr = ('10.0.2.2', 26099)
+addr = ('localhost', 26099)
+#addr = ('10.0.2.2', 26099)
 print('listening on %s port %s' % addr, file=sys.stderr)
 sock.bind(addr)
 
