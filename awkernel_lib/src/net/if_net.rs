@@ -655,7 +655,7 @@ impl phy::TxToken for NTxToken<'_> {
         let ptr = buf.get_virt_addr().as_mut_ptr();
         let slice = unsafe { core::slice::from_raw_parts_mut(ptr as *mut u8, len) };
 
-        let result: R = f(slice);
+        let result = f(slice);
 
         let _ = self.tx_ring.push((buf, len));
 

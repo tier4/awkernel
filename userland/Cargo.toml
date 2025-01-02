@@ -67,7 +67,7 @@ path = "../applications/tests/test_sched_preempt"
 optional = true
 
 [features]
-default = ["test_network"]
+default = ["test_sched_preempt"]
 perf = ["awkernel_services/perf"]
 
 # Test applications

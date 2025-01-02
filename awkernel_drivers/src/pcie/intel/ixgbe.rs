@@ -73,10 +73,8 @@ const MCLBYTES: u32 = 1 << MCLSHIFT;
 const MAXMCLBYTES: u32 = 64 * 1024;
 
 type TxRing = [TxDescriptor; DEFAULT_TXD];
-type TxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_TXD];
 
 type RxRing = [AdvRxDesc; DEFAULT_RXD];
-type RxBuffer = [[u8; MCLBYTES as usize]; DEFAULT_RXD];
 
 pub struct Tx {
     tx_desc_head: usize,
@@ -415,7 +413,7 @@ impl IxgbeInner {
     fn init(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
         use ixgbe_hw::MacType::*;
 
-        self.stop(que)?;
+        self.stop()?;
 
         // reprogram the RAR[0] in case user changed it.
         self.ops.mac_set_rar(
@@ -430,7 +428,7 @@ impl IxgbeInner {
 
         if let Err(e) = self.setup_transmit_structures(que) {
             log::error!("Could not setup transmit structures");
-            self.stop(que)?;
+            self.stop()?;
             return Err(e);
         }
 
@@ -440,7 +438,7 @@ impl IxgbeInner {
         // Prepare receive descriptors and buffers
         if let Err(e) = self.setup_receive_structures(que) {
             log::error!("Could not setup receieve structures");
-            self.stop(que)?;
+            self.stop()?;
             return Err(e);
         }
 
@@ -571,7 +569,7 @@ impl IxgbeInner {
         Ok(())
     }
 
-    fn stop(&mut self, que: &[Queue]) -> Result<(), IxgbeDriverErr> {
+    fn stop(&mut self) -> Result<(), IxgbeDriverErr> {
         self.flags.remove(NetFlags::RUNNING);
 
         self.disable_intr()?;
@@ -750,7 +748,6 @@ impl IxgbeInner {
                     DMAPool::new(self.info.get_segment_group() as usize, 1)
                         .ok_or(IxgbeDriverErr::DMAPool)?;
                 let buf_phy_addr = read_buf.get_phy_addr().as_usize();
-
                 desc.data = [0; 2];
                 desc.read.pkt_addr = buf_phy_addr as u64;
                 dma_info_temp.push((
@@ -762,7 +759,7 @@ impl IxgbeInner {
             }
 
             for (j, info) in dma_info_temp.iter().enumerate() {
-                rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
+                rx.dma_info[rx_desc_ring_len * i + j] = *info;
             }
         }
 
@@ -1622,7 +1619,7 @@ impl Ixgbe {
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.read.pkt_addr = buf_phy_addr as u64;
 
-                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let index = rx_desc_ring_len * que_id + i;
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
@@ -1725,7 +1722,7 @@ impl Ixgbe {
         let mut offload = false;
 
         let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
-        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let slice = unsafe { core::slice::from_raw_parts(ptr, ether_frame.len) };
         let ext = extract_headers(slice).or(Err(IxgbeDriverErr::InvalidPacket))?;
 
         // Depend on whether doing TSO or not
@@ -2085,8 +2082,8 @@ fn allocate_queue(info: &PCIeInfo, que_num: usize, que_id: usize) -> Result<Queu
         dma_info: dma_info_tx,
     };
 
-    let mut dma_info_rx = Vec::with_capacity(DEFAULT_RXD * que_num as usize);
-    dma_info_rx.resize(DEFAULT_RXD * que_num as usize, (0, 0, 0));
+    let mut dma_info_rx = Vec::with_capacity(DEFAULT_RXD * que_num);
+    dma_info_rx.resize(DEFAULT_RXD * que_num, (0, 0, 0));
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
@@ -2221,7 +2218,7 @@ impl NetDevice for Ixgbe {
 
         if !inner.flags.contains(NetFlags::UP) {
             if let Err(err_init) = inner.init(&self.que) {
-                if let Err(err_stop) = inner.stop(&self.que) {
+                if let Err(err_stop) = inner.stop() {
                     log::error!("ixgbe: stop failed: {:?}", err_stop);
                 }
 
@@ -2240,7 +2237,7 @@ impl NetDevice for Ixgbe {
         let mut inner = self.inner.write();
 
         if inner.flags.contains(NetFlags::UP) {
-            if let Err(e) = inner.stop(&self.que) {
+            if let Err(e) = inner.stop() {
                 log::error!("ixgbe: stop failed: {:?}", e);
                 Err(NetDevError::DeviceError)
             } else {

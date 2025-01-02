@@ -118,10 +118,8 @@ const MAX_INTS_PER_SEC: u32 = 8000;
 const DEFAULT_ITR: u32 = 1000000000 / (MAX_INTS_PER_SEC * 256);
 
 type RxRing = [RxDescriptor; MAX_RXD];
-type RxBuffer = [[u8; RXBUFFER_2048 as usize]; MAX_RXD];
 
 type TxRing = [TxDescriptor; MAX_TXD];
-type TxBuffer = [[u8; TXBUFFER_2048 as usize]; MAX_TXD];
 
 struct Rx {
     rx_desc_head: u32,
@@ -949,7 +947,7 @@ impl IgbInner {
             }
 
             for (j, info) in dma_info_temp.iter().enumerate() {
-                rx.dma_info[rx_desc_ring_len * i + j] = info.clone();
+                rx.dma_info[rx_desc_ring_len * i + j] = *info;
             }
         }
 
@@ -1266,7 +1264,7 @@ impl Igb {
                     let buf_phy_addr = read_buf.get_phy_addr().as_usize();
                     desc.buf = buf_phy_addr as u64;
 
-                    let index = (rx_desc_ring_len * que_id + i) as usize;
+                    let index = rx_desc_ring_len * que_id + i;
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
@@ -1292,7 +1290,7 @@ impl Igb {
                     rx.read_queue
                         .push(EtherFrameBuf {
                             data,
-                            len: len as usize,
+                            len,
                             vlan,
                             csum_flags: PacketHeaderFlags::EMPTY,
                         })
@@ -1354,7 +1352,7 @@ impl Igb {
         let txd_lower;
 
         let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
-        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let slice = unsafe { core::slice::from_raw_parts(ptr, ether_frame.len) };
         let ext = extract_headers(slice).or(Err(IgbDriverErr::InvalidPacket))?;
         if !(matches!(ext.network, NetworkHdr::Ipv4(_))
             && matches!(ext.transport, TransportHdr::Tcp(_) | TransportHdr::Udp(_)))
@@ -1452,7 +1450,7 @@ impl Igb {
         }
 
         let ptr = ether_frame.data.get_virt_addr().as_mut_ptr();
-        let slice = unsafe { core::slice::from_raw_parts(ptr as *mut u8, ether_frame.len) };
+        let slice = unsafe { core::slice::from_raw_parts(ptr, ether_frame.len) };
         let ext = extract_headers(slice).or(Err(IgbDriverErr::InvalidPacket))?;
 
         vlan_macip_lens |= (core::mem::size_of::<EtherHeader>() as u32) << ADVTXD_MACLEN_SHIFT;
@@ -1654,8 +1652,19 @@ impl Igb {
             head -= tx_slots;
         }
 
-        // TODO: Checksum Offloading
         let addr = ether_frame.data.get_phy_addr().as_usize() as u64;
+        if let Some(cksum_offset) = cksum_offset {
+            unsafe {
+                core::ptr::write(
+                    ether_frame
+                        .data
+                        .get_virt_addr()
+                        .as_mut_ptr::<u8>()
+                        .add(cksum_offset as usize) as *mut u16,
+                    cksum_pseudo.to_be(),
+                );
+            }
+        }
 
         let desc = &mut tx.tx_desc_ring.as_mut()[head];
         let (prev_used, virt_addr, phy_addr, numa_id) = tx.dma_info[head];
@@ -1951,8 +1960,8 @@ fn allocate_desc_rings(
         dma_info: dma_info_tx,
     };
 
-    let mut dma_info_rx = Vec::with_capacity(MAX_RXD * que_num as usize);
-    dma_info_rx.resize(MAX_RXD * que_num as usize, (0, 0, 0));
+    let mut dma_info_rx = Vec::with_capacity(MAX_RXD * que_num);
+    dma_info_rx.resize(MAX_RXD * que_num, (0, 0, 0));
     let rx = Rx {
         rx_desc_head: 0,
         rx_desc_tail: 0,
