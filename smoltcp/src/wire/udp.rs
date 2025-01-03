@@ -110,7 +110,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self, src_addr: &IpAddress, dst_addr: &IpAddress) -> bool {
-        if cfg!(fuzzing) {
+        if cfg!(feature = "fuzzing") {
             return true;
         }
 
@@ -253,6 +253,7 @@ impl Repr {
     /// This never calculates the checksum, and is intended for internal-use only,
     /// not for packets that are going to be actually sent over the network. For
     /// example, when decompressing 6lowpan.
+    #[allow(dead_code)]
     pub(crate) fn emit_header<T: ?Sized>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
     where
         T: AsRef<[u8]> + AsMut<[u8]>,

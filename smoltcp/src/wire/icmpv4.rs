@@ -275,7 +275,7 @@ impl<T: AsRef<[u8]>> Packet<T> {
     /// # Fuzzing
     /// This function always returns `true` when fuzzing.
     pub fn verify_checksum(&self) -> bool {
-        if cfg!(fuzzing) {
+        if cfg!(feature = "fuzzing") {
             return true;
         }
 

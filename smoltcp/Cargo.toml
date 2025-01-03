@@ -20,22 +20,10 @@ description = "A TCP/IP stack designed for bare-metal, real-time systems without
 homepage = "https://github.com/smoltcp-rs/smoltcp"
 documentation = "https://docs.rs/smoltcp/"
 readme = "README.md"
-keywords = [
-    "ip",
-    "tcp",
-    "udp",
-    "ethernet",
-    "network",
-]
-categories = [
-    "embedded",
-    "network-programming",
-]
+keywords = ["ip", "tcp", "udp", "ethernet", "network"]
+categories = ["embedded", "network-programming"]
 license = "0BSD"
 repository = "https://github.com/smoltcp-rs/smoltcp.git"
-
-[profile.release]
-debug = 2
 
 [[example]]
 name = "packet2pcap"
@@ -44,11 +32,7 @@ required-features = ["std"]
 
 [[example]]
 name = "tcpdump"
-required-features = [
-    "std",
-    "phy-raw_socket",
-    "proto-ipv4",
-]
+required-features = ["std", "phy-raw_socket", "proto-ipv4"]
 
 [[example]]
 name = "httpclient"
@@ -100,12 +84,7 @@ required-features = [
 
 [[example]]
 name = "loopback"
-required-features = [
-    "log",
-    "medium-ethernet",
-    "proto-ipv4",
-    "socket-tcp",
-]
+required-features = ["log", "medium-ethernet", "proto-ipv4", "socket-tcp"]
 
 [[example]]
 name = "multicast"
@@ -225,10 +204,7 @@ version = "2.0"
 
 [features]
 _proto-fragmentation = []
-alloc = [
-    "managed/alloc",
-    "defmt?/alloc",
-]
+alloc = ["managed/alloc", "defmt?/alloc"]
 assembler-max-segment-count-1 = []
 assembler-max-segment-count-16 = []
 assembler-max-segment-count-2 = []
@@ -262,10 +238,7 @@ default = [
     "packetmeta-id",
     "async",
 ]
-defmt = [
-    "dep:defmt",
-    "heapless/defmt-03",
-]
+defmt = ["dep:defmt", "heapless/defmt-03"]
 dns-max-name-size-128 = []
 dns-max-name-size-255 = []
 dns-max-name-size-64 = []
@@ -293,6 +266,7 @@ fragmentation-buffer-size-4096 = []
 fragmentation-buffer-size-512 = []
 fragmentation-buffer-size-65536 = []
 fragmentation-buffer-size-8192 = []
+fuzzing = []
 iface-max-addr-count-1 = []
 iface-max-addr-count-2 = []
 iface-max-addr-count-3 = []
@@ -369,51 +343,26 @@ ipv6-hbh-max-options-32 = []
 ipv6-hbh-max-options-4 = []
 ipv6-hbh-max-options-8 = []
 medium-ethernet = ["socket"]
-medium-ieee802154 = [
-    "socket",
-    "proto-sixlowpan",
-]
+medium-ieee802154 = ["socket", "proto-sixlowpan"]
 medium-ip = ["socket"]
 packetmeta-id = []
-phy-raw_socket = [
-    "std",
-    "libc",
-]
-phy-tuntap_interface = [
-    "std",
-    "libc",
-    "medium-ethernet",
-]
+phy-raw_socket = ["std", "libc"]
+phy-tuntap_interface = ["std", "libc", "medium-ethernet"]
 proto-dhcpv4 = ["proto-ipv4"]
 proto-dns = []
 proto-igmp = ["proto-ipv4"]
-proto-ipsec = [
-    "proto-ipsec-ah",
-    "proto-ipsec-esp",
-]
+proto-ipsec = ["proto-ipsec-ah", "proto-ipsec-esp"]
 proto-ipsec-ah = []
 proto-ipsec-esp = []
 proto-ipv4 = []
-proto-ipv4-fragmentation = [
-    "proto-ipv4",
-    "_proto-fragmentation",
-]
+proto-ipv4-fragmentation = ["proto-ipv4", "_proto-fragmentation"]
 proto-ipv6 = []
-proto-ipv6-fragmentation = [
-    "proto-ipv6",
-    "_proto-fragmentation",
-]
+proto-ipv6-fragmentation = ["proto-ipv6", "_proto-fragmentation"]
 proto-ipv6-hbh = ["proto-ipv6"]
 proto-ipv6-routing = ["proto-ipv6"]
-proto-rpl = [
-    "proto-ipv6-hbh",
-    "proto-ipv6-routing",
-]
+proto-rpl = ["proto-ipv6-hbh", "proto-ipv6-routing"]
 proto-sixlowpan = ["proto-ipv6"]
-proto-sixlowpan-fragmentation = [
-    "proto-sixlowpan",
-    "_proto-fragmentation",
-]
+proto-sixlowpan-fragmentation = ["proto-sixlowpan", "_proto-fragmentation"]
 reassembly-buffer-count-1 = []
 reassembly-buffer-count-16 = []
 reassembly-buffer-count-2 = []
@@ -445,22 +394,12 @@ rpl-relations-buffer-count-4 = []
 rpl-relations-buffer-count-64 = []
 rpl-relations-buffer-count-8 = []
 socket = []
-socket-dhcpv4 = [
-    "socket",
-    "medium-ethernet",
-    "proto-dhcpv4",
-]
-socket-dns = [
-    "socket",
-    "proto-dns",
-]
+socket-dhcpv4 = ["socket", "medium-ethernet", "proto-dhcpv4"]
+socket-dns = ["socket", "proto-dns"]
 socket-icmp = ["socket"]
 socket-mdns = ["socket-dns"]
 socket-raw = ["socket"]
 socket-tcp = ["socket"]
 socket-udp = ["socket"]
-std = [
-    "managed/std",
-    "alloc",
-]
+std = ["managed/std", "alloc"]
 verbose = []

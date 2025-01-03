@@ -6,11 +6,11 @@ use crate::socket::dhcpv4;
 use crate::socket::icmp;
 use crate::socket::AnySocket;
 
-use crate::phy::{Medium, TxToken};
 use crate::time::Instant;
 use crate::wire::*;
 
 impl InterfaceInner {
+    #[allow(unused_variables)]
     pub(super) fn process_ipv4<'a>(
         &mut self,
         sockets: &mut SocketSet,
