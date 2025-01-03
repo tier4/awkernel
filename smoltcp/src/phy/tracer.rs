@@ -42,10 +42,12 @@ impl<D: Device> Tracer<D> {
 }
 
 impl<D: Device> Device for Tracer<D> {
-    type RxToken<'a> = RxToken<D::RxToken<'a>>
+    type RxToken<'a>
+        = RxToken<D::RxToken<'a>>
     where
         Self: 'a;
-    type TxToken<'a> = TxToken<D::TxToken<'a>>
+    type TxToken<'a>
+        = TxToken<D::TxToken<'a>>
     where
         Self: 'a;
 
@@ -152,7 +154,7 @@ pub struct Packet<'a> {
     prefix: &'static str,
 }
 
-impl<'a> fmt::Display for Packet<'a> {
+impl fmt::Display for Packet<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut indent = PrettyIndent::new(self.prefix);
         match self.medium {

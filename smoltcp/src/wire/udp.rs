@@ -254,9 +254,9 @@ impl Repr {
     /// not for packets that are going to be actually sent over the network. For
     /// example, when decompressing 6lowpan.
     #[allow(dead_code)]
-    pub(crate) fn emit_header<T: ?Sized>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
+    pub(crate) fn emit_header<T>(&self, packet: &mut Packet<&mut T>, payload_len: usize)
     where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: ?Sized + AsRef<[u8]> + AsMut<[u8]>,
     {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -265,7 +265,7 @@ impl Repr {
     }
 
     /// Emit a high-level representation into an User Datagram Protocol packet.
-    pub fn emit<T: ?Sized>(
+    pub fn emit<T>(
         &self,
         packet: &mut Packet<&mut T>,
         src_addr: &IpAddress,
@@ -274,7 +274,7 @@ impl Repr {
         emit_payload: impl FnOnce(&mut [u8]),
         checksum_caps: &ChecksumCapabilities,
     ) where
-        T: AsRef<[u8]> + AsMut<[u8]>,
+        T: ?Sized + AsRef<[u8]> + AsMut<[u8]>,
     {
         packet.set_src_port(self.src_port);
         packet.set_dst_port(self.dst_port);
@@ -291,7 +291,7 @@ impl Repr {
     }
 }
 
-impl<'a, T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&'a T> {
+impl<T: AsRef<[u8]> + ?Sized> fmt::Display for Packet<&T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // Cannot use Repr::parse because we don't have the IP addresses.
         write!(

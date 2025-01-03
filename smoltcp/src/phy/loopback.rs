@@ -1,5 +1,5 @@
 use alloc::collections::VecDeque;
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 
 use crate::phy::{self, Device, DeviceCapabilities, Medium};
 use crate::time::Instant;
@@ -74,13 +74,12 @@ pub struct TxToken<'a> {
     queue: &'a mut VecDeque<Vec<u8>>,
 }
 
-impl<'a> phy::TxToken for TxToken<'a> {
+impl phy::TxToken for TxToken<'_> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buffer = Vec::new();
-        buffer.resize(len, 0);
+        let mut buffer = vec![0; len];
         let result = f(&mut buffer);
         self.queue.push_back(buffer);
         result
