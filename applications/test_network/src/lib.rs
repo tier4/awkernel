@@ -22,7 +22,7 @@ const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -31,33 +31,33 @@ pub async fn run() {
     )
     .await;
 
-    //awkernel_async_lib::spawn(
-    //"test tcp listen".into(),
-    //tcp_listen_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test tcp listen".into(),
+        tcp_listen_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 
-    //awkernel_async_lib::spawn(
-    //"test tcp connect".into(),
-    //tcp_connect_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test tcp connect".into(),
+        tcp_connect_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 
-    //awkernel_async_lib::spawn(
-    //"test IPv4 multicast recv".into(),
-    //ipv4_multicast_recv_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast recv".into(),
+        ipv4_multicast_recv_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 
-    //awkernel_async_lib::spawn(
-    //"test IPv4 multicast send".into(),
-    //ipv4_multicast_send_test(),
-    //awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    //)
-    //.await;
+    awkernel_async_lib::spawn(
+        "test IPv4 multicast send".into(),
+        ipv4_multicast_send_test(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
 }
 
 async fn ipv4_multicast_send_test() {
@@ -203,7 +203,7 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
 async fn udp_test() {
     // Create a UDP socket on interface 0.
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(1, Default::default()).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
 
     let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 

@@ -93,21 +93,18 @@ impl Future for UdpSender<'_> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let ret = match self.socket.socket_handle.send_to(
-            self.data,
-            self.dst_addr,
-            self.dst_port,
-            cx.waker(),
-        ) {
+        match self
+            .socket
+            .socket_handle
+            .send_to(self.data, self.dst_addr, self.dst_port, cx.waker())
+        {
             Ok(true) => core::task::Poll::Ready(Ok(())),
             Ok(false) => core::task::Poll::Pending,
             Err(NetManagerError::InterfaceIsNotReady) => {
                 core::task::Poll::Ready(Err(UdpSocketError::InterfaceIsNotReady))
             }
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),
-        };
-
-        ret
+        }
     }
 }
 
@@ -127,12 +124,10 @@ impl Future for UdpReceiver<'_> {
 
         let (socket, buf) = (this.socket, this.buf);
 
-        let ret = match socket.socket_handle.recv(buf, cx.waker()) {
+        match socket.socket_handle.recv(buf, cx.waker()) {
             Ok(Some(result)) => core::task::Poll::Ready(Ok(result)),
             Ok(None) => core::task::Poll::Pending,
             Err(_) => core::task::Poll::Ready(Err(UdpSocketError::SendError)),
-        };
-
-        ret
+        }
     }
 }
