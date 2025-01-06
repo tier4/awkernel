@@ -13,6 +13,7 @@ members = [
     "applications/awkernel_services",
     "applications/awkernel_shell",
     "applications/tests/*",
+    "smoltcp",
 ]
 
 resolver = "2"
