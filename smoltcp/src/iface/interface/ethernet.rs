@@ -6,6 +6,8 @@ use super::InterfaceInner;
 use super::SocketSet;
 use core::result::Result;
 
+use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
+
 use crate::phy::TxToken;
 use crate::wire::*;
 
@@ -13,7 +15,7 @@ impl InterfaceInner {
     #[cfg(feature = "medium-ethernet")]
     pub(super) fn process_ethernet<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &RwLock<SocketSet>,
         meta: crate::phy::PacketMeta,
         frame: &'frame [u8],
         fragments: &'frame mut FragmentsBuffer,

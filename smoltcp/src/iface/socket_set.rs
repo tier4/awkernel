@@ -1,3 +1,4 @@
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 use core::fmt;
 use managed::ManagedSlice;
 
@@ -8,7 +9,6 @@ use crate::socket::{AnySocket, Socket};
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
-#[derive(Debug, Default)]
 pub struct SocketStorage<'a> {
     inner: Option<Item<'a>>,
 }
@@ -18,10 +18,9 @@ impl SocketStorage<'_> {
 }
 
 /// An item of a socket set.
-#[derive(Debug)]
 pub(crate) struct Item<'a> {
-    pub(crate) meta: Meta,
-    pub(crate) socket: Socket<'a>,
+    pub(crate) meta: Mutex<Meta>,
+    pub(crate) socket: Mutex<Socket<'a>>,
 }
 
 /// A handle, identifying a socket in an Interface.
@@ -40,7 +39,6 @@ impl fmt::Display for SocketHandle {
 /// The lifetime `'a` is used when storing a `Socket<'a>`.  If you're using
 /// owned buffers for your sockets (passed in as `Vec`s) you can use
 /// `SocketSet<'static>`.
-#[derive(Debug)]
 pub struct SocketSet<'a> {
     sockets: ManagedSlice<'a, SocketStorage<'a>>,
 }
@@ -65,8 +63,13 @@ impl<'a> SocketSet<'a> {
             let handle = SocketHandle(index);
             let mut meta = Meta::default();
             meta.handle = handle;
+            let meta_mutex = Mutex::new(meta);
+            let socket_mutex = Mutex::new(socket);
             *slot = SocketStorage {
-                inner: Some(Item { meta, socket }),
+                inner: Some(Item {
+                    meta: meta_mutex,
+                    socket: socket_mutex,
+                }),
             };
             handle
         }

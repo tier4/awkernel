@@ -155,6 +155,9 @@ required-features = [
     "socket-dns",
 ]
 
+[dependencies.awkernel_sync]
+git = "https://github.com/tier4/awkernel_sync.git"
+
 [dependencies.bitflags]
 version = "1.0"
 default-features = false

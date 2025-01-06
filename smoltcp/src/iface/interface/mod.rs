@@ -20,6 +20,8 @@ mod sixlowpan;
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 
+use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
+
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
 
@@ -415,7 +417,7 @@ impl Interface {
         &mut self,
         timestamp: Instant,
         device: &mut D,
-        sockets: &mut SocketSet<'_>,
+        sockets: &RwLock<SocketSet<'_>>,
     ) -> bool
     where
         D: Device + ?Sized,
@@ -516,7 +518,7 @@ impl Interface {
         }
     }
 
-    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &RwLock<SocketSet<'_>>) -> bool
     where
         D: Device + ?Sized,
     {
@@ -587,7 +589,7 @@ impl Interface {
         processed_any
     }
 
-    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_egress<D>(&mut self, device: &mut D, sockets: &RwLock<SocketSet<'_>>) -> bool
     where
         D: Device + ?Sized,
     {
@@ -600,7 +602,7 @@ impl Interface {
         }
 
         let mut emitted_any = false;
-        for item in sockets.items_mut() {
+        for item in sockets.read().items() {
             if !item
                 .meta
                 .egress_permitted(self.inner.now, |ip_addr| self.inner.has_neighbor(&ip_addr))
@@ -625,7 +627,7 @@ impl Interface {
                 Ok(())
             };
 
-            let result = match &mut item.socket {
+            let result = match &item.socket {
                 #[cfg(feature = "socket-raw")]
                 Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, (ip, raw)| {
                     respond(

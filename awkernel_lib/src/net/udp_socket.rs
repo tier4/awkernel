@@ -1,7 +1,4 @@
-use crate::{
-    net::{ip_addr::IpAddr, NET_MANAGER},
-    sync::mcs::MCSNode,
-};
+use crate::net::{ip_addr::IpAddr, NET_MANAGER};
 
 use super::NetManagerError;
 
@@ -126,12 +123,7 @@ impl UdpSocket {
         }
 
         // Add the socket to the interface.
-        let handle = {
-            let mut node = MCSNode::new();
-            let mut if_net_inner = if_net.inner.lock(&mut node);
-
-            if_net_inner.socket_set.add(socket)
-        };
+        let handle = if_net.socket_set.write().add(socket);
 
         Ok(UdpSocket {
             handle,
@@ -165,19 +157,13 @@ impl UdpSocket {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
-
-        let socket = inner
-            .socket_set
-            .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_set = if_net.socket_set.read();
+        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_send() {
             socket
                 .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
-
-            drop(inner);
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
             if_net.poll_tx_only(que_id);
@@ -209,12 +195,8 @@ impl UdpSocket {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
-
-        let socket = inner
-            .socket_set
-            .get_mut::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_set = if_net.socket_set.read();
+        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
@@ -248,9 +230,7 @@ impl Drop for UdpSocket {
         }
 
         if let Some(if_net) = net_manager.interfaces.get(&self.interface_id) {
-            let mut node = MCSNode::new();
-            let mut if_net_inner = if_net.inner.lock(&mut node);
-            if_net_inner.socket_set.remove(self.handle);
+            if_net.socket_set.write().remove(self.handle);
         }
     }
 }
