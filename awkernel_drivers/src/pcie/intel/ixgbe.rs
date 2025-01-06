@@ -1549,7 +1549,7 @@ impl Ixgbe {
         #[cfg(not(any(target_arch = "x86_64")))]
         {
             let _ = addr;
-            Err(IxgbeDriverErr::NotSupported)
+            Err(IxgbeDriverErr::NotImplemented)
         }
     }
 
