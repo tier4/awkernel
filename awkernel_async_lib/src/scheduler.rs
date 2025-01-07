@@ -12,9 +12,7 @@ use awkernel_lib::{
     cpu::num_cpu,
     sync::mutex::{MCSNode, Mutex},
 };
-use core::{
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -109,18 +107,17 @@ pub(crate) trait Scheduler {
             }
 
             if wake_task_priority < lowest_priority_info {
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
                 if NUM_SEND_IPI.load(Ordering::Relaxed) != 0 {
                     last_preempt_task_id = Some(task_id);
                     continue;
                 }
-
-                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
                 NUM_SEND_IPI.fetch_add(1, Ordering::Relaxed);
                 set_need_preemption(task_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
                 NUM_SEND_IPI.fetch_sub(1, Ordering::Relaxed);
             }
-            return;
+            break;
         }
     }
 }
