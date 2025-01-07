@@ -12,6 +12,9 @@ use awkernel_lib::{
     cpu::num_cpu,
     sync::mutex::{MCSNode, Mutex},
 };
+use core::{
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -24,6 +27,7 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
+static NUM_SEND_IPI: AtomicU32 = AtomicU32::new(0); // The number of send IPI.
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -97,17 +101,24 @@ pub(crate) trait Scheduler {
 
     /// Invoke preemption.
     fn invoke_preemption(&self, wake_task_priority: PriorityInfo) {
-        let (task_id, cpu_id, lowest_priority_info) = match get_lowest_priority_task_info() {
-            Some(info) => info,
-            None => return,
-        };
+        loop {
+            let (task_id, cpu_id, lowest_priority_info) = match get_lowest_priority_task_info() {
+                Some(info) => info,
+                None => return,
+            };
 
-        if wake_task_priority < lowest_priority_info {
-            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-            set_need_preemption(task_id);
-            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+            if wake_task_priority < lowest_priority_info {
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+                if NUM_SEND_IPI.load(Ordering::Relaxed) != 0 {
+                    continue;
+                }
+                NUM_SEND_IPI.fetch_add(1, Ordering::Relaxed);
+                set_need_preemption(task_id);
+                awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+                NUM_SEND_IPI.fetch_sub(1, Ordering::Relaxed);
+            }
+            return;
         }
-        return;
     }
 }
 
