@@ -9,6 +9,7 @@ use awkernel_async_lib::{
 
 use awkernel_async_lib::task::IS_LOAD_RUNNING;
 use awkernel_lib::delay::wait_forever;
+use core::sync::atomic::Ordering;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
