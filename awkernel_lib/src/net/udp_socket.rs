@@ -1,4 +1,5 @@
 use crate::net::{ip_addr::IpAddr, NET_MANAGER};
+use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
 
 use super::NetManagerError;
 
@@ -158,8 +159,10 @@ impl UdpSocket {
         drop(net_manager);
 
         let socket_set = if_net.socket_set.read();
-        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_mutex = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
+        let mut node = MCSNode::new();
+        let mut socket = socket_mutex.lock(&mut node);
         if socket.can_send() {
             socket
                 .send_slice(buf, (addr.addr, port))
@@ -196,8 +199,10 @@ impl UdpSocket {
         drop(net_manager);
 
         let socket_set = if_net.socket_set.read();
-        let socket = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
+        let socket_mutex = socket_set.get::<smoltcp::socket::udp::Socket>(self.handle);
 
+        let mut node = MCSNode::new();
+        let mut socket = socket_mutex.lock(&mut node);
         if socket.can_recv() {
             let (data, meta_data) = socket.recv().or(Err(NetManagerError::RecvError))?;
 

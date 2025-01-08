@@ -4,6 +4,7 @@ use crate::{
     time::{Duration, Instant},
     wire::IpAddress,
 };
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 /// Neighbor dependency.
 ///
@@ -11,7 +12,7 @@ use crate::{
 /// it is going to send packets to.
 #[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum NeighborState {
+pub enum NeighborState {
     /// Socket can be polled immediately.
     #[default]
     Active,
@@ -28,14 +29,13 @@ enum NeighborState {
 /// This includes things that only external (to the socket, that is) code
 /// is interested in, but which are more conveniently stored inside the socket
 /// itself.
-#[derive(Debug, Default)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(crate) struct Meta {
     /// Handle of this socket within its enclosing `SocketSet`.
     /// Mainly useful for debug output.
-    pub(crate) handle: SocketHandle,
+    pub(crate) handle: Mutex<SocketHandle>,
     /// See [NeighborState](struct.NeighborState.html).
-    neighbor_state: NeighborState,
+    pub neighbor_state: Mutex<NeighborState>,
 }
 
 impl Meta {
@@ -49,35 +49,39 @@ impl Meta {
     where
         F: Fn(IpAddress) -> bool,
     {
-        match self.neighbor_state {
+        let mut node = MCSNode::new();
+        let neighbor_state = self.neighbor_state.lock(&mut node);
+        match *neighbor_state {
             NeighborState::Active => socket_poll_at,
             NeighborState::Waiting { neighbor, .. } if has_neighbor(neighbor) => socket_poll_at,
             NeighborState::Waiting { silent_until, .. } => PollAt::Time(silent_until),
         }
     }
 
-    pub(crate) fn egress_permitted<F>(&mut self, timestamp: Instant, has_neighbor: F) -> bool
+    pub(crate) fn egress_permitted<F>(&self, timestamp: Instant, has_neighbor: F) -> bool
     where
         F: Fn(IpAddress) -> bool,
     {
-        match self.neighbor_state {
+        let mut node = MCSNode::new();
+        let mut neighbor_state = self.neighbor_state.lock(&mut node);
+        match *neighbor_state {
             NeighborState::Active => true,
             NeighborState::Waiting {
                 neighbor,
                 silent_until,
             } => {
                 if has_neighbor(neighbor) {
-                    net_trace!(
-                        "{}: neighbor {} discovered, unsilencing",
-                        self.handle,
-                        neighbor
-                    );
-                    self.neighbor_state = NeighborState::Active;
+                    let mut node = MCSNode::new();
+                    let handle = self.handle.lock(&mut node);
+                    net_trace!("{}: neighbor {} discovered, unsilencing", *handle, neighbor);
+                    *neighbor_state = NeighborState::Active;
                     true
                 } else if timestamp >= silent_until {
+                    let mut node = MCSNode::new();
+                    let handle = self.handle.lock(&mut node);
                     net_trace!(
                         "{}: neighbor {} silence timer expired, rediscovering",
-                        self.handle,
+                        *handle,
                         neighbor
                     );
                     true
@@ -88,14 +92,18 @@ impl Meta {
         }
     }
 
-    pub(crate) fn neighbor_missing(&mut self, timestamp: Instant, neighbor: IpAddress) {
+    pub(crate) fn neighbor_missing(&self, timestamp: Instant, neighbor: IpAddress) {
+        let mut node = MCSNode::new();
+        let handle = self.handle.lock(&mut node);
         net_trace!(
             "{}: neighbor {} missing, silencing until t+{}",
-            self.handle,
+            *handle,
             neighbor,
             Self::DISCOVERY_SILENT_TIME
         );
-        self.neighbor_state = NeighborState::Waiting {
+        let mut node = MCSNode::new();
+        let mut neighbor_state = self.neighbor_state.lock(&mut node);
+        *neighbor_state = NeighborState::Waiting {
             neighbor,
             silent_until: timestamp + Self::DISCOVERY_SILENT_TIME,
         };
