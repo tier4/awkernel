@@ -49,6 +49,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
+        IS_LOAD_RUNNING[0].store(false, Ordering::Relaxed);
 
         let _ = draw_splash();
 

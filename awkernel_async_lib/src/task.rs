@@ -801,7 +801,6 @@ pub fn run_main() {
                 awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
-            IS_LOAD_RUNNING[cpu_id].store(false, Ordering::Relaxed);
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 
