@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -48,6 +48,8 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
+pub static IS_LOAD_RUNNING: [AtomicBool; NUM_MAX_CPU] =
+    array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not RUNNING can be loaded.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
 /// Task has ID, future, information, and a reference to a scheduler.
@@ -676,6 +678,7 @@ pub fn run_main() {
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
         if let Some(task) = get_next_task() {
+            IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -750,6 +753,7 @@ pub fn run_main() {
                 };
 
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
+                IS_LOAD_RUNNING[cpu_id].store(true, Ordering::Relaxed);
 
                 // Invoke a task.
                 catch_unwind(|| {
@@ -797,6 +801,7 @@ pub fn run_main() {
                 awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
+            IS_LOAD_RUNNING[cpu_id].store(false, Ordering::Relaxed);
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 
@@ -855,6 +860,7 @@ pub fn run_main() {
                 }
             }
         } else {
+            IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
             #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
@@ -1078,15 +1084,31 @@ impl Ord for PriorityInfo {
     }
 }
 
+pub fn wait_until_true_count(target_count: usize) {
+    loop {
+        let true_count = IS_LOAD_RUNNING
+            .iter()
+            .filter(|flag| flag.load(Ordering::Relaxed))
+            .count();
+
+        if true_count >= target_count {
+            break;
+        }
+    }
+}
+
 pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
+    let non_primary_cpus = awkernel_lib::cpu::num_cpu().saturating_sub(1);
+
+    wait_until_true_count(non_primary_cpus);
 
     let running_tasks: Vec<RunningTask> = get_tasks_running()
         .into_iter()
         .filter(|task| task.task_id != 0)
         .collect();
 
-    if running_tasks.len() != awkernel_lib::cpu::num_cpu().saturating_sub(1) {
+    if running_tasks.len() != non_primary_cpus {
         return None;
     }
 

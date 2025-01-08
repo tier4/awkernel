@@ -14,6 +14,7 @@ extern crate alloc;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
+    task::IS_LOAD_RUNNING,
 };
 use core::{
     fmt::Debug,
@@ -42,6 +43,7 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
+    IS_LOAD_RUNNING[usize::from(kernel_info.cpu_id)].store(true, Ordering::Relaxed);
 
     unsafe { awkernel_lib::cpu::increment_num_cpu() };
 
@@ -93,7 +95,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         loop {
             awkernel_lib::interrupt::disable();
-
             wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
 
