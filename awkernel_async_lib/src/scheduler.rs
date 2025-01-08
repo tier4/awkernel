@@ -101,11 +101,11 @@ pub(crate) trait Scheduler {
     fn invoke_preemption(&self, wake_task_priority: PriorityInfo) {
         while let Some((task_id, cpu_id, lowest_priority_info)) = get_lowest_priority_task_info() {
             if wake_task_priority < lowest_priority_info {
-                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
                 if IS_SEND_IPI.load(Ordering::Relaxed) {
                     continue;
                 }
                 IS_SEND_IPI.store(true, Ordering::Relaxed);
+                let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
                 set_need_preemption(task_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
                 IS_SEND_IPI.store(false, Ordering::Relaxed);
