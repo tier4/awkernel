@@ -5,7 +5,10 @@ use crate::task::{
     get_current_task, get_lowest_priority_task_info, get_scheduler_type_by_task_id,
     set_need_preemption, PriorityInfo,
 };
-use crate::{delay::uptime, task::Task};
+use crate::{
+    delay::uptime,
+    task::{Task, NOT_IN_TRANSITION},
+};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
@@ -25,7 +28,7 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
-static IS_SEND_IPI: AtomicBool = AtomicBool::new(false); // Whether IPI was sent or not.
+pub static IS_SEND_IPI: AtomicBool = AtomicBool::new(false); // Whether IPI was sent or not.
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -102,6 +105,9 @@ pub(crate) trait Scheduler {
         while let Some((task_id, cpu_id, lowest_priority_info)) = get_lowest_priority_task_info() {
             if wake_task_priority < lowest_priority_info {
                 if IS_SEND_IPI.load(Ordering::Relaxed) {
+                    continue;
+                }
+                if !NOT_IN_TRANSITION[cpu_id].load(Ordering::Relaxed) {
                     continue;
                 }
                 IS_SEND_IPI.store(true, Ordering::Relaxed);

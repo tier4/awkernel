@@ -12,7 +12,7 @@ mod preempt;
 #[cfg(feature = "perf")]
 use crate::cpu_counter;
 
-use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
+use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType, IS_SEND_IPI};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -1134,7 +1134,10 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
 
         // Check to confirm that the information has not changed while getting priority_info.
         if let Some((task_id, cpu_id, _)) = lowest_task {
-            if RUNNING[cpu_id].load(Ordering::Relaxed) == task_id {
+            if !IS_SEND_IPI.load(Ordering::Relaxed)
+                && NOT_IN_TRANSITION[cpu_id].load(Ordering::Relaxed)
+                && RUNNING[cpu_id].load(Ordering::Relaxed) == task_id
+            {
                 break;
             }
         }
