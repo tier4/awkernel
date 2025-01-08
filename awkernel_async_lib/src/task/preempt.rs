@@ -1,4 +1,4 @@
-use crate::task::{get_current_task, Task};
+use crate::task::{get_current_task, Task, IS_LOAD_RUNNING};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -176,6 +176,7 @@ impl Drop for RunningTaskGuard {
         }
 
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
+        IS_LOAD_RUNNING[usize::from(cpu_id)].store(true, Ordering::Relaxed);
     }
 }
 

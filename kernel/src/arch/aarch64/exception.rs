@@ -1,3 +1,4 @@
+use awkernel_async_lib::task::IS_LOAD_RUNNING;
 #[cfg(feature = "perf")]
 use awkernel_async_lib::{
     cpu_counter,
@@ -11,6 +12,7 @@ use awkernel_lib::{
     interrupt,
 };
 use core::str::from_utf8_unchecked;
+use core::sync::atomic::Ordering;
 
 const _ESR_EL1_EC_MASK: u64 = 0b111111 << 26;
 const _ESR_EL1_EC_UNKNOWN: u64 = 0b000000 << 26;
@@ -224,6 +226,7 @@ ESR  = 0x{:x}
 
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
+    IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
     #[cfg(feature = "perf")]
     {
         add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
