@@ -163,12 +163,17 @@ impl UdpSocket {
 
         let mut node = MCSNode::new();
         let mut socket = socket_mutex.lock(&mut node);
-        if socket.can_send() {
+
+        let can_send = socket.can_send();
+        if can_send {
             socket
                 .send_slice(buf, (addr.addr, port))
                 .or(Err(NetManagerError::SendError))?;
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
+
+            drop(socket);
+            drop(socket_set);
             if_net.poll_tx_only(que_id);
 
             Ok(true)
