@@ -12,7 +12,7 @@ use awkernel_lib::{
     cpu::num_cpu,
     sync::mutex::{MCSNode, Mutex},
 };
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(not(feature = "std"))]
 use alloc::boxed::Box;
@@ -25,7 +25,7 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
-static NUM_SEND_IPI: AtomicUsize = AtomicUsize::new(0); // The number of send IPI.
+static IS_SEND_IPI: AtomicBool = AtomicBool::new(false); // The number of send IPI.
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
@@ -102,13 +102,13 @@ pub(crate) trait Scheduler {
         while let Some((task_id, cpu_id, lowest_priority_info)) = get_lowest_priority_task_info() {
             if wake_task_priority < lowest_priority_info {
                 let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
-                if NUM_SEND_IPI.load(Ordering::Relaxed) != 0 {
+                if IS_SEND_IPI.load(Ordering::Relaxed) {
                     continue;
                 }
-                NUM_SEND_IPI.fetch_add(1, Ordering::Relaxed);
+                IS_SEND_IPI.store(true, Ordering::Relaxed);
                 set_need_preemption(task_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
-                NUM_SEND_IPI.fetch_sub(1, Ordering::Relaxed);
+                IS_SEND_IPI.store(false, Ordering::Relaxed);
             }
             break;
         }
