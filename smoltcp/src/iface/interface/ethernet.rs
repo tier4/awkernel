@@ -6,7 +6,7 @@ use super::InterfaceInner;
 use super::SocketSet;
 use core::result::Result;
 
-use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
+use awkernel_sync::rwlock::RwLock;
 
 use crate::phy::TxToken;
 use crate::wire::*;

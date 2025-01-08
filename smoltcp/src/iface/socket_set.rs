@@ -1,4 +1,4 @@
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use awkernel_sync::mutex::Mutex;
 use core::fmt;
 use managed::ManagedSlice;
 

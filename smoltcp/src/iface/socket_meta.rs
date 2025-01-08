@@ -4,7 +4,7 @@ use crate::{
     time::{Duration, Instant},
     wire::IpAddress,
 };
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 /// Neighbor dependency.
 ///

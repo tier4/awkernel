@@ -1,5 +1,5 @@
 use crate::net::{ip_addr::IpAddr, NET_MANAGER};
-use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
+use awkernel_sync::mcs::MCSNode;
 
 use super::NetManagerError;
 

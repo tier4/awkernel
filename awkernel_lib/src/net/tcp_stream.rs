@@ -45,15 +45,11 @@ impl Drop for TcpStream {
 
             let closed = {
                 let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
-                let mut socket = socket_set
+                let socket = socket_set
                     .get::<smoltcp::socket::tcp::Socket>(self.handle)
                     .lock(&mut node);
 
-                if matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
-                    true
-                } else {
-                    false
-                }
+                matches!(socket.state(), smoltcp::socket::tcp::State::Closed)
             };
 
             // If the socket is already closed, remove it from the socket set.
@@ -118,11 +114,7 @@ pub fn close_connections() {
                         let socket = socket_set
                             .get::<smoltcp::socket::tcp::Socket>(handle)
                             .lock(&mut node);
-                        if socket.state() == smoltcp::socket::tcp::State::Closed {
-                            true
-                        } else {
-                            false
-                        }
+                        socket.state() == smoltcp::socket::tcp::State::Closed
                     };
                     if closed {
                         // If the socket is already closed, remove it from the socket set.
@@ -215,18 +207,13 @@ impl TcpStream {
                     .get::<smoltcp::socket::tcp::Socket>(handle)
                     .lock(&mut node);
 
-                if socket
+                socket
                     .connect(
                         interface.context(),
                         (remote_addr.addr, remote_port),
                         local_port.port(),
                     )
                     .is_err()
-                {
-                    true
-                } else {
-                    false
-                }
             };
 
             if connect_is_err {

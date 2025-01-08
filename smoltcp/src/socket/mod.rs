@@ -13,7 +13,7 @@ size for a buffer, allocate it, and let the networking stack use it.
 
 use crate::iface::Context;
 use crate::time::Instant;
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 #[cfg(feature = "socket-dhcpv4")]
 pub mod dhcpv4;
