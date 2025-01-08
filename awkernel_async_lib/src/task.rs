@@ -48,7 +48,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
-pub static IS_LOAD_RUNNING: [AtomicBool; NUM_MAX_CPU] =
+pub static NOT_IN_TRANSITION: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not RUNNING can be loaded.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
@@ -678,7 +678,7 @@ pub fn run_main() {
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
         if let Some(task) = get_next_task() {
-            IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+            NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
             #[cfg(not(feature = "no_preempt"))]
             {
                 // If the next task is a preempted task, then the current task will yield to the thread holding the next task.
@@ -753,7 +753,7 @@ pub fn run_main() {
                 };
 
                 RUNNING[cpu_id].store(task.id, Ordering::Relaxed);
-                IS_LOAD_RUNNING[cpu_id].store(true, Ordering::Relaxed);
+                NOT_IN_TRANSITION[cpu_id].store(true, Ordering::Relaxed);
 
                 // Invoke a task.
                 catch_unwind(|| {
@@ -859,7 +859,7 @@ pub fn run_main() {
                 }
             }
         } else {
-            IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
+            NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
             #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
@@ -1090,7 +1090,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     loop {
         // Wait until all task statuses are ready to load.
         loop {
-            let true_count = IS_LOAD_RUNNING
+            let true_count = NOT_IN_TRANSITION
                 .iter()
                 .filter(|flag| flag.load(Ordering::Relaxed))
                 .count();

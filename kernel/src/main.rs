@@ -14,7 +14,7 @@ extern crate alloc;
 use awkernel_async_lib::{
     scheduler::{wake_task, SchedulerType},
     task,
-    task::IS_LOAD_RUNNING,
+    task::NOT_IN_TRANSITION,
 };
 use core::{
     fmt::Debug,
@@ -43,13 +43,13 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
-    IS_LOAD_RUNNING[kernel_info.cpu_id].store(true, Ordering::Relaxed);
+    NOT_IN_TRANSITION[kernel_info.cpu_id].store(true, Ordering::Relaxed);
 
     unsafe { awkernel_lib::cpu::increment_num_cpu() };
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
-        IS_LOAD_RUNNING[0].store(false, Ordering::Relaxed);
+        NOT_IN_TRANSITION[0].store(false, Ordering::Relaxed);
 
         let _ = draw_splash();
 

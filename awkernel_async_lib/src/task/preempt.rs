@@ -1,4 +1,4 @@
-use crate::task::{get_current_task, Task, IS_LOAD_RUNNING};
+use crate::task::{get_current_task, Task, NOT_IN_TRANSITION};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -115,7 +115,7 @@ fn re_schedule() {
         let mut node = MCSNode::new();
         let mut tasks = PREEMPTED_TASKS[cpu_id].lock(&mut node);
 
-        IS_LOAD_RUNNING[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
+        NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
 
         while let Some(task) = tasks.pop_front() {
             task.scheduler.wake_task(task);
@@ -178,7 +178,7 @@ impl Drop for RunningTaskGuard {
         }
 
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
-        IS_LOAD_RUNNING[cpu_id].store(true, Ordering::Relaxed);
+        NOT_IN_TRANSITION[cpu_id].store(true, Ordering::Relaxed);
     }
 }
 
