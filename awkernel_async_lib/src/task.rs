@@ -1084,50 +1084,57 @@ impl Ord for PriorityInfo {
 }
 
 pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
-    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
     let non_primary_cpus = awkernel_lib::cpu::num_cpu().saturating_sub(1);
+    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
 
-    // Wait until all task statuses are ready to load.
     loop {
-        let true_count = IS_LOAD_RUNNING
-            .iter()
-            .filter(|flag| flag.load(Ordering::Relaxed))
-            .count();
+        // Wait until all task statuses are ready to load.
+        loop {
+            let true_count = IS_LOAD_RUNNING
+                .iter()
+                .filter(|flag| flag.load(Ordering::Relaxed))
+                .count();
 
-        if true_count >= non_primary_cpus {
-            break;
+            if true_count >= non_primary_cpus {
+                break;
+            }
         }
-    }
 
-    let running_tasks: Vec<RunningTask> = get_tasks_running()
-        .into_iter()
-        .filter(|task| task.task_id != 0)
-        .collect();
-
-    if running_tasks.len() != non_primary_cpus {
-        return None;
-    }
-
-    let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
-        let mut node = MCSNode::new();
-        let tasks = TASKS.lock(&mut node);
-        running_tasks
+        let running_tasks: Vec<RunningTask> = get_tasks_running()
             .into_iter()
-            .filter_map(|task| {
-                tasks
-                    .id_to_task
-                    .get(&task.task_id)
-                    .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
-            })
-            .collect()
-    };
+            .filter(|task| task.task_id != 0)
+            .collect();
 
-    for (task_id, cpu_id, priority_info) in priority_infos {
-        if lowest_task
-            .as_ref()
-            .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
-        {
-            lowest_task = Some((task_id, cpu_id, priority_info));
+        if running_tasks.len() != non_primary_cpus {
+            return None;
+        }
+
+        let priority_infos: Vec<(u32, usize, PriorityInfo)> = {
+            let mut node = MCSNode::new();
+            let tasks = TASKS.lock(&mut node);
+            running_tasks
+                .into_iter()
+                .filter_map(|task| {
+                    tasks
+                        .id_to_task
+                        .get(&task.task_id)
+                        .map(|task_data| (task.task_id, task.cpu_id, task_data.priority.clone()))
+                })
+                .collect()
+        };
+
+        for (task_id, cpu_id, priority_info) in priority_infos {
+            if lowest_task
+                .as_ref()
+                .is_none_or(|(_, _, lowest_priority_info)| priority_info > *lowest_priority_info)
+            {
+                lowest_task = Some((task_id, cpu_id, priority_info));
+            }
+        }
+
+        // Check to confirm that the information has not changed while getting priority_info.
+        if RUNNING[cpu_id] == task_id {
+            break;
         }
     }
 
