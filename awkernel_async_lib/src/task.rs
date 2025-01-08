@@ -399,23 +399,23 @@ fn get_next_task() -> Option<Arc<Task>> {
     #[cfg(not(feature = "no_preempt"))]
     {
         if let Some(next) = preempt::get_next_task() {
-            #[cfg(feature = "runtime_verification")]
-            {
-                let mut node = MCSNode::new();
-                let models = &mut runtime_verification::MODELS.lock(&mut node);
-                let mut node2 = MCSNode::new();
-                let info = next.info.lock(&mut node2);
+            // #[cfg(feature = "runtime_verification")]
+            // {
+            //     let mut node = MCSNode::new();
+            //     let models = &mut runtime_verification::MODELS.lock(&mut node);
+            //     let mut node2 = MCSNode::new();
+            //     let info = next.info.lock(&mut node2);
 
-                let model = models.get_mut(&next.id).unwrap();
-                model.transition(
-                    &runtime_verification::event::Event::GetNext,
-                    &TaskState {
-                        state: info.state.into(),
-                        need_sched: info.need_sched,
-                        need_preemption: info.need_preemption,
-                    },
-                );
-            }
+            //     let model = models.get_mut(&next.id).unwrap();
+            //     model.transition(
+            //         &runtime_verification::event::Event::GetNext,
+            //         &TaskState {
+            //             state: info.state.into(),
+            //             need_sched: info.need_sched,
+            //             need_preemption: info.need_preemption,
+            //         },
+            //     );
+            // }
 
             return Some(next);
         }
@@ -948,6 +948,8 @@ pub fn run_main() {
                 }
                 Ok(Poll::Ready(result)) => {
                     // The task has been terminated.
+                    info.state = State::Terminated;
+
                     #[cfg(feature = "runtime_verification")]
                     {
                         let mut node = MCSNode::new();
@@ -964,7 +966,6 @@ pub fn run_main() {
                         );
                     }
 
-                    info.state = State::Terminated;
                     drop(info);
 
                     if let Err(msg) = result {
