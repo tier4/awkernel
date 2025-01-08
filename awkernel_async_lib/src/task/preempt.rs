@@ -176,7 +176,7 @@ impl Drop for RunningTaskGuard {
         }
 
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
-        IS_LOAD_RUNNING[usize::from(cpu_id)].store(true, Ordering::Relaxed);
+        IS_LOAD_RUNNING[cpu_id].store(true, Ordering::Relaxed);
     }
 }
 
