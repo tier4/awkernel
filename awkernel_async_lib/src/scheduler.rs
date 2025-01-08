@@ -25,7 +25,7 @@ mod priority_based_rr;
 mod rr;
 
 static SLEEPING: Mutex<SleepingTasks> = Mutex::new(SleepingTasks::new());
-static IS_SEND_IPI: AtomicBool = AtomicBool::new(false); // The number of send IPI.
+static IS_SEND_IPI: AtomicBool = AtomicBool::new(false); // Whether IPI was sent or not.
 
 /// Type of scheduler.
 /// `u8` is the priority of priority based schedulers.
