@@ -1095,7 +1095,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
             .filter(|flag| flag.load(Ordering::Relaxed))
             .count();
 
-        if true_count >= target_count {
+        if true_count >= non_primary_cpus {
             break;
         }
     }
