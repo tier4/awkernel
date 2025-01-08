@@ -1105,7 +1105,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
             .filter(|task| task.task_id != 0)
             .collect();
 
-        if running_tasks.len() != non_primary_cpus {
+        if running_tasks.len() == 0 || running_tasks.len() != non_primary_cpus {
             return None;
         }
 
