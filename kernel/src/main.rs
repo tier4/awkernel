@@ -95,6 +95,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         loop {
             awkernel_lib::interrupt::disable();
+
             wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
 
