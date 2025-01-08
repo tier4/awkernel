@@ -1084,7 +1084,11 @@ impl Ord for PriorityInfo {
     }
 }
 
-pub fn wait_until_true_count(target_count: usize) {
+pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
+    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
+    let non_primary_cpus = awkernel_lib::cpu::num_cpu().saturating_sub(1);
+
+    // Wait until all task statuses are ready to load.
     loop {
         let true_count = IS_LOAD_RUNNING
             .iter()
@@ -1095,13 +1099,6 @@ pub fn wait_until_true_count(target_count: usize) {
             break;
         }
     }
-}
-
-pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
-    let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
-    let non_primary_cpus = awkernel_lib::cpu::num_cpu().saturating_sub(1);
-
-    wait_until_true_count(non_primary_cpus);
 
     let running_tasks: Vec<RunningTask> = get_tasks_running()
         .into_iter()
