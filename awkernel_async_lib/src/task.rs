@@ -1087,7 +1087,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     let non_primary_cpus = awkernel_lib::cpu::num_cpu().saturating_sub(1);
     loop {
         let mut lowest_task: Option<(u32, usize, PriorityInfo)> = None; // (task_id, cpu_id, priority_info)
-        // Wait until all task statuses are ready to load.
+                                                                        // Wait until all task statuses are ready to load.
         loop {
             let true_count = NOT_IN_TRANSITION
                 .iter()
