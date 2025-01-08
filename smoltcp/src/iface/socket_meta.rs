@@ -10,7 +10,7 @@ use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 ///
 /// This enum tracks whether the socket should be polled based on the neighbor
 /// it is going to send packets to.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NeighborState {
     /// Socket can be polled immediately.
@@ -63,18 +63,27 @@ impl Meta {
         F: Fn(IpAddress) -> bool,
     {
         let mut node = MCSNode::new();
-        let mut neighbor_state = self.neighbor_state.lock(&mut node);
-        match *neighbor_state {
+        let neighbor_state = self.neighbor_state.lock(&mut node);
+        let neighbor_state_copied = *neighbor_state;
+        drop(neighbor_state);
+
+        match neighbor_state_copied {
             NeighborState::Active => true,
             NeighborState::Waiting {
                 neighbor,
                 silent_until,
             } => {
                 if has_neighbor(neighbor) {
-                    let mut node = MCSNode::new();
-                    let handle = self.handle.lock(&mut node);
-                    net_trace!("{}: neighbor {} discovered, unsilencing", *handle, neighbor);
-                    *neighbor_state = NeighborState::Active;
+                    {
+                        let mut node = MCSNode::new();
+                        let handle = self.handle.lock(&mut node);
+                        net_trace!("{}: neighbor {} discovered, unsilencing", *handle, neighbor);
+                    }
+                    {
+                        let mut node = MCSNode::new();
+                        let mut neighbor_state = self.neighbor_state.lock(&mut node);
+                        *neighbor_state = NeighborState::Active;
+                    }
                     true
                 } else if timestamp >= silent_until {
                     let mut node = MCSNode::new();
@@ -93,19 +102,23 @@ impl Meta {
     }
 
     pub(crate) fn neighbor_missing(&self, timestamp: Instant, neighbor: IpAddress) {
-        let mut node = MCSNode::new();
-        let handle = self.handle.lock(&mut node);
-        net_trace!(
-            "{}: neighbor {} missing, silencing until t+{}",
-            *handle,
-            neighbor,
-            Self::DISCOVERY_SILENT_TIME
-        );
-        let mut node = MCSNode::new();
-        let mut neighbor_state = self.neighbor_state.lock(&mut node);
-        *neighbor_state = NeighborState::Waiting {
-            neighbor,
-            silent_until: timestamp + Self::DISCOVERY_SILENT_TIME,
-        };
+        {
+            let mut node = MCSNode::new();
+            let handle = self.handle.lock(&mut node);
+            net_trace!(
+                "{}: neighbor {} missing, silencing until t+{}",
+                *handle,
+                neighbor,
+                Self::DISCOVERY_SILENT_TIME
+            );
+        }
+        {
+            let mut node = MCSNode::new();
+            let mut neighbor_state = self.neighbor_state.lock(&mut node);
+            *neighbor_state = NeighborState::Waiting {
+                neighbor,
+                silent_until: timestamp + Self::DISCOVERY_SILENT_TIME,
+            };
+        }
     }
 }
