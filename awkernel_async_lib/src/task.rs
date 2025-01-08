@@ -1133,8 +1133,10 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
         }
 
         // Check to confirm that the information has not changed while getting priority_info.
-        if RUNNING[cpu_id] == task_id {
-            break;
+        if let Some((task_id, cpu_id, _)) = lowest_task {
+            if RUNNING[cpu_id].load(Ordering::Relaxed) == task_id {
+                break;
+            }
         }
     }
 
