@@ -4,12 +4,9 @@ extern crate alloc;
 
 use alloc::{format, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
-    channel::bounded,
-    pubsub::{self, Attribute, Publisher, Subscriber},
-    scheduler::SchedulerType,
-    spawn, uptime_nano,
+    channel::bounded, scheduler::SchedulerType, spawn, sync::barrier::Barrier, uptime_nano,
 };
-use core::{sync::atomic::AtomicUsize, time::Duration};
+use core::time::Duration;
 use serde::Serialize;
 
 const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
@@ -27,41 +24,6 @@ struct MeasureResult {
     average: f64,
 }
 
-#[derive(Clone)]
-struct Barrier {
-    count: Arc<AtomicUsize>,
-    tx: Arc<Publisher<()>>,
-    rx: Subscriber<()>,
-}
-
-impl Barrier {
-    fn new(count: usize) -> Self {
-        let attr = Attribute {
-            queue_size: 1,
-            ..Attribute::default()
-        };
-        let (tx, rx) = pubsub::create_pubsub(attr);
-
-        Self {
-            count: Arc::new(AtomicUsize::new(count)),
-            tx: Arc::new(tx),
-            rx,
-        }
-    }
-
-    async fn wait(&mut self) {
-        if self
-            .count
-            .fetch_sub(1, core::sync::atomic::Ordering::Relaxed)
-            == 1
-        {
-            self.tx.send(()).await;
-        } else {
-            self.rx.recv().await;
-        }
-    }
-}
-
 pub async fn run() {
     let mut result = alloc::vec::Vec::with_capacity(NUM_TASKS.len());
     for num_task in NUM_TASKS.iter() {
@@ -76,7 +38,7 @@ pub async fn run() {
 }
 
 async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
-    let barrier = Barrier::new(num_task * 2);
+    let barrier = Arc::new(Barrier::new(num_task * 2));
     let mut server_join = alloc::vec::Vec::new();
     let mut client_join = alloc::vec::Vec::new();
 
@@ -84,7 +46,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
         let (tx1, rx1) = bounded::new::<Vec<u8>>(bounded::Attribute::default());
         let (tx2, rx2) = bounded::new::<Vec<u8>>(bounded::Attribute::default());
 
-        let mut barrier2 = barrier.clone();
+        let barrier2 = barrier.clone();
         let hdl = spawn(
             format!("{i}-server").into(),
             async move {
@@ -108,7 +70,7 @@ async fn measure_task(num_task: usize, num_bytes: usize) -> MeasureResult {
 
         server_join.push(hdl);
 
-        let mut barrier2 = barrier.clone();
+        let barrier2 = barrier.clone();
         let hdl = spawn(
             format!("{i}-client").into(),
             async move {

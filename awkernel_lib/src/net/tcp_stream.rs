@@ -41,19 +41,29 @@ impl Drop for TcpStream {
         drop(net_manager);
 
         {
-            let mut node = MCSNode::new();
-            let mut inner = if_net.inner.lock(&mut node);
+            let socket_set = if_net.socket_set.read();
+            let closed = {
+                let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                let socket = socket_set
+                    .get::<smoltcp::socket::tcp::Socket>(self.handle)
+                    .lock(&mut node);
 
-            let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+                matches!(socket.state(), smoltcp::socket::tcp::State::Closed)
+            };
 
             // If the socket is already closed, remove it from the socket set.
-            if matches!(socket.state(), smoltcp::socket::tcp::State::Closed) {
-                inner.socket_set.remove(self.handle);
-
+            if closed {
+                drop(socket_set);
+                let mut socket_set = if_net.socket_set.write();
+                socket_set.remove(self.handle);
                 return;
             }
 
             // Otherwise, close the socket.
+            let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+            let mut socket = socket_set
+                .get::<smoltcp::socket::tcp::Socket>(self.handle)
+                .lock(&mut node);
             socket.close();
         }
 
@@ -98,16 +108,25 @@ pub fn close_connections() {
             let mut remain_v = VecDeque::new();
 
             {
-                let mut node = MCSNode::new();
-                let mut inner = if_net.inner.lock(&mut node);
-
                 while let Some((handle, port)) = v.pop_front() {
-                    let socket: &mut smoltcp::socket::tcp::Socket =
-                        inner.socket_set.get_mut(handle);
-                    if socket.state() == smoltcp::socket::tcp::State::Closed {
+                    let socket_set = if_net.socket_set.read();
+                    let closed = {
+                        let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                        let socket = socket_set
+                            .get::<smoltcp::socket::tcp::Socket>(handle)
+                            .lock(&mut node);
+                        socket.state() == smoltcp::socket::tcp::State::Closed
+                    };
+                    if closed {
+                        drop(socket_set);
+                        let mut socket_set = if_net.socket_set.write();
                         // If the socket is already closed, remove it from the socket set.
-                        inner.socket_set.remove(handle);
+                        socket_set.remove(handle);
                     } else {
+                        let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                        let mut socket = socket_set
+                            .get::<smoltcp::socket::tcp::Socket>(handle)
+                            .lock(&mut node);
                         socket.close();
                         remain_v.push_back((handle, port));
                     }
@@ -180,20 +199,27 @@ impl TcpStream {
             let mut node = MCSNode::new();
             let mut inner = if_net.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
+            let interface = inner.get_interface();
 
+            let mut socket_set = if_net.socket_set.write();
             handle = socket_set.add(socket);
 
-            let socket: &mut smoltcp::socket::tcp::Socket = socket_set.get_mut(handle);
+            let connect_is_err = {
+                let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                let mut socket = socket_set
+                    .get::<smoltcp::socket::tcp::Socket>(handle)
+                    .lock(&mut node);
 
-            if socket
-                .connect(
-                    interface.context(),
-                    (remote_addr.addr, remote_port),
-                    local_port.port(),
-                )
-                .is_err()
-            {
+                socket
+                    .connect(
+                        interface.context(),
+                        (remote_addr.addr, remote_port),
+                        local_port.port(),
+                    )
+                    .is_err()
+            };
+
+            if connect_is_err {
                 socket_set.remove(handle);
                 return Err(NetManagerError::InvalidState);
             }
@@ -227,10 +253,12 @@ impl TcpStream {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
+        let socket_set = if_net.socket_set.read();
 
-        let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+        let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+        let mut socket = socket_set
+            .get::<smoltcp::socket::tcp::Socket>(self.handle)
+            .lock(&mut node);
 
         if socket.state() == smoltcp::socket::tcp::State::SynSent {
             socket.register_recv_waker(waker);
@@ -271,10 +299,12 @@ impl TcpStream {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let mut inner = if_net.inner.lock(&mut node);
+        let socket_set = if_net.socket_set.read();
 
-        let socket: &mut smoltcp::socket::tcp::Socket = inner.socket_set.get_mut(self.handle);
+        let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+        let mut socket = socket_set
+            .get::<smoltcp::socket::tcp::Socket>(self.handle)
+            .lock(&mut node);
 
         if socket.state() == smoltcp::socket::tcp::State::SynSent {
             socket.register_recv_waker(waker);
@@ -308,10 +338,12 @@ impl TcpStream {
         let if_net = if_net.clone();
         drop(net_manager);
 
-        let mut node = MCSNode::new();
-        let inner = if_net.inner.lock(&mut node);
+        let socket_set = if_net.socket_set.read();
 
-        let socket: &smoltcp::socket::tcp::Socket = inner.socket_set.get(self.handle);
+        let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+        let socket = socket_set
+            .get::<smoltcp::socket::tcp::Socket>(self.handle)
+            .lock(&mut node);
 
         if let Some(endpoint) = socket.remote_endpoint() {
             Ok((
