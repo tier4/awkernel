@@ -172,6 +172,7 @@ impl UdpSocket {
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
 
+            // To avoid deadlock
             drop(socket);
             drop(socket_set);
             if_net.poll_tx_only(que_id);
