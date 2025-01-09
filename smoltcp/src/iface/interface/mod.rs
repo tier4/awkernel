@@ -20,6 +20,8 @@ mod sixlowpan;
 #[cfg(feature = "proto-igmp")]
 mod igmp;
 
+use awkernel_sync::{mcs::MCSNode, rwlock::RwLock};
+
 #[cfg(feature = "proto-igmp")]
 pub use igmp::MulticastError;
 
@@ -415,7 +417,7 @@ impl Interface {
         &mut self,
         timestamp: Instant,
         device: &mut D,
-        sockets: &mut SocketSet<'_>,
+        sockets: &RwLock<SocketSet<'_>>,
     ) -> bool
     where
         D: Device + ?Sized,
@@ -516,7 +518,7 @@ impl Interface {
         }
     }
 
-    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_ingress<D>(&mut self, device: &mut D, sockets: &RwLock<SocketSet<'_>>) -> bool
     where
         D: Device + ?Sized,
     {
@@ -587,7 +589,7 @@ impl Interface {
         processed_any
     }
 
-    fn socket_egress<D>(&mut self, device: &mut D, sockets: &mut SocketSet<'_>) -> bool
+    fn socket_egress<D>(&mut self, device: &mut D, sockets: &RwLock<SocketSet<'_>>) -> bool
     where
         D: Device + ?Sized,
     {
@@ -600,7 +602,7 @@ impl Interface {
         }
 
         let mut emitted_any = false;
-        for item in sockets.items_mut() {
+        for item in sockets.read().items() {
             if !item
                 .meta
                 .egress_permitted(self.inner.now, |ip_addr| self.inner.has_neighbor(&ip_addr))
@@ -625,7 +627,7 @@ impl Interface {
                 Ok(())
             };
 
-            let result = match &mut item.socket {
+            let result = match &item.socket {
                 #[cfg(feature = "socket-raw")]
                 Socket::Raw(socket) => socket.dispatch(&mut self.inner, |inner, (ip, raw)| {
                     respond(
@@ -636,7 +638,9 @@ impl Interface {
                 }),
                 #[cfg(feature = "socket-icmp")]
                 Socket::Icmp(socket) => {
-                    socket.dispatch(&mut self.inner, |inner, response| match response {
+                    let mut node = MCSNode::new();
+                    let mut guard = socket.lock(&mut node);
+                    guard.dispatch(&mut self.inner, |inner, response| match response {
                         #[cfg(feature = "proto-ipv4")]
                         (IpRepr::Ipv4(ipv4_repr), IcmpRepr::Ipv4(icmpv4_repr)) => respond(
                             inner,
@@ -655,18 +659,24 @@ impl Interface {
                 }
                 #[cfg(feature = "socket-udp")]
                 Socket::Udp(socket) => {
-                    socket.dispatch(&mut self.inner, |inner, meta, (ip, udp, payload)| {
+                    let mut node = MCSNode::new();
+                    let mut guard = socket.lock(&mut node);
+                    guard.dispatch(&mut self.inner, |inner, meta, (ip, udp, payload)| {
                         respond(inner, meta, Packet::new(ip, IpPayload::Udp(udp, payload)))
                     })
                 }
                 #[cfg(feature = "socket-tcp")]
-                Socket::Tcp(socket) => socket.dispatch(&mut self.inner, |inner, (ip, tcp)| {
-                    respond(
-                        inner,
-                        PacketMeta::default(),
-                        Packet::new(ip, IpPayload::Tcp(tcp)),
-                    )
-                }),
+                Socket::Tcp(socket) => {
+                    let mut node = MCSNode::new();
+                    let mut guard = socket.lock(&mut node);
+                    guard.dispatch(&mut self.inner, |inner, (ip, tcp)| {
+                        respond(
+                            inner,
+                            PacketMeta::default(),
+                            Packet::new(ip, IpPayload::Tcp(tcp)),
+                        )
+                    })
+                }
                 #[cfg(feature = "socket-dhcpv4")]
                 Socket::Dhcpv4(socket) => {
                     socket.dispatch(&mut self.inner, |inner, (ip, udp, dhcp)| {
@@ -1112,7 +1122,7 @@ impl InterfaceInner {
     #[allow(clippy::too_many_arguments)]
     fn process_udp<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &RwLock<SocketSet>,
         meta: PacketMeta,
         ip_repr: IpRepr,
         udp_repr: UdpRepr,
@@ -1122,11 +1132,14 @@ impl InterfaceInner {
     ) -> Option<Packet<'frame>> {
         #[cfg(feature = "socket-udp")]
         for udp_socket in sockets
-            .items_mut()
-            .filter_map(|i| udp::Socket::downcast_mut(&mut i.socket))
+            .read()
+            .items()
+            .filter_map(|i| udp::Socket::downcast(&i.socket))
         {
-            if udp_socket.accepts(self, &ip_repr, &udp_repr) {
-                udp_socket.process(self, meta, &ip_repr, &udp_repr, udp_payload);
+            let mut node = MCSNode::new();
+            let mut socket = udp_socket.lock(&mut node);
+            if socket.accepts(self, &ip_repr, &udp_repr) {
+                socket.process(self, meta, &ip_repr, &udp_repr, udp_payload);
                 return None;
             }
         }
@@ -1176,7 +1189,7 @@ impl InterfaceInner {
     #[cfg(feature = "socket-tcp")]
     pub(crate) fn process_tcp<'frame>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &RwLock<SocketSet>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -1190,11 +1203,14 @@ impl InterfaceInner {
         ));
 
         for tcp_socket in sockets
-            .items_mut()
-            .filter_map(|i| tcp::Socket::downcast_mut(&mut i.socket))
+            .read()
+            .items()
+            .filter_map(|i| tcp::Socket::downcast(&i.socket))
         {
-            if tcp_socket.accepts(self, &ip_repr, &tcp_repr) {
-                return tcp_socket
+            let mut node = MCSNode::new();
+            let mut socket = tcp_socket.lock(&mut node);
+            if socket.accepts(self, &ip_repr, &tcp_repr) {
+                return socket
                     .process(self, &ip_repr, &tcp_repr)
                     .map(|(ip, tcp)| Packet::new(ip, IpPayload::Tcp(tcp)));
             }

@@ -13,6 +13,7 @@ size for a buffer, allocate it, and let the networking stack use it.
 
 use crate::iface::Context;
 use crate::time::Instant;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 #[cfg(feature = "socket-dhcpv4")]
 pub mod dhcpv4;
@@ -55,48 +56,71 @@ pub(crate) enum PollAt {
 ///
 /// [AnySocket]: trait.AnySocket.html
 /// [SocketSet::get]: struct.SocketSet.html#method.get
-#[derive(Debug)]
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
-    Raw(raw::Socket<'a>),
+    Raw(Mutex<raw::Socket<'a>>),
     #[cfg(feature = "socket-icmp")]
-    Icmp(icmp::Socket<'a>),
+    Icmp(Mutex<icmp::Socket<'a>>),
     #[cfg(feature = "socket-udp")]
-    Udp(udp::Socket<'a>),
+    Udp(Mutex<udp::Socket<'a>>),
     #[cfg(feature = "socket-tcp")]
-    Tcp(tcp::Socket<'a>),
+    Tcp(Mutex<tcp::Socket<'a>>),
     #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4(dhcpv4::Socket<'a>),
+    Dhcpv4(Mutex<dhcpv4::Socket<'a>>),
     #[cfg(feature = "socket-dns")]
-    Dns(dns::Socket<'a>),
+    Dns(Mutex<dns::Socket<'a>>),
 }
 
 impl Socket<'_> {
     pub(crate) fn poll_at(&self, cx: &mut Context) -> PollAt {
         match self {
             #[cfg(feature = "socket-raw")]
-            Socket::Raw(s) => s.poll_at(cx),
+            Socket::Raw(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
             #[cfg(feature = "socket-icmp")]
-            Socket::Icmp(s) => s.poll_at(cx),
+            Socket::Icmp(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
             #[cfg(feature = "socket-udp")]
-            Socket::Udp(s) => s.poll_at(cx),
+            Socket::Udp(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
             #[cfg(feature = "socket-tcp")]
-            Socket::Tcp(s) => s.poll_at(cx),
+            Socket::Tcp(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
             #[cfg(feature = "socket-dhcpv4")]
-            Socket::Dhcpv4(s) => s.poll_at(cx),
+            Socket::Dhcpv4(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
             #[cfg(feature = "socket-dns")]
-            Socket::Dns(s) => s.poll_at(cx),
+            Socket::Dns(s) => {
+                let mut node = MCSNode::new();
+                let guard = s.lock(&mut node);
+                guard.poll_at(cx)
+            }
         }
     }
 }
 
 /// A conversion trait for network sockets.
-pub trait AnySocket<'a> {
+pub trait AnySocket<'a>: Send {
     fn upcast(self) -> Socket<'a>;
-    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self>
+    fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Mutex<Self>>
     where
         Self: Sized;
-    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self>
+    fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Mutex<Self>>
     where
         Self: Sized;
 }
@@ -105,10 +129,10 @@ macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a> AnySocket<'a> for $socket {
             fn upcast(self) -> Socket<'a> {
-                Socket::$variant(self)
+                Socket::$variant(Mutex::new(self))
             }
 
-            fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Self> {
+            fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Mutex<Self>> {
                 #[allow(unreachable_patterns)]
                 match socket {
                     Socket::$variant(socket) => Some(socket),
@@ -116,7 +140,7 @@ macro_rules! from_socket {
                 }
             }
 
-            fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Self> {
+            fn downcast_mut<'c>(socket: &'c mut Socket<'a>) -> Option<&'c mut Mutex<Self>> {
                 #[allow(unreachable_patterns)]
                 match socket {
                     Socket::$variant(socket) => Some(socket),

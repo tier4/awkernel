@@ -27,7 +27,7 @@ use smoltcp::{
     wire::HardwareAddress,
 };
 
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
@@ -163,6 +163,7 @@ impl Device for NetDriverRef<'_> {
 pub(super) struct IfNet {
     vlan: Option<u16>,
     pub(super) inner: Mutex<IfNetInner>,
+    pub(super) socket_set: RwLock<SocketSet<'static>>,
     rx_irq_to_driver: BTreeMap<u16, NetDriver>,
     tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
@@ -173,7 +174,6 @@ pub(super) struct IfNet {
 
 pub(super) struct IfNetInner {
     pub(super) interface: Interface,
-    pub(super) socket_set: SocketSet<'static>,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 
     multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
@@ -182,8 +182,8 @@ pub(super) struct IfNetInner {
 
 impl IfNetInner {
     #[inline(always)]
-    pub fn split(&mut self) -> (&mut Interface, &mut SocketSet<'static>) {
-        (&mut self.interface, &mut self.socket_set)
+    pub fn get_interface(&mut self) -> &mut Interface {
+        &mut self.interface
     }
 
     #[inline(always)]
@@ -277,11 +277,11 @@ impl IfNet {
             vlan,
             inner: Mutex::new(IfNetInner {
                 interface,
-                socket_set,
                 default_gateway_ipv4: None,
                 multicast_addr_ipv4: BTreeSet::new(),
                 multicast_addr_mac: BTreeMap::new(),
             }),
+            socket_set: RwLock::new(socket_set),
             rx_irq_to_driver,
             net_device,
             tx_only_ringq,
@@ -488,8 +488,8 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            let interface = inner.get_interface();
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         // send packets from the queue.
@@ -547,9 +547,8 @@ impl IfNet {
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
 
-            let (interface, socket_set) = inner.split();
-
-            interface.poll(timestamp, &mut device_ref, socket_set)
+            let interface = inner.get_interface();
+            interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
         // send packets from the queue.

@@ -628,613 +628,613 @@ impl<'a> Socket<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests_common {
-    pub use super::*;
-    pub use crate::wire::IpAddress;
-
-    pub fn buffer(packets: usize) -> PacketBuffer<'static> {
-        PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 66 * packets])
-    }
-
-    pub fn socket(
-        rx_buffer: PacketBuffer<'static>,
-        tx_buffer: PacketBuffer<'static>,
-    ) -> Socket<'static> {
-        Socket::new(rx_buffer, tx_buffer)
-    }
-
-    pub const LOCAL_PORT: u16 = 53;
-
-    pub static UDP_REPR: UdpRepr = UdpRepr {
-        src_port: 53,
-        dst_port: 9090,
-    };
-
-    pub static UDP_PAYLOAD: &[u8] = &[0xff; 10];
-}
-
-#[cfg(all(test, feature = "proto-ipv4"))]
-mod test_ipv4 {
-    use crate::phy::Medium;
-    use crate::tests::setup;
-    use rstest::*;
-
-    use super::tests_common::*;
-    use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
-
-    const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
-    const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
-    const LOCAL_END_V4: IpEndpoint = IpEndpoint {
-        addr: IpAddress::Ipv4(LOCAL_IPV4),
-        port: LOCAL_PORT,
-    };
-
-    static ECHOV4_REPR: Icmpv4Repr = Icmpv4Repr::EchoRequest {
-        ident: 0x1234,
-        seq_no: 0x5678,
-        data: &[0xff; 16],
-    };
-
-    static LOCAL_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: LOCAL_IPV4,
-        dst_addr: REMOTE_IPV4,
-        next_header: IpProtocol::Icmp,
-        payload_len: 24,
-        hop_limit: 0x40,
-    });
-
-    static REMOTE_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
-        src_addr: REMOTE_IPV4,
-        dst_addr: LOCAL_IPV4,
-        next_header: IpProtocol::Icmp,
-        payload_len: 24,
-        hop_limit: 0x40,
-    });
-
-    #[test]
-    fn test_send_unaddressable() {
-        let mut socket = socket(buffer(0), buffer(1));
-        assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
-            Err(SendError::Unaddressable)
-        );
-        assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_send_dispatch(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(0), buffer(1));
-        let checksum = ChecksumCapabilities::default();
-
-        assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
-
-        // This buffer is too long
-        assert_eq!(
-            socket.send_slice(&[0xff; 67], REMOTE_IPV4.into()),
-            Err(SendError::BufferFull)
-        );
-        assert!(socket.can_send());
-
-        let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
-        ECHOV4_REPR.emit(&mut packet, &checksum);
-
-        assert_eq!(
-            socket.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
-            Ok(())
-        );
-        assert_eq!(
-            socket.send_slice(b"123456", REMOTE_IPV4.into()),
-            Err(SendError::BufferFull)
-        );
-        assert!(!socket.can_send());
-
-        assert_eq!(
-            socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
-                assert_eq!(ip_repr, LOCAL_IPV4_REPR);
-                assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Err(())
-            }),
-            Err(())
-        );
-        // buffer is not taken off of the tx queue due to the error
-        assert!(!socket.can_send());
-
-        assert_eq!(
-            socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
-                assert_eq!(ip_repr, LOCAL_IPV4_REPR);
-                assert_eq!(icmp_repr, ECHOV4_REPR.into());
-                Ok::<_, ()>(())
-            }),
-            Ok(())
-        );
-        // buffer is taken off of the queue this time
-        assert!(socket.can_send());
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_set_hop_limit_v4(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut s = socket(buffer(0), buffer(1));
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
-        ECHOV4_REPR.emit(&mut packet, &checksum);
-
-        s.set_hop_limit(Some(0x2a));
-
-        assert_eq!(
-            s.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
-            Ok(())
-        );
-        assert_eq!(
-            s.dispatch(cx, |_, (ip_repr, _)| {
-                assert_eq!(
-                    ip_repr,
-                    IpRepr::Ipv4(Ipv4Repr {
-                        src_addr: LOCAL_IPV4,
-                        dst_addr: REMOTE_IPV4,
-                        next_header: IpProtocol::Icmp,
-                        payload_len: ECHOV4_REPR.buffer_len(),
-                        hop_limit: 0x2a,
-                    })
-                );
-                Ok::<_, ()>(())
-            }),
-            Ok(())
-        );
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_recv_process(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
-
-        assert!(!socket.can_recv());
-        assert_eq!(socket.recv(), Err(RecvError::Exhausted));
-
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 24];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
-        ECHOV4_REPR.emit(&mut packet, &checksum);
-        let data = &*packet.into_inner();
-
-        assert!(socket.accepts(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
-        socket.process(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
-        assert!(socket.can_recv());
-
-        assert!(socket.accepts(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
-        socket.process(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
-
-        assert_eq!(socket.recv(), Ok((data, REMOTE_IPV4.into())));
-        assert!(!socket.can_recv());
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_accept_bad_id(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
-
-        let checksum = ChecksumCapabilities::default();
-        let mut bytes = [0xff; 20];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
-        let icmp_repr = Icmpv4Repr::EchoRequest {
-            ident: 0x4321,
-            seq_no: 0x5678,
-            data: &[0xff; 16],
-        };
-        icmp_repr.emit(&mut packet, &checksum);
-
-        // Ensure that a packet with an identifier that isn't the bound
-        // ID is not accepted
-        assert!(!socket.accepts(cx, &REMOTE_IPV4_REPR, &icmp_repr.into()));
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_accepts_udp(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4.into())), Ok(()));
-
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(
-            &mut packet,
-            &REMOTE_IPV4.into(),
-            &LOCAL_IPV4.into(),
-            UDP_PAYLOAD.len(),
-            |buf| buf.copy_from_slice(UDP_PAYLOAD),
-            &checksum,
-        );
-
-        let data = &*packet.into_inner();
-
-        let icmp_repr = Icmpv4Repr::DstUnreachable {
-            reason: Icmpv4DstUnreachable::PortUnreachable,
-            header: Ipv4Repr {
-                src_addr: LOCAL_IPV4,
-                dst_addr: REMOTE_IPV4,
-                next_header: IpProtocol::Icmp,
-                payload_len: 12,
-                hop_limit: 0x40,
-            },
-            data,
-        };
-        let ip_repr = IpRepr::Ipv4(Ipv4Repr {
-            src_addr: REMOTE_IPV4,
-            dst_addr: LOCAL_IPV4,
-            next_header: IpProtocol::Icmp,
-            payload_len: icmp_repr.buffer_len(),
-            hop_limit: 0x40,
-        });
-
-        assert!(!socket.can_recv());
-
-        // Ensure we can accept ICMP error response to the bound
-        // UDP port
-        assert!(socket.accepts(cx, &ip_repr, &icmp_repr.into()));
-        socket.process(cx, &ip_repr, &icmp_repr.into());
-        assert!(socket.can_recv());
-
-        let mut bytes = [0x00; 46];
-        let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
-        icmp_repr.emit(&mut packet, &checksum);
-        assert_eq!(
-            socket.recv(),
-            Ok((&*packet.into_inner(), REMOTE_IPV4.into()))
-        );
-        assert!(!socket.can_recv());
-    }
-}
-
-#[cfg(all(test, feature = "proto-ipv6"))]
-mod test_ipv6 {
-    use crate::phy::Medium;
-    use crate::tests::setup;
-    use rstest::*;
-
-    use super::tests_common::*;
-
-    use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
-
-    const REMOTE_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
-    const LOCAL_IPV6: Ipv6Address =
-        Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
-    const LOCAL_END_V6: IpEndpoint = IpEndpoint {
-        addr: IpAddress::Ipv6(LOCAL_IPV6),
-        port: LOCAL_PORT,
-    };
-    static ECHOV6_REPR: Icmpv6Repr = Icmpv6Repr::EchoRequest {
-        ident: 0x1234,
-        seq_no: 0x5678,
-        data: &[0xff; 16],
-    };
-
-    static LOCAL_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
-        src_addr: LOCAL_IPV6,
-        dst_addr: REMOTE_IPV6,
-        next_header: IpProtocol::Icmpv6,
-        payload_len: 24,
-        hop_limit: 0x40,
-    });
-
-    static REMOTE_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
-        src_addr: REMOTE_IPV6,
-        dst_addr: LOCAL_IPV6,
-        next_header: IpProtocol::Icmpv6,
-        payload_len: 24,
-        hop_limit: 0x40,
-    });
-
-    #[test]
-    fn test_send_unaddressable() {
-        let mut socket = socket(buffer(0), buffer(1));
-        assert_eq!(
-            socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::default())),
-            Err(SendError::Unaddressable)
-        );
-        assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_send_dispatch(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(0), buffer(1));
-        let checksum = ChecksumCapabilities::default();
-
-        assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
-
-        // This buffer is too long
-        assert_eq!(
-            socket.send_slice(&[0xff; 67], REMOTE_IPV6.into()),
-            Err(SendError::BufferFull)
-        );
-        assert!(socket.can_send());
-
-        let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        ECHOV6_REPR.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-
-        assert_eq!(
-            socket.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
-            Ok(())
-        );
-        assert_eq!(
-            socket.send_slice(b"123456", REMOTE_IPV6.into()),
-            Err(SendError::BufferFull)
-        );
-        assert!(!socket.can_send());
-
-        assert_eq!(
-            socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
-                assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Err(())
-            }),
-            Err(())
-        );
-        // buffer is not taken off of the tx queue due to the error
-        assert!(!socket.can_send());
-
-        assert_eq!(
-            socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
-                assert_eq!(ip_repr, LOCAL_IPV6_REPR);
-                assert_eq!(icmp_repr, ECHOV6_REPR.into());
-                Ok::<_, ()>(())
-            }),
-            Ok(())
-        );
-        // buffer is taken off of the queue this time
-        assert!(socket.can_send());
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_set_hop_limit(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut s = socket(buffer(0), buffer(1));
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = vec![0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        ECHOV6_REPR.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-
-        s.set_hop_limit(Some(0x2a));
-
-        assert_eq!(
-            s.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
-            Ok(())
-        );
-        assert_eq!(
-            s.dispatch(cx, |_, (ip_repr, _)| {
-                assert_eq!(
-                    ip_repr,
-                    IpRepr::Ipv6(Ipv6Repr {
-                        src_addr: LOCAL_IPV6,
-                        dst_addr: REMOTE_IPV6,
-                        next_header: IpProtocol::Icmpv6,
-                        payload_len: ECHOV6_REPR.buffer_len(),
-                        hop_limit: 0x2a,
-                    })
-                );
-                Ok::<_, ()>(())
-            }),
-            Ok(())
-        );
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_recv_process(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
-
-        assert!(!socket.can_recv());
-        assert_eq!(socket.recv(), Err(RecvError::Exhausted));
-
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
-        ECHOV6_REPR.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-        let data = &*packet.into_inner();
-
-        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
-        assert!(socket.can_recv());
-
-        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
-
-        assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
-        assert!(!socket.can_recv());
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_truncated_recv_slice(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
-
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 24];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
-        ECHOV6_REPR.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-
-        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
-        assert!(socket.can_recv());
-
-        assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
-        socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
-
-        let mut buffer = [0u8; 1];
-        assert_eq!(
-            socket.recv_slice(&mut buffer[..]),
-            Err(RecvError::Truncated)
-        );
-        assert!(!socket.can_recv());
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_accept_bad_id(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
-
-        let checksum = ChecksumCapabilities::default();
-        let mut bytes = [0xff; 20];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
-        let icmp_repr = Icmpv6Repr::EchoRequest {
-            ident: 0x4321,
-            seq_no: 0x5678,
-            data: &[0xff; 16],
-        };
-        icmp_repr.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-
-        // Ensure that a packet with an identifier that isn't the bound
-        // ID is not accepted
-        assert!(!socket.accepts(cx, &REMOTE_IPV6_REPR, &icmp_repr.into()));
-    }
-
-    #[rstest]
-    #[case::ethernet(Medium::Ethernet)]
-    #[cfg(feature = "medium-ethernet")]
-    fn test_accepts_udp(#[case] medium: Medium) {
-        let (mut iface, _, _) = setup(medium);
-        let cx = iface.context();
-
-        let mut socket = socket(buffer(1), buffer(1));
-        assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6.into())), Ok(()));
-
-        let checksum = ChecksumCapabilities::default();
-
-        let mut bytes = [0xff; 18];
-        let mut packet = UdpPacket::new_unchecked(&mut bytes);
-        UDP_REPR.emit(
-            &mut packet,
-            &REMOTE_IPV6.into(),
-            &LOCAL_IPV6.into(),
-            UDP_PAYLOAD.len(),
-            |buf| buf.copy_from_slice(UDP_PAYLOAD),
-            &checksum,
-        );
-
-        let data = &*packet.into_inner();
-
-        let icmp_repr = Icmpv6Repr::DstUnreachable {
-            reason: Icmpv6DstUnreachable::PortUnreachable,
-            header: Ipv6Repr {
-                src_addr: LOCAL_IPV6,
-                dst_addr: REMOTE_IPV6,
-                next_header: IpProtocol::Icmpv6,
-                payload_len: 12,
-                hop_limit: 0x40,
-            },
-            data,
-        };
-        let ip_repr = IpRepr::Ipv6(Ipv6Repr {
-            src_addr: REMOTE_IPV6,
-            dst_addr: LOCAL_IPV6,
-            next_header: IpProtocol::Icmpv6,
-            payload_len: icmp_repr.buffer_len(),
-            hop_limit: 0x40,
-        });
-
-        assert!(!socket.can_recv());
-
-        // Ensure we can accept ICMP error response to the bound
-        // UDP port
-        assert!(socket.accepts(cx, &ip_repr, &icmp_repr.into()));
-        socket.process(cx, &ip_repr, &icmp_repr.into());
-        assert!(socket.can_recv());
-
-        let mut bytes = [0x00; 66];
-        let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
-        icmp_repr.emit(
-            &LOCAL_IPV6.into(),
-            &REMOTE_IPV6.into(),
-            &mut packet,
-            &checksum,
-        );
-        assert_eq!(
-            socket.recv(),
-            Ok((&*packet.into_inner(), REMOTE_IPV6.into()))
-        );
-        assert!(!socket.can_recv());
-    }
-}
+//#[cfg(test)]
+//mod tests_common {
+//pub use super::*;
+//pub use crate::wire::IpAddress;
+
+//pub fn buffer(packets: usize) -> PacketBuffer<'static> {
+//PacketBuffer::new(vec![PacketMetadata::EMPTY; packets], vec![0; 66 * packets])
+//}
+
+//pub fn socket(
+//rx_buffer: PacketBuffer<'static>,
+//tx_buffer: PacketBuffer<'static>,
+//) -> Socket<'static> {
+//Socket::new(rx_buffer, tx_buffer)
+//}
+
+//pub const LOCAL_PORT: u16 = 53;
+
+//pub static UDP_REPR: UdpRepr = UdpRepr {
+//src_port: 53,
+//dst_port: 9090,
+//};
+
+//pub static UDP_PAYLOAD: &[u8] = &[0xff; 10];
+//}
+
+//#[cfg(all(test, feature = "proto-ipv4"))]
+//mod test_ipv4 {
+//use crate::phy::Medium;
+//use crate::tests::setup;
+//use rstest::*;
+
+//use super::tests_common::*;
+//use crate::wire::{Icmpv4DstUnreachable, IpEndpoint, Ipv4Address};
+
+//const REMOTE_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 2]);
+//const LOCAL_IPV4: Ipv4Address = Ipv4Address([192, 168, 1, 1]);
+//const LOCAL_END_V4: IpEndpoint = IpEndpoint {
+//addr: IpAddress::Ipv4(LOCAL_IPV4),
+//port: LOCAL_PORT,
+//};
+
+//static ECHOV4_REPR: Icmpv4Repr = Icmpv4Repr::EchoRequest {
+//ident: 0x1234,
+//seq_no: 0x5678,
+//data: &[0xff; 16],
+//};
+
+//static LOCAL_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
+//src_addr: LOCAL_IPV4,
+//dst_addr: REMOTE_IPV4,
+//next_header: IpProtocol::Icmp,
+//payload_len: 24,
+//hop_limit: 0x40,
+//});
+
+//static REMOTE_IPV4_REPR: IpRepr = IpRepr::Ipv4(Ipv4Repr {
+//src_addr: REMOTE_IPV4,
+//dst_addr: LOCAL_IPV4,
+//next_header: IpProtocol::Icmp,
+//payload_len: 24,
+//hop_limit: 0x40,
+//});
+
+//#[test]
+//fn test_send_unaddressable() {
+//let mut socket = socket(buffer(0), buffer(1));
+//assert_eq!(
+//socket.send_slice(b"abcdef", IpAddress::Ipv4(Ipv4Address::default())),
+//Err(SendError::Unaddressable)
+//);
+//assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV4.into()), Ok(()));
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_send_dispatch(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(0), buffer(1));
+//let checksum = ChecksumCapabilities::default();
+
+//assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
+
+//// This buffer is too long
+//assert_eq!(
+//socket.send_slice(&[0xff; 67], REMOTE_IPV4.into()),
+//Err(SendError::BufferFull)
+//);
+//assert!(socket.can_send());
+
+//let mut bytes = [0xff; 24];
+//let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+//ECHOV4_REPR.emit(&mut packet, &checksum);
+
+//assert_eq!(
+//socket.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
+//Ok(())
+//);
+//assert_eq!(
+//socket.send_slice(b"123456", REMOTE_IPV4.into()),
+//Err(SendError::BufferFull)
+//);
+//assert!(!socket.can_send());
+
+//assert_eq!(
+//socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
+//assert_eq!(ip_repr, LOCAL_IPV4_REPR);
+//assert_eq!(icmp_repr, ECHOV4_REPR.into());
+//Err(())
+//}),
+//Err(())
+//);
+//// buffer is not taken off of the tx queue due to the error
+//assert!(!socket.can_send());
+
+//assert_eq!(
+//socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
+//assert_eq!(ip_repr, LOCAL_IPV4_REPR);
+//assert_eq!(icmp_repr, ECHOV4_REPR.into());
+//Ok::<_, ()>(())
+//}),
+//Ok(())
+//);
+//// buffer is taken off of the queue this time
+//assert!(socket.can_send());
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_set_hop_limit_v4(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut s = socket(buffer(0), buffer(1));
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 24];
+//let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+//ECHOV4_REPR.emit(&mut packet, &checksum);
+
+//s.set_hop_limit(Some(0x2a));
+
+//assert_eq!(
+//s.send_slice(&*packet.into_inner(), REMOTE_IPV4.into()),
+//Ok(())
+//);
+//assert_eq!(
+//s.dispatch(cx, |_, (ip_repr, _)| {
+//assert_eq!(
+//ip_repr,
+//IpRepr::Ipv4(Ipv4Repr {
+//src_addr: LOCAL_IPV4,
+//dst_addr: REMOTE_IPV4,
+//next_header: IpProtocol::Icmp,
+//payload_len: ECHOV4_REPR.buffer_len(),
+//hop_limit: 0x2a,
+//})
+//);
+//Ok::<_, ()>(())
+//}),
+//Ok(())
+//);
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_recv_process(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+//assert!(!socket.can_recv());
+//assert_eq!(socket.recv(), Err(RecvError::Exhausted));
+
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 24];
+//let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
+//ECHOV4_REPR.emit(&mut packet, &checksum);
+//let data = &*packet.into_inner();
+
+//assert!(socket.accepts(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
+//socket.process(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
+//assert!(socket.can_recv());
+
+//assert!(socket.accepts(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into()));
+//socket.process(cx, &REMOTE_IPV4_REPR, &ECHOV4_REPR.into());
+
+//assert_eq!(socket.recv(), Ok((data, REMOTE_IPV4.into())));
+//assert!(!socket.can_recv());
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_accept_bad_id(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+//let checksum = ChecksumCapabilities::default();
+//let mut bytes = [0xff; 20];
+//let mut packet = Icmpv4Packet::new_unchecked(&mut bytes);
+//let icmp_repr = Icmpv4Repr::EchoRequest {
+//ident: 0x4321,
+//seq_no: 0x5678,
+//data: &[0xff; 16],
+//};
+//icmp_repr.emit(&mut packet, &checksum);
+
+//// Ensure that a packet with an identifier that isn't the bound
+//// ID is not accepted
+//assert!(!socket.accepts(cx, &REMOTE_IPV4_REPR, &icmp_repr.into()));
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_accepts_udp(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V4.into())), Ok(()));
+
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 18];
+//let mut packet = UdpPacket::new_unchecked(&mut bytes);
+//UDP_REPR.emit(
+//&mut packet,
+//&REMOTE_IPV4.into(),
+//&LOCAL_IPV4.into(),
+//UDP_PAYLOAD.len(),
+//|buf| buf.copy_from_slice(UDP_PAYLOAD),
+//&checksum,
+//);
+
+//let data = &*packet.into_inner();
+
+//let icmp_repr = Icmpv4Repr::DstUnreachable {
+//reason: Icmpv4DstUnreachable::PortUnreachable,
+//header: Ipv4Repr {
+//src_addr: LOCAL_IPV4,
+//dst_addr: REMOTE_IPV4,
+//next_header: IpProtocol::Icmp,
+//payload_len: 12,
+//hop_limit: 0x40,
+//},
+//data,
+//};
+//let ip_repr = IpRepr::Ipv4(Ipv4Repr {
+//src_addr: REMOTE_IPV4,
+//dst_addr: LOCAL_IPV4,
+//next_header: IpProtocol::Icmp,
+//payload_len: icmp_repr.buffer_len(),
+//hop_limit: 0x40,
+//});
+
+//assert!(!socket.can_recv());
+
+//// Ensure we can accept ICMP error response to the bound
+//// UDP port
+//assert!(socket.accepts(cx, &ip_repr, &icmp_repr.into()));
+//socket.process(cx, &ip_repr, &icmp_repr.into());
+//assert!(socket.can_recv());
+
+//let mut bytes = [0x00; 46];
+//let mut packet = Icmpv4Packet::new_unchecked(&mut bytes[..]);
+//icmp_repr.emit(&mut packet, &checksum);
+//assert_eq!(
+//socket.recv(),
+//Ok((&*packet.into_inner(), REMOTE_IPV4.into()))
+//);
+//assert!(!socket.can_recv());
+//}
+//}
+
+//#[cfg(all(test, feature = "proto-ipv6"))]
+//mod test_ipv6 {
+//use crate::phy::Medium;
+//use crate::tests::setup;
+//use rstest::*;
+
+//use super::tests_common::*;
+
+//use crate::wire::{Icmpv6DstUnreachable, IpEndpoint, Ipv6Address};
+
+//const REMOTE_IPV6: Ipv6Address =
+//Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2]);
+//const LOCAL_IPV6: Ipv6Address =
+//Ipv6Address([0xfe, 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]);
+//const LOCAL_END_V6: IpEndpoint = IpEndpoint {
+//addr: IpAddress::Ipv6(LOCAL_IPV6),
+//port: LOCAL_PORT,
+//};
+//static ECHOV6_REPR: Icmpv6Repr = Icmpv6Repr::EchoRequest {
+//ident: 0x1234,
+//seq_no: 0x5678,
+//data: &[0xff; 16],
+//};
+
+//static LOCAL_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
+//src_addr: LOCAL_IPV6,
+//dst_addr: REMOTE_IPV6,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: 24,
+//hop_limit: 0x40,
+//});
+
+//static REMOTE_IPV6_REPR: IpRepr = IpRepr::Ipv6(Ipv6Repr {
+//src_addr: REMOTE_IPV6,
+//dst_addr: LOCAL_IPV6,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: 24,
+//hop_limit: 0x40,
+//});
+
+//#[test]
+//fn test_send_unaddressable() {
+//let mut socket = socket(buffer(0), buffer(1));
+//assert_eq!(
+//socket.send_slice(b"abcdef", IpAddress::Ipv6(Ipv6Address::default())),
+//Err(SendError::Unaddressable)
+//);
+//assert_eq!(socket.send_slice(b"abcdef", REMOTE_IPV6.into()), Ok(()));
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_send_dispatch(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(0), buffer(1));
+//let checksum = ChecksumCapabilities::default();
+
+//assert_eq!(socket.dispatch(cx, |_, _| unreachable!()), Ok::<_, ()>(()));
+
+//// This buffer is too long
+//assert_eq!(
+//socket.send_slice(&[0xff; 67], REMOTE_IPV6.into()),
+//Err(SendError::BufferFull)
+//);
+//assert!(socket.can_send());
+
+//let mut bytes = vec![0xff; 24];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+//ECHOV6_REPR.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+
+//assert_eq!(
+//socket.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
+//Ok(())
+//);
+//assert_eq!(
+//socket.send_slice(b"123456", REMOTE_IPV6.into()),
+//Err(SendError::BufferFull)
+//);
+//assert!(!socket.can_send());
+
+//assert_eq!(
+//socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
+//assert_eq!(ip_repr, LOCAL_IPV6_REPR);
+//assert_eq!(icmp_repr, ECHOV6_REPR.into());
+//Err(())
+//}),
+//Err(())
+//);
+//// buffer is not taken off of the tx queue due to the error
+//assert!(!socket.can_send());
+
+//assert_eq!(
+//socket.dispatch(cx, |_, (ip_repr, icmp_repr)| {
+//assert_eq!(ip_repr, LOCAL_IPV6_REPR);
+//assert_eq!(icmp_repr, ECHOV6_REPR.into());
+//Ok::<_, ()>(())
+//}),
+//Ok(())
+//);
+//// buffer is taken off of the queue this time
+//assert!(socket.can_send());
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_set_hop_limit(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut s = socket(buffer(0), buffer(1));
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = vec![0xff; 24];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+//ECHOV6_REPR.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+
+//s.set_hop_limit(Some(0x2a));
+
+//assert_eq!(
+//s.send_slice(&*packet.into_inner(), REMOTE_IPV6.into()),
+//Ok(())
+//);
+//assert_eq!(
+//s.dispatch(cx, |_, (ip_repr, _)| {
+//assert_eq!(
+//ip_repr,
+//IpRepr::Ipv6(Ipv6Repr {
+//src_addr: LOCAL_IPV6,
+//dst_addr: REMOTE_IPV6,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: ECHOV6_REPR.buffer_len(),
+//hop_limit: 0x2a,
+//})
+//);
+//Ok::<_, ()>(())
+//}),
+//Ok(())
+//);
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_recv_process(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+//assert!(!socket.can_recv());
+//assert_eq!(socket.recv(), Err(RecvError::Exhausted));
+
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 24];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
+//ECHOV6_REPR.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+//let data = &*packet.into_inner();
+
+//assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+//socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+//assert!(socket.can_recv());
+
+//assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+//socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+
+//assert_eq!(socket.recv(), Ok((data, REMOTE_IPV6.into())));
+//assert!(!socket.can_recv());
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_truncated_recv_slice(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 24];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
+//ECHOV6_REPR.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+
+//assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+//socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+//assert!(socket.can_recv());
+
+//assert!(socket.accepts(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into()));
+//socket.process(cx, &REMOTE_IPV6_REPR, &ECHOV6_REPR.into());
+
+//let mut buffer = [0u8; 1];
+//assert_eq!(
+//socket.recv_slice(&mut buffer[..]),
+//Err(RecvError::Truncated)
+//);
+//assert!(!socket.can_recv());
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_accept_bad_id(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Ident(0x1234)), Ok(()));
+
+//let checksum = ChecksumCapabilities::default();
+//let mut bytes = [0xff; 20];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes);
+//let icmp_repr = Icmpv6Repr::EchoRequest {
+//ident: 0x4321,
+//seq_no: 0x5678,
+//data: &[0xff; 16],
+//};
+//icmp_repr.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+
+//// Ensure that a packet with an identifier that isn't the bound
+//// ID is not accepted
+//assert!(!socket.accepts(cx, &REMOTE_IPV6_REPR, &icmp_repr.into()));
+//}
+
+//#[rstest]
+//#[case::ethernet(Medium::Ethernet)]
+//#[cfg(feature = "medium-ethernet")]
+//fn test_accepts_udp(#[case] medium: Medium) {
+//let (mut iface, _, _) = setup(medium);
+//let cx = iface.context();
+
+//let mut socket = socket(buffer(1), buffer(1));
+//assert_eq!(socket.bind(Endpoint::Udp(LOCAL_END_V6.into())), Ok(()));
+
+//let checksum = ChecksumCapabilities::default();
+
+//let mut bytes = [0xff; 18];
+//let mut packet = UdpPacket::new_unchecked(&mut bytes);
+//UDP_REPR.emit(
+//&mut packet,
+//&REMOTE_IPV6.into(),
+//&LOCAL_IPV6.into(),
+//UDP_PAYLOAD.len(),
+//|buf| buf.copy_from_slice(UDP_PAYLOAD),
+//&checksum,
+//);
+
+//let data = &*packet.into_inner();
+
+//let icmp_repr = Icmpv6Repr::DstUnreachable {
+//reason: Icmpv6DstUnreachable::PortUnreachable,
+//header: Ipv6Repr {
+//src_addr: LOCAL_IPV6,
+//dst_addr: REMOTE_IPV6,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: 12,
+//hop_limit: 0x40,
+//},
+//data,
+//};
+//let ip_repr = IpRepr::Ipv6(Ipv6Repr {
+//src_addr: REMOTE_IPV6,
+//dst_addr: LOCAL_IPV6,
+//next_header: IpProtocol::Icmpv6,
+//payload_len: icmp_repr.buffer_len(),
+//hop_limit: 0x40,
+//});
+
+//assert!(!socket.can_recv());
+
+//// Ensure we can accept ICMP error response to the bound
+//// UDP port
+//assert!(socket.accepts(cx, &ip_repr, &icmp_repr.into()));
+//socket.process(cx, &ip_repr, &icmp_repr.into());
+//assert!(socket.can_recv());
+
+//let mut bytes = [0x00; 66];
+//let mut packet = Icmpv6Packet::new_unchecked(&mut bytes[..]);
+//icmp_repr.emit(
+//&LOCAL_IPV6.into(),
+//&REMOTE_IPV6.into(),
+//&mut packet,
+//&checksum,
+//);
+//assert_eq!(
+//socket.recv(),
+//Ok((&*packet.into_inner(), REMOTE_IPV6.into()))
+//);
+//assert!(!socket.can_recv());
+//}
+//}

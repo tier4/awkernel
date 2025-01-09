@@ -1,14 +1,14 @@
+use awkernel_sync::mutex::Mutex;
 use core::fmt;
 use managed::ManagedSlice;
 
-use super::socket_meta::Meta;
+use super::socket_meta::{Meta, NeighborState};
 use crate::socket::{AnySocket, Socket};
 
 /// Opaque struct with space for storing one socket.
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
-#[derive(Debug, Default)]
 pub struct SocketStorage<'a> {
     inner: Option<Item<'a>>,
 }
@@ -18,7 +18,6 @@ impl SocketStorage<'_> {
 }
 
 /// An item of a socket set.
-#[derive(Debug)]
 pub(crate) struct Item<'a> {
     pub(crate) meta: Meta,
     pub(crate) socket: Socket<'a>,
@@ -40,7 +39,6 @@ impl fmt::Display for SocketHandle {
 /// The lifetime `'a` is used when storing a `Socket<'a>`.  If you're using
 /// owned buffers for your sockets (passed in as `Vec`s) you can use
 /// `SocketSet<'static>`.
-#[derive(Debug)]
 pub struct SocketSet<'a> {
     sockets: ManagedSlice<'a, SocketStorage<'a>>,
 }
@@ -63,8 +61,11 @@ impl<'a> SocketSet<'a> {
         fn put<'a>(index: usize, slot: &mut SocketStorage<'a>, socket: Socket<'a>) -> SocketHandle {
             net_trace!("[{}]: adding", index);
             let handle = SocketHandle(index);
-            let mut meta = Meta::default();
-            meta.handle = handle;
+            let mut meta = Meta {
+                handle: Mutex::new(SocketHandle::default()),
+                neighbor_state: Mutex::new(NeighborState::default()),
+            };
+            meta.handle = Mutex::new(handle);
             *slot = SocketStorage {
                 inner: Some(Item { meta, socket }),
             };
@@ -95,7 +96,7 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &T {
+    pub fn get<T: AnySocket<'a>>(&self, handle: SocketHandle) -> &Mutex<T> {
         match self.sockets[handle.0].inner.as_ref() {
             Some(item) => {
                 T::downcast(&item.socket).expect("handle refers to a socket of a wrong type")
@@ -109,7 +110,7 @@ impl<'a> SocketSet<'a> {
     /// # Panics
     /// This function may panic if the handle does not belong to this socket set
     /// or the socket has the wrong type.
-    pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut T {
+    pub fn get_mut<T: AnySocket<'a>>(&mut self, handle: SocketHandle) -> &mut Mutex<T> {
         match self.sockets[handle.0].inner.as_mut() {
             Some(item) => T::downcast_mut(&mut item.socket)
                 .expect("handle refers to a socket of a wrong type"),
@@ -130,13 +131,13 @@ impl<'a> SocketSet<'a> {
     }
 
     /// Get an iterator to the inner sockets.
-    pub fn iter(&self) -> impl Iterator<Item = (SocketHandle, &Socket<'a>)> {
-        self.items().map(|i| (i.meta.handle, &i.socket))
+    pub fn iter(&self) -> impl Iterator<Item = (&Mutex<SocketHandle>, &Socket<'a>)> {
+        self.items().map(|i| (&i.meta.handle, &i.socket))
     }
 
     /// Get a mutable iterator to the inner sockets.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (SocketHandle, &mut Socket<'a>)> {
-        self.items_mut().map(|i| (i.meta.handle, &mut i.socket))
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&Mutex<SocketHandle>, &mut Socket<'a>)> {
+        self.items_mut().map(|i| (&i.meta.handle, &mut i.socket))
     }
 
     /// Iterate every socket in this set.

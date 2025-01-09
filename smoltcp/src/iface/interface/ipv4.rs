@@ -13,7 +13,7 @@ impl InterfaceInner {
     #[allow(unused_variables)]
     pub(super) fn process_ipv4<'a>(
         &mut self,
-        sockets: &mut SocketSet,
+        sockets: &RwLock<SocketSet>,
         meta: PacketMeta,
         ipv4_packet: &Ipv4Packet<&'a [u8]>,
         frag: &'a mut FragmentsBuffer,
@@ -235,7 +235,7 @@ impl InterfaceInner {
 
     pub(super) fn process_icmpv4<'frame>(
         &mut self,
-        _sockets: &mut SocketSet,
+        sockets: &RwLock<SocketSet>,
         ip_repr: IpRepr,
         ip_payload: &'frame [u8],
     ) -> Option<Packet<'frame>> {
@@ -246,12 +246,15 @@ impl InterfaceInner {
         let mut handled_by_icmp_socket = false;
 
         #[cfg(all(feature = "socket-icmp", feature = "proto-ipv4"))]
-        for icmp_socket in _sockets
-            .items_mut()
-            .filter_map(|i| icmp::Socket::downcast_mut(&mut i.socket))
+        for icmp_socket in sockets
+            .read()
+            .items()
+            .filter_map(|i| icmp::Socket::downcast(&i.socket))
         {
-            if icmp_socket.accepts(self, &ip_repr, &icmp_repr.into()) {
-                icmp_socket.process(self, &ip_repr, &icmp_repr.into());
+            let mut node = MCSNode::new();
+            let mut socket = icmp_socket.lock(&mut node);
+            if socket.accepts(self, &ip_repr, &icmp_repr.into()) {
+                socket.process(self, &ip_repr, &icmp_repr.into());
                 handled_by_icmp_socket = true;
             }
         }
