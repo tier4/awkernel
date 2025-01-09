@@ -19,7 +19,7 @@ variables
 \* If `count` < N, then the thread is blocked. otherwise, all blocked threads are awakened.
 \* This property implies that Barrier does not block more than N threads.
 define
-    BarrierCorrectness == num_blocked = count % N
+    BarrierInvariant == num_blocked = count % N
 end define;
 
 \* Note that `wait` is modeled as an atomic operation.
@@ -46,11 +46,11 @@ fair process thread \in Threads begin
 end process;
 
 end algorithm*)
-\* BEGIN TRANSLATION (chksum(pcal) = "26f45583" /\ chksum(tla) = "34eb2117")
+\* BEGIN TRANSLATION (chksum(pcal) = "78d1002e" /\ chksum(tla) = "8098b806")
 VARIABLES pc, count, num_blocked, blocked, stack
 
 (* define statement *)
-BarrierCorrectness == num_blocked = count % N
+BarrierInvariant == num_blocked = count % N
 
 
 vars == << pc, count, num_blocked, blocked, stack >>
