@@ -41,8 +41,7 @@ impl Drop for TcpStream {
         drop(net_manager);
 
         {
-            let mut socket_set = if_net.socket_set.write();
-
+            let socket_set = if_net.socket_set.read();
             let closed = {
                 let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
                 let socket = socket_set
@@ -54,6 +53,8 @@ impl Drop for TcpStream {
 
             // If the socket is already closed, remove it from the socket set.
             if closed {
+                drop(socket_set);
+                let mut socket_set = if_net.socket_set.write();
                 socket_set.remove(self.handle);
                 return;
             }
@@ -107,8 +108,8 @@ pub fn close_connections() {
             let mut remain_v = VecDeque::new();
 
             {
-                let mut socket_set = if_net.socket_set.write();
                 while let Some((handle, port)) = v.pop_front() {
+                    let socket_set = if_net.socket_set.read();
                     let closed = {
                         let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
                         let socket = socket_set
@@ -117,6 +118,8 @@ pub fn close_connections() {
                         socket.state() == smoltcp::socket::tcp::State::Closed
                     };
                     if closed {
+                        drop(socket_set);
+                        let mut socket_set = if_net.socket_set.write();
                         // If the socket is already closed, remove it from the socket set.
                         socket_set.remove(handle);
                     } else {

@@ -139,7 +139,6 @@ impl TcpListener {
                 }
             };
 
-            let mut socket_set = if_net.socket_set.write();
             if may_send {
                 // If the connection is established, create a new socket and add it to the interface.
                 let new_socket = create_listen_socket(
@@ -148,6 +147,7 @@ impl TcpListener {
                     self.rx_buffer_size,
                     self.tx_buffer_size,
                 );
+                let mut socket_set = if_net.socket_set.write();
                 let mut new_handle = socket_set.add(new_socket);
 
                 // Swap the new handle with the old handle.
@@ -163,6 +163,7 @@ impl TcpListener {
                     self.rx_buffer_size,
                     self.tx_buffer_size,
                 );
+                let mut socket_set = if_net.socket_set.write();
                 socket_set.remove(*handle);
                 *handle = socket_set.add(new_socket);
             }
@@ -188,7 +189,7 @@ impl TcpListener {
             }));
         }
 
-        let socket_set = if_net.socket_set.write();
+        let socket_set = if_net.socket_set.read();
         // Register the waker for the listening sockets.
         for handle in self.handles.iter() {
             let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
@@ -210,24 +211,26 @@ impl Drop for TcpListener {
             let if_net = if_net.clone();
             drop(net_manager);
 
-            let socket_set = if_net.socket_set.write();
+            {
+                let socket_set = if_net.socket_set.read();
 
-            // Close listening sockets.
-            for handle in self.handles.iter() {
-                let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
-                let mut socket = socket_set
-                    .get::<smoltcp::socket::tcp::Socket>(*handle)
-                    .lock(&mut node);
-                socket.abort();
-            }
+                // Close listening sockets.
+                for handle in self.handles.iter() {
+                    let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                    let mut socket = socket_set
+                        .get::<smoltcp::socket::tcp::Socket>(*handle)
+                        .lock(&mut node);
+                    socket.abort();
+                }
 
-            // Close connected sockets.
-            for handle in self.connected_sockets.iter() {
-                let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
-                let mut socket = socket_set
-                    .get::<smoltcp::socket::tcp::Socket>(*handle)
-                    .lock(&mut node);
-                socket.abort();
+                // Close connected sockets.
+                for handle in self.connected_sockets.iter() {
+                    let mut node: MCSNode<smoltcp::socket::tcp::Socket> = MCSNode::new();
+                    let mut socket = socket_set
+                        .get::<smoltcp::socket::tcp::Socket>(*handle)
+                        .lock(&mut node);
+                    socket.abort();
+                }
             }
 
             let que_id = crate::cpu::raw_cpu_id() & (if_net.net_device.num_queues() - 1);
