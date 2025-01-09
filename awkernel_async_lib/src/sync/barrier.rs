@@ -1,10 +1,14 @@
+use super::mutex::AsyncLock;
 use crate::pubsub::{self, Attribute, Publisher, Subscriber};
 use alloc::{vec, vec::Vec};
-use core::sync::atomic::AtomicUsize;
+
+struct BarrierState {
+    count: usize,
+}
 
 /// A barrier enables multiple threads to synchronize the beginning of some computation.
 pub struct Barrier {
-    count: AtomicUsize,
+    lock: AsyncLock<BarrierState>,
     num_threads: usize,
     tx: Publisher<()>,
     rxs: Vec<Subscriber<()>>,
@@ -32,8 +36,8 @@ impl Barrier {
         rxs.push(rx);
 
         Self {
+            lock: AsyncLock::new(BarrierState { count: 0 }),
             num_threads: n,
-            count: AtomicUsize::new(0),
             tx,
             rxs,
         }
@@ -42,15 +46,16 @@ impl Barrier {
     /// Blocks the current thread until all threads have redezvoused here.
     /// A single (arbitrary) thread will receive `BarrierWaitResult(true)` when returning from this function, and other threads will receive `BarrierWaitResult(false)`.
     pub async fn wait(&self) -> BarrierWaitResult {
-        let count = self
-            .count
-            .fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-        if count < self.num_threads - 1 {
+        let mut lock = self.lock.lock().await;
+        let count = lock.count;
+        if count < (self.num_threads - 1) {
+            lock.count += 1;
+            drop(lock);
             self.rxs[count].recv().await;
             BarrierWaitResult(false)
         } else {
-            // Safety: count must be set to 0 before calling Sender::poll, as it switches to a task waiting to receive.
-            self.count.store(0, core::sync::atomic::Ordering::Relaxed);
+            lock.count = 0;
+            drop(lock);
             self.tx.send(()).await;
             BarrierWaitResult(true)
         }
@@ -83,7 +88,7 @@ mod tests {
                 // Verify that Barrier synchronizes the specified number of threads
                 assert_eq!(num_waits.load(Ordering::Relaxed), 10);
 
-                // it is safe to call Barrier::wait again
+                // It is safe to call Barrier::wait again
                 barrier.wait().await;
             };
 
