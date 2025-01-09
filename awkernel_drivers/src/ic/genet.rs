@@ -6,8 +6,8 @@ use awkernel_lib::{
         ether::{ETHER_ADDR_LEN, ETHER_BROADCAST_ADDR},
         multicast::MulticastAddrs,
         net_device::{
-            self, EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError,
-            NetDevice, NetFlags,
+            self, EtherFrameBuf, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+            PacketHeaderFlags,
         },
     },
     paging::PAGESIZE,
@@ -335,7 +335,7 @@ impl NetDevice for Genet {
         Ok(())
     }
 
-    fn send(&self, data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+    fn send(&self, data: EtherFrameBuf, _que_id: usize) -> Result<(), NetDevError> {
         let inner = self.inner.read();
         let frames = [data];
         inner.send(&frames);
@@ -746,7 +746,7 @@ impl GenetInner {
         registers::TBUF_CTRL.write(buf_ctrl, base);
     }
 
-    fn send(&self, ether_frames: &[EtherFrameRef]) {
+    fn send(&self, ether_frames: &[EtherFrameBuf]) {
         if !self.if_flags.contains(NetFlags::RUNNING | NetFlags::UP) {
             return;
         }
@@ -776,7 +776,7 @@ impl GenetInner {
                 break;
             }
 
-            let size = frame.data.len();
+            let size = frame.data.get_size();
 
             let mut length_status = registers::TX_DESC_STATUS_QTAG_MASK
                 | registers::TX_DESC_STATUS_SOP
@@ -786,7 +786,16 @@ impl GenetInner {
             length_status |= (size as u32) << registers::TX_DESC_STATUS_BUFLEN_SHIFT;
 
             let buf = tx.buf.as_mut().get_mut(index).unwrap();
-            unsafe { core::ptr::copy_nonoverlapping(frame.data.as_ptr(), buf.as_mut_ptr(), size) };
+            let mut temp = [0u8; 4096];
+            let ptr = temp.as_mut_ptr() as *mut [u8; 4096];
+
+            unsafe {
+                core::ptr::copy_nonoverlapping(frame.data.as_ref(), ptr, 4096);
+                core::ptr::copy_nonoverlapping(temp.as_ptr(), buf.as_mut_ptr(), size);
+            }
+
+            //let ptr = buf as *mut [u8; 4096];
+            //unsafe { core::ptr::copy_nonoverlapping(frame.data.as_ref(), buf.as_mut_ptr(), size) };
 
             let addr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
             let addr = addr.as_usize();
@@ -1092,9 +1101,18 @@ impl GenetInner {
             {
                 // error
             } else if let Some(buf) = rx.buf.as_ref().get(index) {
-                let data = buf[2..len as usize].to_vec();
+                // TODO: This implementation has unnecessary copy
+                let mut vector = buf[2..len as usize].to_vec();
+                vector.resize(4096, 0);
+                let ptr = vector.as_mut_ptr() as *mut [u8; 4096];
+                let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, 0, PAGESIZE, 0).unwrap();
 
-                let frame = EtherFrameBuf { data, vlan: None };
+                let frame = EtherFrameBuf {
+                    data,
+                    len: (len - 2) as usize, // Not sure
+                    vlan: None,
+                    csum_flags: PacketHeaderFlags::EMPTY,
+                };
                 let _ = rx.read_queue.push(frame);
             }
 
