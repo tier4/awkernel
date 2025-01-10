@@ -30,7 +30,6 @@ pub mod unwind;
 #[cfg(not(feature = "std"))]
 pub mod heap;
 
-#[cfg(not(feature = "std"))]
 pub mod dma_pool;
 
 #[cfg(not(feature = "std"))]

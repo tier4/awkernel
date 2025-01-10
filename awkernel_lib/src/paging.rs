@@ -1,6 +1,5 @@
 use crate::addr::{phy_addr::PhyAddr, virt_addr::VirtAddr};
 
-#[cfg(not(feature = "std"))]
 use crate::arch::ArchImpl;
 
 pub trait Frame {
@@ -89,7 +88,6 @@ pub trait Mapper {
 }
 
 /// Return the physical address of `vm_addr`.
-#[cfg(not(feature = "std"))]
 #[inline(always)]
 pub fn vm_to_phy(vm_addr: VirtAddr) -> Option<PhyAddr> {
     ArchImpl::vm_to_phy(vm_addr)
