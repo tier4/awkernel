@@ -787,6 +787,7 @@ impl GenetInner {
 
             let buf = tx.buf.as_mut().get_mut(index).unwrap();
 
+            // TODO: This implementation has an unnecessary copy
             unsafe {
                 core::ptr::copy_nonoverlapping(
                     frame.data.as_ref().as_ptr(),
@@ -1099,7 +1100,7 @@ impl GenetInner {
             {
                 // error
             } else if let Some(buf) = rx.buf.as_ref().get(index) {
-                // TODO: This implementation has unnecessary copy
+                // TODO: This implementation has an unnecessary copy
                 let mut data = DMAPool::<[u8; PAGESIZE]>::new(0, 1).unwrap();
                 let dst_ptr = data.as_mut() as *mut u8;
                 unsafe {
