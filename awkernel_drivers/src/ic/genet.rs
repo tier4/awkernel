@@ -786,16 +786,14 @@ impl GenetInner {
             length_status |= (size as u32) << registers::TX_DESC_STATUS_BUFLEN_SHIFT;
 
             let buf = tx.buf.as_mut().get_mut(index).unwrap();
-            let mut temp = [0u8; 4096];
-            let ptr = temp.as_mut_ptr() as *mut [u8; 4096];
 
             unsafe {
-                core::ptr::copy_nonoverlapping(frame.data.as_ref(), ptr, 4096);
-                core::ptr::copy_nonoverlapping(temp.as_ptr(), buf.as_mut_ptr(), size);
+                core::ptr::copy_nonoverlapping(
+                    frame.data.as_ref().as_ptr(),
+                    buf.as_mut_ptr(),
+                    buf.len(),
+                );
             }
-
-            //let ptr = buf as *mut [u8; 4096];
-            //unsafe { core::ptr::copy_nonoverlapping(frame.data.as_ref(), buf.as_mut_ptr(), size) };
 
             let addr = tx.buf.get_phy_addr() + index * TX_BUF_SIZE;
             let addr = addr.as_usize();
@@ -1102,10 +1100,12 @@ impl GenetInner {
                 // error
             } else if let Some(buf) = rx.buf.as_ref().get(index) {
                 // TODO: This implementation has unnecessary copy
-                let mut vector = buf[2..len as usize].to_vec();
-                vector.resize(4096, 0);
-                let ptr = vector.as_mut_ptr() as *mut [u8; 4096];
-                let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, 0, PAGESIZE, 0).unwrap();
+                let mut data = DMAPool::<[u8; PAGESIZE]>::new(0, 1).unwrap();
+                let dst_ptr = data.as_mut() as *mut u8;
+                unsafe {
+                    let buf_ptr = buf.as_ptr().add(2);
+                    core::ptr::copy_nonoverlapping(buf_ptr, dst_ptr, len as usize - 2);
+                }
 
                 let frame = EtherFrameBuf {
                     data,
