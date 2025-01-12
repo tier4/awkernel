@@ -133,13 +133,16 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     }
 
-    if let Err(_) = NUM_READY_WORKER.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
-        if x > 0 {
-            Some(x - 1)
-        } else {
-            None
-        }
-    }) {
+    if NUM_READY_WORKER
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            if x > 0 {
+                Some(x - 1)
+            } else {
+                None
+            }
+        })
+        .is_err()
+    {
         panic!(
             "NUM_READY_WORKER is already zero: num_cpu() must have returned incorrect CPU number"
         );
