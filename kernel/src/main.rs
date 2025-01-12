@@ -83,6 +83,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        // Wait until all other CPUs have incremented NUM_CPU, otherwise the num_cpu() function below will return an incorrect value.
+        awkernel_lib::delay::wait_microsec(100);
         NUM_READY_WORKER.store(awkernel_lib::cpu::num_cpu() as u16 - 1, Ordering::SeqCst);
 
         PRIMARY_READY.store(true, Ordering::SeqCst);
@@ -118,12 +120,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     }
 
     // Non-primary CPUs.
+    while !PRIMARY_READY.load(Ordering::SeqCst) {
+        awkernel_lib::delay::wait_microsec(10);
+    }
+
     #[cfg(not(feature = "std"))]
     {
-        while !PRIMARY_READY.load(Ordering::SeqCst) {
-            awkernel_lib::delay::wait_microsec(10);
-        }
-
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
