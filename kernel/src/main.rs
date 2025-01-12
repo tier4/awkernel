@@ -133,7 +133,6 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     }
 
-    //NUM_READY_WORKER.fetch_sub(1, Ordering::SeqCst);
     if let Err(_) = NUM_READY_WORKER.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
         if x > 0 {
             Some(x - 1)
