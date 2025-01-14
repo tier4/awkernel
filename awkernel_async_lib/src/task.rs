@@ -50,8 +50,6 @@ static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub static NOT_IN_TRANSITION: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not RUNNING can be loaded.
-pub static NO_NEED_PREEMPT: [AtomicBool; NUM_MAX_CPU] =
-    array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not preemption is needed.
 static IS_SEND_IPI: Mutex<bool> = Mutex::new(false); // Whether or not send IPI to other CPUs.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
