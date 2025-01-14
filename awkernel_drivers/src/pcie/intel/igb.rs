@@ -969,8 +969,6 @@ impl IgbInner {
             self.hw.reset_hw(&self.info)?;
         }
 
-        // TODO: Need to think about the deallocation of DMAPool
-
         Ok(())
     }
 
@@ -1268,12 +1266,9 @@ impl Igb {
                     let (virt_addr, phy_addr, numa_id) = rx.dma_info[index];
 
                     let ptr = virt_addr as *mut [u8; PAGESIZE];
-                    let data = DMAPool::<[u8; PAGESIZE]>::from_raw_parts(
-                        ptr, phy_addr,
-                        PAGESIZE, // RECONSIDER: Not using "len" here, might be better to give the "len" information somehow to protocol stack.
-                        numa_id,
-                    )
-                    .unwrap();
+                    let data =
+                        DMAPool::<[u8; PAGESIZE]>::from_raw_parts(ptr, phy_addr, PAGESIZE, numa_id)
+                            .unwrap();
 
                     rx.dma_info[index] =
                         (read_buf.get_virt_addr().as_usize(), buf_phy_addr, numa_id);
@@ -1289,7 +1284,7 @@ impl Igb {
                             data,
                             len,
                             vlan,
-                            csum_flags: PacketHeaderFlags::EMPTY,
+                            csum_flags: PacketHeaderFlags::empty(),
                         })
                         .unwrap();
                 };
