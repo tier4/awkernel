@@ -9,7 +9,6 @@ use alloc::{string::String, vec::Vec};
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct PacketHeaderFlags: u16 {
-        const EMPTY = 0x0000; // Empty
         const IPV4_CSUM_OUT = 0x0001; // IPv4 checksum needed
         const TCP_CSUM_OUT = 0x0002; // TCP checksum needed
         const UDP_CSUM_OUT = 0x0004; // UDP checksum needed
