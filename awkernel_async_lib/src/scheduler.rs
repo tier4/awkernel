@@ -190,9 +190,9 @@ pub fn wake_task() {
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
             match get_scheduler_type_by_task_id(task_id) {
-                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id),
+                Some(SchedulerType::RR) => rr::SCHEDULER.invoke_preemption(cpu_id, task_id),
                 Some(SchedulerType::PriorityBasedRR(_)) => {
-                    priority_based_rr::SCHEDULER.invoke_rr_preemption(cpu_id, task_id)
+                    priority_based_rr::SCHEDULER.invoke_preemption(cpu_id, task_id)
                 }
                 _ => (),
             }
