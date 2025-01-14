@@ -1110,9 +1110,9 @@ impl GenetInner {
 
                 let frame = EtherFrameBuf {
                     data,
-                    len: (len - 2) as usize, // Not sure
+                    len: (len - 2) as usize,
                     vlan: None,
-                    csum_flags: PacketHeaderFlags::EMPTY,
+                    csum_flags: PacketHeaderFlags::empty(),
                 };
                 let _ = rx.read_queue.push(frame);
             }
