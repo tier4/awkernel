@@ -76,9 +76,6 @@ impl Scheduler for GEDFScheduler {
             absolute_deadline,
             wake_time,
         });
-
-        let wake_task_priority = task.priority.clone();
-        self.invoke_preemption(wake_task_priority);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {

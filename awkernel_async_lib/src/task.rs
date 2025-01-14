@@ -12,7 +12,7 @@ mod preempt;
 #[cfg(feature = "perf")]
 use crate::cpu_counter;
 
-use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType, IS_SEND_IPI};
+use crate::scheduler::{self, get_scheduler, Scheduler, SchedulerType};
 use alloc::{
     borrow::Cow,
     collections::{btree_map, BTreeMap},
@@ -50,6 +50,9 @@ static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 pub static NOT_IN_TRANSITION: [AtomicBool; NUM_MAX_CPU] =
     array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not RUNNING can be loaded.
+pub static NO_NEED_PREEMPT: [AtomicBool; NUM_MAX_CPU] =
+    array![_ => AtomicBool::new(false); NUM_MAX_CPU]; // Whether or not preemption is needed.
+static IS_SEND_IPI: Mutex<bool> = Mutex::new(false); // Whether or not send IPI to other CPUs.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
 
 /// Task has ID, future, information, and a reference to a scheduler.
@@ -306,6 +309,14 @@ pub fn spawn(
 
     let scheduler = get_scheduler(sched_type);
 
+    #[cfg(all(
+        any(target_arch = "aarch64", target_arch = "x86_64"),
+        not(feature = "std")
+    ))]
+    {
+        awkernel_lib::interrupt::disable();
+    }
+
     let mut node = MCSNode::new();
     let mut tasks = TASKS.lock(&mut node);
     let id = tasks.spawn(name, future.fuse(), scheduler, sched_type);
@@ -313,7 +324,17 @@ pub fn spawn(
     drop(tasks);
 
     if let Some(task) = task {
+        let priority = task.priority.clone();
         task.wake();
+        invoke_preemption(priority);
+    }
+
+    #[cfg(all(
+        any(target_arch = "aarch64", target_arch = "x86_64"),
+        not(feature = "std")
+    ))]
+    {
+        awkernel_lib::interrupt::enable();
     }
 
     id
@@ -801,6 +822,7 @@ pub fn run_main() {
                 awkernel_lib::heap::TALLOC.use_primary_then_backup_cpu_id(cpu_id)
             };
 
+            NOT_IN_TRANSITION[cpu_id].store(false, Ordering::Relaxed);
             let running_id = RUNNING[cpu_id].swap(0, Ordering::Relaxed);
             assert_eq!(running_id, task.id);
 
@@ -1134,7 +1156,9 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
 
         // Check to confirm that the information has not changed while getting priority_info.
         if let Some((task_id, cpu_id, _)) = lowest_task {
-            if !IS_SEND_IPI.load(Ordering::Relaxed)
+            let mut node = MCSNode::new();
+            let is_send_ipi = IS_SEND_IPI.lock(&mut node);
+            if !*is_send_ipi
                 && NOT_IN_TRANSITION[cpu_id].load(Ordering::Relaxed)
                 && RUNNING[cpu_id].load(Ordering::Relaxed) == task_id
             {
@@ -1146,4 +1170,26 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     }
 
     lowest_task
+}
+
+/// Invoke preemption.
+fn invoke_preemption(wake_task_priority: PriorityInfo) {
+    while let Some((task_id, cpu_id, lowest_priority_info)) = get_lowest_priority_task_info() {
+        if wake_task_priority < lowest_priority_info {
+            let mut node = MCSNode::new();
+            let mut is_send_ipi = IS_SEND_IPI.lock(&mut node);
+            if *is_send_ipi {
+                continue;
+            }
+            *is_send_ipi = true;
+            if !NOT_IN_TRANSITION[cpu_id].load(Ordering::Relaxed) {
+                continue;
+            }
+            let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
+            set_need_preemption(task_id);
+            awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
+            *is_send_ipi = false;
+        }
+        break;
+    }
 }

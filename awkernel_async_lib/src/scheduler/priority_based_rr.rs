@@ -49,9 +49,6 @@ impl Scheduler for PriorityBasedRRScheduler {
         let mut guard = self.data.lock(&mut node);
         let data = guard.get_or_insert_with(PriorityBasedRRData::new);
         data.queue.push(priority as u32, new_task);
-
-        let wake_task_priority = task.priority.clone();
-        self.invoke_preemption(wake_task_priority);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {

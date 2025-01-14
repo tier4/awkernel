@@ -115,8 +115,6 @@ fn re_schedule() {
         let mut node = MCSNode::new();
         let mut tasks = PREEMPTED_TASKS[cpu_id].lock(&mut node);
 
-        NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
-
         while let Some(task) = tasks.pop_front() {
             task.scheduler.wake_task(task);
         }

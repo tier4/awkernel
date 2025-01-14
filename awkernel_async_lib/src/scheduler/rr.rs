@@ -19,10 +19,7 @@ impl Scheduler for RRScheduler {
     fn wake_task(&self, task: Arc<Task>) {
         let mut node = MCSNode::new();
         let mut guard = self.queue.lock(&mut node);
-        let wake_task_priority = task.priority.clone();
         guard.get_or_insert_with(VecDeque::new).push_back(task);
-
-        self.invoke_preemption(wake_task_priority);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
