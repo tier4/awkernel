@@ -60,7 +60,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2024-10-16
+RUSTV=nightly-2024-12-02
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
@@ -223,11 +223,6 @@ test: FORCE
 	cargo test_awkernel_lib
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
-
-loom: FORCE
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_mcslock --release -- --nocapture
-	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_rwlock --release -- --nocapture
-#	RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo +$(RUSTV) test_awkernel_lib --test model_check_bravo_rwlock --release -- --nocapture
 
 # Format
 

@@ -10,8 +10,8 @@
 
 | Target | Verification Code | Tool |
 |--------|--------|-----|
-| [MCS Lock](./awkernel_lib/src/sync/mcs.rs) | [model_check_mcslock.rs](./awkernel_lib/tests/model_check_mcslock.rs) | loom |
-| [RW Lock](./awkernel_lib/src/sync/rwlock.rs) | [model_check_rwlock.rs](./awkernel_lib/tests/model_check_rwlock.rs) | loom |
+| [MCS Lock](https://github.com/tier4/awkernel_sync/blob/main/src/mcs.rs) | [model_check_mcslock.rs](https://github.com/tier4/awkernel_sync/blob/main/tests/model_check_mcslock.rs) | loom |
+| [RW Lock](https://github.com/tier4/awkernel_sync/blob/main/src/rwlock.rs) | [model_check_rwlock.rs](https://github.com/tier4/awkernel_sync/blob/main/tests/model_check_rwlock.rs) | loom |
 | [Cooperative Async/await Scheduler](./awkernel_async_lib/src/task.rs) | [cooperative](./specification/awkernel_async_lib/src/task/cooperative/) | TLA+ |
 | [Exception Handler of AArch64](./kernel/asm/aarch64/exception.S) | [exception.S](./specification/kernel/asm/aarch64/exception.S/) | TLA+ |
 | [Context Switch of AArch64](./awkernel_lib/src/context/aarch64.rs) | [context/aarch64](./specification/awkernel_lib/src/context/aarch64/) | TLA+ |

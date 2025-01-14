@@ -324,9 +324,9 @@ impl AArch64Virt {
             .find_child("cpu-map")
             .ok_or(err_msg!("could not find cpu-map"))?;
 
-        let mut aff2_max = 1;
-        let mut aff1_max = 1;
-        let mut aff0_max = 1;
+        let mut aff2_max = 0;
+        let mut aff1_max = 0;
+        let mut aff0_max = 0;
         for socket in cpu_map
             .nodes()
             .iter()
@@ -376,7 +376,7 @@ impl AArch64Virt {
             }
         }
 
-        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 1) };
+        unsafe { set_max_affinity(aff0_max, aff1_max, aff2_max, 0) };
 
         Ok(())
     }

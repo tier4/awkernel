@@ -83,6 +83,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
+        // Wait until all other CPUs have incremented NUM_CPU, otherwise the num_cpu() function below will return an incorrect value.
+        awkernel_lib::delay::wait_microsec(100);
+
         #[cfg(feature = "runtime_verification")]
         //for _ in 0..20 {
         for _ in 0..2 {
@@ -124,12 +127,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     }
 
     // Non-primary CPUs.
+    while !PRIMARY_READY.load(Ordering::SeqCst) {
+        awkernel_lib::delay::wait_microsec(10);
+    }
+
     #[cfg(not(feature = "std"))]
     {
-        while !PRIMARY_READY.load(Ordering::SeqCst) {
-            awkernel_lib::delay::wait_microsec(10);
-        }
-
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
@@ -137,7 +140,20 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     }
 
-    NUM_READY_WORKER.fetch_sub(1, Ordering::SeqCst);
+    if NUM_READY_WORKER
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
+            if x > 0 {
+                Some(x - 1)
+            } else {
+                None
+            }
+        })
+        .is_err()
+    {
+        panic!(
+            "NUM_READY_WORKER is already zero: num_cpu() must have returned incorrect CPU number"
+        );
+    }
 
     unsafe { task::run() }; // Execute tasks.
 }

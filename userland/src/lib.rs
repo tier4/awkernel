@@ -34,17 +34,17 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_gedf")]
     test_gedf::run().await; // test for Global Earliest Deadline First scheduler
 
-    #[cfg(feature = "measure_channel")]
-    measure_channel::run().await; // measure channel
+    #[cfg(feature = "test_measure_channel")]
+    test_measure_channel::run().await; // measure channel
 
-    #[cfg(feature = "measure_channel_heavy")]
-    measure_channel_heavy::run().await; // measure channel heavy
+    #[cfg(feature = "test_measure_channel_heavy")]
+    test_measure_channel_heavy::run().await; // measure channel heavy
 
-    #[cfg(feature = "load_test_udp")]
+    #[cfg(feature = "test_load_udp")]
     load_test_udp::run().await; // load test udp
 
-    #[cfg(feature = "test_bravo_rwlock")]
-    test_bravo_rwlock::run().await; // test BRAVO rw-lock
+    #[cfg(feature = "test_sched_preempt")]
+    test_sched_preempt::run().await; // tests related to preemption between schedulers
 
     Ok(())
 }

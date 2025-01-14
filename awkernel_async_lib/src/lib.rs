@@ -25,6 +25,7 @@ pub mod session_types;
 mod sleep_task;
 pub mod sync;
 pub mod task;
+pub mod time;
 mod timeout_call;
 mod yield_task;
 
@@ -37,7 +38,7 @@ use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use futures::select_biased;
+pub use futures::{select, select_biased};
 
 pub use awkernel_lib::{
     cpu::cpu_id,

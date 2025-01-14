@@ -1,31 +1,34 @@
 //! A Priority Based RR scheduler
 
 use super::{Scheduler, SchedulerType, Task};
-use crate::task::{get_last_executed_by_task_id, set_need_preemption, State};
-use alloc::{collections::VecDeque, sync::Arc};
+use crate::{
+    scheduler::get_priority,
+    task::{get_last_executed_by_task_id, set_need_preemption, State},
+};
+use alloc::sync::Arc;
+use awkernel_lib::priority_queue::PriorityQueue;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
 pub struct PriorityBasedRRScheduler {
     // Time quantum
     interval: u64,
-
-    // Run queue
     data: Mutex<Option<PriorityBasedRRData>>,
+    priority: u8,
 }
 
 struct PriorityBasedRRTask {
     task: Arc<Task>,
-    priority: u8,
+    _priority: u8,
 }
 
 struct PriorityBasedRRData {
-    queue: VecDeque<PriorityBasedRRTask>,
+    queue: PriorityQueue<PriorityBasedRRTask>,
 }
 
 impl PriorityBasedRRData {
     fn new() -> Self {
         Self {
-            queue: VecDeque::new(),
+            queue: PriorityQueue::new(),
         }
     }
 }
@@ -39,35 +42,26 @@ impl Scheduler for PriorityBasedRRScheduler {
         };
         let new_task = PriorityBasedRRTask {
             task: task.clone(),
-            priority,
+            _priority: priority,
         };
 
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
         let data = guard.get_or_insert_with(PriorityBasedRRData::new);
-
-        // NOTE: This is a simple linear search.
-        // If you want to improve performance, please refactor it.
-        for i in 0..data.queue.len() {
-            if priority < data.queue[i].priority {
-                data.queue.insert(i, new_task);
-                return;
-            }
-        }
-
-        data.queue.push_back(new_task);
+        data.queue.push(priority as u32, new_task);
     }
 
     fn get_next(&self) -> Option<Arc<Task>> {
         let mut node = MCSNode::new();
         let mut guard = self.data.lock(&mut node);
 
+        #[allow(clippy::question_mark)]
         let data = match guard.as_mut() {
             Some(data) => data,
             None => return None,
         };
 
-        while let Some(rr_task) = data.queue.pop_front() {
+        while let Some(rr_task) = data.queue.pop() {
             {
                 let mut node = MCSNode::new();
                 let mut task_info = rr_task.task.info.lock(&mut node);
@@ -90,15 +84,15 @@ impl Scheduler for PriorityBasedRRScheduler {
     }
 
     fn priority(&self) -> u8 {
-        0
+        self.priority
     }
 }
 
 pub static SCHEDULER: PriorityBasedRRScheduler = PriorityBasedRRScheduler {
     // Time quantum (100 ms)
     interval: 100_000,
-
     data: Mutex::new(None),
+    priority: get_priority(SchedulerType::PriorityBasedRR(0)),
 };
 
 impl PriorityBasedRRScheduler {

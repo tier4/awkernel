@@ -55,7 +55,7 @@ version = "0.11"
 optional = true
 
 [dependencies.smoltcp]
-version = "0.11"
+path = "../smoltcp"
 default-features = false
 features = [
     "alloc",
