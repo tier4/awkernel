@@ -936,8 +936,6 @@ impl IgbInner {
 
                 desc.desc.buf = buf_phy_addr as u64;
 
-                desc.desc.len = RXBUFFER_2048 as u16; // TODO: Need to check if we really need this.
-
                 dma_info_temp.push((
                     read_buf.get_virt_addr().as_usize(),
                     buf_phy_addr,
