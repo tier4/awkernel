@@ -211,6 +211,17 @@ unsafe fn do_preemption() {
 
         let mut node = MCSNode::new();
         let mut info = task.info.lock(&mut node);
+
+        #[cfg(feature = "runtime_verification")]
+        {
+            log::debug!(
+                "[RV DEBUG] task id: {}, last_executed_time: {}, num_preempt: {}",
+                task_id.0,
+                info.last_executed_time,
+                info.num_preempt
+            );
+        }
+
         if !info.need_preemption {
             return;
         } else {
