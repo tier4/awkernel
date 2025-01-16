@@ -4094,10 +4094,11 @@ pub fn get_eec_offset(device: u16) -> Result<usize, IxgbeDriverErr> {
     use MacType::*;
 
     let eec = match get_mac_type(device)? {
-        IxgbeMac82598EB | IxgbeMac82599EB | IxgbeMac82599Vf => IXGBE_EEC,
         IxgbeMacX540 | IxgbeMacX540Vf => IXGBE_EEC_X540,
-        IxgbeMacX550 | IxgbeMacX550Vf | IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_EEC_X550,
+        IxgbeMacX550 | IxgbeMacX550Vf => IXGBE_EEC_X550,
+        IxgbeMacX550EMX | IxgbeMacX550EMXVf => IXGBE_EEC_X550EM_X,
         IxgbeMacX550EMA | IxgbeMacX550EMAVf => IXGBE_EEC_X550EM_A,
+        _ => IXGBE_EEC,
     };
 
     Ok(eec)
