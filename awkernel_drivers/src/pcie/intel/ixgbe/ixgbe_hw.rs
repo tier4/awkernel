@@ -268,11 +268,6 @@ impl IxgbeHw {
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
 
-        // let hardware know driver is loaded
-        let mut ctrl_ext = read_reg(info, IXGBE_CTRL_EXT)?;
-        ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
-        write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
-
         let ops = get_operations(&mac_type)?; // init_shared_code();
         let (
             mcft_size,
