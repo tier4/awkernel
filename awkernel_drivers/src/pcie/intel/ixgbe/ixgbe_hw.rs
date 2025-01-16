@@ -94,6 +94,7 @@ pub fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
         | IXGBE_DEV_ID_82598AF_DUAL_PORT
         | IXGBE_DEV_ID_82598AT
         | IXGBE_DEV_ID_82598AT2
+        | IXGBE_DEV_ID_82598AT_DUAL_PORT
         | IXGBE_DEV_ID_82598EB_CX4
         | IXGBE_DEV_ID_82598_CX4_DUAL_PORT
         | IXGBE_DEV_ID_82598_DA_DUAL_PORT

@@ -117,9 +117,9 @@ impl Device for NetDriverRef<'_> {
         //     cap.checksum.udp = Checksum::Rx;
         // }
 
-        if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
-            cap.checksum.udp = Checksum::Rx;
-        }
+        // if capabilities.contains(NetCapabilities::CSUM_UDPv4) {
+        //     cap.checksum.udp = Checksum::Rx;
+        // }
 
         cap
     }

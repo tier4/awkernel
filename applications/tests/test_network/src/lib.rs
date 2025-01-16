@@ -8,13 +8,17 @@ use alloc::format;
 use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
-// 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+const INTERFACE_INDEX: u64 = 1;
 
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+// 10.0.2.0/24 is the IP address range of the Qemu's network.
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1);
 
 const UDP_DST_PORT: u16 = 26099;
 
@@ -22,7 +26,7 @@ const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
 
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(INTERFACE_INDEX, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test udp".into(),
@@ -62,8 +66,11 @@ pub async fn run() {
 
 async fn ipv4_multicast_send_test() {
     // Create a UDP socket on interface 0.
-    let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
+        INTERFACE_INDEX,
+        Default::default(),
+    )
+    .unwrap();
 
     let dst_addr = IpAddr::new_v4(MULTICAST_ADDR);
 
@@ -87,12 +94,14 @@ async fn ipv4_multicast_recv_test() {
     let mut config = UdpConfig::default();
     config.port = Some(MULTICAST_PORT);
 
-    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, config).unwrap();
+    let mut socket =
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_INDEX, config)
+            .unwrap();
 
     loop {
         // Join the multicast group.
         loop {
-            match awkernel_lib::net::join_multicast_v4(0, MULTICAST_ADDR) {
+            match awkernel_lib::net::join_multicast_v4(INTERFACE_INDEX, MULTICAST_ADDR) {
                 Ok(_) => {
                     log::debug!("Joined the multicast group.");
                     break;
@@ -125,7 +134,7 @@ async fn ipv4_multicast_recv_test() {
 
         // Leave the multicast group.
         loop {
-            match awkernel_lib::net::leave_multicast_v4(0, MULTICAST_ADDR) {
+            match awkernel_lib::net::leave_multicast_v4(INTERFACE_INDEX, MULTICAST_ADDR) {
                 Ok(_) => {
                     log::debug!("Left the multicast group.");
                     break;
@@ -144,7 +153,7 @@ async fn ipv4_multicast_recv_test() {
 
 async fn tcp_connect_test() {
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
-        0,
+        INTERFACE_INDEX,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
         8080,
         Default::default(),
@@ -162,7 +171,7 @@ async fn tcp_listen_test() {
     };
 
     let Ok(mut tcp_listener) =
-        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(0, config)
+        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(INTERFACE_INDEX, config)
     else {
         return;
     };
@@ -202,8 +211,11 @@ async fn bogus_http_server(mut stream: awkernel_async_lib::net::tcp::TcpStream) 
 
 async fn udp_test() {
     // Create a UDP socket on interface 0.
-    let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
+    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
+        INTERFACE_INDEX,
+        Default::default(),
+    )
+    .unwrap();
 
     let dst_addr = IpAddr::new_v4(UDP_TCP_DST_ADDR);
 
