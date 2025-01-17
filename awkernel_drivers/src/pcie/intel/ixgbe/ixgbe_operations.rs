@@ -2377,15 +2377,6 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
         return Err(IxgbeDriverErr::Eeprom);
     }
 
-    for i in 0..words {
-        eerd = ((offset + i) << IXGBE_EEPROM_RW_ADDR_SHIFT) | IXGBE_EEPROM_RW_REG_START;
-
-        ixgbe_hw::write_reg(info, IXGBE_EERD, eerd as u32)?;
-        poll_eerd_eewr_done(info, IXGBE_NVM_POLL_READ as u32)?;
-
-        data[i as usize] =
-            (ixgbe_hw::read_reg(info, IXGBE_EERD)? >> IXGBE_EEPROM_RW_REG_DATA) as u16;
-    }
     for (i, d) in data.iter_mut().enumerate() {
         eerd = ((offset + i as u16) << IXGBE_EEPROM_RW_ADDR_SHIFT) | IXGBE_EEPROM_RW_REG_START;
 
