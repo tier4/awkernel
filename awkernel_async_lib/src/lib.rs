@@ -236,3 +236,31 @@ where
 
     crate::task::spawn(reactor_name, future, sched_type)
 }
+
+pub async fn spawn_periodic_reactor<F, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+    period: Duration,
+) -> u32
+where
+    F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+{
+    let future = async move {
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        loop {
+            sleep(period).await;
+            let results = f();
+            publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
+}

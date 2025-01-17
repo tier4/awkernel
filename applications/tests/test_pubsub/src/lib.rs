@@ -7,7 +7,7 @@ use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn, spawn_reactor, uptime,
+    sleep, spawn, spawn_periodic_reactor, spawn_reactor, uptime,
 };
 use core::{
     ptr::write_volatile,
@@ -115,21 +115,34 @@ pub async fn run() {
         .await;
     }
 
-    spawn(
-        "reactor_source_node".into(),
-        async move {
-            let publisher =
-                create_publisher::<i32>("topic0".into(), pubsub::Attribute::default()).unwrap();
-            let mut number: i32 = 1;
+    // spawn(
+    //     "reactor_source_node".into(),
+    //     async move {
+    //         let publisher =
+    //             create_publisher::<i32>("topic0".into(), pubsub::Attribute::default()).unwrap();
+    //         let mut number: i32 = 1;
 
-            loop {
-                sleep(Duration::from_secs(1)).await;
-                log::debug!("value={} in reactor_source_node", number);
-                publisher.send(number).await;
-                number += 1;
-            }
+    //         loop {
+    //             sleep(Duration::from_secs(1)).await;
+    //             log::debug!("value={} in reactor_source_node", number);
+    //             publisher.send(number).await;
+    //             number += 1;
+    //         }
+    //     },
+    //     SchedulerType::FIFO,
+    // )
+    // .await;
+
+    spawn_periodic_reactor::<_, (i32,)>(
+        "reactor_source_node".into(),
+        || -> (i32,) {
+            let number: i32 = 1;
+            log::debug!("value={} in reactor_source_node", number);
+            (number,)
         },
+        vec![Cow::from("topic0")],
         SchedulerType::FIFO,
+        Duration::from_secs(1),
     )
     .await;
 
