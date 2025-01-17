@@ -249,6 +249,7 @@ where
     Ret: VectorToPublishers,
     Ret::Publishers: Send,
 {
+    // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
             publish_topic_names,
@@ -256,7 +257,7 @@ where
         );
 
         loop {
-            sleep(period).await;
+            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
             let results = f();
             publishers.send_all(results).await;
         }
