@@ -153,28 +153,46 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let mut node = MCSNode::new();
-        let mut inner = self.subscriber.inner.lock(&mut node);
+        let data = self.subscriber.try_recv();
 
-        if let Some(waker) = inner.waker_publishers.pop_front() {
-            waker.wake();
-        }
-
-        inner.garbage_collect(&self.subscriber.subscribers.attribute.lifespan);
-
-        if let Some(data) = inner.queue.pop() {
+        if let Some(data) = data {
             Poll::Ready(data)
         } else {
+            let mut node = MCSNode::new();
+            let mut inner = self.subscriber.inner.lock(&mut node);
             inner.waker_subscriber = Some(cx.waker().clone());
+
             Poll::Pending
         }
     }
 }
 
 impl<T: Clone + Send> Subscriber<T> {
+    /// Receive data asynchronously.
     pub async fn recv(&self) -> Data<T> {
         let receiver = Receiver { subscriber: self };
         receiver.await
+    }
+
+    /// Non-blocking data receive.
+    /// If there is no data, return `None`.
+    pub fn try_recv(&self) -> Option<Data<T>> {
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        inner.garbage_collect(&self.subscribers.attribute.lifespan);
+
+        let result = inner.queue.pop();
+
+        for _ in 0..inner.queue.queue_size() - inner.queue.len() {
+            if let Some(waker) = inner.waker_publishers.pop_front() {
+                waker.wake();
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 
     fn id(&self) -> usize {
