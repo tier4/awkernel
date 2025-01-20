@@ -1,4 +1,4 @@
-use crate::task::{get_current_task, Task, NOT_IN_TRANSITION};
+use crate::task::{get_current_task, Task, IN_TRANSITION};
 use alloc::{collections::VecDeque, sync::Arc};
 use array_macro::array;
 use awkernel_lib::{
@@ -176,7 +176,7 @@ impl Drop for RunningTaskGuard {
         }
 
         super::RUNNING[cpu_id].store(self.0, Ordering::Relaxed);
-        NOT_IN_TRANSITION[cpu_id].store(true, Ordering::Relaxed);
+        IN_TRANSITION[cpu_id].store(false, Ordering::Relaxed);
     }
 }
 

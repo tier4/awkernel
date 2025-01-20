@@ -1,4 +1,4 @@
-use awkernel_async_lib::task::NOT_IN_TRANSITION;
+use awkernel_async_lib::task::IN_TRANSITION;
 #[cfg(feature = "perf")]
 use awkernel_async_lib::{
     cpu_counter,
@@ -226,7 +226,7 @@ ESR  = 0x{:x}
 
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
-    NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+    IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
     #[cfg(feature = "perf")]
     {
         add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());

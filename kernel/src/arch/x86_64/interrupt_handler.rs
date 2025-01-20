@@ -7,7 +7,7 @@ use awkernel_async_lib::{
     },
 };
 
-use awkernel_async_lib::task::NOT_IN_TRANSITION;
+use awkernel_async_lib::task::IN_TRANSITION;
 use awkernel_lib::delay::wait_forever;
 use core::sync::atomic::Ordering;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
@@ -520,7 +520,7 @@ irq_handler!(irq253, 253);
 irq_handler!(irq254, 254);
 
 extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
-    NOT_IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(false, Ordering::Relaxed);
+    IN_TRANSITION[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Relaxed);
     #[cfg(feature = "perf")]
     {
         add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
