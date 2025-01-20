@@ -1125,6 +1125,7 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
             .filter(|task| task.task_id != 0)
             .collect();
 
+        // 'is_empty()' is required to pass 'make test'
         if running_tasks.is_empty() || running_tasks.len() < non_primary_cpus {
             return None;
         }
