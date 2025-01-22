@@ -2322,30 +2322,24 @@ pub fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeD
     Ok(false)
 }
 
-// Eeprom Helper Functions
+/// Eeprom Helper Functions
 fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverErr> {
     let mut reg;
-    let mut stopped_i = 0;
 
-    for i in 0..IXGBE_EERD_EEWR_ATTEMPTS {
+    for _ in 0..IXGBE_EERD_EEWR_ATTEMPTS {
         if ee_reg == IXGBE_NVM_POLL_READ as u32 {
             reg = ixgbe_hw::read_reg(info, IXGBE_EERD)?;
         } else {
             reg = ixgbe_hw::read_reg(info, IXGBE_EEWR)?;
         }
         if reg & IXGBE_EEPROM_RW_REG_DONE as u32 != 0 {
-            stopped_i = i;
-            break;
+            return Ok(());
         }
         wait_microsec(5);
     }
 
-    if stopped_i == IXGBE_EERD_EEWR_ATTEMPTS {
-        log::error!("EEPROM read/write done polling timed out");
-        return Err(Eeprom);
-    }
-
-    Ok(())
+    log::error!("EEPROM read/write done polling timed out");
+    Err(Eeprom)
 }
 
 pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
