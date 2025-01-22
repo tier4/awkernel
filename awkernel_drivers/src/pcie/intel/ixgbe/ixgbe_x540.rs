@@ -328,9 +328,8 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
 ) -> Result<(), IxgbeDriverErr> {
     let mut reg;
 
-    // What is this for?
     if !on && ixgbe_operations::mng_present(info, hw)? {
-        return Ok(()); // Don't know if this is correct.
+        return Ok(());
     }
 
     reg = ops.phy_read_reg(
@@ -344,7 +343,7 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
         reg &= !(IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16);
     } else {
         if check_reset_blocked(info, &hw.mac.mac_type)? {
-            return Ok(()); // Not sure if this is correct.
+            return Ok(());
         }
         reg |= IXGBE_MDIO_PHY_SET_LOW_POWER_MODE as u16;
     }
@@ -355,9 +354,7 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
         IXGBE_MDIO_VENDOR_SPECIFIC_1_CONTROL,
         IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,
         reg,
-    )?;
-
-    Ok(())
+    )
 }
 
 impl IxgbeOperations for IxgbeX540 {
