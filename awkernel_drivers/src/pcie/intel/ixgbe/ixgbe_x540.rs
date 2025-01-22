@@ -19,21 +19,9 @@ const IXGBE_X540_RX_PB_SIZE: u32 = 384;
 
 pub struct IxgbeX540;
 
-fn mng_present(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
-    use MacType::*;
-
-    if matches!(mac_type, IxgbeMac82599EB) {
-        return Ok(false);
-    }
-
-    let fwsm = ixgbe_hw::read_reg(info, IXGBE_FWSM)?;
-
-    Ok((fwsm & IXGBE_FWSM_FW_MODE_PT) != 0)
-}
-
 /// This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
 fn check_reset_blocked(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
-    use MacType::*;
+     use MacType::*;
 
     // If we don't have this bit, it can't be blocking
     if matches!(mac_type, IxgbeMac82598EB) {
@@ -341,7 +329,7 @@ pub fn phy_set_power_x540<T: IxgbeOperations + ?Sized>(
     let mut reg;
 
     // What is this for?
-    if !on && mng_present(info, &hw.mac.mac_type)? {
+    if !on && ixgbe_operations::mng_present(info, hw)? {
         return Ok(()); // Don't know if this is correct.
     }
 
