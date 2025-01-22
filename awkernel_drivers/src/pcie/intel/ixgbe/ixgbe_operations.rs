@@ -3862,9 +3862,10 @@ pub trait IxgbeOperations: Send {
         let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
         let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
         let lan_id = func as u8;
+        let factps_offset = get_factps_offset(info.get_id())?;
 
         // check for a port swap
-        reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?;
+        reg = ixgbe_hw::read_reg(info, factps_offset)?;
         if reg & IXGBE_FACTPS_LFS != 0 {
             func ^= 0x1;
         }
