@@ -2339,7 +2339,7 @@ fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverEr
     }
 
     log::error!("EEPROM read/write done polling timed out");
-    return Err(Eeprom);
+    Err(Eeprom)
 }
 
 pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
