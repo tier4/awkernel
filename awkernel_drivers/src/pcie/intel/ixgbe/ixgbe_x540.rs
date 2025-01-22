@@ -21,7 +21,7 @@ pub struct IxgbeX540;
 
 /// This function checks the MMNGC.MNG_VITO bit to see it there are any constraints on link from manageablity.
 fn check_reset_blocked(info: &PCIeInfo, mac_type: &MacType) -> Result<bool, IxgbeDriverErr> {
-     use MacType::*;
+    use MacType::*;
 
     // If we don't have this bit, it can't be blocking
     if matches!(mac_type, IxgbeMac82598EB) {
