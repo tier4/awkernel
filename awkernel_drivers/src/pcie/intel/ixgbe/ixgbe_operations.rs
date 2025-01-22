@@ -2644,7 +2644,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     while i < timeout {
         // If the SMBI bit is 0 when we read it, then the bit will be set and we have the semaphore
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+        if swsm & IXGBE_SWSM_SMBI == 0 {
             status = Ok(());
             break;
         }
@@ -2659,7 +2659,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
 
         // one last try
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+        if swsm & IXGBE_SWSM_SMBI == 0 {
             status = Ok(());
         }
     }
