@@ -1,6 +1,39 @@
 use alloc::boxed::Box;
 use awkernel_lib::{delay::wait_forever, heap::TALLOC};
 
+use core::ffi::c_void;
+use unwinding::abi::{
+    UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_GetIP, _Unwind_GetRegionStart,
+};
+
+#[cfg(any(
+    feature = "x86",
+    feature = "aarch64",
+    feature = "rv32",
+    feature = "rv64"
+))]
+fn stack_trace() {
+    struct CallbackData {
+        counter: usize,
+    }
+    extern "C" fn callback(unwind_ctx: &UnwindContext<'_>, arg: *mut c_void) -> UnwindReasonCode {
+        let data = unsafe { &mut *(arg as *mut CallbackData) };
+        data.counter += 1;
+
+        // TODO: Print symbol name
+        let _base = _Unwind_GetRegionStart(unwind_ctx);
+
+        log::info!(
+            "#{:2} {:#016x} in <unknown>",
+            data.counter,
+            _Unwind_GetIP(unwind_ctx),
+        );
+        UnwindReasonCode::NO_REASON
+    }
+    let mut data = CallbackData { counter: 0 };
+    _Unwind_Backtrace(callback, &mut data as *mut _ as _);
+}
+
 #[cfg(any(
     feature = "x86",
     feature = "aarch64",
@@ -16,7 +49,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
 
     awkernel_async_lib::task::panicking();
-
+    stack_trace();
     unwinding::panic::begin_panic(Box::new(()));
     wait_forever();
 }
