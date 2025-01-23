@@ -3477,7 +3477,11 @@ pub trait IxgbeOperations: Send {
             IxgbeMediaTypeBackplane =>
             // some MAC's need RMW protection on AUTOC
             {
-                (0, self.mac_prot_autoc_read(info)?, 0)
+                (
+                    ixgbe_hw::read_reg(info, IXGBE_PCS1GANA)?,
+                    self.mac_prot_autoc_read(info)?,
+                    0,
+                )
             }
             // only backplane uses autoc so fall though
             IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
