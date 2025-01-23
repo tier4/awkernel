@@ -320,7 +320,7 @@ fn print_tasks() {
             if info.panicked() { "*" } else { " " },
             state,
             info.get_num_preemption(),
-            info.get_last_executed(),
+            info.get_last_executed().uptime().as_micros(),
             t.name,
         );
 
