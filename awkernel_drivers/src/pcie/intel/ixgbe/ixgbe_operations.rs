@@ -3525,7 +3525,7 @@ pub trait IxgbeOperations: Send {
 		        reg &= !IXGBE_PCS1GANA_SYM_PAUSE;
 		        match hw.phy.media_type {
                 IxgbeMediaTypeBackplane =>
-			        (reg, (reg_bp | IXGBE_AUTOC_ASM_PAUSE) & IXGBE_AUTOC_SYM_PAUSE, reg_cu),
+			        (reg, (reg_bp | IXGBE_AUTOC_ASM_PAUSE) & !IXGBE_AUTOC_SYM_PAUSE, reg_cu),
 		        IxgbeMediaTypeCopper =>
 			        (reg, reg_bp, (reg_cu | IXGBE_TAF_ASM_PAUSE) & !IXGBE_TAF_SYM_PAUSE),
                 _ => (reg, reg_bp, reg_cu),
