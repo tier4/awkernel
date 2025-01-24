@@ -7,7 +7,8 @@ use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn, spawn_periodic_reactor, spawn_reactor, uptime,
+    sleep, spawn, spawn_periodic_reactor, spawn_reactor,
+    time::Time,
 };
 use core::{
     ptr::write_volatile,
@@ -67,12 +68,11 @@ pub async fn run() {
             format!("{i}-client").into(),
             async move {
                 loop {
-                    let start = uptime();
+                    let start = Time::now();
                     tx1.send(()).await.unwrap();
                     rx2.recv().await.unwrap();
-                    let end = uptime();
 
-                    let elapsed = end - start;
+                    let elapsed = start.elapsed().as_micros() as u64;
                     add_rtt(elapsed);
 
                     for _ in 0..1_000_000 {
