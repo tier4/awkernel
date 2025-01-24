@@ -67,12 +67,11 @@ pub async fn run() {
             format!("{i}-client").into(),
             async move {
                 loop {
-                    let start = uptime();
+                    let start = awkernel_lib::time::Time::now();
                     tx1.send(()).await.unwrap();
                     rx2.recv().await.unwrap();
-                    let end = uptime();
 
-                    let elapsed = end - start;
+                    let elapsed = start.elapsed().as_micros() as u64;
                     add_rtt(elapsed);
 
                     for _ in 0..1_000_000 {

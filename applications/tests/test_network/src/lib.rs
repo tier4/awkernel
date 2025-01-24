@@ -210,7 +210,7 @@ async fn udp_test() {
     let mut buf = [0u8; 1024 * 2];
 
     loop {
-        let t0 = awkernel_lib::delay::uptime();
+        let t0 = awkernel_lib::time::Time::now();
 
         // Send a UDP packet.
         if let Err(e) = socket
@@ -225,8 +225,7 @@ async fn udp_test() {
         // Receive a UDP packet.
         socket.recv(&mut buf).await.unwrap();
 
-        let t1 = awkernel_lib::delay::uptime();
-        let _rtt = t1 - t0;
+        let _rtt = t0.elapsed().as_micros() as u64;
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
     }

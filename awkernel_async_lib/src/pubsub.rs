@@ -31,7 +31,7 @@ use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
 };
-use crate::delay::uptime;
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -55,7 +55,7 @@ use pin_project::pin_project;
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
-    pub timestamp: u64,
+    pub timestamp: awkernel_lib::time::Time,
     pub data: T,
 }
 
@@ -133,7 +133,7 @@ impl<T> InnerSubscriber<T> {
         if let Lifespan::Span(lifespan) = lifespan {
             let span = lifespan.as_micros();
             while let Some(head) = self.queue.head() {
-                if uptime() - head.timestamp > span as u64 {
+                if head.timestamp.elapsed().as_micros() > span {
                     self.queue.pop();
                 }
             }
@@ -219,7 +219,7 @@ struct Sender<'a, T: 'static + Send> {
     data: Option<T>,
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
-    timestamp: u64,
+    timestamp: awkernel_lib::time::Time,
 }
 
 enum SenderState {
@@ -235,7 +235,7 @@ impl<'a, T: Send> Sender<'a, T> {
             data: Some(data),
             subscribers: Default::default(),
             state: SenderState::Start,
-            timestamp: uptime(),
+            timestamp: awkernel_lib::time::Time::now(),
         }
     }
 }
@@ -267,7 +267,7 @@ where
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
                             if let Err(data) = guard.push(Data {
-                                timestamp: uptime(),
+                                timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.
