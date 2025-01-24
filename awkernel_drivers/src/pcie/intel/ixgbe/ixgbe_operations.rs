@@ -626,7 +626,7 @@ pub fn enable_tx_laser_multispeed_fiber(info: &PCIeInfo) -> Result<(), IxgbeDriv
     esdp_reg &= !IXGBE_ESDP_SDP3;
     ixgbe_hw::write_reg(info, IXGBE_ESDP, esdp_reg)?;
     ixgbe_hw::write_flush(info)?;
-    wait_microsec(100);
+    wait_millisec(100);
 
     Ok(())
 }
