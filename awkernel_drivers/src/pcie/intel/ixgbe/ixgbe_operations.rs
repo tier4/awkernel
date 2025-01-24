@@ -3955,7 +3955,7 @@ pub trait IxgbeOperations: Send {
             return Err(NotPciExpress);
         };
         let val = cap.get_link_status_control();
-        let link_status = (val.bits() & 0xFFFF) as u16;
+        let link_status = (val.bits() >> 16) as u16;
 
         set_pci_config_data(self, info, hw, link_status)
     }
