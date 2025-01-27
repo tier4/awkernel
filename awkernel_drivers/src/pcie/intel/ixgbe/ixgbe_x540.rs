@@ -315,7 +315,7 @@ pub fn mac_release_swfw_sync_x540(info: &PCIeInfo, mask: u32) -> Result<(), Ixgb
     ixgbe_hw::write_reg(info, swfw_sync_offset, swfw_sync)?;
 
     release_swfw_sync_semaphore(info)?;
-    wait_microsec(2);
+    wait_millisec(2);
 
     Ok(())
 }
