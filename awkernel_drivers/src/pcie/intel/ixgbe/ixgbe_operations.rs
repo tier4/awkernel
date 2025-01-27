@@ -3688,7 +3688,7 @@ pub trait IxgbeOperations: Send {
 
         // Configure pause time (2 TCs per register)
         let reg = hw.fc.pause_time as u32 * 0x00010001;
-        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
+        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS / 2 {
             ixgbe_hw::write_reg(info, IXGBE_FCTTV(i), reg)?;
         }
 
