@@ -16,7 +16,7 @@ use awkernel_drivers::raspi5::*;
 
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    console::{register_unsafe_puts, unsafe_puts},
+    console::{register_unsafe_puts, unsafe_puts, unsafe_print_hex_u32, unsafe_print_hex_u64},
     device_tree::{
         prop::{PropertyValue, Range},
         traits::HasNamedChildNode,
@@ -24,6 +24,8 @@ use awkernel_lib::{
     err_msg,
     paging::PAGESIZE,
 };
+
+use core::ptr::{read_volatile, write_volatile};
 
 pub mod config;
 mod pciebridge;
@@ -77,24 +79,74 @@ impl super::SoC for Raspi5 {
         // temp regions.
         {
             let reg_base_arm_gpio0_io: usize = 0x1f000d0000;
+            let reg_base_rp1_gpio0_rio: usize = 0x1f000e0000;
             let reg_base_arm_gpio0_pads: usize = 0x1f000f0000;
 
             let reg_size: usize = 0x0004000;
 
-            vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_io), PhyAddr::new(reg_base_arm_gpio0_io + reg_size))?;
-            vm.push_device_range(PhyAddr::new(reg_base_arm_gpio0_pads), PhyAddr::new(reg_base_arm_gpio0_pads + reg_size))?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_arm_gpio0_io),
+                PhyAddr::new(reg_base_arm_gpio0_io + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_gpio0_rio),
+                PhyAddr::new(reg_base_rp1_gpio0_rio + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_arm_gpio0_pads),
+                PhyAddr::new(reg_base_arm_gpio0_pads + reg_size),
+            )?;
 
             let reg_base_rp1_bar1_io_bank0: usize = 0xffcd0000;
+            let reg_base_rp1_bar1_rio: usize = 0xffce0000;
             let reg_base_rp1_bar1_pads_bank0: usize = 0xffcf0000;
 
-            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
-            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar1_io_bank0),
+                PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar1_rio),
+                PhyAddr::new(reg_base_rp1_bar1_rio + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar1_pads_bank0),
+                PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size),
+            )?;
 
             let reg_base_rp1_bar2_io_bank0: usize = 0x1000c0000;
+            let reg_base_rp1_bar2_rio: usize = 0x1000d0000;
             let reg_base_rp1_bar2_pads_bank0: usize = 0x1000e0000;
 
-            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_io_bank0), PhyAddr::new(reg_base_rp1_bar1_io_bank0 + reg_size))?;
-            vm.push_device_range(PhyAddr::new(reg_base_rp1_bar1_pads_bank0), PhyAddr::new(reg_base_rp1_bar1_pads_bank0 + reg_size))?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar2_io_bank0),
+                PhyAddr::new(reg_base_rp1_bar2_io_bank0 + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar2_rio),
+                PhyAddr::new(reg_base_rp1_bar2_rio + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_bar2_pads_bank0),
+                PhyAddr::new(reg_base_rp1_bar2_pads_bank0 + reg_size),
+            )?;
+
+            let reg_base_rp1_dt_io_bank0: usize = 0xc0400d0000;
+            let reg_base_rp1_dt_rio: usize = 0xc0400e0000;
+            let reg_base_rp1_dt_pads_bank0: usize = 0xc0400f0000;
+
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_dt_io_bank0),
+                PhyAddr::new(reg_base_rp1_dt_io_bank0 + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_dt_rio),
+                PhyAddr::new(reg_base_rp1_dt_rio + reg_size),
+            )?;
+            vm.push_device_range(
+                PhyAddr::new(reg_base_rp1_dt_pads_bank0),
+                PhyAddr::new(reg_base_rp1_dt_pads_bank0 + reg_size),
+            )?;
         }
 
         // Add heap memory regions.
@@ -244,9 +296,9 @@ impl Raspi5 {
             };
 
             let reg_base = reg.0.to_u128() as usize;
-            
-            let reg_size = reg.1.to_u128() as usize;
-            // let reg_size = 0x10000000 as usize;
+
+            // let reg_size = reg.1.to_u128() as usize;
+            let reg_size = 0x10000000 as usize;
 
             let pcie_regs = (PhyAddr::new(reg_base), reg_size);
 
@@ -346,41 +398,157 @@ impl Raspi5 {
     }
 
     pub fn init_gpio(&self) {
-        let gpio_pin_14 = raspi5_gpio::GPIOPin::new(14);
-        gpio_pin_14.set_alternate_function(4);
-        let gpio_pin_2 = raspi5_gpio::GPIOPin::new(16);
-        gpio_pin_2.set_mode(raspi5_gpio::GPIOMode::Output);
-        gpio_pin_2.set_pull_mode(raspi5_gpio::TGPIOPullMode::Off);
-        let mode = gpio_pin_2.get_mode();
+        // let gpio_pin_14 = raspi5_gpio::GPIOPin::new(14);
+        // gpio_pin_14.set_alternate_function(4);
+        // let mut gpio_pin_2 = raspi5_gpio::GPIOPin::new(2);
+        // gpio_pin_2.set_pull_mode(raspi5_gpio::TGPIOPullMode::Off);
 
-        match mode {
-            raspi5_gpio::GPIOMode::Input => unsafe{ unsafe_puts("GPIO::Input\r\n"); },
-            raspi5_gpio::GPIOMode::Output => unsafe{ unsafe_puts("GPIO::Output\r\n"); },
-            raspi5_gpio::GPIOMode::InputPullUp => unsafe{ unsafe_puts("GPIO::InputPullUp\r\n"); },
-            raspi5_gpio::GPIOMode::InputPullDown => unsafe{ unsafe_puts("GPIO::InputPullDown\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction0 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction0\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction1 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction1\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction2 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction2\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction3 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction3\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction4 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction4\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction5 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction5\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction6 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction6\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction7 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction7\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction8 => unsafe{ unsafe_puts("GPIO::GPIOModeAlternateFunction8\r\n"); },
-            raspi5_gpio::GPIOMode::GPIOModeUnknown => unsafe{ unsafe_puts("GPIO::GPIOModeUnknown\r\n"); },
+        let mut gpio_pin_16 = raspi5_gpio::GPIOPin::new(16);
+        gpio_pin_16.set_mode(raspi5_gpio::GPIOMode::Output, false);
+        // let mut gpio_pin_16 = raspi5_gpio::GPIOPin::init_with_mode(16, raspi5_gpio::GPIOMode::Output);
+        // gpio_pin_16.set_mode(raspi5_gpio::GPIOMode::Output);
+
+        // let mode = gpio_pin_16.get_mode();
+        let mode = gpio_pin_16.get_direction();
+
+        let vm_addr_io = VirtAddr::new(0x400D0000 as usize);
+        let vm_addr_rio = VirtAddr::new(0x400E0000 as usize);
+        let vm_addr_pads = VirtAddr::new(0x400F0000 as usize);
+
+        let phy_addr_io = awkernel_lib::paging::vm_to_phy(vm_addr_io).unwrap();
+        let phy_addr_rio = awkernel_lib::paging::vm_to_phy(vm_addr_rio).unwrap();
+        let phy_addr_pads = awkernel_lib::paging::vm_to_phy(vm_addr_pads).unwrap();
+
+        unsafe {
+            awkernel_lib::console::unsafe_puts("\n\r VirtAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(vm_addr_io.as_usize() as u64);
+            awkernel_lib::console::unsafe_puts(") - PhyAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(phy_addr_io.as_usize() as u64);
+
+            awkernel_lib::console::unsafe_puts(")\n\r VirtAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(vm_addr_rio.as_usize() as u64);
+            awkernel_lib::console::unsafe_puts(") - PhyAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(phy_addr_rio.as_usize() as u64);
+
+            awkernel_lib::console::unsafe_puts(")\n\r VirtAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(vm_addr_pads.as_usize() as u64);
+            awkernel_lib::console::unsafe_puts(") - PhyAddr(");
+            awkernel_lib::console::unsafe_print_hex_u64(phy_addr_pads.as_usize() as u64);
+            awkernel_lib::console::unsafe_puts(")\n\r ");
         }
 
+        match mode {
+            raspi5_gpio::GPIOMode::Input => unsafe {
+                unsafe_puts("GPIO::Input\r\n");
+            },
+            raspi5_gpio::GPIOMode::Output => unsafe {
+                unsafe_puts("GPIO::Output\r\n");
+            },
+            raspi5_gpio::GPIOMode::InputPullUp => unsafe {
+                unsafe_puts("GPIO::InputPullUp\r\n");
+            },
+            raspi5_gpio::GPIOMode::InputPullDown => unsafe {
+                unsafe_puts("GPIO::InputPullDown\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction0 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction0\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction1 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction1\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction2 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction2\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction3 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction3\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction4 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction4\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction5 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction5\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction6 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction6\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction7 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction7\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeAlternateFunction8 => unsafe {
+                unsafe_puts("GPIO::GPIOModeAlternateFunction8\r\n");
+            },
+            raspi5_gpio::GPIOMode::GPIOModeUnknown => unsafe {
+                unsafe_puts("GPIO::GPIOModeUnknown\r\n");
+            },
+        }
+
+        // let mut gpio_base:*mut u32 = 0x400d0000;
+        let gpio_base:*mut u32 = 0x1f000d0000;
+        // let gpio_base:*mut u32 = 0xffcd0000;
+
+        let mut rio_out_offset = 0x10000;
+        let mut gpio16_status_offset = 0x80;
+        let mut gpio16_ctrl_offset = 0x84;
+        let mut gpio16_pads_offset = 0x2005c;
+
         for _n in 1..10 {
-            unsafe{
-                unsafe_puts("gpio_pin_2.write(true);\r\n");
+            unsafe {
+                // unsafe_puts("gpio_pin_16.write(true);\r\n");
+                unsafe_puts("\r\nLED ON");
             }
-            gpio_pin_2.write(true);
-            awkernel_lib::delay::wait_microsec(1_000_000);
+            gpio_pin_16.write(true);
+            awkernel_lib::delay::wait_microsec(500_000);
+
             unsafe{
-                unsafe_puts("gpio_pin_2.write(false);\r\n");
+                write_volatile((gpio_base + gpio16_ctrl_offset as *mut u32), 0b1000_0101);
+                write_volatile((gpio_base + gpio16_pads_offset as *mut u32), 0b1001_0110);
+                write_volatile((gpio_base + rio_out_offset as *mut u32), 0b1_0000_0000_0000_0000);
+
+                let mut rio_out = read_volatile((gpio_base + rio_out_offset) as *const u32);
+                unsafe_puts("\n\rRIO_OUT: ");
+                unsafe_print_hex_u32(rio_out);
+
+                let mut gpio16_status = read_volatile((gpio_base + gpio16_status_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_STATUS: ");
+                unsafe_print_hex_u32(gpio16_status);
+
+                let mut gpio16_ctrl = read_volatile((gpio_base + gpio16_ctrl_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_CTRL: ");
+                unsafe_print_hex_u32(gpio16_ctrl);
+
+                let mut gpio16_pads = read_volatile((gpio_base + gpio16_pads_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_PADS: ");
+                unsafe_print_hex_u32(gpio16_pads);
             }
-            gpio_pin_2.write(false);
-            awkernel_lib::delay::wait_microsec(1_000_000);
+
+            unsafe {
+                // unsafe_puts("gpio_pin_16.write(false);\r\n");
+                unsafe_puts("\r\nLED OFF");
+            }
+            gpio_pin_16.write(false);
+            awkernel_lib::delay::wait_microsec(500_000);
+
+            unsafe{
+                // write_volatile((gpio_base + gpio16_ctrl_offset) as *mut u32, 0xffffffff);
+                // write_volatile((gpio_base + gpio16_pads_offset) as *mut u32, 0x00000005);
+                write_volatile((gpio_base + rio_out_offset) as *mut u32, 0x0);
+
+                let mut rio_out = read_volatile((gpio_base + rio_out_offset) as *const u32);
+                unsafe_puts("\n\rRIO_OUT: ");
+                unsafe_print_hex_u32(rio_out);
+
+                let mut gpio16_status = read_volatile((gpio_base + gpio16_status_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_STATUS: ");
+                unsafe_print_hex_u32(gpio16_status);
+
+                let mut gpio16_ctrl = read_volatile((gpio_base + gpio16_ctrl_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_CTRL: ");
+                unsafe_print_hex_u32(gpio16_ctrl);
+
+                let mut gpio16_pads = read_volatile((gpio_base + gpio16_pads_offset) as *const u32);
+                unsafe_puts("\n\rGPIO16_PADS: ");
+                unsafe_print_hex_u32(gpio16_pads);
+            }
         }
     }
 
