@@ -5,7 +5,6 @@ use super::{
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
-use embedded_hal::i2c;
 use ixgbe_hw::{EepromType, IxgbeHw, MacType, MediaType, PhyType, SfpType};
 
 /// clear_tx_pending - Clear pending TX work from the PCIe fifo
