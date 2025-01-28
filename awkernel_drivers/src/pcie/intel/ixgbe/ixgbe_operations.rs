@@ -5,6 +5,7 @@ use super::{
 };
 use crate::pcie::{capability::pcie_cap::PCIeCap, PCIeInfo};
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
+use embedded_hal::i2c;
 use ixgbe_hw::{EepromType, IxgbeHw, MacType, MediaType, PhyType, SfpType};
 
 /// clear_tx_pending - Clear pending TX work from the PCIe fifo
@@ -1679,30 +1680,6 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     dev_addr: u8,
     lock: bool,
 ) -> Result<u8, IxgbeDriverErr> {
-    fn goto_fail<T: IxgbeOperations + ?Sized>(
-        ops: &T,
-        info: &PCIeInfo,
-        retry: u32,
-        max_retry: u32,
-        swfw_mask: u32,
-        lock: bool,
-    ) -> Result<bool, IxgbeDriverErr> {
-        i2c_bus_clear(info)?;
-        if lock {
-            ops.mac_release_swfw_sync(info, swfw_mask)?;
-            wait_millisec(100);
-        }
-        let retry_bool = if retry < max_retry {
-            log::debug!("I2C byte read error - Retrying.\n");
-            true
-        } else {
-            log::debug!("I2C byte read error.\n");
-            false
-        };
-
-        Ok(retry_bool)
-    }
-
     let mut max_retry = 10;
     if hw.mac.mac_type >= MacType::IxgbeMacX550 {
         max_retry = 3;
@@ -1711,137 +1688,57 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
         max_retry = IXGBE_SFP_DETECT_RETRIES;
     }
 
-    let mut retry = 0;
     let swfw_mask = hw.phy.phy_semaphore_mask;
-    let status;
-    loop {
-        if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
 
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+    let body = || {
+        i2c_start(info)?;
 
         // Device Address and write indication
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, byte_offset) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+        clock_out_i2c_byte(info, dev_addr)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, byte_offset)?;
+        get_i2c_ack(info)?;
+        i2c_start(info)?;
 
         // Device Address and read indication
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr | 0x1) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
+        clock_out_i2c_byte(info, dev_addr | 0x1)?;
+        get_i2c_ack(info)?;
+        let result = clock_in_i2c_byte(info)?;
+        clock_out_i2c_bit(info, true)?;
+        i2c_stop(info)?;
 
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        let data;
-        match clock_in_i2c_byte(info) {
-            Ok(ret) => {
-                data = ret;
-            }
-            Err(e) => {
-                retry += 1;
-                match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                    true => continue,
-                    false => {
-                        status = Err(e);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_bit(info, true) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_stop(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
         if lock {
             ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
-        return Ok(data);
+
+        Ok::<u8, IxgbeDriverErr>(result)
+    };
+
+    let mut err = Err(IxgbeDriverErr::I2c);
+    for _ in 0..max_retry {
+        if lock {
+            ops.mac_acquire_swfw_sync(info, swfw_mask)?;
+        }
+
+        match body() {
+            Ok(ret) => return Ok(ret),
+            Err(e) => {
+                i2c_bus_clear(info)?;
+                if lock {
+                    ops.mac_release_swfw_sync(info, swfw_mask)?;
+                    wait_millisec(100);
+                }
+
+                err = Err(e);
+
+                log::debug!("I2C byte read error - Retrying.\n");
+            }
+        }
     }
 
-    status
+    log::debug!("I2C byte read error.\n");
+
+    err
 }
 
 /// write_i2c_byte_generic_int - Writes 8 bit word over I2C
