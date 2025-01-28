@@ -1856,118 +1856,48 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     data: u8,
     lock: bool,
 ) -> Result<(), IxgbeDriverErr> {
-    fn goto_fail(info: &PCIeInfo, retry: u32, max_retry: u32) -> Result<bool, IxgbeDriverErr> {
-        i2c_bus_clear(info)?;
-        let retry_bool = if retry < max_retry {
-            log::debug!("I2C byte read error - Retrying.\n");
-            true
-        } else {
-            log::debug!("I2C byte read error.\n");
-            false
-        };
-        Ok(retry_bool)
-    }
-
     let swfw_mask = hw.phy.phy_semaphore_mask;
-    if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
-        return Err(IxgbeDriverErr::SwfwSync);
+    let max_retry = 1;
+
+    if lock {
+        ops.mac_acquire_swfw_sync(info, swfw_mask)?;
     }
 
-    let max_retry = 1;
-    let mut retry = 0;
-    let status;
-    loop {
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+    let body = || {
+        i2c_start(info)?;
 
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
+        clock_out_i2c_byte(info, dev_addr)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, byte_offset)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, data)?;
+        get_i2c_ack(info)?;
+        i2c_stop(info)?;
 
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, byte_offset) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, data) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_stop(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
         if lock {
             ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
 
-        return Ok(());
+        Ok::<(), IxgbeDriverErr>(())
+    };
+
+    let mut err = Err(IxgbeDriverErr::I2c);
+    for _ in 0..max_retry {
+        match body() {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                i2c_bus_clear(info)?;
+
+                if lock {
+                    ops.mac_release_swfw_sync(info, swfw_mask)?;
+                }
+
+                err = Err(e)
+            }
+        }
     }
 
-    if lock {
-        ops.mac_release_swfw_sync(info, swfw_mask)?;
-    }
-
-    status
+    err
 }
 
 /// is_sfp_probe - Returns TRUE if SFP is being detected
