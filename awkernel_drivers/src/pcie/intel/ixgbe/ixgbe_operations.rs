@@ -2332,12 +2332,7 @@ pub fn host_interface_command<T: IxgbeOperations + ?Sized>(
             bi += 1;
         }
 
-        let resp = IxgbeHicHdr {
-            cmd: (ret_buffer[0] & 0xFF) as u8,
-            buf_len: ((ret_buffer[0] >> 8) & 0xFF) as u8,
-            cmd_or_resp: ((ret_buffer[0] >> 16) & 0xFF) as u8,
-            checksum: ((ret_buffer[0] >> 24) & 0xFF) as u8,
-        };
+        let resp = unsafe { core::mem::transmute_copy::<_, IxgbeHicHdr>(&ret_buffer) };
 
         // If there is any thing in data position pull it in
         // Read Flash command requires reading buffer length from
