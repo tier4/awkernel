@@ -354,6 +354,7 @@ impl IxgbeInner {
 
         if hw.mac.mac_type == MacType::IxgbeMac82599EB
             && ops.mac_get_media_type(&info, &mut hw) == MediaType::IxgbeMediaTypeFiber
+            && !mng_enabled(&info, &hw)?
         {
             enable_tx_laser_multispeed_fiber(&info)?;
         }
