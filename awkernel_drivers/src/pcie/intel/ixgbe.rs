@@ -725,7 +725,7 @@ impl IxgbeInner {
             txctrl &= !(IXGBE_DCA_TXCTRL_DESC_WRO_EN);
 
             match self.hw.mac.mac_type {
-                IxgbeMac82599EB => {
+                IxgbeMac82598EB => {
                     ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL(que.me), txctrl)?
                 }
                 _ => ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL_82599(que.me), txctrl)?,
