@@ -1,6 +1,6 @@
 use super::{
     ixgbe_hw,
-    ixgbe_operations::{self, start_hw_gen2, start_hw_generic, IxgbeOperations},
+    ixgbe_operations::{self, mng_enabled, start_hw_gen2, start_hw_generic, IxgbeOperations},
     ixgbe_regs::*,
     IxgbeDriverErr,
 };
@@ -1254,6 +1254,16 @@ impl IxgbeOperations for Ixgbe82599 {
             ixgbe_operations::read_eerd_buffer_generic(self, info, eeprom, offset, 1, data)
         } else {
             ixgbe_operations::read_eeprom_bit_bang_generic(self, info, eeprom, offset, data)
+        }
+    }
+
+    fn mac_enable_tx_laser(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
+        if self.mac_get_media_type(info, hw) == MediaType::IxgbeMediaTypeFiber
+            && !mng_enabled(info, hw)?
+        {
+            ixgbe_operations::enable_tx_laser_multispeed_fiber(info)
+        } else {
+            Ok(())
         }
     }
 }
