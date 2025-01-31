@@ -85,6 +85,7 @@ unsafe fn primary_hart(hartid: usize) {
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
+        num_cpu: 4, // TODO: get the number of CPUs
     };
 
     crate::main::<()>(kernel_info);
@@ -100,6 +101,7 @@ unsafe fn non_primary_hart(hartid: usize) {
     let kernel_info = KernelInfo {
         info: (),
         cpu_id: hartid,
+        num_cpu: 4, // TODO: get the number of CPUs
     };
 
     crate::main::<()>(kernel_info);

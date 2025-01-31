@@ -1,7 +1,3 @@
-ifndef $(BSP)
-	BSP = raspi3
-endif
-
 ifeq ($(RELEASE), 1)
 	OPT = --release
 	BUILD = release
@@ -29,6 +25,8 @@ else ifeq ($(BSP),aarch64_virt)
 	INITADDR = 0x40080000
 	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
+
+RUSTC_MISC_ARGS += -C panic=abort
 
 ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
@@ -137,19 +135,22 @@ check_x86_64: $(X86ASM)
 	cargo +$(RUSTV) check_x86
 
 kernel-x86_64.elf: $(X86ASM) FORCE
-	cargo +$(RUSTV) x86 $(OPT)
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
 
 x86_64_boot.img: kernel-x86_64.elf
-	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
 
 x86_64_uefi.img: kernel-x86_64.elf
-	cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
+	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@ --pxe x86_64_uefi_pxe_boot --boot-type uefi
 
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
+OVMF_PATH := $(shell cat ${HOME}/.ovfmpath)
 
-QEMU_X86_ARGS= -drive format=raw,file=x86_64_uefi.img # -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
+QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
+QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
+QEMU_X86_ARGS+= -drive format=raw,file=x86_64_uefi.img
 QEMU_X86_ARGS+= -machine q35
 QEMU_X86_ARGS+= -serial stdio -smp 4 -monitor telnet::5556,server,nowait
 QEMU_X86_ARGS+= -m 4G -smp cpus=16
@@ -161,6 +162,7 @@ QEMU_X86_ARGS+= -numa node,memdev=m0,cpus=0-3,nodeid=0
 QEMU_X86_ARGS+= -numa node,memdev=m1,cpus=4-7,nodeid=1
 QEMU_X86_ARGS+= -numa node,memdev=m2,cpus=8-11,nodeid=2
 QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
+# QEMU_X86_ARGS+= -d int --trace "e1000e_irq_*" --trace "pci_cfg_*"
 
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
@@ -174,16 +176,20 @@ server:
 	python3 scripts/udp.py
 
 qemu-x86_64-net:
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	cat /dev/null > packets.pcap
-	qemu-system-x86_64  $(QEMU_X86_NET_ARGS) -bios `cat ${HOME}/.ovfmpath`
+	qemu-system-x86_64  $(QEMU_X86_NET_ARGS)
 
 qemu-x86_64:
-	qemu-system-x86_64 $(QEMU_X86_ARGS) -bios `cat ${HOME}/.ovfmpath`
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
+	qemu-system-x86_64 $(QEMU_X86_ARGS)
 
 debug-x86_64:
-	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S  -bios `cat ${HOME}/.ovfmpath`
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
+	qemu-system-x86_64 $(QEMU_X86_ARGS) -s -S
 
 gdb-x86_64:
+	cp ${OVMF_PATH}/vars.fd ${OVMF_PATH}/vars_qemu.fd
 	gdb-multiarch -x scripts/x86-debug.gdb
 
 # riscv64
