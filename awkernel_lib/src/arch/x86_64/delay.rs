@@ -195,7 +195,11 @@ static NEXT_CPU: AtomicUsize = AtomicUsize::new(1);
 /// # Safety
 ///
 /// This function must be called during the kernel initialization.
-pub unsafe fn synchronize_tsc(num_cpu: usize) {
+///
+/// # TODO
+///
+/// Fix the synchronization algorithm.
+pub unsafe fn _synchronize_tsc(num_cpu: usize) {
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {

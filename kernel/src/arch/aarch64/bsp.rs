@@ -70,4 +70,7 @@ pub trait SoC {
     fn get_segment_count(&self) -> usize {
         1
     }
+
+    /// Get the number of CPUs.
+    fn get_num_cpus(&self) -> usize;
 }
