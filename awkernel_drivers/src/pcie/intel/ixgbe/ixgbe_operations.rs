@@ -4358,4 +4358,12 @@ pub trait IxgbeOperations: Send {
 
         Ok(checksum)
     }
+
+    fn mac_enable_tx_laser(
+        &self,
+        _info: &PCIeInfo,
+        _hw: &mut IxgbeHw,
+    ) -> Result<(), IxgbeDriverErr> {
+        Ok(())
+    }
 }

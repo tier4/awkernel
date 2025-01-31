@@ -40,7 +40,7 @@ use awkernel_lib::{
     },
 };
 use core::fmt::{self, Debug};
-use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
+use ixgbe_operations::mng_enabled;
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -351,14 +351,7 @@ impl IxgbeInner {
         };
 
         ops.mac_init_hw(&mut info, &mut hw)?;
-
-        if hw.mac.mac_type == MacType::IxgbeMac82599EB
-            && ops.mac_get_media_type(&info, &mut hw) == MediaType::IxgbeMediaTypeFiber
-            && !mng_enabled(&info, &hw)?
-        {
-            enable_tx_laser_multispeed_fiber(&info)?;
-        }
-
+        ops.mac_enable_tx_laser(&info, &mut hw)?;
         ops.phy_set_power(&info, &hw, true)?;
 
         // setup interface
@@ -1146,7 +1139,7 @@ impl IxgbeInner {
         if self.is_sfp() {
             if self.hw.phy.multispeed_fiber {
                 self.ops.mac_setup_sfp(&self.info, &mut self.hw)?;
-                enable_tx_laser_multispeed_fiber(&self.info)?;
+                self.ops.mac_enable_tx_laser(&self.info, &mut self.hw)?;
                 self.handle_msf()?;
             } else {
                 self.handle_mod()?;
