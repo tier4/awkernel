@@ -841,9 +841,7 @@ impl IxgbeInner {
         let mut rxcsum = ixgbe_hw::read_reg(&self.info, IXGBE_RXCSUM)?;
         rxcsum &= !IXGBE_RXCSUM_PCSD;
 
-        if let PCIeInt::MsiX(_) = self.pcie_int {
-            self.initialize_rss_mapping()?;
-        }
+        self.initialize_rss_mapping()?;
 
         // Setup RSS
         let que_num = get_num_queues(&self.hw.mac.mac_type);
