@@ -799,7 +799,7 @@ impl IxgbeInner {
         hlreg |= IXGBE_HLREG0_RXCRCSTRP;
         ixgbe_hw::write_reg(&self.info, IXGBE_HLREG0, hlreg)?;
 
-        let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEHDRSIZE_SHIFT;
+        let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEPKT_SHIFT;
         for que in que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
