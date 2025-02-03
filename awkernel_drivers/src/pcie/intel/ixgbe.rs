@@ -489,7 +489,6 @@ impl IxgbeInner {
                 }
             }
             ixgbe_hw::write_flush(&self.info)?;
-            ixgbe_hw::write_reg(&self.info, IXGBE_RDT(que.me), rx.rx_desc_tail as u32)?;
         }
 
         self.setup_vlan_hw_support(que)?;
