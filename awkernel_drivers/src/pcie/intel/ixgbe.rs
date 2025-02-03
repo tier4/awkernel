@@ -16,7 +16,7 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    delay::wait_microsec,
+    delay::{wait_microsec, wait_millisec},
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -485,7 +485,7 @@ impl IxgbeInner {
                 {
                     break;
                 } else {
-                    wait_microsec(1);
+                    wait_millisec(1);
                 }
             }
             ixgbe_hw::write_flush(&self.info)?;
