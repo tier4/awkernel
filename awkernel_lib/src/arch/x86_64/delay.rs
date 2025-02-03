@@ -2,7 +2,7 @@ use super::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     cpu::cpu_id,
-    delay::{uptime, wait_forever, wait_microsec, Delay},
+    delay::{uptime, wait_forever, Delay},
     mmio_r, mmio_rw,
     paging::{Flags, PageTable},
 };
@@ -23,8 +23,6 @@ static mut HPET_MULTIPLIER_NANO: u128 = 0;
 
 static TSC_COUNTER_START: AtomicU64 = AtomicU64::new(0);
 static mut TSC_FREQ: u128 = 0;
-
-static CPU0_TSC: AtomicU64 = AtomicU64::new(0);
 
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
@@ -184,138 +182,173 @@ fn read_tsc() -> u64 {
     now
 }
 
+// Synchronize TSCs between CPUs.
+
 const IA32_TIME_STAMP_COUNTER: u32 = 0x10;
 const SYNCRHONIZE_TRIES: usize = 11;
-static SYNCHRONIZE_CHANNEL: AtomicI64 = AtomicI64::new(0);
 static NEXT_CPU: AtomicUsize = AtomicUsize::new(1);
+
+static CHANNEL_CPU0_RX: AtomicI64 = AtomicI64::new(MSG_NULL);
+static CHANNEL_CPU0_TX: AtomicI64 = AtomicI64::new(MSG_NULL);
+
+static MSG_NULL: i64 = i64::MIN;
+static MSG_START: i64 = i64::MIN + 1;
+static MSG_OK: i64 = i64::MIN + 2;
+static MSG_END: i64 = i64::MIN + 3;
 
 /// Synchronize the TSC.
 /// Calculate the offset between the TSC of CPU0 and other CPUs.
 ///
+/// # Algorithm
+///
+/// ## Synchronization
+///
+/// ```text
+///   CPU 0         CPU X
+///     |<-- start ---|
+///     |----- OK --->|
+///  t1 |<--- t0 -----| t0
+///  t2 |-- t1 + t2 ->| t3, offset = ((t1 - t0) + (t2 - t3)) / 2
+/// ```
+///
+/// ## Finalization
+///
+/// ```text
+///   CPU 0         CPU X
+///     |<--- end ----|
+/// ```
+///
 /// # Safety
 ///
 /// This function must be called during the kernel initialization.
-///
-/// # TODO
-///
-/// Fix the synchronization algorithm.
-pub unsafe fn _synchronize_tsc(num_cpu: usize) {
+pub unsafe fn synchronize_tsc(num_cpu: usize) {
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {
-        wait_microsec(10000);
-        CPU0_TSC.store(read_tsc(), Ordering::Relaxed);
-    } else {
-        let cpu0_tsc = loop {
-            let cpu0_tsc = CPU0_TSC.load(Ordering::Relaxed);
-            if cpu0_tsc != 0 {
-                break cpu0_tsc;
+        loop {
+            // Receive MSG_START
+            let msg = cpu_0_get_rx();
+            if msg == MSG_END {
+                log::info!("Synchronized TSCs.");
+                return;
             }
-        };
 
-        // Initialize the TSC counter.
-        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(cpu0_tsc);
-    }
+            assert_eq!(msg, MSG_START);
 
-    // Synchronize the TSC counter.
-    // This algorithm is based on NTP's synchronization algorithm.
-    //
-    // - client:
-    //   - t0 = time();
-    //   - send to server
-    // - server:
-    //   - receive from client
-    //   - t1 = time(); // server receive time
-    //   - t2 = time(); // server send time
-    //   - send to client
-    // - client:
-    //   - receive from server
-    //   - t3 = time();
-    // - offset = ((t1 - t0) + (t2 - t3)) / 2
-    if cpu_id == 0 {
-        'outer: loop {
-            // Receive message
-            let t1 = {
-                loop {
-                    let msg = SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed);
-                    if msg == -2 {
-                        break 'outer;
-                    }
+            // Send MSG_OK
+            cpu_0_put_tx(MSG_OK);
 
-                    if msg != 0 {
-                        break;
-                    }
-                    core::hint::spin_loop();
-                }
+            // Receive t0
+            let _t0 = cpu_0_get_rx();
 
-                // Receive time
-                read_tsc() as i64
-            };
+            let t1 = read_tsc() as i64;
 
-            // Send time
-            let t2 = read_tsc() as i64;
-
-            // Send message
-            SYNCHRONIZE_CHANNEL.store(t1 + t2, Ordering::Relaxed);
-
-            // Wait for the next synchronization.
-            while SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed) != 0 {
-                core::hint::spin_loop();
-            }
+            // Send t1 + t2
+            cpu_0_put_tx(t1 * 2);
         }
-
-        log::info!("CPU0: TSC synchronization is done.");
     } else {
         while NEXT_CPU.load(Ordering::Relaxed) != cpu_id {
             core::hint::spin_loop();
         }
 
-        let mut time_offset = [0; SYNCRHONIZE_TRIES];
+        let mut offsets = [0; SYNCRHONIZE_TRIES];
 
-        for offset in time_offset.iter_mut() {
-            // Send message to CPU0.
+        for r in offsets.iter_mut() {
+            // Send MSG_START
+            cpu_x_put_rx(MSG_START);
+
+            // Receive MSG_OK
+            cpu_x_wait_tx(MSG_OK);
+
             let t0 = read_tsc() as i64;
-            SYNCHRONIZE_CHANNEL.store(-1, Ordering::Relaxed);
 
-            // Receive message from CPU0.
-            let t1_t2 = loop {
-                let t1_t2 = SYNCHRONIZE_CHANNEL.load(Ordering::Relaxed);
-                if t1_t2 != -1 {
-                    break t1_t2;
-                }
+            // Send t0
+            cpu_x_put_rx(t0);
 
-                core::hint::spin_loop();
-            };
+            // Receive t1 + t2
+            let t1t2 = cpu_x_get_tx();
 
-            // Receive time
             let t3 = read_tsc() as i64;
+            let offset = (t1t2 - t0 - t3) / 2;
+            let tsc = read_tsc() as i64 + offset;
 
-            *offset = (t1_t2 - t0 - t3) / 2;
+            assert!(tsc >= 0);
 
-            // Notify end of the synchronization to CPU0.
-            SYNCHRONIZE_CHANNEL.store(0, Ordering::Relaxed);
-
-            let n0 = crate::delay::cpu_counter();
-            loop {
-                let n1 = crate::delay::cpu_counter();
-                if n1 - n0 >= 100_000 {
-                    break;
-                }
-            }
+            *r = tsc;
         }
 
-        time_offset.sort_unstable();
-
-        let tsc = (read_tsc() as i64 + time_offset[SYNCRHONIZE_TRIES / 2]) as u64;
-
-        // Initialize the TSC counter.
+        offsets.sort_unstable();
+        let tsc = offsets[SYNCRHONIZE_TRIES / 2] as u64;
         x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(tsc);
 
-        // Notify the next CPU.
-        NEXT_CPU.fetch_add(1, Ordering::Relaxed);
+        if cpu_id < num_cpu - 1 {
+            NEXT_CPU.fetch_add(1, Ordering::Relaxed);
+        } else {
+            cpu_x_put_rx(MSG_END);
+        }
+    }
+}
 
-        if cpu_id == num_cpu - 1 {
-            SYNCHRONIZE_CHANNEL.store(-2, Ordering::Relaxed);
+/// CPUX sends a message to CPU0.
+#[inline(always)]
+fn cpu_x_put_rx(msg: i64) {
+    while let Err(_) =
+        CHANNEL_CPU0_RX.compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+    {
+        core::hint::spin_loop();
+    }
+}
+
+/// CPU0 sends a message to CPUX.
+#[inline(always)]
+fn cpu_0_put_tx(msg: i64) {
+    while let Err(_) =
+        CHANNEL_CPU0_TX.compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+    {
+        core::hint::spin_loop();
+    }
+}
+
+/// CPU0 waits for a message from CPUX.
+#[inline(always)]
+fn cpu_x_wait_tx(msg: i64) {
+    while let Err(_) =
+        CHANNEL_CPU0_TX.compare_exchange(msg, MSG_NULL, Ordering::Relaxed, Ordering::Relaxed)
+    {
+        core::hint::spin_loop();
+    }
+}
+
+/// CPUX receives a message from CPU0.
+#[inline(always)]
+fn cpu_x_get_tx() -> i64 {
+    loop {
+        match CHANNEL_CPU0_TX.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+            if x != MSG_NULL {
+                Some(MSG_NULL)
+            } else {
+                None
+            }
+        }) {
+            Ok(x) => return x,
+            Err(_) => core::hint::spin_loop(),
+        }
+    }
+}
+
+/// CPU0 receives a message from CPUX.
+#[inline(always)]
+fn cpu_0_get_rx() -> i64 {
+    loop {
+        match CHANNEL_CPU0_RX.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
+            if x != MSG_NULL {
+                Some(MSG_NULL)
+            } else {
+                None
+            }
+        }) {
+            Ok(x) => return x,
+            Err(_) => core::hint::spin_loop(),
         }
     }
 }
