@@ -292,8 +292,9 @@ pub unsafe fn synchronize_tsc(num_cpu: usize) {
 /// CPUX sends a message to CPU0.
 #[inline(always)]
 fn cpu_x_put_rx(msg: i64) {
-    while let Err(_) =
-        CHANNEL_CPU0_RX.compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+    while CHANNEL_CPU0_RX
+        .compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
     {
         core::hint::spin_loop();
     }
@@ -302,8 +303,9 @@ fn cpu_x_put_rx(msg: i64) {
 /// CPU0 sends a message to CPUX.
 #[inline(always)]
 fn cpu_0_put_tx(msg: i64) {
-    while let Err(_) =
-        CHANNEL_CPU0_TX.compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+    while CHANNEL_CPU0_TX
+        .compare_exchange(MSG_NULL, msg, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
     {
         core::hint::spin_loop();
     }
@@ -312,8 +314,9 @@ fn cpu_0_put_tx(msg: i64) {
 /// CPU0 waits for a message from CPUX.
 #[inline(always)]
 fn cpu_x_wait_tx(msg: i64) {
-    while let Err(_) =
-        CHANNEL_CPU0_TX.compare_exchange(msg, MSG_NULL, Ordering::Relaxed, Ordering::Relaxed)
+    while CHANNEL_CPU0_TX
+        .compare_exchange(msg, MSG_NULL, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
     {
         core::hint::spin_loop();
     }
