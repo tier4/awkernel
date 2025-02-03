@@ -16,7 +16,7 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    delay::{wait_microsec, wait_millisec},
+    delay::wait_millisec,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
