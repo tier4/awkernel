@@ -253,7 +253,7 @@ pub unsafe fn synchronize_tsc(num_cpu: usize) {
 
         let mut offsets = [0; SYNCRHONIZE_TRIES];
 
-        for r in offsets.iter_mut() {
+        for offset in offsets.iter_mut() {
             // Send MSG_START
             cpu_x_put_rx(MSG_START);
 
@@ -269,17 +269,13 @@ pub unsafe fn synchronize_tsc(num_cpu: usize) {
             let t1t2 = cpu_x_get_tx();
 
             let t3 = read_tsc() as i64;
-            let offset = (t1t2 - t0 - t3) / 2;
-            let tsc = read_tsc() as i64 + offset;
-
-            assert!(tsc >= 0);
-
-            *r = tsc;
+            *offset = (t1t2 - t0 - t3) / 2;
         }
 
         offsets.sort_unstable();
-        let tsc = offsets[SYNCRHONIZE_TRIES / 2] as u64;
-        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(tsc);
+        let offset = offsets[SYNCRHONIZE_TRIES / 2];
+        let tsc = read_tsc() as i64 + offset;
+        x86_64::registers::model_specific::Msr::new(IA32_TIME_STAMP_COUNTER).write(tsc as u64);
 
         if cpu_id < num_cpu - 1 {
             NEXT_CPU.fetch_add(1, Ordering::Relaxed);
