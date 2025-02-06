@@ -355,6 +355,12 @@ impl<N, E> Graph<N, E> {
     }
 }
 
+impl<N, E> Default for Graph<N, E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<N, E, Ix> Graph<N, E, Ix>
 where
     Ix: IndexType,
