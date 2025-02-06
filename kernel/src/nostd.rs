@@ -2,9 +2,24 @@ use alloc::boxed::Box;
 use awkernel_lib::{delay::wait_forever, heap::TALLOC};
 
 use core::ffi::c_void;
-use unwinding::abi::{
-    UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_GetIP, _Unwind_GetRegionStart,
-};
+use core::slice;
+use unwinding::abi::{UnwindContext, UnwindReasonCode, _Unwind_Backtrace, _Unwind_GetIP};
+
+// Base address and size of each debug section
+unsafe extern "C" {
+    static __debug_abbrev_start: u8;
+    static __debug_abbrev_size: u8;
+    static __debug_info_start: u8;
+    static __debug_info_size: u8;
+    static __debug_aranges_start: u8;
+    static __debug_aranges_size: u8;
+    static __debug_ranges_start: u8;
+    static __debug_ranges_size: u8;
+    static __debug_str_start: u8;
+    static __debug_str_size: u8;
+    static __debug_line_start: u8;
+    static __debug_line_size: u8;
+}
 
 #[cfg(any(
     feature = "x86",
@@ -20,16 +35,82 @@ fn stack_trace() {
         let data = unsafe { &mut *(arg as *mut CallbackData) };
         data.counter += 1;
 
-        // TODO: Print symbol name
-        let _base = _Unwind_GetRegionStart(unwind_ctx);
+        let endian = gimli::LittleEndian;
+        let loader =
+             |id: gimli::SectionId| -> Result<gimli::EndianSlice<'_, gimli::LittleEndian>, gimli::Error> {
+                 unsafe {
+                     Ok(match id {
+                         gimli::SectionId::DebugAbbrev => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_abbrev_start,
+                                 &raw const __debug_abbrev_size as usize,
+                             ),
+                             endian,
+                         ),
+                         gimli::SectionId::DebugInfo => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_info_start,
+                                 &raw const __debug_info_size as usize,
+                             ),
+                             endian,
+                         ),
+                         gimli::SectionId::DebugAranges => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_aranges_start,
+                                 &raw const __debug_aranges_size as usize,
+                             ),
+                             endian,
+                         ),
+                         gimli::SectionId::DebugRanges => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_ranges_start,
+                                 &raw const __debug_ranges_size as usize,
+                             ),
+                             endian,
+                         ),
+                         gimli::SectionId::DebugStr => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_str_start,
+                                 &raw const __debug_str_size as usize,
+                             ),
+                             endian,
+                         ),
+                         gimli::SectionId::DebugLine => gimli::EndianSlice::new(
+                             slice::from_raw_parts(
+                                 &raw const __debug_line_start,
+                                 &raw const __debug_line_size as usize,
+                             ),
+                             endian,
+                         ),
+                         _ => gimli::EndianSlice::new(&[], endian),
+                     })
+                 }
+             };
 
-        log::info!(
-            "#{:2} {:#016x} in <unknown>",
-            data.counter,
-            _Unwind_GetIP(unwind_ctx),
-        );
+        let dwarf = gimli::Dwarf::load(loader).unwrap();
+        let context = addr2line::Context::from_dwarf(dwarf).unwrap();
+
+        // Prints debug information
+        let addr = _Unwind_GetIP(unwind_ctx);
+        let mut frames = context.find_frames(addr as u64).skip_all_loads().unwrap();
+
+        while let Ok(Some(frame)) = frames.next() {
+            let name = frame.function.unwrap();
+            let location = frame.location.unwrap();
+
+            log::info!(
+                "{}:\t{:#016x} - {}\n\t\tat {}:{}:{}",
+                data.counter,
+                addr,
+                name.demangle().unwrap(),
+                location.file.unwrap(),
+                location.line.unwrap_or(0),
+                location.column.unwrap_or(0)
+            )
+        }
         UnwindReasonCode::NO_REASON
     }
+
     let mut data = CallbackData { counter: 0 };
     _Unwind_Backtrace(callback, &mut data as *mut _ as _);
 }
