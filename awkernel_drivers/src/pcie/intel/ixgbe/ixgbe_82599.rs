@@ -1,6 +1,6 @@
 use super::{
     ixgbe_hw,
-    ixgbe_operations::{self, start_hw_gen2, start_hw_generic, IxgbeOperations},
+    ixgbe_operations::{self, mng_enabled, start_hw_gen2, start_hw_generic, IxgbeOperations},
     ixgbe_regs::*,
     IxgbeDriverErr,
 };
@@ -1256,6 +1256,16 @@ impl IxgbeOperations for Ixgbe82599 {
             ixgbe_operations::read_eeprom_bit_bang_generic(self, info, eeprom, offset, data)
         }
     }
+
+    fn mac_enable_tx_laser(&self, info: &PCIeInfo, hw: &mut IxgbeHw) -> Result<(), IxgbeDriverErr> {
+        if self.mac_get_media_type(info, hw) == MediaType::IxgbeMediaTypeFiber
+            && !mng_enabled(info, hw)?
+        {
+            ixgbe_operations::enable_tx_laser_multispeed_fiber(info)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 /// Return `(mcft_size: u32, vft_size: u32, num_rar_entries: u32,
@@ -1265,11 +1275,8 @@ impl IxgbeOperations for Ixgbe82599 {
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
-    let arc_subsystem_valid =
-        match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => val != 0,
-            Err(e) => return Err(e),
-        };
+    let fwsm_offset = get_fwsm_offset(info.get_id())?;
+    let arc_subsystem_valid = (ixgbe_hw::read_reg(info, fwsm_offset)? & IXGBE_FWSM_MODE_MASK) != 0;
 
     Ok((
         IXGBE_82599_MC_TBL_SIZE,

@@ -39,6 +39,7 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: 0,
+        num_cpu: nprocs(),
     };
     crate::main(kernel_info);
 
@@ -102,6 +103,7 @@ extern "C" fn thread_func(cpu: *mut c_void) -> *mut c_void {
     let kernel_info = KernelInfo::<()> {
         info: (),
         cpu_id: cpu as usize,
+        num_cpu: nprocs(),
     };
     crate::main(kernel_info);
 

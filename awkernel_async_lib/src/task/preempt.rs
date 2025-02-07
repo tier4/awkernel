@@ -210,37 +210,26 @@ unsafe fn do_preemption() {
         let task = tasks.id_to_task.get(&task_id.0).unwrap();
 
         let mut node = MCSNode::new();
-        let mut info = task.info.lock(&mut node);
-
-        #[cfg(feature = "runtime_verification")]
-        {
-            log::debug!(
-                "[RV DEBUG] task id: {}, last_executed_time: {}, num_preempt: {}",
-                task_id.0,
-                info.last_executed_time,
-                info.num_preempt
-            );
-        }
+        let info = task.info.lock(&mut node);
 
         if !info.need_preemption {
             return;
-        } else {
-            info.need_preemption = false;
-            #[cfg(feature = "runtime_verification")]
-            {
-                let mut node = MCSNode::new();
-                let models = &mut runtime_verification::MODELS.lock(&mut node);
+        }
 
-                let model = models.get_mut(&task.id).unwrap();
-                model.transition(
-                    &runtime_verification::event::Event::PreemptionStart,
-                    &TaskState {
-                        state: info.state.into(),
-                        need_sched: info.need_sched,
-                        need_preemption: info.need_preemption,
-                    },
-                );
-            }
+        #[cfg(feature = "runtime_verification")]
+        {
+            let mut node = MCSNode::new();
+            let models = &mut runtime_verification::MODELS.lock(&mut node);
+
+            let model = models.get_mut(&task.id).unwrap();
+            model.transition(
+                &runtime_verification::event::Event::PreemptionStart,
+                &TaskState {
+                    state: info.state.into(),
+                    need_sched: info.need_sched,
+                    need_preemption: info.need_preemption,
+                },
+            );
         }
     }
 

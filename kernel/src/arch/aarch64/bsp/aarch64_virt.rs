@@ -140,6 +140,12 @@ impl super::SoC for AArch64Virt {
 
         Ok(())
     }
+
+    fn get_num_cpus(&self) -> usize {
+        self.device_tree
+            .num_cpus()
+            .expect("failed to count up the number of CPUs")
+    }
 }
 
 impl AArch64Virt {

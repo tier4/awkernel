@@ -67,6 +67,7 @@ impl Time {
     /// let diff = time.elapsed();
     ///
     /// log::info!("Elapsed: {} [ms]", diff.as_millis());
+    /// ```
     #[inline]
     pub fn elapsed(&self) -> Duration {
         let now = crate::delay::uptime_nano();

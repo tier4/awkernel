@@ -439,11 +439,8 @@ impl IxgbeOperations for IxgbeX550 {
 pub fn set_mac_val(
     info: &PCIeInfo,
 ) -> Result<(u32, u32, u32, u32, u32, u32, u16, bool), IxgbeDriverErr> {
-    let arc_subsystem_valid =
-        match ixgbe_hw::read_reg(info, IXGBE_FWSM_X540 & IXGBE_FWSM_MODE_MASK as usize) {
-            Ok(val) => val != 0,
-            Err(e) => return Err(e),
-        };
+    let fwsm_offset = get_fwsm_offset(info.get_id())?;
+    let arc_subsystem_valid = (ixgbe_hw::read_reg(info, fwsm_offset)? & IXGBE_FWSM_MODE_MASK) != 0;
 
     Ok((
         IXGBE_X540_MC_TBL_SIZE,

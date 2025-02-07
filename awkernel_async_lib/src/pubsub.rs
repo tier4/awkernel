@@ -31,7 +31,7 @@ use super::{
     anydict::{AnyDict, AnyDictResult},
     r#yield,
 };
-use crate::delay::uptime;
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -55,7 +55,7 @@ use pin_project::pin_project;
 /// Data and timestamp.
 #[derive(Clone)]
 pub struct Data<T> {
-    pub timestamp: u64,
+    pub timestamp: awkernel_lib::time::Time,
     pub data: T,
 }
 
@@ -133,7 +133,7 @@ impl<T> InnerSubscriber<T> {
         if let Lifespan::Span(lifespan) = lifespan {
             let span = lifespan.as_micros();
             while let Some(head) = self.queue.head() {
-                if uptime() - head.timestamp > span as u64 {
+                if head.timestamp.elapsed().as_micros() > span {
                     self.queue.pop();
                 }
             }
@@ -153,28 +153,46 @@ impl<T: Clone + Send> Future for Receiver<'_, T> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        let mut node = MCSNode::new();
-        let mut inner = self.subscriber.inner.lock(&mut node);
+        let data = self.subscriber.try_recv();
 
-        if let Some(waker) = inner.waker_publishers.pop_front() {
-            waker.wake();
-        }
-
-        inner.garbage_collect(&self.subscriber.subscribers.attribute.lifespan);
-
-        if let Some(data) = inner.queue.pop() {
+        if let Some(data) = data {
             Poll::Ready(data)
         } else {
+            let mut node = MCSNode::new();
+            let mut inner = self.subscriber.inner.lock(&mut node);
             inner.waker_subscriber = Some(cx.waker().clone());
+
             Poll::Pending
         }
     }
 }
 
 impl<T: Clone + Send> Subscriber<T> {
+    /// Receive data asynchronously.
     pub async fn recv(&self) -> Data<T> {
         let receiver = Receiver { subscriber: self };
         receiver.await
+    }
+
+    /// Non-blocking data receive.
+    /// If there is no data, return `None`.
+    pub fn try_recv(&self) -> Option<Data<T>> {
+        let mut node = MCSNode::new();
+        let mut inner = self.inner.lock(&mut node);
+
+        inner.garbage_collect(&self.subscribers.attribute.lifespan);
+
+        let result = inner.queue.pop();
+
+        for _ in 0..inner.queue.queue_size() - inner.queue.len() {
+            if let Some(waker) = inner.waker_publishers.pop_front() {
+                waker.wake();
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 
     fn id(&self) -> usize {
@@ -201,7 +219,7 @@ struct Sender<'a, T: 'static + Send> {
     data: Option<T>,
     subscribers: VecDeque<ArcInner<T>>,
     state: SenderState,
-    timestamp: u64,
+    timestamp: awkernel_lib::time::Time,
 }
 
 enum SenderState {
@@ -217,7 +235,7 @@ impl<'a, T: Send> Sender<'a, T> {
             data: Some(data),
             subscribers: Default::default(),
             state: SenderState::Start,
-            timestamp: uptime(),
+            timestamp: awkernel_lib::time::Time::now(),
         }
     }
 }
@@ -249,7 +267,7 @@ where
                             let mut node = MCSNode::new();
                             let mut guard = buf.lock(&mut node);
                             if let Err(data) = guard.push(Data {
-                                timestamp: uptime(),
+                                timestamp: awkernel_lib::time::Time::now(),
                                 data: data.clone(),
                             }) {
                                 // If the send buffer is full, then remove the oldest one and store again.

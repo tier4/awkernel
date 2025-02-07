@@ -84,7 +84,7 @@ impl TaskModel {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Running;
                 current.need_sched = true;
-                current.need_preemption = false;
+                current.need_preemption = true;
             }
             (State::Running, false, true, Event::Wake) => {
                 *counter.entry(key).or_insert(0) += 1;
@@ -92,17 +92,17 @@ impl TaskModel {
                 current.need_sched = true;
                 current.need_preemption = true;
             }
-            (State::Preempted, true, false, Event::GetNext) => {
+            (State::Preempted, true, true, Event::GetNext) => {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Running;
                 current.need_sched = true;
                 current.need_preemption = false;
             }
-            (State::Running, true, false, Event::SetPreempted) => {
+            (State::Running, true, true, Event::SetPreempted) => {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Preempted;
                 current.need_sched = true;
-                current.need_preemption = false;
+                current.need_preemption = true;
             }
             (State::Running, true, false, Event::PollPending) => {
                 *counter.entry(key).or_insert(0) += 1;
@@ -116,17 +116,17 @@ impl TaskModel {
                 current.need_sched = true;
                 current.need_preemption = false;
             }
-            (State::Preempted, false, false, Event::GetNext) => {
+            (State::Preempted, false, true, Event::GetNext) => {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Running;
                 current.need_sched = false;
                 current.need_preemption = false;
             }
-            (State::Running, false, false, Event::SetPreempted) => {
+            (State::Running, false, true, Event::SetPreempted) => {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Preempted;
                 current.need_sched = false;
-                current.need_preemption = false;
+                current.need_preemption = true;
             }
             (State::Running, false, false, Event::PollReady) => {
                 *counter.entry(key).or_insert(0) += 1;
@@ -138,7 +138,7 @@ impl TaskModel {
                 *counter.entry(key).or_insert(0) += 1;
                 current.state = State::Running;
                 current.need_sched = false;
-                current.need_preemption = false;
+                current.need_preemption = true;
             }
             (State::Running, false, false, Event::SetNeedPreemption) => {
                 *counter.entry(key).or_insert(0) += 1;

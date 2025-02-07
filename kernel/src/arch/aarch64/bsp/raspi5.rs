@@ -117,6 +117,10 @@ impl super::SoC for Raspi5 {
 
         Ok(())
     }
+
+    fn get_num_cpus(&self) -> usize {
+        self.device_tree.num_cpus().unwrap_or(4)
+    }
 }
 
 impl Raspi5 {

@@ -41,6 +41,9 @@ impl Scheduler for RRScheduler {
                     continue;
                 }
 
+                if task_info.state == State::Preempted {
+                    task_info.need_preemption = false;
+                }
                 task_info.state = State::Running;
             }
 
@@ -60,8 +63,8 @@ impl Scheduler for RRScheduler {
 }
 
 pub static SCHEDULER: RRScheduler = RRScheduler {
-    // Time quantum (20 ms)
-    interval: 20_000,
+    // Time quantum (4 ms)
+    interval: 4_000,
     queue: Mutex::new(None),
     priority: get_priority(SchedulerType::RR),
 };
@@ -71,8 +74,8 @@ impl RRScheduler {
     pub fn invoke_preemption(&self, cpu_id: usize, task_id: u32) {
         let preempt_irq = awkernel_lib::interrupt::get_preempt_irq();
         if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
-            let elapsed = awkernel_lib::delay::uptime() - last_executed;
-            if last_executed != 0 && elapsed > self.interval {
+            let elapsed = last_executed.elapsed().as_micros() as u64;
+            if elapsed > self.interval {
                 set_need_preemption(task_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
             }
