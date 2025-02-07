@@ -110,6 +110,7 @@ impl Scheduler for GEDFScheduler {
                 }
 
                 task_info.state = State::Running;
+                task_info.need_preemption = false;
             }
 
             return Some(task.task);

@@ -48,6 +48,7 @@ impl Scheduler for FIFOScheduler {
                 }
 
                 task_info.state = State::Running;
+                task_info.need_preemption = false;
             }
 
             return Some(task);
