@@ -157,6 +157,15 @@ impl SleepingTasks {
         while let Some((dur, _)) = self.delta_list.front() {
             let dur = Duration::from_nanos(dur);
             let elapsed = self.base_time.elapsed();
+
+            if dur.as_millis() > 900 {
+                log::debug!(
+                    "dur: {} [us], elapsed: {} [us]",
+                    dur.as_micros(),
+                    elapsed.as_micros()
+                );
+            }
+
             if dur <= elapsed {
                 // Timed out.
                 if let DeltaList::Cons(data) = self.delta_list.pop().unwrap() {

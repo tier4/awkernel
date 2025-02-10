@@ -35,10 +35,7 @@ impl Future for Sleep {
         let mut guard = self.state.lock(&mut node);
 
         match &*guard {
-            State::Wait => {
-                *guard = State::Canceled;
-                Poll::Ready(State::Canceled)
-            }
+            State::Wait => Poll::Pending,
             State::Canceled => Poll::Ready(State::Canceled),
             State::Finished => Poll::Ready(State::Finished),
             State::Ready => {
@@ -54,9 +51,8 @@ impl Future for Sleep {
                         let mut guard = state.lock(&mut node);
                         if let State::Wait = &*guard {
                             *guard = State::Finished;
+                            waker.wake();
                         }
-
-                        waker.wake();
                     }),
                     self.dur,
                 );
