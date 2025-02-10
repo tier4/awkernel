@@ -61,6 +61,9 @@ impl Scheduler for PanickedScheduler {
                     continue;
                 }
 
+                if task_info.state == State::Preempted {
+                    task_info.need_preemption = false;
+                }
                 task_info.state = State::Running;
             }
 
