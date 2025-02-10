@@ -13,7 +13,6 @@ mod accepter;
 pub mod action;
 mod anydict;
 pub mod channel;
-mod delay;
 pub mod future;
 mod join_handle;
 pub mod net;
@@ -71,7 +70,7 @@ pub trait Cancel: Future + Unpin {
 /// };
 /// ```
 pub async fn sleep(duration: Duration) -> sleep_task::State {
-    sleep_task::Sleep::new(duration.as_micros() as u64).await
+    sleep_task::Sleep::new(duration).await
 }
 
 /// Yield the CPU to the next executable task.
@@ -92,7 +91,7 @@ pub async fn r#yield() {
     yield_task::Yield::new().await
 }
 
-/// Wait forever. Never return.
+/// Do the `future` with a timeout.
 ///
 /// # Example
 ///

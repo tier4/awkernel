@@ -4,7 +4,7 @@ use super::Cancel;
 use crate::scheduler;
 use alloc::sync::Arc;
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::task::Poll;
+use core::{task::Poll, time::Duration};
 use futures::{future::FusedFuture, Future};
 
 #[cfg(not(feature = "std"))]
@@ -13,7 +13,7 @@ use alloc::boxed::Box;
 #[must_use = "use `.await` to sleep"]
 pub struct Sleep {
     state: Arc<Mutex<State>>,
-    dur: u64,
+    dur: Duration,
 }
 
 #[derive(Debug)]
@@ -84,7 +84,7 @@ impl Cancel for Sleep {
 
 impl Sleep {
     // Create a `Sleep`.
-    pub(super) fn new(dur: u64) -> Self {
+    pub(super) fn new(dur: Duration) -> Self {
         let state = Arc::new(Mutex::new(State::Ready));
         Self { state, dur }
     }
