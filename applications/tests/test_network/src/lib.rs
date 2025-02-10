@@ -91,8 +91,10 @@ async fn ipv4_multicast_send_test() {
 
 async fn ipv4_multicast_recv_test() {
     // Open a UDP socket for multicast.
-    let mut config = UdpConfig::default();
-    config.port = Some(MULTICAST_PORT);
+    let config = UdpConfig {
+        port: Some(MULTICAST_PORT),
+        ..UdpConfig::default()
+    };
 
     let mut socket =
         awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
