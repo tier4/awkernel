@@ -95,13 +95,13 @@ impl Add<Duration> for Time {
 
     fn add(self, dur: Duration) -> Self {
         Self {
-            uptime: self.uptime + dur.as_nanos() as u128,
+            uptime: self.uptime + dur.as_nanos(),
         }
     }
 }
 
 impl AddAssign<Duration> for Time {
     fn add_assign(&mut self, dur: Duration) {
-        self.uptime += dur.as_nanos() as u128;
+        self.uptime += dur.as_nanos();
     }
 }
