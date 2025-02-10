@@ -1,1 +1,1 @@
-pub use awkernel_lib::time::Time;
+pub use awkernel_lib::time::*;
