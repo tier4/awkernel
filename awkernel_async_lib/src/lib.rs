@@ -91,7 +91,7 @@ pub async fn r#yield() {
     yield_task::Yield::new().await
 }
 
-/// Wait forever. Never return.
+/// Do the `future` with a timeout.
 ///
 /// # Example
 ///
