@@ -5,11 +5,7 @@ extern crate alloc;
 use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
-use awkernel_async_lib::{
-    future::FutureExt,
-    net::{tcp::TcpConfig, udp::UdpConfig, IpAddr},
-    select,
-};
+use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
 use awkernel_lib::net::NetManagerError;
 
 const INTERFACE_ID: u64 = 0;
@@ -21,6 +17,8 @@ const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
 // 10.0.2.2 is the IP address of the Qemu's host.
 const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+
+// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
 
 const UDP_DST_PORT: u16 = 26099;
 
@@ -236,12 +234,11 @@ async fn udp_test() {
         }
 
         // Receive a UDP packet.
-        select! {
-            _ = awkernel_async_lib::sleep(Duration::from_secs(1)).fuse() => (),
-            _ = socket.recv(&mut buf).fuse() => {
-                let rtt = t0.elapsed().as_micros() as u64;
-                log::debug!("RTT: {rtt} us");
-            }
+        if let Some(Ok(_)) =
+            awkernel_async_lib::timeout(Duration::from_secs(1), socket.recv(&mut buf)).await
+        {
+            let rtt = t0.elapsed().as_micros() as u64;
+            log::debug!("i = {i}, RTT: {rtt} [us]");
         }
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
