@@ -16,7 +16,7 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    delay::wait_microsec,
+    delay::wait_millisec,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -357,15 +357,18 @@ impl IxgbeInner {
         // setup interface
         // TODO: Check if these are correct
         let flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
-        let mut capabilities = NetCapabilities::VLAN_MTU
-            | NetCapabilities::VLAN_HWTAGGING
-            | NetCapabilities::CSUM_IPv4
-            | NetCapabilities::CSUM_UDPv4
-            | NetCapabilities::CSUM_TCPv4
-            | NetCapabilities::CSUM_UDPv6
-            | NetCapabilities::CSUM_TCPv6
-            | NetCapabilities::TSOv4
-            | NetCapabilities::TSOv6;
+
+        let mut capabilities = NetCapabilities::empty();
+        // TODO: enable these capabilities
+        // let mut capabilities = NetCapabilities::VLAN_MTU
+        //     | NetCapabilities::VLAN_HWTAGGING
+        //     | NetCapabilities::CSUM_IPv4
+        //     | NetCapabilities::CSUM_UDPv4
+        //     | NetCapabilities::CSUM_TCPv4
+        //     | NetCapabilities::CSUM_UDPv6
+        //     | NetCapabilities::CSUM_TCPv6
+        //     | NetCapabilities::TSOv4
+        //     | NetCapabilities::TSOv6;
 
         if MacType::IxgbeMac82598EB != hw.get_mac_type() {
             // flags |= NetFlags::LR0;
@@ -485,7 +488,7 @@ impl IxgbeInner {
                 {
                     break;
                 } else {
-                    wait_microsec(1);
+                    wait_millisec(1);
                 }
             }
             ixgbe_hw::write_flush(&self.info)?;

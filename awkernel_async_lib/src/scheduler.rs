@@ -1,8 +1,10 @@
 //! Define types and trait for the Autoware Kernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
+use core::time::Duration;
+
+use crate::task::Task;
 use crate::task::{get_current_task, get_scheduler_type_by_task_id};
-use crate::{delay::uptime, task::Task};
 use alloc::sync::Arc;
 use awkernel_async_lib_verified::delta_list::DeltaList;
 use awkernel_lib::{
@@ -127,36 +129,35 @@ pub const fn get_priority(sched_type: SchedulerType) -> u8 {
 /// Maintain sleeping tasks by a delta list.
 struct SleepingTasks {
     delta_list: DeltaList<Box<dyn FnOnce() + Send>>,
-    base_time: u64,
+    base_time: awkernel_lib::time::Time,
 }
 
 impl SleepingTasks {
     const fn new() -> Self {
         Self {
             delta_list: DeltaList::Nil,
-            base_time: 0,
+            base_time: awkernel_lib::time::Time::zero(),
         }
     }
 
-    /// `dur` is microseconds
-    fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: u64) {
-        let now = uptime();
+    /// `dur` is a Duration.
+    fn sleep_task(&mut self, handler: Box<dyn FnOnce() + Send>, mut dur: Duration) {
         if self.delta_list.is_empty() {
-            self.base_time = now;
+            self.base_time = awkernel_lib::time::Time::now();
         } else {
-            let diff = now - self.base_time;
+            let diff = self.base_time.elapsed();
             dur += diff;
         }
 
-        self.delta_list.insert(dur, handler);
+        self.delta_list.insert(dur.as_nanos() as u64, handler);
     }
 
     /// Wake tasks up.
     fn wake_task(&mut self) {
-        let now = uptime();
-
         while let Some((dur, _)) = self.delta_list.front() {
-            let elapsed = now - self.base_time;
+            let dur = Duration::from_nanos(dur);
+            let elapsed = self.base_time.elapsed();
+
             if dur <= elapsed {
                 // Timed out.
                 if let DeltaList::Cons(data) = self.delta_list.pop().unwrap() {
@@ -174,7 +175,7 @@ impl SleepingTasks {
 
 /// After `dur` time, `sleep_handler` will be invoked.
 /// `dur` is microseconds.
-pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: u64) {
+pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration) {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.sleep_task(sleep_handler, dur);

@@ -6,7 +6,7 @@ use alloc::{
     sync::Arc,
 };
 use core::{fmt::Display, net::Ipv4Addr};
-use net_device::NetDevError;
+use net_device::{EtherFrameRef, NetDevError, PacketHeaderFlags};
 use smoltcp::wire::{IpAddress, IpCidr};
 
 use self::{
@@ -677,4 +677,24 @@ pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, Net
     };
 
     if_net.leave_multicast_v4(addr)
+}
+
+/// Send a raw packet.
+pub fn raw_send(interface_id: u64, que_id: usize, data: &[u8]) -> Result<(), NetManagerError> {
+    let net_manager = NET_MANAGER.read();
+    let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
+        return Err(NetManagerError::InvalidInterfaceID);
+    };
+
+    let frame = EtherFrameRef {
+        data,
+        vlan: None,
+        csum_flags: PacketHeaderFlags::empty(),
+    };
+
+    if let Err(e) = if_net.net_device.send(frame, que_id) {
+        return Err(NetManagerError::DeviceError(e));
+    }
+
+    Ok(())
 }

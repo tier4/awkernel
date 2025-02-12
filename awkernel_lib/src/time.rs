@@ -22,7 +22,10 @@
 ///
 /// log::info!("Elapsed: {} [ms]", diff.as_millis());
 /// ```
-use core::time::Duration;
+use core::{
+    ops::{Add, AddAssign},
+    time::Duration,
+};
 
 /// Monotonically increasing time.
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +39,11 @@ impl Time {
         Self {
             uptime: crate::delay::uptime_nano(),
         }
+    }
+
+    #[inline]
+    pub const fn zero() -> Self {
+        Self { uptime: 0 }
     }
 
     /// Return uptime.
@@ -79,5 +87,21 @@ impl Time {
         } else {
             Duration::from_nanos(0)
         }
+    }
+}
+
+impl Add<Duration> for Time {
+    type Output = Self;
+
+    fn add(self, dur: Duration) -> Self {
+        Self {
+            uptime: self.uptime + dur.as_nanos(),
+        }
+    }
+}
+
+impl AddAssign<Duration> for Time {
+    fn add_assign(&mut self, dur: Duration) {
+        self.uptime += dur.as_nanos();
     }
 }
