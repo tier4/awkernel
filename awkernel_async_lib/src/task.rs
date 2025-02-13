@@ -117,7 +117,7 @@ pub struct TaskInfo {
     last_executed_time: awkernel_lib::time::Time,
     absolute_deadline: Option<u64>,
     need_sched: bool,
-    need_preemption: bool,
+    pub(crate) need_preemption: bool,
     panicked: bool,
 
     #[cfg(not(feature = "no_preempt"))]
