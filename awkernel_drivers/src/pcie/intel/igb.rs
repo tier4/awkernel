@@ -487,16 +487,19 @@ impl IgbInner {
         let flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
         let mut capabilities = NetCapabilities::VLAN_MTU | NetCapabilities::VLAN_HWTAGGING;
 
-        if hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
-            capabilities |= NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_UDPv4;
-        }
+        // TODO: enable checksum offload
+        // if hw.get_mac_type() as u32 >= MacType::Em82543 as u32 {
+        //     capabilities |= NetCapabilities::CSUM_TCPv4 | NetCapabilities::CSUM_UDPv4;
+        // }
 
         if MacType::Em82575 as u32 <= hw.get_mac_type() as u32
             && hw.get_mac_type() as u32 <= MacType::EmI210 as u32
         {
-            capabilities |= NetCapabilities::CSUM_IPv4
-                | NetCapabilities::CSUM_TCPv6
-                | NetCapabilities::CSUM_UDPv6;
+            capabilities |= NetCapabilities::CSUM_IPv4;
+
+            // TODO: enable checksum offload
+            // | NetCapabilities::CSUM_TCPv6
+            // | NetCapabilities::CSUM_UDPv6;
         }
 
         // Initialize statistics

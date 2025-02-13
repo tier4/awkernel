@@ -16,7 +16,7 @@ use alloc::{
 use awkernel_async_lib_verified::ringq::RingQ;
 use awkernel_lib::{
     addr::Addr,
-    delay::wait_microsec,
+    delay::wait_millisec,
     dma_pool::DMAPool,
     interrupt::IRQ,
     net::{
@@ -40,7 +40,7 @@ use awkernel_lib::{
     },
 };
 use core::fmt::{self, Debug};
-use ixgbe_operations::{enable_tx_laser_multispeed_fiber, mng_enabled};
+use ixgbe_operations::mng_enabled;
 use memoffset::offset_of;
 use rand::rngs::SmallRng;
 use rand::Rng;
@@ -351,25 +351,24 @@ impl IxgbeInner {
         };
 
         ops.mac_init_hw(&mut info, &mut hw)?;
-
-        if hw.mac.mac_type == MacType::IxgbeMac82599EB {
-            enable_tx_laser_multispeed_fiber(&info)?;
-        }
-
+        ops.mac_enable_tx_laser(&info, &mut hw)?;
         ops.phy_set_power(&info, &hw, true)?;
 
         // setup interface
         // TODO: Check if these are correct
         let flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
-        let mut capabilities = NetCapabilities::VLAN_MTU
-            | NetCapabilities::VLAN_HWTAGGING
-            | NetCapabilities::CSUM_IPv4
-            | NetCapabilities::CSUM_UDPv4
-            | NetCapabilities::CSUM_TCPv4
-            | NetCapabilities::CSUM_UDPv6
-            | NetCapabilities::CSUM_TCPv6
-            | NetCapabilities::TSOv4
-            | NetCapabilities::TSOv6;
+
+        let mut capabilities = NetCapabilities::empty();
+        // TODO: enable these capabilities
+        // let mut capabilities = NetCapabilities::VLAN_MTU
+        //     | NetCapabilities::VLAN_HWTAGGING
+        //     | NetCapabilities::CSUM_IPv4
+        //     | NetCapabilities::CSUM_UDPv4
+        //     | NetCapabilities::CSUM_TCPv4
+        //     | NetCapabilities::CSUM_UDPv6
+        //     | NetCapabilities::CSUM_TCPv6
+        //     | NetCapabilities::TSOv4
+        //     | NetCapabilities::TSOv6;
 
         if MacType::IxgbeMac82598EB != hw.get_mac_type() {
             // flags |= NetFlags::LR0;
@@ -489,7 +488,7 @@ impl IxgbeInner {
                 {
                     break;
                 } else {
-                    wait_microsec(1);
+                    wait_millisec(1);
                 }
             }
             ixgbe_hw::write_flush(&self.info)?;
@@ -722,7 +721,7 @@ impl IxgbeInner {
             txctrl &= !(IXGBE_DCA_TXCTRL_DESC_WRO_EN);
 
             match self.hw.mac.mac_type {
-                IxgbeMac82599EB => {
+                IxgbeMac82598EB => {
                     ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL(que.me), txctrl)?
                 }
                 _ => ixgbe_hw::write_reg(&self.info, IXGBE_DCA_TXCTRL_82599(que.me), txctrl)?,
@@ -803,7 +802,7 @@ impl IxgbeInner {
         hlreg |= IXGBE_HLREG0_RXCRCSTRP;
         ixgbe_hw::write_reg(&self.info, IXGBE_HLREG0, hlreg)?;
 
-        let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEHDRSIZE_SHIFT;
+        let bufsz = MCLBYTES >> IXGBE_SRRCTL_BSIZEPKT_SHIFT;
         for que in que.iter() {
             let mut node = MCSNode::new();
             let rx = que.rx.lock(&mut node);
@@ -845,9 +844,7 @@ impl IxgbeInner {
         let mut rxcsum = ixgbe_hw::read_reg(&self.info, IXGBE_RXCSUM)?;
         rxcsum &= !IXGBE_RXCSUM_PCSD;
 
-        if let PCIeInt::MsiX(_) = self.pcie_int {
-            self.initialize_rss_mapping()?;
-        }
+        self.initialize_rss_mapping()?;
 
         // Setup RSS
         let que_num = get_num_queues(&self.hw.mac.mac_type);
@@ -1143,7 +1140,7 @@ impl IxgbeInner {
         if self.is_sfp() {
             if self.hw.phy.multispeed_fiber {
                 self.ops.mac_setup_sfp(&self.info, &mut self.hw)?;
-                enable_tx_laser_multispeed_fiber(&self.info)?;
+                self.ops.mac_enable_tx_laser(&self.info, &mut self.hw)?;
                 self.handle_msf()?;
             } else {
                 self.handle_mod()?;

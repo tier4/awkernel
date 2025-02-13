@@ -74,7 +74,7 @@ where
     pub(super) fn new(duration: Duration, future: F) -> Self {
         Self {
             future,
-            sleep: super::sleep_task::Sleep::new(duration.as_micros() as u64),
+            sleep: super::sleep_task::Sleep::new(duration),
             state: State::Start,
         }
     }

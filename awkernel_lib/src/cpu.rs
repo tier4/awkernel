@@ -25,10 +25,9 @@ pub fn raw_cpu_id() -> usize {
 
 /// # Safety
 ///
-/// Each CPU must call this function only once at its entry.
-#[inline(always)]
-pub unsafe fn increment_num_cpu() {
-    NUM_CPU.fetch_add(1, Ordering::Relaxed);
+/// This function must be called during the kernel initialization.
+pub unsafe fn set_num_cpu(num_cpu: usize) {
+    NUM_CPU.store(num_cpu, Ordering::Relaxed);
 }
 
 #[inline(always)]

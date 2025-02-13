@@ -626,7 +626,7 @@ pub fn enable_tx_laser_multispeed_fiber(info: &PCIeInfo) -> Result<(), IxgbeDriv
     esdp_reg &= !IXGBE_ESDP_SDP3;
     ixgbe_hw::write_reg(info, IXGBE_ESDP, esdp_reg)?;
     ixgbe_hw::write_flush(info)?;
-    wait_microsec(100);
+    wait_millisec(100);
 
     Ok(())
 }
@@ -1679,30 +1679,6 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     dev_addr: u8,
     lock: bool,
 ) -> Result<u8, IxgbeDriverErr> {
-    fn goto_fail<T: IxgbeOperations + ?Sized>(
-        ops: &T,
-        info: &PCIeInfo,
-        retry: u32,
-        max_retry: u32,
-        swfw_mask: u32,
-        lock: bool,
-    ) -> Result<bool, IxgbeDriverErr> {
-        i2c_bus_clear(info)?;
-        if lock {
-            ops.mac_release_swfw_sync(info, swfw_mask)?;
-            wait_millisec(100);
-        }
-        let retry_bool = if retry < max_retry {
-            log::debug!("I2C byte read error - Retrying.\n");
-            true
-        } else {
-            log::debug!("I2C byte read error.\n");
-            false
-        };
-
-        Ok(retry_bool)
-    }
-
     let mut max_retry = 10;
     if hw.mac.mac_type >= MacType::IxgbeMacX550 {
         max_retry = 3;
@@ -1711,137 +1687,57 @@ pub fn read_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
         max_retry = IXGBE_SFP_DETECT_RETRIES;
     }
 
-    let mut retry = 0;
     let swfw_mask = hw.phy.phy_semaphore_mask;
-    let status;
-    loop {
-        if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
 
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+    let body = || {
+        i2c_start(info)?;
 
         // Device Address and write indication
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, byte_offset) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+        clock_out_i2c_byte(info, dev_addr)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, byte_offset)?;
+        get_i2c_ack(info)?;
+        i2c_start(info)?;
 
         // Device Address and read indication
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr | 0x1) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
+        clock_out_i2c_byte(info, dev_addr | 0x1)?;
+        get_i2c_ack(info)?;
+        let result = clock_in_i2c_byte(info)?;
+        clock_out_i2c_bit(info, true)?;
+        i2c_stop(info)?;
 
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        let data;
-        match clock_in_i2c_byte(info) {
-            Ok(ret) => {
-                data = ret;
-            }
-            Err(e) => {
-                retry += 1;
-                match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                    true => continue,
-                    false => {
-                        status = Err(e);
-                        break;
-                    }
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_bit(info, true) {
-            retry += 1;
-            match goto_fail(ops, info, retry, max_retry, swfw_mask, lock)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_stop(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
         if lock {
             ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
-        return Ok(data);
+
+        Ok::<u8, IxgbeDriverErr>(result)
+    };
+
+    let mut err = Err(IxgbeDriverErr::I2c);
+    for _ in 0..max_retry {
+        if lock {
+            ops.mac_acquire_swfw_sync(info, swfw_mask)?;
+        }
+
+        match body() {
+            Ok(ret) => return Ok(ret),
+            Err(e) => {
+                i2c_bus_clear(info)?;
+                if lock {
+                    ops.mac_release_swfw_sync(info, swfw_mask)?;
+                    wait_millisec(100);
+                }
+
+                err = Err(e);
+
+                log::debug!("I2C byte read error - Retrying.\n");
+            }
+        }
     }
 
-    status
+    log::debug!("I2C byte read error.\n");
+
+    err
 }
 
 /// write_i2c_byte_generic_int - Writes 8 bit word over I2C
@@ -1856,118 +1752,48 @@ pub fn write_i2c_byte_generic_int<T: IxgbeOperations + ?Sized>(
     data: u8,
     lock: bool,
 ) -> Result<(), IxgbeDriverErr> {
-    fn goto_fail(info: &PCIeInfo, retry: u32, max_retry: u32) -> Result<bool, IxgbeDriverErr> {
-        i2c_bus_clear(info)?;
-        let retry_bool = if retry < max_retry {
-            log::debug!("I2C byte read error - Retrying.\n");
-            true
-        } else {
-            log::debug!("I2C byte read error.\n");
-            false
-        };
-        Ok(retry_bool)
-    }
-
     let swfw_mask = hw.phy.phy_semaphore_mask;
-    if lock && ops.mac_acquire_swfw_sync(info, swfw_mask).is_err() {
-        return Err(IxgbeDriverErr::SwfwSync);
+    let max_retry = 1;
+
+    if lock {
+        ops.mac_acquire_swfw_sync(info, swfw_mask)?;
     }
 
-    let max_retry = 1;
-    let mut retry = 0;
-    let status;
-    loop {
-        if i2c_start(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
+    let body = || {
+        i2c_start(info)?;
 
-        if let Err(e) = clock_out_i2c_byte(info, dev_addr) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
+        clock_out_i2c_byte(info, dev_addr)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, byte_offset)?;
+        get_i2c_ack(info)?;
+        clock_out_i2c_byte(info, data)?;
+        get_i2c_ack(info)?;
+        i2c_stop(info)?;
 
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, byte_offset) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = clock_out_i2c_byte(info, data) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if let Err(e) = get_i2c_ack(info) {
-            retry += 1;
-            match goto_fail(info, retry, max_retry)? {
-                true => continue,
-                false => {
-                    status = Err(e);
-                    break;
-                }
-            }
-        }
-
-        if i2c_stop(info).is_err() {
-            if lock {
-                ops.mac_release_swfw_sync(info, swfw_mask)?;
-            }
-            return Err(IxgbeDriverErr::SwfwSync);
-        }
         if lock {
             ops.mac_release_swfw_sync(info, swfw_mask)?;
         }
 
-        return Ok(());
+        Ok::<(), IxgbeDriverErr>(())
+    };
+
+    let mut err = Err(IxgbeDriverErr::I2c);
+    for _ in 0..max_retry {
+        match body() {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                i2c_bus_clear(info)?;
+
+                if lock {
+                    ops.mac_release_swfw_sync(info, swfw_mask)?;
+                }
+
+                err = Err(e)
+            }
+        }
     }
 
-    if lock {
-        ops.mac_release_swfw_sync(info, swfw_mask)?;
-    }
-
-    status
+    err
 }
 
 /// is_sfp_probe - Returns TRUE if SFP is being detected
@@ -2322,30 +2148,24 @@ pub fn check_reset_blocked(info: &PCIeInfo, hw: &IxgbeHw) -> Result<bool, IxgbeD
     Ok(false)
 }
 
-// Eeprom Helper Functions
+/// Eeprom Helper Functions
 fn poll_eerd_eewr_done(info: &PCIeInfo, ee_reg: u32) -> Result<(), IxgbeDriverErr> {
     let mut reg;
-    let mut stopped_i = 0;
 
-    for i in 0..IXGBE_EERD_EEWR_ATTEMPTS {
+    for _ in 0..IXGBE_EERD_EEWR_ATTEMPTS {
         if ee_reg == IXGBE_NVM_POLL_READ as u32 {
             reg = ixgbe_hw::read_reg(info, IXGBE_EERD)?;
         } else {
             reg = ixgbe_hw::read_reg(info, IXGBE_EEWR)?;
         }
         if reg & IXGBE_EEPROM_RW_REG_DONE as u32 != 0 {
-            stopped_i = i;
-            break;
+            return Ok(());
         }
         wait_microsec(5);
     }
 
-    if stopped_i == IXGBE_EERD_EEWR_ATTEMPTS {
-        log::error!("EEPROM read/write done polling timed out");
-        return Err(Eeprom);
-    }
-
-    Ok(())
+    log::error!("EEPROM read/write done polling timed out");
+    Err(Eeprom)
 }
 
 pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
@@ -2377,15 +2197,6 @@ pub fn read_eerd_buffer_generic<T: IxgbeOperations + ?Sized>(
         return Err(IxgbeDriverErr::Eeprom);
     }
 
-    for i in 0..words {
-        eerd = ((offset + i) << IXGBE_EEPROM_RW_ADDR_SHIFT) | IXGBE_EEPROM_RW_REG_START;
-
-        ixgbe_hw::write_reg(info, IXGBE_EERD, eerd as u32)?;
-        poll_eerd_eewr_done(info, IXGBE_NVM_POLL_READ as u32)?;
-
-        data[i as usize] =
-            (ixgbe_hw::read_reg(info, IXGBE_EERD)? >> IXGBE_EEPROM_RW_REG_DATA) as u16;
-    }
     for (i, d) in data.iter_mut().enumerate() {
         eerd = ((offset + i as u16) << IXGBE_EEPROM_RW_ADDR_SHIFT) | IXGBE_EEPROM_RW_REG_START;
 
@@ -2521,12 +2332,7 @@ pub fn host_interface_command<T: IxgbeOperations + ?Sized>(
             bi += 1;
         }
 
-        let resp = IxgbeHicHdr {
-            cmd: (ret_buffer[0] & 0xFF) as u8,
-            buf_len: ((ret_buffer[0] >> 8) & 0xFF) as u8,
-            cmd_or_resp: ((ret_buffer[0] >> 16) & 0xFF) as u8,
-            checksum: ((ret_buffer[0] >> 24) & 0xFF) as u8,
-        };
+        let resp = unsafe { core::mem::transmute_copy::<_, IxgbeHicHdr>(&ret_buffer) };
 
         // If there is any thing in data position pull it in
         // Read Flash command requires reading buffer length from
@@ -2659,7 +2465,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
     while i < timeout {
         // If the SMBI bit is 0 when we read it, then the bit will be set and we have the semaphore
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+        if swsm & IXGBE_SWSM_SMBI == 0 {
             status = Ok(());
             break;
         }
@@ -2674,7 +2480,7 @@ fn get_eeprom_semaphore(info: &PCIeInfo) -> Result<(), IxgbeDriverErr> {
 
         // one last try
         swsm = ixgbe_hw::read_reg(info, swsm_offset)?;
-        if !(swsm & IXGBE_SWSM_SMBI) != 0 {
+        if swsm & IXGBE_SWSM_SMBI == 0 {
             status = Ok(());
         }
     }
@@ -3492,7 +3298,11 @@ pub trait IxgbeOperations: Send {
             IxgbeMediaTypeBackplane =>
             // some MAC's need RMW protection on AUTOC
             {
-                (0, self.mac_prot_autoc_read(info)?, 0)
+                (
+                    ixgbe_hw::read_reg(info, IXGBE_PCS1GANA)?,
+                    self.mac_prot_autoc_read(info)?,
+                    0,
+                )
             }
             // only backplane uses autoc so fall though
             IxgbeMediaTypeFiberFixed | IxgbeMediaTypeFiberQsfp | IxgbeMediaTypeFiber => {
@@ -3540,7 +3350,7 @@ pub trait IxgbeOperations: Send {
 		        reg &= !IXGBE_PCS1GANA_SYM_PAUSE;
 		        match hw.phy.media_type {
                 IxgbeMediaTypeBackplane =>
-			        (reg, (reg_bp | IXGBE_AUTOC_ASM_PAUSE) & IXGBE_AUTOC_SYM_PAUSE, reg_cu),
+			        (reg, (reg_bp | IXGBE_AUTOC_ASM_PAUSE) & !IXGBE_AUTOC_SYM_PAUSE, reg_cu),
 		        IxgbeMediaTypeCopper =>
 			        (reg, reg_bp, (reg_cu | IXGBE_TAF_ASM_PAUSE) & !IXGBE_TAF_SYM_PAUSE),
                 _ => (reg, reg_bp, reg_cu),
@@ -3699,7 +3509,7 @@ pub trait IxgbeOperations: Send {
 
         // Configure pause time (2 TCs per register)
         let reg = hw.fc.pause_time as u32 * 0x00010001;
-        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS {
+        for i in 0..IXGBE_DCB_MAX_TRAFFIC_CLASS / 2 {
             ixgbe_hw::write_reg(info, IXGBE_FCTTV(i), reg)?;
         }
 
@@ -3877,9 +3687,10 @@ pub trait IxgbeOperations: Send {
         let mut reg = ixgbe_hw::read_reg(info, IXGBE_STATUS)?;
         let mut func = ((reg & IXGBE_STATUS_LAN_ID) >> IXGBE_STATUS_LAN_ID_SHIFT) as u16;
         let lan_id = func as u8;
+        let factps_offset = get_factps_offset(info.get_id())?;
 
         // check for a port swap
-        reg = ixgbe_hw::read_reg(info, IXGBE_FACTPS)?;
+        reg = ixgbe_hw::read_reg(info, factps_offset)?;
         if reg & IXGBE_FACTPS_LFS != 0 {
             func ^= 0x1;
         }
@@ -3965,7 +3776,7 @@ pub trait IxgbeOperations: Send {
             return Err(NotPciExpress);
         };
         let val = cap.get_link_status_control();
-        let link_status = (val.bits() & 0xFFFF) as u16;
+        let link_status = (val.bits() >> 16) as u16;
 
         set_pci_config_data(self, info, hw, link_status)
     }
@@ -4546,5 +4357,13 @@ pub trait IxgbeOperations: Send {
         checksum = IXGBE_EEPROM_SUM - checksum;
 
         Ok(checksum)
+    }
+
+    fn mac_enable_tx_laser(
+        &self,
+        _info: &PCIeInfo,
+        _hw: &mut IxgbeHw,
+    ) -> Result<(), IxgbeDriverErr> {
+        Ok(())
     }
 }

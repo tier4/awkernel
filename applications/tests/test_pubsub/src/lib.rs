@@ -7,7 +7,8 @@ use awkernel_async_lib::{
     channel::bounded,
     pubsub::{self, create_publisher, create_subscriber},
     scheduler::SchedulerType,
-    sleep, spawn, spawn_reactor, uptime,
+    sleep, spawn, spawn_periodic_reactor, spawn_reactor,
+    time::Time,
 };
 use core::{
     ptr::write_volatile,
@@ -67,12 +68,11 @@ pub async fn run() {
             format!("{i}-client").into(),
             async move {
                 loop {
-                    let start = uptime();
+                    let start = Time::now();
                     tx1.send(()).await.unwrap();
                     rx2.recv().await.unwrap();
-                    let end = uptime();
 
-                    let elapsed = end - start;
+                    let elapsed = start.elapsed().as_micros() as u64;
                     add_rtt(elapsed);
 
                     for _ in 0..1_000_000 {
@@ -115,21 +115,16 @@ pub async fn run() {
         .await;
     }
 
-    spawn(
+    spawn_periodic_reactor::<_, (i32,)>(
         "reactor_source_node".into(),
-        async move {
-            let publisher =
-                create_publisher::<i32>("topic0".into(), pubsub::Attribute::default()).unwrap();
-            let mut number: i32 = 1;
-
-            loop {
-                sleep(Duration::from_secs(1)).await;
-                log::debug!("value={} in reactor_source_node", number);
-                publisher.send(number).await;
-                number += 1;
-            }
+        || -> (i32,) {
+            let number: i32 = 1;
+            log::debug!("value={} in reactor_source_node", number);
+            (number,)
         },
+        vec![Cow::from("topic0")],
         SchedulerType::FIFO,
+        Duration::from_secs(1),
     )
     .await;
 

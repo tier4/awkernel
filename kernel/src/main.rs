@@ -43,10 +43,10 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
-    unsafe { awkernel_lib::cpu::increment_num_cpu() };
-
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
+
+        unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
         let _ = draw_splash();
 
@@ -83,11 +83,10 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             SchedulerType::FIFO,
         );
 
-        NUM_READY_WORKER.store(awkernel_lib::cpu::num_cpu() as u16 - 1, Ordering::SeqCst);
-
         PRIMARY_READY.store(true, Ordering::SeqCst);
 
-        while NUM_READY_WORKER.load(Ordering::SeqCst) > 0 {
+        // Wait until all other CPUs have incremented NUM_CPU
+        while NUM_READY_WORKER.load(Ordering::SeqCst) < (kernel_info.num_cpu - 1) as u16 {
             awkernel_lib::delay::wait_microsec(10);
         }
 
@@ -118,12 +117,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     }
 
     // Non-primary CPUs.
+    while !PRIMARY_READY.load(Ordering::SeqCst) {
+        awkernel_lib::delay::wait_microsec(10);
+    }
+
     #[cfg(not(feature = "std"))]
     {
-        while !PRIMARY_READY.load(Ordering::SeqCst) {
-            awkernel_lib::delay::wait_microsec(10);
-        }
-
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
@@ -131,7 +130,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         }
     }
 
-    NUM_READY_WORKER.fetch_sub(1, Ordering::SeqCst);
+    NUM_READY_WORKER.fetch_add(1, Ordering::Relaxed);
 
     unsafe { task::run() }; // Execute tasks.
 }

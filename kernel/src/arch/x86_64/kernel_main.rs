@@ -332,6 +332,7 @@ fn kernel_main2(
     let kernel_info = KernelInfo {
         info: Some(boot_info),
         cpu_id: 0,
+        num_cpu: non_primary_cpus.len() + 1,
     };
 
     // 19. Call `crate::main()`.
@@ -503,9 +504,6 @@ fn send_ipi(apic: &dyn Apic, apic_id: u32, offset: u64, mpboot_start: u64, cpu_i
 
 #[inline(never)]
 fn non_primary_kernel_main() -> ! {
-    let ebx = unsafe { core::arch::x86_64::__cpuid(1).ebx };
-    let cpu_id = (ebx >> 24) & 0xff;
-
     while !BSP_READY.load(Ordering::Relaxed) {
         core::hint::spin_loop();
     }
@@ -524,11 +522,15 @@ fn non_primary_kernel_main() -> ! {
         core::hint::spin_loop();
     }
 
-    unsafe { synchronize_tsc(NUM_CPUS.load(Ordering::Relaxed)) };
+    let cpu_id = awkernel_lib::cpu::cpu_id();
+    let num_cpu = NUM_CPUS.load(Ordering::Relaxed);
+
+    unsafe { synchronize_tsc(num_cpu) };
 
     let kernel_info = KernelInfo::<Option<&mut BootInfo>> {
         info: None,
-        cpu_id: cpu_id as usize,
+        cpu_id,
+        num_cpu,
     };
 
     crate::main(kernel_info); // jump to userland

@@ -13,7 +13,6 @@ mod accepter;
 pub mod action;
 mod anydict;
 pub mod channel;
-mod delay;
 pub mod future;
 mod join_handle;
 pub mod net;
@@ -71,7 +70,7 @@ pub trait Cancel: Future + Unpin {
 /// };
 /// ```
 pub async fn sleep(duration: Duration) -> sleep_task::State {
-    sleep_task::Sleep::new(duration.as_micros() as u64).await
+    sleep_task::Sleep::new(duration).await
 }
 
 /// Yield the CPU to the next executable task.
@@ -92,7 +91,7 @@ pub async fn r#yield() {
     yield_task::Yield::new().await
 }
 
-/// Wait forever. Never return.
+/// Do the `future` with a timeout.
 ///
 /// # Example
 ///
@@ -230,6 +229,35 @@ where
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
             let results = f(args);
+            publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
+}
+
+pub async fn spawn_periodic_reactor<F, Ret>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+    period: Duration,
+) -> u32
+where
+    F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+{
+    // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
+    let future = async move {
+        let publishers = <Ret as VectorToPublishers>::create_publishers(
+            publish_topic_names,
+            Attribute::default(),
+        );
+
+        loop {
+            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
+            let results = f();
             publishers.send_all(results).await;
         }
     };

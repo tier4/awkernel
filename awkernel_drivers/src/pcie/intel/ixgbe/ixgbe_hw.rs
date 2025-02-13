@@ -94,6 +94,7 @@ pub fn get_mac_type(device: u16) -> Result<MacType, IxgbeDriverErr> {
         | IXGBE_DEV_ID_82598AF_DUAL_PORT
         | IXGBE_DEV_ID_82598AT
         | IXGBE_DEV_ID_82598AT2
+        | IXGBE_DEV_ID_82598AT_DUAL_PORT
         | IXGBE_DEV_ID_82598EB_CX4
         | IXGBE_DEV_ID_82598_CX4_DUAL_PORT
         | IXGBE_DEV_ID_82598_DA_DUAL_PORT
@@ -266,11 +267,6 @@ impl IxgbeHw {
         };
 
         // TODO: sc->mta = mallocarray() : Allocate multicast array memory -> IxgbeInner new()?
-
-        // let hardware know driver is loaded
-        let mut ctrl_ext = read_reg(info, IXGBE_CTRL_EXT)?;
-        ctrl_ext |= IXGBE_CTRL_EXT_DRV_LOAD;
-        write_reg(info, IXGBE_CTRL_EXT, ctrl_ext)?;
 
         let ops = get_operations(&mac_type)?; // init_shared_code();
         let (
