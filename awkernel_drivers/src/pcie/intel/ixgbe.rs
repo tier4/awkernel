@@ -1398,7 +1398,7 @@ impl Ixgbe {
                         }
                         let mask_hi = (queue >> 32) as u32;
                         if mask_hi != 0 {
-                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(0), mask_hi)?;
+                            ixgbe_hw::write_reg(&inner.info, IXGBE_EIMS_EX(1), mask_hi)?;
                         }
                     }
                 }
