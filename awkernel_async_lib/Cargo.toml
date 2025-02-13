@@ -9,6 +9,7 @@ edition = "2021"
 pin-project = "1"
 log = "0.4"
 array-macro = "2.1"
+fixedbitset = "0.5.7"
 
 [dependencies.futures]
 git = "https://github.com/ytakano/futures-rs.git"

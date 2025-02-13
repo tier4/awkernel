@@ -46,5 +46,8 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     #[cfg(feature = "test_sched_preempt")]
     test_sched_preempt::run().await; // tests related to preemption between schedulers
 
+    #[cfg(feature = "test_dag")]
+    test_dag::run().await; // test for DAG
+
     Ok(())
 }
