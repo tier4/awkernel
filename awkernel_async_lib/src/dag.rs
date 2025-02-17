@@ -1,7 +1,7 @@
 pub mod graph;
 
 use alloc::{
-    collections::{btree_map::Entry, BTreeMap},
+    collections::{btree_map, BTreeMap},
     sync::Arc,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
@@ -56,7 +56,7 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         log::info!("Dag ID: {}", self.id);
-        log::info!("Graph: {:#?}", *graph);
+        log::info!("DAG: {:#?}", *graph);
     }
 }
 
