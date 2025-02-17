@@ -6,7 +6,7 @@ use alloc::{
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 
-static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of tasks.
+static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
 pub struct Dag {
     pub id: u32,
@@ -82,7 +82,7 @@ impl Dags {
                 id += 1;
             }
 
-            // Find an unused task ID.
+            // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
                 let dag = Dag {
                     id,
@@ -94,7 +94,7 @@ impl Dags {
 
                 return id;
             } else {
-                // The candidate task ID is already used.
+                // The candidate DAG ID is already used.
                 // Check next candidate.
                 id += 1;
             }
@@ -113,4 +113,5 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
 }
+
 // TODO: Implementation of API to build DAGs from Reactor
