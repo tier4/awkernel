@@ -20,11 +20,7 @@ impl Dag {
         graph.add_node(data)
     }
 
-    pub fn add_edge(
-        &self,
-        source: graph::NodeIndex,
-        target: graph::NodeIndex,
-    ) -> graph::EdgeIndex {
+    pub fn add_edge(&self, source: graph::NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         graph.add_edge(source, target, 0) // 0 is the temporary weight
