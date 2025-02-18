@@ -24,11 +24,10 @@ impl Dag {
         &self,
         source: graph::NodeIndex,
         target: graph::NodeIndex,
-        data: u32,
     ) -> graph::EdgeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
-        graph.add_edge(source, target, data)
+        graph.add_edge(source, target, 0) // 0 is the temporary weight
     }
 
     pub fn remove_node(&self, node_idx: graph::NodeIndex) {
@@ -50,6 +49,12 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.edge_endpoints(edge_idx)
+    }
+
+    pub fn node_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_count()
     }
 
     pub fn debug_print(&self) {
@@ -115,3 +120,34 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 // TODO: Implementation of API to build DAGs from Reactor
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_dag() {
+        let dag_id = create_dag();
+        assert_eq!(dag_id, 1);
+
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(1);
+        let b = dag.add_node(2);
+        let c = dag.add_node(3);
+
+        let ab = dag.add_edge(a, b);
+        let _ac = dag.add_edge(a, c);
+        let _bc = dag.add_edge(b, c);
+
+        if let Some((src, tdt)) = dag.edge_endpoints(ab) {
+            assert_eq!(src, a);
+            assert_eq!(tdt, b);
+        }
+        assert_eq!(dag.node_count(), 3);
+        dag.remove_node(c);
+        assert_eq!(dag.node_count(), 2);
+
+        let dag_id_2 = create_dag();
+        assert_eq!(dag_id_2, 2);
+    }
+}
