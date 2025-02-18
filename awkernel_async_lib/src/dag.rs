@@ -38,19 +38,16 @@ impl Dag {
         graph.remove_edge(edge_idx);
     }
 
-    pub fn edge_endpoints(
-        &self,
-        edge_idx: graph::EdgeIndex,
-    ) -> Option<(graph::NodeIndex, graph::NodeIndex)> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_endpoints(edge_idx)
-    }
-
     pub fn node_count(&self) -> usize {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.node_count()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.edge_count()
     }
 
     pub fn debug_print(&self) {
@@ -122,10 +119,24 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_dag() {
+    fn test_dag_create() {
         let dag_id = create_dag();
-        assert_eq!(dag_id, 1);
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(1);
+        let b = dag.add_node(2);
+        let c = dag.add_node(3);
 
+        let _ab = dag.add_edge(a, b);
+        let _ac = dag.add_edge(a, c);
+        let _bc = dag.add_edge(b, c);
+
+        assert_eq!(dag.node_count(), 3);
+        assert_eq!(dag.edge_count(), 3);
+    }
+
+    #[test]
+    fn test_remove_node_edge() {
+        let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
         let a = dag.add_node(1);
         let b = dag.add_node(2);
@@ -135,15 +146,12 @@ mod test {
         let _ac = dag.add_edge(a, c);
         let _bc = dag.add_edge(b, c);
 
-        if let Some((src, tdt)) = dag.edge_endpoints(ab) {
-            assert_eq!(src, a);
-            assert_eq!(tdt, b);
-        }
-        assert_eq!(dag.node_count(), 3);
         dag.remove_node(c);
         assert_eq!(dag.node_count(), 2);
+        assert_eq!(dag.edge_count(), 1);
 
-        let dag_id_2 = create_dag();
-        assert_eq!(dag_id_2, 2);
+        dag.remove_edge(ab);
+        assert_eq!(dag.node_count(), 2);
+        assert_eq!(dag.edge_count(), 0);
     }
 }
