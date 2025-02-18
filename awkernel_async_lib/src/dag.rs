@@ -38,6 +38,15 @@ impl Dag {
         graph.remove_edge(edge_idx);
     }
 
+    pub fn edge_endpoints(
+        &self,
+        edge_idx: graph::EdgeIndex,
+    ) -> Option<(graph::NodeIndex, graph::NodeIndex)> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.edge_endpoints(edge_idx)
+    }
+
     pub fn node_count(&self) -> usize {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -119,23 +128,18 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_dag_create() {
+    fn test_add_node() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
-
-        let _ab = dag.add_edge(a, b);
-        let _ac = dag.add_edge(a, c);
-        let _bc = dag.add_edge(b, c);
+        dag.add_node(1);
+        dag.add_node(2);
+        dag.add_node(3);
 
         assert_eq!(dag.node_count(), 3);
-        assert_eq!(dag.edge_count(), 3);
     }
 
     #[test]
-    fn test_remove_node_edge() {
+    fn test_add_edge() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
         let a = dag.add_node(1);
@@ -146,12 +150,39 @@ mod test {
         let _ac = dag.add_edge(a, c);
         let _bc = dag.add_edge(b, c);
 
+        assert_eq!(dag.edge_count(), 3);
+        if let Some(ab_endpoints) = dag.edge_endpoints(ab) {
+            assert_eq!(ab_endpoints, (a, b));
+        }
+    }
+
+    #[test]
+    fn test_remove_node() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(1);
+        let b = dag.add_node(2);
+        let c = dag.add_node(3);
+
+        dag.add_edge(a, b);
+        dag.add_edge(a, c);
+        dag.add_edge(b, c);
+
         dag.remove_node(c);
         assert_eq!(dag.node_count(), 2);
         assert_eq!(dag.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_remove_edge() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(1);
+        let b = dag.add_node(2);
+
+        let ab = dag.add_edge(a, b);
 
         dag.remove_edge(ab);
-        assert_eq!(dag.node_count(), 2);
-        assert_eq!(dag.edge_count(), 0);
+        assert_eq!(dag.edge_endpoints(ab), None);
     }
 }
