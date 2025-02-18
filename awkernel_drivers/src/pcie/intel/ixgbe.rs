@@ -1522,6 +1522,12 @@ impl Ixgbe {
         let mut node = MCSNode::new();
         let mut rx = que.rx.lock(&mut node);
 
+        let Some(read_buf) = rx.read_buf.as_ref() else {
+            return Err(IxgbeDriverErr::DMAPool);
+        };
+
+        let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+
         let mut i = rx.rx_desc_head as usize;
         let mut prev;
         let rx_desc_tail = rx.rx_desc_tail;
@@ -1539,8 +1545,8 @@ impl Ixgbe {
             }
 
             let desc = &mut rx_desc_ring[i];
-            desc.wb.upper_status_error = 0;
-            desc.wb.upper_length = MCLBYTES as u16;
+            desc.data = [0; 2];
+            desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
         }
 
         rx.rx_desc_head = prev as u32;
