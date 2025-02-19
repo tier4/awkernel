@@ -58,13 +58,6 @@ impl Dag {
         let graph = self.graph.lock(&mut node);
         graph.edge_count()
     }
-
-    pub fn debug_print(&self) {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        log::info!("Dag ID: {}", self.id);
-        log::info!("DAG: {:#?}", *graph);
-    }
 }
 
 /// DAGs.
