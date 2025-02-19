@@ -170,6 +170,7 @@ pub(super) struct IfNet {
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
+    time: crate::time::Time,
 }
 
 pub(super) struct IfNetInner {
@@ -203,6 +204,8 @@ impl IfNetInner {
 
 impl IfNet {
     pub fn new(net_device: Arc<dyn NetDevice + Sync + Send>, vlan: Option<u16>) -> Self {
+        let time = crate::time::Time::now();
+
         let interface = {
             let mut tx_ringq = RingQ::new(0);
             let mut net_driver_ref = NetDriverRef {
@@ -211,11 +214,11 @@ impl IfNet {
                 tx_ringq: &mut tx_ringq,
             };
 
-            let instant = Instant::from_micros(crate::delay::uptime() as i64);
+            let instant = Instant::from_micros(time.uptime().as_micros() as i64);
             let hardware_address =
                 HardwareAddress::Ethernet(smoltcp::wire::EthernetAddress(net_device.mac_address()));
             let mut config = Config::new(hardware_address);
-            config.random_seed = crate::delay::uptime();
+            config.random_seed = time.uptime().as_nanos() as u64;
 
             Interface::new(config, &mut net_driver_ref, instant)
         };
@@ -288,6 +291,7 @@ impl IfNet {
             is_poll_mode,
             poll_driver,
             tick_driver,
+            time,
         }
     }
 
@@ -315,7 +319,7 @@ impl IfNet {
 
         // Leave the multicast group.
         self.first_net_driver_ref(move |mut net_driver_ref| {
-            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
             let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
 
             let mut node = MCSNode::new();
@@ -425,7 +429,7 @@ impl IfNet {
 
         // Join the multicast group.
         let result = self.first_net_driver_ref(move |mut net_driver_ref| {
-            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
             let smoltcp_addr = smoltcp::wire::Ipv4Address::from_bytes(&addr.octets());
 
             let mut node = MCSNode::new();
@@ -482,7 +486,7 @@ impl IfNet {
             tx_ringq: &mut tx_ringq,
         };
 
-        let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+        let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
         let result = {
             let mut node = MCSNode::new();
@@ -542,7 +546,7 @@ impl IfNet {
         };
 
         let result = {
-            let timestamp = Instant::from_micros(crate::delay::uptime() as i64);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
             let mut node = MCSNode::new();
             let mut inner = self.inner.lock(&mut node);
