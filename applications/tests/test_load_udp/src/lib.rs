@@ -7,12 +7,13 @@ use core::{net::Ipv4Addr, time::Duration};
 use awkernel_async_lib::net::{udp::UdpConfig, IpAddr};
 
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
+const INTERFACE_ID: u64 = 1;
 
 const BASE_PORT: u16 = 20000;
 
 pub async fn run() {
     const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-    awkernel_lib::net::add_ipv4_addr(1, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
         let mut join = alloc::vec::Vec::new();
@@ -37,12 +38,13 @@ pub async fn run() {
 
 async fn udp_server(port: u16) {
     let config = UdpConfig {
-        addr: IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 3)),
+        addr: IpAddr::new_v4(INTERFACE_ADDR),
         port: Some(port),
         ..Default::default()
     };
 
-    let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(1, config).unwrap();
+    let mut socket =
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
 
     const MAX_DATAGRAM_SIZE: usize = 65_507;
     let mut buf = [0u8; MAX_DATAGRAM_SIZE];
