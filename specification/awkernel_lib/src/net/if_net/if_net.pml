@@ -7,7 +7,10 @@
 
 #include "../../../../awkernel_async_lib/src/task/cooperative_spin/fair_lock.pml"
 
-chan UDP_Rx = [QUEUE_LEN] of { int };
+// The transmission queue of the TCP/IP stack.
+// Userland applications send packets to this queue,
+// and the TCP/IP stack receives packets from this queue for sending packets.
+chan IP_Tx = [QUEUE_LEN] of { int };
 
 FairLock LockRxRingq[NUM_QUEUE];
 FairLock LockTxRingq[NUM_QUEUE];
@@ -15,11 +18,12 @@ FairLock LockInner;
 
 bool set[NUM_SEND];
 
+// Poll packets from the TCP/IP stack.
 inline interface_poll(ch, tmp) {
     atomic {
         do
-            :: len(UDP_Rx) > 0 ->
-                UDP_Rx ? tmp;
+            :: len(IP_Tx) > 0 ->
+                IP_Tx ? tmp;
                 ch ! tmp;
             :: else ->
                 break;
@@ -27,6 +31,8 @@ inline interface_poll(ch, tmp) {
     }
 }
 
+// Send packets in `ch` to the network.
+// This function simulates the behavior of the network interface.
 inline tx(ch, tmp) {
     atomic {
         do
@@ -40,6 +46,7 @@ inline tx(ch, tmp) {
     }
 }
 
+// Generate a random number.
 inline rnd(r) {
     if
     :: r = 0
@@ -55,6 +62,7 @@ proctype poll_rx(int tid) {
     int rxq;
     int txq;
 
+    // Randomly select a reception queue and a transmission queue.
     atomic {
         rnd(rxq);
         rnd(txq);
@@ -74,12 +82,14 @@ proctype poll_rx(int tid) {
 }
 
 // Modeling `awkernel_lib::net::if_net::IfNet::poll_tx_only()`.
-proctype poll_tx_only(int tid) {
+proctype poll_tx_only(int tid, send_data) {
     chan ch = [QUEUE_LEN] of { int };
     int tmp;
 
     int txq;
-    rnd(txq);
+    rnd(txq); // Randomly select a transmission queue.
+
+    IP_Tx ! send_data; // Send an IP packet.
 
     lock(tid, LockTxRingq[txq]);
 
@@ -100,16 +110,15 @@ init {
         set[i] = false;
     }
 
-    // create receive tasks
+    // Create receive tasks.
     for (i: 0 .. NUM_RX_TASK - 1) {
         run poll_rx(tid);
         tid++;
     }
 
-    // send NUM_SEND packets
+    // Create send tasks.
     for (i: 0 .. NUM_SEND - 1) {
-        UDP_Rx ! i;
-        run poll_tx_only(tid);
+        run poll_tx_only(tid, i);
         tid++;
     }
 }
