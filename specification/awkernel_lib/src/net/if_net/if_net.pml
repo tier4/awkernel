@@ -58,8 +58,8 @@ inline rnd(r) {
     fi;
 }
 
-// Modeling `awkernel_lib::net::if_net::IfNet::poll_rx()`.
-proctype poll_rx(int tid) {
+// Modeling `awkernel_lib::net::if_net::IfNet::poll_rx_tx()`.
+proctype poll_rx_tx(int tid) {
     chan ch = [QUEUE_LEN] of { int };
     int tmp;
 
@@ -98,7 +98,7 @@ proctype poll_tx_only(int tid, send_data) {
 
     IP_Tx ! send_data; // Send an IP packet.
 
-    // If some process will poll, this process need not to poll.
+    // If some task will poll, this task need not to poll.
     atomic {
         if
             :: will_poll > 0 -> goto end;
@@ -129,7 +129,7 @@ init {
 
     // Create receive tasks.
     for (i: 0 .. NUM_RX_TASK - 1) {
-        run poll_rx(tid);
+        run poll_rx_tx(tid);
         tid++;
     }
 
