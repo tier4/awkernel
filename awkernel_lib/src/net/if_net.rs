@@ -495,9 +495,9 @@ impl IfNet {
             .will_poll
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                 if n > 0 {
-                    Some(n + 1)
-                } else {
                     None
+                } else {
+                    Some(n + 1)
                 }
             })
             .is_err()
