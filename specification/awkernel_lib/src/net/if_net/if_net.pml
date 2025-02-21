@@ -16,7 +16,11 @@ FairLock LockRxRingq[NUM_QUEUE];
 FairLock LockTxRingq[NUM_QUEUE];
 FairLock LockInner;
 
+// This array is used to check if all packets are sent.
 bool set[NUM_SEND];
+
+// The number of processes that will poll packets.
+int will_poll = 0;
 
 // Poll packets from the TCP/IP stack.
 inline interface_poll(ch, tmp) {
@@ -68,10 +72,13 @@ proctype poll_rx(int tid) {
         rnd(txq);
     }
 
+    will_poll++;;
+
     lock(tid, LockRxRingq[rxq]);
     lock(tid, LockTxRingq[txq]);
 
     lock(tid, LockInner);
+    will_poll--;
     interface_poll(ch, tmp);
     unlock(tid, LockInner);
 
@@ -91,15 +98,25 @@ proctype poll_tx_only(int tid, send_data) {
 
     IP_Tx ! send_data; // Send an IP packet.
 
+    // If some process will poll, this process need not to poll.
+    atomic {
+        if
+            :: will_poll > 0 -> goto end;
+            :: else -> will_poll++;
+        fi;
+    }
+
     lock(tid, LockTxRingq[txq]);
 
     lock(tid, LockInner);
+    will_poll--;
     interface_poll(ch, tmp);
     unlock(tid, LockInner);
 
     tx(ch, tmp);
 
     unlock(tid, LockTxRingq[txq]);
+end:
 }
 
 init {
