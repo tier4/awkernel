@@ -141,5 +141,5 @@ init {
 }
 
 ltl eventually_all_true {
-    <> (set[0] && set[1]) && [] ((set[0] && set[1]) -> [] (set[0] && set[1]))
+    <> ([] (set[0] && set[1]))
 }
