@@ -19,30 +19,7 @@ SECTIONS
 
   . = ALIGN(CONSTANT (MAXPAGESIZE));
   . = SEGMENT_START("rodata-segment", ALIGN(CONSTANT (MAXPAGESIZE)) + (. & (CONSTANT (MAXPAGESIZE) - 1)));
-  .rodata         : { 
-    *(.rodata .rodata.* .gnu.linkonce.r.*)
-    __debug_abbrev_start = .;
-    *(.debug_abbrev)
-    __debug_abbrev_size = . - __debug_abbrev_start;
-    __debug_info_start = .;
-    *(.debug_info)
-    __debug_info_size = . - __debug_info_start;
-    __debug_aranges_start = .;
-    *(.debug_aranges)
-    __debug_aranges_size = . - __debug_aranges_start;
-    __debug_ranges_start = .;
-    *(.debug_ranges)
-    __debug_ranges_size = . - __debug_ranges_start;
-    __debug_str_start = .;
-    *(.debug_str)
-    __debug_str_size = . - __debug_str_start;
-    __debug_line_start = .;
-    *(.debug_line)
-    __debug_line_size = . - __debug_line_start;
-    __debug_loc_start = .;
-    *(.debug_loc)
-    __debug_loc_size = . - __debug_loc_start;
-  }
+  .rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
   .rodata1        : { *(.rodata1) }
   .eh_frame_hdr   : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
 
