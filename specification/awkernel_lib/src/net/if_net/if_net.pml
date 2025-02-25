@@ -37,7 +37,7 @@ inline interface_poll(ch, tmp) {
 
 // Send packets in `ch` to the network.
 // This function simulates the behavior of the network interface.
-inline tx(ch, tmp) {
+inline net_device_send(ch, tmp) {
     atomic {
         do
             :: len(ch) > 0 ->
@@ -82,7 +82,8 @@ proctype poll_rx_tx(int tid) {
     interface_poll(ch, tmp);
     unlock(tid, LockInner);
 
-    tx(ch, tmp);
+    // send packets from the queue.
+    net_device_send(ch, tmp);
 
     unlock(tid, LockTxRingq[txq]);
     unlock(tid, LockRxRingq[rxq]);
@@ -113,7 +114,8 @@ proctype poll_tx_only(int tid, send_data) {
     interface_poll(ch, tmp);
     unlock(tid, LockInner);
 
-    tx(ch, tmp);
+    // send packets from the queue.
+    net_device_send(ch, tmp);
 
     unlock(tid, LockTxRingq[txq]);
 end:
