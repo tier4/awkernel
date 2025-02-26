@@ -64,7 +64,7 @@ impl Dag {
 #[derive(Default)]
 struct Dags {
     candidate_id: u32, // Next candidate of Dag ID.
-    id_to_dag: BTreeMap<u32, Arc<Dag>>,
+    id_to_dag: BTreeMap<u32, Arc<Mutex<Dag>>>,
 }
 
 impl Dags {
@@ -89,7 +89,7 @@ impl Dags {
                     graph: Mutex::new(graph::Graph::new()),
                 };
 
-                e.insert(Arc::new(dag));
+                e.insert(Arc::new(Mutex::new(dag)));
                 self.candidate_id = id;
 
                 return id;
@@ -108,7 +108,7 @@ pub fn create_dag() -> u32 {
     dags.create()
 }
 
-pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
+pub fn get_dag(id: u32) -> Option<Arc<Mutex<Dag>>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
@@ -124,27 +124,31 @@ mod test {
     fn test_add_node() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        dag.add_node(1);
-        dag.add_node(2);
-        dag.add_node(3);
+        let mut node = MCSNode::new();
+        let lock_dag = dag.lock(&mut node);
+        lock_dag.add_node(1);
+        lock_dag.add_node(2);
+        lock_dag.add_node(3);
 
-        assert_eq!(dag.node_count(), 3);
+        assert_eq!(lock_dag.node_count(), 3);
     }
 
     #[test]
     fn test_add_edge() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+        let mut node = MCSNode::new();
+        let lock_dag = dag.lock(&mut node);
+        let a = lock_dag.add_node(1);
+        let b = lock_dag.add_node(2);
+        let c = lock_dag.add_node(3);
 
-        let ab = dag.add_edge(a, b);
-        let _ac = dag.add_edge(a, c);
-        let _bc = dag.add_edge(b, c);
+        let ab = lock_dag.add_edge(a, b);
+        let _ac = lock_dag.add_edge(a, c);
+        let _bc = lock_dag.add_edge(b, c);
 
-        assert_eq!(dag.edge_count(), 3);
-        if let Some(ab_endpoints) = dag.edge_endpoints(ab) {
+        assert_eq!(lock_dag.edge_count(), 3);
+        if let Some(ab_endpoints) = lock_dag.edge_endpoints(ab) {
             assert_eq!(ab_endpoints, (a, b));
         }
     }
@@ -153,29 +157,33 @@ mod test {
     fn test_remove_node() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+        let mut node = MCSNode::new();
+        let lock_dag = dag.lock(&mut node);
+        let a = lock_dag.add_node(1);
+        let b = lock_dag.add_node(2);
+        let c = lock_dag.add_node(3);
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, c);
+        lock_dag.add_edge(a, b);
+        lock_dag.add_edge(a, c);
+        lock_dag.add_edge(b, c);
 
-        dag.remove_node(c);
-        assert_eq!(dag.node_count(), 2);
-        assert_eq!(dag.edge_count(), 1);
+        lock_dag.remove_node(c);
+        assert_eq!(lock_dag.node_count(), 2);
+        assert_eq!(lock_dag.edge_count(), 1);
     }
 
     #[test]
     fn test_remove_edge() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
+        let mut node = MCSNode::new();
+        let lock_dag = dag.lock(&mut node);
+        let a = lock_dag.add_node(1);
+        let b = lock_dag.add_node(2);
 
-        let ab = dag.add_edge(a, b);
+        let ab = lock_dag.add_edge(a, b);
 
-        dag.remove_edge(ab);
-        assert_eq!(dag.edge_endpoints(ab), None);
+        lock_dag.remove_edge(ab);
+        assert_eq!(lock_dag.edge_endpoints(ab), None);
     }
 }
