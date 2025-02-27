@@ -1,6 +1,6 @@
-#define QUEUE_LEN 1
+#define QUEUE_SIZE 2
 #define NUM_SEND 2
-#define NUM_RX_TASK 2
+#define NUM_RX_TASK 1
 #define NUM_QUEUE 2
 
 #define NUM_PROC (NUM_RX_TASK + NUM_SEND)
@@ -10,7 +10,7 @@
 // The transmission queue of the TCP/IP stack.
 // Userland applications send packets to this queue,
 // and the TCP/IP stack receives packets from this queue for sending packets.
-chan IP_Tx = [QUEUE_LEN] of { int };
+chan IP_Tx = [QUEUE_SIZE] of { int };
 
 FairLock LockRxRingq[NUM_QUEUE];
 FairLock LockTxRingq[NUM_QUEUE];
@@ -23,14 +23,17 @@ bool set[NUM_SEND];
 int will_poll = 0;
 
 // Poll packets from the TCP/IP stack.
-inline interface_poll(ch, tmp) {
+inline interface_poll(ch, tmp, result) {
+    result = false;
+
     atomic {
         do
-            :: len(IP_Tx) > 0 ->
+            :: full(ch) -> break;
+            :: empty(IP_Tx) -> break;
+            :: nfull(ch) && nempty(IP_Tx) ->
                 IP_Tx ? tmp;
                 ch ! tmp;
-            :: else ->
-                break;
+                result = true;
         od;
     }
 }
@@ -60,7 +63,9 @@ inline rnd(r) {
 
 // Modeling `awkernel_lib::net::if_net::IfNet::poll_rx_tx()`.
 proctype poll_rx_tx(int tid) {
-    chan ch = [QUEUE_LEN] of { int };
+    chan ch = [QUEUE_SIZE - 1] of { int };
+    bool result;
+
     int tmp;
 
     int rxq;
@@ -72,6 +77,10 @@ proctype poll_rx_tx(int tid) {
         rnd(txq);
     }
 
+    // poll_rx_tx() will be called again if the result is true,
+    // which indicates that some packets are processed.
+    // https://github.com/tier4/awkernel/blob/53f2cf0579c1392d6f38874da07d58f6d5bd41cb/awkernel_lib/src/net.rs#L571-L573
+loop:
     will_poll++;;
 
     lock(tid, LockRxRingq[rxq]);
@@ -79,7 +88,7 @@ proctype poll_rx_tx(int tid) {
 
     lock(tid, LockInner);
     will_poll--;
-    interface_poll(ch, tmp);
+    interface_poll(ch, tmp, result);
     unlock(tid, LockInner);
 
     // send packets from the queue.
@@ -87,11 +96,18 @@ proctype poll_rx_tx(int tid) {
 
     unlock(tid, LockTxRingq[txq]);
     unlock(tid, LockRxRingq[rxq]);
+
+    if
+        :: result -> goto loop;
+        :: else -> skip;
+    fi;
 }
 
 // Modeling `awkernel_lib::net::if_net::IfNet::poll_tx_only()`.
 proctype poll_tx_only(int tid, send_data) {
-    chan ch = [QUEUE_LEN] of { int };
+    chan ch = [QUEUE_SIZE - 1] of { int };
+    bool result;
+    bool is_full;
     int tmp;
 
     int txq;
@@ -99,6 +115,7 @@ proctype poll_tx_only(int tid, send_data) {
 
     IP_Tx ! send_data; // Send an IP packet.
 
+loop:
     // If some task will poll, this task need not to poll.
     atomic {
         if
@@ -111,13 +128,20 @@ proctype poll_tx_only(int tid, send_data) {
 
     lock(tid, LockInner);
     will_poll--;
-    interface_poll(ch, tmp);
+    interface_poll(ch, tmp, result);
     unlock(tid, LockInner);
+
+    is_full = full(ch);
 
     // send packets from the queue.
     net_device_send(ch, tmp);
 
     unlock(tid, LockTxRingq[txq]);
+
+    if
+        :: is_full -> goto loop;
+        :: else -> skip;
+    fi;
 end:
 }
 

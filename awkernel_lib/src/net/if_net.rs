@@ -490,56 +490,68 @@ impl IfNet {
             return false;
         };
 
-        // If some task will poll, this task need not to poll.
-        if self
-            .will_poll
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                if n > 0 {
-                    None
-                } else {
-                    Some(n + 1)
-                }
-            })
-            .is_err()
-        {
-            return true;
-        }
+        let mut result = false;
 
-        let mut node = MCSNode::new();
-        let mut tx_ringq = tx_ringq.lock(&mut node);
+        loop {
+            // If some task will poll, this task need not to poll.
+            if self
+                .will_poll
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    if n > 0 {
+                        None
+                    } else {
+                        Some(n + 1)
+                    }
+                })
+                .is_err()
+            {
+                return true;
+            }
 
-        let mut device_ref = NetDriverRef {
-            inner: &self.net_device,
-            rx_ringq: None,
-            tx_ringq: &mut tx_ringq,
-        };
-
-        let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
-
-        let result = {
             let mut node = MCSNode::new();
-            let mut inner = self.inner.lock(&mut node);
+            let mut tx_ringq = tx_ringq.lock(&mut node);
 
-            let interface = inner.get_interface();
-            self.will_poll.fetch_sub(1, Ordering::Relaxed);
-            interface.poll(timestamp, &mut device_ref, &self.socket_set)
-        };
+            let mut device_ref = NetDriverRef {
+                inner: &self.net_device,
+                rx_ringq: None,
+                tx_ringq: &mut tx_ringq,
+            };
 
-        // send packets from the queue.
-        while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
-                let data = EtherFrameRef {
-                    data: &data,
-                    vlan: self.vlan,
-                    csum_flags: tx_packet_header_flags,
-                };
+            result = result || {
+                let mut node = MCSNode::new();
+                let mut inner = self.inner.lock(&mut node);
 
-                if self.net_device.send(data, que_id).is_err() {
-                    log::error!("Failed to send a packet.");
+                let interface = inner.get_interface();
+                self.will_poll.fetch_sub(1, Ordering::Relaxed);
+                interface.poll(timestamp, &mut device_ref, &self.socket_set)
+            };
+
+            let is_full = device_ref.tx_ringq.is_full();
+
+            // send packets from the queue.
+            while !device_ref.tx_ringq.is_empty() {
+                if let Some(data) = device_ref.tx_ringq.pop() {
+                    let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+
+                    let data = EtherFrameRef {
+                        data: &data,
+                        vlan: self.vlan,
+                        csum_flags: tx_packet_header_flags,
+                    };
+
+                    if self.net_device.send(data, que_id).is_err() {
+                        log::error!("Failed to send a packet.");
+                    }
+                } else {
+                    break;
                 }
-            } else {
+            }
+
+            // If the queue is full, there should be packets to be processed,
+            // and thus the loop continues.
+            if !is_full {
                 break;
             }
         }
