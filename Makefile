@@ -3,6 +3,7 @@ ifeq ($(RELEASE), 1)
 	BUILD = release
 else
 	BUILD = debug
+	OPT = --features debug
 endif
 
 # 2MiB Stack
@@ -136,6 +137,7 @@ check_x86_64: $(X86ASM)
 
 kernel-x86_64.elf: $(X86ASM) FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
+	python3 scripts/embed_debug_info.py $@
 
 x86_64_boot.img: kernel-x86_64.elf
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
