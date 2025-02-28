@@ -13,7 +13,7 @@ def main():
         debug_section = elf.get_section_by_name(".debug")
         assert debug_section is not None
         target_segment = next((segment for segment in elf.iter_segments() if segment.section_in_segment(debug_section)), None)
-        assert target_segment is not None
+        if target_segment is None: return
 
         # Copy the data of each debug section to the target segment
         debug_sections = {section.name : section for section in elf.iter_sections() if section.name.startswith(".debug")}
