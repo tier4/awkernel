@@ -2,7 +2,7 @@ import argparse
 from elftools.elf.elffile import ELFFile
 
 def main():
-    parser = argparse.ArgumentParser(description="Copy the contents of the debug sections to the data section")
+    parser = argparse.ArgumentParser(description="Copy the data of each debug section to the rodata-segment")
     parser.add_argument("kernel", help="Kernel ELF file")
     args = parser.parse_args()
 
