@@ -26,7 +26,7 @@ else ifeq ($(BSP),aarch64_virt)
 	AARCH64_OPT = $(OPT) --features aarch64_virt
 endif
 
-RUSTC_MISC_ARGS += -C panic=abort
+RUSTC_MISC_ARGS += -C panic=unwind
 
 ASM_FILE_DEP_AARCH64=kernel/asm/aarch64/exception.S
 ASM_FILE_AARCH64=kernel/asm/aarch64/boot.S
@@ -54,7 +54,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2024-12-02
+RUSTV=nightly-2025-02-27
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
