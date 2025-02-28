@@ -335,7 +335,7 @@ impl Timer {
 
     fn set_for_retransmit(&mut self, timestamp: Instant, delay: Duration) {
         match *self {
-            Timer::Idle { .. } | Timer::FastRetransmit { .. } => {
+            Timer::Idle { .. } | Timer::FastRetransmit => {
                 *self = Timer::Retransmit {
                     expires_at: timestamp + delay,
                     delay,
