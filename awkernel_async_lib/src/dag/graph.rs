@@ -70,6 +70,8 @@ use alloc::vec::Vec;
 use core::cmp::max;
 use core::fmt::{self, Debug};
 use core::hash::Hash;
+use core::marker::PhantomData;
+use core::ops::Range;
 
 mod direction;
 mod iter_format;
@@ -217,6 +219,11 @@ impl<Ix: fmt::Debug> fmt::Debug for NodeIndex<Ix> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "NodeIndex({:?})", self.0)
     }
+}
+
+/// Short version of `NodeIndex::new`
+pub fn node_index<Ix: IndexType>(index: usize) -> NodeIndex<Ix> {
+    NodeIndex::new(index)
 }
 
 /// Edge identifier.
@@ -771,6 +778,15 @@ where
         }
         None
     }
+
+    /// Return an iterator over the node indices of the graph.
+    ///
+    pub fn node_indices(&self) -> NodeIndices<Ix> {
+        NodeIndices {
+            r: 0..self.node_count(),
+            ty: PhantomData,
+        }
+    }
 }
 
 /// Iterator over the neighbors of a node.
@@ -931,3 +947,30 @@ impl<Ix: IndexType> WalkNeighbors<Ix> {
         self.next(g).map(|t| t.0)
     }
 }
+
+/// Iterator over the node indices of a graph.
+#[derive(Clone, Debug)]
+pub struct NodeIndices<Ix = DefaultIx> {
+    r: Range<usize>,
+    ty: PhantomData<fn() -> Ix>,
+}
+
+impl<Ix: IndexType> Iterator for NodeIndices<Ix> {
+    type Item = NodeIndex<Ix>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.r.next().map(node_index)
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.r.size_hint()
+    }
+}
+
+impl<Ix: IndexType> DoubleEndedIterator for NodeIndices<Ix> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.r.next_back().map(node_index)
+    }
+}
+
+impl<Ix: IndexType> ExactSizeIterator for NodeIndices<Ix> {}

@@ -1,29 +1,45 @@
 pub mod graph;
 
 use alloc::{
+    borrow::Cow,
     collections::{btree_map, BTreeMap},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use core::time::Duration;
+
+use crate::{
+    scheduler::SchedulerType, spawn_periodic_reactor, spawn_reactor, MultipleReceiver,
+    MultipleSender, VectorToPublishers, VectorToSubscribers,
+};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    task_id: u32,
+    node_name: Cow<'static, str>,
+    subscribe_topics: Vec<Cow<'static, str>>,
+    publish_topics: Vec<Cow<'static, str>>,
+}
+
 pub struct Dag {
     pub id: u32,
-    pub graph: Mutex<graph::Graph<u32, u32>>, //TODO: Change to attribute
+    pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
 }
 
 impl Dag {
-    pub fn add_node(&self, data: u32) -> graph::NodeIndex {
+    pub fn add_node(&self, data: NodeInfo) -> graph::NodeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
-        graph.add_node(data)
+        self.add_node_with_lock(&mut graph, data)
     }
 
     pub fn add_edge(&self, source: graph::NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
-        graph.add_edge(source, target, 0) // 0 is the temporary weight
+        self.add_edge_with_lock(&mut graph, source, target)
     }
 
     pub fn remove_node(&self, node_idx: graph::NodeIndex) {
@@ -38,13 +54,21 @@ impl Dag {
         graph.remove_edge(edge_idx);
     }
 
-    pub fn edge_endpoints(
+    fn add_node_with_lock(
         &self,
-        edge_idx: graph::EdgeIndex,
-    ) -> Option<(graph::NodeIndex, graph::NodeIndex)> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_endpoints(edge_idx)
+        graph: &mut graph::Graph<NodeInfo, u32>,
+        data: NodeInfo,
+    ) -> graph::NodeIndex {
+        graph.add_node(data)
+    }
+
+    fn add_edge_with_lock(
+        &self,
+        graph: &mut graph::Graph<NodeInfo, u32>,
+        source: graph::NodeIndex,
+        target: graph::NodeIndex,
+    ) -> graph::EdgeIndex {
+        graph.add_edge(source, target, 0) // 0 is the temporary weight
     }
 
     pub fn node_count(&self) -> usize {
@@ -57,6 +81,116 @@ impl Dag {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
         graph.edge_count()
+    }
+
+    fn node_indices_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> Vec<graph::NodeIndex> {
+        graph.node_indices().collect()
+    }
+
+    fn node_weight_with_lock(
+        &self,
+        graph: &graph::Graph<NodeInfo, u32>,
+        node_idx: graph::NodeIndex,
+    ) -> Option<NodeInfo> {
+        graph.node_weight(node_idx).cloned()
+    }
+
+    fn build_reactor_graph(
+        &self,
+        task_id: u32,
+        reactor_name: Cow<'static, str>,
+        subscribe_topic_names: Vec<Cow<'static, str>>,
+        publish_topic_names: Vec<Cow<'static, str>>,
+    ) -> u32 {
+        let add_node_info = NodeInfo {
+            task_id,
+            node_name: reactor_name,
+            subscribe_topics: subscribe_topic_names.clone(),
+            publish_topics: publish_topic_names.clone(),
+        };
+
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+        let add_node_idx = self.add_node_with_lock(&mut graph, add_node_info);
+
+        for node_idx in self.node_indices_with_lock(&mut graph) {
+            if node_idx != add_node_idx {
+                if let Some(node_info) = self.node_weight_with_lock(&mut graph, node_idx) {
+                    for subscribe_topic in &subscribe_topic_names {
+                        if node_info.publish_topics.contains(subscribe_topic) {
+                            self.add_edge_with_lock(&mut graph, node_idx, add_node_idx);
+                        }
+                    }
+                    for publish_topic in &publish_topic_names {
+                        if node_info.subscribe_topics.contains(publish_topic) {
+                            self.add_edge_with_lock(&mut graph, add_node_idx, node_idx);
+                        }
+                    }
+                }
+            }
+        }
+        task_id
+    }
+
+    pub async fn spawn_reactor<F, Args, Ret>(
+        &self,
+        reactor_name: Cow<'static, str>,
+        f: F,
+        subscribe_topic_names: Vec<Cow<'static, str>>,
+        publish_topic_names: Vec<Cow<'static, str>>,
+        sched_type: SchedulerType,
+    ) -> u32
+    where
+        F: Fn(
+                <Args::Subscribers as MultipleReceiver>::Item,
+            ) -> <Ret::Publishers as MultipleSender>::Item
+            + Send
+            + 'static,
+        Args: VectorToSubscribers,
+        Ret: VectorToPublishers,
+        Ret::Publishers: Send,
+        Args::Subscribers: Send,
+    {
+        let task_id = spawn_reactor::<F, Args, Ret>(
+            reactor_name.clone(),
+            f,
+            subscribe_topic_names.clone(),
+            publish_topic_names.clone(),
+            sched_type,
+        )
+        .await;
+
+        self.build_reactor_graph(
+            task_id,
+            reactor_name,
+            subscribe_topic_names,
+            publish_topic_names,
+        )
+    }
+
+    pub async fn spawn_periodic_reactor<F, Ret>(
+        &self,
+        reactor_name: Cow<'static, str>,
+        f: F,
+        publish_topic_names: Vec<Cow<'static, str>>,
+        sched_type: SchedulerType,
+        period: Duration,
+    ) -> u32
+    where
+        F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
+        Ret: VectorToPublishers,
+        Ret::Publishers: Send,
+    {
+        let task_id = spawn_periodic_reactor::<F, Ret>(
+            reactor_name.clone(),
+            f,
+            publish_topic_names.clone(),
+            sched_type,
+            period,
+        )
+        .await;
+
+        self.build_reactor_graph(task_id, reactor_name, Vec::new(), publish_topic_names)
     }
 }
 
@@ -114,19 +248,26 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-// TODO: Implementation of API to build DAGs from Reactor
-
 #[cfg(test)]
 mod test {
     use super::*;
+
+    fn create_node_info(node_id: u32) -> NodeInfo {
+        NodeInfo {
+            task_id: node_id,
+            node_name: Cow::from(format!("node{}", node_id)),
+            subscribe_topics: Vec::new(),
+            publish_topics: Vec::new(),
+        }
+    }
 
     #[test]
     fn test_add_node() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        dag.add_node(1);
-        dag.add_node(2);
-        dag.add_node(3);
+        dag.add_node(create_node_info(1));
+        dag.add_node(create_node_info(2));
+        dag.add_node(create_node_info(3));
 
         assert_eq!(dag.node_count(), 3);
     }
@@ -135,27 +276,24 @@ mod test {
     fn test_add_edge() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
 
         let ab = dag.add_edge(a, b);
-        let _ac = dag.add_edge(a, c);
-        let _bc = dag.add_edge(b, c);
+        dag.add_edge(a, c);
+        dag.add_edge(b, c);
 
         assert_eq!(dag.edge_count(), 3);
-        if let Some(ab_endpoints) = dag.edge_endpoints(ab) {
-            assert_eq!(ab_endpoints, (a, b));
-        }
     }
 
     #[test]
     fn test_remove_node() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
 
         dag.add_edge(a, b);
         dag.add_edge(a, c);
@@ -170,12 +308,13 @@ mod test {
     fn test_remove_edge() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
 
         let ab = dag.add_edge(a, b);
 
+        assert_eq!(dag.edge_count(), 1);
         dag.remove_edge(ab);
-        assert_eq!(dag.edge_endpoints(ab), None);
+        assert_eq!(dag.edge_count(), 0);
     }
 }

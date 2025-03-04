@@ -1,27 +1,83 @@
 #![no_std]
+extern crate alloc;
 
-use awkernel_async_lib::dag::graph::Graph;
+use alloc::{borrow::Cow, vec};
+use awkernel_async_lib::dag::create_dag;
+use awkernel_async_lib::dag::finish_create_dag;
+use awkernel_async_lib::dag::get_dag;
+use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
+use awkernel_lib::sync::mutex::MCSNode;
+use core::time::Duration;
 
 pub async fn run() {
     wait_microsec(1000000);
 
-    let mut graph: Graph<&str, &str> = Graph::new();
+    let dag_id = create_dag();
+    let dag = get_dag(dag_id).unwrap();
 
-    let a = graph.add_node("A");
-    let b = graph.add_node("B");
-    let c = graph.add_node("C");
+    dag.spawn_periodic_reactor::<_, (i32,)>(
+        "reactor_source_node".into(),
+        || -> (i32,) {
+            let number: i32 = 1;
+            log::debug!("value={} in reactor_source_node", number);
+            (number,)
+        },
+        vec![Cow::from("topic0")],
+        SchedulerType::FIFO,
+        Duration::from_secs(1),
+    )
+    .await;
 
-    let ab = graph.add_edge(a, b, "A-B");
-    let _ac = graph.add_edge(a, c, "A-C");
-    let _bc = graph.add_edge(b, c, "B-C");
+    dag.spawn_reactor::<_, (i32,), (i32, i32)>(
+        "reactor_node1".into(),
+        |(a,): (i32,)| -> (i32, i32) {
+            log::debug!("value={} in reactor_node1", a);
+            (a, a)
+        },
+        vec![Cow::from("topic0")],
+        vec![Cow::from("topic1"), Cow::from("topic2")],
+        SchedulerType::FIFO,
+    )
+    .await;
 
-    log::info!("Graph: {:#?}", graph);
+    dag.spawn_reactor::<_, (i32,), (i32,)>(
+        "reactor_node2".into(),
+        |(a,): (i32,)| -> (i32,) {
+            log::debug!("value={} in reactor_node2", a * 2);
+            (a * 2,)
+        },
+        vec![Cow::from("topic1")],
+        vec![Cow::from("topic3")],
+        SchedulerType::FIFO,
+    )
+    .await;
 
-    if let Some((src, tdt)) = graph.edge_endpoints(ab) {
-        log::info!("Edge ab: {:?} -> {:?}", src, tdt);
-    }
+    dag.spawn_reactor::<_, (i32,), (i32,)>(
+        "reactor_node3".into(),
+        |(a,): (i32,)| -> (i32,) {
+            log::debug!("value={} in reactor_node3", a * 3);
+            (a * 3,)
+        },
+        vec![Cow::from("topic2")],
+        vec![Cow::from("topic4")],
+        SchedulerType::FIFO,
+    )
+    .await;
 
-    graph.remove_node(c);
-    log::info!("Graph: {:#?}", graph);
+    dag.spawn_reactor::<_, (i32, i32), ()>(
+        "reactor_node4".into(),
+        |(a, b): (i32, i32)| {
+            log::debug!("value={} in reactor_node4", a + b);
+        },
+        vec![Cow::from("topic3"), Cow::from("topic4")],
+        vec![],
+        SchedulerType::FIFO,
+    )
+    .await;
+
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+
+    log::debug!("graph:\n{:#?}", &*graph);
 }
