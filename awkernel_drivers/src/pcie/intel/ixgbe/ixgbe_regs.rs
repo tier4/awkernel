@@ -2837,9 +2837,11 @@ pub const IXGBE_PVTEIMC: fn(p: u32) -> u32 = |p| 0x00E00 + (4 * p);
 pub const IXGBE_PVTEIAC: fn(p: u32) -> u32 = |p| 0x00F00 + (4 * p);
 pub const IXGBE_PVTEIAM: fn(p: u32) -> u32 = |p| 0x04D00 + (4 * p);
 pub const IXGBE_PVTEITR: fn(p: u32) -> u32 = |p| {
-    (p < 24)
-        .then(|| 0x00820 + (p * 4))
-        .unwrap_or(0x012300 + ((p - 24) * 4))
+    if p < 24 {
+        0x00820 + (p * 4)
+    } else {
+        0x012300 + ((p - 24) * 4)
+    }
 };
 pub const IXGBE_PVTIVAR: fn(p: u32) -> u32 = |p| 0x12500 + (4 * p);
 pub const IXGBE_PVTIVAR_MISC: fn(p: u32) -> u32 = |p| 0x04E00 + (4 * p);

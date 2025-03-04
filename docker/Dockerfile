@@ -16,8 +16,8 @@ RUN . /usr/local/cargo/env && \
     cargo install mdbook-mermaid
 
 RUN . /usr/local/cargo/env && \
-    rustup toolchain install nightly-2024-10-16 && \
-    rustup default nightly-2024-10-16 && \
+    rustup toolchain install nightly-2025-02-27 && \
+    rustup default nightly-2025-02-27 && \
     rustup component add rust-src llvm-tools-preview && \
     rustup target add x86_64-unknown-none aarch64-unknown-none riscv32imac-unknown-none-elf
 
