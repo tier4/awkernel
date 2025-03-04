@@ -41,10 +41,13 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     test_measure_channel_heavy::run().await; // measure channel heavy
 
     #[cfg(feature = "test_load_udp")]
-    load_test_udp::run().await; // load test udp
+    test_load_udp::run().await; // load test udp
 
     #[cfg(feature = "test_sched_preempt")]
     test_sched_preempt::run().await; // tests related to preemption between schedulers
+
+    #[cfg(feature = "test_dag")]
+    test_dag::run().await; // test for DAG
 
     Ok(())
 }

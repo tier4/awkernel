@@ -88,8 +88,8 @@ It can execute async/await applications in kernel space safely.
 
 ```text
 $ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2024-12-02
-$ rustup default nightly-2024-12-02
+$ rustup toolchain install nightly-2025-02-27
+$ rustup default nightly-2025-02-27
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
 ```
