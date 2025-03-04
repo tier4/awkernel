@@ -34,11 +34,9 @@ fn stack_trace() {
 
     extern "C" fn callback(unwind_ctx: &UnwindContext<'_>, arg: *mut c_void) -> UnwindReasonCode {
         let data = unsafe { &mut *(arg as *mut CallbackData) };
-
-        data.counter += 1;
-
         let addr = _Unwind_GetIP(unwind_ctx);
-        log::info!("{}:\t{:#016x} - UNKNOWN", data.counter, addr);
+        log::info!("{:02}:\t{:#016x} - UNKNOWN", data.counter, addr);
+        data.counter += 1;
         UnwindReasonCode::NO_REASON
     }
 
@@ -62,9 +60,6 @@ fn stack_trace() {
 
     extern "C" fn callback(unwind_ctx: &UnwindContext<'_>, arg: *mut c_void) -> UnwindReasonCode {
         let data = unsafe { &mut *(arg as *mut CallbackData) };
-
-        data.counter += 1;
-
         let addr = _Unwind_GetIP(unwind_ctx);
         let mut frames = data
             .context
@@ -76,7 +71,7 @@ fn stack_trace() {
             if let Some(name) = frame.function {
                 let location = frame.location.unwrap();
                 log::info!(
-                    "{}:\t{:#016x} - {}\n\t\tat {}:{}:{}",
+                    "{:02}:\t{:#016x} - {}\n\t\tat {}:{}:{}",
                     data.counter,
                     addr,
                     name.demangle().unwrap(),
@@ -85,9 +80,10 @@ fn stack_trace() {
                     location.column.unwrap_or(0)
                 )
             } else {
-                log::info!("{}:\t{:#016x} - UNKNOWN", data.counter, addr);
+                log::info!("{:02}:\t{:#016x} - UNKNOWN", data.counter, addr);
             }
         }
+        data.counter += 1;
         UnwindReasonCode::NO_REASON
     }
 
