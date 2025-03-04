@@ -73,18 +73,20 @@ fn stack_trace() {
             .unwrap();
 
         while let Ok(Some(frame)) = frames.next() {
-            let name = frame.function.unwrap();
-            let location = frame.location.unwrap();
-
-            log::info!(
-                "{}:\t{:#016x} - {}\n\t\tat {}:{}:{}",
-                data.counter,
-                addr,
-                name.demangle().unwrap(),
-                location.file.unwrap(),
-                location.line.unwrap_or(0),
-                location.column.unwrap_or(0)
-            )
+            if let Some(name) = frame.function {
+                let location = frame.location.unwrap();
+                log::info!(
+                    "{}:\t{:#016x} - {}\n\t\tat {}:{}:{}",
+                    data.counter,
+                    addr,
+                    name.demangle().unwrap(),
+                    location.file.unwrap(),
+                    location.line.unwrap_or(0),
+                    location.column.unwrap_or(0)
+                )
+            } else {
+                log::info!("{}:\t{:#016x} - UNKNOWN", data.counter, addr);
+            }
         }
         UnwindReasonCode::NO_REASON
     }
