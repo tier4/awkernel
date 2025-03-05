@@ -3,6 +3,7 @@ ifeq ($(RELEASE), 1)
 	BUILD = release
 else
 	BUILD = debug
+	OPT = --features debug
 endif
 
 # 2MiB Stack
@@ -83,6 +84,7 @@ check_aarch64: FORCE
 
 target/aarch64-kernel/$(BUILD)/awkernel: $(ASM_OBJ_AARCH64) $(AARCH64_BSP_LD) FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) aarch64 $(AARCH64_OPT)
+	python3 scripts/embed_debug_info.py $@
 
 kernel8.img: target/aarch64-kernel/$(BUILD)/awkernel
 	rust-objcopy -O binary target/aarch64-kernel/$(BUILD)/awkernel $@
@@ -136,6 +138,7 @@ check_x86_64: $(X86ASM)
 
 kernel-x86_64.elf: $(X86ASM) FORCE
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) x86 $(OPT)
+	python3 scripts/embed_debug_info.py $@
 
 x86_64_boot.img: kernel-x86_64.elf
 	RUSTFLAGS="$(RUSTC_MISC_ARGS)" cargo +$(RUSTV) run --release --package x86bootdisk -- --kernel $< --output $@
