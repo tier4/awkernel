@@ -1011,12 +1011,15 @@ impl PCIeInfo {
                     return intel::e1000e_example::attach(self);
                 }
             }
-            pcie_id::RASPI_VENDOR_ID => {
+            pcie_id::RASPI_VENDOR_ID =>
+            {
+                #[cfg(feature = "rp1")]
                 if raspi::rp1::match_device(self.vendor, self.id) {
                     return raspi::rp1::attach(self);
                 }
             }
             pcie_id::BROADCOM_VENDOR_ID => {
+                #[cfg(feature = "bcm2712")]
                 if broadcom::bcm2712::match_device(self.vendor, self.id) {
                     return broadcom::bcm2712::attach(self);
                 }

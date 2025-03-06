@@ -872,7 +872,7 @@ impl IxgbeInner {
         let mut rng = SmallRng::from_seed(seed);
         let mut rss_keys = [0u32; 10];
         for rss_key in &mut rss_keys {
-            *rss_key = rng.gen::<u32>();
+            *rss_key = rng.random::<u32>();
         }
 
         // Set multiplier for RETA setup and table size based on MAC
@@ -1351,6 +1351,8 @@ impl Ixgbe {
     }
 
     fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
+        log::debug!("{}: intr, irq = {irq}", self.device_name());
+
         let inner = self.inner.read();
 
         let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {

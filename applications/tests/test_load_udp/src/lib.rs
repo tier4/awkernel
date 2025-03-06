@@ -6,13 +6,13 @@ use core::{net::Ipv4Addr, time::Duration};
 
 use awkernel_async_lib::net::{udp::UdpConfig, IpAddr};
 
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
-const INTERFACE_ID: u64 = 1;
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52);
+const INTERFACE_ID: u64 = 0;
 
 const BASE_PORT: u16 = 20000;
 
 pub async fn run() {
-    const NUM_TASKS: [usize; 11] = [1000, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
+    const NUM_TASKS: [usize; 11] = [100, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
 
     for num_task in NUM_TASKS {
@@ -52,9 +52,6 @@ async fn udp_server(port: u16) {
     loop {
         match socket.recv(&mut buf).await {
             Ok((read_bytes, client_addr, port)) => {
-                if read_bytes == 1 {
-                    break;
-                }
                 let received_data = &buf[..read_bytes];
 
                 if let Err(e) = socket.send(received_data, &client_addr, port).await {

@@ -120,6 +120,8 @@ raspi5 = [
     "awkernel_drivers/raspi",
     "awkernel_drivers/pcie",
     "awkernel_drivers/pl011",
+    "awkernel_drivers/rp1",
+    "awkernel_drivers/bcm2712",
     "dep:embedded-hal",
 ]
 
