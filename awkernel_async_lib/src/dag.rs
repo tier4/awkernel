@@ -13,6 +13,10 @@ use crate::{
     scheduler::SchedulerType, spawn_periodic_reactor, spawn_reactor, MultipleReceiver,
     MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+use alloc::collections::BTreeSet;
+
+use crate::dag::graph::direction::Direction;
+use crate::dag::graph::NodeIndex;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
@@ -36,7 +40,7 @@ impl Dag {
         self.add_node_with_lock(&mut graph, data)
     }
 
-    pub fn add_edge(&self, source: graph::NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
+    pub fn add_edge(&self, source: NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         self.add_edge_with_lock(&mut graph, source, target)
@@ -65,8 +69,8 @@ impl Dag {
     fn add_edge_with_lock(
         &self,
         graph: &mut graph::Graph<NodeInfo, u32>,
-        source: graph::NodeIndex,
-        target: graph::NodeIndex,
+        source: NodeIndex,
+        target: NodeIndex,
     ) -> graph::EdgeIndex {
         graph.add_edge(source, target, 0) // 0 is the temporary weight
     }
@@ -74,7 +78,7 @@ impl Dag {
     pub fn node_count(&self) -> usize {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
-        graph.node_count()
+        self.node_count_with_lock(&graph)
     }
 
     pub fn edge_count(&self) -> usize {
@@ -83,16 +87,40 @@ impl Dag {
         graph.edge_count()
     }
 
-    fn node_indices_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> Vec<graph::NodeIndex> {
+    fn node_count_with_lock(
+        &self,
+        graph: &graph::Graph<NodeInfo, u32>,
+    ) -> usize {
+        graph.node_count()
+    }
+
+    fn node_indices_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> Vec<NodeIndex> {
         graph.node_indices().collect()
     }
 
     fn node_weight_with_lock(
         &self,
         graph: &graph::Graph<NodeInfo, u32>,
-        node_idx: graph::NodeIndex,
+        node_idx: NodeIndex,
     ) -> Option<NodeInfo> {
         graph.node_weight(node_idx).cloned()
+    }
+
+    fn neighbors_directed_with_lock(
+        &self,
+        graph: &graph::Graph<NodeInfo, u32>,
+        node_idx: NodeIndex,
+        dir: Direction,
+    ) -> Vec<NodeIndex> {
+        graph.neighbors_directed(node_idx, dir).collect()
+    }
+
+    fn neighbors_undirected_with_lock(
+        &self,
+        graph: &graph::Graph<NodeInfo, u32>,
+        node_idx: NodeIndex,
+    ) -> Vec<NodeIndex> {
+        graph.neighbors_undirected(node_idx).collect()
     }
 
     fn build_reactor_graph(
@@ -192,6 +220,101 @@ impl Dag {
 
         self.build_reactor_graph(task_id, reactor_name, Vec::new(), publish_topic_names)
     }
+
+    fn get_boundary_nodes(&self, direction: Direction) -> Option<Vec<NodeIndex>> {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+
+        let boundary_nodes: Vec<NodeIndex> = self
+            .node_indices_with_lock(&graph)
+            .into_iter()
+            .filter(|&node_idx| {
+                self.neighbors_directed_with_lock(&graph, node_idx, direction)
+                    .is_empty()
+            })
+            .collect();
+
+        (!boundary_nodes.is_empty()).then_some(boundary_nodes)
+    }
+
+    fn get_source_nodes(&self) -> Option<Vec<NodeIndex>> {
+        self.get_boundary_nodes(Direction::Incoming)
+    }
+
+    fn get_sink_nodes(&self) -> Option<Vec<NodeIndex>> {
+        self.get_boundary_nodes(Direction::Outgoing)
+    }
+
+    fn is_weakly_connected(&self) -> bool {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+
+        if self.node_count_with_lock(&graph) == 0 {
+            return false;
+        }
+
+        let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
+        let mut stack: Vec<NodeIndex> = Vec::new();
+
+        if let Some(start_node) = self.node_indices_with_lock(&graph).first() {
+            stack.push(*start_node);
+            visited.insert(*start_node);
+        }
+
+        while let Some(node_idx) = stack.pop() {
+            for neighbor in self.neighbors_undirected_with_lock(&graph, node_idx) {
+                if !visited.contains(&neighbor) {
+                    visited.insert(neighbor);
+                    stack.push(neighbor);
+                }
+            }
+        }
+
+        visited.len() == self.node_count_with_lock(&graph)
+    }
+
+    fn is_cycle(&self) -> bool {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+
+        let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
+        let mut stack: Vec<NodeIndex> = Vec::new();
+
+        for node_idx in self.node_indices_with_lock(&graph) {
+            if !visited.contains(&node_idx) && self.dfs(&graph, node_idx, &mut visited, &mut stack) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn dfs(
+        &self,
+        graph: &graph::Graph<NodeInfo, u32>,
+            node_idx: NodeIndex,
+            visited: &mut BTreeSet<NodeIndex>,
+            stack: &mut Vec<NodeIndex>,
+    ) -> bool {
+        if stack.contains(&node_idx) {
+            return true;
+        }
+        if visited.contains(&node_idx) {
+            return false;
+        }
+
+        visited.insert(node_idx);
+        stack.push(node_idx);
+
+        for neighbor in self.neighbors_directed_with_lock(&graph, node_idx, Direction::Outgoing) {
+            if self.dfs(graph, neighbor, visited, stack) {
+                return true;
+            }
+        }
+
+        stack.pop();
+        false
+    }
 }
 
 /// DAGs.
@@ -246,6 +369,31 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     let mut node = MCSNode::new();
     let dags = DAGS.lock(&mut node);
     dags.id_to_dag.get(&id).cloned()
+}
+
+pub fn finish_create_dag(dag_ids: &[u32]) {
+    for dag_id in dag_ids {
+        let dag = get_dag(*dag_id);
+
+        if let Some(dag) = dag {
+            let source_nodes = dag.get_source_nodes();
+            if source_nodes.is_none() {
+                panic!("DAG ID {} is not have source node", dag_id);
+            }
+            let sink_nodes = dag.get_sink_nodes();
+            if sink_nodes.is_none() {
+                panic!("DAG ID {} is not have sink node", dag_id);
+            }
+            if !dag.is_weakly_connected() {
+                panic!("DAG ID {} is not weakly connected", dag_id);
+            }
+            if dag.is_cycle() {
+                panic!("DAG ID {} is cycle", dag_id);
+            }
+        } else {
+            panic!("DAG ID {} is not found", dag_id);
+        }
+    }
 }
 
 #[cfg(test)]

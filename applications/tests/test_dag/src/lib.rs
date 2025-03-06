@@ -76,6 +76,8 @@ pub async fn run() {
     )
     .await;
 
+    finish_create_dag(&[dag_id]);
+
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
 

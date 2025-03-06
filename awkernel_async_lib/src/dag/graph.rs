@@ -73,7 +73,7 @@ use core::hash::Hash;
 use core::marker::PhantomData;
 use core::ops::Range;
 
-mod direction;
+pub mod direction;
 mod iter_format;
 use direction::{
     Direction,
@@ -742,7 +742,7 @@ where
     /// not borrow from the graph.
     ///
     /// [1]: struct.Neighbors.html#method.detach
-    fn neighbors_undirected(&self, a: NodeIndex<Ix>) -> Neighbors<E, Ix> {
+    pub fn neighbors_undirected(&self, a: NodeIndex<Ix>) -> Neighbors<E, Ix> {
         Neighbors {
             skip_start: a,
             edges: &self.edges,
