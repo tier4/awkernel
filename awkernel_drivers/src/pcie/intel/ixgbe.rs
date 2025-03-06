@@ -1351,8 +1351,6 @@ impl Ixgbe {
     }
 
     fn intr(&self, irq: u16) -> Result<(), IxgbeDriverErr> {
-        log::debug!("{}: intr, irq = {irq}", self.device_name());
-
         let inner = self.inner.read();
 
         let reason = if let Some(reason) = inner.irq_to_rx_tx_link.get(&irq) {

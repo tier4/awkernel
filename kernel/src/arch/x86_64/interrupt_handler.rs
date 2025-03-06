@@ -287,9 +287,6 @@ extern "x86-interrupt" fn irq11(_stack_frame: InterruptStackFrame) {
 macro_rules! irq_handler {
     ($name:ident, $id:expr) => {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
-            if $id < 100 {
-                log::debug!("irq = {}", $id);
-            }
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
         }
