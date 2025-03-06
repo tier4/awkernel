@@ -2,28 +2,25 @@ pub mod graph;
 
 use alloc::{
     borrow::Cow,
-    collections::{btree_map, BTreeMap},
+    boxed::Box,
+    collections::{btree_map, BTreeMap, BTreeSet},
     sync::Arc,
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use core::time::Duration;
+use core::{future::Future, pin::Pin, time::Duration};
 
+use crate::dag::graph::{direction::Direction, NodeIndex};
 use crate::{
     scheduler::SchedulerType, spawn_periodic_reactor, spawn_reactor, MultipleReceiver,
     MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
-use alloc::collections::BTreeSet;
-
-use crate::dag::graph::direction::Direction;
-use crate::dag::graph::NodeIndex;
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
     task_id: u32,
-    node_name: Cow<'static, str>,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
 }
@@ -31,22 +28,28 @@ pub struct NodeInfo {
 pub struct Dag {
     pub id: u32,
     pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    pending_tasks: Mutex<Vec<PendingTask>>,
+}
+
+struct PendingTask {
+    node_idx: NodeIndex,
+    func: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
 }
 
 impl Dag {
-    pub fn add_node(&self, data: NodeInfo) -> graph::NodeIndex {
+    pub fn add_node(&self, data: NodeInfo) -> NodeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         self.add_node_with_lock(&mut graph, data)
     }
 
-    pub fn add_edge(&self, source: NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
+    pub fn add_edge(&self, source: NodeIndex, target: NodeIndex) -> graph::EdgeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         self.add_edge_with_lock(&mut graph, source, target)
     }
 
-    pub fn remove_node(&self, node_idx: graph::NodeIndex) {
+    pub fn remove_node(&self, node_idx: NodeIndex) {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
         graph.remove_node(node_idx);
@@ -62,7 +65,7 @@ impl Dag {
         &self,
         graph: &mut graph::Graph<NodeInfo, u32>,
         data: NodeInfo,
-    ) -> graph::NodeIndex {
+    ) -> NodeIndex {
         graph.add_node(data)
     }
 
@@ -87,10 +90,7 @@ impl Dag {
         graph.edge_count()
     }
 
-    fn node_count_with_lock(
-        &self,
-        graph: &graph::Graph<NodeInfo, u32>,
-    ) -> usize {
+    fn node_count_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> usize {
         graph.node_count()
     }
 
@@ -125,16 +125,13 @@ impl Dag {
 
     fn build_reactor_graph(
         &self,
-        task_id: u32,
-        reactor_name: Cow<'static, str>,
-        subscribe_topic_names: Vec<Cow<'static, str>>,
-        publish_topic_names: Vec<Cow<'static, str>>,
-    ) -> u32 {
+        subscribe_topic_names: &[Cow<'static, str>],
+        publish_topic_names: &[Cow<'static, str>],
+    ) -> NodeIndex {
         let add_node_info = NodeInfo {
-            task_id,
-            node_name: reactor_name,
-            subscribe_topics: subscribe_topic_names.clone(),
-            publish_topics: publish_topic_names.clone(),
+            task_id: 0, // Temporary task_id
+            subscribe_topics: subscribe_topic_names.to_vec(),
+            publish_topics: publish_topic_names.to_vec(),
         };
 
         let mut node = MCSNode::new();
@@ -144,12 +141,12 @@ impl Dag {
         for node_idx in self.node_indices_with_lock(&mut graph) {
             if node_idx != add_node_idx {
                 if let Some(node_info) = self.node_weight_with_lock(&mut graph, node_idx) {
-                    for subscribe_topic in &subscribe_topic_names {
+                    for subscribe_topic in subscribe_topic_names {
                         if node_info.publish_topics.contains(subscribe_topic) {
                             self.add_edge_with_lock(&mut graph, node_idx, add_node_idx);
                         }
                     }
-                    for publish_topic in &publish_topic_names {
+                    for publish_topic in publish_topic_names {
                         if node_info.subscribe_topics.contains(publish_topic) {
                             self.add_edge_with_lock(&mut graph, add_node_idx, node_idx);
                         }
@@ -157,7 +154,7 @@ impl Dag {
                 }
             }
         }
-        task_id
+        add_node_idx
     }
 
     pub async fn spawn_reactor<F, Args, Ret>(
@@ -167,8 +164,7 @@ impl Dag {
         subscribe_topic_names: Vec<Cow<'static, str>>,
         publish_topic_names: Vec<Cow<'static, str>>,
         sched_type: SchedulerType,
-    ) -> u32
-    where
+    ) where
         F: Fn(
                 <Args::Subscribers as MultipleReceiver>::Item,
             ) -> <Ret::Publishers as MultipleSender>::Item
@@ -179,21 +175,26 @@ impl Dag {
         Ret::Publishers: Send,
         Args::Subscribers: Send,
     {
-        let task_id = spawn_reactor::<F, Args, Ret>(
-            reactor_name.clone(),
-            f,
-            subscribe_topic_names.clone(),
-            publish_topic_names.clone(),
-            sched_type,
-        )
-        .await;
+        let node_idx = self.build_reactor_graph(&subscribe_topic_names, &publish_topic_names);
 
-        self.build_reactor_graph(
-            task_id,
-            reactor_name,
-            subscribe_topic_names,
-            publish_topic_names,
-        )
+        let mut node = MCSNode::new();
+        let mut pending_tasks = self.pending_tasks.lock(&mut node);
+
+        pending_tasks.push(PendingTask {
+            node_idx,
+            func: Box::new(move || {
+                Box::pin(async move {
+                    spawn_reactor::<F, Args, Ret>(
+                        reactor_name.clone(),
+                        f,
+                        subscribe_topic_names.clone(),
+                        publish_topic_names.clone(),
+                        sched_type,
+                    )
+                    .await
+                })
+            }),
+        });
     }
 
     pub async fn spawn_periodic_reactor<F, Ret>(
@@ -203,22 +204,31 @@ impl Dag {
         publish_topic_names: Vec<Cow<'static, str>>,
         sched_type: SchedulerType,
         period: Duration,
-    ) -> u32
-    where
+    ) where
         F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
     {
-        let task_id = spawn_periodic_reactor::<F, Ret>(
-            reactor_name.clone(),
-            f,
-            publish_topic_names.clone(),
-            sched_type,
-            period,
-        )
-        .await;
+        let node_idx = self.build_reactor_graph(&Vec::new(), &publish_topic_names);
 
-        self.build_reactor_graph(task_id, reactor_name, Vec::new(), publish_topic_names)
+        let mut node = MCSNode::new();
+        let mut pending_tasks = self.pending_tasks.lock(&mut node);
+
+        pending_tasks.push(PendingTask {
+            node_idx: node_idx,
+            func: Box::new(move || {
+                Box::pin(async move {
+                    spawn_periodic_reactor::<F, Ret>(
+                        reactor_name.clone(),
+                        f,
+                        publish_topic_names.clone(),
+                        sched_type,
+                        period,
+                    )
+                    .await
+                })
+            }),
+        });
     }
 
     fn get_boundary_nodes(&self, direction: Direction) -> Option<Vec<NodeIndex>> {
@@ -281,7 +291,8 @@ impl Dag {
         let mut stack: Vec<NodeIndex> = Vec::new();
 
         for node_idx in self.node_indices_with_lock(&graph) {
-            if !visited.contains(&node_idx) && self.dfs(&graph, node_idx, &mut visited, &mut stack) {
+            if !visited.contains(&node_idx) && self.dfs(&graph, node_idx, &mut visited, &mut stack)
+            {
                 return true;
             }
         }
@@ -292,9 +303,9 @@ impl Dag {
     fn dfs(
         &self,
         graph: &graph::Graph<NodeInfo, u32>,
-            node_idx: NodeIndex,
-            visited: &mut BTreeSet<NodeIndex>,
-            stack: &mut Vec<NodeIndex>,
+        node_idx: NodeIndex,
+        visited: &mut BTreeSet<NodeIndex>,
+        stack: &mut Vec<NodeIndex>,
     ) -> bool {
         if stack.contains(&node_idx) {
             return true;
@@ -344,6 +355,7 @@ impl Dags {
                 let dag = Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
+                    pending_tasks: Mutex::new(Vec::new()),
                 };
 
                 e.insert(Arc::new(dag));
@@ -371,7 +383,7 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-pub fn finish_create_dag(dag_ids: &[u32]) {
+pub async fn finish_create_dag(dag_ids: &[u32]) {
     for dag_id in dag_ids {
         let dag = get_dag(*dag_id);
 
@@ -390,6 +402,19 @@ pub fn finish_create_dag(dag_ids: &[u32]) {
             if dag.is_cycle() {
                 panic!("DAG ID {} is cycle", dag_id);
             }
+
+            let mut node = MCSNode::new();
+            let pending_tasks: Vec<_> = dag.pending_tasks.lock(&mut node).drain(..).collect();
+
+            for task in pending_tasks {
+                let task_id = (task.func)().await;
+
+                let mut graph_node = MCSNode::new();
+                let mut graph = dag.graph.lock(&mut graph_node);
+                if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
+                    node_info.task_id = task_id;
+                }
+            }
         } else {
             panic!("DAG ID {} is not found", dag_id);
         }
@@ -403,7 +428,6 @@ mod test {
     fn create_node_info(node_id: u32) -> NodeInfo {
         NodeInfo {
             task_id: node_id,
-            node_name: Cow::from(format!("node{}", node_id)),
             subscribe_topics: Vec::new(),
             publish_topics: Vec::new(),
         }
