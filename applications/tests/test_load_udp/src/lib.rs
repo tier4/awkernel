@@ -7,7 +7,7 @@ use core::{net::Ipv4Addr, time::Duration};
 use awkernel_async_lib::net::{udp::UdpConfig, IpAddr};
 
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 0, 3);
-const INTERFACE_ID: u64 = 0;
+const INTERFACE_ID: u64 = 1;
 
 const BASE_PORT: u16 = 20000;
 
@@ -52,6 +52,9 @@ async fn udp_server(port: u16) {
     loop {
         match socket.recv(&mut buf).await {
             Ok((read_bytes, client_addr, port)) => {
+                if read_bytes == 1 {
+                    break;
+                }
                 let received_data = &buf[..read_bytes];
 
                 if let Err(e) = socket.send(received_data, &client_addr, port).await {
