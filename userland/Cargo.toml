@@ -71,7 +71,7 @@ path = "../applications/tests/test_dag"
 optional = true
 
 [features]
-default = ["test_network"]
+default = ["test_load_udp"]
 perf = ["awkernel_services/perf"]
 
 # Test applications
