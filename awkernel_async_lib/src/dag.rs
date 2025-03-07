@@ -231,30 +231,6 @@ impl Dag {
         });
     }
 
-    fn get_boundary_nodes(&self, direction: Direction) -> Option<Vec<NodeIndex>> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-
-        let boundary_nodes: Vec<NodeIndex> = self
-            .node_indices_with_lock(&graph)
-            .into_iter()
-            .filter(|&node_idx| {
-                self.neighbors_directed_with_lock(&graph, node_idx, direction)
-                    .is_empty()
-            })
-            .collect();
-
-        (!boundary_nodes.is_empty()).then_some(boundary_nodes)
-    }
-
-    fn get_source_nodes(&self) -> Option<Vec<NodeIndex>> {
-        self.get_boundary_nodes(Direction::Incoming)
-    }
-
-    fn get_sink_nodes(&self) -> Option<Vec<NodeIndex>> {
-        self.get_boundary_nodes(Direction::Outgoing)
-    }
-
     fn is_weakly_connected(&self) -> bool {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -388,14 +364,6 @@ pub async fn finish_create_dag(dag_ids: &[u32]) {
         let dag = get_dag(*dag_id);
 
         if let Some(dag) = dag {
-            let source_nodes = dag.get_source_nodes();
-            if source_nodes.is_none() {
-                panic!("DAG ID {} is not have source node", dag_id);
-            }
-            let sink_nodes = dag.get_sink_nodes();
-            if sink_nodes.is_none() {
-                panic!("DAG ID {} is not have sink node", dag_id);
-            }
             if !dag.is_weakly_connected() {
                 panic!("DAG ID {} is not weakly connected", dag_id);
             }
