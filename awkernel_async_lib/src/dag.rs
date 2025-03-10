@@ -138,9 +138,9 @@ impl Dag {
         let mut graph = self.graph.lock(&mut node);
         let add_node_idx = self.add_node_with_lock(&mut graph, add_node_info);
 
-        for node_idx in self.node_indices_with_lock(&mut graph) {
+        for node_idx in self.node_indices_with_lock(&graph) {
             if node_idx != add_node_idx {
-                if let Some(node_info) = self.node_weight_with_lock(&mut graph, node_idx) {
+                if let Some(node_info) = self.node_weight_with_lock(&graph, node_idx) {
                     for subscribe_topic in subscribe_topic_names {
                         if node_info.publish_topics.contains(subscribe_topic) {
                             self.add_edge_with_lock(&mut graph, node_idx, add_node_idx);
@@ -215,7 +215,7 @@ impl Dag {
         let mut pending_tasks = self.pending_tasks.lock(&mut node);
 
         pending_tasks.push(PendingTask {
-            node_idx: node_idx,
+            node_idx,
             func: Box::new(move || {
                 Box::pin(async move {
                     spawn_periodic_reactor::<F, Ret>(
@@ -293,7 +293,7 @@ impl Dag {
         visited.insert(node_idx);
         stack.push(node_idx);
 
-        for neighbor in self.neighbors_directed_with_lock(&graph, node_idx, Direction::Outgoing) {
+        for neighbor in self.neighbors_directed_with_lock(graph, node_idx, Direction::Outgoing) {
             if self.dfs(graph, neighbor, visited, stack) {
                 return true;
             }
