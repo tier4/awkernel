@@ -1,7 +1,7 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
-use awkernel_lib::net::NetManagerError;
+use awkernel_lib::net::{udp_socket::SockUdp, NetManagerError};
 use futures::Future;
 use pin_project::pin_project;
 
