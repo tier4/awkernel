@@ -420,7 +420,7 @@ mod test {
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
 
-        let ab = dag.add_edge(a, b);
+        dag.add_edge(a, b);
         dag.add_edge(a, c);
         dag.add_edge(b, c);
 
@@ -456,5 +456,100 @@ mod test {
         assert_eq!(dag.edge_count(), 1);
         dag.remove_edge(ab);
         assert_eq!(dag.edge_count(), 0);
+    }
+
+    #[test]
+    fn test_neighbors_directed(){
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
+        let d = dag.add_node(create_node_info(4));
+
+        dag.add_edge(a, b);
+        dag.add_edge(a, c);
+        dag.add_edge(b, d);
+
+        let neighbors = dag.neighbors_directed_with_lock(&dag.graph.lock(&mut MCSNode::new()), b, Direction::Outgoing);
+        assert_eq!(neighbors.len(), 1);
+        assert_eq!(neighbors.contains(&d), true);
+        assert_eq!(neighbors.contains(&a), false);
+    }
+
+    #[test]
+    fn test_neighbors_undirected(){
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
+        let d = dag.add_node(create_node_info(4));
+
+        dag.add_edge(a, b);
+        dag.add_edge(a, c);
+        dag.add_edge(b, d);
+
+        let neighbors = dag.neighbors_undirected_with_lock(&dag.graph.lock(&mut MCSNode::new()), b);
+        assert_eq!(neighbors.len(), 2);
+        assert_eq!(neighbors.contains(&d), true);
+        assert_eq!(neighbors.contains(&a), true);
+
+    }
+
+    #[test]
+    fn test_is_weakly_connected_true() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
+
+        dag.add_edge(a, b);
+        dag.add_edge(b, c);
+
+        assert_eq!(dag.is_weakly_connected(), true);
+    }
+
+    #[test]
+    fn test_is_weakly_connected_false() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        dag.add_node(create_node_info(3));
+
+        dag.add_edge(a, b);
+
+        assert_eq!(dag.is_weakly_connected(), false);
+    }
+
+    #[test]
+    fn test_is_cycle_true() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
+
+        dag.add_edge(a, b);
+        dag.add_edge(b, c);
+        dag.add_edge(c, a);
+
+        assert_eq!(dag.is_cycle(), true);
+    }
+
+    #[test]
+    fn test_is_cycle_false() {
+        let dag_id = create_dag();
+        let dag = get_dag(dag_id).unwrap();
+        let a = dag.add_node(create_node_info(1));
+        let b = dag.add_node(create_node_info(2));
+        let c = dag.add_node(create_node_info(3));
+
+        dag.add_edge(a, b);
+        dag.add_edge(b, c);
+
+        assert_eq!(dag.is_cycle(), false);
     }
 }
