@@ -459,7 +459,7 @@ mod test {
     }
 
     #[test]
-    fn test_neighbors_directed(){
+    fn test_neighbors_directed() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
         let a = dag.add_node(create_node_info(1));
@@ -471,14 +471,18 @@ mod test {
         dag.add_edge(a, c);
         dag.add_edge(b, d);
 
-        let neighbors = dag.neighbors_directed_with_lock(&dag.graph.lock(&mut MCSNode::new()), b, Direction::Outgoing);
+        let neighbors = dag.neighbors_directed_with_lock(
+            &dag.graph.lock(&mut MCSNode::new()),
+            b,
+            Direction::Outgoing,
+        );
         assert_eq!(neighbors.len(), 1);
         assert_eq!(neighbors.contains(&d), true);
         assert_eq!(neighbors.contains(&a), false);
     }
 
     #[test]
-    fn test_neighbors_undirected(){
+    fn test_neighbors_undirected() {
         let dag_id = create_dag();
         let dag = get_dag(dag_id).unwrap();
         let a = dag.add_node(create_node_info(1));
@@ -494,7 +498,6 @@ mod test {
         assert_eq!(neighbors.len(), 2);
         assert_eq!(neighbors.contains(&d), true);
         assert_eq!(neighbors.contains(&a), true);
-
     }
 
     #[test]
