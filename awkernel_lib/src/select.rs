@@ -56,7 +56,6 @@ impl FdWaker {
         match ev_type {
             EventType::Read => self.events.insert(EventFlag::READ),
             EventType::Write => self.events.insert(EventFlag::WRITE),
-            _ => (),
         }
 
         let mut events = 0;
@@ -110,6 +109,7 @@ impl Drop for FdWaker {
 
 /// Wait events and invoke wakers if necessary.
 pub fn wait(timeout: Duration) {
+    let evfd = event_fd();
     let epfd = epoll_fd();
     let mut events = [libc::epoll_event { events: 0, u64: 0 }; 32];
 
@@ -124,9 +124,6 @@ pub fn wait(timeout: Duration) {
     if result == 0 {
         return;
     }
-
-    let mut node = MCSNode::new();
-    let mut map = FD_TO_WAKER.lock(&mut node);
 
     // Wake wakers.
     let mut i = 0;
@@ -143,13 +140,29 @@ pub fn wait(timeout: Duration) {
         let raw_fd = event.u64 as RawFd;
 
         if event.events & libc::EPOLLIN as u32 != 0 {
-            map.remove(&(raw_fd, EventType::Read))
+            if event.u64 == evfd as u64 {
+                let buf = [0u64; 1];
+                let result = unsafe {
+                    libc::read(evfd, buf.as_ptr() as *mut _, core::mem::size_of::<i64>())
+                };
+                assert!(result != -1);
+            } else {
+                {
+                    let mut node = MCSNode::new();
+                    let mut map = FD_TO_WAKER.lock(&mut node);
+                    map.remove(&(raw_fd, EventType::Read))
+                }
                 .map(|waker| waker.clone().wake());
+            }
         }
 
         if event.events & libc::EPOLLOUT as u32 != 0 {
-            map.remove(&(raw_fd, EventType::Write))
-                .map(|waker| waker.clone().wake());
+            {
+                let mut node = MCSNode::new();
+                let mut map = FD_TO_WAKER.lock(&mut node);
+                map.remove(&(raw_fd, EventType::Write))
+            }
+            .map(|waker| waker.clone().wake());
         }
     }
 }
@@ -192,6 +205,15 @@ fn epoll_fd() -> RawFd {
             panic!("failed epoll_fd()");
         }
 
+        // Register the standard input.
+        let mut event = libc::epoll_event {
+            events: libc::EPOLLIN as u32,
+            u64: libc::STDIN_FILENO as u64,
+        };
+        let result =
+            unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, libc::STDIN_FILENO, &mut event) };
+        assert!(result == 0);
+
         // Get the event descriptor.
         let evfd = event_fd();
 
@@ -200,7 +222,6 @@ fn epoll_fd() -> RawFd {
             events: libc::EPOLLIN as u32,
             u64: evfd as u64,
         };
-
         let result = unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, evfd, &mut event) };
         assert!(result == 0);
 

@@ -45,6 +45,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
+        #[cfg(feature = "std")]
+        if set_nonblocking().is_err() {
+            log::warn!("failed to make stdin non-blocking.");
+        }
+
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
         let _ = draw_splash();
@@ -92,16 +97,20 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             awkernel_lib::interrupt::disable();
 
-            wake_task(); // Wake executable tasks periodically.
+            let dur = wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
 
             awkernel_lib::interrupt::enable();
 
             #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(50);
+            {
+                let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
+                awkernel_lib::select::wait(dur);
+            }
 
             #[cfg(not(feature = "std"))]
             {
+                let _ = dur; // TODO: wait `dur` sec.
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
@@ -203,5 +212,26 @@ fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
 
     graphics::flush();
 
+    Ok(())
+}
+
+#[cfg(feature = "std")]
+fn set_nonblocking() -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let stdin = std::io::stdin();
+    let fd = stdin.as_raw_fd();
+
+    // Get the current flag.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    // Make it non-blocking.
+    let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    if ret == -1 {
+        return Err(std::io::Error::last_os_error());
+    }
     Ok(())
 }
