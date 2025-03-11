@@ -41,39 +41,11 @@ impl Dag {
         self.id
     }
 
-    pub fn add_node(&self, data: NodeInfo) -> NodeIndex {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        self.add_node_with_lock(&mut graph, data)
-    }
-
-    pub fn add_edge(&self, source: NodeIndex, target: NodeIndex) -> graph::EdgeIndex {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        self.add_edge_with_lock(&mut graph, source, target)
-    }
-
-    pub fn remove_node(&self, node_idx: NodeIndex) {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        graph.remove_node(node_idx);
-    }
-
-    pub fn remove_edge(&self, edge_idx: graph::EdgeIndex) {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        graph.remove_edge(edge_idx);
-    }
-
-    fn add_node_with_lock(
-        &self,
-        graph: &mut graph::Graph<NodeInfo, u32>,
-        data: NodeInfo,
-    ) -> NodeIndex {
+    fn add_node(&self, graph: &mut graph::Graph<NodeInfo, u32>, data: NodeInfo) -> NodeIndex {
         graph.add_node(data)
     }
 
-    fn add_edge_with_lock(
+    fn add_edge(
         &self,
         graph: &mut graph::Graph<NodeInfo, u32>,
         source: NodeIndex,
@@ -82,27 +54,15 @@ impl Dag {
         graph.add_edge(source, target, 0) // 0 is the temporary weight
     }
 
-    pub fn node_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        self.node_count_with_lock(&graph)
-    }
-
-    pub fn edge_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_count()
-    }
-
-    fn node_count_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> usize {
+    fn node_count(&self, graph: &graph::Graph<NodeInfo, u32>) -> usize {
         graph.node_count()
     }
 
-    fn node_indices_with_lock(&self, graph: &graph::Graph<NodeInfo, u32>) -> Vec<NodeIndex> {
+    fn node_indices(&self, graph: &graph::Graph<NodeInfo, u32>) -> Vec<NodeIndex> {
         graph.node_indices().collect()
     }
 
-    fn node_weight_with_lock(
+    fn node_weight(
         &self,
         graph: &graph::Graph<NodeInfo, u32>,
         node_idx: NodeIndex,
@@ -110,7 +70,7 @@ impl Dag {
         graph.node_weight(node_idx).cloned()
     }
 
-    fn neighbors_directed_with_lock(
+    fn neighbors_directed(
         &self,
         graph: &graph::Graph<NodeInfo, u32>,
         node_idx: NodeIndex,
@@ -119,7 +79,7 @@ impl Dag {
         graph.neighbors_directed(node_idx, dir).collect()
     }
 
-    fn neighbors_undirected_with_lock(
+    fn neighbors_undirected(
         &self,
         graph: &graph::Graph<NodeInfo, u32>,
         node_idx: NodeIndex,
@@ -140,19 +100,19 @@ impl Dag {
 
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
-        let add_node_idx = self.add_node_with_lock(&mut graph, add_node_info);
+        let add_node_idx = self.add_node(&mut graph, add_node_info);
 
-        for node_idx in self.node_indices_with_lock(&graph) {
+        for node_idx in self.node_indices(&graph) {
             if node_idx != add_node_idx {
-                if let Some(node_info) = self.node_weight_with_lock(&graph, node_idx) {
+                if let Some(node_info) = self.node_weight(&graph, node_idx) {
                     for subscribe_topic in subscribe_topic_names {
                         if node_info.publish_topics.contains(subscribe_topic) {
-                            self.add_edge_with_lock(&mut graph, node_idx, add_node_idx);
+                            self.add_edge(&mut graph, node_idx, add_node_idx);
                         }
                     }
                     for publish_topic in publish_topic_names {
                         if node_info.subscribe_topics.contains(publish_topic) {
-                            self.add_edge_with_lock(&mut graph, add_node_idx, node_idx);
+                            self.add_edge(&mut graph, add_node_idx, node_idx);
                         }
                     }
                 }
@@ -235,24 +195,21 @@ impl Dag {
         });
     }
 
-    fn is_weakly_connected(&self) -> bool {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-
-        if self.node_count_with_lock(&graph) == 0 {
+    fn is_weakly_connected(&self, graph: &graph::Graph<NodeInfo, u32>) -> bool {
+        if self.node_count(graph) == 0 {
             return false;
         }
 
         let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
         let mut stack: Vec<NodeIndex> = Vec::new();
 
-        if let Some(start_node) = self.node_indices_with_lock(&graph).first() {
+        if let Some(start_node) = self.node_indices(graph).first() {
             stack.push(*start_node);
             visited.insert(*start_node);
         }
 
         while let Some(node_idx) = stack.pop() {
-            for neighbor in self.neighbors_undirected_with_lock(&graph, node_idx) {
+            for neighbor in self.neighbors_undirected(graph, node_idx) {
                 if !visited.contains(&neighbor) {
                     visited.insert(neighbor);
                     stack.push(neighbor);
@@ -260,19 +217,15 @@ impl Dag {
             }
         }
 
-        visited.len() == self.node_count_with_lock(&graph)
+        visited.len() == self.node_count(&graph)
     }
 
-    fn is_cycle(&self) -> bool {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-
+    fn is_cycle(&self, graph: &graph::Graph<NodeInfo, u32>) -> bool {
         let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
         let mut stack: Vec<NodeIndex> = Vec::new();
 
-        for node_idx in self.node_indices_with_lock(&graph) {
-            if !visited.contains(&node_idx) && self.dfs(&graph, node_idx, &mut visited, &mut stack)
-            {
+        for node_idx in self.node_indices(graph) {
+            if !visited.contains(&node_idx) && self.dfs(graph, node_idx, &mut visited, &mut stack) {
                 return true;
             }
         }
@@ -297,7 +250,7 @@ impl Dag {
         visited.insert(node_idx);
         stack.push(node_idx);
 
-        for neighbor in self.neighbors_directed_with_lock(graph, node_idx, Direction::Outgoing) {
+        for neighbor in self.neighbors_directed(graph, node_idx, Direction::Outgoing) {
             if self.dfs(graph, neighbor, visited, stack) {
                 return true;
             }
@@ -363,32 +316,31 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-pub async fn finish_create_dag(dag_ids: &[u32]) {
-    for dag_id in dag_ids {
-        let dag = get_dag(*dag_id);
-
-        if let Some(dag) = dag {
-            if !dag.is_weakly_connected() {
-                panic!("DAG ID {} is not weakly connected", dag_id);
+pub async fn finish_create_dag(dags: &[Arc<Dag>]) {
+    for dag in dags {
+        {
+            let mut graph_node = MCSNode::new();
+            let graph = dag.graph.lock(&mut graph_node);
+            if !dag.is_weakly_connected(&graph) {
+                panic!("DAG ID {} is not weakly connected", dag.get_id());
             }
-            if dag.is_cycle() {
-                panic!("DAG ID {} is cycle", dag_id);
+            if dag.is_cycle(&graph) {
+                panic!("DAG ID {} is cycle", dag.get_id());
             }
+        }
 
-            let mut node = MCSNode::new();
-            let pending_tasks: Vec<_> = dag.pending_tasks.lock(&mut node).drain(..).collect();
+        let mut node = MCSNode::new();
+        let pending_tasks: Vec<_> = dag.pending_tasks.lock(&mut node).drain(..).collect();
 
-            for task in pending_tasks {
-                let task_id = (task.func)().await;
+        for task in pending_tasks {
+            let task_id = (task.func)().await;
 
-                let mut graph_node = MCSNode::new();
-                let mut graph = dag.graph.lock(&mut graph_node);
-                if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
-                    node_info.task_id = task_id;
-                }
+            let mut graph_node = MCSNode::new();
+            let mut graph = dag.graph.lock(&mut graph_node);
+            // Use graph's API to meet lifetime requirements
+            if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
+                node_info.task_id = task_id;
             }
-        } else {
-            panic!("DAG ID {} is not found", dag_id);
         }
     }
 }
@@ -408,91 +360,71 @@ mod test {
     #[test]
     fn test_add_node() {
         let dag = create_dag();
-        dag.add_node(create_node_info(1));
-        dag.add_node(create_node_info(2));
-        dag.add_node(create_node_info(3));
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.node_count(), 3);
+        dag.add_node(&mut graph, create_node_info(1));
+        dag.add_node(&mut graph, create_node_info(2));
+        dag.add_node(&mut graph, create_node_info(3));
+
+        assert_eq!(dag.node_count(&graph), 3);
     }
 
     #[test]
     fn test_add_edge() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, c);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
 
-        assert_eq!(dag.edge_count(), 3);
-    }
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, c);
 
-    #[test]
-    fn test_remove_node() {
-        let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
+        let edge_count = graph.edge_count();
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, c);
-
-        dag.remove_node(c);
-        assert_eq!(dag.node_count(), 2);
-        assert_eq!(dag.edge_count(), 1);
-    }
-
-    #[test]
-    fn test_remove_edge() {
-        let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-
-        let ab = dag.add_edge(a, b);
-
-        assert_eq!(dag.edge_count(), 1);
-        dag.remove_edge(ab);
-        assert_eq!(dag.edge_count(), 0);
+        assert_eq!(edge_count, 3);
     }
 
     #[test]
     fn test_neighbors_directed() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
-        let d = dag.add_node(create_node_info(4));
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, d);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
 
-        let neighbors = dag.neighbors_directed_with_lock(
-            &dag.graph.lock(&mut MCSNode::new()),
-            b,
-            Direction::Outgoing,
-        );
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, c);
+
+        let neighbors = dag.neighbors_directed(&graph, b, Direction::Outgoing);
         assert_eq!(neighbors.len(), 1);
-        assert_eq!(neighbors.contains(&d), true);
+        assert_eq!(neighbors.contains(&c), true);
         assert_eq!(neighbors.contains(&a), false);
     }
 
     #[test]
     fn test_neighbors_undirected() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
-        let d = dag.add_node(create_node_info(4));
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, d);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
+        let d = dag.add_node(&mut graph, create_node_info(4));
 
-        let neighbors = dag.neighbors_undirected_with_lock(&dag.graph.lock(&mut MCSNode::new()), b);
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, d);
+
+        let neighbors = dag.neighbors_undirected(&graph, b);
         assert_eq!(neighbors.len(), 2);
         assert_eq!(neighbors.contains(&d), true);
         assert_eq!(neighbors.contains(&a), true);
@@ -501,52 +433,68 @@ mod test {
     #[test]
     fn test_is_weakly_connected_true() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
 
-        dag.add_edge(a, b);
-        dag.add_edge(b, c);
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.is_weakly_connected(), true);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
+
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, b, c);
+
+        assert_eq!(dag.is_weakly_connected(&graph), true);
     }
 
     #[test]
     fn test_is_weakly_connected_false() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        dag.add_node(create_node_info(3));
 
-        dag.add_edge(a, b);
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.is_weakly_connected(), false);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        dag.add_node(&mut graph, create_node_info(3));
+
+        dag.add_edge(&mut graph, a, b);
+
+        assert_eq!(dag.is_weakly_connected(&graph), false);
     }
 
     #[test]
     fn test_is_cycle_true() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
 
-        dag.add_edge(a, b);
-        dag.add_edge(b, c);
-        dag.add_edge(c, a);
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.is_cycle(), true);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
+
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, b, c);
+        dag.add_edge(&mut graph, c, a);
+
+        assert_eq!(dag.is_cycle(&graph), true);
     }
 
     #[test]
     fn test_is_cycle_false() {
         let dag = create_dag();
-        let a = dag.add_node(create_node_info(1));
-        let b = dag.add_node(create_node_info(2));
-        let c = dag.add_node(create_node_info(3));
 
-        dag.add_edge(a, b);
-        dag.add_edge(b, c);
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.is_cycle(), false);
+        let a = dag.add_node(&mut graph, create_node_info(1));
+        let b = dag.add_node(&mut graph, create_node_info(2));
+        let c = dag.add_node(&mut graph, create_node_info(3));
+
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, b, c);
+
+        assert_eq!(dag.is_cycle(&graph), false);
     }
 }
