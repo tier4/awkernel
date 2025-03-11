@@ -2,19 +2,15 @@
 extern crate alloc;
 
 use alloc::{borrow::Cow, vec};
-use awkernel_async_lib::dag::create_dag;
-use awkernel_async_lib::dag::finish_create_dag;
-use awkernel_async_lib::dag::get_dag;
+use awkernel_async_lib::dag::{create_dag, finish_create_dag};
 use awkernel_async_lib::scheduler::SchedulerType;
-use awkernel_lib::delay::wait_microsec;
-use awkernel_lib::sync::mutex::MCSNode;
+use awkernel_lib::{delay::wait_microsec, sync::mutex::MCSNode};
 use core::time::Duration;
 
 pub async fn run() {
     wait_microsec(1000000);
 
-    let dag_id = create_dag();
-    let dag = get_dag(dag_id).unwrap();
+    let dag = create_dag();
 
     dag.spawn_periodic_reactor::<_, (i32,)>(
         "reactor_source_node".into(),
@@ -76,7 +72,7 @@ pub async fn run() {
     )
     .await;
 
-    finish_create_dag(&[dag_id]).await;
+    finish_create_dag(&[dag.get_id()]).await;
 
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);

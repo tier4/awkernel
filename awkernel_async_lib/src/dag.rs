@@ -37,6 +37,10 @@ struct PendingTask {
 }
 
 impl Dag {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     pub fn add_node(&self, data: NodeInfo) -> NodeIndex {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
@@ -319,7 +323,7 @@ impl Dags {
         }
     }
 
-    fn create(&mut self) -> u32 {
+    fn create(&mut self) -> Arc<Dag> {
         let mut id = self.candidate_id;
         loop {
             if id == 0 {
@@ -328,16 +332,16 @@ impl Dags {
 
             // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
-                let dag = Dag {
+                let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
                     pending_tasks: Mutex::new(Vec::new()),
-                };
+                });
 
-                e.insert(Arc::new(dag));
+                e.insert(dag.clone());
                 self.candidate_id = id;
 
-                return id;
+                return dag;
             } else {
                 // The candidate DAG ID is already used.
                 // Check next candidate.
@@ -347,7 +351,7 @@ impl Dags {
     }
 }
 
-pub fn create_dag() -> u32 {
+pub fn create_dag() -> Arc<Dag> {
     let mut node = MCSNode::new();
     let mut dags = DAGS.lock(&mut node);
     dags.create()
@@ -403,8 +407,7 @@ mod test {
 
     #[test]
     fn test_add_node() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         dag.add_node(create_node_info(1));
         dag.add_node(create_node_info(2));
         dag.add_node(create_node_info(3));
@@ -414,8 +417,7 @@ mod test {
 
     #[test]
     fn test_add_edge() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -429,8 +431,7 @@ mod test {
 
     #[test]
     fn test_remove_node() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -446,8 +447,7 @@ mod test {
 
     #[test]
     fn test_remove_edge() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
 
@@ -460,8 +460,7 @@ mod test {
 
     #[test]
     fn test_neighbors_directed() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -483,8 +482,7 @@ mod test {
 
     #[test]
     fn test_neighbors_undirected() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -502,8 +500,7 @@ mod test {
 
     #[test]
     fn test_is_weakly_connected_true() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -516,8 +513,7 @@ mod test {
 
     #[test]
     fn test_is_weakly_connected_false() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         dag.add_node(create_node_info(3));
@@ -529,8 +525,7 @@ mod test {
 
     #[test]
     fn test_is_cycle_true() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
@@ -544,8 +539,7 @@ mod test {
 
     #[test]
     fn test_is_cycle_false() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
+        let dag = create_dag();
         let a = dag.add_node(create_node_info(1));
         let b = dag.add_node(create_node_info(2));
         let c = dag.add_node(create_node_info(3));
