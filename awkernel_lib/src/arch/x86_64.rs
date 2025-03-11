@@ -7,6 +7,7 @@ pub mod delay;
 pub(super) mod dvfs;
 pub(super) mod interrupt;
 pub mod interrupt_remap;
+pub mod ntp;
 pub mod page_allocator;
 pub mod page_table;
 pub(super) mod paging;

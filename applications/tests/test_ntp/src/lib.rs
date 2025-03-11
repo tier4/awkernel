@@ -14,6 +14,8 @@ use awkernel_async_lib::{
 use awkernel_lib::net::NetManagerError;
 use ntp::NtpTimestamp;
 
+use crate::ntp::{parse_response, NtpPacket};
+
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
 const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
@@ -27,8 +29,11 @@ const UDP_DST_PORT: u16 = 26099;
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
 
+const NTP_SERVER_ADDR: Ipv4Addr = Ipv4Addr::new(129, 6, 15, 28); // time-a-g.nist.gov
+const INTERFACE_ID: u64 = 0;
+
 pub async fn run() {
-    awkernel_lib::net::add_ipv4_addr(0, INTERFACE_ADDR, 24);
+    awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
 
     awkernel_async_lib::spawn(
         "test ntp".into(),
@@ -44,9 +49,14 @@ fn now(offset: u64) -> NtpTimestamp {
 }
 
 async fn ntp_test() {
-    let mut ntp =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(0, Default::default()).unwrap();
-    let server_addr = IpAddr::new_v4([129, 6, 15, 28]); // time-a-g.nist.gov
+    let config = UdpConfig {
+        addr: IpAddr::new_v4(INTERFACE_ADDR),
+        port: Some(20000),
+        ..Default::default()
+    };
+    let mut socket =
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
+    let server_addr = IpAddr::new_v4(NTP_SERVER_ADDR);
     let mut buf = [0u8; 48];
 
     // offset + uptime = ntp time
@@ -58,9 +68,9 @@ async fn ntp_test() {
         let originate_ts = now(offset);
         packet.transmit_timestamp = originate_ts;
 
-        // Send a UDP packet.
+        // Send a UDP packet
         if let Err(e) = socket
-            .send(packet.to_bytes(), &server_addr, UDP_DST_PORT)
+            .send(&packet.to_bytes(), &server_addr, UDP_DST_PORT)
             .await
         {
             log::error!("Failed to send a NTP packet: {:?}", e);
@@ -71,9 +81,8 @@ async fn ntp_test() {
         // Receive a UDP packet.
         socket.recv(&mut buf).await.unwrap();
 
-        let _ = socket.recv_from(&mut buf)?;
         let destination_ts = now(offset);
-        let (delay, ofs) = parse_response(buf, originate_ts, destination_ts);
+        let (delay, ofs) = parse_response(buf, originate_ts.into(), destination_ts.into());
 
         log::info!("Delay: {:?}", delay);
         log::info!("Offset: {:?}", ofs);

@@ -1,11 +1,15 @@
-use core::time::{Duration, UNIX_EPOCH};
-use std::time::SystemTime;
+use alloc::boxed::Box;
+use awkernel_async_lib::net::udp::UdpSocket;
+use awkernel_lib::ntp::SystemTime;
+use core::time::Duration;
 
 const NTP_TIMESTAMP_DELTA: u64 = 2_208_988_800; // seconds between 1900 and 1970
 
+static UNIX_EPOCH: SystemTime = SystemTime::epoch();
+
 /// NTP timestamp in 64-bit fixed-point format. The first 32 bits represent the number of seconds since 1900, and the last 32 bits represent the fraction of a second.
 #[derive(Debug, Copy, Clone)]
-pub struct NtpTimestamp(u64);
+pub(crate) struct NtpTimestamp(pub u64);
 
 impl NtpTimestamp {
     fn diff(&self, other: &Self) -> Duration {
@@ -40,22 +44,22 @@ impl From<SystemTime> for NtpTimestamp {
 }
 
 #[derive(Debug)]
-struct NtpPacket {
-    li_vn_mode: u8,
-    stratum: u8,
-    poll: i8,
-    precision: i8,
-    root_delay: u32,
-    root_dispersion: u32,
-    ref_id: u32,
-    ref_timestamp: NtpTimestamp,
-    origin_timestamp: NtpTimestamp,
-    recv_timestamp: NtpTimestamp,
-    transmit_timestamp: NtpTimestamp,
+pub(crate) struct NtpPacket {
+    pub li_vn_mode: u8,
+    pub stratum: u8,
+    pub poll: i8,
+    pub precision: i8,
+    pub root_delay: u32,
+    pub root_dispersion: u32,
+    pub ref_id: u32,
+    pub ref_timestamp: NtpTimestamp,
+    pub origin_timestamp: NtpTimestamp,
+    pub recv_timestamp: NtpTimestamp,
+    pub transmit_timestamp: NtpTimestamp,
 }
 
 impl NtpPacket {
-    fn new() -> Self {
+    pub fn new() -> Self {
         NtpPacket {
             li_vn_mode: 0x1b, // LI = 0, VN = 3, Mode = 3 (client)
             stratum: 0,
@@ -71,7 +75,7 @@ impl NtpPacket {
         }
     }
 
-    fn to_bytes(self) -> [u8; 48] {
+    pub fn to_bytes(self) -> [u8; 48] {
         let mut buffer = [0u8; 48];
         buffer[0] = self.li_vn_mode;
         buffer[1] = self.stratum;
@@ -89,7 +93,7 @@ impl NtpPacket {
         buffer
     }
 
-    fn from_bytes(bytes: &[u8]) -> Self {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut packet = NtpPacket::new();
         packet.li_vn_mode = bytes[0];
         packet.stratum = bytes[1];
@@ -124,7 +128,7 @@ fn to_duration(n: i64) -> (Duration, bool) {
 }
 
 /// Parse NTP response. Returns delay and offset.
-fn parse_response(
+pub(crate) fn parse_response(
     buf: [u8; 48],
     originate_ts: SystemTime,
     destination_ts: SystemTime,
@@ -143,75 +147,43 @@ fn parse_response(
     let tt = response.transmit_timestamp.0 as i64;
 
     // dump ot, rt, tt in bits, spaced by 8 bits
-    println!("ot: {:x}", ot);
-    println!("rt: {:x}", rt);
-    println!("tt: {:x}", tt);
+    log::debug!("ot: {:x}", ot);
+    log::debug!("rt: {:x}", rt);
+    log::debug!("tt: {:x}", tt);
 
     let ntp_time = response.transmit_timestamp.0 >> 32;
     let unix_time = ntp_time - NTP_TIMESTAMP_DELTA;
 
-    println!("Current NTP time: {}", unix_time);
+    log::debug!("Current NTP time: {}", unix_time);
 
     let dt = NtpTimestamp::from(destination_ts).0 as i64;
     let d = (dt - ot) - (tt - rt);
-    println!("rt - ot: {:?} = {} sec", rt - ot, (rt - ot) >> 32);
-    println!("dt - ot: {:?} = {} sec", dt - ot, (dt - ot) >> 32);
+    log::debug!("rt - ot: {:?} = {} sec", rt - ot, (rt - ot) >> 32);
+    log::debug!("dt - ot: {:?} = {} sec", dt - ot, (dt - ot) >> 32);
     let t = (((rt as i128) - (ot as i128)) + ((tt as i128) - (dt as i128))) / 2;
 
     let delay = to_duration(d);
-    println!("Delay: {:?}", delay);
+    log::debug!("Delay: {:?}", delay);
 
     let offset = to_duration(t as i64);
-    println!("Offset: {:?}", offset);
+    log::debug!("Offset: {:?}", offset);
 
-    println!("Origin time: {:?}", originate_ts);
-    println!(
+    log::debug!("Origin time: {:?}", originate_ts);
+    log::debug!(
         "Receive time: {:?}",
         SystemTime::from(NtpTimestamp(rt as u64))
     );
-    println!(
+    log::debug!(
         "Transmit time: {:?}",
         SystemTime::from(NtpTimestamp(tt as u64))
     );
-    println!("Destination time: {:?}", destination_ts);
+    log::debug!("Destination time: {:?}", destination_ts);
 
     let d = to_duration(d);
     let t = to_duration(t as i64); // TODO: fix?
     (d, t)
 }
 
-fn request_time() -> std::io::Result<((Duration, bool), (Duration, bool))> {
-    let socket = UdpSocket::bind("0.0.0.0:0")?;
-    socket.set_read_timeout(Some(Duration::new(5, 0)))?;
-
-    let ntp_server = "pool.ntp.org:123";
-    let mut packet = NtpPacket::new();
-
-    // Set transmit timestamp
-    let originate_ts = SystemTime::now();
-    packet.transmit_timestamp = originate_ts.into();
-
-    socket.send_to(&packet.to_bytes(), ntp_server)?;
-
-    let mut buf = [0u8; 48];
-    let _ = socket.recv_from(&mut buf)?;
-    let destination_ts = SystemTime::now();
-    let (delay, offset) = parse_response(buf, originate_ts, destination_ts);
-
-    Ok((delay, offset))
-}
-
-// fn main() -> std::io::Result<()> {
-//     let (delay, offset) = request_time()?;
-
-//     println!("Delay: {:?}", delay);
-//     // the offset is negative when the local time is ahead of the NTP time
-//     println!("Offset: {:?}", offset);
-
-//     Ok(())
-// }
-
-// write test for request_time
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,10 +212,10 @@ mod tests {
     #[test]
     fn convert_system_to_ntp_frac() {
         let system = UNIX_EPOCH + Duration::from_millis(500);
-        println!("{:?}", system);
+        log::debug!("{:?}", system);
         let ntp = NtpTimestamp::from(system);
-        println!("left: {:x}", ntp.0);
-        println!("right: {:x}", NTP_TIMESTAMP_DELTA << 32 | 1 << 31);
+        log::debug!("left: {:x}", ntp.0);
+        log::debug!("right: {:x}", NTP_TIMESTAMP_DELTA << 32 | 1 << 31);
         assert_eq!(ntp.0, NTP_TIMESTAMP_DELTA << 32 | 1 << 31);
     }
 
@@ -282,16 +254,16 @@ mod tests {
             transmit_timestamp: (originate_ts + Duration::from_secs(2)).into(),
         };
 
-        println!("{:?}", packet.origin_timestamp.0);
-        println!("{:?}", packet.recv_timestamp.0);
-        println!("{:?}", packet.transmit_timestamp.0);
+        log::debug!("{:?}", packet.origin_timestamp.0);
+        log::debug!("{:?}", packet.recv_timestamp.0);
+        log::debug!("{:?}", packet.transmit_timestamp.0);
 
         let buf = packet.to_bytes();
         let destination_ts = originate_ts + Duration::from_secs(3);
         let (delay, offset) = parse_response(buf, originate_ts, destination_ts);
 
-        println!("Delay: {:?}", delay);
-        println!("Offset: {:?}", offset);
+        log::debug!("Delay: {:?}", delay);
+        log::debug!("Offset: {:?}", offset);
 
         assert_eq!(delay, Duration::from_secs(2));
         assert_eq!(offset, Duration::from_secs(0));
