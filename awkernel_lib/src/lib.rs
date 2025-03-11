@@ -27,6 +27,9 @@ pub mod time;
 pub mod timer;
 pub mod unwind;
 
+#[cfg(feature = "std")]
+pub mod select;
+
 #[cfg(not(feature = "std"))]
 pub mod heap;
 
