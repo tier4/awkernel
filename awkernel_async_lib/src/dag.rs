@@ -217,7 +217,7 @@ impl Dag {
             }
         }
 
-        visited.len() == self.node_count(&graph)
+        visited.len() == self.node_count(graph)
     }
 
     fn is_cycle(&self, graph: &graph::Graph<NodeInfo, u32>) -> bool {
