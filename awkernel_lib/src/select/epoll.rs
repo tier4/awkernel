@@ -134,14 +134,12 @@ pub(super) fn wait(timeout: Duration) {
                     libc::read(evfd, buf.as_ptr() as *mut _, core::mem::size_of::<i64>())
                 };
                 assert!(result != -1);
-            } else {
-                if let Some(waker) = {
-                    let mut node = MCSNode::new();
-                    let mut map = super::FD_TO_WAKER.lock(&mut node);
-                    map.remove(&(raw_fd, EventType::Read))
-                } {
-                    waker.wake();
-                }
+            } else if let Some(waker) = {
+                let mut node = MCSNode::new();
+                let mut map = super::FD_TO_WAKER.lock(&mut node);
+                map.remove(&(raw_fd, EventType::Read))
+            } {
+                waker.wake();
             }
         }
 
