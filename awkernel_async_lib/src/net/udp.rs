@@ -80,6 +80,7 @@ impl UdpSocket {
     }
 }
 
+#[pin_project]
 pub struct UdpSender<'a> {
     socket: &'a mut UdpSocket,
     data: &'a [u8],
@@ -93,11 +94,14 @@ impl Future for UdpSender<'_> {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        match self
-            .socket
-            .socket_handle
-            .send_to(self.data, self.dst_addr, self.dst_port, cx.waker())
-        {
+        let this = self.project();
+
+        match this.socket.socket_handle.send_to(
+            this.data,
+            this.dst_addr,
+            *this.dst_port,
+            cx.waker(),
+        ) {
             Ok(true) => core::task::Poll::Ready(Ok(())),
             Ok(false) => core::task::Poll::Pending,
             Err(NetManagerError::InterfaceIsNotReady) => {

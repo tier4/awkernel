@@ -51,6 +51,8 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+    BindError,
+    FailedToMakeNonblocking,
 
     // Multicast
     MulticastInvalidIpv4Address,

@@ -53,7 +53,7 @@ where
     /// If the packet is not sent because the socket is not ready, false is returned,
     /// and the waker is registered for the socket.
     fn send_to(
-        &self,
+        &mut self,
         buf: &[u8],
         addr: &IpAddr,
         port: u16,
@@ -67,7 +67,7 @@ where
     ///
     /// Return value: `(length of the received data, source address, source port)`
     fn recv(
-        &self,
+        &mut self,
         buf: &mut [u8],
         waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError>;

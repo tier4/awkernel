@@ -1,35 +1,85 @@
-use crate::net::ip_addr::IpAddr;
+use crate::{
+    net::ip_addr::IpAddr,
+    select::{EventType, FdWaker},
+};
 
 use super::NetManagerError;
 
-pub struct UdpSocket {}
+use std::{net::UdpSocket as StdUdpSocket, os::fd::AsRawFd};
+
+pub struct UdpSocket {
+    socket: StdUdpSocket,
+    fd_waker: FdWaker,
+}
 
 impl super::SockUdp for UdpSocket {
     fn bind_on_interface(
         _interface_id: u64,
-        _addr: IpAddr,
-        _port: Option<u16>,
+        addr: IpAddr,
+        port: Option<u16>,
         _rx_buffer_size: usize,
         _tx_buffer_size: usize,
     ) -> Result<Self, NetManagerError> {
-        todo!()
+        let port = if let Some(port) = port { port } else { 0 };
+        let addr = addr.get_addr();
+        let sock_addr = std::net::SocketAddr::new(addr, port);
+
+        let socket = StdUdpSocket::bind(sock_addr).or(Err(NetManagerError::BindError))?;
+
+        let fd = socket.as_raw_fd();
+        crate::file_control::set_nonblocking(fd)
+            .or(Err(NetManagerError::FailedToMakeNonblocking))?;
+
+        let fd_waker = FdWaker::new(fd);
+
+        Ok(UdpSocket { socket, fd_waker })
     }
 
     fn send_to(
-        &self,
-        _buf: &[u8],
-        _addr: &IpAddr,
-        _port: u16,
-        _waker: &core::task::Waker,
+        &mut self,
+        buf: &[u8],
+        addr: &IpAddr,
+        port: u16,
+        waker: &core::task::Waker,
     ) -> Result<bool, NetManagerError> {
-        todo!()
+        let addr = addr.get_addr();
+        let sock_addr = std::net::SocketAddr::new(addr, port);
+
+        match self.socket.send_to(buf, sock_addr) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    self.fd_waker
+                        .register_waker(waker.clone(), EventType::Write);
+                    Ok(false)
+                } else {
+                    Err(NetManagerError::SendError)
+                }
+            }
+        }
     }
 
     fn recv(
-        &self,
-        _buf: &mut [u8],
-        _waker: &core::task::Waker,
+        &mut self,
+        buf: &mut [u8],
+        waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError> {
-        todo!()
+        match self.socket.recv_from(buf) {
+            Ok((len, sock_addr)) => {
+                let addr = sock_addr.ip();
+                let addr = IpAddr::new(addr);
+                let port = sock_addr.port();
+
+                Ok(Some((len, addr, port)))
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::WouldBlock {
+                    self.fd_waker.register_waker(waker.clone(), EventType::Read);
+                    Ok(None)
+                } else {
+                    Err(NetManagerError::SendError)
+                }
+            }
+        }
     }
 }

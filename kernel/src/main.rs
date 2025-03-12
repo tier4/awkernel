@@ -46,7 +46,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         // Primary CPU.
 
         #[cfg(feature = "std")]
-        if set_nonblocking().is_err() {
+        if make_stdin_nonblocking().is_err() {
             log::warn!("failed to make stdin non-blocking.");
         }
 
@@ -216,22 +216,11 @@ fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
 }
 
 #[cfg(feature = "std")]
-fn set_nonblocking() -> std::io::Result<()> {
+fn make_stdin_nonblocking() -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
 
     let stdin = std::io::stdin();
     let fd = stdin.as_raw_fd();
 
-    // Get the current flag.
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags == -1 {
-        return Err(std::io::Error::last_os_error());
-    }
-
-    // Make it non-blocking.
-    let ret = unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
-    if ret == -1 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
+    awkernel_lib::file_control::set_nonblocking(fd)
 }

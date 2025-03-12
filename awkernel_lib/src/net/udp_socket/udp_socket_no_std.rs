@@ -115,7 +115,7 @@ impl super::SockUdp for UdpSocket {
     }
 
     fn send_to(
-        &self,
+        &mut self,
         buf: &[u8],
         addr: &IpAddr,
         port: u16,
@@ -161,7 +161,7 @@ impl super::SockUdp for UdpSocket {
     }
 
     fn recv(
-        &self,
+        &mut self,
         buf: &mut [u8],
         waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError> {

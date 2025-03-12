@@ -28,6 +28,9 @@ pub mod timer;
 pub mod unwind;
 
 #[cfg(feature = "std")]
+pub mod file_control;
+
+#[cfg(feature = "std")]
 pub mod select;
 
 #[cfg(not(feature = "std"))]
