@@ -27,7 +27,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use awkernel_lib::net::{ip_addr::IpAddr, udp_socket::UdpSocket};
+    /// use awkernel_lib::net::{ip_addr::IpAddr, udp_socket::{SockUdp, UdpSocket}};
     /// use core::net::Ipv4Addr;
     ///
     /// fn example_udp_socket_ipv4() {

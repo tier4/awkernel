@@ -40,14 +40,14 @@
     //     "+nightly-2025-02-27",
     //     "check_std",
     //     "--quiet",
-    //     "--message-format=json".
+    //     "--message-format=json"
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
     //     "+nightly-2025-02-27",
     //     "check_std",
     //     "--quiet",
-    //     "--message-format=json".
+    //     "--message-format=json"
     // ],
     // "rust-analyzer.cargo.features": [
     //     "std"
