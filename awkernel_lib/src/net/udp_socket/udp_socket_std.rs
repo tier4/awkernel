@@ -20,7 +20,7 @@ impl super::SockUdp for UdpSocket {
         _rx_buffer_size: usize,
         _tx_buffer_size: usize,
     ) -> Result<Self, NetManagerError> {
-        let port = if let Some(port) = port { port } else { 0 };
+        let port = port.unwrap_or_default();
         let addr = addr.get_addr();
         let sock_addr = std::net::SocketAddr::new(addr, port);
 

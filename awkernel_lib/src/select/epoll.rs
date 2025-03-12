@@ -135,22 +135,24 @@ pub(super) fn wait(timeout: Duration) {
                 };
                 assert!(result != -1);
             } else {
-                {
+                if let Some(waker) = {
                     let mut node = MCSNode::new();
                     let mut map = super::FD_TO_WAKER.lock(&mut node);
                     map.remove(&(raw_fd, EventType::Read))
+                } {
+                    waker.wake();
                 }
-                .map(|waker| waker.wake());
             }
         }
 
         if event.events & libc::EPOLLOUT as u32 != 0 {
-            {
+            if let Some(waker) = {
                 let mut node = MCSNode::new();
                 let mut map = super::FD_TO_WAKER.lock(&mut node);
                 map.remove(&(raw_fd, EventType::Write))
+            } {
+                waker.wake();
             }
-            .map(|waker| waker.wake());
         }
 
         // Update epoll.
