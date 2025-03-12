@@ -22,7 +22,7 @@ where
     /// This function is for `awkernel_async_lib`,
     /// and it is not intended to be used directly.
     ///
-    /// Not that `interface_id` is ignored on std environments.
+    /// Not that `interface_id`, `rx_buffer_size`, and `tx_buffer_size` are ignored on std environments.
     ///
     /// # Example
     ///

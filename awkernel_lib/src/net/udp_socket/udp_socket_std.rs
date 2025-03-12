@@ -77,7 +77,7 @@ impl super::SockUdp for UdpSocket {
                     self.fd_waker.register_waker(waker.clone(), EventType::Read);
                     Ok(None)
                 } else {
-                    Err(NetManagerError::SendError)
+                    Err(NetManagerError::RecvError)
                 }
             }
         }
