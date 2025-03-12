@@ -1,5 +1,8 @@
-use awkernel_sync::mutex::Mutex;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
+use core::{ptr::null, time::Duration};
 use std::os::fd::RawFd;
+
+use crate::select::{EventFlag, EventType};
 
 static FD_EPOLL: Mutex<Option<RawFd>> = Mutex::new(None);
 
@@ -149,6 +152,22 @@ pub(super) fn wait(timeout: Duration) {
             }
             .map(|waker| waker.wake());
         }
+
+        // Update epoll.
+        let mut events = EventFlag::empty();
+        {
+            let mut node = MCSNode::new();
+            let map = super::FD_TO_WAKER.lock(&mut node);
+            if map.contains_key(&(raw_fd, EventType::Read)) {
+                events.insert(EventFlag::READ);
+            }
+
+            if map.contains_key(&(raw_fd, EventType::Write)) {
+                events.insert(EventFlag::WRITE);
+            }
+        }
+
+        update_event(raw_fd, events);
     }
 }
 

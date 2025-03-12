@@ -18,7 +18,6 @@ static FD_TO_WAKER: Mutex<BTreeMap<(RawFd, EventType), Waker>> = Mutex::new(BTre
 
 pub struct FdWaker {
     raw_fd: RawFd,
-    events: EventFlag,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,23 +40,33 @@ impl FdWaker {
         register_fd(raw_fd);
 
         // Create.
-        Self {
-            raw_fd,
-            events: EventFlag::empty(),
-        }
+        Self { raw_fd }
     }
 
     /// Register `waker` of `self.raw_fd`.
     /// After invoking `waker.wake()`, the waker is cleared.
     pub fn register_waker(&mut self, waker: Waker, ev_type: EventType) {
+        let mut events = EventFlag::empty();
+        {
+            let mut node = MCSNode::new();
+            let map = FD_TO_WAKER.lock(&mut node);
+            if map.contains_key(&(self.raw_fd, EventType::Read)) {
+                events.insert(EventFlag::READ);
+            }
+
+            if map.contains_key(&(self.raw_fd, EventType::Write)) {
+                events.insert(EventFlag::WRITE);
+            }
+        }
+
         // Add the event.
         match ev_type {
-            EventType::Read => self.events.insert(EventFlag::READ),
-            EventType::Write => self.events.insert(EventFlag::WRITE),
+            EventType::Read => events.insert(EventFlag::READ),
+            EventType::Write => events.insert(EventFlag::WRITE),
         }
 
         // Update the event.
-        update_event(self.raw_fd, self.events);
+        update_event(self.raw_fd, events);
 
         // Register the waker.
         {
@@ -73,14 +82,8 @@ impl Drop for FdWaker {
         {
             let mut node = MCSNode::new();
             let mut map = FD_TO_WAKER.lock(&mut node);
-
-            if self.events.contains(EventFlag::READ) {
-                map.remove(&(self.raw_fd, EventType::Read));
-            }
-
-            if self.events.contains(EventFlag::WRITE) {
-                map.remove(&(self.raw_fd, EventType::Write));
-            }
+            map.remove(&(self.raw_fd, EventType::Read));
+            map.remove(&(self.raw_fd, EventType::Write));
         }
     }
 }
