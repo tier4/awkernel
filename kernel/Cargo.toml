@@ -80,6 +80,7 @@ perf = ["awkernel_async_lib/perf", "userland/perf"]
 no_std_unwinding = ["dep:unwinding"]
 debug = ["dep:gimli", "dep:addr2line"]
 x86 = [
+    "perf",
     "no_std_unwinding",
     "awkernel_lib/x86",
     "dep:x86_64",
@@ -101,8 +102,9 @@ rv64 = [
     "dep:ns16550a",
     #    "awkernel_drivers/rv64",
 ]
-std = ["awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
+std = ["perf", "awkernel_lib/std", "awkernel_async_lib/std", "dep:libc"]
 aarch64 = [
+    "perf",
     "no_std_unwinding",
     "dep:awkernel_aarch64",
     "awkernel_lib/aarch64",
