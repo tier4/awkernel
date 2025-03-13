@@ -27,17 +27,24 @@ use smoltcp::{
     wire::HardwareAddress,
 };
 
-use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
+use crate::{
+    addr::Addr,
+    dma_pool::DMAPool,
+    paging::PAGESIZE,
+    sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock},
+};
 
 use super::{
     ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
     multicast::ipv4_addr_to_mac_addr,
-    net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
+    net_device::{EtherFrameBuf, NetCapabilities, NetDevice, PacketHeaderFlags},
     NetManagerError,
 };
 
 #[cfg(not(feature = "std"))]
 use alloc::{vec, vec::Vec};
+
+type DMABuffer = DMAPool<[u8; PAGESIZE]>;
 
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
@@ -50,7 +57,7 @@ struct NetDriverRef<'a> {
     inner: &'a Arc<dyn NetDevice + Sync + Send>,
 
     rx_ringq: Option<&'a mut RingQ<EtherFrameBuf>>,
-    tx_ringq: &'a mut RingQ<Vec<u8>>,
+    tx_ringq: &'a mut RingQ<(DMABuffer, usize)>,
 }
 
 impl NetDriverRef<'_> {
@@ -136,6 +143,7 @@ impl Device for NetDriverRef<'_> {
                     NRxToken { data },
                     NTxToken {
                         tx_ring: self.tx_ringq,
+                        driver_ref_inner: self.inner,
                     },
                 ));
             }
@@ -156,6 +164,7 @@ impl Device for NetDriverRef<'_> {
 
         Some(NTxToken {
             tx_ring: self.tx_ringq,
+            driver_ref_inner: self.inner,
         })
     }
 }
@@ -165,7 +174,7 @@ pub(super) struct IfNet {
     pub(super) inner: Mutex<IfNetInner>,
     pub(super) socket_set: RwLock<SocketSet<'static>>,
     rx_irq_to_driver: BTreeMap<u16, NetDriver>,
-    tx_only_ringq: Vec<Mutex<RingQ<Vec<u8>>>>,
+    tx_only_ringq: Vec<Mutex<RingQ<(DMABuffer, usize)>>>,
     pub(super) net_device: Arc<dyn NetDevice + Sync + Send>,
     pub(super) is_poll_mode: bool,
     poll_driver: Option<NetDriver>,
@@ -498,11 +507,14 @@ impl IfNet {
 
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            if let Some((data, len)) = device_ref.tx_ringq.pop() {
+                let ptr = data.get_virt_addr().as_mut_ptr();
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
-                let data = EtherFrameRef {
-                    data: &data,
+                let data = EtherFrameBuf {
+                    data,
+                    len,
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
@@ -520,10 +532,6 @@ impl IfNet {
 
     fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
         let que_id = ref_net_driver.rx_que_id;
-        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
-            return false;
-        };
-
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
 
@@ -536,6 +544,9 @@ impl IfNet {
             }
         }
 
+        let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
+            return false;
+        };
         let mut node = MCSNode::new();
         let mut tx_ringq = tx_ringq.lock(&mut node);
 
@@ -557,15 +568,17 @@ impl IfNet {
 
         // send packets from the queue.
         while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            if let Some((data, len)) = device_ref.tx_ringq.pop() {
+                let ptr = data.get_virt_addr().as_mut_ptr();
+                let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+                let tx_packet_header_flags = device_ref.tx_packet_header_flags(slice);
 
-                let data = EtherFrameRef {
-                    data: &data,
+                let data = EtherFrameBuf {
+                    data,
+                    len,
                     vlan: self.vlan,
                     csum_flags: tx_packet_header_flags,
                 };
-
                 let _ = self.net_device.send(data, ref_net_driver.rx_que_id);
             } else {
                 break;
@@ -627,12 +640,13 @@ impl phy::RxToken for NRxToken {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        f(&mut self.data.data)
+        f(self.data.data.as_mut())
     }
 }
 
 pub struct NTxToken<'a> {
-    tx_ring: &'a mut RingQ<Vec<u8>>,
+    tx_ring: &'a mut RingQ<(DMABuffer, usize)>,
+    driver_ref_inner: &'a Arc<dyn NetDevice + Sync + Send>,
 }
 
 impl phy::TxToken for NTxToken<'_> {
@@ -640,16 +654,15 @@ impl phy::TxToken for NTxToken<'_> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let mut buf = Vec::with_capacity(len);
+        let segment_group = self.driver_ref_inner.get_segment_group().unwrap_or(0);
+        let buf: DMABuffer = DMAPool::new(segment_group as usize, 1).unwrap(); // RECONSIDER: Not sure this unwrap is acceptable
 
-        #[allow(clippy::uninit_vec)]
-        unsafe {
-            buf.set_len(len);
-        };
+        let ptr = buf.get_virt_addr().as_mut_ptr();
+        let slice = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
 
-        let result = f(&mut buf[..len]);
+        let result = f(slice);
 
-        let _ = self.tx_ring.push(buf);
+        let _ = self.tx_ring.push((buf, len));
 
         result
     }

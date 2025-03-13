@@ -1,6 +1,9 @@
-use crate::{arch::std_common::console, kernel_info::KernelInfo};
+use crate::{
+    arch::std_common::{config::DMA_SIZE, console},
+    kernel_info::KernelInfo,
+};
 use core::{mem::MaybeUninit, ptr::null_mut};
-use libc::c_void;
+use libc::{c_void, malloc, size_t};
 
 // #[cfg(target_os = "linux")]
 // use core::mem::size_of;
@@ -22,6 +25,16 @@ pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
             log::warn!("Failed to SCHED_FIFO.");
         }
     }
+
+    // Init dma pool. This is actually just a heap memory in the host system.
+    unsafe {
+        let ptr = malloc(DMA_SIZE as size_t) as *mut u8;
+        awkernel_lib::dma_pool::init_dma_pool(
+            0,
+            awkernel_lib::addr::virt_addr::VirtAddr::new(ptr as usize),
+            DMA_SIZE,
+        )
+    };
 
     // Create worker threads.
     let mut threads = Vec::new();

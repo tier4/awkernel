@@ -7,4 +7,4 @@ pub const HEAP_START: usize = 0x41000000000;
 
 pub const PREEMPT_IRQ: u16 = 255;
 
-pub const DMA_SIZE: usize = 64 * 1024 * 1024; // 64MiB
+pub const DMA_SIZE: usize = 512 * 1024 * 1024; // 512MiB

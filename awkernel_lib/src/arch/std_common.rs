@@ -3,6 +3,8 @@ pub(super) mod delay;
 pub(super) mod dvfs;
 pub(super) mod interrupt;
 
+pub(super) mod paging;
+
 pub fn init() {
     delay::init();
 }

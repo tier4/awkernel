@@ -89,6 +89,27 @@ impl<T> DMAPool<T> {
         ptr
     }
 
+    pub fn from_raw_parts(
+        ptr: *mut T,
+        phy_addr: usize,
+        size: usize,
+        numa_id: usize,
+    ) -> Option<Self> {
+        assert!(numa_id < NUMA_NUM_MAX);
+
+        let virt_addr = VirtAddr::new(ptr as usize);
+        let phy_addr = PhyAddr::new(phy_addr);
+        let ptr = NonNull::new(ptr)?;
+
+        Some(Self {
+            virt_addr,
+            phy_addr,
+            size,
+            numa_id,
+            ptr,
+        })
+    }
+
     #[inline(always)]
     pub fn get_virt_addr(&self) -> VirtAddr {
         self.virt_addr

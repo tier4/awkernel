@@ -1,3 +1,4 @@
+use crate::{dma_pool::DMAPool, paging::PAGESIZE};
 use alloc::borrow::Cow;
 use bitflags::bitflags;
 use core::fmt::Display;
@@ -132,17 +133,12 @@ pub enum NetDevError {
     MulticastAddrError,
 }
 
-#[derive(Debug, Clone)]
-pub struct EtherFrameRef<'a> {
-    pub data: &'a [u8],
+#[derive(Debug)]
+pub struct EtherFrameBuf {
+    pub data: DMAPool<[u8; PAGESIZE]>,
+    pub len: usize,
     pub vlan: Option<u16>,
     pub csum_flags: PacketHeaderFlags,
-}
-
-#[derive(Debug, Clone)]
-pub struct EtherFrameBuf {
-    pub data: Vec<u8>,
-    pub vlan: Option<u16>,
 }
 
 /// Because the network will have multiple queues
@@ -150,7 +146,7 @@ pub struct EtherFrameBuf {
 /// the network device must be thread-safe.
 pub trait NetDevice {
     fn recv(&self, que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError>;
-    fn send(&self, data: EtherFrameRef, que_id: usize) -> Result<(), NetDevError>;
+    fn send(&self, data: EtherFrameBuf, que_id: usize) -> Result<(), NetDevError>;
 
     fn flags(&self) -> NetFlags;
     fn capabilities(&self) -> NetCapabilities;
@@ -214,6 +210,10 @@ pub trait NetDevice {
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError>;
+
+    fn get_segment_group(&self) -> Option<u16> {
+        None
+    }
 }
 
 impl Display for LinkStatus {

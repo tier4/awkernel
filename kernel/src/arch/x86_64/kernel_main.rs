@@ -817,7 +817,7 @@ fn init_dma(
     let dma_start = DMA_START + numa_id as usize * DMA_SIZE;
     let flags = PageTableFlags::PRESENT
         | PageTableFlags::WRITABLE
-        // | PageTableFlags::NO_CACHE
+        | PageTableFlags::NO_CACHE
         | PageTableFlags::NO_EXECUTE
         | PageTableFlags::GLOBAL;
 
