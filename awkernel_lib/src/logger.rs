@@ -111,6 +111,11 @@ pub fn set_buf_console(logger: &'static dyn Log) {
     }
 }
 
+/// Initialize the logger.
+///
+/// # Safety
+///
+/// This function must be called once.
 pub unsafe fn init() {
     let ptr = &raw const LOGGER;
     unsafe {
