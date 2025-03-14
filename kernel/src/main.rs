@@ -39,6 +39,10 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 /// The primary CPU's identifier is 0.
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
+///
+/// ```
+/// # use std;
+/// ```
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
