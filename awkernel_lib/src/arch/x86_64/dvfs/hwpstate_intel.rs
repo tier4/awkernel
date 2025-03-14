@@ -11,6 +11,7 @@ pub(super) struct HwPstateIntel {
     hwp_activity_window: bool,
     hwp_perf_pref: bool,
     hwp_pkg_ctrl: bool,
+    hwp_perf_bias: bool,
 }
 
 impl HwPstateIntel {
@@ -29,6 +30,7 @@ impl HwPstateIntel {
             hwp_activity_window,
             hwp_perf_pref,
             hwp_pkg_ctrl,
+            hwp_perf_bias,
         };
 
         hwpstate.set_autonomous_hwp().then_some(())?;
