@@ -6,6 +6,7 @@ use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 pub mod igb; // Intel GbE
 
 #[cfg(feature = "igc")]
+#[allow(dead_code)] // TODO: remove this
 pub mod igc; // Intel 2.5GbE
 
 #[cfg(feature = "ixgbe")]

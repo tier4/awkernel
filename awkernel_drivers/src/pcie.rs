@@ -1020,7 +1020,7 @@ impl PCIeInfo {
         self.write_status_command(reg & !registers::StatusCommand::INTERRUPT_DISABLE);
     }
 
-    fn unknown_device(self: Self) -> Arc<dyn PCIeDevice + Sync + Send> {
+    fn unknown_device(self) -> Arc<dyn PCIeDevice + Sync + Send> {
         Arc::new(UnknownDevice {
             segment_group: self.segment_group,
             bus_number: self.bus_number,
