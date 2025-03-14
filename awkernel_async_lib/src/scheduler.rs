@@ -1,4 +1,4 @@
-//! Define types and trait for the Autoware Kernel scheduler.
+//! Define types and trait for the Awkernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
 use core::time::Duration;
@@ -201,7 +201,7 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
 /// Wake executable tasks up.
 /// Waked tasks will be enqueued to their scheduler's queue.
 ///
-/// This function should be called from only Autoware Kernel.
+/// This function should be called from only Awkernel.
 /// So, do not call this from userland.
 ///
 /// # Return Value

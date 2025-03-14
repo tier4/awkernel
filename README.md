@@ -1,6 +1,6 @@
-# Autoware Kernel
+# Awkernel
 
-Autoware kernel is a safe and realtime operating system.
+Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
 
 ## Progress
