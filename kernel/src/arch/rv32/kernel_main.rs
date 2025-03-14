@@ -70,7 +70,7 @@ unsafe fn primary_hart(hartid: usize) {
         ns16550a::Divisor::BAUD115200,
     );
 
-    let _ = port.write_str("\r\nautoware kernel is booting\r\n\r\n");
+    let _ = port.write_str("\r\nAwkernel is booting\r\n\r\n");
 
     // initialize console driver to which log messages are dumped
     console::init(UART_BASE);
