@@ -13,7 +13,10 @@
 //!
 //! These mutexes must be locked in the order shown above.
 
-use core::net::Ipv4Addr;
+use core::{
+    net::Ipv4Addr,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::{
     collections::{btree_map, btree_set::BTreeSet, BTreeMap},
@@ -171,6 +174,7 @@ pub(super) struct IfNet {
     poll_driver: Option<NetDriver>,
     tick_driver: Option<NetDriver>,
     time: crate::time::Time,
+    will_poll: AtomicUsize,
 }
 
 pub(super) struct IfNetInner {
@@ -292,6 +296,7 @@ impl IfNet {
             poll_driver,
             tick_driver,
             time,
+            will_poll: AtomicUsize::new(0),
         }
     }
 
@@ -472,45 +477,81 @@ impl IfNet {
         result
     }
 
+    /// Poll the network interface.
+    /// This function will only send IP packets to transmit queues.
+    ///
+    /// This function returns a boolean value indicating whether any packets were processed or emitted,
+    /// and thus, whether the readiness of any socket might have changed.
+    ///
+    /// This algorithm is modeled and tested by spin.
+    /// See `awkernel/specification/awkernel_lib/src/net/if_net/README.md`.
     pub fn poll_tx_only(&self, que_id: usize) -> bool {
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
 
-        let mut node = MCSNode::new();
-        let mut tx_ringq = tx_ringq.lock(&mut node);
+        let mut result = false;
 
-        let mut device_ref = NetDriverRef {
-            inner: &self.net_device,
-            rx_ringq: None,
-            tx_ringq: &mut tx_ringq,
-        };
+        loop {
+            // If some task will poll, this task need not to poll.
+            if self
+                .will_poll
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+                    if n > 0 {
+                        None
+                    } else {
+                        Some(n + 1)
+                    }
+                })
+                .is_err()
+            {
+                return true;
+            }
 
-        let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
-
-        let result = {
             let mut node = MCSNode::new();
-            let mut inner = self.inner.lock(&mut node);
+            let mut tx_ringq = tx_ringq.lock(&mut node);
 
-            let interface = inner.get_interface();
-            interface.poll(timestamp, &mut device_ref, &self.socket_set)
-        };
+            let mut device_ref = NetDriverRef {
+                inner: &self.net_device,
+                rx_ringq: None,
+                tx_ringq: &mut tx_ringq,
+            };
 
-        // send packets from the queue.
-        while !device_ref.tx_ringq.is_empty() {
-            if let Some(data) = device_ref.tx_ringq.pop() {
-                let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+            let timestamp = Instant::from_micros(self.time.elapsed().as_micros() as i64);
 
-                let data = EtherFrameRef {
-                    data: &data,
-                    vlan: self.vlan,
-                    csum_flags: tx_packet_header_flags,
-                };
+            result = result || {
+                let mut node = MCSNode::new();
+                let mut inner = self.inner.lock(&mut node);
 
-                if self.net_device.send(data, que_id).is_err() {
-                    log::error!("Failed to send a packet.");
+                let interface = inner.get_interface();
+                self.will_poll.fetch_sub(1, Ordering::Relaxed);
+                interface.poll(timestamp, &mut device_ref, &self.socket_set)
+            };
+
+            let is_full = device_ref.tx_ringq.is_full();
+
+            // send packets from the queue.
+            while !device_ref.tx_ringq.is_empty() {
+                if let Some(data) = device_ref.tx_ringq.pop() {
+                    let tx_packet_header_flags = device_ref.tx_packet_header_flags(&data);
+
+                    let data = EtherFrameRef {
+                        data: &data,
+                        vlan: self.vlan,
+                        csum_flags: tx_packet_header_flags,
+                    };
+
+                    if self.net_device.send(data, que_id).is_err() {
+                        log::error!("Failed to send a packet.");
+                    }
+                } else {
+                    break;
                 }
-            } else {
+            }
+
+            // If the queue is full, there should be packets to be processed,
+            // and thus the loop continues.
+            if !is_full {
                 break;
             }
         }
@@ -518,11 +559,21 @@ impl IfNet {
         result
     }
 
-    fn poll_rx(&self, ref_net_driver: &NetDriver) -> bool {
+    /// Poll the network interface.
+    /// This function receives and sends IP packets.
+    ///
+    /// This function returns a boolean value indicating whether any packets were processed or emitted,
+    /// and thus, whether the readiness of any socket might have changed.
+    ///
+    /// This algorithm is modeled and tested by spin.
+    /// See `awkernel/specification/awkernel_lib/src/net/if_net/README.md`.
+    fn poll_rx_tx(&self, ref_net_driver: &NetDriver) -> bool {
         let que_id = ref_net_driver.rx_que_id;
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
         };
+
+        self.will_poll.fetch_add(1, Ordering::Relaxed);
 
         let mut node = MCSNode::new();
         let mut rx_ringq = ref_net_driver.rx_ringq.lock(&mut node);
@@ -552,6 +603,7 @@ impl IfNet {
             let mut inner = self.inner.lock(&mut node);
 
             let interface = inner.get_interface();
+            self.will_poll.fetch_sub(1, Ordering::Relaxed);
             interface.poll(timestamp, &mut device_ref, &self.socket_set)
         };
 
@@ -582,7 +634,7 @@ impl IfNet {
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver)
+            self.poll_rx_tx(ref_net_driver)
         } else {
             false
         }
@@ -595,7 +647,7 @@ impl IfNet {
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver);
+            self.poll_rx_tx(ref_net_driver);
         }
     }
 
@@ -608,7 +660,7 @@ impl IfNet {
         };
 
         if ref_net_driver.inner.can_send() {
-            self.poll_rx(ref_net_driver)
+            self.poll_rx_tx(ref_net_driver)
         } else {
             false
         }

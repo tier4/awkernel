@@ -1,4 +1,4 @@
-pan.c: cooperative.pml
+pan.c: if_net.pml
 	spin -a $<
 
 pan: pan.c
@@ -6,10 +6,10 @@ pan: pan.c
 
 run: pan
 	rm -f *.trail
-	./pan -f -a -n
+	./pan -a -n
 
 trail:
-	spin -plgrc -t cooperative.pml
+	spin -plgrc -t if_net.pml
 
 clean:
 	rm -f pan.* *.trail pan *.tmp
