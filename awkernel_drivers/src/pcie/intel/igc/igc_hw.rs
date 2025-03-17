@@ -168,6 +168,7 @@ enum IgcBusType {
 enum IgcBusSpeed {
     Unknown,
     Speed33,
+    Speed66,
     Speed100,
     Speed120,
     Speed133,
