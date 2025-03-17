@@ -6,6 +6,10 @@ use awkernel_lib::net::net_device::{self, NetDevice};
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod igc_hw;
+mod igc_mac;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IgcDriverErr {}
 
 /// Check if the device is an Intel I225/I226.
 pub fn match_device(vendor: u16, id: u16) -> bool {
