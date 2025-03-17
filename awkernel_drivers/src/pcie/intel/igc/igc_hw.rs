@@ -179,11 +179,11 @@ enum IgcBusSpeed {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum IgcBusWidth {
-    Unknown,
+    Unknown = 0,
     PcieX1,
     PcieX2,
-    PcieX4,
-    PcieX8,
+    PcieX4 = 4,
+    PcieX8 = 8,
     Width32,
     Width64,
     Reserved,
