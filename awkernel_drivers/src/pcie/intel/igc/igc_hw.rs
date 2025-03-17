@@ -251,6 +251,6 @@ pub(super) trait IgcMacOperations {
     fn read_mac_addr(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn validate_mdi_setting(&self, info: &mut PCIeInfo, hw: &mut IgcHw)
         -> Result<(), IgcDriverErr>;
-    fn acquire_sffw_sync(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+    fn acquire_swfw_sync(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn release_sffw_sync(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 }
