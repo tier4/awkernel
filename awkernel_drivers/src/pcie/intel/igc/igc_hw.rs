@@ -230,7 +230,7 @@ pub(super) trait IgcMacOperations {
     fn clear_hw_cntrs(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn clear_vfta(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn get_bus_info(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn clear_lan_id(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+    fn set_lan_id(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn get_link_up_info(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn update_mc_addr_list(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
