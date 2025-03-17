@@ -6,7 +6,6 @@ use awkernel_lib::net::net_device::{self, NetDevice};
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod igc_hw;
-mod igc_mac;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {}
