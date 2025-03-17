@@ -27,7 +27,6 @@ use awkernel_lib::{
         cpu::set_raw_cpu_id_to_numa,
         delay::synchronize_tsc,
         interrupt_remap::init_interrupt_remap,
-        kvm::KvmCpuidFeatures,
         page_allocator::{self, get_page_table, PageAllocator, VecPageAllocator},
         page_table,
     },
