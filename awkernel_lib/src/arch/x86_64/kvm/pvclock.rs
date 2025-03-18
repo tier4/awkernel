@@ -48,9 +48,9 @@ static PVCLOCK_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
 /// # Returns
 ///
 /// * `Some(u64)`: The current system time in nanoseconds, if the function successfully
-///     retrieved it from a KVM environment with the necessary features.
+///   retrieved it from a KVM environment with the necessary features.
 /// * `None`: If the code is not running in a KVM environment or if the required
-///     CPUID features are not available.
+///   CPUID features are not available.
 #[inline(always)]
 pub fn get_system_time() -> Option<u64> {
     if !super::is_kvm() {
