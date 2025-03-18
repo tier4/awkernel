@@ -862,17 +862,7 @@ pub fn run_main() {
             awkernel_lib::delay::wait_microsec(50);
 
             #[cfg(not(feature = "std"))]
-            {
-                if awkernel_lib::timer::is_timer_enabled() {
-                    let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
-                    awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset();
-                    awkernel_lib::delay::wait_interrupt();
-                    awkernel_lib::timer::disable();
-                } else {
-                    awkernel_lib::delay::wait_microsec(10);
-                }
-            }
+            awkernel_lib::delay::wait_microsec(10);
 
             #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());

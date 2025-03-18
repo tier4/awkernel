@@ -55,8 +55,8 @@ impl Delay for super::X86 {
     }
 
     fn uptime_nano() -> u128 {
-        if pvclock::available() {
-            return pvclock::uptime_nano() as u128;
+        if let Some(t) = pvclock::uptime_nano() {
+            return t as u128;
         }
 
         let now = read_tsc();

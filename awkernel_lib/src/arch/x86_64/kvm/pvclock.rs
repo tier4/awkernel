@@ -1,7 +1,7 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
     arch::x86_64::_mm_mfence,
-    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicU64, AtomicU8, AtomicUsize, Ordering},
 };
 
 use x86_64::registers::model_specific::Msr;
@@ -30,7 +30,14 @@ struct VcpuTimeInfo {
 
 static PVCLOCK_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
 static MEM_ADDR: AtomicUsize = AtomicUsize::new(0);
-static SYSTEM_TIME_START: AtomicU64 = AtomicU64::new(0);
+static SYSTEM_TSC_START: AtomicU64 = AtomicU64::new(0);
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+static TSC_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
+static TSC_TO_SYSTEM_MUL: AtomicU32 = AtomicU32::new(0);
+static TSC_SHFT: AtomicI8 = AtomicI8::new(0);
+static FLAGS: AtomicU8 = AtomicU8::new(0);
 
 pub fn init() -> Result<(), &'static str> {
     if !available() {
@@ -43,29 +50,17 @@ pub fn init() -> Result<(), &'static str> {
 
     let phy_addr = paging::vm_to_phy(virt_addr).ok_or("pvclock: failed vm_to_phy")?;
 
-    unsafe {
-        paging::unmap(virt_addr);
-        paging::map(
-            virt_addr,
-            phy_addr,
-            paging::Flags {
-                execute: false,
-                write: true,
-                cache: false,
-                write_through: false,
-                device: true,
-            },
-        )
-        .or(Err("pvclock: failed to map"))?;
-    }
-
     let mut system_time = Msr::new(MSR_KVM_SYSTEM_TIME_NEW);
     unsafe { system_time.write(phy_addr.as_usize() as u64 | 1) };
 
     MEM_ADDR.store(virt_addr.as_usize(), Ordering::Relaxed);
 
-    let system_time = get_system_time().ok_or("pvclock: failed to get system time")?;
-    SYSTEM_TIME_START.store(system_time, Ordering::Relaxed);
+    get_system_time()
+        .then_some(())
+        .ok_or("pvclock: failed to get system time")?;
+    SYSTEM_TSC_START.store(read_tsc(), Ordering::Relaxed);
+
+    INITIALIZED.store(true, Ordering::Relaxed);
 
     Ok(())
 }
@@ -75,27 +70,19 @@ pub fn init() -> Result<(), &'static str> {
 /// This function attempts to read the system time from the virtual CPU's time information
 /// structure. It first checks if the code is running within a KVM environment and if
 /// the necessary CPUID features for accessing the time information are present.
-///
-/// # Returns
-///
-/// * `Some(u64)`: The current system time in nanoseconds, if the function successfully
-///   retrieved it from a KVM environment with the necessary features.
-/// * `None`: If the code is not running in a KVM environment or if the required
-///   CPUID features are not available.
 #[inline(always)]
-pub fn get_system_time() -> Option<u64> {
+fn get_system_time() -> bool {
     if !available() {
-        return None;
+        return false;
     }
 
     let ptr = MEM_ADDR.load(Ordering::Relaxed);
     if ptr == 0 {
-        return None;
+        return false;
     }
 
     let info = unsafe { &*(ptr as *mut VcpuTimeInfo) };
 
-    let mut system_time;
     let mut tsc_timestamp;
     let mut mul_frac;
     let mut shift;
@@ -105,7 +92,6 @@ pub fn get_system_time() -> Option<u64> {
     loop {
         version = pvclock_read_begin(info);
 
-        system_time = info.system_time;
         tsc_timestamp = info.tsc_timestamp;
         mul_frac = info.tsc_to_system_mul;
         shift = info.tsc_shift;
@@ -116,29 +102,12 @@ pub fn get_system_time() -> Option<u64> {
         }
     }
 
-    let mut delta = read_tsc() - tsc_timestamp;
-    if shift < 0 {
-        delta >>= -shift;
-    } else {
-        delta <<= shift;
-    }
-    let ctr = ((delta as u128 * mul_frac as u128) >> 32) as u64 + system_time;
+    TSC_TIMESTAMP.store(tsc_timestamp, Ordering::Relaxed);
+    TSC_TO_SYSTEM_MUL.store(mul_frac, Ordering::Relaxed);
+    TSC_SHFT.store(shift, Ordering::Relaxed);
+    FLAGS.store(flags, Ordering::Relaxed);
 
-    if (flags & PVCLOCK_FLAG_TSC_STABLE) != 0 {
-        return Some(ctr);
-    }
-
-    if let Err(prev) = PVCLOCK_LAST_COUNT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-        if n < ctr {
-            Some(ctr)
-        } else {
-            None
-        }
-    }) {
-        Some(prev)
-    } else {
-        Some(ctr)
-    }
+    true
 }
 
 #[inline(always)]
@@ -173,9 +142,36 @@ pub fn available() -> bool {
 }
 
 #[inline(always)]
-pub(crate) fn uptime_nano() -> u64 {
-    let now = get_system_time().unwrap_or_default();
-    let start = SYSTEM_TIME_START.load(Ordering::Relaxed);
+pub(crate) fn uptime_nano() -> Option<u64> {
+    if !INITIALIZED.load(Ordering::Relaxed) {
+        return None;
+    }
 
-    now.saturating_sub(start)
+    let mul_frac = TSC_TO_SYSTEM_MUL.load(Ordering::Relaxed);
+    let shift = TSC_SHFT.load(Ordering::Relaxed);
+    let flags = FLAGS.load(Ordering::Relaxed);
+
+    let mut delta = read_tsc() - SYSTEM_TSC_START.load(Ordering::Relaxed);
+    if shift < 0 {
+        delta >>= -shift;
+    } else {
+        delta <<= shift;
+    }
+    let ctr = ((delta as u128 * mul_frac as u128) >> 32) as u64;
+
+    if (flags & PVCLOCK_FLAG_TSC_STABLE) != 0 {
+        return Some(ctr);
+    }
+
+    if let Err(prev) = PVCLOCK_LAST_COUNT.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+        if n < ctr {
+            Some(ctr)
+        } else {
+            None
+        }
+    }) {
+        Some(prev)
+    } else {
+        Some(ctr)
+    }
 }
