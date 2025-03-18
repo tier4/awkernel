@@ -154,34 +154,34 @@ impl NetDevice for Igc {
 }
 
 #[inline(always)]
-pub fn write_flush(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
+fn write_flush(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.read32(IGC_STATUS).ok_or(IgcDriverErr::ReadFailure)?;
     Ok(())
 }
 
 #[inline(always)]
-pub fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgcDriverErr> {
+fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgcDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.read32(offset).ok_or(IgcDriverErr::ReadFailure)
 }
 
 #[inline(always)]
-pub fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgcDriverErr> {
+fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgcDriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.write32(offset, value);
     Ok(())
 }
 
 #[inline(always)]
-pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u32, IgcDriverErr> {
+fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u32, IgcDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.read32(offset + (index << 2))
         .ok_or(IgcDriverErr::ReadFailure)
 }
 
 #[inline(always)]
-pub fn write_reg_array(
+fn write_reg_array(
     info: &PCIeInfo,
     offset: usize,
     index: usize,
