@@ -1,5 +1,7 @@
 use bitflags::bitflags;
 
+pub mod pvclock;
+
 const KVM_CPUID_SIGNATURE: u32 = 0x40000000;
 const KVM_CPUID_FEATURES: u32 = 0x40000001;
 
