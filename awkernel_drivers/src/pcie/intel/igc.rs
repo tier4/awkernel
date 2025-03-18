@@ -2,13 +2,18 @@
 
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use awkernel_lib::net::net_device::{self, NetDevice};
+use igc_regs::*;
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod igc_hw;
+mod igc_regs;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum IgcDriverErr {}
+pub enum IgcDriverErr {
+    NoBar0,
+    ReadFailure,
+}
 
 /// Check if the device is an Intel I225/I226.
 pub fn match_device(vendor: u16, id: u16) -> bool {
@@ -146,4 +151,43 @@ impl NetDevice for Igc {
         // TODO
         None
     }
+}
+
+#[inline(always)]
+pub fn write_flush(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
+    bar0.read32(IGC_STATUS).ok_or(IgcDriverErr::ReadFailure)?;
+    Ok(())
+}
+
+#[inline(always)]
+pub fn read_reg(info: &PCIeInfo, offset: usize) -> Result<u32, IgcDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
+    bar0.read32(offset).ok_or(IgcDriverErr::ReadFailure)
+}
+
+#[inline(always)]
+pub fn write_reg(info: &PCIeInfo, offset: usize, value: u32) -> Result<(), IgcDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
+    bar0.write32(offset, value);
+    Ok(())
+}
+
+#[inline(always)]
+pub fn read_reg_array(info: &PCIeInfo, offset: usize, index: usize) -> Result<u32, IgcDriverErr> {
+    let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
+    bar0.read32(offset + (index << 2))
+        .ok_or(IgcDriverErr::ReadFailure)
+}
+
+#[inline(always)]
+pub fn write_reg_array(
+    info: &PCIeInfo,
+    offset: usize,
+    index: usize,
+    value: u32,
+) -> Result<(), IgcDriverErr> {
+    let mut bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
+    bar0.write32(offset + (index << 2), value);
+    Ok(())
 }
