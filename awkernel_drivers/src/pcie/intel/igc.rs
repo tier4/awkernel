@@ -7,6 +7,9 @@ use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod igc_hw;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IgcDriverErr {}
+
 /// Check if the device is an Intel I225/I226.
 pub fn match_device(vendor: u16, id: u16) -> bool {
     igc_hw::IGC_DEVICES.contains(&(vendor, id))
