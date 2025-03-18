@@ -34,7 +34,6 @@ static SYSTEM_TSC_START: AtomicU64 = AtomicU64::new(0);
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-static SYSTEM_TIME: AtomicU64 = AtomicU64::new(0);
 static TSC_TIMESTAMP: AtomicU64 = AtomicU64::new(0);
 static TSC_TO_SYSTEM_MUL: AtomicU32 = AtomicU32::new(0);
 static TSC_SHFT: AtomicI8 = AtomicI8::new(0);
@@ -84,7 +83,6 @@ fn get_system_time() -> bool {
 
     let info = unsafe { &*(ptr as *mut VcpuTimeInfo) };
 
-    let mut system_time;
     let mut tsc_timestamp;
     let mut mul_frac;
     let mut shift;
@@ -94,7 +92,6 @@ fn get_system_time() -> bool {
     loop {
         version = pvclock_read_begin(info);
 
-        system_time = info.system_time;
         tsc_timestamp = info.tsc_timestamp;
         mul_frac = info.tsc_to_system_mul;
         shift = info.tsc_shift;
@@ -105,7 +102,6 @@ fn get_system_time() -> bool {
         }
     }
 
-    SYSTEM_TIME.store(system_time, Ordering::Relaxed);
     TSC_TIMESTAMP.store(tsc_timestamp, Ordering::Relaxed);
     TSC_TO_SYSTEM_MUL.store(mul_frac, Ordering::Relaxed);
     TSC_SHFT.store(shift, Ordering::Relaxed);
@@ -151,7 +147,6 @@ pub(crate) fn uptime_nano() -> Option<u64> {
         return None;
     }
 
-    let system_time = SYSTEM_TIME.load(Ordering::Relaxed);
     let mul_frac = TSC_TO_SYSTEM_MUL.load(Ordering::Relaxed);
     let shift = TSC_SHFT.load(Ordering::Relaxed);
     let flags = FLAGS.load(Ordering::Relaxed);
@@ -162,7 +157,7 @@ pub(crate) fn uptime_nano() -> Option<u64> {
     } else {
         delta <<= shift;
     }
-    let ctr = ((delta as u128 * mul_frac as u128) >> 32) as u64 + system_time;
+    let ctr = ((delta as u128 * mul_frac as u128) >> 32) as u64;
 
     if (flags & PVCLOCK_FLAG_TSC_STABLE) != 0 {
         return Some(ctr);
