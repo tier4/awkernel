@@ -2,7 +2,6 @@
 
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use awkernel_lib::net::net_device::{self, NetDevice};
-use igc_hw::IgcHw;
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
