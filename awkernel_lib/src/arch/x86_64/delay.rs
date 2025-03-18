@@ -1,8 +1,8 @@
-use super::{acpi::AcpiMapper, page_allocator::VecPageAllocator};
+use super::{acpi::AcpiMapper, kvm::pvclock, page_allocator::VecPageAllocator};
 use crate::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr},
     cpu::cpu_id,
-    delay::{uptime, wait_forever, Delay},
+    delay::{uptime, Delay},
     mmio_r, mmio_rw,
     paging::{Flags, PageTable},
 };
@@ -55,6 +55,10 @@ impl Delay for super::X86 {
     }
 
     fn uptime_nano() -> u128 {
+        if pvclock::available() {
+            return pvclock::uptime_nano() as u128;
+        }
+
         let now = read_tsc();
         let start = TSC_COUNTER_START.load(Ordering::Relaxed);
         let hz = unsafe { TSC_FREQ };
@@ -80,12 +84,29 @@ pub(super) fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut super::page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
-) {
-    let hpet_info = acpi::hpet::HpetInfo::new(acpi).unwrap();
+) -> Result<(), &'static str> {
+    if pvclock::init().is_ok() {
+        log::info!("Pvclock is used for uptime().");
+    } else {
+        init_hpet(acpi, page_table, page_allocator)?;
+
+        // Initialize TSC counter.
+        let counter = read_tsc();
+        TSC_COUNTER_START.store(counter, Ordering::Relaxed);
+    }
+
+    Ok(())
+}
+
+fn init_hpet(
+    acpi: &AcpiTables<AcpiMapper>,
+    page_table: &mut super::page_table::PageTable,
+    page_allocator: &mut VecPageAllocator,
+) -> Result<(), &'static str> {
+    let hpet_info = acpi::hpet::HpetInfo::new(acpi).or(Err("HPET is not available"))?;
 
     if !hpet_info.main_counter_is_64bits() {
-        log::error!("HPET's main count is not 64 bits.");
-        wait_forever();
+        return Err("HPET's main count is not 64 bits.");
     }
 
     let base = hpet_info.base_address;
@@ -107,8 +128,7 @@ pub(super) fn init(
             .map_to(virt_base, phy_base, flags, page_allocator)
             .is_err()
     } {
-        log::error!("Failed to map HPET's memory region.");
-        wait_forever();
+        return Err("Failed to map HPET's memory region.");
     }
 
     // Store the base address.
@@ -134,13 +154,11 @@ pub(super) fn init(
     let t1 = read_tsc();
 
     let hz = (t1 - t0) as u128 * 10;
-    log::info!("TSC Frequency = {} Hz", hz);
+    log::info!("TSC Frequency (HPET) = {} Hz", hz);
 
     unsafe { TSC_FREQ = hz };
 
-    // Initialize TSC counter.
-    let counter = read_tsc();
-    TSC_COUNTER_START.store(counter, Ordering::Relaxed);
+    Ok(())
 }
 
 #[inline(always)]
@@ -174,7 +192,7 @@ fn hpet_wait_nano(nsec: u128) {
 }
 
 #[inline(always)]
-fn read_tsc() -> u64 {
+pub(super) fn read_tsc() -> u64 {
     sync::atomic::fence(Ordering::Acquire);
     let now = unsafe { core::arch::x86_64::_rdtsc() };
     sync::atomic::fence(Ordering::Release);
@@ -222,6 +240,10 @@ static MSG_END: i64 = i64::MIN + 3;
 ///
 /// This function must be called during the kernel initialization.
 pub unsafe fn synchronize_tsc(num_cpu: usize) {
+    if super::kvm::pvclock::available() {
+        return;
+    }
+
     let cpu_id = cpu_id();
 
     if cpu_id == 0 {

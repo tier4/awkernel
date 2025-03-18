@@ -20,7 +20,7 @@ pub fn init(
     acpi: &AcpiTables<AcpiMapper>,
     page_table: &mut page_table::PageTable,
     page_allocator: &mut VecPageAllocator,
-) {
+) -> Result<(), &'static str> {
     // Initialize timer.
-    delay::init(acpi, page_table, page_allocator);
+    delay::init(acpi, page_table, page_allocator)
 }
