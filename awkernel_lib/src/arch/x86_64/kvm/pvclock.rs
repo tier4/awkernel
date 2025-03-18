@@ -1,13 +1,15 @@
 use core::{
-    arch::x86_64::{_mm_mfence, _rdtsc},
-    sync::atomic::{AtomicU64, Ordering},
+    alloc::{GlobalAlloc, Layout},
+    arch::x86_64::_mm_mfence,
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
 use x86_64::registers::model_specific::Msr;
 
 use crate::{
     addr::{virt_addr::VirtAddr, Addr},
-    arch::x86_64::kvm::KvmCpuidFeatures,
+    arch::x86_64::{delay::read_tsc, kvm::KvmCpuidFeatures},
+    paging::{self, PAGESIZE},
 };
 
 const MSR_KVM_SYSTEM_TIME_NEW: u32 = 0x4b564d01;
@@ -26,18 +28,47 @@ struct VcpuTimeInfo {
     pad: [u8; 2],
 }
 
-static VCPU_TIME_INFO: VcpuTimeInfo = VcpuTimeInfo {
-    version: 0,
-    pad0: 0,
-    tsc_timestamp: 0,
-    system_time: 0,
-    tsc_to_system_mul: 0,
-    tsc_shift: 0,
-    flags: 0,
-    pad: [0; 2],
-};
-
 static PVCLOCK_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
+static MEM_ADDR: AtomicUsize = AtomicUsize::new(0);
+static SYSTEM_TIME_START: AtomicU64 = AtomicU64::new(0);
+
+pub fn init() -> Result<(), &'static str> {
+    if !available() {
+        return Err("pvclock: not available");
+    }
+
+    let ptr =
+        unsafe { crate::heap::TALLOC.alloc_zeroed(Layout::from_size_align(PAGESIZE, 4).unwrap()) };
+    let virt_addr = VirtAddr::new(ptr as _);
+
+    let phy_addr = paging::vm_to_phy(virt_addr).ok_or("pvclock: failed vm_to_phy")?;
+
+    unsafe {
+        paging::unmap(virt_addr);
+        paging::map(
+            virt_addr,
+            phy_addr,
+            paging::Flags {
+                execute: false,
+                write: true,
+                cache: false,
+                write_through: false,
+                device: true,
+            },
+        )
+        .or(Err("pvclock: failed to map"))?;
+    }
+
+    let mut system_time = Msr::new(MSR_KVM_SYSTEM_TIME_NEW);
+    unsafe { system_time.write(phy_addr.as_usize() as u64 | 1) };
+
+    MEM_ADDR.store(virt_addr.as_usize(), Ordering::Relaxed);
+
+    let system_time = get_system_time().ok_or("pvclock: failed to get system time")?;
+    SYSTEM_TIME_START.store(system_time, Ordering::Relaxed);
+
+    Ok(())
+}
 
 /// Retrieves the current system time within a KVM virtual machine.
 ///
@@ -53,23 +84,16 @@ static PVCLOCK_LAST_COUNT: AtomicU64 = AtomicU64::new(0);
 ///   CPUID features are not available.
 #[inline(always)]
 pub fn get_system_time() -> Option<u64> {
-    if !super::is_kvm() {
+    if !available() {
         return None;
     }
 
-    if !super::cpuid_features()?
-        .contains(KvmCpuidFeatures::CLOCKSOURCE2 | KvmCpuidFeatures::CLOCSOURCE_STABLE_BIT)
-    {
+    let ptr = MEM_ADDR.load(Ordering::Relaxed);
+    if ptr == 0 {
         return None;
     }
 
-    if VCPU_TIME_INFO.version == 0 {
-        let virt_addr = VirtAddr::new(&VCPU_TIME_INFO as *const _ as _);
-        let phy_addr = crate::paging::vm_to_phy(virt_addr)?;
-
-        let mut system_time = Msr::new(MSR_KVM_SYSTEM_TIME_NEW);
-        unsafe { system_time.write(phy_addr.as_usize() as u64 | 1) };
-    }
+    let info = unsafe { &*(ptr as *mut VcpuTimeInfo) };
 
     let mut system_time;
     let mut tsc_timestamp;
@@ -79,20 +103,20 @@ pub fn get_system_time() -> Option<u64> {
     let mut version;
 
     loop {
-        version = pvclock_read_begin();
+        version = pvclock_read_begin(info);
 
-        system_time = VCPU_TIME_INFO.system_time;
-        tsc_timestamp = VCPU_TIME_INFO.tsc_timestamp;
-        mul_frac = VCPU_TIME_INFO.tsc_to_system_mul;
-        shift = VCPU_TIME_INFO.tsc_shift;
-        flags = VCPU_TIME_INFO.flags;
+        system_time = info.system_time;
+        tsc_timestamp = info.tsc_timestamp;
+        mul_frac = info.tsc_to_system_mul;
+        shift = info.tsc_shift;
+        flags = info.flags;
 
-        if pvclock_read_done(version) {
+        if pvclock_read_done(info, version) {
             break;
         }
     }
 
-    let mut delta = unsafe { _rdtsc() } - tsc_timestamp;
+    let mut delta = read_tsc() - tsc_timestamp;
     if shift < 0 {
         delta >>= -shift;
     } else {
@@ -118,14 +142,40 @@ pub fn get_system_time() -> Option<u64> {
 }
 
 #[inline(always)]
-fn pvclock_read_begin() -> u32 {
-    let ver = VCPU_TIME_INFO.version;
+fn pvclock_read_begin(info: &VcpuTimeInfo) -> u32 {
+    let ver = info.version;
     unsafe { _mm_mfence() };
     ver
 }
 
 #[inline(always)]
-fn pvclock_read_done(version: u32) -> bool {
+fn pvclock_read_done(info: &VcpuTimeInfo, version: u32) -> bool {
     unsafe { _mm_mfence() };
-    version == VCPU_TIME_INFO.version
+    version == info.version
+}
+
+#[inline(always)]
+pub fn available() -> bool {
+    if !super::is_kvm() {
+        return false;
+    }
+
+    let Some(features) = super::cpuid_features() else {
+        return false;
+    };
+
+    if !features.contains(KvmCpuidFeatures::CLOCKSOURCE2 | KvmCpuidFeatures::CLOCSOURCE_STABLE_BIT)
+    {
+        return false;
+    }
+
+    true
+}
+
+#[inline(always)]
+pub(crate) fn uptime_nano() -> u64 {
+    let now = get_system_time().unwrap_or_default();
+    let start = SYSTEM_TIME_START.load(Ordering::Relaxed);
+
+    now.saturating_sub(start)
 }
