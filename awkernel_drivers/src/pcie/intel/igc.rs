@@ -5,6 +5,7 @@ use awkernel_lib::net::net_device::{self, NetDevice};
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
+mod i225;
 mod igc_hw;
 
 #[derive(Debug, Clone, Copy, PartialEq)]

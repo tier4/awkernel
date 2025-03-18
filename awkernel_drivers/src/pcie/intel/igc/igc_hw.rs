@@ -225,32 +225,229 @@ pub(super) struct IgcHw {
 }
 
 pub(super) trait IgcMacOperations {
-    fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn check_for_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn clear_hw_cntrs(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn clear_vfta(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn get_bus_info(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn set_lan_id(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn get_link_up_info(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn update_mc_addr_list(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn clear_hw_cntrs(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn clear_vfta(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn get_bus_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn set_lan_id(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn update_mc_addr_list(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn init_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn setup_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
     fn setup_physical_interface(
         &self,
-        info: &mut PCIeInfo,
-        hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr>;
-    fn write_vfta(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn write_vfta(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
     fn config_collision_dist(
         &self,
-        info: &mut PCIeInfo,
-        hw: &mut IgcHw,
-    ) -> Result<(), IgcDriverErr>;
-    fn rar_set(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn read_mac_addr(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn validate_mdi_setting(&self, info: &mut PCIeInfo, hw: &mut IgcHw)
-        -> Result<(), IgcDriverErr>;
-    fn acquire_swfw_sync(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
-    fn release_swfw_sync(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn rar_set(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn read_mac_addr(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn validate_mdi_setting(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn acquire_swfw_sync(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn release_swfw_sync(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+}
+
+pub(super) trait IgcPhyOperations {
+    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn acquire(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn check_reset_block(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn force_speed_duplex(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn set_page(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _page: u16,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn read_reg(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+    ) -> Result<u16, IgcDriverErr> {
+        todo!()
+    }
+    fn read_reg_locked(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+    ) -> Result<u16, IgcDriverErr> {
+        todo!()
+    }
+    fn read_reg_page(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+    ) -> Result<u16, IgcDriverErr> {
+        todo!()
+    }
+    fn release(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn set_d0_lplu_state(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _active: bool,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn set_d3_lplu_state(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _active: bool,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn write_reg(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+        _data: u32,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn write_reg_locked(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+        _data: u32,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn write_reg_page(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u32,
+        _data: u32,
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn power_up(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn power_down(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+}
+
+pub(super) trait IgcNvmOperations {
+    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn acquire(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn read(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u16,
+        _words: u16,
+        _data: &mut [u16],
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn release(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn reload(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn update(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn validate(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+    fn write(
+        &self,
+        _info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        _offset: u16,
+        _words: u16,
+        _data: &[u16],
+    ) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
+}
+
+pub(super) trait IgcOperations:
+    IgcMacOperations + IgcPhyOperations + IgcNvmOperations
+{
 }
