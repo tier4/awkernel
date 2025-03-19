@@ -6,6 +6,7 @@ use igc_regs::*;
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
+mod i225;
 mod igc_hw;
 mod igc_regs;
 
