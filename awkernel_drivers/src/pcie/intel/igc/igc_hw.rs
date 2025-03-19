@@ -355,6 +355,9 @@ pub(super) trait IgcPhyOperations {
     fn release(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
+    fn reset(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        todo!()
+    }
     fn set_d0_lplu_state(
         &self,
         _info: &mut PCIeInfo,
