@@ -4,21 +4,21 @@ use crate::pcie::{pcie_id::INTEL_VENDOR_ID, PCIeInfo};
 
 use super::IgcDriverErr;
 
-const PCI_PRODUCT_INTEL_I220_V: u16 = 0x15f7; // I220-V
-const PCI_PRODUCT_INTEL_I221_V: u16 = 0x125e; // I221-V
-const PCI_PRODUCT_INTEL_I225_BLANK_NVM: u16 = 0x15fd; // I225
-const PCI_PRODUCT_INTEL_I225_I: u16 = 0x15f8; // I225-I
-const PCI_PRODUCT_INTEL_I225_IT: u16 = 0x0d9f; // I225-IT
-const PCI_PRODUCT_INTEL_I225_K: u16 = 0x3100; // I225-K
-const PCI_PRODUCT_INTEL_I225_K2: u16 = 0x3101; // I225-K2
-const PCI_PRODUCT_INTEL_I225_LM: u16 = 0x15f2; // I225-LM
-const PCI_PRODUCT_INTEL_I225_LMVP: u16 = 0x5502; // I225-LMvP
-const PCI_PRODUCT_INTEL_I225_V: u16 = 0x15f3; // I225-V
-const PCI_PRODUCT_INTEL_I226_BLANK_NVM: u16 = 0x125f; // I226
-const PCI_PRODUCT_INTEL_I226_IT: u16 = 0x125d; // I226-IT
-const PCI_PRODUCT_INTEL_I226_LM: u16 = 0x125b; // I226-LM
-const PCI_PRODUCT_INTEL_I226_K: u16 = 0x5504; // I226-K
-const PCI_PRODUCT_INTEL_I226_V: u16 = 0x125c; // I226-V
+pub(super) const PCI_PRODUCT_INTEL_I220_V: u16 = 0x15f7; // I220-V
+pub(super) const PCI_PRODUCT_INTEL_I221_V: u16 = 0x125e; // I221-V
+pub(super) const PCI_PRODUCT_INTEL_I225_BLANK_NVM: u16 = 0x15fd; // I225
+pub(super) const PCI_PRODUCT_INTEL_I225_I: u16 = 0x15f8; // I225-I
+pub(super) const PCI_PRODUCT_INTEL_I225_IT: u16 = 0x0d9f; // I225-IT
+pub(super) const PCI_PRODUCT_INTEL_I225_K: u16 = 0x3100; // I225-K
+pub(super) const PCI_PRODUCT_INTEL_I225_K2: u16 = 0x3101; // I225-K2
+pub(super) const PCI_PRODUCT_INTEL_I225_LM: u16 = 0x15f2; // I225-LM
+pub(super) const PCI_PRODUCT_INTEL_I225_LMVP: u16 = 0x5502; // I225-LMvP
+pub(super) const PCI_PRODUCT_INTEL_I225_V: u16 = 0x15f3; // I225-V
+pub(super) const PCI_PRODUCT_INTEL_I226_BLANK_NVM: u16 = 0x125f; // I226
+pub(super) const PCI_PRODUCT_INTEL_I226_IT: u16 = 0x125d; // I226-IT
+pub(super) const PCI_PRODUCT_INTEL_I226_LM: u16 = 0x125b; // I226-LM
+pub(super) const PCI_PRODUCT_INTEL_I226_K: u16 = 0x5504; // I226-K
+pub(super) const PCI_PRODUCT_INTEL_I226_V: u16 = 0x125c; // I226-V
 
 pub const IGC_DEVICES: [(u16, u16); 15] = [
     (INTEL_VENDOR_ID, PCI_PRODUCT_INTEL_I220_V),
@@ -39,17 +39,17 @@ pub const IGC_DEVICES: [(u16, u16); 15] = [
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IgcMacType {
+pub(super) enum IgcMacType {
     Undefined,
     I225,
 }
 
 #[derive(Debug)]
-struct IgcMacInfo {
+pub(super) struct IgcMacInfo {
     addr: [u8; ETHER_ADDR_LEN],
     perm_addr: [u8; ETHER_ADDR_LEN],
 
-    mac_type: IgcMacType,
+    pub(super) mac_type: IgcMacType,
 
     mc_filter_type: u32,
 
@@ -208,7 +208,7 @@ struct IgcDevSpecI225 {
 
 #[derive(Debug)]
 pub(super) struct IgcHw {
-    mac: IgcMacInfo,
+    pub(super) mac: IgcMacInfo,
     fc: IgcFcInfo,
     phy: IgcPhyInfo,
     nvm: IgcNvmInfo,
@@ -216,7 +216,7 @@ pub(super) struct IgcHw {
 
     dev_spec: IgcDevSpecI225,
 
-    device_id: u16,
+    pub(super) device_id: u16,
     subsystem_vendor_id: u16,
     subsystem_deice_id: u16,
     vendor_id: u16,
