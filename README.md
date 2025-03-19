@@ -119,6 +119,7 @@ $ cargo binstall mdbook-mermaid
 - [awkernel_async_lib_verified](./awkernel_async_lib_verified/)
   - verified library for awkernel_async_lib
   - pure Rust (no dependencies on external functions and no inline assembly)
+- [awkernel_futures_macro](./awkernel_futures_macro/)
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
@@ -128,6 +129,7 @@ $ cargo binstall mdbook-mermaid
 ```mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
+    awkernel_async_lib-->awkernel_futures_macro;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;
