@@ -87,7 +87,7 @@ impl Dag {
         graph.neighbors_undirected(node_idx).collect()
     }
 
-    fn build_reactor_graph(
+    fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
         publish_topic_names: &[Cow<'static, str>],
@@ -139,7 +139,7 @@ impl Dag {
         Ret::Publishers: Send,
         Args::Subscribers: Send,
     {
-        let node_idx = self.build_reactor_graph(&subscribe_topic_names, &publish_topic_names);
+        let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &publish_topic_names);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = self.pending_tasks.lock(&mut node);
@@ -173,7 +173,7 @@ impl Dag {
         Ret: VectorToPublishers,
         Ret::Publishers: Send,
     {
-        let node_idx = self.build_reactor_graph(&Vec::new(), &publish_topic_names);
+        let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = self.pending_tasks.lock(&mut node);
@@ -316,7 +316,7 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-pub async fn finish_create_dag(dags: &[Arc<Dag>]) {
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) {
     for dag in dags {
         {
             let mut graph_node = MCSNode::new();
