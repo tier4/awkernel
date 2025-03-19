@@ -27,6 +27,7 @@ pub mod sync;
 pub mod task;
 pub mod time;
 mod timeout_call;
+pub mod utils;
 mod yield_task;
 
 #[cfg(test)]
@@ -38,7 +39,10 @@ use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use futures::{select, select_biased};
+#[doc(hidden)]
+pub use awkernel_futures_macro::select_internal;
+
+pub use futures::select_biased;
 
 pub use awkernel_lib::{
     cpu::cpu_id,
@@ -48,6 +52,29 @@ pub use awkernel_lib::{
 use pubsub::{
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+
+#[doc(hidden)]
+pub use futures_util as __futures_crate;
+
+/// ```
+/// use awkernel_async_lib::{future::FutureExt, select};
+///
+/// async fn select_example() {
+///     select! {
+///         a = async { 1 }.fuse() => a,
+///         b = async { 2 }.fuse() => b
+///     };
+/// }
+/// ```
+#[macro_export]
+macro_rules! select {
+    ($($tokens:tt)*) => {{
+        use $crate::__futures_crate as __futures_crate;
+        $crate::select_internal! {
+            $( $tokens )*
+        }
+    }}
+}
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
