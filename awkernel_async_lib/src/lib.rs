@@ -56,6 +56,34 @@ use pubsub::{
 #[doc(hidden)]
 pub use futures_util as __futures_crate;
 
+/// Polls multiple futures and streams simultaneously, executing the branch
+/// for the future that finishes first. If multiple futures are ready,
+/// one will be pseudo-randomly selected at runtime. Futures directly
+/// passed to `select!` must be `Unpin` and implement `FusedFuture`.
+///
+/// If an expression which yields a `Future` is passed to `select!`
+/// (e.g. an `async fn` call) instead of a `Future` by name the `Unpin`
+/// requirement is relaxed, since the macro will pin the resulting `Future`
+/// on the stack. However the `Future` returned by the expression must
+/// still implement `FusedFuture`.
+///
+/// Futures and streams which are not already fused can be fused using the
+/// `.fuse()` method. Note, though, that fusing a future or stream directly
+/// in the call to `select!` will not be enough to prevent it from being
+/// polled after completion if the `select!` call is in a loop, so when
+/// `select!`ing in a loop, users should take care to `fuse()` outside of
+/// the loop.
+///
+/// `select!` can be used as an expression and will return the return
+/// value of the selected branch. For this reason the return type of every
+/// branch in a `select!` must be the same.
+///
+/// This macro is only usable inside of async functions, closures, and blocks.
+/// It is also gated behind the `async-await` feature of this library, which is
+/// activated by default.
+///
+/// # Examples
+///
 /// ```
 /// use awkernel_async_lib::{future::FutureExt, select};
 ///
