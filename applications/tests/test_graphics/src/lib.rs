@@ -49,7 +49,7 @@ async fn test_graphics() {
 
         // Draw a text
         let _ = draw_mono_text(
-            "Hello, Autoware Kernel!",
+            "Hello, Awernel!",
             Point::new(bbox.size.width as i32 / 2, bbox.size.height as i32 - 10),
             text_style,
             Alignment::Center,

@@ -141,6 +141,7 @@ fn kernel_main2(
     backup_next_frame: Option<PhysFrame>,
 ) {
     // 5. Enable logger.
+    unsafe { awkernel_lib::logger::init() };
     super::console::register_console();
 
     log::info!(
@@ -194,7 +195,12 @@ fn kernel_main2(
     let (type_apic, mpboot_start) = if let Some(page_allocator0) = page_allocators.get_mut(&0) {
         // 10. Initialize `awkernel_lib` and `awkernel_driver`
         let mut awkernel_page_table = page_table::PageTable::new(&mut page_table);
-        awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0);
+        if let Err(e) =
+            awkernel_lib::arch::x86_64::init(&acpi, &mut awkernel_page_table, page_allocator0)
+        {
+            log::error!("Failed to initialize `awkernel_lib`. {}", e);
+            wait_forever();
+        }
 
         // 11. Initialize APIC.
         let type_apic = awkernel_drivers::interrupt_controller::apic::new(

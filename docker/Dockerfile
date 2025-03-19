@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 RUN apt-get -y update && \
     apt-get -y upgrade && \
     apt-get -y install build-essential zsh git curl libncurses5-dev \
-    gnupg clang qemu-system-arm qemu-system-x86 vim telnet
+    gnupg clang qemu-system-arm qemu-system-x86 vim telnet python3-pyelftools
 
 ENV CARGO_HOME /usr/local/cargo
 ENV RUSTUP_HOME /usr/local/rustup

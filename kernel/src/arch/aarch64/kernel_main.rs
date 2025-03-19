@@ -55,8 +55,10 @@ pub unsafe extern "C" fn kernel_main(device_tree_base: usize) -> ! {
 /// 5. Enable heap allocator.
 /// 6. Board specific initialization (Interrupt controller, etc).
 unsafe fn primary_cpu(device_tree_base: usize) {
-    unsafe { crate::config::init() };
-
+    unsafe {
+        awkernel_lib::logger::init();
+        crate::config::init();
+    }
     let device_tree = load_device_tree(device_tree_base);
     let mut initializer = super::bsp::SoCInitializer::new(device_tree, device_tree_base);
 

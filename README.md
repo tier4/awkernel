@@ -1,6 +1,6 @@
-# Autoware Kernel
+# Awkernel
 
-Autoware kernel is a safe and realtime operating system.
+Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
 
 ## Progress
@@ -87,7 +87,7 @@ It can execute async/await applications in kernel space safely.
 ### Compiler Tools
 
 ```text
-$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
+$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
 $ rustup toolchain install nightly-2025-02-27
 $ rustup default nightly-2025-02-27
 $ rustup component add rust-src llvm-tools-preview

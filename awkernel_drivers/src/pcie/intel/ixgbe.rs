@@ -872,7 +872,7 @@ impl IxgbeInner {
         let mut rng = SmallRng::from_seed(seed);
         let mut rss_keys = [0u32; 10];
         for rss_key in &mut rss_keys {
-            *rss_key = rng.gen::<u32>();
+            *rss_key = rng.random::<u32>();
         }
 
         // Set multiplier for RETA setup and table size based on MAC

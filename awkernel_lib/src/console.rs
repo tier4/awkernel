@@ -153,7 +153,7 @@ pub fn register_console(console: Box<dyn Console>) {
 
     *c = Some(console);
 
-    let _ = log::set_logger(&CONSOLE);
+    crate::logger::set_raw_console(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
 }
 

@@ -60,7 +60,7 @@ async fn console_handler() -> TaskResult {
 
     let mut line = Vec::new();
 
-    console::print("\r\nWelcome to Autoware Kernel!\r\n\r\n");
+    console::print("\r\nWelcome to Awkernel!\r\n\r\n");
     console::print("You can use BLisp language as follows.\r\n");
     console::print("https://ytakano.github.io/blisp/\r\n\r\n");
     console::print("> (factorial 20)\r\n");
@@ -169,7 +169,7 @@ const PERF_CODE: &str = "(export perf () (IO (-> () []))
 
 #[embedded]
 fn help_ffi() {
-    console::print("Autoware Kernel v202306\r\n");
+    console::print("Awkernel v202306\r\n");
     console::print("BLisp grammer: https://ytakano.github.io/blisp/\r\n\r\n");
 
     console::print("BLisp functions:\r\n");

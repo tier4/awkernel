@@ -9,6 +9,7 @@ use core::time::Duration;
 
 const NETWORK_SERVICE_NAME: &str = "[Awkernel] network service";
 const BUFFERED_LOGGER_NAME: &str = "[Awkernel] buffered logger service";
+const DISPLAY_SERVICE_NAME: &str = "[Awkernel] display service";
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -21,6 +22,13 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         NETWORK_SERVICE_NAME.into(),
         network_service::run(),
+        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+    )
+    .await;
+
+    awkernel_async_lib::spawn(
+        DISPLAY_SERVICE_NAME.into(),
+        awkernel_display::run(),
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
