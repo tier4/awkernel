@@ -3,8 +3,10 @@ pub mod graph;
 use alloc::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
+    vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use crate::dag::graph::{direction::Direction, NodeIndex};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
@@ -14,49 +16,57 @@ pub struct Dag {
 }
 
 impl Dag {
-    pub fn add_node(&self, data: u32) -> graph::NodeIndex {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
+    #[allow(dead_code)] //TODO: Remove
+    fn add_node(&self, graph: &mut graph::Graph<u32, u32>, data: u32) -> NodeIndex {
         graph.add_node(data)
     }
 
-    pub fn add_edge(&self, source: graph::NodeIndex, target: graph::NodeIndex) -> graph::EdgeIndex {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
+    #[allow(dead_code)] //TODO: Remove
+    fn add_edge(
+        &self,
+        graph: &mut graph::Graph<u32, u32>,
+        source: NodeIndex,
+        target: NodeIndex,
+    ) -> graph::EdgeIndex {
         graph.add_edge(source, target, 0) // 0 is the temporary weight
     }
 
-    pub fn remove_node(&self, node_idx: graph::NodeIndex) {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        graph.remove_node(node_idx);
-    }
-
-    pub fn remove_edge(&self, edge_idx: graph::EdgeIndex) {
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
-        graph.remove_edge(edge_idx);
-    }
-
-    pub fn edge_endpoints(
-        &self,
-        edge_idx: graph::EdgeIndex,
-    ) -> Option<(graph::NodeIndex, graph::NodeIndex)> {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_endpoints(edge_idx)
-    }
-
-    pub fn node_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
+    #[allow(dead_code)] //TODO: Remove
+    fn node_count(&self, graph: &graph::Graph<u32, u32>) -> usize {
         graph.node_count()
     }
 
-    pub fn edge_count(&self) -> usize {
-        let mut node = MCSNode::new();
-        let graph = self.graph.lock(&mut node);
-        graph.edge_count()
+    #[allow(dead_code)] //TODO: Remove
+    fn node_indices(&self, graph: &graph::Graph<u32, u32>) -> Vec<NodeIndex> {
+        graph.node_indices().collect()
+    }
+
+    #[allow(dead_code)] //TODO: Remove
+    fn node_weight(
+        &self,
+        graph: &graph::Graph<u32, u32>,
+        node_idx: NodeIndex,
+    ) -> Option<u32> {
+        graph.node_weight(node_idx).cloned()
+    }
+
+    #[allow(dead_code)] //TODO: Remove
+    fn neighbors_directed(
+        &self,
+        graph: &graph::Graph<u32, u32>,
+        node_idx: NodeIndex,
+        dir: Direction,
+    ) -> Vec<NodeIndex> {
+        graph.neighbors_directed(node_idx, dir).collect()
+    }
+
+    #[allow(dead_code)] //TODO: Remove
+    fn neighbors_undirected(
+        &self,
+        graph: &graph::Graph<u32, u32>,
+        node_idx: NodeIndex,
+    ) -> Vec<NodeIndex> {
+        graph.neighbors_undirected(node_idx).collect()
     }
 }
 
@@ -75,7 +85,7 @@ impl Dags {
         }
     }
 
-    fn create(&mut self) -> u32 {
+    fn create(&mut self) -> Arc<Dag> {
         let mut id = self.candidate_id;
         loop {
             if id == 0 {
@@ -84,15 +94,15 @@ impl Dags {
 
             // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
-                let dag = Dag {
+                let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
-                };
+                });
 
-                e.insert(Arc::new(dag));
+                e.insert(dag.clone());
                 self.candidate_id = id;
 
-                return id;
+                return dag;
             } else {
                 // The candidate DAG ID is already used.
                 // Check next candidate.
@@ -102,7 +112,7 @@ impl Dags {
     }
 }
 
-pub fn create_dag() -> u32 {
+pub fn create_dag() -> Arc<Dag> {
     let mut node = MCSNode::new();
     let mut dags = DAGS.lock(&mut node);
     dags.create()
@@ -122,60 +132,74 @@ mod test {
 
     #[test]
     fn test_add_node() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
-        dag.add_node(1);
-        dag.add_node(2);
-        dag.add_node(3);
+        let dag = create_dag();
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        assert_eq!(dag.node_count(), 3);
+        dag.add_node(&mut graph, 1);
+        dag.add_node(&mut graph, 2);
+        dag.add_node(&mut graph, 3);
+
+        assert_eq!(dag.node_count(&graph), 3);
     }
 
     #[test]
     fn test_add_edge() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+        let dag = create_dag();
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        let ab = dag.add_edge(a, b);
-        let _ac = dag.add_edge(a, c);
-        let _bc = dag.add_edge(b, c);
+        let a = dag.add_node(&mut graph, 1);
+        let b = dag.add_node(&mut graph, 2);
+        let c = dag.add_node(&mut graph, 3);
 
-        assert_eq!(dag.edge_count(), 3);
-        if let Some(ab_endpoints) = dag.edge_endpoints(ab) {
-            assert_eq!(ab_endpoints, (a, b));
-        }
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, c);
+
+        let edge_count = graph.edge_count();
+
+        assert_eq!(edge_count, 3);
     }
 
     #[test]
-    fn test_remove_node() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
-        let c = dag.add_node(3);
+    fn test_neighbors_directed() {
+        let dag = create_dag();
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, c);
+        let a = dag.add_node(&mut graph, 1);
+        let b = dag.add_node(&mut graph, 2);
+        let c = dag.add_node(&mut graph, 3);
 
-        dag.remove_node(c);
-        assert_eq!(dag.node_count(), 2);
-        assert_eq!(dag.edge_count(), 1);
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, c);
+
+        let neighbors = dag.neighbors_directed(&graph, b, Direction::Outgoing);
+        assert_eq!(neighbors.len(), 1);
+        assert_eq!(neighbors.contains(&c), true);
+        assert_eq!(neighbors.contains(&a), false);
     }
 
     #[test]
-    fn test_remove_edge() {
-        let dag_id = create_dag();
-        let dag = get_dag(dag_id).unwrap();
-        let a = dag.add_node(1);
-        let b = dag.add_node(2);
+    fn test_neighbors_undirected() {
+        let dag = create_dag();
+        let mut node = MCSNode::new();
+        let mut graph = dag.graph.lock(&mut node);
 
-        let ab = dag.add_edge(a, b);
+        let a = dag.add_node(&mut graph, 1);
+        let b = dag.add_node(&mut graph, 2);
+        let c = dag.add_node(&mut graph, 3);
+        let d = dag.add_node(&mut graph, 4);
 
-        dag.remove_edge(ab);
-        assert_eq!(dag.edge_endpoints(ab), None);
+        dag.add_edge(&mut graph, a, b);
+        dag.add_edge(&mut graph, a, c);
+        dag.add_edge(&mut graph, b, d);
+
+        let neighbors = dag.neighbors_undirected(&graph, b);
+        assert_eq!(neighbors.len(), 2);
+        assert_eq!(neighbors.contains(&d), true);
+        assert_eq!(neighbors.contains(&a), true);
     }
 }
