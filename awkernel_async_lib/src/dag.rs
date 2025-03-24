@@ -1,12 +1,12 @@
 pub mod graph;
 
+use crate::dag::graph::{direction::Direction, NodeIndex};
 use alloc::{
     collections::{btree_map, BTreeMap},
     sync::Arc,
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
-use crate::dag::graph::{direction::Direction, NodeIndex};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
@@ -42,11 +42,7 @@ impl Dag {
     }
 
     #[allow(dead_code)] //TODO: Remove
-    fn node_weight(
-        &self,
-        graph: &graph::Graph<u32, u32>,
-        node_idx: NodeIndex,
-    ) -> Option<u32> {
+    fn node_weight(&self, graph: &graph::Graph<u32, u32>, node_idx: NodeIndex) -> Option<u32> {
         graph.node_weight(node_idx).cloned()
     }
 
