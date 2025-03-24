@@ -418,8 +418,8 @@ pub(super) const IGC_VLAN_FILTER_TBL_SIZE: u32 = 128; // VLAN Filter Table (4096
 // manageability enabled, allowing us room for 15 multicast addresses.
 pub(super) const IGC_RAR_ENTRIES: u32 = 15;
 pub(super) const IGC_RAH_AV: u32 = 0x80000000; // Receive descriptor valid
-pub(super) const IGC_RAL_MAC_ADDR_LEN: u32 = 4;
-pub(super) const IGC_RAH_MAC_ADDR_LEN: u32 = 2;
+pub(super) const IGC_RAL_MAC_ADDR_LEN: usize = 4;
+pub(super) const IGC_RAH_MAC_ADDR_LEN: usize = 2;
 
 // Loop limit on how long we wait for auto-negotiation to complete
 pub(super) const COPPER_LINK_UP_LIMIT: u32 = 10;
