@@ -7,6 +7,8 @@ use igc_regs::*;
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod i225;
+mod igc_api;
+mod igc_defines;
 mod igc_hw;
 mod igc_regs;
 
@@ -14,6 +16,7 @@ mod igc_regs;
 pub enum IgcDriverErr {
     NoBar0,
     ReadFailure,
+    MacInit,
 }
 
 /// Check if the device is an Intel I225/I226.

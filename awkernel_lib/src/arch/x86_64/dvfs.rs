@@ -6,6 +6,9 @@ use crate::{delay::wait_millisec, dvfs::Dvfs};
 
 use super::X86;
 
+#[allow(dead_code)] // TODO: remove this later
+mod hwpstate_intel;
+
 const MSR_PLATFORM_INFO: u32 = 0xCE;
 const IA32_PERF_MPERF: u32 = 0xE7;
 const IA32_PERF_APERF: u32 = 0xE8;
