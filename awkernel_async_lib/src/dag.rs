@@ -179,40 +179,39 @@ impl Dag {
         let mut stack: Vec<NodeIndex> = Vec::new();
 
         for node_idx in graph.node_indices() {
-            if !visited.contains(&node_idx) && self.dfs(graph, node_idx, &mut visited, &mut stack) {
+            if !visited.contains(&node_idx) && dfs(graph, node_idx, &mut visited, &mut stack) {
                 return true;
             }
         }
 
         false
     }
+}
 
-    fn dfs(
-        &self,
-        graph: &graph::Graph<NodeInfo, u32>,
-        node_idx: NodeIndex,
-        visited: &mut BTreeSet<NodeIndex>,
-        stack: &mut Vec<NodeIndex>,
-    ) -> bool {
-        if stack.contains(&node_idx) {
+fn dfs(
+    graph: &graph::Graph<NodeInfo, u32>,
+    node_idx: NodeIndex,
+    visited: &mut BTreeSet<NodeIndex>,
+    stack: &mut Vec<NodeIndex>,
+) -> bool {
+    if stack.contains(&node_idx) {
+        return true;
+    }
+    if visited.contains(&node_idx) {
+        return false;
+    }
+
+    visited.insert(node_idx);
+    stack.push(node_idx);
+
+    for neighbor in graph.neighbors_directed(node_idx, Direction::Outgoing) {
+        if dfs(graph, neighbor, visited, stack) {
             return true;
         }
-        if visited.contains(&node_idx) {
-            return false;
-        }
-
-        visited.insert(node_idx);
-        stack.push(node_idx);
-
-        for neighbor in graph.neighbors_directed(node_idx, Direction::Outgoing) {
-            if self.dfs(graph, neighbor, visited, stack) {
-                return true;
-            }
-        }
-
-        stack.pop();
-        false
     }
+
+    stack.pop();
+    false
 }
 
 /// DAGs.
