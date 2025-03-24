@@ -18,6 +18,12 @@ use crate::{
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
+pub enum DagError {
+    NotWeaklyConnected(u32),
+
+    ContainsCycle(u32),
+}
+
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
     task_id: u32,
@@ -269,16 +275,16 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-pub async fn finish_create_dags(dags: &[Arc<Dag>]) {
+pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
         {
             let mut graph_node = MCSNode::new();
             let graph = dag.graph.lock(&mut graph_node);
             if !dag.is_weakly_connected(&graph) {
-                panic!("DAG ID {} is not weakly connected", dag.get_id());
+                return Err(DagError::NotWeaklyConnected(dag.get_id()));
             }
             if dag.is_cycle(&graph) {
-                panic!("DAG ID {} is cycle", dag.get_id());
+                return Err(DagError::ContainsCycle(dag.get_id()));
             }
         }
 
@@ -294,6 +300,8 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) {
             }
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
