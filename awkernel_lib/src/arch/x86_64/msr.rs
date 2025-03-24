@@ -21,8 +21,7 @@ pub(super) const MSR_IA32_HWP_REQUEST_PKG: u32 = 0x772;
 pub(super) const MSR_IA32_HWP_REQUEST: u32 = 0x774;
 
 // MSR IA32_HWP_CAPABILITIES
-pub(super) const IA32_HWP_CAPABILITIES_HIGHEST_PERFORMANCE: fn(u64) -> u8 =
-    |x| ((x >> 0) & 0xff) as u8;
+pub(super) const IA32_HWP_CAPABILITIES_HIGHEST_PERFORMANCE: fn(u64) -> u8 = |x| (x & 0xff) as u8;
 pub(super) const IA32_HWP_CAPABILITIES_GUARANTEED_PERFORMANCE: fn(u64) -> u8 =
     |x| ((x >> 8) & 0xff) as u8;
 pub(super) const IA32_HWP_CAPABILITIES_EFFICIENT_PERFORMANCE: fn(u64) -> u8 =
