@@ -77,5 +77,6 @@ pub async fn run() {
     let mut node = MCSNode::new();
     let graph = dag.graph.lock(&mut node);
 
-    log::debug!("graph:\n{:#?}", &*graph);
+    assert_eq!(graph.node_count(), 5);
+    assert_eq!(graph.edge_count(), 5);
 }
