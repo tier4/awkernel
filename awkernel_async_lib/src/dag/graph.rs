@@ -780,7 +780,6 @@ where
     }
 
     /// Return an iterator over the node indices of the graph.
-    ///
     pub fn node_indices(&self) -> NodeIndices<Ix> {
         NodeIndices {
             r: 0..self.node_count(),
