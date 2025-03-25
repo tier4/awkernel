@@ -20,7 +20,6 @@ static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
 pub enum DagError {
     NotWeaklyConnected(u32),
-
     ContainsCycle(u32),
 }
 
@@ -43,10 +42,6 @@ struct PendingTask {
 }
 
 impl Dag {
-    pub fn get_id(&self) -> u32 {
-        self.id
-    }
-
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
@@ -281,10 +276,10 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             let mut graph_node = MCSNode::new();
             let graph = dag.graph.lock(&mut graph_node);
             if !dag.is_weakly_connected(&graph) {
-                return Err(DagError::NotWeaklyConnected(dag.get_id()));
+                return Err(DagError::NotWeaklyConnected(dag.id));
             }
             if dag.is_cycle(&graph) {
-                return Err(DagError::ContainsCycle(dag.get_id()));
+                return Err(DagError::ContainsCycle(dag.id));
             }
         }
 
