@@ -2,7 +2,6 @@
 
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use awkernel_lib::net::net_device::{self, NetDevice};
-use igc_regs::*;
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
@@ -10,6 +9,7 @@ mod i225;
 mod igc_api;
 mod igc_defines;
 mod igc_hw;
+mod igc_mac;
 mod igc_regs;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -17,6 +17,7 @@ pub enum IgcDriverErr {
     NoBar0,
     ReadFailure,
     MacInit,
+    MasterRequestsPending,
 }
 
 /// Check if the device is an Intel I225/I226.
@@ -160,7 +161,8 @@ impl NetDevice for Igc {
 #[inline(always)]
 fn write_flush(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
-    bar0.read32(IGC_STATUS).ok_or(IgcDriverErr::ReadFailure)?;
+    bar0.read32(igc_regs::IGC_STATUS)
+        .ok_or(IgcDriverErr::ReadFailure)?;
     Ok(())
 }
 
