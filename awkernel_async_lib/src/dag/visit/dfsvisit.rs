@@ -5,7 +5,6 @@ use crate::dag::visit::{VisitMap, Visitable};
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Default, Hash)]
 pub struct Time(pub usize);
 
-
 /// A depth first search (DFS) visitor event.
 #[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]

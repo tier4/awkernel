@@ -70,21 +70,21 @@ use alloc::vec::Vec;
 use core::cmp::max;
 use core::fmt::{self, Debug};
 use core::hash::Hash;
+use core::iter;
 use core::marker::PhantomData;
 use core::ops::Range;
-use core::iter;
 use core::slice;
 
 pub mod algo;
 pub mod direction;
 mod iter_format;
+use crate::dag::visit;
 use direction::{
     Direction,
     Direction::{Incoming, Outgoing},
 };
 use fixedbitset::FixedBitSet;
 use iter_format::{DebugMap, IterFormatExt, NoPretty};
-use crate::dag::visit;
 
 macro_rules! clone_fields {
     ($name:ident, $($field:ident),+ $(,)*) => (
@@ -714,7 +714,7 @@ where
         Some(edge.weight)
     }
 
-        /// Return an iterator of all nodes with an edge starting from `a`.
+    /// Return an iterator of all nodes with an edge starting from `a`.
     ///
     /// - `Directed`: Outgoing edges from `a`.
     /// - `Undirected`: All edges from or to `a`.
@@ -1009,7 +1009,6 @@ impl<Ix: IndexType> DoubleEndedIterator for NodeIndices<Ix> {
 
 impl<Ix: IndexType> ExactSizeIterator for NodeIndices<Ix> {}
 
-
 impl<N, E, Ix> visit::NodeIndexable for Graph<N, E, Ix>
 where
     Ix: IndexType,
@@ -1070,11 +1069,7 @@ where
     }
 }
 
-impl<N, E, Ix> visit::NodeCompactIndexable for Graph<N, E, Ix>
-where
-    Ix: IndexType,
-{
-}
+impl<N, E, Ix> visit::NodeCompactIndexable for Graph<N, E, Ix> where Ix: IndexType {}
 
 impl<'a, N, E: 'a, Ix> visit::IntoNeighbors for &'a Graph<N, E, Ix>
 where
