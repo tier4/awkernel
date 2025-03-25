@@ -72,14 +72,19 @@ use core::fmt::{self, Debug};
 use core::hash::Hash;
 use core::marker::PhantomData;
 use core::ops::Range;
+use core::iter;
+use core::slice;
 
+pub mod algo;
 pub mod direction;
 mod iter_format;
 use direction::{
     Direction,
     Direction::{Incoming, Outgoing},
 };
+use fixedbitset::FixedBitSet;
 use iter_format::{DebugMap, IterFormatExt, NoPretty};
+use crate::dag::visit;
 
 macro_rules! clone_fields {
     ($name:ident, $($field:ident),+ $(,)*) => (
@@ -224,6 +229,11 @@ impl<Ix: fmt::Debug> fmt::Debug for NodeIndex<Ix> {
 /// Short version of `NodeIndex::new`
 pub fn node_index<Ix: IndexType>(index: usize) -> NodeIndex<Ix> {
     NodeIndex::new(index)
+}
+
+/// Short version of `EdgeIndex::new`
+pub fn edge_index<Ix: IndexType>(index: usize) -> EdgeIndex<Ix> {
+    EdgeIndex::new(index)
 }
 
 /// Edge identifier.
@@ -704,6 +714,22 @@ where
         Some(edge.weight)
     }
 
+        /// Return an iterator of all nodes with an edge starting from `a`.
+    ///
+    /// - `Directed`: Outgoing edges from `a`.
+    /// - `Undirected`: All edges from or to `a`.
+    ///
+    /// Produces an empty iterator if the node doesn't exist.<br>
+    /// Iterator element type is `NodeIndex<Ix>`.
+    ///
+    /// Use [`.neighbors(a).detach()`][1] to get a neighbor walker that does
+    /// not borrow from the graph.
+    ///
+    /// [1]: struct.Neighbors.html#method.detach
+    pub fn neighbors(&self, a: NodeIndex<Ix>) -> Neighbors<E, Ix> {
+        self.neighbors_directed(a, Outgoing)
+    }
+
     /// Return an iterator of all neighbors that have an edge between them and
     /// `a`, in the specified direction.
     ///
@@ -784,6 +810,15 @@ where
         NodeIndices {
             r: 0..self.node_count(),
             ty: PhantomData,
+        }
+    }
+
+    /// Create an iterator over all edges, in indexed order.
+    ///
+    /// Iterator element type is `EdgeReference<E, Ix>`.
+    pub fn edge_references(&self) -> EdgeReferences<E, Ix> {
+        EdgeReferences {
+            iter: self.edges.iter().enumerate(),
         }
     }
 }
@@ -973,3 +1008,199 @@ impl<Ix: IndexType> DoubleEndedIterator for NodeIndices<Ix> {
 }
 
 impl<Ix: IndexType> ExactSizeIterator for NodeIndices<Ix> {}
+
+
+impl<N, E, Ix> visit::NodeIndexable for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    #[inline]
+    fn node_bound(&self) -> usize {
+        self.node_count()
+    }
+    #[inline]
+    fn to_index(&self, ix: NodeIndex<Ix>) -> usize {
+        ix.index()
+    }
+    #[inline]
+    fn from_index(&self, ix: usize) -> Self::NodeId {
+        NodeIndex::new(ix)
+    }
+}
+
+impl<N, E, Ix> visit::GraphBase for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type NodeId = NodeIndex<Ix>;
+    type EdgeId = EdgeIndex<Ix>;
+}
+
+impl<N, E, Ix> visit::Visitable for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type Map = FixedBitSet;
+    fn visit_map(&self) -> FixedBitSet {
+        FixedBitSet::with_capacity(self.node_count())
+    }
+
+    fn reset_map(&self, map: &mut Self::Map) {
+        map.clear();
+        map.grow(self.node_count());
+    }
+}
+
+impl<'a, N, E: 'a, Ix> visit::IntoNodeIdentifiers for &'a Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type NodeIdentifiers = NodeIndices<Ix>;
+    fn node_identifiers(self) -> NodeIndices<Ix> {
+        Graph::node_indices(self)
+    }
+}
+
+impl<N, E, Ix> visit::NodeCount for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    fn node_count(&self) -> usize {
+        self.node_count()
+    }
+}
+
+impl<N, E, Ix> visit::NodeCompactIndexable for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+}
+
+impl<'a, N, E: 'a, Ix> visit::IntoNeighbors for &'a Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type Neighbors = Neighbors<'a, E, Ix>;
+    fn neighbors(self, n: NodeIndex<Ix>) -> Neighbors<'a, E, Ix> {
+        Graph::neighbors(self, n)
+    }
+}
+
+/// Reference to a `Graph` edge.
+#[derive(Debug)]
+pub struct EdgeReference<'a, E: 'a, Ix = DefaultIx> {
+    index: EdgeIndex<Ix>,
+    node: [NodeIndex<Ix>; 2],
+    weight: &'a E,
+}
+
+impl<E, Ix: IndexType> Clone for EdgeReference<'_, E, Ix> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<E, Ix: IndexType> Copy for EdgeReference<'_, E, Ix> {}
+
+impl<E, Ix: IndexType> PartialEq for EdgeReference<'_, E, Ix>
+where
+    E: PartialEq,
+{
+    fn eq(&self, rhs: &Self) -> bool {
+        self.index == rhs.index && self.weight == rhs.weight
+    }
+}
+
+impl<'a, Ix, E> EdgeReference<'a, E, Ix>
+where
+    Ix: IndexType,
+{
+    /// Access the edge’s weight.
+    ///
+    /// **NOTE** that this method offers a longer lifetime
+    /// than the trait (unfortunately they don't match yet).
+    pub fn weight(&self) -> &'a E {
+        self.weight
+    }
+}
+
+impl<Ix, E> visit::EdgeRef for EdgeReference<'_, E, Ix>
+where
+    Ix: IndexType,
+{
+    type NodeId = NodeIndex<Ix>;
+    type EdgeId = EdgeIndex<Ix>;
+    type Weight = E;
+
+    fn source(&self) -> Self::NodeId {
+        self.node[0]
+    }
+    fn target(&self) -> Self::NodeId {
+        self.node[1]
+    }
+    fn weight(&self) -> &E {
+        self.weight
+    }
+    fn id(&self) -> Self::EdgeId {
+        self.index
+    }
+}
+
+/// Iterator over all edges of a graph.
+#[derive(Debug, Clone)]
+pub struct EdgeReferences<'a, E: 'a, Ix: IndexType = DefaultIx> {
+    iter: iter::Enumerate<slice::Iter<'a, Edge<E, Ix>>>,
+}
+
+impl<'a, E, Ix> Iterator for EdgeReferences<'a, E, Ix>
+where
+    Ix: IndexType,
+{
+    type Item = EdgeReference<'a, E, Ix>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next().map(|(i, edge)| EdgeReference {
+            index: edge_index(i),
+            node: edge.node,
+            weight: &edge.weight,
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<E, Ix> DoubleEndedIterator for EdgeReferences<'_, E, Ix>
+where
+    Ix: IndexType,
+{
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.iter.next_back().map(|(i, edge)| EdgeReference {
+            index: edge_index(i),
+            node: edge.node,
+            weight: &edge.weight,
+        })
+    }
+}
+
+impl<E, Ix> ExactSizeIterator for EdgeReferences<'_, E, Ix> where Ix: IndexType {}
+
+impl<'a, N: 'a, E: 'a, Ix> visit::IntoEdgeReferences for &'a Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type EdgeRef = EdgeReference<'a, E, Ix>;
+    type EdgeReferences = EdgeReferences<'a, E, Ix>;
+    fn edge_references(self) -> Self::EdgeReferences {
+        (*self).edge_references()
+    }
+}
+
+impl<N, E, Ix> visit::Data for Graph<N, E, Ix>
+where
+    Ix: IndexType,
+{
+    type NodeWeight = N;
+    type EdgeWeight = E;
+}
