@@ -22,10 +22,28 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
+static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new());
 
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
+}
+
+struct PendingTask {
+    node_idx: NodeIndex,
+    spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
+}
+
+impl PendingTask {
+    fn new<F>(node_idx: NodeIndex, spawn_fn: F) -> Self
+    where
+        F: FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send + 'static,
+    {
+        Self {
+            node_idx,
+            spawn: Box::new(spawn_fn),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -38,12 +56,6 @@ pub struct NodeInfo {
 pub struct Dag {
     pub id: u32,
     pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
-    pending_tasks: Mutex<Vec<PendingTask>>,
-}
-
-struct PendingTask {
-    node_idx: NodeIndex,
-    spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
 }
 
 impl Dag {
@@ -102,11 +114,12 @@ impl Dag {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &publish_topic_names);
 
         let mut node = MCSNode::new();
-        let mut pending_tasks = self.pending_tasks.lock(&mut node);
+        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
 
-        pending_tasks.push(PendingTask {
-            node_idx,
-            spawn: Box::new(move || {
+        pending_tasks
+            .entry(self.id)
+            .or_default()
+            .push(PendingTask::new(node_idx, move || {
                 Box::pin(async move {
                     spawn_reactor::<F, Args, Ret>(
                         reactor_name.clone(),
@@ -117,8 +130,7 @@ impl Dag {
                     )
                     .await
                 })
-            }),
-        });
+            }));
     }
 
     pub async fn spawn_periodic_reactor<F, Ret>(
@@ -136,11 +148,12 @@ impl Dag {
         let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
 
         let mut node = MCSNode::new();
-        let mut pending_tasks = self.pending_tasks.lock(&mut node);
+        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
 
-        pending_tasks.push(PendingTask {
-            node_idx,
-            spawn: Box::new(move || {
+        pending_tasks
+            .entry(self.id)
+            .or_default()
+            .push(PendingTask::new(node_idx, move || {
                 Box::pin(async move {
                     spawn_periodic_reactor::<F, Ret>(
                         reactor_name.clone(),
@@ -151,8 +164,7 @@ impl Dag {
                     )
                     .await
                 })
-            }),
-        });
+            }));
     }
 }
 
@@ -183,7 +195,6 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
-                    pending_tasks: Mutex::new(Vec::new()),
                 });
 
                 e.insert(dag.clone());
@@ -224,8 +235,11 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             }
         }
 
-        let mut node = MCSNode::new();
-        let pending_tasks: Vec<_> = dag.pending_tasks.lock(&mut node).drain(..).collect();
+        let pending_tasks = {
+            let mut node = MCSNode::new();
+            let mut lock = PENDING_TASKS.lock(&mut node);
+            lock.remove(&dag.id).unwrap_or_default()
+        };
 
         for task in pending_tasks {
             let task_id = (task.spawn)().await;
