@@ -27,6 +27,7 @@ static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeM
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
+    MissingPendingTasks(u32),
 }
 
 struct PendingTask {
@@ -224,26 +225,30 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
-fn validate_graph(dag: &Dag) -> Result<(), DagError> {
-    let mut node = MCSNode::new();
-    let graph = dag.graph.lock(&mut node);
+fn validate_dag(dag: &Dag) -> Result<(), DagError> {
+    let mut graph_node = MCSNode::new();
+    let graph = dag.graph.lock(&mut graph_node);
     if connected_components(&*graph) != 1 {
         return Err(DagError::NotWeaklyConnected(dag.id));
     }
     if is_cyclic_directed(&*graph) {
         return Err(DagError::ContainsCycle(dag.id));
     }
+    let mut pending_node = MCSNode::new();
+    if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
+        return Err(DagError::MissingPendingTasks(dag.id));
+    }
     Ok(())
 }
 
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
-        validate_graph(dag)?;
+        validate_dag(dag)?;
 
         let pending_tasks = {
             let mut node = MCSNode::new();
             let mut lock = PENDING_TASKS.lock(&mut node);
-            lock.remove(&dag.id).unwrap_or_default()
+            lock.remove(&dag.id).unwrap()
         };
 
         for task in pending_tasks {
