@@ -76,11 +76,17 @@ impl Dag {
 
         for node_idx in graph.node_indices() {
             if let Some(node_info) = graph.node_weight(node_idx).cloned() {
-                if subscribe_topic_names.iter().any(|sub| node_info.publish_topics.contains(sub)) {
+                if subscribe_topic_names
+                    .iter()
+                    .any(|sub| node_info.publish_topics.contains(sub))
+                {
                     graph.add_edge(node_idx, add_node_idx, 0);
                 }
 
-                if publish_topic_names.iter().any(|pub_| node_info.subscribe_topics.contains(pub_)) {
+                if publish_topic_names
+                    .iter()
+                    .any(|pub_| node_info.subscribe_topics.contains(pub_))
+                {
                     graph.add_edge(add_node_idx, node_idx, 0);
                 }
             }
