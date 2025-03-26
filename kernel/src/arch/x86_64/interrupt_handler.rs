@@ -1,3 +1,4 @@
+use awkernel_async_lib::cpu_id;
 #[cfg(feature = "perf")]
 use awkernel_async_lib::{
     cpu_counter,
@@ -7,7 +8,7 @@ use awkernel_async_lib::{
     },
 };
 
-use awkernel_lib::delay::wait_forever;
+use awkernel_lib::{arch::x86_64::fault::inc_num_general_protection_fault, delay::wait_forever};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
@@ -582,6 +583,9 @@ extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFr
         "general protection fault: stack_frame = {:?}, error = {error}",
         stack_frame,
     );
+
+    // increment the number of general protection fault.
+    inc_num_general_protection_fault(cpu_id());
 }
 
 extern "x86-interrupt" fn invalid_opcode(stack_frame: InterruptStackFrame) {
