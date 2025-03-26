@@ -218,18 +218,21 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
     dags.id_to_dag.get(&id).cloned()
 }
 
+fn validate_graph(dag: &Dag) -> Result<(), DagError> {
+    let mut node = MCSNode::new();
+    let graph = dag.graph.lock(&mut node);
+    if connected_components(&*graph) != 1 {
+        return Err(DagError::NotWeaklyConnected(dag.id));
+    }
+    if is_cyclic_directed(&*graph) {
+        return Err(DagError::ContainsCycle(dag.id));
+    }
+    Ok(())
+}
+
 pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     for dag in dags {
-        {
-            let mut graph_node = MCSNode::new();
-            let graph = dag.graph.lock(&mut graph_node);
-            if connected_components(&*graph) != 1 {
-                return Err(DagError::NotWeaklyConnected(dag.id));
-            }
-            if is_cyclic_directed(&*graph) {
-                return Err(DagError::ContainsCycle(dag.id));
-            }
-        }
+        validate_graph(dag)?;
 
         let pending_tasks = {
             let mut node = MCSNode::new();
