@@ -22,7 +22,7 @@ use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
-static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new());
+static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
 pub enum DagError {
     NotWeaklyConnected(u32),
