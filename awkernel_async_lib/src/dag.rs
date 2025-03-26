@@ -227,6 +227,11 @@ pub fn get_dag(id: u32) -> Option<Arc<Dag>> {
 }
 
 fn validate_dag(dag: &Dag) -> Result<(), DagError> {
+    let mut pending_node = MCSNode::new();
+    if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
+        return Err(DagError::MissingPendingTasks(dag.id));
+    }
+
     let mut graph_node = MCSNode::new();
     let graph = dag.graph.lock(&mut graph_node);
     if connected_components(&*graph) != 1 {
@@ -234,10 +239,6 @@ fn validate_dag(dag: &Dag) -> Result<(), DagError> {
     }
     if is_cyclic_directed(&*graph) {
         return Err(DagError::ContainsCycle(dag.id));
-    }
-    let mut pending_node = MCSNode::new();
-    if PENDING_TASKS.lock(&mut pending_node).get(&dag.id).is_none() {
-        return Err(DagError::MissingPendingTasks(dag.id));
     }
     Ok(())
 }
