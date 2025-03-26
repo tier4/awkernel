@@ -43,7 +43,7 @@ pub struct Dag {
 
 struct PendingTask {
     node_idx: NodeIndex,
-    func: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
+    spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
 }
 
 impl Dag {
@@ -106,7 +106,7 @@ impl Dag {
 
         pending_tasks.push(PendingTask {
             node_idx,
-            func: Box::new(move || {
+            spawn: Box::new(move || {
                 Box::pin(async move {
                     spawn_reactor::<F, Args, Ret>(
                         reactor_name.clone(),
@@ -140,7 +140,7 @@ impl Dag {
 
         pending_tasks.push(PendingTask {
             node_idx,
-            func: Box::new(move || {
+            spawn: Box::new(move || {
                 Box::pin(async move {
                     spawn_periodic_reactor::<F, Ret>(
                         reactor_name.clone(),
@@ -228,7 +228,7 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         let pending_tasks: Vec<_> = dag.pending_tasks.lock(&mut node).drain(..).collect();
 
         for task in pending_tasks {
-            let task_id = (task.func)().await;
+            let task_id = (task.spawn)().await;
             let mut graph_node = MCSNode::new();
             let mut graph = dag.graph.lock(&mut graph_node);
             if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
