@@ -1,4 +1,6 @@
 pub mod graph;
+mod unionfind;
+mod visit;
 
 use alloc::{
     borrow::Cow,
