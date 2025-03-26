@@ -1,8 +1,12 @@
 use awkernel_lib::net::ether::ETHER_ADDR_LEN;
 
-use crate::pcie::{pcie_id::INTEL_VENDOR_ID, PCIeInfo};
+use crate::pcie::{
+    intel::igc::{igc_defines::*, igc_regs::*, read_reg, write_reg, write_reg_array},
+    pcie_id::INTEL_VENDOR_ID,
+    PCIeInfo,
+};
 
-use super::IgcDriverErr;
+use super::{write_flush, IgcDriverErr};
 
 pub(super) const PCI_PRODUCT_INTEL_I220_V: u16 = 0x15f7; // I220-V
 pub(super) const PCI_PRODUCT_INTEL_I221_V: u16 = 0x125e; // I221-V
@@ -226,21 +230,10 @@ pub(super) struct IgcHw {
 
 pub(super) trait IgcMacOperations {
     fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn clear_hw_cntrs(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn clear_vfta(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn get_bus_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn set_lan_id(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
     fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
@@ -269,28 +262,93 @@ pub(super) trait IgcMacOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn write_vfta(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+
+    /// Writes value at the given offset in the register array which stores
+    /// the VLAN filter table.
+    fn write_vfta(
+        &self,
+        info: &mut PCIeInfo,
+        _hw: &mut IgcHw,
+        offset: usize,
+        value: u32,
+    ) -> Result<(), IgcDriverErr> {
+        write_reg_array(info, IGC_VFTA, offset, value)?;
+        write_flush(info)?;
+        Ok(())
     }
+
+    ///  Configures the collision distance to the default value and is used
+    ///  during link setup.
     fn config_collision_dist(
         &self,
-        _info: &mut PCIeInfo,
+        info: &mut PCIeInfo,
         _hw: &mut IgcHw,
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        let mut tctl = read_reg(info, IGC_TCTL)?;
+
+        tctl &= !IGC_TCTL_COLD;
+        tctl |= IGC_COLLISION_DISTANCE << IGC_COLD_SHIFT;
+
+        write_reg(info, IGC_TCTL, tctl)?;
+        write_flush(info)?;
+
+        Ok(())
     }
-    fn rar_set(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn read_mac_addr(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn validate_mdi_setting(
+
+    /// Sets the receive address array register at index to the address passed
+    /// in by addr.
+    fn rar_set(
         &self,
-        _info: &mut PCIeInfo,
+        info: &mut PCIeInfo,
         _hw: &mut IgcHw,
+        addr: &[u8],
+        index: usize,
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        // HW expects these in little endian so we reverse the byte order
+        // from network order (big endian) to little endian
+        let rar_low = (addr[0] as u32)
+            | ((addr[1] as u32) << 8)
+            | ((addr[2] as u32) << 16)
+            | ((addr[3] as u32) << 24);
+
+        let mut rar_high = (addr[4] as u32) | (addr[5] as u32) << 8;
+
+        // If MAC address zero, no need to set the AV bit
+        if rar_low != 0 || rar_high != 0 {
+            rar_high |= IGC_RAH_AV;
+        }
+
+        // Some bridges will combine consecutive 32-bit writes into
+        // a single burst write, which will malfunction on some parts.
+        // The flushes avoid this.
+        write_reg(info, IGC_RAL(index), rar_low)?;
+        write_flush(info)?;
+        write_reg(info, IGC_RAH(index), rar_high)?;
+        write_flush(info)?;
+
+        Ok(())
+    }
+
+    /// Reads the device MAC address from the EEPROM and stores the value.
+    /// Since devices with two ports use the same EEPROM, we increment the
+    /// last bit in the MAC address for the second port.
+    fn read_mac_addr(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        let rar_high = read_reg(info, IGC_RAH(0))?;
+        let rar_low = read_reg(info, IGC_RAL(0))?;
+
+        for i in 0..IGC_RAL_MAC_ADDR_LEN {
+            hw.mac.perm_addr[i] = (rar_low >> (i * 8)) as u8;
+        }
+
+        for i in 0..IGC_RAH_MAC_ADDR_LEN {
+            hw.mac.perm_addr[i + 4] = (rar_high >> (i * 8)) as u8;
+        }
+
+        for i in 0..ETHER_ADDR_LEN {
+            hw.mac.addr[i] = hw.mac.perm_addr[i];
+        }
+
+        Ok(())
     }
     fn acquire_swfw_sync(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
