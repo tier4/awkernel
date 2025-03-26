@@ -47,7 +47,6 @@ impl PendingTask {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
