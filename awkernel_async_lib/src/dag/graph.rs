@@ -294,13 +294,6 @@ where
     clone_fields!(Node, weight, next,);
 }
 
-impl<N, Ix: IndexType> Node<N, Ix> {
-    /// Accessor for data structure internals: the first edge in the given direction.
-    pub fn next_edge(&self, dir: Direction) -> EdgeIndex<Ix> {
-        self.next[dir.index()]
-    }
-}
-
 /// The graph's edge type.
 #[derive(Debug)]
 pub struct Edge<E, Ix = DefaultIx> {
@@ -321,11 +314,6 @@ where
 }
 
 impl<E, Ix: IndexType> Edge<E, Ix> {
-    /// Accessor for data structure internals: the next edge for the given direction.
-    pub fn next_edge(&self, dir: Direction) -> EdgeIndex<Ix> {
-        self.next[dir.index()]
-    }
-
     /// Return the source node index.
     pub fn source(&self) -> NodeIndex<Ix> {
         self.node[0]

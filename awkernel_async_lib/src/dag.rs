@@ -1,22 +1,25 @@
-pub mod graph;
+mod graph;
 mod unionfind;
 mod visit;
 
+use crate::{
+    dag::graph::{
+        algo::{connected_components, is_cyclic_directed},
+        NodeIndex,
+    },
+    scheduler::SchedulerType,
+    spawn_periodic_reactor, spawn_reactor, MultipleReceiver, MultipleSender, VectorToPublishers,
+    VectorToSubscribers,
+};
 use alloc::{
     borrow::Cow,
     boxed::Box,
-    collections::{btree_map, BTreeMap, BTreeSet},
+    collections::{btree_map, BTreeMap},
     sync::Arc,
     vec::Vec,
 };
 use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
-
-use crate::dag::graph::{direction::Direction, NodeIndex};
-use crate::{
-    scheduler::SchedulerType, spawn_periodic_reactor, spawn_reactor, MultipleReceiver,
-    MultipleSender, VectorToPublishers, VectorToSubscribers,
-};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 
@@ -151,70 +154,6 @@ impl Dag {
             }),
         });
     }
-
-    fn is_weakly_connected(&self, graph: &graph::Graph<NodeInfo, u32>) -> bool {
-        if graph.node_count() == 0 {
-            return false;
-        }
-
-        let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
-        let mut stack: Vec<NodeIndex> = Vec::new();
-
-        if let Some(start_node) = graph.node_indices().next() {
-            stack.push(start_node);
-            visited.insert(start_node);
-        }
-
-        while let Some(node_idx) = stack.pop() {
-            for neighbor in graph.neighbors_undirected(node_idx) {
-                if !visited.contains(&neighbor) {
-                    visited.insert(neighbor);
-                    stack.push(neighbor);
-                }
-            }
-        }
-
-        visited.len() == graph.node_count()
-    }
-
-    fn is_cycle(&self, graph: &graph::Graph<NodeInfo, u32>) -> bool {
-        let mut visited: BTreeSet<NodeIndex> = BTreeSet::new();
-        let mut stack: Vec<NodeIndex> = Vec::new();
-
-        for node_idx in graph.node_indices() {
-            if !visited.contains(&node_idx) && dfs(graph, node_idx, &mut visited, &mut stack) {
-                return true;
-            }
-        }
-
-        false
-    }
-}
-
-fn dfs(
-    graph: &graph::Graph<NodeInfo, u32>,
-    node_idx: NodeIndex,
-    visited: &mut BTreeSet<NodeIndex>,
-    stack: &mut Vec<NodeIndex>,
-) -> bool {
-    if stack.contains(&node_idx) {
-        return true;
-    }
-    if visited.contains(&node_idx) {
-        return false;
-    }
-
-    visited.insert(node_idx);
-    stack.push(node_idx);
-
-    for neighbor in graph.neighbors_directed(node_idx, Direction::Outgoing) {
-        if dfs(graph, neighbor, visited, stack) {
-            return true;
-        }
-    }
-
-    stack.pop();
-    false
 }
 
 /// DAGs.
@@ -277,10 +216,10 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
         {
             let mut graph_node = MCSNode::new();
             let graph = dag.graph.lock(&mut graph_node);
-            if !dag.is_weakly_connected(&graph) {
+            if connected_components(&*graph) != 1 {
                 return Err(DagError::NotWeaklyConnected(dag.id));
             }
-            if dag.is_cycle(&graph) {
+            if is_cyclic_directed(&*graph) {
                 return Err(DagError::ContainsCycle(dag.id));
             }
         }
@@ -299,85 +238,4 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    fn create_node_info(node_id: u32) -> NodeInfo {
-        NodeInfo {
-            task_id: node_id,
-            subscribe_topics: Vec::new(),
-            publish_topics: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn test_is_weakly_connected_true() {
-        let dag = create_dag();
-
-        let mut node = MCSNode::new();
-        let mut graph = dag.graph.lock(&mut node);
-
-        let a = graph.add_node(create_node_info(1));
-        let b = graph.add_node(create_node_info(2));
-        let c = graph.add_node(create_node_info(3));
-
-        graph.add_edge(a, b, 0);
-        graph.add_edge(b, c, 0);
-
-        assert_eq!(dag.is_weakly_connected(&graph), true);
-    }
-
-    #[test]
-    fn test_is_weakly_connected_false() {
-        let dag = create_dag();
-
-        let mut node = MCSNode::new();
-        let mut graph = dag.graph.lock(&mut node);
-
-        let a = graph.add_node(create_node_info(1));
-        let b = graph.add_node(create_node_info(2));
-        graph.add_node(create_node_info(3));
-
-        graph.add_edge(a, b, 0);
-
-        assert_eq!(dag.is_weakly_connected(&graph), false);
-    }
-
-    #[test]
-    fn test_is_cycle_true() {
-        let dag = create_dag();
-
-        let mut node = MCSNode::new();
-        let mut graph = dag.graph.lock(&mut node);
-
-        let a = graph.add_node(create_node_info(1));
-        let b = graph.add_node(create_node_info(2));
-        let c = graph.add_node(create_node_info(3));
-
-        graph.add_edge(a, b, 0);
-        graph.add_edge(b, c, 0);
-        graph.add_edge(c, a, 0);
-
-        assert_eq!(dag.is_cycle(&graph), true);
-    }
-
-    #[test]
-    fn test_is_cycle_false() {
-        let dag = create_dag();
-
-        let mut node = MCSNode::new();
-        let mut graph = dag.graph.lock(&mut node);
-
-        let a = graph.add_node(create_node_info(1));
-        let b = graph.add_node(create_node_info(2));
-        let c = graph.add_node(create_node_info(3));
-
-        graph.add_edge(a, b, 0);
-        graph.add_edge(b, c, 0);
-
-        assert_eq!(dag.is_cycle(&graph), false);
-    }
 }
