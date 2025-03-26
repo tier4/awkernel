@@ -75,21 +75,17 @@ impl Dag {
         let add_node_idx = graph.add_node(add_node_info);
 
         for node_idx in graph.node_indices() {
-            if node_idx != add_node_idx {
-                if let Some(node_info) = graph.node_weight(node_idx).cloned() {
-                    for subscribe_topic in subscribe_topic_names {
-                        if node_info.publish_topics.contains(subscribe_topic) {
-                            graph.add_edge(node_idx, add_node_idx, 0);
-                        }
-                    }
-                    for publish_topic in publish_topic_names {
-                        if node_info.subscribe_topics.contains(publish_topic) {
-                            graph.add_edge(add_node_idx, node_idx, 0);
-                        }
-                    }
+            if let Some(node_info) = graph.node_weight(node_idx).cloned() {
+                if subscribe_topic_names.iter().any(|sub| node_info.publish_topics.contains(sub)) {
+                    graph.add_edge(node_idx, add_node_idx, 0);
+                }
+
+                if publish_topic_names.iter().any(|pub_| node_info.subscribe_topics.contains(pub_)) {
+                    graph.add_edge(add_node_idx, node_idx, 0);
                 }
             }
         }
+
         add_node_idx
     }
 
