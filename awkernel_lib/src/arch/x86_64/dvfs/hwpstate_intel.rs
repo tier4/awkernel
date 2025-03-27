@@ -183,30 +183,87 @@ impl HwPstateIntel {
             let val = percent_to_raw(epp as u64);
 
             self.req = (self.req & !IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE) | (val << 24);
-
-            if self.hwp_pkg_ctrl_en {
-                let mut hwp_req_pkg = Msr::new(MSR_IA32_HWP_REQUEST_PKG);
-                if !unsafe { wrmsr_safe(&mut hwp_req_pkg, self.req) } {
-                    return false;
-                }
-            } else {
-                let mut hwp_req = Msr::new(MSR_IA32_HWP_REQUEST);
-                if !unsafe { wrmsr_safe(&mut hwp_req, self.req) } {
-                    return false;
-                }
-            }
+            self.request()
         } else {
             let val = percent_to_raw_perf_bias(epp as u64);
             self.hwp_energy_perf_bias =
                 (self.hwp_energy_perf_bias & !IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK) | val;
 
             let mut msr_epb = Msr::new(MSR_IA32_ENERGY_PERF_BIAS);
-            if !unsafe { wrmsr_safe(&mut msr_epb, self.hwp_energy_perf_bias) } {
-                return false;
-            }
+            unsafe { wrmsr_safe(&mut msr_epb, self.hwp_energy_perf_bias) }
+        }
+    }
+
+    /// Select Maximum Performance.
+    /// (range from 0, lowest performant, through 100, highest performance)
+    ///
+    /// If `max` is less than the minimum performance,
+    /// this function sets the maximum performance to the minimum performance.
+    pub(super) fn maximum_performance_select(&mut self, max: u8) -> bool {
+        let raw_max = self.percent_to_raw_performance(max);
+        let raw_min = (self.req & IA32_HWP_MINIMUM_PERFORMANCE) as u8;
+
+        let val = (if raw_max < raw_min { raw_min } else { raw_max }) as u64;
+
+        self.req = (self.req & !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) | (val << 8);
+        self.request()
+    }
+
+    /// Select Minimum Performance.
+    /// (range from 0, lowest performant, through 100, highest performance)
+    ///
+    /// If `min` is greater than the maximum performance,
+    /// this function sets the minimum performance to the maximum performance.
+    pub(super) fn minimum_performance_select(&mut self, min: u8) -> bool {
+        let raw_max = ((self.req & IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) >> 8) as u8;
+        let raw_min = self.percent_to_raw_performance(min);
+
+        let val = (if raw_max < raw_min { raw_max } else { raw_min }) as u64;
+
+        self.req = (self.req & !IA32_HWP_MINIMUM_PERFORMANCE) | val;
+        self.request()
+    }
+
+    #[inline]
+    fn request(&self) -> bool {
+        if self.hwp_pkg_ctrl_en {
+            let mut hwp_req_pkg = Msr::new(MSR_IA32_HWP_REQUEST_PKG);
+            unsafe { wrmsr_safe(&mut hwp_req_pkg, self.req) }
+        } else {
+            let mut hwp_req = Msr::new(MSR_IA32_HWP_REQUEST);
+            unsafe { wrmsr_safe(&mut hwp_req, self.req) }
+        }
+    }
+
+    fn percent_to_raw_performance(&self, percent: u8) -> u8 {
+        let percent = if percent > 100 { 100 } else { percent };
+
+        // fast return
+        if percent == 100 {
+            return self.high;
         }
 
-        true
+        if percent == 0 {
+            return self.low;
+        }
+
+        assert!(self.high >= self.low);
+        let range = self.high - self.low;
+
+        // avoid zero division
+        if range == 0 {
+            return self.low;
+        }
+
+        // To avoid overflow, raw value is calculated by casting u32.
+        let val = (percent as u32 * range as u32) / 100 + self.low as u32;
+        if val > self.high as u32 {
+            self.high
+        } else if val < self.low as u32 {
+            self.low
+        } else {
+            val as u8
+        }
     }
 }
 
