@@ -155,6 +155,19 @@ impl HwPstateIntel {
             }
         }
 
+        if !self.hwp_perf_ctrl && !self.hwp_perf_bias_cached {
+            // If cpuid indicates EPP is not supported, the HWP controller
+            // uses MSR_IA32_ENERGY_PERF_BIAS instead (Intel SDM Â§14.4.4).
+            // This register is per-core (but not HT).
+            let msr_ebp = Msr::new(MSR_IA32_ENERGY_PERF_BIAS);
+            if let Some(epb) = unsafe { rdmsr_safe(&msr_ebp) } {
+                self.hwp_energy_perf_bias = epb;
+                self.hwp_perf_bias_cached = true;
+            } else {
+                return false;
+            }
+        }
+
         true
     }
 
@@ -165,31 +178,6 @@ impl HwPstateIntel {
 
         // Disable interrupt to suppress preemption.
         let _int_guard = crate::interrupt::InterruptGuard::new();
-
-        let mut val;
-
-        if self.hwp_perf_ctrl {
-            val = (self.req & IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE) >> 24;
-            val = raw_to_percent(val);
-        } else {
-            // If cpuid indicates EPP is not supported, the HWP controller
-            // uses MSR_IA32_ENERGY_PERF_BIAS instead (Intel SDM Â§14.4.4).
-            // This register is per-core (but not HT).
-            if !self.hwp_perf_bias_cached {
-                let msr_ebp = Msr::new(MSR_IA32_ENERGY_PERF_BIAS);
-                if let Some(epb) = unsafe { rdmsr_safe(&msr_ebp) } {
-                    self.hwp_energy_perf_bias = epb;
-                    self.hwp_perf_bias_cached = true;
-                } else {
-                    return false;
-                }
-            }
-
-            val = self.hwp_energy_perf_bias & IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK;
-            val = raw_to_percent_perf_bias(val);
-        }
-
-        assert!(val <= 100);
 
         if self.hwp_perf_ctrl {
             let val = percent_to_raw(epp as u64);
