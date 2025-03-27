@@ -269,11 +269,6 @@ impl HwPstateIntel {
         assert!(self.high >= self.low);
         let range = self.high - self.low;
 
-        // avoid zero division
-        if range == 0 {
-            return self.low;
-        }
-
         // To avoid overflow, the raw value is calculated by casting the values to u32.
         let val = (percent as u32 * range as u32) / 100 + self.low as u32;
         if val > self.high as u32 {
