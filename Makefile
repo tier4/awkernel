@@ -118,7 +118,11 @@ QEMU_AARCH64_VIRT_ARGS= -M virt,gic-version=3 -cpu cortex-a72 $(QEMU_AARCH64_ARG
 QEMU_AARCH64_VIRT_ARGS+= -m 1G -smp cpus=4
 QEMU_AARCH64_VIRT_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
 QEMU_AARCH64_VIRT_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
-QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap -nographic
+QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets_net0.pcap
+QEMU_AARCH64_VIRT_ARGS+= -netdev user,id=net1,hostfwd=udp::4446-:2001
+QEMU_AARCH64_VIRT_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34
+QEMU_AARCH64_VIRT_ARGS+= -object filter-dump,id=net1,netdev=net1,file=packets_net1.pcap
+QEMU_AARCH64_VIRT_ARGS+= -nographic
 
 qemu-aarch64-virt:
 	qemu-system-aarch64 $(QEMU_AARCH64_VIRT_ARGS)
@@ -170,7 +174,10 @@ QEMU_X86_ARGS+= -numa node,memdev=m3,cpus=12-15,nodeid=3
 QEMU_X86_NET_ARGS=$(QEMU_X86_ARGS)
 QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
 QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
-QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets.pcap
+QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets_net0.pcap
+QEMU_X86_NET_ARGS+= -netdev user,id=net1,hostfwd=udp::4446-:2001
+QEMU_X86_NET_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34
+QEMU_X86_NET_ARGS+= -object filter-dump,id=net1,netdev=net1,file=packets_net1.pcap
 
 tcp-dump:
 	tcpdump -vvv -XXnr packets.pcap
