@@ -10,6 +10,9 @@ const CPUTPM1_HWP_PERF_PREF: u32 = 0x00000400;
 const CPUTPM1_HWP_PKG: u32 = 0x00000800;
 const CPUID_PERF_BIAS: u32 = 0x00000008;
 
+/// Enable/disable pkg-level control.
+static HWPSTATE_PKG_CTRL_ENABLE: bool = false;
+
 pub(super) struct HwPstateIntel {
     hwp_notifications: bool,
     hwp_activity_window: bool,
@@ -39,7 +42,7 @@ impl HwPstateIntel {
         let hwp_pkg_ctrl = cpuid.eax & CPUTPM1_HWP_PKG != 0;
 
         // Allow administrators to disable pkg-level control.
-        let hwp_pkg_ctrl_en = hwp_pkg_ctrl;
+        let hwp_pkg_ctrl_en = hwp_pkg_ctrl && HWPSTATE_PKG_CTRL_ENABLE;
 
         let hwp_perf_bias = cpuid.ecx & CPUID_PERF_BIAS != 0;
 
@@ -168,6 +171,15 @@ impl HwPstateIntel {
             }
         }
 
+        log::info!(
+            "hwpstate_intel: cpu_id = {}, low = {}, high = {}, guaranteed = {}, efficient = {}",
+            cpu_id(),
+            self.low,
+            self.high,
+            self.guaranteed,
+            self.efficient,
+        );
+
         true
     }
 
@@ -199,6 +211,8 @@ impl HwPstateIntel {
     ///
     /// If `max` is less than the minimum performance,
     /// this function sets the maximum performance to the minimum performance.
+    ///
+    /// If `max` is greater than 100, it will be treated as 100.
     pub(super) fn maximum_performance_select(&mut self, max: u8) -> bool {
         let raw_max = self.percent_to_raw_performance(max);
         let raw_min = (self.req & IA32_HWP_MINIMUM_PERFORMANCE) as u8;
@@ -214,6 +228,8 @@ impl HwPstateIntel {
     ///
     /// If `min` is greater than the maximum performance,
     /// this function sets the minimum performance to the maximum performance.
+    ///
+    /// If `min` is greater than 100, it will be treated as 100.
     pub(super) fn minimum_performance_select(&mut self, min: u8) -> bool {
         let raw_max = ((self.req & IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) >> 8) as u8;
         let raw_min = self.percent_to_raw_performance(min);
@@ -235,6 +251,9 @@ impl HwPstateIntel {
         }
     }
 
+    /// Returns a raw performance value between `self.low` and `self.high` depending on `percent`.
+    /// If `percent` is 0 or 100, this returns `self.low` or `self.high`, respectively.
+    /// If `percent` is greater than 100, it will be treated as 100.
     fn percent_to_raw_performance(&self, percent: u8) -> u8 {
         let percent = if percent > 100 { 100 } else { percent };
 
@@ -255,7 +274,7 @@ impl HwPstateIntel {
             return self.low;
         }
 
-        // To avoid overflow, raw value is calculated by casting u32.
+        // To avoid overflow, the raw value is calculated by casting the values to u32.
         let val = (percent as u32 * range as u32) / 100 + self.low as u32;
         if val > self.high as u32 {
             self.high
