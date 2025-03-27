@@ -1,7 +1,7 @@
 use crate::iface::*;
 use crate::wire::*;
 
-pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDevice) {
+pub(crate) fn setup<'a>(medium: Medium) -> (Interface, RwLock<SocketSet<'a>>, TestingDevice) {
     let mut device = TestingDevice::new(medium);
 
     let config = Config::new(match medium {
@@ -46,9 +46,12 @@ pub(crate) fn setup<'a>(medium: Medium) -> (Interface, SocketSet<'a>, TestingDev
         });
     }
 
-    (iface, SocketSet::new(vec![]), device)
+    let sockets = RwLock::new(SocketSet::new(vec![]));
+
+    (iface, sockets, device)
 }
 
+use awkernel_sync::rwlock::RwLock;
 use heapless::Deque;
 use heapless::Vec;
 

@@ -235,6 +235,7 @@ test: FORCE
 	cargo test_awkernel_lib
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
+	cargo test_smoltcp
 
 # Format
 

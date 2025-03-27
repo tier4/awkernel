@@ -358,7 +358,7 @@ fn test_handle_ipv4_broadcast(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(feature = "medium-ethernet")]
 fn test_handle_valid_arp_request(#[case] medium: Medium) {
-    let (mut iface, mut sockets, _device) = setup(medium);
+    let (mut iface, sockets, _device) = setup(medium);
 
     let mut eth_bytes = vec![0u8; 42];
 
@@ -385,7 +385,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
     // Ensure an ARP Request for us triggers an ARP Reply
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
@@ -415,7 +415,7 @@ fn test_handle_valid_arp_request(#[case] medium: Medium) {
 #[case(Medium::Ethernet)]
 #[cfg(feature = "medium-ethernet")]
 fn test_handle_other_arp_request(#[case] medium: Medium) {
-    let (mut iface, mut sockets, _device) = setup(medium);
+    let (mut iface, sockets, _device) = setup(medium);
 
     let mut eth_bytes = vec![0u8; 42];
 
@@ -440,7 +440,7 @@ fn test_handle_other_arp_request(#[case] medium: Medium) {
     // Ensure an ARP Request for someone else does not trigger an ARP Reply
     assert_eq!(
         iface.inner.process_ethernet(
-            &mut sockets,
+            &sockets,
             PacketMeta::default(),
             frame.into_inner(),
             &mut iface.fragments
