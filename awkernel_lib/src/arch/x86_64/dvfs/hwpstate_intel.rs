@@ -13,15 +13,20 @@ const CPUID_PERF_BIAS: u32 = 0x00000008;
 pub(super) struct HwPstateIntel {
     hwp_notifications: bool,
     hwp_activity_window: bool,
-    hwp_perf_pref: bool,
+    hwp_perf_ctrl: bool,
     hwp_pkg_ctrl: bool,
     hwp_pkg_ctrl_en: bool,
     hwp_perf_bias: bool,
+
+    hwp_energy_perf_bias: u64,
+    hwp_perf_bias_cached: bool,
 
     high: u8,
     guaranteed: u8,
     efficient: u8,
     low: u8,
+
+    req: u64,
 }
 
 impl HwPstateIntel {
@@ -30,7 +35,7 @@ impl HwPstateIntel {
 
         let hwp_notifications = cpuid.eax & CPUTPM1_HWP_NOTIFICATION != 0;
         let hwp_activity_window = cpuid.eax & CPUTPM1_HWP_ACTIVITY_WINDOW != 0;
-        let hwp_perf_pref = cpuid.eax & CPUTPM1_HWP_PERF_PREF != 0;
+        let hwp_perf_ctrl = cpuid.eax & CPUTPM1_HWP_PERF_PREF != 0;
         let hwp_pkg_ctrl = cpuid.eax & CPUTPM1_HWP_PKG != 0;
 
         // Allow administrators to disable pkg-level control.
@@ -41,15 +46,20 @@ impl HwPstateIntel {
         let mut hwpstate = Self {
             hwp_notifications,
             hwp_activity_window,
-            hwp_perf_pref,
+            hwp_perf_ctrl,
             hwp_pkg_ctrl,
             hwp_pkg_ctrl_en,
             hwp_perf_bias,
+
+            hwp_energy_perf_bias: 0,
+            hwp_perf_bias_cached: false,
 
             high: 0,
             guaranteed: 0,
             efficient: 0,
             low: 0,
+
+            req: 0,
         };
 
         hwpstate.set_autonomous_hwp().then_some(())?;
@@ -64,7 +74,6 @@ impl HwPstateIntel {
         let mut hwp_req = Msr::new(MSR_IA32_HWP_REQUEST);
 
         // Many MSRs aren't readable until feature is enabled
-        let mut req;
         let caps;
         unsafe {
             let mut pm_enable = Msr::new(MSR_IA32_PM_ENABLE);
@@ -76,7 +85,7 @@ impl HwPstateIntel {
 
             if let Some(result) = rdmsr_safe(&hwp_req) {
                 log::error!("Failed to read HWP request MSR for cpu{}", cpu_id());
-                req = result;
+                self.req = result;
             } else {
                 return false;
             }
@@ -99,25 +108,25 @@ impl HwPstateIntel {
         self.low = IA32_HWP_CAPABILITIES_LOWEST_PERFORMANCE(caps);
 
         // hardware autonomous selection determines the performance target
-        req &= !IA32_HWP_DESIRED_PERFORMANCE;
+        self.req &= !IA32_HWP_DESIRED_PERFORMANCE;
 
         // enable HW dynamic selection of window size
-        req &= !IA32_HWP_ACTIVITY_WINDOW;
+        self.req &= !IA32_HWP_ACTIVITY_WINDOW;
 
         // IA32_HWP_REQUEST.Minimum_Performance = IA32_HWP_CAPABILITIES.Lowest_Performance
-        req &= !IA32_HWP_MINIMUM_PERFORMANCE;
-        req |= self.low as u64;
+        self.req &= !IA32_HWP_MINIMUM_PERFORMANCE;
+        self.req |= self.low as u64;
 
         // IA32_HWP_REQUEST.Maximum_Performance = IA32_HWP_CAPABILITIES.Highest_Performance.
-        req &= !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE;
-        req |= (self.high as u64) << 8;
+        self.req &= !IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE;
+        self.req |= (self.high as u64) << 8;
 
         // If supported, request package-level control for this CPU.
         let result = unsafe {
             if self.hwp_pkg_ctrl_en {
-                wrmsr_safe(&mut hwp_req, req | IA32_HWP_REQUEST_PACKAGE_CONTROL)
+                wrmsr_safe(&mut hwp_req, self.req | IA32_HWP_REQUEST_PACKAGE_CONTROL)
             } else {
-                wrmsr_safe(&mut hwp_req, req)
+                wrmsr_safe(&mut hwp_req, self.req)
             }
         };
 
@@ -139,13 +148,94 @@ impl HwPstateIntel {
 
             let mut hwp_req_pkg = Msr::new(MSR_IA32_HWP_REQUEST_PKG);
 
-            let result = unsafe { wrmsr_safe(&mut hwp_req_pkg, req) };
+            let result = unsafe { wrmsr_safe(&mut hwp_req_pkg, self.req) };
             if !result {
                 log::error!("Failed to setup autonomous HWP for package");
                 return false;
             }
         }
 
+        if !self.hwp_perf_ctrl && !self.hwp_perf_bias_cached {
+            // If cpuid indicates EPP is not supported, the HWP controller
+            // uses MSR_IA32_ENERGY_PERF_BIAS instead (Intel SDM Â§14.4.4).
+            // This register is per-core (but not HT).
+            let msr_ebp = Msr::new(MSR_IA32_ENERGY_PERF_BIAS);
+            if let Some(epb) = unsafe { rdmsr_safe(&msr_ebp) } {
+                self.hwp_energy_perf_bias = epb;
+                self.hwp_perf_bias_cached = true;
+            } else {
+                return false;
+            }
+        }
+
         true
     }
+
+    /// Select Efficiency/Performance Preference.
+    /// (range from 0, most performant, through 100, most efficient)
+    pub(super) fn epp_select(&mut self, epp: u8) -> bool {
+        let epp = if epp > 100 { 100 } else { epp };
+
+        // Disable interrupt to suppress preemption.
+        let _int_guard = crate::interrupt::InterruptGuard::new();
+
+        if self.hwp_perf_ctrl {
+            let val = percent_to_raw(epp as u64);
+
+            self.req = (self.req & !IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE) | (val << 24);
+
+            if self.hwp_pkg_ctrl_en {
+                let mut hwp_req_pkg = Msr::new(MSR_IA32_HWP_REQUEST_PKG);
+                if !unsafe { wrmsr_safe(&mut hwp_req_pkg, self.req) } {
+                    return false;
+                }
+            } else {
+                let mut hwp_req = Msr::new(MSR_IA32_HWP_REQUEST);
+                if !unsafe { wrmsr_safe(&mut hwp_req, self.req) } {
+                    return false;
+                }
+            }
+        } else {
+            let val = percent_to_raw_perf_bias(epp as u64);
+            self.hwp_energy_perf_bias =
+                (self.hwp_energy_perf_bias & !IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK) | val;
+
+            let mut msr_epb = Msr::new(MSR_IA32_ENERGY_PERF_BIAS);
+            if !unsafe { wrmsr_safe(&mut msr_epb, self.hwp_energy_perf_bias) } {
+                return false;
+            }
+        }
+
+        true
+    }
+}
+
+/// Given x * 10 in [0, 1000], round to the integer nearest x.
+///
+/// This allows round-tripping nice human readable numbers through this
+/// interface.  Otherwise, user-provided percentages such as 25, 50, 75 get
+/// rounded down to 24, 49, and 74, which is a bit ugly.
+fn round10(xtimes10: u64) -> u64 {
+    (xtimes10 + 5) / 10
+}
+
+fn raw_to_percent(x: u64) -> u64 {
+    assert!(x <= 100);
+    round10(x * 1000 / 0xff)
+}
+
+fn raw_to_percent_perf_bias(x: u64) -> u64 {
+    assert!(x <= 0xf);
+    ((x * 20) / 0xf) * 5
+}
+
+fn percent_to_raw(x: u64) -> u64 {
+    assert!(x <= 100);
+    0xff * x / 100
+}
+
+/// Range of MSR_IA32_ENERGY_PERF_BIAS is more limited: 0-0xf.
+fn percent_to_raw_perf_bias(x: u64) -> u64 {
+    assert!(x <= 100);
+    ((0xf * x) + 50) / 100
 }

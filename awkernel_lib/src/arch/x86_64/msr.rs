@@ -2,6 +2,9 @@ use x86_64::registers::model_specific::Msr;
 
 use super::fault::get_num_general_protection_fault;
 
+// MSR IA32_ENERGY_PERF_BIAS
+pub(super) const IA32_ENERGY_PERF_BIAS_POLICY_HINT_MASK: u64 = 0xf;
+
 // MSR IA32_HWP_REQUEST
 pub(super) const _IA32_HWP_REQUEST_MINIMUM_VALID: u64 = 1 << 63;
 pub(super) const _IA32_HWP_REQUEST_MAXIMUM_VALID: u64 = 1 << 62;
@@ -10,11 +13,12 @@ pub(super) const _IA32_HWP_REQUEST_EPP_VALID: u64 = 1 << 60;
 pub(super) const _IA32_HWP_REQUEST_ACTIVITY_WINDOW_VALID: u64 = 1 << 59;
 pub(super) const IA32_HWP_REQUEST_PACKAGE_CONTROL: u64 = 1 << 42;
 pub(super) const IA32_HWP_ACTIVITY_WINDOW: u64 = 0x3ff << 32;
-pub(super) const _IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE: u64 = 0xff << 24;
+pub(super) const IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE: u64 = 0xff << 24;
 pub(super) const IA32_HWP_DESIRED_PERFORMANCE: u64 = 0xff << 16;
 pub(super) const IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE: u64 = 0xff << 8;
 pub(super) const IA32_HWP_MINIMUM_PERFORMANCE: u64 = 0xff;
 
+pub(super) const MSR_IA32_ENERGY_PERF_BIAS: u32 = 0x1b0;
 pub(super) const MSR_IA32_PM_ENABLE: u32 = 0x770;
 pub(super) const MSR_IA32_HWP_CAPABILITIES: u32 = 0x771;
 pub(super) const MSR_IA32_HWP_REQUEST_PKG: u32 = 0x772;
