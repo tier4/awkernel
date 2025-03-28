@@ -8,6 +8,10 @@ use crate::pcie::{
 
 use super::{write_flush, IgcDriverErr};
 
+pub(super) const IGC_FUNC_1: u16 = 1;
+
+pub(super) const IGC_ALT_MAC_ADDRESS_OFFSET_LAN1: u16 = 3;
+
 pub(super) const PCI_PRODUCT_INTEL_I220_V: u16 = 0x15f7; // I220-V
 pub(super) const PCI_PRODUCT_INTEL_I221_V: u16 = 0x125e; // I221-V
 pub(super) const PCI_PRODUCT_INTEL_I225_BLANK_NVM: u16 = 0x15fd; // I225
@@ -194,12 +198,12 @@ enum IgcBusWidth {
 }
 
 #[derive(Debug)]
-struct IgcBusInfo {
+pub(super) struct IgcBusInfo {
     bus_type: IgcBusType,
     speed: IgcBusSpeed,
     width: IgcBusWidth,
 
-    func: u16,
+    pub(super) func: u16,
     pci_cmd_word: u16,
 }
 
@@ -216,7 +220,7 @@ pub(super) struct IgcHw {
     fc: IgcFcInfo,
     phy: IgcPhyInfo,
     nvm: IgcNvmInfo,
-    bus: IgcBusInfo,
+    pub(super) bus: IgcBusInfo,
 
     dev_spec: IgcDevSpecI225,
 
