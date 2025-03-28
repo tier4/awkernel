@@ -634,7 +634,7 @@ pub(super) const IGC_NVM_POLL_READ: u32 = 0; // Flag for polling for read comple
 pub(super) const IGC_FLASH_UPDATES: u32 = 2000;
 
 // NVM Word Offsets
-pub(super) const NVM_COMPAT: u32 = 0x0003;
+pub(super) const NVM_COMPAT: u16 = 0x0003;
 pub(super) const NVM_ID_LED_SETTINGS: u32 = 0x0004;
 pub(super) const NVM_FUTURE_INIT_WORD1: u32 = 0x0019;
 pub(super) const NVM_COMPAT_VALID_CSUM: u32 = 0x0001;
@@ -646,7 +646,7 @@ pub(super) const NVM_INIT_3GIO_3: u32 = 0x001A;
 pub(super) const NVM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
 pub(super) const NVM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
 pub(super) const NVM_CFG: u32 = 0x0012;
-pub(super) const NVM_ALT_MAC_ADDR_PTR: u32 = 0x0037;
+pub(super) const NVM_ALT_MAC_ADDR_PTR: u16 = 0x0037;
 pub(super) const NVM_CHECKSUM_REG: u32 = 0x003F;
 
 // PBA (printed board assembly) number words
