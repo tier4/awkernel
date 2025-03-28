@@ -62,7 +62,7 @@ pub(super) fn igc_check_alt_mac_addr_generic(
     )?;
 
     if nvm_alt_mac_addr_offset[0] == 0xFFFF || nvm_alt_mac_addr_offset[0] == 0x0000 {
-        /* There is no Alternate MAC Address */
+        // There is no Alternate MAC Address
         return Ok(());
     }
 
