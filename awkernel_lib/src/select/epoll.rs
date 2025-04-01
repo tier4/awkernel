@@ -109,8 +109,15 @@ pub(super) fn wait(timeout: Duration) {
     };
 
     // Wait events.
-    let result =
-        unsafe { libc::epoll_pwait2(epfd, events.as_mut_ptr(), NUM_EPOLL_EVENT, &timeout, null()) };
+    let result = unsafe {
+        libc::epoll_pwait2(
+            epfd,
+            events.as_mut_ptr(),
+            NUM_EPOLL_EVENT as i32,
+            &timeout,
+            null(),
+        )
+    };
     assert!(result != -1);
     if result == 0 {
         return;
