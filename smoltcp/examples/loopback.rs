@@ -6,6 +6,8 @@
 #[allow(dead_code)]
 mod utils;
 
+use awkernel_sync::mcs::MCSNode;
+use awkernel_sync::rwlock::RwLock;
 use core::str;
 use log::{debug, error, info};
 
@@ -87,7 +89,9 @@ fn main() {
         Medium::Ethernet => {
             Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
         }
+        #[cfg(feature = "medium-ip")]
         Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+        #[cfg(feature = "medium-ieee802154")]
         Medium::Ieee802154 => todo!(),
     };
 
@@ -120,50 +124,65 @@ fn main() {
     };
 
     let mut sockets: [_; 2] = Default::default();
-    let mut sockets = SocketSet::new(&mut sockets[..]);
-    let server_handle = sockets.add(server_socket);
-    let client_handle = sockets.add(client_socket);
+    let mut sockets = RwLock::new(SocketSet::new(&mut sockets[..]));
+
+    let (server_handle, client_handle) = {
+        let mut sockets = sockets.write();
+
+        (sockets.add(server_socket), sockets.add(client_socket))
+    };
 
     let mut did_listen = false;
     let mut did_connect = false;
     let mut done = false;
     while !done && clock.elapsed() < Instant::from_millis(10_000) {
-        iface.poll(clock.elapsed(), &mut device, &mut sockets);
+        iface.poll(clock.elapsed(), &mut device, &sockets);
 
-        let mut socket = sockets.get_mut::<tcp::Socket>(server_handle);
-        if !socket.is_active() && !socket.is_listening() {
-            if !did_listen {
-                debug!("listening");
-                socket.listen(1234).unwrap();
-                did_listen = true;
+        let mut sockets = sockets.write();
+
+        {
+            let socket = sockets.get_mut::<tcp::Socket>(server_handle);
+            let mut node = MCSNode::new();
+            let mut socket = socket.lock(&mut node);
+
+            if !socket.is_active() && !socket.is_listening() {
+                if !did_listen {
+                    debug!("listening");
+                    socket.listen(1234).unwrap();
+                    did_listen = true;
+                }
+            }
+
+            if socket.can_recv() {
+                debug!(
+                    "got {:?}",
+                    socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
+                );
+                socket.close();
+                done = true;
             }
         }
 
-        if socket.can_recv() {
-            debug!(
-                "got {:?}",
-                socket.recv(|buffer| { (buffer.len(), str::from_utf8(buffer).unwrap()) })
-            );
-            socket.close();
-            done = true;
-        }
-
-        let mut socket = sockets.get_mut::<tcp::Socket>(client_handle);
-        let cx = iface.context();
-        if !socket.is_open() {
-            if !did_connect {
-                debug!("connecting");
-                socket
-                    .connect(cx, (IpAddress::v4(127, 0, 0, 1), 1234), 65000)
-                    .unwrap();
-                did_connect = true;
+        {
+            let mut socket = sockets.get_mut::<tcp::Socket>(client_handle);
+            let mut node = MCSNode::new();
+            let mut socket = socket.lock(&mut node);
+            let cx = iface.context();
+            if !socket.is_open() {
+                if !did_connect {
+                    debug!("connecting");
+                    socket
+                        .connect(cx, (IpAddress::v4(127, 0, 0, 1), 1234), 65000)
+                        .unwrap();
+                    did_connect = true;
+                }
             }
-        }
 
-        if socket.can_send() {
-            debug!("sending");
-            socket.send_slice(b"0123456789abcdef").unwrap();
-            socket.close();
+            if socket.can_send() {
+                debug!("sending");
+                socket.send_slice(b"0123456789abcdef").unwrap();
+                socket.close();
+            }
         }
 
         match iface.poll_delay(clock.elapsed(), &sockets) {

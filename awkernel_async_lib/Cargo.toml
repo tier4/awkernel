@@ -34,18 +34,7 @@ path = "../awkernel_futures_macro"
 [dependencies.smoltcp]
 path = "../smoltcp"
 default-features = false
-features = [
-    "alloc",
-    "async",
-    "log",
-    "socket-udp",
-    "socket-tcp",
-    "proto-ipv4",
-    "proto-ipv6",
-    "socket-icmp",
-    "medium-ethernet",
-    "proto-igmp",
-]
+features = ["awkernel"]
 
 [features]
 default = []
