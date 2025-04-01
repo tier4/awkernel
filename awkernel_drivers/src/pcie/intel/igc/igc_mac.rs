@@ -1,4 +1,4 @@
-use awkernel_lib::net::ether::ETHER_ADDR_LEN;
+use awkernel_lib::{delay::wait_millisec, net::ether::ETHER_ADDR_LEN};
 
 use crate::pcie::{
     intel::igc::igc_hw::{IGC_ALT_MAC_ADDRESS_OFFSET_LAN1, IGC_FUNC_1},
@@ -45,9 +45,9 @@ pub(super) fn igc_disable_pcie_master_generic(info: &mut PCIeInfo) -> Result<(),
 /// This function will return SUCCESS unless it encounters an error while
 /// reading the EEPROM.
 pub(super) fn igc_check_alt_mac_addr_generic(
+    ops: &dyn IgcOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
-    ops: &mut dyn IgcOperations,
 ) -> Result<(), IgcDriverErr> {
     let mut nvm_data = [0];
     ops.read(info, hw, NVM_COMPAT, 1, &mut nvm_data)?;
@@ -89,4 +89,18 @@ pub(super) fn igc_check_alt_mac_addr_generic(
     ops.rar_set(info, hw, &alt_mac_addr, 0)?;
 
     Ok(())
+}
+
+/// Check for auto read completion
+/// Check EEPROM for Auto Read done bit.
+pub(super) fn igc_get_auto_rd_done_generic(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    for _ in 0..AUTO_READ_DONE_TIMEOUT {
+        if read_reg(info, IGC_EECD)? & IGC_EECD_AUTO_RD != 0 {
+            return Ok(());
+        }
+        wait_millisec(1);
+    }
+
+    log::debug!("Auto read by HW from NVM has not completed.");
+    Err(IgcDriverErr::Reset)
 }
