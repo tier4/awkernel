@@ -8,6 +8,10 @@ static FD_EPOLL: Mutex<Option<RawFd>> = Mutex::new(None);
 
 static FD_EVENT: Mutex<Option<RawFd>> = Mutex::new(None);
 
+/// The maximum number of events that an `epoll()` call can handle.
+/// If you want to handle more events, increase this value.
+const NUM_EPOLL_EVENT: usize = 32;
+
 #[inline(always)]
 fn event_fd() -> RawFd {
     let mut node = MCSNode::new();
@@ -34,9 +38,7 @@ fn epoll_fd() -> RawFd {
         *fd
     } else {
         let epfd = unsafe { libc::epoll_create(1) }; // size argument is ignored since Linux 2.6.8
-        if epfd == -1 {
-            panic!("failed epoll_fd()");
-        }
+        assert!(epfd != -1);
 
         // Register the standard input.
         let mut event = libc::epoll_event {
@@ -99,7 +101,7 @@ pub(super) fn update_event(raw_fd: RawFd, event_flag: EventFlag) {
 pub(super) fn wait(timeout: Duration) {
     let evfd = event_fd();
     let epfd = epoll_fd();
-    let mut events = [libc::epoll_event { events: 0, u64: 0 }; 32];
+    let mut events = [libc::epoll_event { events: 0, u64: 0 }; NUM_EPOLL_EVENT];
 
     let timeout = libc::timespec {
         tv_sec: timeout.as_secs() as i64,
@@ -107,7 +109,8 @@ pub(super) fn wait(timeout: Duration) {
     };
 
     // Wait events.
-    let result = unsafe { libc::epoll_pwait2(epfd, events.as_mut_ptr(), 32, &timeout, null()) };
+    let result =
+        unsafe { libc::epoll_pwait2(epfd, events.as_mut_ptr(), NUM_EPOLL_EVENT, &timeout, null()) };
     assert!(result != -1);
     if result == 0 {
         return;

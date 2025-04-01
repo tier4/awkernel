@@ -100,7 +100,7 @@ pub(super) fn update_event(raw_fd: RawFd, event_flag: EventFlag) {
         libc::kevent(
             kq,
             &[rev, wev] as *const libc::kevent,
-            1,
+            2,
             null_mut(),
             0,
             null(),
