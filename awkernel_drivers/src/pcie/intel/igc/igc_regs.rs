@@ -275,3 +275,11 @@ pub(super) const IGC_VFTA: usize = 0x05600; // VLAN Filter Table Array - RW Arra
 pub(super) const IGC_WUC: usize = 0x05800; // Wakeup Control - RW
 pub(super) const IGC_WUFC: usize = 0x05808; // Wakeup Filter Control - RW
 pub(super) const IGC_WUS: usize = 0x05810; // Wakeup Status - RO
+
+// Semaphore registers
+pub(super) const IGC_SW_FW_SYNC: usize = 0x05B5C; // SW-FW Synchronization - RW
+
+// Function Active and Power State to MNG
+pub(super) const IGC_FACTPS: usize = 0x05B30;
+pub(super) const IGC_SWSM: usize = 0x05B50; // SW Semaphore
+pub(super) const IGC_FWSM: usize = 0x05B54; // FW Semaphore
