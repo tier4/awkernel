@@ -18,6 +18,7 @@ pub enum IgcDriverErr {
     ReadFailure,
     MacInit,
     MasterRequestsPending,
+    Reset,
 }
 
 /// Check if the device is an Intel I225/I226.
