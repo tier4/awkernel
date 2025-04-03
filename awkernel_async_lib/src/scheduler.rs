@@ -171,14 +171,31 @@ impl SleepingTasks {
             }
         }
     }
+
+    /// Get the duration of between the current time and the time of the head.
+    fn time_to_wait(&self) -> Option<Duration> {
+        let (dur, _) = self.delta_list.front()?;
+        let elapsed = self.base_time.elapsed().as_nanos() as u64;
+
+        if elapsed >= dur {
+            Some(Duration::from_nanos(0))
+        } else {
+            Some(Duration::from_nanos(dur - elapsed))
+        }
+    }
 }
 
 /// After `dur` time, `sleep_handler` will be invoked.
 /// `dur` is microseconds.
 pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration) {
-    let mut node = MCSNode::new();
-    let mut guard = SLEEPING.lock(&mut node);
-    guard.sleep_task(sleep_handler, dur);
+    {
+        let mut node = MCSNode::new();
+        let mut guard = SLEEPING.lock(&mut node);
+        guard.sleep_task(sleep_handler, dur);
+    }
+
+    #[cfg(feature = "std")]
+    awkernel_lib::select::notify();
 }
 
 /// Wake executable tasks up.
@@ -186,7 +203,12 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
 ///
 /// This function should be called from only Awkernel.
 /// So, do not call this from userland.
-pub fn wake_task() {
+///
+/// # Return Value
+///
+/// If there are sleeping tasks, this function returns the duration to wait.
+/// If there are no sleeping tasks, this function returns `None`.
+pub fn wake_task() -> Option<Duration> {
     // Check whether each running task exceeds the time quantum.
     for cpu_id in 1..num_cpu() {
         if let Some(task_id) = get_current_task(cpu_id) {
@@ -203,4 +225,5 @@ pub fn wake_task() {
     let mut node = MCSNode::new();
     let mut guard = SLEEPING.lock(&mut node);
     guard.wake_task();
+    guard.time_to_wait()
 }

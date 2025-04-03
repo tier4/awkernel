@@ -41,6 +41,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
+        #[cfg(feature = "std")]
+        if make_stdin_nonblocking().is_err() {
+            log::warn!("failed to make stdin non-blocking.");
+        }
+
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
         #[cfg(not(feature = "std"))]
@@ -86,16 +91,20 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             awkernel_lib::interrupt::disable();
 
-            wake_task(); // Wake executable tasks periodically.
+            let dur = wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
 
             awkernel_lib::interrupt::enable();
 
             #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(50);
+            {
+                let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
+                awkernel_lib::select::wait(dur);
+            }
 
             #[cfg(not(feature = "std"))]
             {
+                let _ = dur; // TODO: wait `dur` sec.
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
@@ -126,4 +135,14 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     NUM_READY_WORKER.fetch_add(1, Ordering::Relaxed);
 
     unsafe { task::run() }; // Execute tasks.
+}
+
+#[cfg(feature = "std")]
+fn make_stdin_nonblocking() -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let stdin = std::io::stdin();
+    let fd = stdin.as_raw_fd();
+
+    awkernel_lib::file_control::set_nonblocking(fd)
 }

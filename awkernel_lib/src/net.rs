@@ -1,7 +1,7 @@
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{
     borrow::Cow,
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+    collections::{btree_map::Entry, BTreeMap},
     format,
     sync::Arc,
 };
@@ -14,6 +14,9 @@ use self::{
     net_device::{LinkStatus, NetCapabilities, NetDevice},
     tcp::TcpPort,
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeSet;
 
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
@@ -48,6 +51,8 @@ pub enum NetManagerError {
     InvalidState,
     NoAvailablePort,
     InterfaceIsNotReady,
+    BindError,
+    FailedToMakeNonblocking,
 
     // Multicast
     MulticastInvalidIpv4Address,
@@ -110,9 +115,17 @@ impl Display for IfStatus {
 static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
     interfaces: BTreeMap::new(),
     interface_id: 0,
+
+    #[cfg(not(feature = "std"))]
     udp_ports_ipv4: BTreeSet::new(),
+
+    #[cfg(not(feature = "std"))]
     udp_port_ipv4_ephemeral: u16::MAX >> 2,
+
+    #[cfg(not(feature = "std"))]
     udp_ports_ipv6: BTreeSet::new(),
+
+    #[cfg(not(feature = "std"))]
     udp_port_ipv6_ephemeral: u16::MAX >> 2,
     tcp_ports_ipv4: BTreeMap::new(),
     tcp_port_ipv4_ephemeral: u16::MAX >> 2,
@@ -126,9 +139,17 @@ static POLL_WAKERS: Mutex<BTreeMap<u64, IRQWaker>> = Mutex::new(BTreeMap::new())
 pub struct NetManager {
     interfaces: BTreeMap<u64, Arc<IfNet>>,
     interface_id: u64,
+
+    #[cfg(not(feature = "std"))]
     udp_ports_ipv4: BTreeSet<u16>,
+
+    #[cfg(not(feature = "std"))]
     udp_port_ipv4_ephemeral: u16,
+
+    #[cfg(not(feature = "std"))]
     udp_ports_ipv6: BTreeSet<u16>,
+
+    #[cfg(not(feature = "std"))]
     udp_port_ipv6_ephemeral: u16,
     tcp_ports_ipv4: BTreeMap<u16, u64>,
     tcp_port_ipv4_ephemeral: u16,
@@ -137,6 +158,7 @@ pub struct NetManager {
 }
 
 impl NetManager {
+    #[cfg(not(feature = "std"))]
     fn get_ephemeral_port_udp_ipv4(&mut self) -> Option<u16> {
         let mut ephemeral_port = None;
         for i in 0..(u16::MAX >> 2) {
@@ -154,21 +176,25 @@ impl NetManager {
         ephemeral_port
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn set_port_in_use_udp_ipv4(&mut self, port: u16) {
         self.udp_ports_ipv4.insert(port);
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn is_port_in_use_udp_ipv4(&mut self, port: u16) -> bool {
         self.udp_ports_ipv4.contains(&port)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn free_port_udp_ipv4(&mut self, port: u16) {
         self.udp_ports_ipv4.remove(&port);
     }
 
+    #[cfg(not(feature = "std"))]
     fn get_ephemeral_port_udp_ipv6(&mut self) -> Option<u16> {
         let mut ephemeral_port = None;
         for i in 0..(u16::MAX >> 2) {
@@ -186,16 +212,19 @@ impl NetManager {
         ephemeral_port
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn set_port_in_use_udp_ipv6(&mut self, port: u16) {
         self.udp_ports_ipv6.insert(port);
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn is_port_in_use_udp_ipv6(&mut self, port: u16) -> bool {
         self.udp_ports_ipv6.contains(&port)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn free_port_udp_ipv6(&mut self, port: u16) {
         self.udp_ports_ipv6.remove(&port);
