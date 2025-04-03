@@ -104,3 +104,11 @@ pub(super) fn igc_get_auto_rd_done_generic(info: &mut PCIeInfo) -> Result<(), Ig
     log::debug!("Auto read by HW from NVM has not completed.");
     Err(IgcDriverErr::Reset)
 }
+
+/// Release hardware semaphore used to access the PHY or NVM
+pub(super) fn igc_put_hw_semaphore_generic(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    let mut swsm = read_reg(info, IGC_SWSM)?;
+    swsm &= !(IGC_SWSM_SMBI | IGC_SWSM_SWESMBI);
+
+    write_reg(info, IGC_SWSM, swsm)
+}

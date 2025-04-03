@@ -153,10 +153,10 @@ enum IgcNvmType {
 }
 
 #[derive(Debug)]
-struct IgcNvmInfo {
+pub(super) struct IgcNvmInfo {
     nvm_type: IgcNvmType,
 
-    word_size: u16,
+    pub(super) word_size: u16,
     delay_usec: u16,
     address_bits: u16,
     opcode_bits: u16,
@@ -208,9 +208,9 @@ pub(super) struct IgcBusInfo {
 }
 
 #[derive(Debug)]
-struct IgcDevSpecI225 {
+pub(super) struct IgcDevSpecI225 {
     eee_disable: bool,
-    clear_semaphore_once: bool,
+    pub(super) clear_semaphore_once: bool,
     mtu: u32,
 }
 
@@ -219,10 +219,10 @@ pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
     fc: IgcFcInfo,
     phy: IgcPhyInfo,
-    nvm: IgcNvmInfo,
+    pub(super) nvm: IgcNvmInfo,
     pub(super) bus: IgcBusInfo,
 
-    dev_spec: IgcDevSpecI225,
+    pub(super) dev_spec: IgcDevSpecI225,
 
     pub(super) device_id: u16,
     subsystem_vendor_id: u16,
