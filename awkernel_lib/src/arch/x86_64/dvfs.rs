@@ -17,7 +17,7 @@ const IA32_MISC_ENABLE: u32 = 0x1A0;
 
 impl Dvfs for X86 {
     /// Fix the frequency of the current CPU.
-    fn fix_freq(freq_mhz: u64) {
+    fn fix_freq(freq_mhz: u64) -> bool {
         unsafe {
             let mut misc_enable = Msr::new(IA32_MISC_ENABLE);
             let mut value = misc_enable.read();
@@ -43,26 +43,28 @@ impl Dvfs for X86 {
             value |= target_pstate;
             perf_ctl.write(value);
         }
+
+        true
     }
 
     /// Get the maximum frequency of the current CPU.
-    fn get_max_freq() -> u64 {
+    fn get_max_freq() -> Option<u64> {
         unsafe {
             let platform_info = Msr::new(MSR_PLATFORM_INFO);
             let max_ratio = (platform_info.read() >> 8) & 0xFF;
             let bus_freq_mhz = (__cpuid(0x16).ecx & 0xffff) as u64;
 
-            max_ratio * bus_freq_mhz
+            Some(max_ratio * bus_freq_mhz)
         }
     }
 
     /// Get the current frequency of the current CPU.
-    fn get_curr_freq() -> u64 {
+    fn get_curr_freq() -> Option<u64> {
         // Check if the CPU supports the IA32_PERF_MPERF and IA32_PERF_APERF MSRs.
         let cpuid = unsafe { __cpuid(0x6) };
         if (cpuid.ecx & 0x1) == 0 {
             log::warn!("The CPU does not support IA32_PERF_MPERF and IA32_PERF_APERF MSRs.");
-            return 0;
+            return None;
         }
 
         unsafe {
@@ -76,7 +78,7 @@ impl Dvfs for X86 {
             let mperf_delta = mperf.read();
             let aperf_delta = aperf.read();
 
-            aperf_delta * Self::get_max_freq() / mperf_delta
+            Some(aperf_delta * Self::get_max_freq()? / mperf_delta)
         }
     }
 }

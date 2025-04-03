@@ -75,7 +75,7 @@ path = "../applications/tests/test_dvfs"
 optional = true
 
 [features]
-default = []
+default = ["test_dvfs"]
 perf = ["awkernel_services/perf"]
 
 # Test applications
@@ -93,3 +93,4 @@ test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
+test_dvfs = ["dep:test_dvfs"]

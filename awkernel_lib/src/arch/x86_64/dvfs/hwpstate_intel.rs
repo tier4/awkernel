@@ -1,8 +1,14 @@
 use core::arch::x86_64::__cpuid;
 
+use array_macro::array;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 use x86_64::registers::model_specific::Msr;
 
-use crate::{arch::x86_64::msr::*, cpu::cpu_id};
+use crate::{
+    arch::x86_64::msr::*,
+    cpu::{cpu_id, NUM_MAX_CPU},
+    dvfs::Dvfs,
+};
 
 const CPUTPM1_HWP_NOTIFICATION: u32 = 0x00000100;
 const CPUTPM1_HWP_ACTIVITY_WINDOW: u32 = 0x00000200;
@@ -309,4 +315,55 @@ fn percent_to_raw(x: u64) -> u64 {
 fn percent_to_raw_perf_bias(x: u64) -> u64 {
     assert!(x <= 100);
     ((0xf * x) + 50) / 100
+}
+
+static HWPSTATE_INTEL: [Mutex<Option<HwPstateIntel>>; NUM_MAX_CPU] =
+    array![_ => Mutex::new(None); NUM_MAX_CPU];
+
+struct HwPstateIntelImpl;
+
+impl Dvfs for HwPstateIntelImpl {
+    fn set_min_performance(min: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.minimum_performance_select(min)
+        } else {
+            false
+        }
+    }
+
+    fn set_max_performance(max: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.maximum_performance_select(max)
+        } else {
+            false
+        }
+    }
+}
+
+/// Initialize Intel Hardware-controlled Performance States
+/// This function should be called before the main loop on each CPU core.
+///
+/// # Safety
+///
+/// This function must be called once by each CPU core.
+pub(super) unsafe fn init() {
+    let cpu_id = cpu_id();
+
+    let hwps = &HWPSTATE_INTEL[cpu_id];
+    let mut node = MCSNode::new();
+    let mut hwps = hwps.lock(&mut node);
+
+    if hwps.is_none() {
+        *hwps = HwPstateIntel::new();
+    }
 }
