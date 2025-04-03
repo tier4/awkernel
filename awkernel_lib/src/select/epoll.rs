@@ -37,32 +37,40 @@ fn epoll_fd() -> RawFd {
     if let Some(fd) = fd.as_ref() {
         *fd
     } else {
+        // Create epoll, and register an event fd and the standard input.
         let epfd = unsafe { libc::epoll_create(1) }; // size argument is ignored since Linux 2.6.8
         assert!(epfd != -1);
 
-        // Register the standard input.
-        let mut event = libc::epoll_event {
-            events: libc::EPOLLIN as u32,
-            u64: libc::STDIN_FILENO as u64,
-        };
-        let result =
-            unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, libc::STDIN_FILENO, &mut event) };
-        assert!(result == 0);
-
-        // Get the event descriptor.
-        let evfd = event_fd();
-
-        // Register the event.
-        let mut event = libc::epoll_event {
-            events: libc::EPOLLIN as u32,
-            u64: evfd as u64,
-        };
-        let result = unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, evfd, &mut event) };
-        assert!(result == 0);
+        register_event_fd(epfd);
+        register_stdin_fd(epfd);
 
         *fd = Some(epfd);
         epfd
     }
+}
+
+fn register_event_fd(epfd: RawFd) {
+    // Get the event descriptor.
+    let evfd = event_fd();
+
+    // Register the event.
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN as u32,
+        u64: evfd as u64,
+    };
+    let result = unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, evfd, &mut event) };
+    assert!(result == 0);
+}
+
+fn register_stdin_fd(epfd: RawFd) {
+    // Register the standard input.
+    let mut event = libc::epoll_event {
+        events: libc::EPOLLIN as u32,
+        u64: libc::STDIN_FILENO as u64,
+    };
+    let result =
+        unsafe { libc::epoll_ctl(epfd, libc::EPOLL_CTL_ADD, libc::STDIN_FILENO, &mut event) };
+    assert!(result == 0);
 }
 
 pub(super) fn register_fd(raw_fd: RawFd) {
