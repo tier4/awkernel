@@ -354,12 +354,22 @@ pub(super) trait IgcMacOperations {
 
         Ok(())
     }
-    fn acquire_swfw_sync(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn release_swfw_sync(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    /// acquire SW_FW sync
+    fn acquire_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr>;
+
+    /// release SW_FW sync
+    fn release_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr>;
 }
 
 pub(super) trait IgcPhyOperations {
@@ -475,9 +485,13 @@ pub(super) trait IgcNvmOperations {
     fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn acquire(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    /// Acquire the necessary semaphores for exclusive access to the EEPROM.
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    /// Release the semaphores acquired.
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn read(
         &self,
         _info: &mut PCIeInfo,
@@ -486,9 +500,6 @@ pub(super) trait IgcNvmOperations {
         _words: u16,
         _data: &mut [u16],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn release(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
     fn reload(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {

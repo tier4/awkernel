@@ -20,6 +20,7 @@ pub enum IgcDriverErr {
     MasterRequestsPending,
     Reset,
     NVM,
+    SwfwSync,
 }
 
 /// Check if the device is an Intel I225/I226.

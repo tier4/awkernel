@@ -21,10 +21,37 @@ impl IgcMacOperations for I225Flash {
     fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_reset_hw_i225(self, info, hw)
     }
+
+    fn acquire_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_acquire_swfw_sync_i225(info, hw, mask)
+    }
+
+    fn release_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_release_swfw_sync_i225(info, hw, mask)
+    }
 }
 
 impl IgcPhyOperations for I225Flash {}
-impl IgcNvmOperations for I225Flash {}
+
+impl IgcNvmOperations for I225Flash {
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_acquire_swfw_sync_i225(info, hw, IGC_SWFW_EEP_SM)
+    }
+
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_release_swfw_sync_i225(info, hw, IGC_SWFW_EEP_SM)
+    }
+}
 
 pub(super) struct I225NoFlash;
 
@@ -34,10 +61,37 @@ impl IgcMacOperations for I225NoFlash {
     fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_reset_hw_i225(self, info, hw)
     }
+
+    fn acquire_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_acquire_swfw_sync_i225(info, hw, mask)
+    }
+
+    fn release_swfw_sync(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        mask: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_release_swfw_sync_i225(info, hw, mask)
+    }
 }
 
 impl IgcPhyOperations for I225NoFlash {}
-impl IgcNvmOperations for I225NoFlash {}
+
+impl IgcNvmOperations for I225NoFlash {
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_acquire_swfw_sync_i225(info, hw, IGC_SWFW_EEP_SM)
+    }
+
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_release_swfw_sync_i225(info, hw, IGC_SWFW_EEP_SM)
+    }
+}
 
 /// Reset hardware
 /// This resets the hardware into a known state.
@@ -137,6 +191,55 @@ fn igc_get_hw_semaphore_i225(info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), 
         log::debug!("Driver can't access the NVM");
         return Err(IgcDriverErr::NVM);
     }
+
+    Ok(())
+}
+
+/// Acquire the SW/FW semaphore to access the PHY or NVM.  The mask
+/// will also specify which port we're acquiring the lock for.
+fn igc_acquire_swfw_sync_i225(
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    mask: u16,
+) -> Result<(), IgcDriverErr> {
+    let swmask = mask as u32;
+    let fwmask = (mask as u32) << 16;
+    let timeout = 200;
+
+    for _ in 0..timeout {
+        igc_get_hw_semaphore_i225(info, hw)?;
+
+        let mut swfw_sync = read_reg(info, IGC_SW_FW_SYNC)?;
+        if swfw_sync & (fwmask | swmask) == 0 {
+            swfw_sync |= swmask;
+            write_reg(info, IGC_SW_FW_SYNC, swfw_sync)?;
+            return Ok(());
+        }
+
+        // Firmware currently using resource (fwmask)
+        // or other software thread using resource (swmask)
+        igc_put_hw_semaphore_generic(info)?;
+        wait_millisec(5);
+    }
+
+    // timeout
+    Err(IgcDriverErr::SwfwSync)
+}
+
+/// Release the SW/FW semaphore used to access the PHY or NVM.  The mask
+/// will also specify which port we're releasing the lock for.
+fn igc_release_swfw_sync_i225(
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    mask: u16,
+) -> Result<(), IgcDriverErr> {
+    while igc_get_hw_semaphore_i225(info, hw).is_err() {}
+
+    let mut swfw_sync = read_reg(info, IGC_SW_FW_SYNC)?;
+    swfw_sync &= !(mask as u32);
+    write_reg(info, IGC_SW_FW_SYNC, swfw_sync)?;
+
+    igc_put_hw_semaphore_generic(info)?;
 
     Ok(())
 }
