@@ -96,7 +96,8 @@ const MPBOOT_REGION_END: u64 = 1024 * 1024;
 /// 16. Initialize PCIe devices.
 /// 17. Initialize interrupt handlers.
 /// 18. Synchronize TSC.
-/// 19. Call `crate::main()`.
+/// 19. Initialize DVFS.
+/// 20. Call `crate::main()`.
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     unsafe { crate::config::init() }; // 0. Initialize the configuration.
 
@@ -341,7 +342,10 @@ fn kernel_main2(
         num_cpu: non_primary_cpus.len() + 1,
     };
 
-    // 19. Call `crate::main()`.
+    // 19. Initialize DVFS.
+    unsafe { awkernel_lib::arch::x86_64::dvfs::init() };
+
+    // 20. Call `crate::main()`.
     crate::main(kernel_info);
 }
 
@@ -538,6 +542,8 @@ fn non_primary_kernel_main() -> ! {
         cpu_id,
         num_cpu,
     };
+
+    unsafe { awkernel_lib::arch::x86_64::dvfs::init() };
 
     crate::main(kernel_info); // jump to userland
 

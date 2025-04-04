@@ -93,18 +93,18 @@ impl HwPstateIntel {
             }
 
             if let Some(result) = rdmsr_safe(&hwp_req) {
-                log::error!("Failed to read HWP request MSR for cpu{}", cpu_id());
                 self.req = result;
             } else {
+                log::error!("Failed to read HWP request MSR for cpu{}", cpu_id());
                 return false;
             }
 
             let hwp_caps = Msr::new(MSR_IA32_HWP_CAPABILITIES);
 
             if let Some(result) = rdmsr_safe(&hwp_caps) {
-                log::error!("Failed to read HWP capabilities MSR for cpu{}", cpu_id());
                 caps = result;
             } else {
+                log::error!("Failed to read HWP capabilities MSR for cpu{}", cpu_id());
                 return false;
             }
         }
@@ -320,7 +320,7 @@ fn percent_to_raw_perf_bias(x: u64) -> u64 {
 static HWPSTATE_INTEL: [Mutex<Option<HwPstateIntel>>; NUM_MAX_CPU] =
     array![_ => Mutex::new(None); NUM_MAX_CPU];
 
-struct HwPstateIntelImpl;
+pub(super) struct HwPstateIntelImpl;
 
 impl Dvfs for HwPstateIntelImpl {
     fn set_min_performance(min: u8) -> bool {
@@ -356,7 +356,7 @@ impl Dvfs for HwPstateIntelImpl {
 /// # Safety
 ///
 /// This function must be called once by each CPU core.
-pub(super) unsafe fn init() {
+pub(super) unsafe fn init() -> bool {
     let cpu_id = cpu_id();
 
     let hwps = &HWPSTATE_INTEL[cpu_id];
@@ -366,4 +366,6 @@ pub(super) unsafe fn init() {
     if hwps.is_none() {
         *hwps = HwPstateIntel::new();
     }
+
+    hwps.is_some()
 }

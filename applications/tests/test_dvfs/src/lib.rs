@@ -19,42 +19,28 @@ pub async fn run() {
 
 async fn test_dvfs() {
     loop {
-        let max = awkernel_lib::dvfs::get_max_freq();
-        let cpuid = awkernel_lib::cpu::cpu_id();
-
-        // Maximum frequency.
-        awkernel_lib::dvfs::fix_freq(max);
-
-        let start = awkernel_async_lib::time::Time::now();
+        // TODO: update CPU freq
+        let t = awkernel_async_lib::time::Time::now();
 
         for _ in 0..NUM_LOOP {
             core::hint::black_box(());
         }
 
-        let t = start.elapsed();
+        let elapsed1 = t.elapsed();
 
-        let current = awkernel_lib::dvfs::get_curr_freq();
+        // TODO: update CPU freq
 
-        log::debug!(
-            "cpuid = {cpuid}, max = {max}, current = {current}, expected = {max}, time = {t:?}"
-        );
-
-        // Maximum / 2 frequency.
-        awkernel_lib::dvfs::fix_freq(max / 2);
-
-        let start = awkernel_async_lib::time::Time::now();
+        let t = awkernel_async_lib::time::Time::now();
 
         for _ in 0..NUM_LOOP {
             core::hint::black_box(());
         }
-
-        let t = start.elapsed();
-
-        let current = awkernel_lib::dvfs::get_curr_freq();
+        let elapsed2 = t.elapsed();
 
         log::debug!(
-            "cpuid = {cpuid}, max = {max}, current = {current}, expected = {}, time = {t:?}",
-            max / 2
+            "first loop = {} [us], second loop = {} [us]",
+            elapsed1.as_micros(),
+            elapsed2.as_micros()
         );
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;

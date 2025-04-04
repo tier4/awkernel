@@ -4,7 +4,10 @@ use x86_64::registers::model_specific::Msr;
 
 use crate::{delay::wait_millisec, dvfs::Dvfs};
 
-use super::X86;
+use super::{
+    cpu::{self, CPUVendor},
+    X86,
+};
 
 #[allow(dead_code)] // TODO: remove this later
 mod hwpstate_intel;
@@ -79,6 +82,19 @@ impl Dvfs for X86 {
             let aperf_delta = aperf.read();
 
             Some(aperf_delta * Self::get_max_freq()? / mperf_delta)
+        }
+    }
+}
+
+/// Initialize DVFS.
+///
+/// # Safety
+///
+/// This function must be called once by each CPU core.
+pub unsafe fn init() {
+    if let Some(CPUVendor::Intel) = cpu::get_cpu_vendor() {
+        if !hwpstate_intel::init() {
+            log::warn!("Failed to initialize Intel Hardware-controlled Performance States.");
         }
     }
 }
