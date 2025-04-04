@@ -25,7 +25,7 @@ pub trait Dvfs {
     }
 
     /// Select the Minimum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If current driver does not support this operation,
     /// it will return `false`.
@@ -34,7 +34,7 @@ pub trait Dvfs {
     }
 
     /// Get the Minimum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If current driver does not support this operation,
     /// it will return `None`.
@@ -43,7 +43,7 @@ pub trait Dvfs {
     }
 
     /// Set the Maximum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If current driver does not support this operation,
     /// it will return `false`.
@@ -52,12 +52,18 @@ pub trait Dvfs {
     }
 
     /// Get the Maximum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If current driver does not support this operation,
     /// it will return `None`.
     fn get_max_performance() -> Option<u8> {
         None
+    }
+
+    /// Set the Energy Efficiency Preference.
+    /// (range from 0, highest performance, through 100, highest energy efficient)
+    fn set_energy_efficiency(val: u8) -> bool {
+        false
     }
 }
 
@@ -80,7 +86,7 @@ pub fn get_curr_freq() -> Option<u64> {
 }
 
 /// Set Maximum Performance.
-/// (range from 0, lowest performant, through 100, highest performance)
+/// (range from 0, lowest performance, through 100, highest performance)
 ///
 /// If the driver does not support `set_max_performance()`, `false` will be returned.
 #[inline(always)]
@@ -89,10 +95,19 @@ pub fn set_max_performance(max: u8) -> bool {
 }
 
 /// Set Minimum Performance.
-/// (range from 0, lowest performant, through 100, highest performance)
+/// (range from 0, lowest performance, through 100, highest performance)
 ///
 /// If the driver does not support `set_min_performance()`, `false` will be returned.
 #[inline(always)]
 pub fn set_min_performance(min: u8) -> bool {
     crate::arch::ArchImpl::set_min_performance(min)
+}
+
+/// Set the Energy Efficiency Preference.
+/// (range from 0, highest performance, through 100, highest energy efficient)
+///
+/// If the driver does not support `set_energy_efficiency()`, `false` will be returned.
+#[inline(always)]
+pub fn set_energy_efficiency(val: u8) -> bool {
+    crate::arch::ArchImpl::set_energy_efficiency(val)
 }

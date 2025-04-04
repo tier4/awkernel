@@ -6,7 +6,7 @@ extern crate alloc;
 
 const APP_NAME: &str = "test DVFS";
 
-const NUM_LOOP: usize = 1000000;
+const NUM_LOOP: usize = 100000000;
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -19,30 +19,28 @@ pub async fn run() {
 
 async fn test_dvfs() {
     loop {
-        // TODO: update CPU freq
-        let t = awkernel_async_lib::time::Time::now();
+        let cpu_id = awkernel_lib::cpu::cpu_id();
 
-        for _ in 0..NUM_LOOP {
-            core::hint::black_box(());
-        }
+        awkernel_lib::dvfs::set_max_performance(100);
+        let elapsed1 = empty_loop();
 
-        let elapsed1 = t.elapsed();
-
-        // TODO: update CPU freq
-
-        let t = awkernel_async_lib::time::Time::now();
-
-        for _ in 0..NUM_LOOP {
-            core::hint::black_box(());
-        }
-        let elapsed2 = t.elapsed();
+        awkernel_lib::dvfs::set_max_performance(50);
+        let elapsed2 = empty_loop();
 
         log::debug!(
-            "first loop = {} [us], second loop = {} [us]",
+            "cpu_id = {cpu_id:02}, first loop = {} [us], second loop = {} [us]",
             elapsed1.as_micros(),
             elapsed2.as_micros()
         );
 
         awkernel_async_lib::sleep(Duration::from_secs(1)).await;
     }
+}
+
+fn empty_loop() -> Duration {
+    let t = awkernel_async_lib::time::Time::now();
+    for _ in 0..NUM_LOOP {
+        core::hint::black_box(());
+    }
+    t.elapsed()
 }

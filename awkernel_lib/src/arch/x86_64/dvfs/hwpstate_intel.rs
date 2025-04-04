@@ -190,7 +190,7 @@ impl HwPstateIntel {
     }
 
     /// Select Efficiency/Performance Preference.
-    /// (range from 0, most performant, through 100, most efficient)
+    /// (range from 0, most performance, through 100, most efficient)
     pub(super) fn epp_select(&mut self, epp: u8) -> bool {
         let epp = if epp > 100 { 100 } else { epp };
 
@@ -213,7 +213,7 @@ impl HwPstateIntel {
     }
 
     /// Select Maximum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If `max` is less than the minimum performance,
     /// this function sets the maximum performance to the minimum performance.
@@ -230,7 +230,7 @@ impl HwPstateIntel {
     }
 
     /// Select Minimum Performance.
-    /// (range from 0, lowest performant, through 100, highest performance)
+    /// (range from 0, lowest performance, through 100, highest performance)
     ///
     /// If `min` is greater than the maximum performance,
     /// this function sets the minimum performance to the maximum performance.
@@ -284,6 +284,18 @@ impl HwPstateIntel {
         } else {
             val as u8
         }
+    }
+
+    /// Set Energy_Performance_Preference.
+    /// (range from 0, highest performance, through 100, highest energy efficient)
+    fn set_energy_performance_preference(&mut self, percent: u8) -> bool {
+        let percent = if percent > 100 { 100 } else { percent };
+        let raw_val = percent_to_raw(percent as u64);
+
+        self.req &= !IA32_HWP_REQUEST_ENERGY_PERFORMANCE_PREFERENCE;
+        self.req |= raw_val << 24;
+
+        self.request()
     }
 }
 
@@ -344,6 +356,19 @@ impl Dvfs for HwPstateIntelImpl {
 
         if let Some(hwps) = hwps.as_mut() {
             hwps.maximum_performance_select(max)
+        } else {
+            false
+        }
+    }
+
+    fn set_energy_efficiency(val: u8) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            hwps.set_energy_performance_preference(val)
         } else {
             false
         }
