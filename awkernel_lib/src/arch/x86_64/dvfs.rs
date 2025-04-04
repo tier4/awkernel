@@ -84,6 +84,14 @@ impl Dvfs for X86 {
             Some(aperf_delta * Self::get_max_freq()? / mperf_delta)
         }
     }
+
+    fn set_min_performance(min: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_min_performance(min)
+    }
+
+    fn set_max_performance(max: u8) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_max_performance(max)
+    }
 }
 
 /// Initialize DVFS.

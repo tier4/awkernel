@@ -78,3 +78,21 @@ pub fn get_max_freq() -> Option<u64> {
 pub fn get_curr_freq() -> Option<u64> {
     crate::arch::ArchImpl::get_curr_freq()
 }
+
+/// Set Maximum Performance.
+/// (range from 0, lowest performant, through 100, highest performance)
+///
+/// If the driver does not support `set_max_performance()`, `false` will be returned.
+#[inline(always)]
+pub fn set_max_performance(max: u8) -> bool {
+    crate::arch::ArchImpl::set_max_performance(max)
+}
+
+/// Set Minimum Performance.
+/// (range from 0, lowest performant, through 100, highest performance)
+///
+/// If the driver does not support `set_min_performance()`, `false` will be returned.
+#[inline(always)]
+pub fn set_min_performance(min: u8) -> bool {
+    crate::arch::ArchImpl::set_min_performance(min)
+}
