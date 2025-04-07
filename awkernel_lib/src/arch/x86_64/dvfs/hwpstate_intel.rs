@@ -7,7 +7,7 @@ use x86_64::registers::model_specific::Msr;
 use crate::{
     arch::x86_64::msr::*,
     cpu::{cpu_id, NUM_MAX_CPU},
-    dvfs::Dvfs,
+    dvfs::{DesiredPerformance, Dvfs},
 };
 
 const CPUTPM1_HWP_NOTIFICATION: u32 = 0x00000100;
@@ -212,6 +212,22 @@ impl HwPstateIntel {
         }
     }
 
+    /// Select Desired Preference.
+    /// (range from 0, most performance, through 100, most efficient)
+    pub(super) fn desired_select(&mut self, percent: u8) -> bool {
+        let raw_max = ((self.req & IA32_HWP_REQUEST_MAXIMUM_PERFORMANCE) >> 8) as u8;
+        let raw_min = (self.req & IA32_HWP_MINIMUM_PERFORMANCE) as u8;
+
+        let percent = if percent > 100 { 100 } else { percent };
+
+        let val = self.percent_to_raw_performance(percent);
+        let val = if val > raw_max { raw_max } else { val };
+        let val = (if val < raw_min { raw_min } else { val }) as u64;
+
+        self.req = (self.req & !IA32_HWP_DESIRED_PERFORMANCE) | (val << 16);
+        self.request()
+    }
+
     /// Select Maximum Performance.
     /// (range from 0, lowest performance, through 100, highest performance)
     ///
@@ -369,6 +385,22 @@ impl Dvfs for HwPstateIntelImpl {
 
         if let Some(hwps) = hwps.as_mut() {
             hwps.set_energy_performance_preference(val)
+        } else {
+            false
+        }
+    }
+
+    fn set_desired_performance(val: DesiredPerformance) -> bool {
+        let cpu_id = cpu_id();
+
+        let mut node = MCSNode::new();
+        let mut hwps = HWPSTATE_INTEL[cpu_id].lock(&mut node);
+
+        if let Some(hwps) = hwps.as_mut() {
+            match val {
+                DesiredPerformance::Desired(val) => hwps.desired_select(val),
+                DesiredPerformance::Auto => hwps.desired_select(0),
+            }
         } else {
             false
         }

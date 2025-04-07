@@ -2,6 +2,8 @@
 
 use core::time::Duration;
 
+use awkernel_lib::dvfs::DesiredPerformance;
+
 extern crate alloc;
 
 const APP_NAME: &str = "test DVFS";
@@ -21,10 +23,10 @@ async fn test_dvfs() {
     loop {
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
-        awkernel_lib::dvfs::set_max_performance(100);
+        awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Desired(100));
         let elapsed1 = empty_loop();
 
-        awkernel_lib::dvfs::set_max_performance(50);
+        awkernel_lib::dvfs::set_desired_performance(DesiredPerformance::Desired(50));
         let elapsed2 = empty_loop();
 
         log::debug!(

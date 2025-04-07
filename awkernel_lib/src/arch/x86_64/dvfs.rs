@@ -92,6 +92,10 @@ impl Dvfs for X86 {
     fn set_max_performance(max: u8) -> bool {
         hwpstate_intel::HwPstateIntelImpl::set_max_performance(max)
     }
+
+    fn set_desired_performance(val: crate::dvfs::DesiredPerformance) -> bool {
+        hwpstate_intel::HwPstateIntelImpl::set_desired_performance(val)
+    }
 }
 
 /// Initialize DVFS.
