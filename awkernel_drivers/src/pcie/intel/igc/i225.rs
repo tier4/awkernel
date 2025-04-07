@@ -212,7 +212,10 @@ fn igc_acquire_swfw_sync_i225(
         let mut swfw_sync = read_reg(info, IGC_SW_FW_SYNC)?;
         if swfw_sync & (fwmask | swmask) == 0 {
             swfw_sync |= swmask;
-            write_reg(info, IGC_SW_FW_SYNC, swfw_sync)?;
+            if write_reg(info, IGC_SW_FW_SYNC, swfw_sync).is_err() {
+                igc_put_hw_semaphore_generic(info)?;
+                return Err(IgcDriverErr::SwfwSync);
+            }
             return Ok(());
         }
 
