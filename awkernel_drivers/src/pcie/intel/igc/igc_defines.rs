@@ -124,7 +124,7 @@ pub(super) const IGC_RCTL_BSEX: u32 = 0x02000000; // Buffer size extension
 pub(super) const IGC_RCTL_SECRC: u32 = 0x04000000; // Strip Ethernet CRC
 
 // SWFW_SYNC Definitions
-pub(super) const IGC_SWFW_EEP_SM: u32 = 0x01;
+pub(super) const IGC_SWFW_EEP_SM: u16 = 0x01;
 pub(super) const IGC_SWFW_PHY0_SM: u32 = 0x02;
 pub(super) const IGC_SWFW_PHY1_SM: u32 = 0x04;
 pub(super) const IGC_SWFW_CSR_SM: u32 = 0x08;
