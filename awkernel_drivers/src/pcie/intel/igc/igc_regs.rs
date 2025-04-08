@@ -276,6 +276,9 @@ pub(super) const IGC_WUC: usize = 0x05800; // Wakeup Control - RW
 pub(super) const IGC_WUFC: usize = 0x05808; // Wakeup Filter Control - RW
 pub(super) const IGC_WUS: usize = 0x05810; // Wakeup Status - RO
 
+// Management registers
+pub(super) const IGC_MANC: usize = 0x05820; // Management Control - RW
+
 // Semaphore registers
 pub(super) const IGC_SW_FW_SYNC: usize = 0x05B5C; // SW-FW Synchronization - RW
 

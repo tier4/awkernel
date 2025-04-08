@@ -54,8 +54,8 @@ pub(super) enum IgcMacType {
 
 #[derive(Debug)]
 pub(super) struct IgcMacInfo {
-    addr: [u8; ETHER_ADDR_LEN],
-    perm_addr: [u8; ETHER_ADDR_LEN],
+    pub(super) addr: [u8; ETHER_ADDR_LEN],
+    pub(super) perm_addr: [u8; ETHER_ADDR_LEN],
 
     pub(super) mac_type: IgcMacType,
 
@@ -376,12 +376,23 @@ pub(super) trait IgcPhyOperations {
     fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn acquire(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    /// Read the PHY management control register and check whether a PHY reset
+    /// is blocked.  If a reset is not blocked return Ok(()), otherwise
+    /// return Err(IgcDriverErr::BlkPhyReset).
+    fn check_reset_block(&self, info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+        let manc = read_reg(info, IGC_MANC)?;
+
+        if manc & IGC_MANC_BLK_PHY_RST_ON_IDE != 0 {
+            Err(IgcDriverErr::BlkPhyReset)
+        } else {
+            Ok(())
+        }
     }
-    fn check_reset_block(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
     fn force_speed_duplex(
         &self,
         _info: &mut PCIeInfo,
@@ -424,9 +435,7 @@ pub(super) trait IgcPhyOperations {
     ) -> Result<u16, IgcDriverErr> {
         todo!()
     }
-    fn release(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
     fn reset(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
@@ -451,7 +460,7 @@ pub(super) trait IgcPhyOperations {
         _info: &mut PCIeInfo,
         _hw: &mut IgcHw,
         _offset: u32,
-        _data: u32,
+        _data: u16,
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
@@ -473,12 +482,8 @@ pub(super) trait IgcPhyOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn power_up(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn power_down(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn power_up(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+    fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 }
 
 pub(super) trait IgcNvmOperations {

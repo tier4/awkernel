@@ -125,10 +125,10 @@ pub(super) const IGC_RCTL_SECRC: u32 = 0x04000000; // Strip Ethernet CRC
 
 // SWFW_SYNC Definitions
 pub(super) const IGC_SWFW_EEP_SM: u16 = 0x01;
-pub(super) const IGC_SWFW_PHY0_SM: u32 = 0x02;
-pub(super) const IGC_SWFW_PHY1_SM: u32 = 0x04;
-pub(super) const IGC_SWFW_CSR_SM: u32 = 0x08;
-pub(super) const IGC_SWFW_SW_MNG_SM: u32 = 0x400;
+pub(super) const IGC_SWFW_PHY0_SM: u16 = 0x02;
+pub(super) const IGC_SWFW_PHY1_SM: u16 = 0x04;
+pub(super) const IGC_SWFW_CSR_SM: u16 = 0x08;
+pub(super) const IGC_SWFW_SW_MNG_SM: u16 = 0x400;
 
 // Device Control
 pub(super) const IGC_CTRL_FD: u32 = 0x00000001; // Full duplex.0=half; 1=full
@@ -481,19 +481,19 @@ pub(super) const IGC_EEE_LP_ADV_ADDR_I225: u32 = 61; // EEE LP Adv Register
 pub(super) const IGC_MMDAC_FUNC_DATA: u32 = 0x4000; // Data, no post increment
 
 // PHY Control Register
-pub(super) const MII_CR_SPEED_SELECT_MSB: u32 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10
-pub(super) const MII_CR_COLL_TEST_ENABLE: u32 = 0x0080; // Collision test enable
-pub(super) const MII_CR_FULL_DUPLEX: u32 = 0x0100; // FDX =1, half duplex =0
-pub(super) const MII_CR_RESTART_AUTO_NEG: u32 = 0x0200; // Restart auto negotiation
-pub(super) const MII_CR_ISOLATE: u32 = 0x0400; // Isolate PHY from MII
-pub(super) const MII_CR_POWER_DOWN: u32 = 0x0800; // Power down
-pub(super) const MII_CR_AUTO_NEG_EN: u32 = 0x1000; // Auto Neg Enable
-pub(super) const MII_CR_SPEED_SELECT_LSB: u32 = 0x2000; // bits 6,13: 10=1000, 01=100, 00=10
-pub(super) const MII_CR_LOOPBACK: u32 = 0x4000; // 0 = normal, 1 = loopback
-pub(super) const MII_CR_RESET: u32 = 0x8000; // 0 = normal, 1 = PHY reset
-pub(super) const MII_CR_SPEED_1000: u32 = 0x0040;
-pub(super) const MII_CR_SPEED_100: u32 = 0x2000;
-pub(super) const MII_CR_SPEED_10: u32 = 0x0000;
+pub(super) const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10
+pub(super) const MII_CR_COLL_TEST_ENABLE: u16 = 0x0080; // Collision test enable
+pub(super) const MII_CR_FULL_DUPLEX: u16 = 0x0100; // FDX =1, half duplex =0
+pub(super) const MII_CR_RESTART_AUTO_NEG: u16 = 0x0200; // Restart auto negotiation
+pub(super) const MII_CR_ISOLATE: u16 = 0x0400; // Isolate PHY from MII
+pub(super) const MII_CR_POWER_DOWN: u16 = 0x0800; // Power down
+pub(super) const MII_CR_AUTO_NEG_EN: u16 = 0x1000; // Auto Neg Enable
+pub(super) const MII_CR_SPEED_SELECT_LSB: u16 = 0x2000; // bits 6,13: 10=1000, 01=100, 00=10
+pub(super) const MII_CR_LOOPBACK: u16 = 0x4000; // 0 = normal, 1 = loopback
+pub(super) const MII_CR_RESET: u16 = 0x8000; // 0 = normal, 1 = PHY reset
+pub(super) const MII_CR_SPEED_1000: u16 = 0x0040;
+pub(super) const MII_CR_SPEED_100: u16 = 0x2000;
+pub(super) const MII_CR_SPEED_10: u16 = 0x0000;
 
 // PHY Status Register
 pub(super) const MII_SR_EXTENDED_CAPS: u32 = 0x0001; // Extended register capabilities
