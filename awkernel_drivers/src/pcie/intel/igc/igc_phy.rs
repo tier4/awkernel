@@ -4,7 +4,7 @@ use crate::pcie::PCIeInfo;
 
 use super::{
     igc_defines::*,
-    igc_hw::{IgcHw, IgcOperations},
+    igc_hw::{IgcHw, IgcPhyOperations},
     IgcDriverErr,
 };
 
@@ -12,7 +12,7 @@ use super::{
 /// driver unload, or wake on lan is not enabled, restore the link to previous
 /// settings.
 pub(super) fn igc_power_up_phy_copper(
-    ops: &dyn IgcOperations,
+    ops: &dyn IgcPhyOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
@@ -29,7 +29,7 @@ pub(super) fn igc_power_up_phy_copper(
 /// driver unload, or wake on lan is not enabled, restore the link to previous
 /// settings.
 pub(super) fn igc_power_down_phy_copper(
-    ops: &dyn IgcOperations,
+    ops: &dyn IgcPhyOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
