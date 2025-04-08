@@ -54,8 +54,8 @@ pub(super) enum IgcMacType {
 
 #[derive(Debug)]
 pub(super) struct IgcMacInfo {
-    pub(super) addr: [u8; ETHER_ADDR_LEN],
-    pub(super) perm_addr: [u8; ETHER_ADDR_LEN],
+    addr: [u8; ETHER_ADDR_LEN],
+    perm_addr: [u8; ETHER_ADDR_LEN],
 
     pub(super) mac_type: IgcMacType,
 
