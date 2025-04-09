@@ -1,7 +1,9 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
-use awkernel_lib::net::{tcp_stream::SockTcpStream, NetManagerError};
+use awkernel_lib::net::{
+    tcp_listener::SockTcpListener, tcp_stream::SockTcpStream, NetManagerError,
+};
 use futures::Future;
 use pin_project::pin_project;
 
@@ -65,11 +67,11 @@ impl TcpListener {
     /// The listener is bound to the specified address and port.
     pub fn bind_on_interface(
         interface_id: u64,
-        config: TcpConfig,
+        config: &TcpConfig,
     ) -> Result<TcpListener, NetManagerError> {
         let listener = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
             interface_id,
-            config.addr,
+            &config.addr,
             config.port,
             config.rx_buffer_size,
             config.tx_buffer_size,
