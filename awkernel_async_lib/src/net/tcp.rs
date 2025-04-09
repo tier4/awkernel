@@ -1,7 +1,7 @@
 use core::net::Ipv4Addr;
 
 use super::IpAddr;
-use awkernel_lib::net::NetManagerError;
+use awkernel_lib::net::{tcp_stream::SockTcpStream, NetManagerError};
 use futures::Future;
 use pin_project::pin_project;
 
@@ -206,7 +206,7 @@ impl Future for TcpReceiver<'_> {
 }
 
 pub struct TcpStreamTx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamTx,
+    stream: awkernel_lib::net::tcp_stream::TcpStreamTx<awkernel_lib::net::tcp_stream::TcpStream>,
 }
 
 impl TcpStreamTx {
@@ -260,7 +260,7 @@ impl Future for TcpStreamTxSender<'_> {
 }
 
 pub struct TcpStreamRx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamRx,
+    stream: awkernel_lib::net::tcp_stream::TcpStreamRx<awkernel_lib::net::tcp_stream::TcpStream>,
 }
 
 impl TcpStreamRx {
