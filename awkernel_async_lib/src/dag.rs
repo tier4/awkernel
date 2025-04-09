@@ -51,7 +51,7 @@ pub struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
-    relative_deadline: Option<Duration>,
+    relative_deadline: Duration,
 }
 
 pub struct Dag {
@@ -69,7 +69,7 @@ impl Dag {
             task_id: 0, // Temporary task_id
             subscribe_topics: subscribe_topic_names.to_vec(),
             publish_topics: publish_topic_names.to_vec(),
-            relative_deadline: None,
+            relative_deadline: Duration::from_secs(0),
         };
 
         let mut node = MCSNode::new();
@@ -190,7 +190,7 @@ impl Dag {
         let mut node = MCSNode::new();
         let mut graph = self.graph.lock(&mut node);
 
-        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+        graph.node_weight_mut(node_idx).unwrap().relative_deadline = relative_deadline;
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
