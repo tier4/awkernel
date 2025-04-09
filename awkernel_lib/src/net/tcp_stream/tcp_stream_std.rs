@@ -15,11 +15,11 @@ impl SockTcpStream for TcpStream {
 
     fn connect(
         interface_id: u64,
-        remote_addr: IpAddr,
+        remote_addr: &IpAddr,
         remote_port: u16,
-        local_port: Option<u16>,
         rx_buffer_size: usize,
         tx_buffer_size: usize,
+        waker: &core::task::Waker,
     ) -> Result<Self, NetManagerError> {
         todo!();
     }

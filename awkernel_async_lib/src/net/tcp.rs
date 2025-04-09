@@ -143,24 +143,75 @@ impl TcpStream {
         )
     }
 
-    pub fn connect(
+    /// Connect to the remote host whose IP address and port number are `addr` and `port` on
+    /// `interface_id` interface.
+    ///
+    /// On std environments `interface_id` is ignored.
+    ///
+    /// `config.addr` and `config.port` are ignored.
+    pub async fn connect(
         interface_id: u64,
         addr: IpAddr,
         port: u16,
-        config: TcpConfig,
+        config: &TcpConfig,
     ) -> Result<TcpStream, TcpSocketError> {
-        match awkernel_lib::net::tcp_stream::TcpStream::connect(
+        TcpConnecter {
             interface_id,
-            addr,
-            port,
-            config.port,
-            config.rx_buffer_size,
-            config.tx_buffer_size,
-        ) {
-            Ok(stream) => Ok(TcpStream { stream }),
-            Err(NetManagerError::CannotFindInterface) => Err(TcpSocketError::InvalidInterfaceID),
-            Err(NetManagerError::PortInUse) => Err(TcpSocketError::PortInUse),
-            Err(_) => Err(TcpSocketError::SocketCreationError),
+            remote_addr: addr,
+            remote_port: port,
+            rx_buffer_size: config.rx_buffer_size,
+            tx_buffer_size: config.tx_buffer_size,
+            stream: None,
+        }
+        .await
+    }
+}
+
+#[pin_project]
+struct TcpConnecter {
+    interface_id: u64,
+    remote_addr: IpAddr,
+    remote_port: u16,
+    rx_buffer_size: usize,
+    tx_buffer_size: usize,
+
+    stream: Option<awkernel_lib::net::tcp_stream::TcpStream>,
+}
+
+impl Future for TcpConnecter {
+    type Output = Result<TcpStream, TcpSocketError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+
+        if let Some(stream) = this.stream.take() {
+            return core::task::Poll::Ready(Ok(TcpStream { stream }));
+        }
+
+        let result = awkernel_lib::net::tcp_stream::TcpStream::connect(
+            *this.interface_id,
+            this.remote_addr,
+            *this.remote_port,
+            *this.rx_buffer_size,
+            *this.tx_buffer_size,
+            cx.waker(),
+        );
+
+        match result {
+            Ok(stream) => {
+                *this.stream = Some(stream);
+                core::task::Poll::Pending
+            }
+            Err(NetManagerError::CannotFindInterface) => {
+                core::task::Poll::Ready(Err(TcpSocketError::InvalidInterfaceID))
+            }
+            Err(NetManagerError::PortInUse) => {
+                core::task::Poll::Ready(Err(TcpSocketError::PortInUse))
+            }
+            Err(_) => core::task::Poll::Ready(Err(TcpSocketError::SocketCreationError)),
         }
     }
 }

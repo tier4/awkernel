@@ -75,7 +75,7 @@ path = "../applications/tests/test_dvfs"
 optional = true
 
 [features]
-default = []
+default = ["test_network"]
 perf = ["awkernel_services/perf"]
 
 # Test applications

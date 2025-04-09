@@ -85,11 +85,11 @@ impl Drop for TcpStream {
 impl SockTcpStream for TcpStream {
     fn connect(
         interface_id: u64,
-        remote_addr: IpAddr,
+        remote_addr: &IpAddr,
         remote_port: u16,
-        local_port: Option<u16>,
         rx_buffer_size: usize,
         tx_buffer_size: usize,
+        waker: &core::task::Waker,
     ) -> Result<TcpStream, NetManagerError> {
         let mut net_manager = NET_MANAGER.write();
 
@@ -99,25 +99,7 @@ impl SockTcpStream for TcpStream {
             .ok_or(NetManagerError::InvalidInterfaceID)?;
         let if_net = if_net.clone();
 
-        let local_port = if let Some(port) = local_port {
-            if port == 0 {
-                return Err(NetManagerError::InvalidPort);
-            }
-
-            if remote_addr.is_ipv4() {
-                if net_manager.tcp_ports_ipv4.contains_key(&port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-
-                net_manager.port_in_use_tcp_ipv4(port)
-            } else {
-                if net_manager.tcp_ports_ipv6.contains_key(&port) {
-                    return Err(NetManagerError::PortInUse);
-                }
-
-                net_manager.port_in_use_tcp_ipv6(port)
-            }
-        } else if remote_addr.is_ipv4() {
+        let local_port = if remote_addr.is_ipv4() {
             net_manager
                 .get_ephemeral_port_tcp_ipv4()
                 .ok_or(NetManagerError::NoAvailablePort)?
@@ -149,6 +131,8 @@ impl SockTcpStream for TcpStream {
                 let mut socket = socket_set
                     .get::<smoltcp::socket::tcp::Socket>(handle)
                     .lock(&mut node);
+
+                socket.register_send_waker(waker);
 
                 socket
                     .connect(

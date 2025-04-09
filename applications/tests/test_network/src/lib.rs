@@ -157,8 +157,10 @@ async fn tcp_connect_test() {
         INTERFACE_ID,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
         8080,
-        Default::default(),
-    ) else {
+        &Default::default(),
+    )
+    .await
+    else {
         return;
     };
 
@@ -167,7 +169,6 @@ async fn tcp_connect_test() {
 
 async fn tcp_listen_test() {
     let config = TcpConfig {
-        port: Some(8080),
         ..Default::default()
     };
 
