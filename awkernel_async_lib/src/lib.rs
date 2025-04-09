@@ -320,3 +320,27 @@ where
 
     crate::task::spawn(reactor_name, future, sched_type)
 }
+
+pub async fn spawn_sink_reactor<F, Args>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) where
+    F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
+    Args: VectorToSubscribers,
+    Args::Subscribers: Send,
+{
+    let future = async move {
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            let _results = f(args);
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type);
+}

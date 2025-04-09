@@ -61,14 +61,14 @@ pub async fn run() {
     )
     .await;
 
-    dag.spawn_reactor::<_, (i32, i32), ()>(
+    dag.spawn_sink_reactor::<_, (i32, i32)>(
         "reactor_node4".into(),
         |(a, b): (i32, i32)| {
             log::debug!("value={} in reactor_node4", a + b);
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
-        vec![],
         SchedulerType::FIFO,
+        Duration::from_secs(1),
     )
     .await;
 
