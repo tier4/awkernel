@@ -3,12 +3,14 @@ use awkernel_lib::delay::{wait_microsec, wait_millisec};
 use crate::pcie::PCIeInfo;
 
 use super::{
+    igc_base::{igc_acquire_phy_base, igc_power_down_phy_copper_base, igc_release_phy_base},
     igc_defines::*,
     igc_hw::{IgcHw, IgcMacOperations, IgcNvmOperations, IgcOperations, IgcPhyOperations},
     igc_mac::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
         igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic,
     },
+    igc_phy::igc_power_up_phy_copper,
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
 };
@@ -41,7 +43,23 @@ impl IgcMacOperations for I225Flash {
     }
 }
 
-impl IgcPhyOperations for I225Flash {}
+impl IgcPhyOperations for I225Flash {
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_acquire_phy_base(self, info, hw)
+    }
+
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_release_phy_base(self, info, hw)
+    }
+
+    fn power_up(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_power_up_phy_copper(self, info, hw)
+    }
+
+    fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_power_down_phy_copper_base(self, info, hw)
+    }
+}
 
 impl IgcNvmOperations for I225Flash {
     fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
@@ -81,7 +99,23 @@ impl IgcMacOperations for I225NoFlash {
     }
 }
 
-impl IgcPhyOperations for I225NoFlash {}
+impl IgcPhyOperations for I225NoFlash {
+    fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_acquire_phy_base(self, info, hw)
+    }
+
+    fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_release_phy_base(self, info, hw)
+    }
+
+    fn power_up(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_power_up_phy_copper(self, info, hw)
+    }
+
+    fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_power_down_phy_copper_base(self, info, hw)
+    }
+}
 
 impl IgcNvmOperations for I225NoFlash {
     fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
