@@ -5,7 +5,7 @@ use crate::{
     select::{EventType, FdWaker},
 };
 
-use super::{SockTcpStream, TcpResult, TcpStreamRx, TcpStreamTx};
+use super::{SockTcpStream, TcpResult};
 
 use core::net::SocketAddr;
 use std::{
@@ -85,6 +85,13 @@ impl SockTcpStream for TcpStream {
     }
 
     fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError> {
-        todo!();
+        self.stream
+            .peer_addr()
+            .map(|addr| {
+                let ip = IpAddr::new(addr.ip());
+                let port = addr.port();
+                (ip, port)
+            })
+            .map_err(|_| NetManagerError::SocketError)
     }
 }
