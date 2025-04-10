@@ -988,8 +988,6 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
-        log::info!("Attaching PCIe device: {:?}", self);
-
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 return intel::attach(self);
@@ -1008,6 +1006,7 @@ impl PCIeInfo {
                 }
             }
             pcie_id::VIRTIO_VENDOR_ID => {
+                log::info!("Attaching VirtIO device: {:?}", self);
                 return virtio::attach(self);
             }
             _ => (),

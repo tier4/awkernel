@@ -105,5 +105,5 @@ igc = []                                                     # Intel 2.5 Gigabit
 ixgbe = ["dep:rand"]                                         # Intel 10 Gigabit Ethernet
 rp1 = []                                                     # RP1 of Raspberry Pi 5
 bcm2712 = []                                                 # Broadcom BCM2712 for Raspberry Pi 5
-virtio-net = []                                              # VirtIO Network
-virtio-blk = []                                              # VirtIO Block
+virtio-net = []                                              # VirtIO Network Card
+virtio-blk = []                                              # VirtIO Block Device
