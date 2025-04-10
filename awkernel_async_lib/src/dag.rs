@@ -47,15 +47,15 @@ impl PendingTask {
     }
 }
 
-pub struct NodeInfo {
+struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
 }
 
 pub struct Dag {
-    pub id: u32,
-    pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    id: u32,
+    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
 }
 
 impl Dag {
@@ -173,7 +173,6 @@ impl Dag {
 }
 
 /// DAGs.
-#[derive(Default)]
 struct Dags {
     candidate_id: u32, // Next candidate of Dag ID.
     id_to_dag: BTreeMap<u32, Arc<Dag>>,
