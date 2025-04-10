@@ -8,8 +8,8 @@ use crate::{
         NodeIndex,
     },
     scheduler::SchedulerType,
-    spawn_periodic_reactor, spawn_reactor, MultipleReceiver, MultipleSender, VectorToPublishers,
-    VectorToSubscribers,
+    spawn_periodic_reactor, spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender,
+    VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -200,11 +200,10 @@ impl Dag {
             .or_default()
             .push(PendingTask::new(node_idx, move || {
                 Box::pin(async move {
-                    spawn_reactor::<F, Args, ()>(
+                    spawn_sink_reactor::<F, Args>(
                         reactor_name.clone(),
                         f,
                         subscribe_topic_names.clone(),
-                        Vec::new(),
                         sched_type,
                     )
                     .await

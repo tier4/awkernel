@@ -326,7 +326,8 @@ pub async fn spawn_sink_reactor<F, Args>(
     f: F,
     subscribe_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
-) where
+) -> u32
+where
     F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
     Args: VectorToSubscribers,
     Args::Subscribers: Send,
@@ -342,5 +343,5 @@ pub async fn spawn_sink_reactor<F, Args>(
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type);
+    crate::task::spawn(reactor_name, future, sched_type)
 }
