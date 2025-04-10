@@ -39,6 +39,7 @@ pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -987,6 +988,8 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+        log::info!("Attaching PCIe device: {:?}", self);
+
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
                 return intel::attach(self);
@@ -1003,6 +1006,9 @@ impl PCIeInfo {
                 if broadcom::bcm2712::match_device(self.vendor, self.id) {
                     return broadcom::bcm2712::attach(self);
                 }
+            }
+            pcie_id::VIRTIO_VENDOR_ID => {
+                return virtio::attach(self);
             }
             _ => (),
         }
