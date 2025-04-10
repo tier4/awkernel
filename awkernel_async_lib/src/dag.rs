@@ -8,8 +8,8 @@ use crate::{
         NodeIndex,
     },
     scheduler::SchedulerType,
-    spawn_periodic_reactor, spawn_reactor, MultipleReceiver, MultipleSender, VectorToPublishers,
-    VectorToSubscribers,
+    spawn_periodic_reactor, spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender,
+    VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -51,6 +51,7 @@ pub struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
+    relative_deadline: Option<Duration>,
 }
 
 pub struct Dag {
@@ -68,6 +69,7 @@ impl Dag {
             task_id: 0, // Temporary task_id
             subscribe_topics: subscribe_topic_names.to_vec(),
             publish_topics: publish_topic_names.to_vec(),
+            relative_deadline: None,
         };
 
         let mut node = MCSNode::new();
@@ -165,6 +167,44 @@ impl Dag {
                         publish_topic_names.clone(),
                         sched_type,
                         period,
+                    )
+                    .await
+                })
+            }));
+    }
+
+    pub async fn spawn_sink_reactor<F, Args>(
+        &self,
+        reactor_name: Cow<'static, str>,
+        f: F,
+        subscribe_topic_names: Vec<Cow<'static, str>>,
+        sched_type: SchedulerType,
+        relative_deadline: Duration,
+    ) where
+        F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
+        Args: VectorToSubscribers,
+        Args::Subscribers: Send,
+    {
+        let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
+
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+
+        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+
+        let mut node = MCSNode::new();
+        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
+
+        pending_tasks
+            .entry(self.id)
+            .or_default()
+            .push(PendingTask::new(node_idx, move || {
+                Box::pin(async move {
+                    spawn_sink_reactor::<F, Args>(
+                        reactor_name.clone(),
+                        f,
+                        subscribe_topic_names.clone(),
+                        sched_type,
                     )
                     .await
                 })
