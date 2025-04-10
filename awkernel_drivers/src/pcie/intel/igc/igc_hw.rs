@@ -122,14 +122,14 @@ enum IgcMediaType {
 }
 
 #[derive(Debug)]
-struct IgcPhyInfo {
+pub(super) struct IgcPhyInfo {
     phy_type: IgcPhyType,
 
     smart_speed: IgcSmartSpeed,
 
     addr: u32,
     id: u32,
-    reset_delay_us: u32,
+    pub(super) reset_delay_us: u32,
     revision: u32,
 
     media_type: IgcMediaType,
@@ -218,7 +218,7 @@ pub(super) struct IgcDevSpecI225 {
 pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
     fc: IgcFcInfo,
-    phy: IgcPhyInfo,
+    pub(super) phy: IgcPhyInfo,
     pub(super) nvm: IgcNvmInfo,
     pub(super) bus: IgcBusInfo,
 
@@ -436,9 +436,8 @@ pub(super) trait IgcPhyOperations {
         todo!()
     }
 
-    fn reset(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn set_d0_lplu_state(
         &self,
         _info: &mut PCIeInfo,
