@@ -338,7 +338,7 @@ pub async fn spawn_sink_reactor<F, Args>(
         loop {
             let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
                 subscribers.recv_all().await;
-            let _results = f(args);
+            f(args);
         }
     };
 
