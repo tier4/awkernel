@@ -8,7 +8,11 @@ use crate::{
 use super::{SockTcpStream, TcpResult, TcpStreamRx, TcpStreamTx};
 
 use core::net::SocketAddr;
-use std::{io::ErrorKind, net::TcpStream as StdTcpStream, os::fd::AsRawFd};
+use std::{
+    io::{ErrorKind, Write},
+    net::TcpStream as StdTcpStream,
+    os::fd::AsRawFd,
+};
 
 pub struct TcpStream {
     stream: StdTcpStream,
@@ -17,7 +21,20 @@ pub struct TcpStream {
 
 impl SockTcpStream for TcpStream {
     fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult {
-        todo!();
+        match self.stream.write(buf) {
+            Ok(len) => TcpResult::Ok(len),
+            Err(err) => match err.kind() {
+                ErrorKind::WouldBlock => {
+                    self.fd_waker
+                        .register_waker(waker.clone(), EventType::Write);
+                    TcpResult::WouldBlock
+                }
+                ErrorKind::BrokenPipe
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted => TcpResult::CloseRemote,
+                _ => TcpResult::InvalidState,
+            },
+        }
     }
 
     fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
@@ -65,10 +82,6 @@ impl SockTcpStream for TcpStream {
             stream: StdTcpStream::from(socket),
             fd_waker,
         })
-    }
-
-    fn split(self) -> (TcpStreamTx<Self>, TcpStreamRx<Self>) {
-        todo!();
     }
 
     fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError> {

@@ -73,6 +73,17 @@ where
 
     fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult;
     fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult;
-    fn split(self) -> (TcpStreamTx<Self>, TcpStreamRx<Self>);
+
     fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError>;
+
+    fn split(self) -> (TcpStreamTx<Self>, TcpStreamRx<Self>) {
+        let stream = Arc::new(Mutex::new(self));
+
+        (
+            TcpStreamTx {
+                stream: stream.clone(),
+            },
+            TcpStreamRx { stream },
+        )
+    }
 }

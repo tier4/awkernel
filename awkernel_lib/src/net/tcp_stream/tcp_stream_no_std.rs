@@ -280,17 +280,6 @@ impl SockTcpStream for TcpStream {
             Err(NetManagerError::InvalidState)
         }
     }
-
-    fn split(self) -> (TcpStreamTx<Self>, TcpStreamRx<Self>) {
-        let stream = Arc::new(Mutex::new(self));
-
-        (
-            TcpStreamTx {
-                stream: stream.clone(),
-            },
-            TcpStreamRx { stream },
-        )
-    }
 }
 
 /// Close all connections that are in the closed state.
