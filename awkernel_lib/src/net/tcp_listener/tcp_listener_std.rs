@@ -6,17 +6,17 @@ pub struct TcpListener;
 
 impl SockTcpListener<TcpStream> for TcpListener {
     fn bind_on_interface(
-        interface_id: u64,
-        addr: &IpAddr,
-        port: Option<u16>,
-        rx_buffer_size: usize,
-        tx_buffer_size: usize,
-        backlogs: usize,
+        _interface_id: u64,
+        _addr: &IpAddr,
+        _port: Option<u16>,
+        _rx_buffer_size: usize,
+        _tx_buffer_size: usize,
+        _backlogs: usize,
     ) -> Result<Self, NetManagerError> {
         todo!();
     }
 
-    fn accept(&mut self, waker: &core::task::Waker) -> Result<Option<TcpStream>, NetManagerError> {
+    fn accept(&mut self, _waker: &core::task::Waker) -> Result<Option<TcpStream>, NetManagerError> {
         todo!();
     }
 }

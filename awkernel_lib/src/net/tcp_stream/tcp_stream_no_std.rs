@@ -1,10 +1,9 @@
 use crate::net::{ip_addr::IpAddr, tcp::TcpPort, NetManagerError, NET_MANAGER};
 
-use super::{SockTcpStream, TcpResult, TcpStreamRx, TcpStreamTx};
+use super::{SockTcpStream, TcpResult};
 
 use alloc::{
     collections::{btree_map::Entry, BTreeMap, VecDeque},
-    sync::Arc,
     vec,
 };
 

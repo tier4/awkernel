@@ -1,7 +1,3 @@
-use alloc::sync::Arc;
-
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
-
 use super::{ip_addr::IpAddr, NetManagerError};
 
 #[cfg(not(feature = "std"))]
@@ -34,30 +30,6 @@ pub fn close_connections() {
     tcp_stream_no_std::close_connections();
 }
 
-pub struct TcpStreamTx<T: SockTcpStream + Send> {
-    stream: Arc<Mutex<T>>,
-}
-
-impl<T: SockTcpStream + Send> TcpStreamTx<T> {
-    pub fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult {
-        let mut node = MCSNode::new();
-        let mut stream = self.stream.lock(&mut node);
-        stream.send(buf, waker)
-    }
-}
-
-pub struct TcpStreamRx<T: SockTcpStream + Send> {
-    stream: Arc<Mutex<T>>,
-}
-
-impl<T: SockTcpStream + Send> TcpStreamRx<T> {
-    pub fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
-        let mut node = MCSNode::new();
-        let mut stream = self.stream.lock(&mut node);
-        stream.recv(buf, waker)
-    }
-}
-
 pub trait SockTcpStream
 where
     Self: Sized + Send,
@@ -75,15 +47,4 @@ where
     fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult;
 
     fn remote_addr(&self) -> Result<(IpAddr, u16), NetManagerError>;
-
-    fn split(self) -> (TcpStreamTx<Self>, TcpStreamRx<Self>) {
-        let stream = Arc::new(Mutex::new(self));
-
-        (
-            TcpStreamTx {
-                stream: stream.clone(),
-            },
-            TcpStreamRx { stream },
-        )
-    }
 }

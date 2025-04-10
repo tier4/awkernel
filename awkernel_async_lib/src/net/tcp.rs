@@ -118,6 +118,20 @@ impl TcpStream {
     /// Send data to the stream.
     ///
     /// This function returns the number of bytes sent.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
+    /// async fn recv_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let mut stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    ///
+    ///     stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
+    /// }
+    /// ```
     #[inline(always)]
     pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
         TcpSender { stream: self, buf }.await
@@ -130,10 +144,12 @@ impl TcpStream {
     /// # Example
     ///
     /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
     /// async fn recv_example() {
     ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
     ///     let addr = IpAddr::new_v4(addr);
-    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    ///     let mut stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
     ///
     ///     let mut buf = [0; 1024];
     ///     stream.recv(&mut buf).await.unwrap();
@@ -147,15 +163,6 @@ impl TcpStream {
     /// Get the remote address and port.
     pub fn remote_addr(&self) -> Option<(IpAddr, u16)> {
         self.stream.remote_addr().ok()
-    }
-
-    pub fn split(self) -> (TcpStreamTx, TcpStreamRx) {
-        let stream = self.stream.split();
-
-        (
-            TcpStreamTx { stream: stream.0 },
-            TcpStreamRx { stream: stream.1 },
-        )
     }
 
     /// Connect to the remote host whose IP address and port number are `addr` and `port` on
@@ -283,20 +290,6 @@ impl Future for TcpReceiver<'_> {
     }
 }
 
-pub struct TcpStreamTx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamTx<awkernel_lib::net::tcp_stream::TcpStream>,
-}
-
-impl TcpStreamTx {
-    /// Send data to the stream.
-    ///
-    /// This function returns the number of bytes sent.
-    #[inline(always)]
-    pub async fn send(&mut self, buf: &[u8]) -> Result<usize, TcpSendError> {
-        TcpStreamTxSender { stream: self, buf }.await
-    }
-}
-
 #[inline(always)]
 fn send_result(
     result: awkernel_lib::net::tcp_stream::TcpResult,
@@ -317,40 +310,6 @@ fn send_result(
     }
 }
 
-#[pin_project]
-struct TcpStreamTxSender<'a> {
-    stream: &'a mut TcpStreamTx,
-    buf: &'a [u8],
-}
-
-impl Future for TcpStreamTxSender<'_> {
-    type Output = Result<usize, TcpSendError>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-        let stream = this.stream;
-        let result = stream.stream.send(this.buf, cx.waker());
-        send_result(result)
-    }
-}
-
-pub struct TcpStreamRx {
-    stream: awkernel_lib::net::tcp_stream::TcpStreamRx<awkernel_lib::net::tcp_stream::TcpStream>,
-}
-
-impl TcpStreamRx {
-    /// Receive data from the stream.
-    ///
-    /// This function returns the number of bytes received.
-    #[inline(always)]
-    pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
-        TcpStreamRxReceiver { stream: self, buf }.await
-    }
-}
-
 #[inline(always)]
 fn recv_result(
     result: awkernel_lib::net::tcp_stream::TcpResult,
@@ -368,25 +327,5 @@ fn recv_result(
             core::task::Poll::Ready(Err(TcpRecvError::Unreachable))
         }
         _ => unreachable!(),
-    }
-}
-
-#[pin_project]
-struct TcpStreamRxReceiver<'a> {
-    stream: &'a mut TcpStreamRx,
-    buf: &'a mut [u8],
-}
-
-impl Future for TcpStreamRxReceiver<'_> {
-    type Output = Result<usize, TcpRecvError>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-        let stream = this.stream;
-        let result = stream.stream.recv(this.buf, cx.waker());
-        recv_result(result)
     }
 }

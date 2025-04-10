@@ -485,6 +485,7 @@ impl IfNet {
     ///
     /// This algorithm is modeled and tested by spin.
     /// See `awkernel/specification/awkernel_lib/src/net/if_net/README.md`.
+    #[cfg(not(feature = "std"))]
     pub fn poll_tx_only(&self, que_id: usize) -> bool {
         let Some(tx_ringq) = self.tx_only_ringq.get(que_id) else {
             return false;
