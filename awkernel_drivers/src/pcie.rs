@@ -1006,7 +1006,6 @@ impl PCIeInfo {
                 }
             }
             pcie_id::VIRTIO_VENDOR_ID => {
-                log::info!("Attaching VirtIO device: {:?}", self);
                 return virtio::attach(self);
             }
             _ => (),
