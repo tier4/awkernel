@@ -174,14 +174,18 @@ pub(super) fn wait(timeout: Duration) {
         // Update epoll.
         let mut events = EventFlag::empty();
         {
-            let mut node = MCSNode::new();
-            let map = super::FD_TO_WAKER.lock(&mut node);
-            if map.contains_key(&(raw_fd, EventType::Read)) {
+            if raw_fd == evfd || raw_fd == libc::STDIN_FILENO {
                 events.insert(EventFlag::READ);
-            }
+            } else {
+                let mut node = MCSNode::new();
+                let map = super::FD_TO_WAKER.lock(&mut node);
+                if map.contains_key(&(raw_fd, EventType::Read)) {
+                    events.insert(EventFlag::READ);
+                }
 
-            if map.contains_key(&(raw_fd, EventType::Write)) {
-                events.insert(EventFlag::WRITE);
+                if map.contains_key(&(raw_fd, EventType::Write)) {
+                    events.insert(EventFlag::WRITE);
+                }
             }
         }
 
