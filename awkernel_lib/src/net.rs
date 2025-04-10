@@ -53,6 +53,8 @@ pub enum NetManagerError {
     InterfaceIsNotReady,
     BindError,
     FailedToMakeNonblocking,
+    SocketError,
+    ConnectError,
 
     // Multicast
     MulticastInvalidIpv4Address,

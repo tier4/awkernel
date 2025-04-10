@@ -156,7 +156,7 @@ async fn tcp_connect_test() {
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         INTERFACE_ID,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
-        8080,
+        18080,
         &Default::default(),
     )
     .await

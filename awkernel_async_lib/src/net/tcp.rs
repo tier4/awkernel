@@ -147,10 +147,21 @@ impl TcpStream {
 
     /// Connect to the remote host whose IP address and port number are `addr` and `port` on
     /// `interface_id` interface.
+    /// `config.addr`, `config.port`, and `config.backlogs` are ignored.
     ///
-    /// On std environments `interface_id` is ignored.
+    /// On std environments `interface_id` and `config` are ignored.
     ///
-    /// `config.addr` and `config.port` are ignored.
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::TcpStream};
+    /// use core::str::FromStr;
+    /// async fn connect_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await;
+    /// }
+    /// ```
     pub async fn connect(
         interface_id: u64,
         addr: IpAddr,
