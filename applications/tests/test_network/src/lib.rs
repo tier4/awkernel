@@ -11,14 +11,14 @@ use awkernel_lib::net::NetManagerError;
 const INTERFACE_ID: u64 = 0;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
+// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
 
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
