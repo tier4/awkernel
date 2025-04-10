@@ -39,6 +39,7 @@ pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -1003,6 +1004,9 @@ impl PCIeInfo {
                 if broadcom::bcm2712::match_device(self.vendor, self.id) {
                     return broadcom::bcm2712::attach(self);
                 }
+            }
+            pcie_id::VIRTIO_VENDOR_ID => {
+                return virtio::attach(self);
             }
             _ => (),
         }
