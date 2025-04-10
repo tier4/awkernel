@@ -111,7 +111,7 @@ pub(super) fn igc_phy_hw_reset_generic(
         write_reg(info, IGC_CTRL, ctrl)?;
         write_flush(info)?;
 
-        wait_microsec(50);
+        wait_microsec(150);
 
         for _ in 0..10000 {
             let phpm = read_reg(info, IGC_I225_PHPM)?;
