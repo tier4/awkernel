@@ -11,16 +11,17 @@ use awkernel_lib::net::NetManagerError;
 const INTERFACE_ID: u64 = 0;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
+// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
 
 const UDP_DST_PORT: u16 = 26099;
+const TCP_DST_PORT: u16 = 26099;
 
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
@@ -156,7 +157,7 @@ async fn tcp_connect_test() {
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         INTERFACE_ID,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
-        18080,
+        TCP_DST_PORT,
         &Default::default(),
     )
     .await
@@ -165,6 +166,11 @@ async fn tcp_connect_test() {
     };
 
     stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
+
+    let mut buf = [0u8; 1024 * 2];
+    let n = stream.recv(&mut buf).await.unwrap();
+    let response = core::str::from_utf8(&buf[..n]).unwrap();
+    log::debug!("Received TCP response: {}", response);
 }
 
 async fn tcp_listen_test() {

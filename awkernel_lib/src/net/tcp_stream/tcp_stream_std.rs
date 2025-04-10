@@ -9,7 +9,7 @@ use super::{SockTcpStream, TcpResult};
 
 use core::net::SocketAddr;
 use std::{
-    io::{ErrorKind, Write},
+    io::{ErrorKind, Read, Write},
     net::TcpStream as StdTcpStream,
     os::fd::AsRawFd,
 };
@@ -38,7 +38,25 @@ impl SockTcpStream for TcpStream {
     }
 
     fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
-        todo!();
+        match self.stream.read(buf) {
+            Ok(len) => {
+                if len == 0 {
+                    TcpResult::CloseRemote
+                } else {
+                    TcpResult::Ok(len)
+                }
+            }
+            Err(err) => match err.kind() {
+                ErrorKind::WouldBlock => {
+                    self.fd_waker.register_waker(waker.clone(), EventType::Read);
+                    TcpResult::WouldBlock
+                }
+                ErrorKind::BrokenPipe
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionAborted => TcpResult::CloseRemote,
+                _ => TcpResult::InvalidState,
+            },
+        }
     }
 
     fn connect(

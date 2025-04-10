@@ -126,6 +126,19 @@ impl TcpStream {
     /// Receive data from the stream.
     ///
     /// This function returns the number of bytes received.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// async fn recv_example() {
+    ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
+    ///     let addr = IpAddr::new_v4(addr);
+    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
+    ///
+    ///     let mut buf = [0; 1024];
+    ///     stream.recv(&mut buf).await.unwrap();
+    /// }
+    /// ```
     #[inline(always)]
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, TcpRecvError> {
         TcpReceiver { stream: self, buf }.await
@@ -159,9 +172,10 @@ impl TcpStream {
     /// async fn connect_example() {
     ///     let addr = core::net::Ipv4Addr::from_str("192.168.1.1").unwrap();
     ///     let addr = IpAddr::new_v4(addr);
-    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await;
+    ///     let stream = TcpStream::connect(0, addr, 80, &Default::default()).await.unwrap();
     /// }
     /// ```
+    #[inline(always)]
     pub async fn connect(
         interface_id: u64,
         addr: IpAddr,
