@@ -187,10 +187,12 @@ impl Dag {
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
 
-        let mut node = MCSNode::new();
-        let mut graph = self.graph.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let mut graph = self.graph.lock(&mut node);
 
-        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+            graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+        }
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
