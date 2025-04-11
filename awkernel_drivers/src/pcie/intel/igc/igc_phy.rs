@@ -87,20 +87,14 @@ fn igc_access_xmdio_reg(
     ops.write_reg(info, hw, IGC_MMDAAD, address)?;
     ops.write_reg(info, hw, IGC_MMDAC, IGC_MMDAC_FUNC_DATA | dev_addr as u16)?;
 
-    let ret_val = if read {
+    if read {
         *data = ops.read_reg(info, hw, IGC_MMDAAD)?;
-        *data
     } else {
         ops.write_reg(info, hw, IGC_MMDAAD, *data)?;
-        0
     };
 
     // Recalibrate the device back to 0
-    if ret_val == 0 {
-        ops.write_reg(info, hw, IGC_MMDAC, 0)?;
-    }
-
-    Ok(())
+    ops.write_reg(info, hw, IGC_MMDAC, 0)
 }
 
 fn igc_read_xmdio_reg(
