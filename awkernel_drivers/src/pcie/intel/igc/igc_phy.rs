@@ -84,14 +84,14 @@ fn igc_access_xmdio_reg(
     read: bool,
 ) -> Result<(), IgcDriverErr> {
     ops.write_reg(info, hw, IGC_MMDAC, dev_addr as u16)?;
-    ops.write_reg(info, hw, IGC_MMDAAD, address as u16)?;
+    ops.write_reg(info, hw, IGC_MMDAAD, address)?;
     ops.write_reg(info, hw, IGC_MMDAC, IGC_MMDAC_FUNC_DATA | dev_addr as u16)?;
 
     let ret_val = if read {
         *data = ops.read_reg(info, hw, IGC_MMDAAD)?;
         *data
     } else {
-        ops.write_reg(info, hw, IGC_MMDAAD, *data as u16)?;
+        ops.write_reg(info, hw, IGC_MMDAAD, *data)?;
         0
     };
 
