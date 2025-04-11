@@ -49,9 +49,9 @@ impl PendingTask {
 
 struct NodeInfo {
     task_id: u32,
+    relative_deadline: Option<Duration>,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
-    relative_deadline: Option<Duration>,
 }
 
 pub struct Dag {
@@ -67,9 +67,9 @@ impl Dag {
     ) -> NodeIndex {
         let add_node_info = NodeInfo {
             task_id: 0, // Temporary task_id
+            relative_deadline: None,
             subscribe_topics: subscribe_topic_names.to_vec(),
             publish_topics: publish_topic_names.to_vec(),
-            relative_deadline: None,
         };
 
         let mut node = MCSNode::new();
@@ -229,10 +229,6 @@ impl Dags {
     fn create(&mut self) -> Arc<Dag> {
         let mut id = self.candidate_id;
         loop {
-            if id == 0 {
-                id += 1;
-            }
-
             // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
                 let dag = Arc::new(Dag {
@@ -247,7 +243,8 @@ impl Dags {
             } else {
                 // The candidate DAG ID is already used.
                 // Check next candidate.
-                id += 1;
+                // If it overflows, start from 1.
+                id = id.wrapping_add(1).max(1);
             }
         }
     }
