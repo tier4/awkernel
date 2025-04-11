@@ -8,7 +8,7 @@ static NUM_CPU: AtomicUsize = AtomicUsize::new(0);
 mod sleep_cpu_std;
 
 #[cfg(feature = "std")]
-use sleep_cpu_no_std::SleepCpuStd as SleepCpuImpl;
+use sleep_cpu_std::SleepCpuStd as SleepCpuImpl;
 
 #[cfg(not(feature = "std"))]
 mod sleep_cpu_no_std;
@@ -54,7 +54,10 @@ pub trait SleepCpu {
     fn sleep(&self);
 
     /// Wake up the CPU.
-    fn wake_up(cpu_id: usize);
+    ///
+    /// If the CPU is already awake, return `false`.
+    /// Otherwise, return `true`.
+    fn wake_up(cpu_id: usize) -> bool;
 }
 
 /// Sleep the current CPU.
@@ -63,6 +66,9 @@ pub fn sleep_cpu() {
 }
 
 /// Wake up the CPU with the given `cpu_id`.
-pub fn wake_cpu(cpu_id: usize) {
-    SleepCpuImpl::wake_up(cpu_id);
+///
+/// If the CPU is already awake, return `false`.
+/// Otherwise, return `true`.
+pub fn wake_cpu(cpu_id: usize) -> bool {
+    SleepCpuImpl::wake_up(cpu_id)
 }

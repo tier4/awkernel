@@ -1,6 +1,7 @@
 //! Define types and trait for the Awkernel scheduler.
 //! This module contains `SleepingTasks` for sleeping.
 
+use core::sync::atomic::Ordering;
 use core::time::Duration;
 
 use crate::task::Task;
@@ -98,9 +99,15 @@ pub(crate) trait Scheduler {
 /// Get the next executable task.
 #[inline]
 pub(crate) fn get_next_task() -> Option<Arc<Task>> {
-    PRIORITY_LIST
+    let task = PRIORITY_LIST
         .iter()
-        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next())
+        .find_map(|&scheduler_type| get_scheduler(scheduler_type).get_next());
+
+    if task.is_some() {
+        crate::task::NUM_TASK_IN_QUEUE.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    task
 }
 
 /// Get a scheduler.
@@ -194,8 +201,7 @@ pub(crate) fn sleep_task(sleep_handler: Box<dyn FnOnce() + Send>, dur: Duration)
         guard.sleep_task(sleep_handler, dur);
     }
 
-    #[cfg(feature = "std")]
-    awkernel_lib::select::notify();
+    awkernel_lib::cpu::wake_cpu(0);
 }
 
 /// Wake executable tasks up.

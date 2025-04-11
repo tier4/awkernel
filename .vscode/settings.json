@@ -19,37 +19,37 @@
     //     "raspi5"
     // ],
     // For x86_64
-    "rust-analyzer.cargo.buildScripts.overrideCommand": [
-        "cargo",
-        "+nightly-2025-02-27",
-        "check_no_std",
-        "--target=targets/x86_64-kernel.json",
-    ],
-    "rust-analyzer.check.overrideCommand": [
-        "cargo",
-        "+nightly-2025-02-27",
-        "check_no_std",
-        "--target=targets/x86_64-kernel.json",
-    ],
-    "rust-analyzer.cargo.features": [
-        "x86"
-    ],
-    // For Linux
     // "rust-analyzer.cargo.buildScripts.overrideCommand": [
     //     "cargo",
     //     "+nightly-2025-02-27",
-    //     "check_std",
-    //     "--quiet",
-    //     "--message-format=json"
+    //     "check_no_std",
+    //     "--target=targets/x86_64-kernel.json",
     // ],
     // "rust-analyzer.check.overrideCommand": [
     //     "cargo",
     //     "+nightly-2025-02-27",
-    //     "check_std",
-    //     "--quiet",
-    //     "--message-format=json"
+    //     "check_no_std",
+    //     "--target=targets/x86_64-kernel.json",
     // ],
     // "rust-analyzer.cargo.features": [
-    //     "std"
+    //     "x86"
     // ],
+    // For Linux
+    "rust-analyzer.cargo.buildScripts.overrideCommand": [
+        "cargo",
+        "+nightly-2025-02-27",
+        "check_std",
+        "--quiet",
+        "--message-format=json"
+    ],
+    "rust-analyzer.check.overrideCommand": [
+        "cargo",
+        "+nightly-2025-02-27",
+        "check_std",
+        "--quiet",
+        "--message-format=json"
+    ],
+    "rust-analyzer.cargo.features": [
+        "std"
+    ],
 }

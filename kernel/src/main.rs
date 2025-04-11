@@ -115,6 +115,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            // Wake up other CPUs if there are any tasks to run.
+            awkernel_async_lib::task::wake_workers();
         }
     }
 
