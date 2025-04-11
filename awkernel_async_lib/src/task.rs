@@ -858,11 +858,7 @@ pub fn run_main() {
             #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
-            #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(50);
-
-            #[cfg(not(feature = "std"))]
-            awkernel_lib::delay::wait_microsec(10);
+            awkernel_lib::cpu::sleep_cpu();
 
             #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
