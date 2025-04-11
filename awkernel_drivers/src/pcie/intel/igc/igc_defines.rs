@@ -478,7 +478,7 @@ pub(super) const IGC_EEE_SU_LPI_CLK_STP: u32 = 0x00800000; // EEE LPI Clock Stop
 pub(super) const IGC_EEE_LP_ADV_DEV_I225: u32 = 7; // EEE LP Adv Device
 pub(super) const IGC_EEE_LP_ADV_ADDR_I225: u32 = 61; // EEE LP Adv Register
 
-pub(super) const IGC_MMDAC_FUNC_DATA: u32 = 0x4000; // Data, no post increment
+pub(super) const IGC_MMDAC_FUNC_DATA: u16 = 0x4000; // Data, no post increment
 
 // PHY Control Register
 pub(super) const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10

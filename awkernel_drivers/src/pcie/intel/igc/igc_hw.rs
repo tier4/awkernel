@@ -127,7 +127,7 @@ pub(super) struct IgcPhyInfo {
 
     smart_speed: IgcSmartSpeed,
 
-    addr: u32,
+    pub(super) addr: u32,
     id: u32,
     pub(super) reset_delay_us: u32,
     revision: u32,
@@ -413,12 +413,11 @@ pub(super) trait IgcPhyOperations {
     }
     fn read_reg(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u32,
-    ) -> Result<u16, IgcDriverErr> {
-        todo!()
-    }
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+    ) -> Result<u16, IgcDriverErr>;
+
     fn read_reg_locked(
         &self,
         _info: &mut PCIeInfo,

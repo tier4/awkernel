@@ -10,7 +10,7 @@ use super::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
         igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic,
     },
-    igc_phy::{igc_phy_hw_reset_generic, igc_power_up_phy_copper},
+    igc_phy::{igc_phy_hw_reset_generic, igc_power_up_phy_copper, igc_read_phy_reg_gpy},
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
 };
@@ -62,6 +62,15 @@ impl IgcPhyOperations for I225Flash {
 
     fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_phy_hw_reset_generic(self, info, hw)
+    }
+
+    fn read_reg(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+    ) -> Result<u16, IgcDriverErr> {
+        igc_read_phy_reg_gpy(self, info, hw, offset)
     }
 }
 
@@ -122,6 +131,15 @@ impl IgcPhyOperations for I225NoFlash {
 
     fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_phy_hw_reset_generic(self, info, hw)
+    }
+
+    fn read_reg(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+    ) -> Result<u16, IgcDriverErr> {
+        igc_read_phy_reg_gpy(self, info, hw, offset)
     }
 }
 
