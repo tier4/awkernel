@@ -1,5 +1,4 @@
 use awkernel_lib::delay::{wait_microsec, wait_millisec};
-use bootloader_api::info;
 
 use crate::pcie::PCIeInfo;
 
