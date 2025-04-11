@@ -10,7 +10,7 @@ use super::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
         igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic,
     },
-    igc_phy::igc_power_up_phy_copper,
+    igc_phy::{igc_phy_hw_reset_generic, igc_power_up_phy_copper},
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
 };
@@ -58,6 +58,10 @@ impl IgcPhyOperations for I225Flash {
 
     fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_power_down_phy_copper_base(self, info, hw)
+    }
+
+    fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_phy_hw_reset_generic(self, info, hw)
     }
 }
 
@@ -114,6 +118,10 @@ impl IgcPhyOperations for I225NoFlash {
 
     fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_power_down_phy_copper_base(self, info, hw)
+    }
+
+    fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_phy_hw_reset_generic(self, info, hw)
     }
 }
 
