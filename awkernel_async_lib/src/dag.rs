@@ -76,6 +76,14 @@ impl Dag {
         graph.edge_count()
     }
 
+    fn update_relative_deadline(&self, node_idx: NodeIndex, relative_deadline: Duration) {
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+        if let Some(node_info) = graph.node_weight_mut(node_idx) {
+            node_info.relative_deadline = Some(relative_deadline);
+        }
+    }
+
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
@@ -203,12 +211,7 @@ impl Dag {
     {
         let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
 
-        {
-            let mut node = MCSNode::new();
-            let mut graph = self.graph.lock(&mut node);
-
-            graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
-        }
+        self.update_relative_deadline(node_idx, relative_deadline);
 
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
