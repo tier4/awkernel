@@ -73,4 +73,8 @@ pub async fn run() {
     .await;
 
     let _ = finish_create_dags(&[dag.clone()]).await;
+
+    assert_eq!(dag.get_id(), 1);
+    assert_eq!(dag.node_count(), 5);
+    assert_eq!(dag.edge_count(), 5);
 }

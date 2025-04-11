@@ -60,6 +60,22 @@ pub struct Dag {
 }
 
 impl Dag {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
+    pub fn node_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_count()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.edge_count()
+    }
+
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
