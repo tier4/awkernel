@@ -24,6 +24,8 @@ pub enum IgcDriverErr {
     NVM,
     SwfwSync,
     BlkPhyReset,
+    Param,
+    Phy,
 }
 
 /// Check if the device is an Intel I225/I226.

@@ -31,6 +31,102 @@ const IGC_I225_PHPM_ULP: u32 = 0x0400; // Ultra Low-Power Mode
 const IGC_I225_PHPM_DIS_2500: u32 = 0x0800; // Disable 2.5G globally
 const IGC_I225_PHPM_DIS_2500_D3: u32 = 0x1000; // Disable 2.5G in D3
 
+/// Reads the MDI control register in the PHY at offset and stores the
+/// information read to data.
+fn igc_read_phy_reg_mdic(
+    info: &mut PCIeInfo,
+    hw: &IgcHw,
+    offset: u32,
+) -> Result<u16, IgcDriverErr> {
+    if offset > MAX_PHY_REG_ADDRESS {
+        return Err(IgcDriverErr::Param);
+    }
+
+    // Set up Op-code, Phy Address, and register offset in the MDI
+    // Control register.  The MAC will take care of interfacing with the
+    // PHY to retrieve the desired data.
+    let mut mdic =
+        (offset << IGC_MDIC_REG_SHIFT) | (hw.phy.addr << IGC_MDIC_PHY_SHIFT) | IGC_MDIC_OP_READ;
+
+    write_reg(info, IGC_MDIC, mdic)?;
+
+    // Poll the ready bit to see if the MDI read completed
+    // Increasing the time out as testing showed failures with
+    // the lower time out
+    for _ in 0..(IGC_GEN_POLL_TIMEOUT * 3) {
+        wait_microsec(50);
+        mdic = read_reg(info, IGC_MDIC)?;
+        if mdic & IGC_MDIC_READY != 0 {
+            break;
+        }
+    }
+
+    if mdic & IGC_MDIC_READY == 0 {
+        return Err(IgcDriverErr::Phy);
+    }
+    if mdic & IGC_MDIC_ERROR != 0 {
+        return Err(IgcDriverErr::Phy);
+    }
+    if (mdic & IGC_MDIC_REG_MASK) >> IGC_MDIC_REG_SHIFT != offset {
+        return Err(IgcDriverErr::Phy);
+    }
+
+    Ok(mdic as u16)
+}
+
+fn igc_access_xmdio_reg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    address: u16,
+    dev_addr: u8,
+    data: &mut u16,
+    read: bool,
+) -> Result<(), IgcDriverErr> {
+    ops.write_reg(info, hw, IGC_MMDAC, dev_addr as u16)?;
+    ops.write_reg(info, hw, IGC_MMDAAD, address)?;
+    ops.write_reg(info, hw, IGC_MMDAC, IGC_MMDAC_FUNC_DATA | dev_addr as u16)?;
+
+    if read {
+        *data = ops.read_reg(info, hw, IGC_MMDAAD)?;
+    } else {
+        ops.write_reg(info, hw, IGC_MMDAAD, *data)?;
+    };
+
+    // Recalibrate the device back to 0
+    ops.write_reg(info, hw, IGC_MMDAC, 0)
+}
+
+fn igc_read_xmdio_reg(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    address: u16,
+    dev_addr: u8,
+) -> Result<u16, IgcDriverErr> {
+    let mut data = 0;
+    igc_access_xmdio_reg(ops, info, hw, address, dev_addr, &mut data, true)?;
+    Ok(data)
+}
+
+pub(super) fn igc_read_phy_reg_gpy(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    offset: u32,
+) -> Result<u16, IgcDriverErr> {
+    let dev_addr = (offset & GPY_MMD_MASK) >> GPY_MMD_SHIFT;
+    let offset = offset & GPY_REG_MASK;
+
+    if dev_addr == 0 {
+        acquire_phy(ops, info, hw, |_, info, hw| {
+            igc_read_phy_reg_mdic(info, hw, offset)
+        })
+    } else {
+        igc_read_xmdio_reg(ops, info, hw, offset as u16, dev_addr as u8)
+    }
+}
+
 /// In the case of a PHY power down to save power, or to turn off link during a
 /// driver unload, or wake on lan is not enabled, restore the link to previous
 /// settings.
