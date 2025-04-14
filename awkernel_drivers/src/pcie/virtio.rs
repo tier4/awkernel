@@ -9,6 +9,11 @@ pub mod virtio_net;
 pub mod virtio_blk;
 
 pub(super) fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+    if info.revision_id == 0 {
+        // Legacy virtio is not supported
+        return Ok(info.unknown_device());
+    }
+
     #[cfg(feature = "virtio-net")]
     if virtio_net::match_device(info.vendor, info.id) {
         return virtio_net::attach(info);
