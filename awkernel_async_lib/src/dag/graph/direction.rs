@@ -73,6 +73,7 @@ pub enum Direction {
     /// An `Outgoing` edge is an outward edge *from* the current node.
     Outgoing = 0,
     /// An `Incoming` edge is an inbound edge *to* the current node.
+    /// TODO: In the future, This will be used to get ancestor nodes.
     #[allow(dead_code)]
     Incoming = 1,
 }
