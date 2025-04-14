@@ -42,7 +42,7 @@ where
     /// ```
     fn bind_on_interface(
         interface_id: u64,
-        addr: &IpAddr,
+        addr: IpAddr,
         port: Option<u16>,
         rx_buffer_size: usize,
         tx_buffer_size: usize,

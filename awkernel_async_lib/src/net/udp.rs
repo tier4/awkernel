@@ -38,11 +38,11 @@ pub struct UdpSocket {
 impl UdpSocket {
     pub fn bind_on_interface(
         interface_id: u64,
-        config: &UdpConfig,
+        config: UdpConfig,
     ) -> Result<UdpSocket, UdpSocketError> {
         let socket_handle = awkernel_lib::net::udp_socket::UdpSocket::bind_on_interface(
             interface_id,
-            &config.addr,
+            config.addr,
             config.port,
             config.rx_buffer_size,
             config.tx_buffer_size,

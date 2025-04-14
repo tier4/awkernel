@@ -15,7 +15,7 @@ pub struct UdpSocket {
 impl super::SockUdp for UdpSocket {
     fn bind_on_interface(
         _interface_id: u64,
-        addr: &IpAddr,
+        addr: IpAddr,
         port: Option<u16>,
         _rx_buffer_size: usize,
         _tx_buffer_size: usize,
