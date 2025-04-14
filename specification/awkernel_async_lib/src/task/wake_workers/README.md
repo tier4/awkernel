@@ -38,18 +38,18 @@ $ make run
 rm -f *.trail
 ./pan -a -n
 Depth=     413 States=    1e+06 Transitions= 2.18e+06 Memory=   184.198 t=     0.56 R=   2e+06
-Depth=     413 States=    2e+06 Transitions= 4.59e+06 Memory=   240.448 t=     1.18 R=   2e+06
-Depth=     413 States=    3e+06 Transitions= 7.12e+06 Memory=   297.089 t=     1.85 R=   2e+06
-Depth=     413 States=    4e+06 Transitions= 9.74e+06 Memory=   353.437 t=     2.52 R=   2e+06
-Depth=     413 States=    5e+06 Transitions= 1.24e+07 Memory=   409.980 t=     3.22 R=   2e+06
-Depth=     413 States=    6e+06 Transitions=  1.5e+07 Memory=   466.425 t=     3.88 R=   2e+06
-Depth=     413 States=    7e+06 Transitions= 1.77e+07 Memory=   523.163 t=     4.59 R=   2e+06
+Depth=     413 States=    2e+06 Transitions= 4.59e+06 Memory=   240.448 t=      1.2 R=   2e+06
+Depth=     413 States=    3e+06 Transitions= 7.12e+06 Memory=   297.089 t=     1.88 R=   2e+06
+Depth=     413 States=    4e+06 Transitions= 9.74e+06 Memory=   353.437 t=     2.56 R=   2e+06
+Depth=     413 States=    5e+06 Transitions= 1.24e+07 Memory=   409.980 t=     3.28 R=   2e+06
+Depth=     413 States=    6e+06 Transitions=  1.5e+07 Memory=   466.425 t=     3.94 R=   2e+06
+Depth=     413 States=    7e+06 Transitions= 1.77e+07 Memory=   523.163 t=     4.66 R=   2e+06
 
 (Spin Version 6.5.2 -- 6 December 2019)
         + Partial Order Reduction
 
 Full statespace search for:
-        never claim             + (fairness)
+        never claim             + (eventually_execute)
         assertion violations    + (if within scope of claim)
         acceptance   cycles     + (fairness disabled)
         invalid end states      - (disabled by never claim)
@@ -71,6 +71,6 @@ Stats on memory usage (in Megabytes):
 
 
 
-pan: elapsed time 4.84 seconds
-pan: rate 1513238.8 states/second
+pan: elapsed time 4.91 seconds
+pan: rate 1491665.2 states/second
 ```
