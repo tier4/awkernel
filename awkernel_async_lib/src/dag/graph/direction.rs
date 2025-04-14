@@ -65,8 +65,6 @@
 //! SOFTWARE.
 //! ```
 
-use Direction::{Incoming, Outgoing};
-
 /// Index into the NodeIndex and EdgeIndex arrays
 /// Edge direction.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
@@ -75,19 +73,12 @@ pub enum Direction {
     /// An `Outgoing` edge is an outward edge *from* the current node.
     Outgoing = 0,
     /// An `Incoming` edge is an inbound edge *to* the current node.
+    /// TODO: In the future, This will be used to get ancestor nodes.
+    #[allow(dead_code)]
     Incoming = 1,
 }
 
 impl Direction {
-    /// Return the opposite `Direction`.
-    #[inline]
-    pub fn opposite(self) -> Direction {
-        match self {
-            Outgoing => Incoming,
-            Incoming => Outgoing,
-        }
-    }
-
     /// Return `0` for `Outgoing` and `1` for `Incoming`.
     #[inline]
     pub fn index(self) -> usize {
