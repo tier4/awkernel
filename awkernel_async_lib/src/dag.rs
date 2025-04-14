@@ -213,7 +213,6 @@ impl Dag {
 }
 
 /// DAGs.
-#[derive(Default)]
 struct Dags {
     candidate_id: u32, // Next candidate of Dag ID.
     id_to_dag: BTreeMap<u32, Arc<Dag>>,
@@ -230,10 +229,6 @@ impl Dags {
     fn create(&mut self) -> Arc<Dag> {
         let mut id = self.candidate_id;
         loop {
-            if id == 0 {
-                id += 1;
-            }
-
             // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
                 let dag = Arc::new(Dag {
@@ -248,7 +243,8 @@ impl Dags {
             } else {
                 // The candidate DAG ID is already used.
                 // Check next candidate.
-                id += 1;
+                // If it overflows, start from 1.
+                id = id.wrapping_add(1).max(1);
             }
         }
     }
