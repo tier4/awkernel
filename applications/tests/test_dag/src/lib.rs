@@ -4,7 +4,7 @@ extern crate alloc;
 use alloc::{borrow::Cow, vec};
 use awkernel_async_lib::dag::{create_dag, finish_create_dags};
 use awkernel_async_lib::scheduler::SchedulerType;
-use awkernel_lib::{delay::wait_microsec, sync::mutex::MCSNode};
+use awkernel_lib::delay::wait_microsec;
 use core::time::Duration;
 
 pub async fn run() {
@@ -74,9 +74,6 @@ pub async fn run() {
 
     let _ = finish_create_dags(&[dag.clone()]).await;
 
-    let mut node = MCSNode::new();
-    let graph = dag.graph.lock(&mut node);
-
-    assert_eq!(graph.node_count(), 5);
-    assert_eq!(graph.edge_count(), 5);
+    assert_eq!(dag.node_count(), 5);
+    assert_eq!(dag.edge_count(), 5);
 }

@@ -47,7 +47,7 @@ impl PendingTask {
     }
 }
 
-pub struct NodeInfo {
+struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
@@ -55,11 +55,23 @@ pub struct NodeInfo {
 }
 
 pub struct Dag {
-    pub id: u32,
-    pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    id: u32,
+    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
 }
 
 impl Dag {
+    pub fn node_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_count()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.edge_count()
+    }
+
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
