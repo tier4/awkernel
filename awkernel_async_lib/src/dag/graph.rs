@@ -79,10 +79,7 @@ pub mod algo;
 pub mod direction;
 mod iter_format;
 use crate::dag::visit;
-use direction::{
-    Direction,
-    Direction::{Incoming, Outgoing},
-};
+use direction::{Direction, Direction::Outgoing};
 use fixedbitset::FixedBitSet;
 use iter_format::{DebugMap, IterFormatExt, NoPretty};
 
@@ -275,8 +272,6 @@ impl<Ix: fmt::Debug> fmt::Debug for EdgeIndex<Ix> {
     }
 }
 
-const DIRECTIONS: [Direction; 2] = [Outgoing, Incoming];
-
 /// The graph's node type.
 #[derive(Debug)]
 pub struct Node<N, Ix = DefaultIx> {
@@ -429,14 +424,6 @@ impl<N, E, Ix> Graph<N, E, Ix>
 where
     Ix: IndexType,
 {
-    /// Create a new `Graph` with estimated capacity.
-    pub fn with_capacity(nodes: usize, edges: usize) -> Self {
-        Graph {
-            nodes: Vec::with_capacity(nodes),
-            edges: Vec::with_capacity(edges),
-        }
-    }
-
     /// Return the number of nodes (vertices) in the graph.
     ///
     /// Computes in **O(1)** time.
@@ -526,182 +513,6 @@ where
         edge_idx
     }
 
-    /// Add or update an edge from `a` to `b`.
-    /// If the edge already exists, its weight is updated.
-    ///
-    /// Return the index of the affected edge.
-    ///
-    /// Computes in **O(e')** time, where **e'** is the number of edges
-    /// connected to `a` (and `b`, if the graph edges are undirected).
-    ///
-    /// **Panics** if any of the nodes doesn't exist.
-    pub fn update_edge(&mut self, a: NodeIndex<Ix>, b: NodeIndex<Ix>, weight: E) -> EdgeIndex<Ix> {
-        if let Some(ix) = self.find_edge(a, b) {
-            if let Some(ed) = self.edge_weight_mut(ix) {
-                *ed = weight;
-                return ix;
-            }
-        }
-        self.add_edge(a, b, weight)
-    }
-
-    /// Access the weight for edge `e`.
-    ///
-    /// If edge `e` doesn't exist in the graph, return `None`.
-    /// Also available with indexing syntax: `&graph[e]`.
-    pub fn edge_weight(&self, e: EdgeIndex<Ix>) -> Option<&E> {
-        self.edges.get(e.index()).map(|ed| &ed.weight)
-    }
-
-    /// Access the weight for edge `e`, mutably.
-    ///
-    /// If edge `e` doesn't exist in the graph, return `None`.
-    /// Also available with indexing syntax: `&mut graph[e]`.
-    pub fn edge_weight_mut(&mut self, e: EdgeIndex<Ix>) -> Option<&mut E> {
-        self.edges.get_mut(e.index()).map(|ed| &mut ed.weight)
-    }
-
-    /// Access the source and target nodes for `e`.
-    ///
-    /// If edge `e` doesn't exist in the graph, return `None`.
-    pub fn edge_endpoints(&self, e: EdgeIndex<Ix>) -> Option<(NodeIndex<Ix>, NodeIndex<Ix>)> {
-        self.edges
-            .get(e.index())
-            .map(|ed| (ed.source(), ed.target()))
-    }
-
-    /// Remove `a` from the graph if it exists, and return its weight.
-    /// If it doesn't exist in the graph, return `None`.
-    ///
-    /// Apart from `a`, this invalidates the last node index in the graph
-    /// (that node will adopt the removed node index). Edge indices are
-    /// invalidated as they would be following the removal of each edge
-    /// with an endpoint in `a`.
-    ///
-    /// Computes in **O(e')** time, where **e'** is the number of affected
-    /// edges, including *n* calls to `.remove_edge()` where *n* is the number
-    /// of edges with an endpoint in `a`, and including the edges with an
-    /// endpoint in the displaced node.
-    pub fn remove_node(&mut self, a: NodeIndex<Ix>) -> Option<N> {
-        self.nodes.get(a.index())?;
-        for d in &DIRECTIONS {
-            let k = d.index();
-
-            // Remove all edges from and to this node.
-            loop {
-                let next = self.nodes[a.index()].next[k];
-                if next == EdgeIndex::end() {
-                    break;
-                }
-                let ret = self.remove_edge(next);
-                debug_assert!(ret.is_some());
-                let _ = ret;
-            }
-        }
-
-        // Use swap_remove -- only the swapped-in node is going to change
-        // NodeIndex<Ix>, so we only have to walk its edges and update them.
-
-        let node = self.nodes.swap_remove(a.index());
-
-        // Find the edge lists of the node that had to relocate.
-        // It may be that no node had to relocate, then we are done already.
-        let swap_edges = match self.nodes.get(a.index()) {
-            None => return Some(node.weight),
-            Some(ed) => ed.next,
-        };
-
-        // The swapped element's old index
-        let old_index = NodeIndex::new(self.nodes.len());
-        let new_index = a;
-
-        // Adjust the starts of the out edges, and ends of the in edges.
-        for &d in &DIRECTIONS {
-            let k = d.index();
-            let mut edges = edges_walker_mut(&mut self.edges, swap_edges[k], d);
-            while let Some(curedge) = edges.next_edge() {
-                debug_assert!(curedge.node[k] == old_index);
-                curedge.node[k] = new_index;
-            }
-        }
-        Some(node.weight)
-    }
-
-    /// For edge `e` with endpoints `edge_node`, replace links to it,
-    /// with links to `edge_next`.
-    fn change_edge_links(
-        &mut self,
-        edge_node: [NodeIndex<Ix>; 2],
-        e: EdgeIndex<Ix>,
-        edge_next: [EdgeIndex<Ix>; 2],
-    ) {
-        for &d in &DIRECTIONS {
-            let k = d.index();
-            let node = match self.nodes.get_mut(edge_node[k].index()) {
-                Some(r) => r,
-                None => {
-                    debug_assert!(
-                        false,
-                        "Edge's endpoint dir={:?} index={:?} not found",
-                        d, edge_node[k]
-                    );
-                    return;
-                }
-            };
-            let fst = node.next[k];
-            if fst == e {
-                node.next[k] = edge_next[k];
-            } else {
-                let mut edges = edges_walker_mut(&mut self.edges, fst, d);
-                while let Some(curedge) = edges.next_edge() {
-                    if curedge.next[k] == e {
-                        curedge.next[k] = edge_next[k];
-                        break; // the edge can only be present once in the list.
-                    }
-                }
-            }
-        }
-    }
-
-    /// Remove an edge and return its edge weight, or `None` if it didn't exist.
-    ///
-    /// Apart from `e`, this invalidates the last edge index in the graph
-    /// (that edge will adopt the removed edge index).
-    ///
-    /// Computes in **O(e')** time, where **e'** is the size of four particular edge lists, for
-    /// the vertices of `e` and the vertices of another affected edge.
-    pub fn remove_edge(&mut self, e: EdgeIndex<Ix>) -> Option<E> {
-        // every edge is part of two lists,
-        // outgoing and incoming edges.
-        // Remove it from both
-        let (edge_node, edge_next) = match self.edges.get(e.index()) {
-            None => return None,
-            Some(x) => (x.node, x.next),
-        };
-        // Remove the edge from its in and out lists by replacing it with
-        // a link to the next in the list.
-        self.change_edge_links(edge_node, e, edge_next);
-        self.remove_edge_adjust_indices(e)
-    }
-
-    fn remove_edge_adjust_indices(&mut self, e: EdgeIndex<Ix>) -> Option<E> {
-        // swap_remove the edge -- only the removed edge
-        // and the edge swapped into place are affected and need updating
-        // indices.
-        let edge = self.edges.swap_remove(e.index());
-        let swap = match self.edges.get(e.index()) {
-            // no elment needed to be swapped.
-            None => return Some(edge.weight),
-            Some(ed) => ed.node,
-        };
-        let swapped_e = EdgeIndex::new(self.edges.len());
-
-        // Update the edge lists by replacing links to the old index by references to the new
-        // edge index.
-        self.change_edge_links(swap, swapped_e, [e, e]);
-        Some(edge.weight)
-    }
-
     /// Return an iterator of all nodes with an edge starting from `a`.
     ///
     /// - `Directed`: Outgoing edges from `a`.
@@ -767,32 +578,6 @@ where
         }
     }
 
-    /// Lookup an edge from `a` to `b`.
-    ///
-    /// Computes in **O(e')** time, where **e'** is the number of edges
-    /// connected to `a` (and `b`, if the graph edges are undirected).
-    pub fn find_edge(&self, a: NodeIndex<Ix>, b: NodeIndex<Ix>) -> Option<EdgeIndex<Ix>> {
-        match self.nodes.get(a.index()) {
-            None => None,
-            Some(node) => self.find_edge_directed_from_node(node, b),
-        }
-    }
-
-    fn find_edge_directed_from_node(
-        &self,
-        node: &Node<N, Ix>,
-        b: NodeIndex<Ix>,
-    ) -> Option<EdgeIndex<Ix>> {
-        let mut edix = node.next[0];
-        while let Some(edge) = self.edges.get(edix.index()) {
-            if edge.node[1] == b {
-                return Some(edix);
-            }
-            edix = edge.next[0];
-        }
-        None
-    }
-
     /// Return an iterator over the node indices of the graph.
     pub fn node_indices(&self) -> NodeIndices<Ix> {
         NodeIndices {
@@ -855,61 +640,6 @@ where
     clone_fields!(Neighbors, skip_start, edges, next,);
 }
 
-impl<E, Ix> Neighbors<'_, E, Ix>
-where
-    Ix: IndexType,
-{
-    /// Return a “walker” object that can be used to step through the
-    /// neighbors and edges from the origin node.
-    ///
-    /// Note: The walker does not borrow from the graph, this is to allow mixing
-    /// edge walking with mutating the graph's weights.
-    pub fn detach(&self) -> WalkNeighbors<Ix> {
-        WalkNeighbors {
-            skip_start: self.skip_start,
-            next: self.next,
-        }
-    }
-}
-
-struct EdgesWalkerMut<'a, E: 'a, Ix: IndexType = DefaultIx> {
-    edges: &'a mut [Edge<E, Ix>],
-    next: EdgeIndex<Ix>,
-    dir: Direction,
-}
-
-fn edges_walker_mut<E, Ix>(
-    edges: &mut [Edge<E, Ix>],
-    next: EdgeIndex<Ix>,
-    dir: Direction,
-) -> EdgesWalkerMut<E, Ix>
-where
-    Ix: IndexType,
-{
-    EdgesWalkerMut { edges, next, dir }
-}
-
-impl<E, Ix> EdgesWalkerMut<'_, E, Ix>
-where
-    Ix: IndexType,
-{
-    fn next_edge(&mut self) -> Option<&mut Edge<E, Ix>> {
-        self.next().map(|t| t.1)
-    }
-
-    fn next(&mut self) -> Option<(EdgeIndex<Ix>, &mut Edge<E, Ix>)> {
-        let this_index = self.next;
-        let k = self.dir.index();
-        match self.edges.get_mut(self.next.index()) {
-            None => None,
-            Some(edge) => {
-                self.next = edge.next[k];
-                Some((this_index, edge))
-            }
-        }
-    }
-}
-
 /// A “walker” object that can be used to step through the edge list of a node.
 ///
 /// Created with [`.detach()`](struct.Neighbors.html#method.detach).
@@ -930,43 +660,6 @@ where
             skip_start: self.skip_start,
             next: self.next,
         }
-    }
-}
-
-impl<Ix: IndexType> WalkNeighbors<Ix> {
-    /// Step to the next edge and its endpoint node in the walk for graph `g`.
-    ///
-    /// The next node indices are always the others than the starting point
-    /// where the `WalkNeighbors` value was created.
-    /// For an `Outgoing` walk, the target nodes,
-    /// for an `Incoming` walk, the source nodes of the edge.
-    pub fn next<N, E>(&mut self, g: &Graph<N, E, Ix>) -> Option<(EdgeIndex<Ix>, NodeIndex<Ix>)> {
-        // First any outgoing edges
-        match g.edges.get(self.next[0].index()) {
-            None => {}
-            Some(edge) => {
-                let ed = self.next[0];
-                self.next[0] = edge.next[0];
-                return Some((ed, edge.node[1]));
-            }
-        }
-        // Then incoming edges
-        while let Some(edge) = g.edges.get(self.next[1].index()) {
-            let ed = self.next[1];
-            self.next[1] = edge.next[1];
-            if edge.node[0] != self.skip_start {
-                return Some((ed, edge.node[0]));
-            }
-        }
-        None
-    }
-
-    pub fn next_node<N, E>(&mut self, g: &Graph<N, E, Ix>) -> Option<NodeIndex<Ix>> {
-        self.next(g).map(|t| t.1)
-    }
-
-    pub fn next_edge<N, E>(&mut self, g: &Graph<N, E, Ix>) -> Option<EdgeIndex<Ix>> {
-        self.next(g).map(|t| t.0)
     }
 }
 
@@ -1091,19 +784,6 @@ where
 {
     fn eq(&self, rhs: &Self) -> bool {
         self.index == rhs.index && self.weight == rhs.weight
-    }
-}
-
-impl<'a, Ix, E> EdgeReference<'a, E, Ix>
-where
-    Ix: IndexType,
-{
-    /// Access the edge’s weight.
-    ///
-    /// **NOTE** that this method offers a longer lifetime
-    /// than the trait (unfortunately they don't match yet).
-    pub fn weight(&self) -> &'a E {
-        self.weight
     }
 }
 
