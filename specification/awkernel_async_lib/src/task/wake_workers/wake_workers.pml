@@ -189,6 +189,6 @@ init {
     skip;
 }
 
-ltl fairness  {
+ltl eventually_execute  {
     <>[] (run_queue == 0)
 }
