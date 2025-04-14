@@ -6,7 +6,7 @@ pan: pan.c
 
 run: pan
 	rm -f *.trail
-	./pan -f -a -n
+	./pan -a -n
 
 trail:
 	spin -plgrc -t wake_workers.pml

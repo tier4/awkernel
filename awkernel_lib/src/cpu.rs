@@ -61,6 +61,7 @@ pub trait SleepCpu {
 }
 
 /// Sleep the current CPU.
+#[inline(always)]
 pub fn sleep_cpu() {
     SLEEP_CPU_IMPL.sleep();
 }
@@ -69,6 +70,7 @@ pub fn sleep_cpu() {
 ///
 /// If the CPU is already awake, return `false`.
 /// Otherwise, return `true`.
+#[inline(always)]
 pub fn wake_cpu(cpu_id: usize) -> bool {
     SleepCpuImpl::wake_up(cpu_id)
 }
