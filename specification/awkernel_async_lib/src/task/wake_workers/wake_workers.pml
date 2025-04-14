@@ -140,10 +140,8 @@ proctype run_main(int cpu_id) {
     };
         task_poll();
     :: else ->
-        atomic {
-            printf("run_queue == 0: run_queue = %d\n", run_queue);
-            sleep(cpu_id);
-        }
+        printf("run_queue == 0: run_queue = %d\n", run_queue);
+        sleep(cpu_id);
     od
 }
 
