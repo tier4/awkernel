@@ -30,7 +30,7 @@ inline cond_wait(cpu_id) {
 // Notify one waiting thread
 inline cond_notify_one(cpu_id) {
     if
-    :: atomic { len(cond[cpu_id - 1]) == 0 ->
+    :: d_step { len(cond[cpu_id - 1]) == 0 ->
         cond[cpu_id - 1] ! grant;
     }
     :: else -> skip;

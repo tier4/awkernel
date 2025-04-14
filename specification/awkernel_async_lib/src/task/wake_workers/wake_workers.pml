@@ -86,7 +86,7 @@ inline wake_workers() {
 
             if
             :: result == true ->
-                atomic {
+                d_step {
                     printf("wake_up(%d)\n", i);
                     num_tasks--;
                 }
@@ -107,7 +107,7 @@ inline select_wait() {
 // `notify()` in awkernel_lib/src/select.rs
 inline select_notify() {
     if
-    :: atomic { len(epoll) == 0 -> epoll ! eventfd };
+    :: d_step { len(epoll) == 0 -> epoll ! eventfd };
     :: else -> skip;
     fi
 }
@@ -134,7 +134,7 @@ inline task_poll() {
 // `run_main()` in awkernel_async_lib/src/task.rs
 proctype run_main(int cpu_id) {
     do
-    :: atomic { run_queue > 0 ->
+    :: d_step { run_queue > 0 ->
         run_queue--;
         printf("run_queue--: run_queue = %d\n", run_queue);
     };
@@ -160,7 +160,7 @@ proctype spawn_tasks() {
     bool result;
 
     for (i: 0 .. TASK_NUM - 1) {
-        atomic {
+        d_step {
             run_queue++;
             printf("run_queue++: run_queue = %d\n", run_queue);
         }
