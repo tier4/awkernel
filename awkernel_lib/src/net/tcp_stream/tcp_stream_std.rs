@@ -113,3 +113,16 @@ impl SockTcpStream for TcpStream {
             .map_err(|_| NetManagerError::SocketError)
     }
 }
+
+impl TcpStream {
+    pub(crate) fn new(stream: std::net::TcpStream) -> Result<Self, NetManagerError> {
+        stream
+            .set_nonblocking(true)
+            .or(Err(NetManagerError::FailedToMakeNonblocking))?;
+
+        let raw_fd = stream.as_raw_fd();
+        let fd_waker = FdWaker::new(raw_fd);
+
+        Ok(TcpStream { stream, fd_waker })
+    }
+}

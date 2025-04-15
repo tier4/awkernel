@@ -65,6 +65,19 @@ pub enum TcpRecvError {
 impl TcpListener {
     /// Create a new listener.
     /// The listener is bound to the specified address and port.
+    ///
+    /// On std environments `interface_id`, `config.rx_buffer_size`, and `config.tx_buffer_size` are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, tcp::{TcpListener}};
+    /// use core::str::FromStr;
+    /// async fn listen_example() {
+    ///     let mut listener = TcpListener::bind_on_interface(0, &Default::default()).unwrap();
+    ///     let stream = listener.accept().await.unwrap();
+    /// }
+    /// ```
     pub fn bind_on_interface(
         interface_id: u64,
         config: &TcpConfig,

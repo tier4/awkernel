@@ -22,6 +22,7 @@ const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
+const TCP_LISTEN_PORT: u16 = 26100;
 
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
@@ -182,6 +183,7 @@ async fn tcp_connect_test() {
 
 async fn tcp_listen_test() {
     let config = TcpConfig {
+        port: Some(TCP_LISTEN_PORT),
         ..Default::default()
     };
 
