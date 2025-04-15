@@ -222,3 +222,22 @@ pub(super) fn igc_phy_hw_reset_generic(
         Ok(())
     })
 }
+
+/// Reads the PHY registers and stores the PHY ID and possibly the PHY
+/// revision in the hardware structure.
+pub(super) fn igc_get_phy_id(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    let phy_id = ops.read_reg(info, hw, PHY_ID1)?;
+
+    hw.phy.id = (phy_id as u32) << 16;
+    wait_microsec(200);
+    let phy_id = ops.read_reg(info, hw, PHY_ID2)?;
+
+    hw.phy.id |= (phy_id as u32) & PHY_REVISION_MASK;
+    hw.phy.revision = (phy_id as u32) & !PHY_REVISION_MASK;
+
+    Ok(())
+}
