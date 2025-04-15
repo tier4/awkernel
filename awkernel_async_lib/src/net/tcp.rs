@@ -67,7 +67,7 @@ impl TcpListener {
     /// The listener is bound to the specified address and port.
     pub fn bind_on_interface(
         interface_id: u64,
-        config: TcpConfig,
+        config: &TcpConfig,
     ) -> Result<TcpListener, NetManagerError> {
         let listener = awkernel_lib::net::tcp_listener::TcpListener::bind_on_interface(
             interface_id,

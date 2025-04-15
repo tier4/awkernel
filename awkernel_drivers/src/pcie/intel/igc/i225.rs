@@ -18,6 +18,7 @@ use super::{
     },
     igc_phy::{
         igc_get_phy_id, igc_phy_hw_reset_generic, igc_power_up_phy_copper, igc_read_phy_reg_gpy,
+        igc_write_phy_reg_gpy,
     },
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
@@ -88,6 +89,16 @@ impl IgcPhyOperations for I225Flash {
         offset: u32,
     ) -> Result<u16, IgcDriverErr> {
         igc_read_phy_reg_gpy(self, info, hw, offset)
+    }
+
+    fn write_reg(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+        data: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_write_phy_reg_gpy(self, info, hw, offset, data)
     }
 }
 
@@ -172,6 +183,16 @@ impl IgcPhyOperations for I225NoFlash {
         offset: u32,
     ) -> Result<u16, IgcDriverErr> {
         igc_read_phy_reg_gpy(self, info, hw, offset)
+    }
+
+    fn write_reg(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+        data: u16,
+    ) -> Result<(), IgcDriverErr> {
+        igc_write_phy_reg_gpy(self, info, hw, offset, data)
     }
 }
 

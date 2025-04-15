@@ -49,6 +49,7 @@ pub type TaskResult = Result<(), Cow<'static, str>>;
 static TASKS: Mutex<Tasks> = Mutex::new(Tasks::new()); // Set of tasks.
 static RUNNING: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU]; // IDs of running tasks.
 static MAX_TASK_PRIORITY: u64 = (1 << 56) - 1; // Maximum task priority.
+pub(crate) static NUM_TASK_IN_QUEUE: AtomicU64 = AtomicU64::new(0); // Number of tasks in the queue.
 
 /// Task has ID, future, information, and a reference to a scheduler.
 pub struct Task {
@@ -101,11 +102,16 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
+        NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+
         if panicked {
             scheduler::panicked::SCHEDULER.wake_task(self);
         } else {
             self.scheduler.wake_task(self);
         }
+
+        // Notify the primary CPU to wake up workers.
+        awkernel_lib::cpu::wake_cpu(0);
     }
 }
 
@@ -858,11 +864,7 @@ pub fn run_main() {
             #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
-            #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(50);
-
-            #[cfg(not(feature = "std"))]
-            awkernel_lib::delay::wait_microsec(10);
+            awkernel_lib::cpu::sleep_cpu();
 
             #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
@@ -1100,4 +1102,20 @@ pub fn get_lowest_priority_task_info() -> Option<(u32, usize, PriorityInfo)> {
     }
 
     lowest_task
+}
+
+/// Wake workers up.
+pub fn wake_workers() {
+    let mut num_tasks = NUM_TASK_IN_QUEUE.load(Ordering::Relaxed);
+    let num_cpu = awkernel_lib::cpu::num_cpu();
+
+    for i in 1..num_cpu {
+        if num_tasks == 0 {
+            break;
+        }
+
+        if awkernel_lib::cpu::wake_cpu(i) {
+            num_tasks -= 1;
+        }
+    }
 }

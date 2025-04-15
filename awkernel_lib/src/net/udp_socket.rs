@@ -34,7 +34,7 @@ where
     ///     let buf_size = 64 * 1024;
     ///     let handler = UdpSocket::bind_on_interface(
     ///         0,
-    ///         IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 1)),
+    ///         &IpAddr::new_v4(Ipv4Addr::new(192, 168, 0, 1)),
     ///         Some(10000),
     ///         buf_size,
     ///         buf_size).unwrap();
@@ -42,7 +42,7 @@ where
     /// ```
     fn bind_on_interface(
         interface_id: u64,
-        addr: IpAddr,
+        addr: &IpAddr,
         port: Option<u16>,
         rx_buffer_size: usize,
         tx_buffer_size: usize,
