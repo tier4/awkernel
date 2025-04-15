@@ -57,6 +57,8 @@ pub enum NetManagerError {
     FailedToMakeNonblocking,
     SocketError,
     ConnectError,
+    ListenError,
+    AcceptError,
 
     // Multicast
     MulticastInvalidIpv4Address,
