@@ -69,7 +69,7 @@ async fn ipv4_multicast_send_test() {
     // Create a UDP socket on interface 0.
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
-        Default::default(),
+        &Default::default(),
     )
     .unwrap();
 
@@ -98,7 +98,7 @@ async fn ipv4_multicast_recv_test() {
     };
 
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, &config).unwrap();
 
     loop {
         // Join the multicast group.
@@ -186,7 +186,7 @@ async fn tcp_listen_test() {
     };
 
     let Ok(mut tcp_listener) =
-        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(INTERFACE_ID, config)
+        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(INTERFACE_ID, &config)
     else {
         return;
     };
@@ -228,7 +228,7 @@ async fn udp_test() {
     // Create a UDP socket on interface 0.
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
-        Default::default(),
+        &Default::default(),
     )
     .unwrap();
 
