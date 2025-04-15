@@ -1,6 +1,9 @@
+use alloc::boxed::Box;
+
 pub mod msi;
 pub mod msix;
 pub mod pcie_cap;
+pub mod virtio;
 
 use super::PCIeInfo;
 
@@ -13,7 +16,7 @@ pub const MSI: u8 = 0x05;
 pub const _HOT_SWAP: u8 = 0x06;
 pub const _PCIX: u8 = 0x07;
 pub const _HYPER_TRANSPORT: u8 = 0x08;
-pub const _VENDOR_SPECIFIC: u8 = 0x09;
+pub const VENDOR_SPECIFIC: u8 = 0x09;
 pub const _DEBUG_PORT: u8 = 0x0a;
 pub const _COMPACT_PCI: u8 = 0x0b;
 pub const _PCI_HOT_PLUG: u8 = 0x0c;
@@ -59,6 +62,12 @@ pub fn read(info: &mut PCIeInfo) {
             PCI_EXPRESS => {
                 let pcie_cap = pcie_cap::PCIeCap::new(info, cap_ptr);
                 info.pcie_cap = Some(pcie_cap);
+            }
+            VENDOR_SPECIFIC => {
+                // Currently, we assume that VENDOR_SPECIFIC capability id is only used for Virtio.
+                let mut virtio_cap = Box::new(virtio::VirtioCap::new(info, cap_ptr));
+                virtio_cap.set_next_virtio_cap(info.virtio_caps.take());
+                info.virtio_caps = Some(virtio_cap);
             }
             _ => (),
         }
