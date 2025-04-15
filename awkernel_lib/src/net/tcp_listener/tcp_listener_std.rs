@@ -33,9 +33,7 @@ impl SockTcpListener<TcpStream> for TcpListener {
         let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
             .or(Err(NetManagerError::SocketError))?;
 
-        socket
-            .bind(&addr.into())
-            .or(Err(NetManagerError::BindError))?;
+        socket.bind(&addr).or(Err(NetManagerError::BindError))?;
 
         socket
             .listen(backlogs as _)
