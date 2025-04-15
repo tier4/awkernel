@@ -455,13 +455,12 @@ pub(super) trait IgcPhyOperations {
     }
     fn write_reg(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u32,
-        _data: u16,
-    ) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+        data: u16,
+    ) -> Result<(), IgcDriverErr>;
+
     fn write_reg_locked(
         &self,
         _info: &mut PCIeInfo,
