@@ -675,7 +675,7 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
-    virtio_caps: Option<Box<capability::virtio::VirtioCap>>,
+    virtio_caps: Vec<capability::virtio::VirtioCap>,
 
     // The bridge having this device.
     bridge_bus_number: Option<u8>,
@@ -777,7 +777,7 @@ impl PCIeInfo {
             msi: None,
             msix: None,
             pcie_cap: None,
-            virtio_caps: None,
+            virtio_caps: Vec::new(),
             bridge_bus_number: None,
             bridge_device_number: None,
             bridge_function_number: None,

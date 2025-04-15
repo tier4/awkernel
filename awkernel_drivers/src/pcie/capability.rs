@@ -1,5 +1,3 @@
-use alloc::boxed::Box;
-
 pub mod msi;
 pub mod msix;
 pub mod pcie_cap;
@@ -65,9 +63,8 @@ pub fn read(info: &mut PCIeInfo) {
             }
             VENDOR_SPECIFIC => {
                 // Currently, we assume that VENDOR_SPECIFIC capability id is only used for Virtio.
-                let mut virtio_cap = Box::new(virtio::VirtioCap::new(info, cap_ptr));
-                virtio_cap.set_next_virtio_cap(info.virtio_caps.take());
-                info.virtio_caps = Some(virtio_cap);
+                let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
+                info.virtio_caps.push(virtio_cap);
             }
             _ => (),
         }
