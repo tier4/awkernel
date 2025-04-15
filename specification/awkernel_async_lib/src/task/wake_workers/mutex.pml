@@ -3,6 +3,9 @@ mtype = { grant }; // notification
 bool mutex[WORKERS] = false;
 chan cond[WORKERS] = [1] of { mtype };  // channel for condition wait and notify
 
+int max_spurious_wakeups = 1; // maximum number of spurious wakeups
+int num_spurious_wakeups = 0; // current number of spurious wakeups
+
 // Mutex lock
 inline lock(cpu_id) {
     do
@@ -18,13 +21,15 @@ inline unlock(cpu_id) {
 // Wait for condition
 inline cond_wait(cpu_id) {
     unlock(cpu_id);
-    do
-    :: atomic { len(cond[cpu_id - 1]) != 0 && mutex[cpu_id - 1] == false ->
+
+    if
+    :: d_step { num_spurious_wakeups < max_spurious_wakeups -> num_spurious_wakeups++; }
+        mutex[cpu_id - 1] = true; // spurious wakeup
+    :: else -> d_step { len(cond[cpu_id - 1]) != 0 && mutex[cpu_id - 1] == false ->
         cond[cpu_id - 1] ? grant;
         mutex[cpu_id - 1] = true;
-        break;
     }
-    od
+    fi
 }
 
 // Notify one waiting thread
