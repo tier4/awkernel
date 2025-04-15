@@ -1,4 +1,4 @@
-#define WORKERS 2
+#define WORKERS 3
 #define TASK_NUM (WORKERS + 1)
 
 #include "mutex.pml"

@@ -25,7 +25,7 @@ use awkernel_lib::{
     unwind::catch_unwind,
 };
 use core::{
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{fence, AtomicU32, AtomicU64, Ordering},
     task::{Context, Poll},
 };
 use futures::{
@@ -102,10 +102,11 @@ impl ArcWake for Task {
             panicked = info.panicked;
         }
 
+        NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Release);
+
         if panicked {
             scheduler::panicked::SCHEDULER.wake_task(self);
         } else {
-            NUM_TASK_IN_QUEUE.fetch_add(1, Ordering::Relaxed);
             self.scheduler.wake_task(self);
         }
 

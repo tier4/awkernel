@@ -20,15 +20,16 @@ inline unlock(cpu_id) {
 
 // Wait for condition
 inline cond_wait(cpu_id) {
-    unlock(cpu_id);
-
     if
-    :: d_step { num_spurious_wakeups < max_spurious_wakeups -> num_spurious_wakeups++; }
-        mutex[cpu_id - 1] = true; // spurious wakeup
-    :: else -> d_step { len(cond[cpu_id - 1]) != 0 && mutex[cpu_id - 1] == false ->
-        cond[cpu_id - 1] ? grant;
-        mutex[cpu_id - 1] = true;
-    }
+    :: d_step { num_spurious_wakeups < max_spurious_wakeups --> num_spurious_wakeups++ } // spurious wakeup
+    :: else ->
+        unlock(cpu_id);
+        if
+        :: d_step { len(cond[cpu_id - 1]) != 0 && mutex[cpu_id - 1] == false ->
+            cond[cpu_id - 1] ? grant;
+            mutex[cpu_id - 1] = true;
+        }
+        fi
     fi
 }
 
