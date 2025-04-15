@@ -88,7 +88,7 @@ fn igc_write_phy_reg_mdic(
     // Set up Op-code, Phy Address, and register offset in the MDI
     // Control register.  The MAC will take care of interfacing with the
     // PHY to retrieve the desired data.
-    let mdic = (data as u32)
+    let mut mdic = (data as u32)
         | (offset << IGC_MDIC_REG_SHIFT)
         | (hw.phy.addr << IGC_MDIC_PHY_SHIFT)
         | IGC_MDIC_OP_WRITE;
@@ -100,7 +100,7 @@ fn igc_write_phy_reg_mdic(
     // the lower time out
     for _ in 0..(IGC_GEN_POLL_TIMEOUT * 3) {
         wait_microsec(50);
-        let mdic = read_reg(info, IGC_MDIC)?;
+        mdic = read_reg(info, IGC_MDIC)?;
         if mdic & IGC_MDIC_READY != 0 {
             break;
         }
