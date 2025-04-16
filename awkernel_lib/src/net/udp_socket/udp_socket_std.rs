@@ -45,16 +45,18 @@ impl super::SockUdp for UdpSocket {
         let addr = addr.get_addr();
         let sock_addr = std::net::SocketAddr::new(addr, port);
 
-        match self.socket.send_to(buf, sock_addr) {
-            Ok(_) => Ok(true),
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    self.fd_waker
-                        .register_waker(waker.clone(), EventType::Write);
-                    Ok(false)
-                } else {
-                    Err(NetManagerError::SendError)
-                }
+        loop {
+            match self.socket.send_to(buf, sock_addr) {
+                Ok(_) => return Ok(true),
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        self.fd_waker
+                            .register_waker(waker.clone(), EventType::Write);
+                        return Ok(false);
+                    }
+                    std::io::ErrorKind::Interrupted => (), // retry
+                    _ => return Err(NetManagerError::SendError),
+                },
             }
         }
     }
@@ -64,21 +66,23 @@ impl super::SockUdp for UdpSocket {
         buf: &mut [u8],
         waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError> {
-        match self.socket.recv_from(buf) {
-            Ok((len, sock_addr)) => {
-                let addr = sock_addr.ip();
-                let addr = IpAddr::new(addr);
-                let port = sock_addr.port();
+        loop {
+            match self.socket.recv_from(buf) {
+                Ok((len, sock_addr)) => {
+                    let addr = sock_addr.ip();
+                    let addr = IpAddr::new(addr);
+                    let port = sock_addr.port();
 
-                Ok(Some((len, addr, port)))
-            }
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::WouldBlock {
-                    self.fd_waker.register_waker(waker.clone(), EventType::Read);
-                    Ok(None)
-                } else {
-                    Err(NetManagerError::RecvError)
+                    return Ok(Some((len, addr, port)));
                 }
+                Err(e) => match e.kind() {
+                    std::io::ErrorKind::WouldBlock => {
+                        self.fd_waker.register_waker(waker.clone(), EventType::Read);
+                        return Ok(None);
+                    }
+                    std::io::ErrorKind::Interrupted => (), // retry
+                    _ => return Err(NetManagerError::RecvError),
+                },
             }
         }
     }
