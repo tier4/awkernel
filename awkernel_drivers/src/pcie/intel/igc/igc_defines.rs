@@ -183,29 +183,29 @@ pub(super) const SPEED_2500: u32 = 2500;
 pub(super) const HALF_DUPLEX: u32 = 1;
 pub(super) const FULL_DUPLEX: u32 = 2;
 
-pub(super) const ADVERTISE_10_HALF: u32 = 0x0001;
-pub(super) const ADVERTISE_10_FULL: u32 = 0x0002;
-pub(super) const ADVERTISE_100_HALF: u32 = 0x0004;
-pub(super) const ADVERTISE_100_FULL: u32 = 0x0008;
-pub(super) const ADVERTISE_1000_HALF: u32 = 0x0010; // Not used, just FYI
-pub(super) const ADVERTISE_1000_FULL: u32 = 0x0020;
-pub(super) const ADVERTISE_2500_HALF: u32 = 0x0040; // NOT used, just FYI
-pub(super) const ADVERTISE_2500_FULL: u32 = 0x0080;
+pub(super) const ADVERTISE_10_HALF: u16 = 0x0001;
+pub(super) const ADVERTISE_10_FULL: u16 = 0x0002;
+pub(super) const ADVERTISE_100_HALF: u16 = 0x0004;
+pub(super) const ADVERTISE_100_FULL: u16 = 0x0008;
+pub(super) const ADVERTISE_1000_HALF: u16 = 0x0010; // Not used, just FYI
+pub(super) const ADVERTISE_1000_FULL: u16 = 0x0020;
+pub(super) const ADVERTISE_2500_HALF: u16 = 0x0040; // NOT used, just FYI
+pub(super) const ADVERTISE_2500_FULL: u16 = 0x0080;
 
 // 1000/H is not supported, nor spec-compliant.
-pub(super) const IGC_ALL_SPEED_DUPLEX: u32 = ADVERTISE_10_HALF
+pub(super) const IGC_ALL_SPEED_DUPLEX: u16 = ADVERTISE_10_HALF
     | ADVERTISE_10_FULL
     | ADVERTISE_100_HALF
     | ADVERTISE_100_FULL
     | ADVERTISE_1000_FULL;
-pub(super) const IGC_ALL_SPEED_DUPLEX_2500: u32 = ADVERTISE_10_HALF
+pub(super) const IGC_ALL_SPEED_DUPLEX_2500: u16 = ADVERTISE_10_HALF
     | ADVERTISE_10_FULL
     | ADVERTISE_100_HALF
     | ADVERTISE_100_FULL
     | ADVERTISE_1000_FULL
     | ADVERTISE_2500_FULL;
-pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = IGC_ALL_SPEED_DUPLEX;
-pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT_2500: u32 = IGC_ALL_SPEED_DUPLEX_2500;
+pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT: u16 = IGC_ALL_SPEED_DUPLEX;
+pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT_2500: u16 = IGC_ALL_SPEED_DUPLEX_2500;
 
 // Transmit Descriptor bit definitions
 pub(super) const IGC_TXD_DTYP_D: u32 = 0x00100000; // Data Descriptor
@@ -478,7 +478,7 @@ pub(super) const IGC_EEE_SU_LPI_CLK_STP: u32 = 0x00800000; // EEE LPI Clock Stop
 pub(super) const IGC_EEE_LP_ADV_DEV_I225: u32 = 7; // EEE LP Adv Device
 pub(super) const IGC_EEE_LP_ADV_ADDR_I225: u32 = 61; // EEE LP Adv Register
 
-pub(super) const IGC_MMDAC_FUNC_DATA: u32 = 0x4000; // Data, no post increment
+pub(super) const IGC_MMDAC_FUNC_DATA: u16 = 0x4000; // Data, no post increment
 
 // PHY Control Register
 pub(super) const MII_CR_SPEED_SELECT_MSB: u16 = 0x0040; // bits 6,13: 10=1000, 01=100, 00=10

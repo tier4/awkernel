@@ -21,6 +21,8 @@ const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 // const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
 
 const UDP_DST_PORT: u16 = 26099;
+const TCP_DST_PORT: u16 = 26099;
+const TCP_LISTEN_PORT: u16 = 26100;
 
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
 const MULTICAST_PORT: u16 = 20001;
@@ -68,7 +70,7 @@ async fn ipv4_multicast_send_test() {
     // Create a UDP socket on interface 0.
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
-        Default::default(),
+        &Default::default(),
     )
     .unwrap();
 
@@ -97,7 +99,7 @@ async fn ipv4_multicast_recv_test() {
     };
 
     let mut socket =
-        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, config).unwrap();
+        awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(INTERFACE_ID, &config).unwrap();
 
     loop {
         // Join the multicast group.
@@ -156,23 +158,37 @@ async fn tcp_connect_test() {
     let Ok(mut stream) = awkernel_async_lib::net::tcp::TcpStream::connect(
         INTERFACE_ID,
         IpAddr::new_v4(UDP_TCP_DST_ADDR),
-        8080,
-        Default::default(),
-    ) else {
+        TCP_DST_PORT,
+        &Default::default(),
+    )
+    .await
+    else {
         return;
     };
 
+    let remote = stream.remote_addr().unwrap();
+    log::debug!(
+        "Connected to TCP server: {}:{}",
+        remote.0.get_addr(),
+        remote.1
+    );
+
     stream.send(b"Hello, Awkernel!\r\n").await.unwrap();
+
+    let mut buf = [0u8; 1024 * 2];
+    let n = stream.recv(&mut buf).await.unwrap();
+    let response = core::str::from_utf8(&buf[..n]).unwrap();
+    log::debug!("Received TCP response: {}", response);
 }
 
 async fn tcp_listen_test() {
     let config = TcpConfig {
-        port: Some(8080),
+        port: Some(TCP_LISTEN_PORT),
         ..Default::default()
     };
 
     let Ok(mut tcp_listener) =
-        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(INTERFACE_ID, config)
+        awkernel_async_lib::net::tcp::TcpListener::bind_on_interface(INTERFACE_ID, &config)
     else {
         return;
     };
@@ -214,7 +230,7 @@ async fn udp_test() {
     // Create a UDP socket on interface 0.
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
-        Default::default(),
+        &Default::default(),
     )
     .unwrap();
 

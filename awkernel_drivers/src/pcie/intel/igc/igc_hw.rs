@@ -66,15 +66,15 @@ pub(super) struct IgcMacInfo {
     ifs_min_val: u16,
     ifs_ratio: u16,
     ifs_step_size: u16,
-    mta_reg_count: u16,
+    pub(super) mta_reg_count: u16,
     uta_reg_count: u16,
 
     mta_shadow: [u32; 128],
-    rar_entry_count: u16,
+    pub(super) rar_entry_count: u16,
 
     forced_speed_duplex: u8,
 
-    asf_firmware_present: bool,
+    pub(super) asf_firmware_present: bool,
     autoneg: bool,
     get_link_status: bool,
     max_frame_size: u32,
@@ -102,7 +102,7 @@ struct IgcFcInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IgcPhyType {
+pub(super) enum IgcPhyType {
     Unknown,
     None,
     I225,
@@ -116,26 +116,26 @@ enum IgcSmartSpeed {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IgcMediaType {
+pub(super) enum IgcMediaType {
     Unknown,
     Copper,
 }
 
 #[derive(Debug)]
-struct IgcPhyInfo {
-    phy_type: IgcPhyType,
+pub(super) struct IgcPhyInfo {
+    pub(super) phy_type: IgcPhyType,
 
     smart_speed: IgcSmartSpeed,
 
-    addr: u32,
-    id: u32,
-    reset_delay_us: u32,
-    revision: u32,
+    pub(super) addr: u32,
+    pub(super) id: u32,
+    pub(super) reset_delay_us: u32,
+    pub(super) revision: u32,
 
-    media_type: IgcMediaType,
+    pub(super) media_type: IgcMediaType,
 
     autoneg_advertised: u16,
-    autoneg_mask: u16,
+    pub(super) autoneg_mask: u16,
 
     mdix: u8,
 
@@ -145,7 +145,7 @@ struct IgcPhyInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IgcNvmType {
+pub(super) enum IgcNvmType {
     Unknown,
     EepromSpi,
     FlashHw,
@@ -154,13 +154,13 @@ enum IgcNvmType {
 
 #[derive(Debug)]
 pub(super) struct IgcNvmInfo {
-    nvm_type: IgcNvmType,
+    pub(super) nvm_type: IgcNvmType,
 
     pub(super) word_size: u16,
-    delay_usec: u16,
-    address_bits: u16,
-    opcode_bits: u16,
-    page_size: u16,
+    pub(super) delay_usec: u16,
+    pub(super) address_bits: u16,
+    pub(super) opcode_bits: u16,
+    pub(super) page_size: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,7 +218,7 @@ pub(super) struct IgcDevSpecI225 {
 pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
     fc: IgcFcInfo,
-    phy: IgcPhyInfo,
+    pub(super) phy: IgcPhyInfo,
     pub(super) nvm: IgcNvmInfo,
     pub(super) bus: IgcBusInfo,
 
@@ -233,9 +233,7 @@ pub(super) struct IgcHw {
 }
 
 pub(super) trait IgcMacOperations {
-    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        Ok(())
-    }
+    fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
@@ -373,9 +371,7 @@ pub(super) trait IgcMacOperations {
 }
 
 pub(super) trait IgcPhyOperations {
-    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
     fn release(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
@@ -413,12 +409,11 @@ pub(super) trait IgcPhyOperations {
     }
     fn read_reg(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u32,
-    ) -> Result<u16, IgcDriverErr> {
-        todo!()
-    }
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+    ) -> Result<u16, IgcDriverErr>;
+
     fn read_reg_locked(
         &self,
         _info: &mut PCIeInfo,
@@ -436,9 +431,8 @@ pub(super) trait IgcPhyOperations {
         todo!()
     }
 
-    fn reset(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn reset(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn set_d0_lplu_state(
         &self,
         _info: &mut PCIeInfo,
@@ -457,13 +451,12 @@ pub(super) trait IgcPhyOperations {
     }
     fn write_reg(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u32,
-        _data: u16,
-    ) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u32,
+        data: u16,
+    ) -> Result<(), IgcDriverErr>;
+
     fn write_reg_locked(
         &self,
         _info: &mut PCIeInfo,
@@ -487,9 +480,7 @@ pub(super) trait IgcPhyOperations {
 }
 
 pub(super) trait IgcNvmOperations {
-    fn init_params(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     /// Acquire the necessary semaphores for exclusive access to the EEPROM.
     fn acquire(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;

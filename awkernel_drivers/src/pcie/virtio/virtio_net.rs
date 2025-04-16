@@ -8,6 +8,17 @@ pub fn match_device(vendor: u16, id: u16) -> bool {
 }
 
 pub fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
+    // Initialize PCIeInfo
+
+    // Map the memory regions of MMIO.
+    if let Err(e) = info.map_bar() {
+        log::warn!("Failed to map the memory regions of MMIO: {e:?}");
+        return Err(PCIeDeviceErr::PageTableFailure);
+    }
+
+    // Read capabilities of PCIe.
+    info.read_capability();
+  
     // Non-transitional devices SHOULD have a PCI Revision ID of 1 or higher.
     if info.get_revision_id() == 0 {
         return Err(PCIeDeviceErr::RevisionIDMismatch);

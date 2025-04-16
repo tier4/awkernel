@@ -7,6 +7,8 @@ use super::{
     IgcDriverErr,
 };
 
+pub(super) const IGC_RAR_ENTRIES_BASE: u16 = 16;
+
 /// Acquire access rights to the correct PHY.
 pub(super) fn igc_acquire_phy_base(
     ops: &dyn IgcOperations,

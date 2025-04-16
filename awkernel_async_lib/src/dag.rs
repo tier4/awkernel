@@ -8,8 +8,8 @@ use crate::{
         NodeIndex,
     },
     scheduler::SchedulerType,
-    spawn_periodic_reactor, spawn_reactor, MultipleReceiver, MultipleSender, VectorToPublishers,
-    VectorToSubscribers,
+    spawn_periodic_reactor, spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender,
+    VectorToPublishers, VectorToSubscribers,
 };
 use alloc::{
     borrow::Cow,
@@ -47,18 +47,31 @@ impl PendingTask {
     }
 }
 
-pub struct NodeInfo {
+struct NodeInfo {
     task_id: u32,
     subscribe_topics: Vec<Cow<'static, str>>,
     publish_topics: Vec<Cow<'static, str>>,
+    relative_deadline: Option<Duration>,
 }
 
 pub struct Dag {
-    pub id: u32,
-    pub graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+    id: u32,
+    graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
 }
 
 impl Dag {
+    pub fn node_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.node_count()
+    }
+
+    pub fn edge_count(&self) -> usize {
+        let mut node = MCSNode::new();
+        let graph = self.graph.lock(&mut node);
+        graph.edge_count()
+    }
+
     fn add_node_with_topic_edges(
         &self,
         subscribe_topic_names: &[Cow<'static, str>],
@@ -68,6 +81,7 @@ impl Dag {
             task_id: 0, // Temporary task_id
             subscribe_topics: subscribe_topic_names.to_vec(),
             publish_topics: publish_topic_names.to_vec(),
+            relative_deadline: None,
         };
 
         let mut node = MCSNode::new();
@@ -170,10 +184,47 @@ impl Dag {
                 })
             }));
     }
+
+    pub async fn spawn_sink_reactor<F, Args>(
+        &self,
+        reactor_name: Cow<'static, str>,
+        f: F,
+        subscribe_topic_names: Vec<Cow<'static, str>>,
+        sched_type: SchedulerType,
+        relative_deadline: Duration,
+    ) where
+        F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
+        Args: VectorToSubscribers,
+        Args::Subscribers: Send,
+    {
+        let node_idx = self.add_node_with_topic_edges(&subscribe_topic_names, &Vec::new());
+
+        let mut node = MCSNode::new();
+        let mut graph = self.graph.lock(&mut node);
+
+        graph.node_weight_mut(node_idx).unwrap().relative_deadline = Some(relative_deadline);
+
+        let mut node = MCSNode::new();
+        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
+
+        pending_tasks
+            .entry(self.id)
+            .or_default()
+            .push(PendingTask::new(node_idx, move || {
+                Box::pin(async move {
+                    spawn_sink_reactor::<F, Args>(
+                        reactor_name.clone(),
+                        f,
+                        subscribe_topic_names.clone(),
+                        sched_type,
+                    )
+                    .await
+                })
+            }));
+    }
 }
 
 /// DAGs.
-#[derive(Default)]
 struct Dags {
     candidate_id: u32, // Next candidate of Dag ID.
     id_to_dag: BTreeMap<u32, Arc<Dag>>,
@@ -190,10 +241,6 @@ impl Dags {
     fn create(&mut self) -> Arc<Dag> {
         let mut id = self.candidate_id;
         loop {
-            if id == 0 {
-                id += 1;
-            }
-
             // Find an unused DAG ID.
             if let btree_map::Entry::Vacant(e) = self.id_to_dag.entry(id) {
                 let dag = Arc::new(Dag {
@@ -208,7 +255,8 @@ impl Dags {
             } else {
                 // The candidate DAG ID is already used.
                 // Check next candidate.
-                id += 1;
+                // If it overflows, start from 1.
+                id = id.wrapping_add(1).max(1);
             }
         }
     }
