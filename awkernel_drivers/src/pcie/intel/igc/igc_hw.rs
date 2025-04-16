@@ -504,9 +504,9 @@ pub(super) trait IgcNvmOperations {
     fn update(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn validate(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn validate(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn write(
         &self,
         _info: &mut PCIeInfo,

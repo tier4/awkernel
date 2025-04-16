@@ -647,7 +647,10 @@ pub(super) const NVM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
 pub(super) const NVM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
 pub(super) const NVM_CFG: u32 = 0x0012;
 pub(super) const NVM_ALT_MAC_ADDR_PTR: u16 = 0x0037;
-pub(super) const NVM_CHECKSUM_REG: u32 = 0x003F;
+pub(super) const NVM_CHECKSUM_REG: u16 = 0x003F;
+
+// For checksumming, the sum of all words in the NVM should equal 0xBABA.
+pub(super) const NVM_SUM: u16 = 0xBABA;
 
 // PBA (printed board assembly) number words
 pub(super) const NVM_PBA_OFFSET_0: u32 = 8;
