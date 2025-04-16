@@ -4,6 +4,7 @@ pub mod pcie_cap;
 pub mod virtio;
 
 use super::PCIeInfo;
+use crate::pcie::pcie_id;
 
 pub const _NULL: u8 = 0x00;
 pub const _PCI_POWER_MANAGEMENT_INTERFACE: u8 = 0x01;
@@ -62,9 +63,13 @@ pub fn read(info: &mut PCIeInfo) {
                 info.pcie_cap = Some(pcie_cap);
             }
             VENDOR_SPECIFIC => {
-                // Currently, we assume that VENDOR_SPECIFIC capability id is only used for Virtio.
-                let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
-                info.virtio_caps.push(virtio_cap);
+                if info.vendor == pcie_id::VIRTIO_VENDOR_ID
+                    && info.id >= 0x1000
+                    && info.id <= 0x107F
+                {
+                    let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
+                    info.virtio_caps.push(virtio_cap);
+                }
             }
             _ => (),
         }
