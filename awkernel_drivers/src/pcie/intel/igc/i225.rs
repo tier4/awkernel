@@ -473,7 +473,7 @@ fn igc_validate_nvm_checksum_i225(
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
 ) -> Result<(), IgcDriverErr> {
-    acquire_nvm(ops, info, hw, |ops, info, hw| {
+    acquire_nvm(ops, info, hw, |_, info, hw| {
         igc_validate_nvm_checksum_generic(info, hw, igc_read_nvm_eerd)?;
 
         Ok(())
