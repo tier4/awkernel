@@ -44,6 +44,7 @@ pub mod udp_socket;
 pub enum NetManagerError {
     InvalidInterfaceID,
     InvalidIPv4Address,
+    InvalidSocketAddress,
     CannotFindInterface,
     PortInUse,
     SendError,

@@ -1,13 +1,10 @@
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-
 use crate::{
-    net::{ip_addr::IpAddr, NetManagerError},
+    net::{ip_addr::IpAddr, tcp::create_socket, NetManagerError},
     select::{EventType, FdWaker},
 };
 
 use super::{SockTcpStream, TcpResult};
 
-use core::net::SocketAddr;
 use std::{
     io::{ErrorKind, Read, Write},
     net::TcpStream as StdTcpStream,
@@ -73,14 +70,7 @@ impl SockTcpStream for TcpStream {
         _tx_buffer_size: usize,
         waker: &core::task::Waker,
     ) -> Result<Self, NetManagerError> {
-        // Create a socket address.
-        let ip = remote_addr.get_addr();
-        let socket_addr = SocketAddr::new(ip, remote_port);
-        let sock_addr = SockAddr::from(socket_addr);
-
-        // Create a socket.
-        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-            .or(Err(NetManagerError::SocketError))?;
+        let (socket, sock_addr) = create_socket(remote_addr, remote_port)?;
 
         // Make the socket non-blocking.
         socket
