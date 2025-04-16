@@ -1,10 +1,7 @@
-use core::net::SocketAddr;
 use std::os::fd::AsRawFd;
 
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-
 use crate::{
-    net::{ip_addr::IpAddr, tcp_stream::TcpStream, NetManagerError},
+    net::{ip_addr::IpAddr, tcp::create_socket, tcp_stream::TcpStream, NetManagerError},
     select::FdWaker,
 };
 
@@ -24,16 +21,11 @@ impl SockTcpListener<TcpStream> for TcpListener {
         _tx_buffer_size: usize,
         backlogs: usize,
     ) -> Result<Self, NetManagerError> {
-        // Create a socket address.
-        let ip = addr.get_addr();
-        let socket_addr = SocketAddr::new(ip, port.unwrap_or(0));
-        let addr = SockAddr::from(socket_addr);
+        let (socket, sock_addr) = create_socket(addr, port.unwrap_or(0))?;
 
-        // Create a socket.
-        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-            .or(Err(NetManagerError::SocketError))?;
-
-        socket.bind(&addr).or(Err(NetManagerError::BindError))?;
+        socket
+            .bind(&sock_addr)
+            .or(Err(NetManagerError::BindError))?;
 
         socket
             .listen(backlogs as _)
