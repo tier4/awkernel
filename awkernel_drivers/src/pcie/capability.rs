@@ -1,8 +1,10 @@
 pub mod msi;
 pub mod msix;
 pub mod pcie_cap;
+pub mod virtio;
 
 use super::PCIeInfo;
+use crate::pcie::pcie_id;
 
 pub const _NULL: u8 = 0x00;
 pub const _PCI_POWER_MANAGEMENT_INTERFACE: u8 = 0x01;
@@ -13,7 +15,7 @@ pub const MSI: u8 = 0x05;
 pub const _HOT_SWAP: u8 = 0x06;
 pub const _PCIX: u8 = 0x07;
 pub const _HYPER_TRANSPORT: u8 = 0x08;
-pub const _VENDOR_SPECIFIC: u8 = 0x09;
+pub const VENDOR_SPECIFIC: u8 = 0x09;
 pub const _DEBUG_PORT: u8 = 0x0a;
 pub const _COMPACT_PCI: u8 = 0x0b;
 pub const _PCI_HOT_PLUG: u8 = 0x0c;
@@ -59,6 +61,15 @@ pub fn read(info: &mut PCIeInfo) {
             PCI_EXPRESS => {
                 let pcie_cap = pcie_cap::PCIeCap::new(info, cap_ptr);
                 info.pcie_cap = Some(pcie_cap);
+            }
+            VENDOR_SPECIFIC => {
+                if info.vendor == pcie_id::VIRTIO_VENDOR_ID
+                    && info.id >= 0x1000
+                    && info.id <= 0x107F
+                {
+                    let virtio_cap = virtio::VirtioCap::new(info, cap_ptr);
+                    info.virtio_caps.push(virtio_cap);
+                }
             }
             _ => (),
         }
