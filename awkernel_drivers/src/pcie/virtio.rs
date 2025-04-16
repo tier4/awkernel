@@ -2,6 +2,8 @@ use alloc::sync::Arc;
 
 use super::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
+pub mod virtio_configuration;
+
 #[cfg(feature = "virtio-net")]
 pub mod virtio_net;
 

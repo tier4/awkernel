@@ -76,6 +76,21 @@ impl BaseAddress {
         }
     }
 
+    pub fn read8(&self, offset: usize) -> Option<u8> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO { .. } => {
+                unreachable!()
+            }
+            BaseAddress::Mmio { addr, size, .. } => {
+                let dst = *addr + offset;
+                assert!(dst + 1 < *addr + *size);
+                unsafe { Some(read_volatile(dst as *const u8)) }
+            }
+            _ => None,
+        }
+    }
+
     pub fn read16(&self, offset: usize) -> Option<u16> {
         assert_eq!(offset & 1, 0);
         match self {
