@@ -1,15 +1,25 @@
+use core::net::Ipv4Addr;
+
 use crate::net::{ip_addr::IpAddr, NET_MANAGER};
-use awkernel_sync::mcs::MCSNode;
+use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
-use super::NetManagerError;
+use super::{NetManagerError, SockUdp};
 
-use alloc::vec;
+use alloc::{
+    collections::{btree_map::BTreeMap, btree_set::BTreeSet},
+    vec,
+};
+
+static NUM_MULTICAST_JOIN_IPV4: Mutex<BTreeMap<(u64, Ipv4Addr), usize>> =
+    Mutex::new(BTreeMap::new());
 
 pub struct UdpSocket {
     handle: smoltcp::iface::SocketHandle,
     interface_id: u64,
+    addr: IpAddr,
     port: u16,
     is_ipv4: bool,
+    joined_multicast_addr_v4: BTreeSet<Ipv4Addr>,
 }
 
 impl super::SockUdp for UdpSocket {
@@ -109,8 +119,10 @@ impl super::SockUdp for UdpSocket {
         Ok(UdpSocket {
             handle,
             interface_id,
+            addr: addr.clone(),
             port,
             is_ipv4,
+            joined_multicast_addr_v4: Default::default(),
         })
     }
 
@@ -198,10 +210,80 @@ impl super::SockUdp for UdpSocket {
             Ok(None)
         }
     }
+
+    fn join_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
+        if !self.addr.get_addr().is_ipv4() {
+            return Err(NetManagerError::MulticastError);
+        }
+
+        if !addr.is_multicast() {
+            log::debug!("join_multicast_v4: not multicast addr: {addr}");
+            return Err(NetManagerError::MulticastInvalidIpv4Address);
+        }
+
+        if self.joined_multicast_addr_v4.contains(&addr) {
+            return Ok(());
+        }
+
+        let mut node = MCSNode::new();
+        let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
+
+        use alloc::collections::btree_map::Entry;
+
+        match guard.entry((self.interface_id, addr)) {
+            Entry::Occupied(mut entry) => *entry.get_mut() += 1,
+            Entry::Vacant(entry) => {
+                crate::net::join_multicast_v4(self.interface_id, addr)?;
+                entry.insert(1);
+                self.joined_multicast_addr_v4.insert(addr);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn leave_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+        if !self.addr.get_addr().is_ipv4() {
+            return Err(NetManagerError::MulticastError);
+        }
+
+        if !self.joined_multicast_addr_v4.contains(&addr) {
+            return Ok(());
+        }
+
+        let mut node = MCSNode::new();
+        let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
+
+        use alloc::collections::btree_map::Entry;
+
+        match guard.entry((self.interface_id, addr)) {
+            Entry::Occupied(mut entry) => {
+                let num = entry.get_mut();
+
+                if *num == 1 {
+                    crate::net::leave_multicast_v4(self.interface_id, addr)?;
+                    entry.remove();
+                } else {
+                    *num = num
+                        .checked_sub(1)
+                        .expect("leave_multicast_v4: underflow error");
+                }
+            }
+            _ => {
+                unreachable!();
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for UdpSocket {
     fn drop(&mut self) {
+        for addr in self.joined_multicast_addr_v4.clone().iter() {
+            let _ = self.leave_multicast_v4(addr.clone());
+        }
+
         let mut net_manager = NET_MANAGER.write();
 
         if self.is_ipv4 {

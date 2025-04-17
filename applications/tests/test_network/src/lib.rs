@@ -5,20 +5,23 @@ extern crate alloc;
 use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
-use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
-use awkernel_lib::net::NetManagerError;
+use awkernel_async_lib::net::{
+    tcp::TcpConfig,
+    udp::{UdpConfig, UdpSocketError},
+    IpAddr,
+};
 
 const INTERFACE_ID: u64 = 0;
 
 // 10.0.2.0/24 is the IP address range of the Qemu's network.
-const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
+// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 64);
 
-// const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
+const INTERFACE_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 52); // For experiment.
 
 // 10.0.2.2 is the IP address of the Qemu's host.
-const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
+// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
-// const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
+const UDP_TCP_DST_ADDR: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 1); // For experiment.
 
 const UDP_DST_PORT: u16 = 26099;
 const TCP_DST_PORT: u16 = 26099;
@@ -104,12 +107,12 @@ async fn ipv4_multicast_recv_test() {
     loop {
         // Join the multicast group.
         loop {
-            match awkernel_lib::net::join_multicast_v4(INTERFACE_ID, MULTICAST_ADDR) {
+            match socket.join_multicast_v4(MULTICAST_ADDR) {
                 Ok(_) => {
                     log::debug!("Joined the multicast group.");
                     break;
                 }
-                Err(NetManagerError::SendError) => (),
+                Err(UdpSocketError::SendError) => (),
                 _ => {
                     log::error!("Failed to join the multicast group.");
                     return;
@@ -137,12 +140,12 @@ async fn ipv4_multicast_recv_test() {
 
         // Leave the multicast group.
         loop {
-            match awkernel_lib::net::leave_multicast_v4(INTERFACE_ID, MULTICAST_ADDR) {
+            match socket.leave_multicast_v4(MULTICAST_ADDR) {
                 Ok(_) => {
                     log::debug!("Left the multicast group.");
                     break;
                 }
-                Err(NetManagerError::SendError) => (),
+                Err(UdpSocketError::SendError) => (),
                 Err(e) => {
                     log::error!("Failed to leave the multicast group. {e:?}");
                     return;

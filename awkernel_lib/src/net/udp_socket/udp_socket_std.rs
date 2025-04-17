@@ -86,4 +86,12 @@ impl super::SockUdp for UdpSocket {
             }
         }
     }
+
+    fn join_multicast_v4(&mut self) -> Result<(), NetManagerError> {
+        todo!()
+    }
+
+    fn leave_multicast_v4(&mut self) -> Result<(), NetManagerError> {
+        todo!()
+    }
 }
