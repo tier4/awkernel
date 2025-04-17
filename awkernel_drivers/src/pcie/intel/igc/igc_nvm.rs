@@ -1,3 +1,5 @@
+use awkernel_lib::delay::wait_microsec;
+
 use crate::pcie::PCIeInfo;
 
 use super::{
@@ -91,6 +93,8 @@ fn igc_poll_eerd_eewr_done(info: &mut PCIeInfo, ee_reg: u32) -> Result<(), IgcDr
         if reg & IGC_NVM_RW_REG_DONE != 0 {
             return Ok(());
         }
+
+        wait_microsec(5);
     }
 
     Err(IgcDriverErr::NVM)
