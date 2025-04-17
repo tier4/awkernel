@@ -586,7 +586,7 @@ fn igc_write_nvm_srwr(
     }
 
     for i in 0..words {
-        let eewr = ((offset + i) << IGC_NVM_RW_ADDR_SHIFT) as u32
+        let eewr = (((offset + i) as u32) << IGC_NVM_RW_ADDR_SHIFT)
             | ((data[i as usize] as u32) << IGC_NVM_RW_REG_DATA)
             | IGC_NVM_RW_REG_START;
 
