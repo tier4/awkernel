@@ -92,7 +92,7 @@ impl BaseAddress {
                 let val = unsafe {
                     port1.write(addr);
                     let tmp: u32 = port2.read();
-                    (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                    (tmp >> ((offset as u32 & 2) * 8)) as u16
                 };
 
                 Some(val)
@@ -155,7 +155,7 @@ impl BaseAddress {
             }
             BaseAddress::Mmio { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
-                assert!(dst + 4 < *addr + *size);
+                assert!(dst + 1 < *addr + *size);
                 write_volatile(dst as *mut u8, val);
             },
             _ => (),
