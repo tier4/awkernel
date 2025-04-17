@@ -42,10 +42,10 @@ pub(super) fn acquire_nvm<F, R>(
     ops: &dyn IgcNvmOperations,
     info: &mut PCIeInfo,
     hw: &mut IgcHw,
-    f: F,
+    mut f: F,
 ) -> Result<R, IgcDriverErr>
 where
-    F: Fn(&dyn IgcNvmOperations, &mut PCIeInfo, &mut IgcHw) -> Result<R, IgcDriverErr>,
+    F: FnMut(&dyn IgcNvmOperations, &mut PCIeInfo, &mut IgcHw) -> Result<R, IgcDriverErr>,
 {
     IgcNvmOperations::acquire(ops, info, hw)?;
     let result = f(ops, info, hw);
