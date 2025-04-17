@@ -11,6 +11,7 @@ mod igc_base;
 mod igc_defines;
 mod igc_hw;
 mod igc_mac;
+mod igc_nvm;
 mod igc_phy;
 mod igc_regs;
 
