@@ -16,6 +16,7 @@ use super::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
         igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic,
     },
+    igc_nvm::{acquire_nvm, igc_read_nvm_eerd, igc_validate_nvm_checksum_generic},
     igc_phy::{
         igc_get_phy_id, igc_phy_hw_reset_generic, igc_power_up_phy_copper, igc_read_phy_reg_gpy,
         igc_write_phy_reg_gpy,
@@ -116,6 +117,10 @@ impl IgcNvmOperations for I225Flash {
         hw.nvm.nvm_type = IgcNvmType::FlashHw;
         Ok(())
     }
+
+    fn validate(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_validate_nvm_checksum_i225(self, info, hw)
+    }
 }
 
 pub(super) struct I225NoFlash;
@@ -208,6 +213,10 @@ impl IgcNvmOperations for I225NoFlash {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_init_nvm_params_i225(info, hw)?;
         hw.nvm.nvm_type = IgcNvmType::Invm;
+        Ok(())
+    }
+
+    fn validate(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         Ok(())
     }
 }
@@ -453,6 +462,22 @@ fn igc_init_phy_params_i225(
 
     igc_get_phy_id(ops, info, hw)?;
     hw.phy.phy_type = IgcPhyType::I225;
+
+    Ok(())
+}
+
+/// Calculates the EEPROM checksum by reading/adding each word of the EEPROM
+/// and then verifies that the sum of the EEPROM is equal to 0xBABA.
+fn igc_validate_nvm_checksum_i225(
+    ops: &dyn IgcNvmOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    acquire_nvm(ops, info, hw, |_, info, hw| {
+        igc_validate_nvm_checksum_generic(info, hw, igc_read_nvm_eerd)?;
+
+        Ok(())
+    })?;
 
     Ok(())
 }

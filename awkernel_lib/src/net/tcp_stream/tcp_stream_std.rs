@@ -1,13 +1,10 @@
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
-
 use crate::{
-    net::{ip_addr::IpAddr, NetManagerError},
+    net::{ip_addr::IpAddr, tcp::create_socket, NetManagerError},
     select::{EventType, FdWaker},
 };
 
 use super::{SockTcpStream, TcpResult};
 
-use core::net::SocketAddr;
 use std::{
     io::{ErrorKind, Read, Write},
     net::TcpStream as StdTcpStream,
@@ -21,41 +18,47 @@ pub struct TcpStream {
 
 impl SockTcpStream for TcpStream {
     fn send(&mut self, buf: &[u8], waker: &core::task::Waker) -> TcpResult {
-        match self.stream.write(buf) {
-            Ok(len) => TcpResult::Ok(len),
-            Err(err) => match err.kind() {
-                ErrorKind::WouldBlock => {
-                    self.fd_waker
-                        .register_waker(waker.clone(), EventType::Write);
-                    TcpResult::WouldBlock
-                }
-                ErrorKind::BrokenPipe
-                | ErrorKind::ConnectionReset
-                | ErrorKind::ConnectionAborted => TcpResult::CloseRemote,
-                _ => TcpResult::InvalidState,
-            },
+        loop {
+            match self.stream.write(buf) {
+                Ok(len) => return TcpResult::Ok(len),
+                Err(err) => match err.kind() {
+                    ErrorKind::WouldBlock => {
+                        self.fd_waker
+                            .register_waker(waker.clone(), EventType::Write);
+                        return TcpResult::WouldBlock;
+                    }
+                    ErrorKind::BrokenPipe
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted => return TcpResult::CloseRemote,
+                    ErrorKind::Interrupted => (), // retry
+                    _ => return TcpResult::InvalidState,
+                },
+            }
         }
     }
 
     fn recv(&mut self, buf: &mut [u8], waker: &core::task::Waker) -> TcpResult {
-        match self.stream.read(buf) {
-            Ok(len) => {
-                if len == 0 {
-                    TcpResult::CloseRemote
-                } else {
-                    TcpResult::Ok(len)
+        loop {
+            match self.stream.read(buf) {
+                Ok(len) => {
+                    if len == 0 {
+                        return TcpResult::CloseRemote;
+                    } else {
+                        return TcpResult::Ok(len);
+                    }
                 }
+                Err(err) => match err.kind() {
+                    ErrorKind::WouldBlock => {
+                        self.fd_waker.register_waker(waker.clone(), EventType::Read);
+                        return TcpResult::WouldBlock;
+                    }
+                    ErrorKind::BrokenPipe
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionAborted => return TcpResult::CloseRemote,
+                    ErrorKind::Interrupted => (), // retry
+                    _ => return TcpResult::InvalidState,
+                },
             }
-            Err(err) => match err.kind() {
-                ErrorKind::WouldBlock => {
-                    self.fd_waker.register_waker(waker.clone(), EventType::Read);
-                    TcpResult::WouldBlock
-                }
-                ErrorKind::BrokenPipe
-                | ErrorKind::ConnectionReset
-                | ErrorKind::ConnectionAborted => TcpResult::CloseRemote,
-                _ => TcpResult::InvalidState,
-            },
         }
     }
 
@@ -67,14 +70,7 @@ impl SockTcpStream for TcpStream {
         _tx_buffer_size: usize,
         waker: &core::task::Waker,
     ) -> Result<Self, NetManagerError> {
-        // Create a socket address.
-        let ip = remote_addr.get_addr();
-        let socket_addr = SocketAddr::new(ip, remote_port);
-        let sock_addr = SockAddr::from(socket_addr);
-
-        // Create a socket.
-        let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-            .or(Err(NetManagerError::SocketError))?;
+        let (socket, sock_addr) = create_socket(remote_addr, remote_port)?;
 
         // Make the socket non-blocking.
         socket
@@ -85,13 +81,17 @@ impl SockTcpStream for TcpStream {
         let raw_fd = socket.as_raw_fd();
         let mut fd_waker = FdWaker::new(raw_fd);
 
-        if let Err(err) = socket.connect(&sock_addr) {
-            match err.kind() {
-                ErrorKind::WouldBlock | ErrorKind::InProgress => {
-                    fd_waker.register_waker(waker.clone(), EventType::Write);
-                }
-                _ => {
-                    return Err(NetManagerError::ConnectError);
+        loop {
+            if let Err(err) = socket.connect(&sock_addr) {
+                match err.kind() {
+                    ErrorKind::WouldBlock | ErrorKind::InProgress => {
+                        fd_waker.register_waker(waker.clone(), EventType::Write);
+                        break;
+                    }
+                    ErrorKind::Interrupted => (), // retry
+                    _ => {
+                        return Err(NetManagerError::ConnectError);
+                    }
                 }
             }
         }

@@ -45,7 +45,7 @@ impl ConfigSpace {
                     unsafe {
                         port1.write(addr);
                         let tmp: u32 = port2.read();
-                        ((tmp >> ((offset & 0x3) * 8)) & 0xff) as u8
+                        (tmp >> ((offset as u32 & 3) * 8)) as u8
                     }
                 }
 
@@ -74,7 +74,7 @@ impl ConfigSpace {
                     unsafe {
                         port1.write(addr);
                         let tmp: u32 = port2.read();
-                        (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                        (tmp >> ((offset as u32 & 2) * 8)) as u16
                     }
                 }
 
