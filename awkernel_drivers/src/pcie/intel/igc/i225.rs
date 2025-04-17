@@ -518,7 +518,7 @@ fn igc_read_nvm_srrd_i225(
     // because of forceful takeover procedure. However it is more efficient
     // to read in bursts than synchronizing access for each word.
     for i in (0..words).step_by(IGC_EERD_EEWR_MAX_COUNT as usize) {
-        let count = if (words - 1) / IGC_EERD_EEWR_MAX_COUNT > 0 {
+        let count = if (words - i) / IGC_EERD_EEWR_MAX_COUNT > 0 {
             IGC_EERD_EEWR_MAX_COUNT
         } else {
             words - i
