@@ -585,7 +585,7 @@ fn igc_write_nvm_srwr(
         return Err(IgcDriverErr::NVM);
     }
 
-    for i in 0..words {
+    'outer: for i in 0..words {
         let eewr = (((offset + i) as u32) << IGC_NVM_RW_ADDR_SHIFT)
             | ((data[i as usize] as u32) << IGC_NVM_RW_REG_DATA)
             | IGC_NVM_RW_REG_START;
@@ -594,11 +594,13 @@ fn igc_write_nvm_srwr(
 
         for _ in 0..attempts {
             if IGC_NVM_RW_REG_DONE & read_reg(info, IGC_SRWR)? != 0 {
-                return Ok(());
+                continue 'outer;
             }
             wait_microsec(5);
         }
+
+        return Err(IgcDriverErr::NVM);
     }
 
-    Err(IgcDriverErr::NVM)
+    Ok(())
 }
