@@ -54,12 +54,6 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum VirtioDriverErr {
-    NoBar,
-    ReadFailure,
-}
-
 pub struct VirtioNet {
     _info: PCIeInfo,
 }

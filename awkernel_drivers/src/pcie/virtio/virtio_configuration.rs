@@ -1,5 +1,4 @@
 use crate::pcie::capability::virtio::VirtioCap;
-use crate::pcie::virtio::virtio_net::VirtioDriverErr;
 use crate::pcie::BaseAddress;
 use crate::pcie::PCIeInfo;
 
@@ -37,6 +36,12 @@ const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET: usize = 0x04;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET: usize = 0x08;
 const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET: usize = 0x0c;
 const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET: usize = 0x14;
+
+#[derive(Debug)]
+pub enum VirtioDriverErr {
+    NoBar,
+    ReadFailure,
+}
 
 #[derive(Debug, Clone)]
 pub struct VirtioCommonConfiguration {
