@@ -57,7 +57,7 @@ impl VirtioCommonConfiguration {
             .unwrap();
 
         Self {
-            bar: bar,
+            bar,
             offset: cap.get_offset() as usize,
         }
     }
@@ -131,8 +131,6 @@ impl VirtioCommonConfiguration {
             self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET,
             high,
         );
-
-        return;
     }
 
     pub fn virtio_get_device_status(&self) -> u8 {
@@ -147,7 +145,5 @@ impl VirtioCommonConfiguration {
             self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET,
             self.virtio_get_device_status() | status,
         );
-
-        return;
     }
 }

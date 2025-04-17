@@ -37,9 +37,9 @@ impl VirtioCap {
             .read_u32(cap_ptr + VIRTIO_PCI_CAP_OFFSET_OFFSET);
 
         Self {
-            cfg_type: cfg_type,
-            bar: bar,
-            offset: offset,
+            cfg_type,
+            bar,
+            offset,
         }
     }
 
