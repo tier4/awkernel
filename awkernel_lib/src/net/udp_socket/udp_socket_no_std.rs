@@ -295,7 +295,7 @@ impl super::SockUdp for UdpSocket {
 impl Drop for UdpSocket {
     fn drop(&mut self) {
         for addr in self.joined_multicast_addr_v4.clone().iter() {
-            let _ = self.leave_multicast_v4(addr.clone());
+            let _ = self.leave_multicast_v4(*addr);
         }
 
         let mut net_manager = NET_MANAGER.write();
