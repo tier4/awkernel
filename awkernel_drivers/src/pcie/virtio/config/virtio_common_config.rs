@@ -1,3 +1,4 @@
+use super::VirtioDriverErr;
 use crate::pcie::capability::virtio::VirtioCap;
 use crate::pcie::BaseAddress;
 use crate::pcie::PCIeInfo;
@@ -31,118 +32,92 @@ use crate::pcie::PCIeInfo;
 //     admin_queue_num: u16,   // read-only for driver
 // }
 
-const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET: usize = 0x00;
-const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET: usize = 0x04;
-const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET: usize = 0x08;
-const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET: usize = 0x0c;
-const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET: usize = 0x14;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT: usize = 0x00;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE: usize = 0x04;
+const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT: usize = 0x08;
+const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE: usize = 0x0c;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
 
-#[derive(Debug)]
-pub enum VirtioDriverErr {
-    NoBar,
-    ReadFailure,
-}
-
-#[derive(Debug, Clone)]
 pub struct VirtioCommonConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
 impl VirtioCommonConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Self {
+    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
         let bar = info
             .get_bar(cap.get_bar() as usize)
-            .ok_or(VirtioDriverErr::NoBar)
-            .unwrap();
+            .ok_or(VirtioDriverErr::NoBar)?;
 
-        Self {
+        Ok(Self {
             bar,
             offset: cap.get_offset() as usize,
-        }
+        })
     }
 
-    pub fn virtio_get_device_features(&mut self) -> u64 {
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET,
-            0,
-        );
+    pub fn virtio_get_device_features(&mut self) -> Result<u64, VirtioDriverErr> {
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 0);
         let low = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET,
-            1,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 1);
         let high = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        (high << 32) | low
+        Ok((high << 32) | low)
     }
 
-    pub fn virtio_get_driver_features(&mut self) -> u64 {
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            0,
-        );
+    pub fn virtio_get_driver_features(&mut self) -> Result<u64, VirtioDriverErr> {
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 0);
         let low = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            1,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 1);
         let high = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        (high << 32) | low
+        Ok((high << 32) | low)
     }
 
     pub fn virtio_set_driver_features(&mut self, features: u64) {
         let low = (features & 0xffffffff) as u32;
         let high = (features >> 32) as u32;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            0,
-        );
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET,
-            low,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 0);
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, low);
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            1,
-        );
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET,
-            high,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 1);
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, high);
     }
 
-    pub fn virtio_get_device_status(&self) -> u8 {
-        self.bar
-            .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap()
+    pub fn virtio_get_device_status(&self) -> Result<u8, VirtioDriverErr> {
+        let status = self
+            .bar
+            .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS)
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(status)
     }
 
     pub fn virtio_set_device_status(&mut self, status: u8) {
         self.bar.write8(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET,
+            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS,
             self.virtio_get_device_status() | status,
         );
     }

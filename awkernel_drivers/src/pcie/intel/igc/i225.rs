@@ -121,6 +121,28 @@ impl IgcNvmOperations for I225Flash {
     fn validate(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_validate_nvm_checksum_i225(self, info, hw)
     }
+
+    fn read(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &mut [u16],
+    ) -> Result<(), IgcDriverErr> {
+        igc_read_nvm_srrd_i225(self, info, hw, offset, words, data)
+    }
+
+    fn write(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &[u16],
+    ) -> Result<(), IgcDriverErr> {
+        igc_write_nvm_srwr_i225(self, info, hw, offset, words, data)
+    }
 }
 
 pub(super) struct I225NoFlash;
@@ -478,6 +500,107 @@ fn igc_validate_nvm_checksum_i225(
 
         Ok(())
     })?;
+
+    Ok(())
+}
+
+/// Reads a 16 bit word from the Shadow Ram using the EERD register.
+/// Uses necessary synchronization semaphores.
+fn igc_read_nvm_srrd_i225(
+    ops: &dyn IgcNvmOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    offset: u16,
+    words: u16,
+    data: &mut [u16],
+) -> Result<(), IgcDriverErr> {
+    // We cannot hold synchronization semaphores for too long,
+    // because of forceful takeover procedure. However it is more efficient
+    // to read in bursts than synchronizing access for each word.
+    for i in (0..words).step_by(IGC_EERD_EEWR_MAX_COUNT as usize) {
+        let count = if (words - i) / IGC_EERD_EEWR_MAX_COUNT > 0 {
+            IGC_EERD_EEWR_MAX_COUNT
+        } else {
+            words - i
+        };
+
+        acquire_nvm(ops, info, hw, |_ops, info, hw| {
+            igc_read_nvm_eerd(info, hw, offset, count, &mut data[i as usize..])
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Writes data to Shadow RAM at offset using EEWR register.
+///
+/// If igc_update_nvm_checksum is not called after this function , the
+/// data will not be committed to FLASH and also Shadow RAM will most likely
+/// contain an invalid checksum.
+///
+/// If error code is returned, data and Shadow RAM may be inconsistent - buffer
+/// partially written.
+fn igc_write_nvm_srwr_i225(
+    ops: &dyn IgcNvmOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    offset: u16,
+    words: u16,
+    data: &[u16],
+) -> Result<(), IgcDriverErr> {
+    // We cannot hold synchronization semaphores for too long,
+    // because of forceful takeover procedure. However it is more efficient
+    // to write in bursts than synchronizing access for each word.
+    for i in (0..words).step_by(IGC_EERD_EEWR_MAX_COUNT as usize) {
+        let count = if (words - i) / IGC_EERD_EEWR_MAX_COUNT > 0 {
+            IGC_EERD_EEWR_MAX_COUNT
+        } else {
+            words - i
+        };
+
+        acquire_nvm(ops, info, hw, |_ops, info, hw| {
+            igc_write_nvm_srwr(info, hw, offset, count, &data[i as usize..])
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Writes data to Shadow Ram at offset using EEWR register.
+///
+/// If igc_update_nvm_checksum is not called after this function , the
+/// Shadow Ram will most likely contain an invalid checksum.
+fn igc_write_nvm_srwr(
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    offset: u16,
+    words: u16,
+    data: &[u16],
+) -> Result<(), IgcDriverErr> {
+    let attempts = 100000;
+
+    // A check for invalid values:  offset too large, too many words,
+    // too many words for the offset, and not enough words.
+    if offset >= hw.nvm.word_size || words > (hw.nvm.word_size - offset) || words == 0 {
+        return Err(IgcDriverErr::NVM);
+    }
+
+    'outer: for i in 0..words {
+        let eewr = (((offset + i) as u32) << IGC_NVM_RW_ADDR_SHIFT)
+            | ((data[i as usize] as u32) << IGC_NVM_RW_REG_DATA)
+            | IGC_NVM_RW_REG_START;
+
+        write_reg(info, IGC_SRWR, eewr)?;
+
+        for _ in 0..attempts {
+            if IGC_NVM_RW_REG_DONE & read_reg(info, IGC_SRWR)? != 0 {
+                continue 'outer;
+            }
+            wait_microsec(5);
+        }
+
+        return Err(IgcDriverErr::NVM);
+    }
 
     Ok(())
 }

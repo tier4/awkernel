@@ -34,6 +34,12 @@ const _VIRTIO_PCI_CAP_PCI_CFG: u8 = 5; // PCI configuration access
 const _VIRTIO_PCI_CAP_SHARED_MEMORY_CFG: u8 = 8; // Shared memory region
 const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 
+#[derive(Debug)]
+pub enum VirtioDriverErr {
+    NoBar,
+    ReadFailure,
+}
+
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
 }

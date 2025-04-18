@@ -479,6 +479,7 @@ pub(super) trait IgcPhyOperations {
     fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 }
 
+#[allow(unused_variables)]
 pub(super) trait IgcNvmOperations {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
@@ -490,14 +491,15 @@ pub(super) trait IgcNvmOperations {
 
     fn read(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u16,
-        _words: u16,
-        _data: &mut [u16],
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &mut [u16],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn reload(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
@@ -509,13 +511,13 @@ pub(super) trait IgcNvmOperations {
 
     fn write(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u16,
-        _words: u16,
-        _data: &[u16],
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &[u16],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
 }
 

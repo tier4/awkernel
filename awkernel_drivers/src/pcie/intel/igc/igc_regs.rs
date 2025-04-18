@@ -69,6 +69,9 @@ pub(super) const IGC_RDFPC: usize = 0x02430; // Rx Data FIFO Packet Count - RW
 pub(super) const IGC_PBRTH: usize = 0x02458; // PB Rx Arbitration Threshold - RW
 pub(super) const IGC_FCRTV: usize = 0x02460; // Flow Control Refresh Timer Value - RW
 
+// Shadow Ram Write Register - RW
+pub(super) const IGC_SRWR: usize = 0x12018;
+
 pub(super) const IGC_MMDAC: u32 = 13; // MMD Access Control
 pub(super) const IGC_MMDAAD: u32 = 14; // MMD Access Address/Data
 

@@ -1,3 +1,4 @@
+use super::VirtioDriverErr;
 use crate::pcie::capability::virtio::VirtioCap;
 use crate::pcie::BaseAddress;
 use crate::pcie::PCIeInfo;
@@ -17,40 +18,34 @@ use crate::pcie::PCIeInfo;
 //     supported_tunnel_types: u32,
 // };
 
-const VIRTIO_PCI_NET_CFG_MAC_ADDR_OFFSET: usize = 0x00;
+const VIRTIO_NET_CONFIG_MAC: usize = 0x00;
 
-#[derive(Debug)]
-pub enum VirtioDriverErr {
-    NoBar,
-}
-
-#[derive(Debug, Clone)]
 pub struct VirtioNetConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
 impl VirtioNetConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Self {
+    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
         let bar = info
             .get_bar(cap.get_bar() as usize)
-            .ok_or(VirtioDriverErr::NoBar)
-            .unwrap();
+            .ok_or(VirtioDriverErr::NoBar)?;
 
-        Self {
+        Ok(Self {
             bar,
             offset: cap.get_offset() as usize,
-        }
+        })
     }
 
-    pub fn virtio_get_mac_addr(&mut self) -> [u8; 6] {
+    pub fn virtio_get_mac_addr(&mut self) -> Result<[u8; 6], VirtioDriverErr> {
         let mut mac = [0u8; 6];
         for i in 0..6 {
             mac[i] = self
                 .bar
-                .read8(self.offset + VIRTIO_PCI_NET_CFG_MAC_ADDR_OFFSET + i)
-                .unwrap();
+                .read8(self.offset + VIRTIO_NET_CONFIG_MAC + i)
+                .ok_or(VirtioDriverErr::ReadFailure)?;
         }
-        mac
+
+        Ok(mac)
     }
 }

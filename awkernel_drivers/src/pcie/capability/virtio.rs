@@ -13,11 +13,11 @@ use crate::pcie::PCIeInfo;
 //     length: u32,      // Length of the structure, in bytes.
 // }
 
-const VIRTIO_PCI_CAP_CFG_TYPE_OFFSET: usize = 0x03;
-const VIRTIO_PCI_CAP_BAR_OFFSET: usize = 0x04;
-const VIRTIO_PCI_CAP_OFFSET_OFFSET: usize = 0x08;
+const VIRTIO_PCI_CAP_CFG_TYPE: usize = 0x03;
+const VIRTIO_PCI_CAP_BAR: usize = 0x04;
+const VIRTIO_PCI_CAP_OFFSET: usize = 0x08;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct VirtioCap {
     cfg_type: u8,
     bar: u8,
@@ -26,15 +26,9 @@ pub struct VirtioCap {
 
 impl VirtioCap {
     pub fn new(info: &PCIeInfo, cap_ptr: usize) -> Self {
-        let cfg_type = info
-            .config_space
-            .read_u8(cap_ptr + VIRTIO_PCI_CAP_CFG_TYPE_OFFSET);
-        let bar = info
-            .config_space
-            .read_u8(cap_ptr + VIRTIO_PCI_CAP_BAR_OFFSET);
-        let offset = info
-            .config_space
-            .read_u32(cap_ptr + VIRTIO_PCI_CAP_OFFSET_OFFSET);
+        let cfg_type = info.config_space.read_u8(cap_ptr + VIRTIO_PCI_CAP_CFG_TYPE);
+        let bar = info.config_space.read_u8(cap_ptr + VIRTIO_PCI_CAP_BAR);
+        let offset = info.config_space.read_u32(cap_ptr + VIRTIO_PCI_CAP_OFFSET);
 
         Self {
             cfg_type,
