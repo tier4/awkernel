@@ -30,8 +30,8 @@ struct RawData {
 }
 
 // TODO: Remove allow(dead_code).
-#[derive(Debug)]
 #[allow(dead_code)]
+#[derive(Debug)]
 pub(super) struct NodeData {
     execution_time: u64,
     id: u32,
@@ -44,11 +44,11 @@ pub(super) struct NodeData {
 // TODO: Remove allow(dead_code).
 #[allow(dead_code)]
 #[derive(Debug)]
-pub(super) struct NodesData {
+pub(super) struct DagData {
     nodes: Vec<NodeData>,
 }
 
-fn to_nodes(raw_data: RawData) -> NodesData {
+fn convert_to_dag(raw_data: RawData) -> DagData {
     let mut nodes_map: BTreeMap<u32, NodeData> = raw_data
         .nodes
         .into_iter()
@@ -77,12 +77,12 @@ fn to_nodes(raw_data: RawData) -> NodesData {
     }
 
     let nodes: Vec<NodeData> = nodes_map.into_values().collect();
-    NodesData { nodes }
+    DagData { nodes }
 }
 
-// TODO: Remove allow(dead_code) when the function is used.
+// TODO: Remove allow(dead_code).
 #[allow(dead_code)]
-pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<NodesData>, ParseError> {
+pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<DagData>, ParseError> {
     dag_files
         .iter()
         .map(|&dag_file| {
@@ -90,7 +90,7 @@ pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<NodesData>, ParseErro
                 from_str(dag_file).map_err(|_| ParseError::UnmatchedYaml)?;
             match raw_data_vec.len() {
                 0 => Err(ParseError::EmptyYaml),
-                1 => Ok(to_nodes(raw_data_vec.into_iter().next().unwrap())),
+                1 => Ok(convert_to_dag(raw_data_vec.into_iter().next().unwrap())),
                 _ => Err(ParseError::MultipleDocumentsFound),
             }
         })
