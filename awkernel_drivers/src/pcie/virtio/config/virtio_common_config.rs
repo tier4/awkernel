@@ -44,12 +44,12 @@ pub enum VirtioDriverErr {
 }
 
 #[derive(Debug, Clone)]
-pub struct VirtioCommonConfiguration {
+pub struct VirtioCommonConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
-impl VirtioCommonConfiguration {
+impl VirtioCommonConfig {
     pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Self {
         let bar = info
             .get_bar(cap.get_bar() as usize)
