@@ -1,5 +1,5 @@
 [package]
-name = "rd_gen"
+name = "rd_gen_to_dags"
 version = "0.1.0"
 edition = "2021"
 
