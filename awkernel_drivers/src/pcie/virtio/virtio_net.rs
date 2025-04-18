@@ -34,12 +34,6 @@ const _VIRTIO_PCI_CAP_PCI_CFG: u8 = 5; // PCI configuration access
 const _VIRTIO_PCI_CAP_SHARED_MEMORY_CFG: u8 = 8; // Shared memory region
 const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 
-#[derive(Debug)]
-pub enum VirtioDriverErr {
-    NoBar,
-    ReadFailure,
-}
-
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
 }
@@ -81,46 +75,41 @@ impl VirtioNet {
             return Err(PCIeDeviceErr::InitFailure);
         }
 
-        let mut common_cfg = VirtioCommonConfig::new(&info, common_cfg_cap.unwrap());
-        let mut net_cfg = VirtioNetConfig::new(&info, net_cfg_cap.unwrap());
+        let mut common_cfg = VirtioCommonConfig::new(&info, common_cfg_cap.unwrap())?;
+        let mut net_cfg = VirtioNetConfig::new(&info, net_cfg_cap.unwrap())?;
 
         // 1. Reset the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET);
+        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
 
         // 2. Set the ACKNOWLEDGE status bit: the guest OS has noticed the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK);
+        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK)?;
 
         // 3. Set the DRIVER status bit: the guest OS knows how to drive the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER);
+        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER)?;
 
         // 4. Read device feature bits,
         // and write the subset of feature bits understood by the OS and driver to the device.
-        common_cfg.virtio_set_driver_features(VIRTIO_F_VERSION_1);
-        common_cfg.virtio_set_driver_features(VIRTIO_F_ACCESS_PLATFORM);
-        common_cfg.virtio_set_driver_features(VIRTIO_NET_F_MAC);
-
-        let device_features = common_cfg.virtio_get_device_features();
-        let driver_features = common_cfg.virtio_get_driver_features();
-
+        let driver_features = VIRTIO_F_VERSION_1 | VIRTIO_F_ACCESS_PLATFORM | VIRTIO_NET_F_MAC;
+        let device_features = common_cfg.virtio_get_device_features()?;
         let negotiated_features = device_features & driver_features;
         common_cfg.virtio_set_driver_features(negotiated_features);
 
         // 5. Set the FEATURES_OK status bit. The driver MUST NOT accept new feature bits after this step.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK);
+        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK)?;
 
         // 6. Re-read device status to ensure the FEATURES_OK bit is still set:
         // otherwise, the device does not support our subset of features and the device is unusable.
-        let device_status = common_cfg.virtio_get_device_status();
+        let device_status = common_cfg.virtio_get_device_status()?;
         if device_status & VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK == 0 {
-            common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED);
+            common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(PCIeDeviceErr::InitFailure);
         }
 
         // 7. Perform device-specific setup.
-        let mac_addr = net_cfg.virtio_get_mac_addr();
+        let mac_addr = net_cfg.virtio_get_mac_addr()?;
 
         // 8. Set the DRIVER_OK status bit. At this point the device is “live”.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK);
+        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
 
         Ok(Self {
             _info: info,
