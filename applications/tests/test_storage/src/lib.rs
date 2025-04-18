@@ -30,28 +30,38 @@ async fn fatfs_test() {
         Ok(fs) => fs,
         Err(e) => panic!("Error new file system: {:?}", e),
     };
+
     let root_dir = fs.root_dir();
-    let mut file = match root_dir.create_file("file.txt") {
-        Ok(file) => file,
-        Err(e) => panic!("Error create file: {:?}", e),
-    };
+    let w_bytes;
+    {
+        let mut file = match root_dir.create_file("file.txt") {
+            Ok(file) => file,
+            Err(e) => panic!("Error create file: {:?}", e),
+        };
 
-    let data_to_write = b"Hello World!";
-    let w_bytes = match file.write(data_to_write) {
-        Ok(w_bytes) => w_bytes,
-        Err(e) => panic!("Erro write file: {:?}", e),
-    };
+        let data_to_write = b"Hello World!";
+        w_bytes = match file.write(data_to_write) {
+            Ok(w_bytes) => w_bytes,
+            Err(e) => panic!("Erro write file: {:?}", e),
+        };
+    }
 
-    let mut buf = Vec::new();
-    buf.resize(w_bytes, 0);
-    let _ = match file.read(&mut buf) {
-        Ok(r_bytes) => r_bytes,
-        Err(e) => panic!("Erro read file: {:?}", e),
-    };
+    {
+        let mut file = match root_dir.open_file("file.txt") {
+            Ok(file) => file,
+            Err(e) => panic!("Error open file: {:?}", e),
+        };
+        let mut buf = Vec::new();
+        buf.resize(w_bytes, 0);
+        let _ = match file.read(&mut buf) {
+            Ok(r_bytes) => r_bytes,
+            Err(e) => panic!("Erro read file: {:?}", e),
+        };
 
-    match core::str::from_utf8(&buf) {
-        Ok(s) => log::info!("Vec<u8> 内容 (UTF-8): {}", s),
-        Err(_) => log::info!("Vec<u8> 内容 (UTF-8): [不正な UTF-8 シーケンス]",),
+        match core::str::from_utf8(&buf) {
+            Ok(s) => log::info!("file.txt content: {}", s),
+            Err(_) => log::info!("Error converting to string"),
+        }
     }
 }
 
