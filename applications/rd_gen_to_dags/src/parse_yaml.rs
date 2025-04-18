@@ -119,21 +119,20 @@ nodes:
         assert!(result.is_ok());
         let dags = result.unwrap();
         assert_eq!(dags.len(), 1);
-        let nodes = dags[0].get_nodes();
-        assert_eq!(nodes.len(), 2);
+        let dag = &dags[0];
+        assert_eq!(dag.nodes.len(), 2);
+        assert_eq!(dag.nodes[0].end_to_end_deadline, None);
+        assert_eq!(dag.nodes[0].id, 0);
+        assert_eq!(dag.nodes[0].execution_time, 10);
+        assert_eq!(dag.nodes[0].period, Some(50));
+        assert_eq!(dag.nodes[0].out_links, vec![1]);
+        assert_eq!(dag.nodes[0].in_links, vec![]);
 
-        assert_eq!(nodes[0].get_end_to_end_deadline(), None);
-        assert_eq!(nodes[0].get_id(), 0);
-        assert_eq!(nodes[0].get_execution_time(), 10);
-        assert_eq!(nodes[0].get_period(), Some(50));
-        assert_eq!(nodes[0].get_out_links(), &vec![1]);
-        assert_eq!(nodes[0].get_in_links(), &vec![]);
-
-        assert_eq!(nodes[1].get_end_to_end_deadline(), Some(40));
-        assert_eq!(nodes[1].get_id(), 1);
-        assert_eq!(nodes[1].get_execution_time(), 20);
-        assert_eq!(nodes[1].get_period(), None);
-        assert_eq!(nodes[1].get_out_links(), &vec![]);
-        assert_eq!(nodes[1].get_in_links(), &vec![0]);
+        assert_eq!(dag.nodes[1].end_to_end_deadline, Some(40));
+        assert_eq!(dag.nodes[1].id, 1);
+        assert_eq!(dag.nodes[1].execution_time, 20);
+        assert_eq!(dag.nodes[1].period, None);
+        assert_eq!(dag.nodes[1].out_links, vec![]);
+        assert_eq!(dag.nodes[1].in_links, vec![0]);
     }
 }
