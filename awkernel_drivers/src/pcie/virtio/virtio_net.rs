@@ -3,6 +3,12 @@ use alloc::sync::Arc;
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
+#[derive(Debug)]
+pub enum VirtioDriverErr {
+    NoBar,
+    ReadFailure,
+}
+
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
 }
