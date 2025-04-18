@@ -72,14 +72,11 @@ pub struct VirtioNet {
 
 impl VirtioNet {
     pub fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let common_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_COMMON_CFG);
-        let net_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_DEVICE_CFG);
-        if common_cfg_cap.is_none() || net_cfg_cap.is_none() {
-            return Err(PCIeDeviceErr::InitFailure);
-        }
+        let common_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_COMMON_CFG)?;
+        let net_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_DEVICE_CFG)?;
 
-        let mut common_cfg = VirtioCommonConfig::new(&info, common_cfg_cap.unwrap())?;
-        let mut net_cfg = VirtioNetConfig::new(&info, net_cfg_cap.unwrap())?;
+        let mut common_cfg = VirtioCommonConfig::new(&info, common_cfg_cap)?;
+        let mut net_cfg = VirtioNetConfig::new(&info, net_cfg_cap)?;
 
         // 1. Reset the device.
         common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
@@ -119,13 +116,16 @@ impl VirtioNet {
         })
     }
 
-    fn virtio_pci_find_capability(info: &PCIeInfo, cfg_type: u8) -> Option<VirtioCap> {
+    fn virtio_pci_find_capability(
+        info: &PCIeInfo,
+        cfg_type: u8,
+    ) -> Result<VirtioCap, PCIeDeviceErr> {
         for cap in &info.virtio_caps {
             if cap.get_cfg_type() == cfg_type {
-                return Some(cap.clone());
+                return Ok(cap.clone());
             }
         }
-        None
+        Err(PCIeDeviceErr::InitFailure)
     }
 }
 
