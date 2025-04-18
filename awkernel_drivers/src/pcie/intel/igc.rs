@@ -2,6 +2,7 @@
 
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
 use awkernel_lib::net::net_device::{self, NetDevice};
+use igc_hw::IgcHw;
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
@@ -49,7 +50,8 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     // Read capabilities of PCIe.
     info.read_capability();
 
-    let igc = Igc::new(info);
+    let igc = Igc::new(info)?;
+
     let result = Arc::new(igc);
 
     // Add the network interface, if needed.
@@ -60,14 +62,17 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
 
 pub struct Igc {
     info: PCIeInfo,
+    hw: IgcHw,
     // Add more fields if needed.
 }
 
 impl Igc {
-    fn new(info: PCIeInfo) -> Self {
+    fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        let hw = IgcHw::default();
+
         // TODO: Initialize the device.
 
-        Self { info }
+        Ok(Igc { info, hw })
     }
 }
 
