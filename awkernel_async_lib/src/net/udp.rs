@@ -98,7 +98,7 @@ impl UdpSocket {
 
     #[inline(always)]
     pub fn leave_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), UdpSocketError> {
-        match self.socket_handle.join_multicast_v4(addr) {
+        match self.socket_handle.leave_multicast_v4(addr) {
             Ok(()) => Ok(()),
             Err(NetManagerError::SendError) => Err(UdpSocketError::SendError),
             Err(NetManagerError::MulticastInvalidIpv4Address) => {

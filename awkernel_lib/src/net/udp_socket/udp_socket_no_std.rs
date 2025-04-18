@@ -10,6 +10,8 @@ use alloc::{
     vec,
 };
 
+/// Map to keep track of the number of multicast joins for each interface and address.
+/// Mapping: (interface_id, addr) -> usize
 static NUM_MULTICAST_JOIN_IPV4: Mutex<BTreeMap<(u64, Ipv4Addr), usize>> =
     Mutex::new(BTreeMap::new());
 
@@ -217,7 +219,6 @@ impl super::SockUdp for UdpSocket {
         }
 
         if !addr.is_multicast() {
-            log::debug!("join_multicast_v4: not multicast addr: {addr}");
             return Err(NetManagerError::MulticastInvalidIpv4Address);
         }
 
@@ -225,19 +226,26 @@ impl super::SockUdp for UdpSocket {
             return Ok(());
         }
 
-        let mut node = MCSNode::new();
-        let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
 
-        use alloc::collections::btree_map::Entry;
+            use alloc::collections::btree_map::Entry;
 
-        match guard.entry((self.interface_id, addr)) {
-            Entry::Occupied(mut entry) => *entry.get_mut() += 1,
-            Entry::Vacant(entry) => {
-                crate::net::join_multicast_v4(self.interface_id, addr)?;
-                entry.insert(1);
-                self.joined_multicast_addr_v4.insert(addr);
+            match guard.entry((self.interface_id, addr)) {
+                Entry::Occupied(mut entry) => {
+                    // There are other sockets joined the multicast group on this interface.
+                    *entry.get_mut() += 1
+                }
+                Entry::Vacant(entry) => {
+                    // Join the multicast group if the interface is not already joined.
+                    crate::net::join_multicast_v4(self.interface_id, addr)?;
+                    entry.insert(1);
+                }
             }
         }
+
+        self.joined_multicast_addr_v4.insert(addr);
 
         Ok(())
     }
@@ -251,28 +259,34 @@ impl super::SockUdp for UdpSocket {
             return Ok(());
         }
 
-        let mut node = MCSNode::new();
-        let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
+        {
+            let mut node = MCSNode::new();
+            let mut guard = NUM_MULTICAST_JOIN_IPV4.lock(&mut node);
 
-        use alloc::collections::btree_map::Entry;
+            use alloc::collections::btree_map::Entry;
 
-        match guard.entry((self.interface_id, addr)) {
-            Entry::Occupied(mut entry) => {
-                let num = entry.get_mut();
+            match guard.entry((self.interface_id, addr)) {
+                Entry::Occupied(mut entry) => {
+                    let num = entry.get_mut();
 
-                if *num == 1 {
-                    crate::net::leave_multicast_v4(self.interface_id, addr)?;
-                    entry.remove();
-                } else {
-                    *num = num
-                        .checked_sub(1)
-                        .expect("leave_multicast_v4: underflow error");
+                    if *num == 1 {
+                        // Leave the multicast group if any other socket is not joined the group on this interface.
+                        crate::net::leave_multicast_v4(self.interface_id, addr)?;
+                        entry.remove();
+                    } else {
+                        // There are other sockets joined the multicast group on this interface.
+                        *num = num
+                            .checked_sub(1)
+                            .expect("leave_multicast_v4: underflow error");
+                    }
+                }
+                _ => {
+                    unreachable!();
                 }
             }
-            _ => {
-                unreachable!();
-            }
         }
+
+        self.joined_multicast_addr_v4.remove(&addr);
 
         Ok(())
     }
