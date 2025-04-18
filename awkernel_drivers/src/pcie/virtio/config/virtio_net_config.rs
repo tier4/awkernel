@@ -18,7 +18,7 @@ use crate::pcie::PCIeInfo;
 //     supported_tunnel_types: u32,
 // };
 
-const VIRTIO_PCI_NET_CFG_MAC_ADDR_OFFSET: usize = 0x00;
+const VIRTIO_NET_CONFIG_MAC: usize = 0x00;
 
 pub struct VirtioNetConfig {
     bar: BaseAddress,
@@ -43,7 +43,7 @@ impl VirtioNetConfig {
         for i in 0..6 {
             mac[i] = self
                 .bar
-                .read8(self.offset + VIRTIO_PCI_NET_CFG_MAC_ADDR_OFFSET + i)
+                .read8(self.offset + VIRTIO_NET_CONFIG_MAC + i)
                 .unwrap();
         }
         mac

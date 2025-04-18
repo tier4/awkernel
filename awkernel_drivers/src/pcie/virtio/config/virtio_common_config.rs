@@ -32,11 +32,11 @@ use crate::pcie::PCIeInfo;
 //     admin_queue_num: u16,   // read-only for driver
 // }
 
-const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET: usize = 0x00;
-const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET: usize = 0x04;
-const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET: usize = 0x08;
-const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET: usize = 0x0c;
-const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET: usize = 0x14;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT: usize = 0x00;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE: usize = 0x04;
+const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT: usize = 0x08;
+const VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE: usize = 0x0c;
+const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
 
 pub struct VirtioCommonConfig {
     bar: BaseAddress,
@@ -57,23 +57,19 @@ impl VirtioCommonConfig {
     }
 
     pub fn virtio_get_device_features(&mut self) -> u64 {
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET,
-            0,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 0);
         let low = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET)
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
             .ok_or(VirtioDriverErr::ReadFailure)
             .unwrap() as u64;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT_OFFSET,
-            1,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 1);
         let high = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_OFFSET)
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
             .ok_or(VirtioDriverErr::ReadFailure)
             .unwrap() as u64;
 
@@ -81,23 +77,19 @@ impl VirtioCommonConfig {
     }
 
     pub fn virtio_get_driver_features(&mut self) -> u64 {
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            0,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 0);
         let low = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET)
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
             .ok_or(VirtioDriverErr::ReadFailure)
             .unwrap() as u64;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            1,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 1);
         let high = self
             .bar
-            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET)
+            .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
             .ok_or(VirtioDriverErr::ReadFailure)
             .unwrap() as u64;
 
@@ -108,35 +100,27 @@ impl VirtioCommonConfig {
         let low = (features & 0xffffffff) as u32;
         let high = (features >> 32) as u32;
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            0,
-        );
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET,
-            low,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 0);
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, low);
 
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT_OFFSET,
-            1,
-        );
-        self.bar.write32(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_OFFSET,
-            high,
-        );
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 1);
+        self.bar
+            .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, high);
     }
 
     pub fn virtio_get_device_status(&self) -> u8 {
         self.bar
-            .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET)
+            .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS)
             .ok_or(VirtioDriverErr::ReadFailure)
             .unwrap()
     }
 
     pub fn virtio_set_device_status(&mut self, status: u8) {
         self.bar.write8(
-            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS_OFFSET,
+            self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS,
             self.virtio_get_device_status() | status,
         );
     }
