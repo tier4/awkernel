@@ -2169,11 +2169,19 @@ impl NetDevice for Igb {
             inner.multicast_addrs.add_addr(*addr);
 
             restart = inner.flags.contains(NetFlags::UP);
-        }
 
-        if restart {
-            self.down()?;
-            self.up()?;
+            if restart {
+                if matches!(
+                    inner.hw.get_mac_type(),
+                    MacType::Em82542Rev2_0 | MacType::Em82542Rev2_1
+                ) {
+                    drop(inner);
+                    self.down()?;
+                    self.up()?;
+                } else {
+                    inner.iff().or(Err(NetDevError::DeviceError))?;
+                }
+            }
         }
 
         Ok(())
@@ -2187,11 +2195,19 @@ impl NetDevice for Igb {
             inner.multicast_addrs.remove_addr(addr);
 
             restart = inner.flags.contains(NetFlags::UP);
-        }
 
-        if restart {
-            self.down()?;
-            self.up()?;
+            if restart {
+                if matches!(
+                    inner.hw.get_mac_type(),
+                    MacType::Em82542Rev2_0 | MacType::Em82542Rev2_1
+                ) {
+                    drop(inner);
+                    self.down()?;
+                    self.up()?;
+                } else {
+                    inner.iff().or(Err(NetDevError::DeviceError))?;
+                }
+            }
         }
 
         Ok(())
