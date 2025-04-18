@@ -29,7 +29,9 @@ struct RawData {
     nodes: Vec<RawNode>,
 }
 
+// TODO: Remove allow(dead_code).
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(super) struct NodeData {
     execution_time: u64,
     id: u32,
@@ -39,39 +41,14 @@ pub(super) struct NodeData {
     in_links: Vec<u32>,
 }
 
-impl NodeData {
-    pub(super) fn get_execution_time(&self) -> u64 {
-        self.execution_time
-    }
-    pub(super) fn get_id(&self) -> u32 {
-        self.id
-    }
-    pub(super) fn get_period(&self) -> Option<u64> {
-        self.period
-    }
-    pub(super) fn get_end_to_end_deadline(&self) -> Option<u64> {
-        self.end_to_end_deadline
-    }
-    pub(super) fn get_out_links(&self) -> &Vec<u32> {
-        &self.out_links
-    }
-    pub(super) fn get_in_links(&self) -> &Vec<u32> {
-        &self.in_links
-    }
-}
-
+// TODO: Remove allow(dead_code).
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct NodesData {
     nodes: Vec<NodeData>,
 }
 
-impl NodesData {
-    pub(super) fn get_nodes(&self) -> &Vec<NodeData> {
-        &self.nodes
-    }
-}
-
-fn process_raw_data(raw_data: RawData) -> NodesData {
+fn to_nodes(raw_data: RawData) -> NodesData {
     let mut nodes_map: BTreeMap<u32, NodeData> = raw_data
         .nodes
         .into_iter()
@@ -103,7 +80,9 @@ fn process_raw_data(raw_data: RawData) -> NodesData {
     NodesData { nodes }
 }
 
-pub(super) fn parse_dag(dag_files: &[&str]) -> Result<Vec<NodesData>, ParseError> {
+// TODO: Remove allow(dead_code) when the function is used.
+#[allow(dead_code)]
+pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<NodesData>, ParseError> {
     dag_files
         .iter()
         .map(|&dag_file| {
@@ -111,7 +90,7 @@ pub(super) fn parse_dag(dag_files: &[&str]) -> Result<Vec<NodesData>, ParseError
                 from_str(dag_file).map_err(|_| ParseError::UnmatchedYaml)?;
             match raw_data_vec.len() {
                 0 => Err(ParseError::EmptyYaml),
-                1 => Ok(process_raw_data(raw_data_vec.into_iter().next().unwrap())),
+                1 => Ok(to_nodes(raw_data_vec.into_iter().next().unwrap())),
                 _ => Err(ParseError::MultipleDocumentsFound),
             }
         })
@@ -136,7 +115,7 @@ nodes:
     execution_time: 20
     id: 1
 ";
-        let result = parse_dag(&[dag_file]);
+        let result = parse_dags(&[dag_file]);
         assert!(result.is_ok());
         let dags = result.unwrap();
         assert_eq!(dags.len(), 1);
