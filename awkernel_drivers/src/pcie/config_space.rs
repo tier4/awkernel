@@ -32,7 +32,7 @@ impl ConfigSpace {
         Some(*base + offset)
     }
 
-    pub fn _read_u8(&self, offset: usize) -> u8 {
+    pub fn read_u8(&self, offset: usize) -> u8 {
         match self {
             #[allow(unused_variables)]
             Self::IO(base) => {
