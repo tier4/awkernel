@@ -17,8 +17,7 @@ const VIRTIO_PCI_CAP_CFG_TYPE: usize = 0x03;
 const VIRTIO_PCI_CAP_BAR: usize = 0x04;
 const VIRTIO_PCI_CAP_OFFSET: usize = 0x08;
 
-#[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VirtioCap {
     cfg_type: u8,
     bar: u8,
@@ -38,15 +37,15 @@ impl VirtioCap {
         }
     }
 
-    pub fn _get_cfg_type(&self) -> u8 {
+    pub fn get_cfg_type(&self) -> u8 {
         self.cfg_type
     }
 
-    pub fn _get_bar(&self) -> u8 {
+    pub fn get_bar(&self) -> u8 {
         self.bar
     }
 
-    pub fn _get_offset(&self) -> u32 {
+    pub fn get_offset(&self) -> u32 {
         self.offset
     }
 }
