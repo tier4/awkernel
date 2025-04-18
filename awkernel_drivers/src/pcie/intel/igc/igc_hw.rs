@@ -46,13 +46,25 @@ pub const IGC_DEVICES: [(u16, u16); 15] = [
     (INTEL_VENDOR_ID, PCI_PRODUCT_INTEL_I226_V),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcMacType {
+    #[default]
     Undefined,
     I225,
 }
 
+/// Because Rust does not support default derives for [u32, 128],
+/// we prepare a struct to hold the array and implement `Default`.
 #[derive(Debug)]
+struct MtaShadow([u32; 128]);
+
+impl Default for MtaShadow {
+    fn default() -> Self {
+        Self([0; 128])
+    }
+}
+
+#[derive(Debug, Default)]
 pub(super) struct IgcMacInfo {
     addr: [u8; ETHER_ADDR_LEN],
     perm_addr: [u8; ETHER_ADDR_LEN],
@@ -69,7 +81,7 @@ pub(super) struct IgcMacInfo {
     pub(super) mta_reg_count: u16,
     uta_reg_count: u16,
 
-    mta_shadow: [u32; 128],
+    mta_shadow: MtaShadow,
     pub(super) rar_entry_count: u16,
 
     forced_speed_duplex: u8,
@@ -80,8 +92,9 @@ pub(super) struct IgcMacInfo {
     max_frame_size: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcFcMode {
+    #[default]
     None,
     RxPause,
     TxPause,
@@ -89,7 +102,7 @@ enum IgcFcMode {
     Default,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct IgcFcInfo {
     high_water: u32,           // Flow control high-water mark
     low_water: u32,            // Flow control low-water mark
@@ -101,27 +114,30 @@ struct IgcFcInfo {
     requested_mode: IgcFcMode, // FC mode requested by caller
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcPhyType {
+    #[default]
     Unknown,
     None,
     I225,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcSmartSpeed {
+    #[default]
     Default,
     On,
     Off,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcMediaType {
+    #[default]
     Unknown,
     Copper,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcPhyInfo {
     pub(super) phy_type: IgcPhyType,
 
@@ -144,15 +160,16 @@ pub(super) struct IgcPhyInfo {
     autoneg_wait_to_complete: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcNvmType {
+    #[default]
     Unknown,
     EepromSpi,
     FlashHw,
     Invm,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcNvmInfo {
     pub(super) nvm_type: IgcNvmType,
 
@@ -163,8 +180,9 @@ pub(super) struct IgcNvmInfo {
     pub(super) page_size: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusType {
+    #[default]
     Unknown,
     Pci,
     PciX,
@@ -172,8 +190,9 @@ enum IgcBusType {
     Reserved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusSpeed {
+    #[default]
     Unknown,
     Speed33,
     Speed66,
@@ -185,8 +204,9 @@ enum IgcBusSpeed {
     Reserved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusWidth {
+    #[default]
     Unknown = 0,
     PcieX1,
     PcieX2,
@@ -197,7 +217,7 @@ enum IgcBusWidth {
     Reserved,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcBusInfo {
     bus_type: IgcBusType,
     speed: IgcBusSpeed,
@@ -207,14 +227,14 @@ pub(super) struct IgcBusInfo {
     pci_cmd_word: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcDevSpecI225 {
     eee_disable: bool,
     pub(super) clear_semaphore_once: bool,
     mtu: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
     fc: IgcFcInfo,
