@@ -107,10 +107,12 @@ impl VirtioCommonConfig {
     }
 
     pub fn virtio_get_device_status(&self) -> Result<u8, VirtioDriverErr> {
-        self.bar
+        let status = self
+            .bar
             .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS)
-            .ok_or(VirtioDriverErr::ReadFailure)?
-            .into()
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(status)
     }
 
     pub fn virtio_set_device_status(&mut self, status: u8) {
