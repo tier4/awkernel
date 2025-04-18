@@ -71,4 +71,8 @@ where
         buf: &mut [u8],
         waker: &core::task::Waker,
     ) -> Result<Option<(usize, IpAddr, u16)>, NetManagerError>;
+
+    fn join_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError>;
+
+    fn leave_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError>;
 }
