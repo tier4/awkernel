@@ -715,6 +715,7 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
 ///
 /// Returns `Ok(announce_sent)` if the address was added successfully,
 /// where `announce_sent` indicates whether an initial immediate announcement has been sent.
+#[cfg(not(feature = "std"))]
 fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
@@ -729,6 +730,7 @@ fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManag
 ///
 /// Returns `Ok(leave_sent)` if the address was removed successfully,
 /// where `leave_sent` indicates whether an immediate leave packet has been sent.
+#[cfg(not(feature = "std"))]
 fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 

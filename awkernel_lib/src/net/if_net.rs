@@ -13,18 +13,12 @@
 //!
 //! These mutexes must be locked in the order shown above.
 
-use core::{
-    net::Ipv4Addr,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
-use alloc::{
-    collections::{btree_map, btree_set::BTreeSet, BTreeMap},
-    sync::Arc,
-};
+use alloc::{collections::BTreeMap, sync::Arc};
 use awkernel_async_lib_verified::ringq::RingQ;
 use smoltcp::{
-    iface::{Config, Interface, MulticastError, SocketSet},
+    iface::{Config, Interface, SocketSet},
     phy::{self, Checksum, Device, DeviceCapabilities},
     time::Instant,
     wire::HardwareAddress,
@@ -33,14 +27,25 @@ use smoltcp::{
 use crate::sync::{mcs::MCSNode, mutex::Mutex, rwlock::RwLock};
 
 use super::{
-    ether::{extract_headers, NetworkHdr, TransportHdr, ETHER_ADDR_LEN},
-    multicast::ipv4_addr_to_mac_addr,
+    ether::{extract_headers, NetworkHdr, TransportHdr},
     net_device::{EtherFrameBuf, EtherFrameRef, NetCapabilities, NetDevice, PacketHeaderFlags},
-    NetManagerError,
 };
 
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use core::net::Ipv4Addr;
+
+#[cfg(not(feature = "std"))]
+use super::{ether::ETHER_ADDR_LEN, multicast::ipv4_addr_to_mac_addr, NetManagerError};
+
+#[cfg(not(feature = "std"))]
+use smoltcp::iface::MulticastError;
+
+#[cfg(not(feature = "std"))]
+use alloc::{
+    collections::{btree_map, BTreeSet},
+    vec,
+    vec::Vec,
+};
 
 struct NetDriver {
     inner: Arc<dyn NetDevice + Sync + Send>,
@@ -181,7 +186,10 @@ pub(super) struct IfNetInner {
     pub(super) interface: Interface,
     pub(super) default_gateway_ipv4: Option<smoltcp::wire::Ipv4Address>,
 
+    #[cfg(not(feature = "std"))]
     multicast_addr_ipv4: BTreeSet<Ipv4Addr>,
+
+    #[cfg(not(feature = "std"))]
     multicast_addr_mac: BTreeMap<[u8; ETHER_ADDR_LEN], u32>,
 }
 
@@ -285,7 +293,11 @@ impl IfNet {
             inner: Mutex::new(IfNetInner {
                 interface,
                 default_gateway_ipv4: None,
+
+                #[cfg(not(feature = "std"))]
                 multicast_addr_ipv4: BTreeSet::new(),
+
+                #[cfg(not(feature = "std"))]
                 multicast_addr_mac: BTreeMap::new(),
             }),
             socket_set: RwLock::new(socket_set),
@@ -305,6 +317,7 @@ impl IfNet {
     ///
     /// Returns `Ok(leave_sent)` if the address was removed successfully,
     /// where `leave_sent` indicates whether an immediate leave packet has been sent.
+    #[cfg(not(feature = "std"))]
     pub fn leave_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
         if !addr.is_multicast() {
             return Err(NetManagerError::MulticastInvalidIpv4Address);
@@ -365,6 +378,7 @@ impl IfNet {
         })
     }
 
+    #[cfg(not(feature = "std"))]
     fn first_net_driver_ref<F, T>(&self, mut f: F) -> Result<T, NetManagerError>
     where
         F: FnMut(NetDriverRef) -> Result<T, NetManagerError>,
@@ -402,6 +416,7 @@ impl IfNet {
     /// Add an address to a list of subscribed multicast IP addresses.
     /// Returns `Ok(announce_sent)`` if the address was added successfully,
     /// where `announce_sent`` indicates whether an initial immediate announcement has been sent.
+    #[cfg(not(feature = "std"))]
     pub fn join_multicast_v4(&self, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
         if !addr.is_multicast() {
             return Err(NetManagerError::MulticastInvalidIpv4Address);
