@@ -26,26 +26,26 @@ pub struct VirtioNetConfig {
 }
 
 impl VirtioNetConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Self {
+    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
         let bar = info
             .get_bar(cap.get_bar() as usize)
-            .ok_or(VirtioDriverErr::NoBar)
-            .unwrap();
+            .ok_or(VirtioDriverErr::NoBar)?;
 
-        Self {
+        Ok(Self {
             bar,
             offset: cap.get_offset() as usize,
-        }
+        })
     }
 
-    pub fn virtio_get_mac_addr(&mut self) -> [u8; 6] {
+    pub fn virtio_get_mac_addr(&mut self) -> Result<[u8; 6], VirtioDriverErr> {
         let mut mac = [0u8; 6];
         for i in 0..6 {
             mac[i] = self
                 .bar
                 .read8(self.offset + VIRTIO_NET_CONFIG_MAC + i)
-                .unwrap();
+                .ok_or(VirtioDriverErr::ReadFailure)?;
         }
-        mac
+
+        Ok(mac)
     }
 }

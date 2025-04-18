@@ -44,56 +44,51 @@ pub struct VirtioCommonConfig {
 }
 
 impl VirtioCommonConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Self {
+    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
         let bar = info
             .get_bar(cap.get_bar() as usize)
-            .ok_or(VirtioDriverErr::NoBar)
-            .unwrap();
+            .ok_or(VirtioDriverErr::NoBar)?;
 
-        Self {
+        Ok(Self {
             bar,
             offset: cap.get_offset() as usize,
-        }
+        })
     }
 
-    pub fn virtio_get_device_features(&mut self) -> u64 {
+    pub fn virtio_get_device_features(&mut self) -> Result<u64, VirtioDriverErr> {
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 0);
         let low = self
             .bar
             .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE_SELECT, 1);
         let high = self
             .bar
             .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_FEATURE)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        (high << 32) | low
+        Ok((high << 32) | low)
     }
 
-    pub fn virtio_get_driver_features(&mut self) -> u64 {
+    pub fn virtio_get_driver_features(&mut self) -> Result<u64, VirtioDriverErr> {
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 0);
         let low = self
             .bar
             .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
         self.bar
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE_SELECT, 1);
         let high = self
             .bar
             .read32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap() as u64;
+            .ok_or(VirtioDriverErr::ReadFailure)? as u64;
 
-        (high << 32) | low
+        Ok((high << 32) | low)
     }
 
     pub fn virtio_set_driver_features(&mut self, features: u64) {
@@ -111,11 +106,11 @@ impl VirtioCommonConfig {
             .write32(self.offset + VIRTIO_PCI_COMMON_CFG_DRIVER_FEATURE, high);
     }
 
-    pub fn virtio_get_device_status(&self) -> u8 {
+    pub fn virtio_get_device_status(&self) -> Result<u8, VirtioDriverErr> {
         self.bar
             .read8(self.offset + VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS)
-            .ok_or(VirtioDriverErr::ReadFailure)
-            .unwrap()
+            .ok_or(VirtioDriverErr::ReadFailure)?
+            .into()
     }
 
     pub fn virtio_set_device_status(&mut self, status: u8) {
