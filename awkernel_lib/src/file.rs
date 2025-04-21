@@ -1,33 +1,20 @@
-use crate::sync::{mcs::MCSNode, mutex::Mutex};
+use crate::{heap::TALLOC, paging::PAGESIZE, sync::rwlock::RwLock};
 use alloc::{string::String, vec::Vec};
-use core::fmt;
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    fmt,
+};
 use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek, SeekFrom, Write,
 };
 
-const DISK_SIZE: usize = 1024 * 1024; // 1MB
-pub static mut FILE_MANAGER: Mutex<Option<FileManager>> = Mutex::new(None);
+pub static FILE_MANAGER: RwLock<Option<FileManager>> = RwLock::new(None);
+
+pub const MEMORY_FILESYSTEM_START: usize = 0;
+pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 pub struct FileManager {
-    disk: InMemoryDisk,
-    fs: FileSystem<InMemoryDisk>,
-}
-
-pub fn init_filesystem() {
-    let mut disk = InMemoryDisk::new(DISK_SIZE);
-    let options = FormatVolumeOptions::new();
-
-    if format_volume(&mut disk, options).is_ok() {
-        log::info!("FAT filesystem formatted successfully in memory!");
-    } else {
-        log::info!("Error formatting!");
-    }
-
-    let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
-
-    let mut node = MCSNode::new();
-    let mut file_manager = FILE_MANAGER.lock(&mut node);
-    *file_manager = Some(FileManager { disk, fs });
+    pub fs: FileSystem<InMemoryDisk>,
 }
 
 struct InMemoryDisk {
@@ -36,12 +23,45 @@ struct InMemoryDisk {
 }
 
 impl InMemoryDisk {
-    fn new(size: usize) -> Self {
-        let mut data = Vec::new();
-        data.resize(size, 0);
+    unsafe fn new(start: usize, size: usize) -> Self {
+        let ptr = start as *mut u8;
+        let data = Vec::from_raw_parts(ptr, 0, size);
         InMemoryDisk { data, position: 0 }
     }
 }
+
+pub fn init_filesystem() {
+    let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
+        panic!("Invalid layout")
+    };
+
+    let result = unsafe { TALLOC.alloc(layout) };
+    if result.is_null() {
+        panic!("NULL pointer");
+    }
+
+    let data =
+        unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
+    let disk = InMemoryDisk { data, position: 0 };
+
+    let options = FormatVolumeOptions::new();
+
+    let mut mutable_disk = disk;
+    if format_volume(&mut mutable_disk, options).is_ok() {
+        log::info!("FAT filesystem formatted successfully in memory!");
+    } else {
+        log::info!("Error formatting!");
+    }
+
+    let fs = FileSystem::new(mutable_disk, FsOptions::new()).expect("Error creating file system");
+
+    let mut file_manager = FILE_MANAGER.write();
+    *file_manager = Some(FileManager { fs });
+}
+
+//pub fn init_file_manager() {
+//FILE_MANAGER.call_once(|| Mutex::new(Some(FileManager::new())));
+//}
 
 impl IoBase for InMemoryDisk {
     type Error = InMemoryDiskError;
