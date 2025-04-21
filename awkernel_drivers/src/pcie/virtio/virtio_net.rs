@@ -6,7 +6,10 @@ use crate::pcie::{
     },
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
-use alloc::{borrow::Cow, sync::Arc};
+use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use awkernel_lib::net::net_device::{
+    EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+};
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
@@ -60,14 +63,13 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
 
     let result = Arc::new(virtio_net);
 
-    // TODO: add interface
-    // awkernel_lib::net::add_interface(result.clone(), None);
+    awkernel_lib::net::add_interface(result.clone(), None);
 
     Ok(result)
 }
 
 pub struct VirtioNet {
-    _mac_addr: [u8; 6],
+    mac_addr: [u8; 6],
 }
 
 impl VirtioNet {
@@ -111,9 +113,7 @@ impl VirtioNet {
         // 8. Set the DRIVER_OK status bit. At this point the device is “live”.
         common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
 
-        Ok(Self {
-            _mac_addr: mac_addr,
-        })
+        Ok(Self { mac_addr })
     }
 
     fn virtio_pci_find_capability(
@@ -132,5 +132,101 @@ impl VirtioNet {
 impl PCIeDevice for VirtioNet {
     fn device_name(&self) -> Cow<'static, str> {
         "Virtio-net".into()
+    }
+}
+
+impl NetDevice for VirtioNet {
+    fn num_queues(&self) -> usize {
+        todo!()
+    }
+
+    fn flags(&self) -> NetFlags {
+        todo!()
+    }
+
+    fn device_short_name(&self) -> Cow<'static, str> {
+        "virtio-net".into()
+    }
+
+    fn capabilities(&self) -> NetCapabilities {
+        NetCapabilities::empty()
+    }
+
+    fn link_status(&self) -> LinkStatus {
+        // TODO: Implement this
+        LinkStatus::Down
+    }
+
+    fn link_speed(&self) -> u64 {
+        // TODO: Implement this
+        10
+    }
+
+    fn mac_address(&self) -> [u8; 6] {
+        self.mac_addr
+    }
+
+    fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
+        todo!()
+    }
+
+    fn can_send(&self) -> bool {
+        todo!()
+    }
+
+    fn send(&self, _data: EtherFrameRef, _que_id: usize) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn up(&self) -> Result<(), NetDevError> {
+        // TODO: Implement this
+        Ok(())
+    }
+
+    fn down(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn irqs(&self) -> Vec<u16> {
+        // TODO: Implement this
+        Vec::new()
+    }
+
+    fn rx_irq_to_que_id(&self, _irq: u16) -> Option<usize> {
+        todo!()
+    }
+
+    fn add_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn remove_multicast_addr(&self, _addr: &[u8; 6]) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn poll_in_service(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn poll_mode(&self) -> bool {
+        // TODO: Implement this
+        false
+    }
+
+    fn poll(&self) -> bool {
+        todo!()
+    }
+
+    fn tick(&self) -> Result<(), NetDevError> {
+        todo!()
+    }
+
+    fn tick_msec(&self) -> Option<u64> {
+        // TODO: Implement this
+        None
     }
 }
