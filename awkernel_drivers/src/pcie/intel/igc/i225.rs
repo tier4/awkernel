@@ -243,7 +243,7 @@ impl IgcNvmOperations for I225NoFlash {
     }
 }
 
-fn igc_get_flash_presence_i225(info: &PCIeInfo) -> Result<bool, IgcDriverErr> {
+pub(super) fn igc_get_flash_presence_i225(info: &PCIeInfo) -> Result<bool, IgcDriverErr> {
     let eec = read_reg(info, IGC_EECD)?;
     Ok(eec & IGC_EECD_FLASH_DETECTED_I225 != 0)
 }
@@ -367,11 +367,9 @@ fn igc_acquire_swfw_sync_i225(
         let mut swfw_sync = read_reg(info, IGC_SW_FW_SYNC)?;
         if swfw_sync & (fwmask | swmask) == 0 {
             swfw_sync |= swmask;
-            if write_reg(info, IGC_SW_FW_SYNC, swfw_sync).is_err() {
-                igc_put_hw_semaphore_generic(info)?;
-                return Err(IgcDriverErr::SwfwSync);
-            }
-            return Ok(());
+            let result = write_reg(info, IGC_SW_FW_SYNC, swfw_sync);
+            igc_put_hw_semaphore_generic(info)?;
+            return result;
         }
 
         // Firmware currently using resource (fwmask)
