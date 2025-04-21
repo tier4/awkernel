@@ -37,14 +37,17 @@ impl VirtioCap {
         }
     }
 
+    #[inline(always)]
     pub fn get_cfg_type(&self) -> u8 {
         self.cfg_type
     }
 
+    #[inline(always)]
     pub fn get_bar(&self) -> u8 {
         self.bar
     }
 
+    #[inline(always)]
     pub fn get_offset(&self) -> u32 {
         self.offset
     }
