@@ -78,8 +78,12 @@ optional = true
 path = "../applications/tests/test_storage"
 optional = true
 
+[dependencies.test_filesystem]
+path = "../applications/tests/test_filesystem"
+optional = true
+
 [features]
-default = ["test_storage"]
+default = ["test_filesystem"]
 perf = ["awkernel_services/perf"]
 
 # Test applications
@@ -98,3 +102,4 @@ test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
 test_storage = ["dep:test_storage"]
+test_filesystem = ["dep:test_filesystem"]

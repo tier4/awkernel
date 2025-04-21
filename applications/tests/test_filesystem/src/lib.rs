@@ -3,6 +3,8 @@
 extern crate alloc;
 
 use alloc::{string::String, vec::Vec};
+use awkernel_lib::{file::FILE_MANAGER, sync::mcs::MCSNode};
+
 use core::fmt;
 use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek, SeekFrom, Write,
@@ -10,26 +12,18 @@ use fatfs::{
 
 pub async fn run() {
     awkernel_async_lib::spawn(
-        "test fatfs".into(),
-        fatfs_test(),
+        "test filesystem".into(),
+        filesystem_test(),
         awkernel_async_lib::scheduler::SchedulerType::FIFO,
     )
     .await;
 }
 
-async fn fatfs_test() {
-    let mut disk = InMemoryDisk::new(DISK_SIZE);
-    let options = FormatVolumeOptions::new();
+async fn filesystem_test() {
+    let mut node = MCSNode::new();
+    let file_manager = FILE_MANAGER.lock(&mut node);
 
-    if format_volume(&mut disk, options).is_ok() {
-        log::info!("FAT filesystem formatted successfully in memory!");
-    } else {
-        log::info!("Error formatting!");
-    }
-
-    let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
-
-    let root_dir = fs.root_dir();
+    let root_dir = file_manager.fs.root_dir();
     let w_bytes;
     {
         let mut file = match root_dir.create_file("file.txt") {

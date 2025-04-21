@@ -53,7 +53,9 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     test_dvfs::run().await; // test for DVFS
 
     #[cfg(feature = "test_storage")]
-    test_storage::run().await; // test for DVFS
+    test_storage::run().await; // test for fatfs
 
+    #[cfg(feature = "test_filesystem")]
+    test_filesystem::run().await; // test for file system
     Ok(())
 }

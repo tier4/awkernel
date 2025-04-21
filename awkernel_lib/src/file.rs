@@ -1,23 +1,19 @@
-#![no_std]
-
-extern crate alloc;
-
+use crate::sync::{mcs::MCSNode, mutex::Mutex};
 use alloc::{string::String, vec::Vec};
 use core::fmt;
 use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek, SeekFrom, Write,
 };
 
-pub async fn run() {
-    awkernel_async_lib::spawn(
-        "test fatfs".into(),
-        fatfs_test(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
-    )
-    .await;
+const DISK_SIZE: usize = 1024 * 1024; // 1MB
+pub static mut FILE_MANAGER: Mutex<Option<FileManager>> = Mutex::new(None);
+
+pub struct FileManager {
+    disk: InMemoryDisk,
+    fs: FileSystem<InMemoryDisk>,
 }
 
-async fn fatfs_test() {
+pub fn init_filesystem() {
     let mut disk = InMemoryDisk::new(DISK_SIZE);
     let options = FormatVolumeOptions::new();
 
@@ -29,41 +25,10 @@ async fn fatfs_test() {
 
     let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
 
-    let root_dir = fs.root_dir();
-    let w_bytes;
-    {
-        let mut file = match root_dir.create_file("file.txt") {
-            Ok(file) => file,
-            Err(e) => panic!("Error create file: {:?}", e),
-        };
-
-        let data_to_write = b"Hello World!";
-        w_bytes = match file.write(data_to_write) {
-            Ok(w_bytes) => w_bytes,
-            Err(e) => panic!("Erro write file: {:?}", e),
-        };
-    }
-
-    {
-        let mut file = match root_dir.open_file("file.txt") {
-            Ok(file) => file,
-            Err(e) => panic!("Error open file: {:?}", e),
-        };
-        let mut buf = Vec::new();
-        buf.resize(w_bytes, 0);
-        let _ = match file.read(&mut buf) {
-            Ok(r_bytes) => r_bytes,
-            Err(e) => panic!("Erro read file: {:?}", e),
-        };
-
-        match core::str::from_utf8(&buf) {
-            Ok(s) => log::info!("file.txt content: {}", s),
-            Err(_) => log::info!("Error converting to string"),
-        }
-    }
+    let mut node = MCSNode::new();
+    let mut file_manager = FILE_MANAGER.lock(&mut node);
+    *file_manager = Some(FileManager { disk, fs });
 }
-
-const DISK_SIZE: usize = 1024 * 1024; // 1MB
 
 struct InMemoryDisk {
     data: Vec<u8>,
