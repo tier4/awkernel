@@ -39,8 +39,8 @@ impl VirtioNetConfig {
 
     pub fn virtio_get_mac_addr(&mut self) -> Result<[u8; 6], VirtioDriverErr> {
         let mut mac = [0u8; 6];
-        for i in 0..6 {
-            mac[i] = self
+        for (i, byte) in mac.iter_mut().enumerate() {
+            *byte = self
                 .bar
                 .read8(self.offset + VIRTIO_NET_CONFIG_MAC + i)
                 .ok_or(VirtioDriverErr::ReadFailure)?;
