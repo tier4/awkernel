@@ -2162,12 +2162,10 @@ impl NetDevice for Igb {
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
-        let restart;
-
         let mut inner = self.inner.write();
         inner.multicast_addrs.add_addr(*addr);
 
-        restart = inner.flags.contains(NetFlags::UP);
+        let restart = inner.flags.contains(NetFlags::UP);
 
         if restart {
             if matches!(
