@@ -109,7 +109,7 @@ impl VirtioNet {
             common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(PCIeDeviceErr::InitFailure);
         }
-        if negotiated_features & VIRTIO_F_VERSION_1 != 0 {
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
             common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(PCIeDeviceErr::InitFailure);
         }
