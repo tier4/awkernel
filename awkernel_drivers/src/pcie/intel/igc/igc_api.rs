@@ -45,7 +45,7 @@ pub(super) fn igc_setup_init_funcs(
 ) -> Result<Box<dyn IgcOperations + Send + Sync>, IgcDriverErr> {
     let ops: Box<dyn IgcOperations + Send + Sync> = match hw.mac.mac_type {
         IgcMacType::I225 => {
-            if igc_get_flash_presence_i225(&info)? {
+            if igc_get_flash_presence_i225(info)? {
                 Box::new(I225Flash)
             } else {
                 Box::new(I225NoFlash)
