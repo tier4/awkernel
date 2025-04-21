@@ -63,8 +63,7 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
 
     let result = Arc::new(virtio_net);
 
-    // TODO: add interface
-    // awkernel_lib::net::add_interface(result.clone(), None);
+    awkernel_lib::net::add_interface(result.clone(), None);
 
     Ok(result)
 }
