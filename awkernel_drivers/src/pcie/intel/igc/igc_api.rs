@@ -1,4 +1,12 @@
-use super::{igc_hw::IgcHw, IgcDriverErr};
+use crate::pcie::PCIeInfo;
+
+use super::{
+    igc_get_flash_presence_i225,
+    igc_hw::{IgcHw, IgcMacOperations, IgcNvmOperations, IgcPhyOperations},
+    I225Flash, I225NoFlash, IgcDriverErr, IgcMacType, IgcOperations,
+};
+
+use alloc::boxed::Box;
 
 // This function sets the mac type of the adapter based on the
 // device ID stored in the hw structure.
@@ -29,4 +37,29 @@ pub(super) fn igc_set_mac_type(igc_hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
     };
 
     Ok(())
+}
+
+pub(super) fn igc_setup_init_funcs(
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<Box<dyn IgcOperations + Send + Sync>, IgcDriverErr> {
+    let ops: Box<dyn IgcOperations + Send + Sync> = match hw.mac.mac_type {
+        IgcMacType::I225 => {
+            if igc_get_flash_presence_i225(&info)? {
+                Box::new(I225Flash)
+            } else {
+                Box::new(I225NoFlash)
+            }
+        }
+        IgcMacType::Undefined => {
+            log::warn!("Unsupported MAC type: {:?}", hw.mac.mac_type);
+            return Err(IgcDriverErr::Config);
+        }
+    };
+
+    IgcMacOperations::init_params(ops.as_ref(), info, hw)?;
+    IgcNvmOperations::init_params(ops.as_ref(), info, hw)?;
+    IgcPhyOperations::init_params(ops.as_ref(), info, hw)?;
+
+    Ok(ops)
 }

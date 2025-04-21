@@ -66,7 +66,7 @@ impl Default for MtaShadow {
 
 #[derive(Debug, Default)]
 pub(super) struct IgcMacInfo {
-    addr: [u8; ETHER_ADDR_LEN],
+    pub(super) addr: [u8; ETHER_ADDR_LEN],
     perm_addr: [u8; ETHER_ADDR_LEN],
 
     pub(super) mac_type: IgcMacType,
@@ -87,9 +87,9 @@ pub(super) struct IgcMacInfo {
     forced_speed_duplex: u8,
 
     pub(super) asf_firmware_present: bool,
-    autoneg: bool,
+    pub(super) autoneg: bool,
     get_link_status: bool,
-    max_frame_size: u32,
+    pub(super) max_frame_size: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -150,14 +150,14 @@ pub(super) struct IgcPhyInfo {
 
     pub(super) media_type: IgcMediaType,
 
-    autoneg_advertised: u16,
+    pub(super) autoneg_advertised: u16,
     pub(super) autoneg_mask: u16,
 
-    mdix: u8,
+    pub(super) mdix: u8,
 
     polarity_correction: bool,
     speed_downgraded: bool,
-    autoneg_wait_to_complete: bool,
+    pub(super) autoneg_wait_to_complete: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -229,7 +229,7 @@ pub(super) struct IgcBusInfo {
 
 #[derive(Debug, Default)]
 pub(super) struct IgcDevSpecI225 {
-    eee_disable: bool,
+    pub(super) eee_disable: bool,
     pub(super) clear_semaphore_once: bool,
     mtu: u32,
 }
