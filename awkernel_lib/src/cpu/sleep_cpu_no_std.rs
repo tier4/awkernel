@@ -1,106 +1,121 @@
-use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-
-use array_macro::array;
-use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
-
-use crate::delay::wait_microsec;
-
 use super::{SleepCpu, NUM_MAX_CPU};
+use array_macro::array;
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
+/// CPU sleep/wakeup states
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SleepTag {
+    Idle = 0,    // CPU is running or just woke up
+    Waiting = 1, // CPU is halted waiting for wakeup
+    Waking = 2,  // Wake-up pending or in progress
+}
+
+/// Ready flag for initialization
 static READY: AtomicBool = AtomicBool::new(false);
 
-static CPU_SLEEP_STATES: [Mutex<SleepState>; NUM_MAX_CPU] =
-    array![_ => Mutex::new(SleepState::new()); NUM_MAX_CPU];
+/// Per-CPU sleep state tag
+static CPU_SLEEP_TAG: [AtomicU8; NUM_MAX_CPU] =
+    array![_ => AtomicU8::new(SleepTag::Idle as u8); NUM_MAX_CPU];
 
-static WAKE_COUNT: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU];
-
-static WAITING_INTR: [AtomicBool; NUM_MAX_CPU] = array![_ => AtomicBool::new(false); NUM_MAX_CPU];
-
-#[derive(Debug, Clone, Copy)]
-struct SleepState {
-    is_wake_up: bool,
-}
-
-impl SleepState {
-    const fn new() -> Self {
-        Self { is_wake_up: false }
-    }
-}
-
+/// SleepCpu implementation using state-machine and edge-triggered IPI
 pub(super) struct SleepCpuNoStd;
 
 impl SleepCpu for SleepCpuNoStd {
     fn sleep(&self) {
+        // wait until init
         if !READY.load(Ordering::Relaxed) {
-            wait_microsec(10);
+            crate::delay::wait_microsec(10);
             return;
         }
 
         let cpu_id = super::cpu_id();
 
-        let mut node = MCSNode::new();
-        let mut guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
-
-        if guard.is_wake_up {
-            guard.is_wake_up = false;
-            drop(guard);
-            WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
+        // if wake-up already pending, consume and return
+        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waking as u8 {
+            CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
             return;
         }
 
+        // mark waiting before halt
+        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Waiting as u8, Ordering::SeqCst);
+
+        // In case that there are any tasks to run,
+        // wake up the primary CPU to wake me up.
         Self::wake_up(0);
 
-        {
-            let _int_enable = crate::interrupt::InterruptEnable::new();
-            WAITING_INTR[cpu_id].store(true, Ordering::SeqCst);
-            crate::delay::wait_interrupt();
-        }
-        WAITING_INTR[cpu_id].store(false, Ordering::SeqCst);
+        // enable interrupts and halt until IPI arrives
+        let _int_enable = crate::interrupt::InterruptEnable::new();
+        crate::delay::wait_interrupt();
 
-        let cpu_id2 = super::cpu_id();
-        assert_eq!(cpu_id, cpu_id2); // check no CPU migration
-
-        drop(guard);
-
-        WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
+        // returned by IPI: set back to idle
+        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
     }
 
     fn wake_up(cpu_id: usize) -> bool {
+        // early exit if not ready or targeting self
         if !READY.load(Ordering::Relaxed) {
             return false;
         }
-
-        let my_cpu_id = crate::cpu::cpu_id();
-        if my_cpu_id == cpu_id {
+        let my_id = crate::cpu::cpu_id();
+        if my_id == cpu_id {
             return false;
         }
 
-        let count = WAKE_COUNT[cpu_id].load(Ordering::Relaxed);
-
-        let mut node = MCSNode::new();
-
-        if let Some(mut guard) = CPU_SLEEP_STATES[cpu_id].try_lock(&mut node) {
-            guard.is_wake_up = true;
-            return false;
-        } else {
-            while !WAITING_INTR[cpu_id].load(Ordering::Relaxed) {
-                if count != WAKE_COUNT[cpu_id].load(Ordering::Relaxed) {
+        // attempt state transitions until success or redundant
+        loop {
+            let tag = CPU_SLEEP_TAG[cpu_id].load(Ordering::Acquire);
+            match tag {
+                x if x == SleepTag::Idle as u8 => {
+                    // CPU not yet sleeping: schedule wake-up
+                    if CPU_SLEEP_TAG[cpu_id]
+                        .compare_exchange(
+                            SleepTag::Idle as u8,
+                            SleepTag::Waking as u8,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        return true;
+                    }
+                }
+                x if x == SleepTag::Waiting as u8 => {
+                    // CPU is halted: perform IPI
+                    if CPU_SLEEP_TAG[cpu_id]
+                        .compare_exchange(
+                            SleepTag::Waiting as u8,
+                            SleepTag::Waking as u8,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        let irq = crate::interrupt::get_wakeup_irq();
+                        crate::interrupt::send_ipi(irq, cpu_id as u32);
+                        return true;
+                    }
+                }
+                x if x == SleepTag::Waking as u8 => {
+                    // wake-up already pending
                     return false;
                 }
-                core::hint::spin_loop();
+                _ => {
+                    unreachable!()
+                }
             }
-            let irq = crate::interrupt::get_wakeup_irq();
-            crate::interrupt::send_ipi(irq, cpu_id as u32);
+            // retry on spurious failure
+            core::hint::spin_loop();
         }
-
-        true
     }
 }
 
+/// initialize
 pub(super) unsafe fn init() {
     READY.store(true, Ordering::Relaxed);
 }
 
+/// wait for init
 pub(super) fn wait_init() {
     while !READY.load(Ordering::Relaxed) {
         core::hint::spin_loop();
