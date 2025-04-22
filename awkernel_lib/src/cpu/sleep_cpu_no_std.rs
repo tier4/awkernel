@@ -14,6 +14,8 @@ static CPU_SLEEP_STATES: [Mutex<SleepState>; NUM_MAX_CPU] =
 
 static WAKE_COUNT: [AtomicU32; NUM_MAX_CPU] = array![_ => AtomicU32::new(0); NUM_MAX_CPU];
 
+static WAITING_INTR: [AtomicBool; NUM_MAX_CPU] = array![_ => AtomicBool::new(false); NUM_MAX_CPU];
+
 #[derive(Debug, Clone, Copy)]
 struct SleepState {
     is_awake: bool,
@@ -40,37 +42,34 @@ impl SleepCpu for SleepCpuNoStd {
 
         let cpu_id = super::cpu_id();
 
-        {
-            let mut node = MCSNode::new();
-            let mut guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
+        let mut node = MCSNode::new();
+        let mut guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
 
-            if guard.is_wake_up {
-                guard.is_wake_up = false;
-                drop(guard);
-                WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
-                return;
-            }
-
-            guard.is_awake = false;
+        if guard.is_wake_up {
+            guard.is_wake_up = false;
+            drop(guard);
+            WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
+            return;
         }
+
+        guard.is_awake = false;
 
         Self::wake_up(0);
 
         {
             let _int_enable = crate::interrupt::InterruptEnable::new();
+            WAITING_INTR[cpu_id].store(true, Ordering::SeqCst);
             crate::delay::wait_interrupt();
         }
+        WAITING_INTR[cpu_id].store(false, Ordering::SeqCst);
 
         let cpu_id2 = super::cpu_id();
         assert_eq!(cpu_id, cpu_id2); // check no CPU migration
 
-        {
-            let mut node = MCSNode::new();
-            let mut guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
+        guard.is_awake = true;
+        guard.is_wake_up = false;
 
-            guard.is_awake = true;
-            guard.is_wake_up = false;
-        }
+        drop(guard);
 
         WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
     }
@@ -85,44 +84,26 @@ impl SleepCpu for SleepCpuNoStd {
             return false;
         }
 
-        let mut node = MCSNode::new();
-        let mut guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
-
-        if guard.is_awake || guard.is_wake_up {
-            // The CPU is already awake or already notified.
-            return false;
-        }
-
-        guard.is_wake_up = true;
-
-        drop(guard);
-
         let count = WAKE_COUNT[cpu_id].load(Ordering::Relaxed);
 
-        let t = crate::time::Time::now();
-        'outer: loop {
+        let mut node = MCSNode::new();
+
+        if let Some(mut guard) = CPU_SLEEP_STATES[cpu_id].try_lock(&mut node) {
+            if guard.is_awake {
+                return false;
+            }
+
+            guard.is_wake_up = true;
+        } else {
+            while !WAITING_INTR[cpu_id].load(Ordering::Relaxed) {
+                if count != WAKE_COUNT[cpu_id].load(Ordering::Relaxed) {
+                    return false;
+                }
+                core::hint::spin_loop();
+            }
             let irq = crate::interrupt::get_wakeup_irq();
             crate::interrupt::send_ipi(irq, cpu_id as u32);
-
-            for _ in 0..100 {
-                for _ in 0..10 {
-                    if WAKE_COUNT[cpu_id].load(Ordering::Relaxed) != count {
-                        break 'outer;
-                    }
-                }
-
-                {
-                    let mut node = MCSNode::new();
-                    let guard = CPU_SLEEP_STATES[cpu_id].lock(&mut node);
-
-                    if guard.is_awake {
-                        break 'outer;
-                    }
-                }
-            }
         }
-
-        log::debug!("{} [ns]", t.elapsed().as_nanos());
 
         true
     }
