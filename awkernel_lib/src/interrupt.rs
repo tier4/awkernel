@@ -72,6 +72,8 @@ static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeM
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
 
+static WAKEUP_IRQ: AtomicU16 = AtomicU16::new(!0);
+
 fn empty() {}
 
 /// Return the list of IRQs and their handlers.
@@ -425,6 +427,43 @@ impl Drop for InterruptGuard {
     }
 }
 
+/// Enable interrupts and automatically restored the configuration.
+///
+/// ```
+/// {
+///     use awkernel_lib::interrupt::InterruptEnable;
+///
+///     let _int_enable = InterruptEnable::new();
+///     // interrupts are enabled.
+/// }
+/// // The configuration will be restored here.
+/// ```
+pub struct InterruptEnable {
+    flag: usize,
+}
+
+impl Default for InterruptEnable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InterruptEnable {
+    #[inline(always)]
+    pub fn new() -> Self {
+        let flag = ArchImpl::get_flag();
+        ArchImpl::enable();
+
+        Self { flag }
+    }
+}
+
+impl Drop for InterruptEnable {
+    fn drop(&mut self) {
+        ArchImpl::set_flag(self.flag);
+    }
+}
+
 /// Enable interrupts.
 pub fn enable() {
     ArchImpl::enable();
@@ -459,6 +498,18 @@ pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
 /// Return the IRQ number for preemption.
 pub fn get_preempt_irq() -> u16 {
     PREEMPT_IRQ.load(Ordering::Relaxed)
+}
+
+/// To wake up a sleeping CPU, interrupt of `irq` is sent.
+#[inline(always)]
+pub fn set_wakeup_irq(irq: u16) {
+    WAKEUP_IRQ.store(irq, Ordering::Relaxed);
+}
+
+/// Return the IRQ number for wakeup.
+#[inline(always)]
+pub fn get_wakeup_irq() -> u16 {
+    WAKEUP_IRQ.load(Ordering::Relaxed)
 }
 
 /// Check the initialization status of the interrupt module.

@@ -74,3 +74,13 @@ pub fn sleep_cpu() {
 pub fn wake_cpu(cpu_id: usize) -> bool {
     SleepCpuImpl::wake_up(cpu_id)
 }
+
+pub unsafe fn init_sleep() {
+    #[cfg(not(feature = "std"))]
+    sleep_cpu_no_std::init();
+}
+
+pub fn wait_init_sleep() {
+    #[cfg(not(feature = "std"))]
+    sleep_cpu_no_std::wait_init();
+}

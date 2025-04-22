@@ -48,27 +48,37 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
+        // Initialize interrupts.
         #[cfg(not(feature = "std"))]
-        awkernel_lib::interrupt::set_preempt_irq(
-            config::PREEMPT_IRQ,
-            awkernel_async_lib::task::preemption,
-        );
+        {
+            awkernel_lib::interrupt::set_preempt_irq(
+                config::PREEMPT_IRQ,
+                awkernel_async_lib::task::preemption,
+            );
 
-        // Set-up timer interrupt.
-        #[cfg(not(feature = "std"))]
-        if let Some(irq) = awkernel_lib::timer::irq_id() {
-            use alloc::boxed::Box;
+            // IRQ for wakeup CPUs.
+            awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
+            awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
 
-            awkernel_lib::interrupt::enable_irq(irq);
+            // Set-up timer interrupt.
+            if let Some(irq) = awkernel_lib::timer::irq_id() {
+                use alloc::boxed::Box;
 
-            let timer_callback = Box::new(|_irq| {
-                awkernel_lib::timer::reset();
-            });
+                awkernel_lib::interrupt::enable_irq(irq);
 
-            if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
+                let timer_callback = Box::new(|_irq| {
+                    awkernel_lib::timer::reset();
+                });
+
+                if awkernel_lib::interrupt::register_handler(
+                    irq,
+                    "local timer".into(),
+                    timer_callback,
+                )
                 .is_ok()
-            {
-                log::info!("A local timer has been initialized.");
+                {
+                    log::info!("A local timer has been initialized.");
+                }
             }
         }
 
@@ -87,6 +97,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         while NUM_READY_WORKER.load(Ordering::SeqCst) < (kernel_info.num_cpu - 1) as u16 {
             awkernel_lib::delay::wait_microsec(10);
         }
+
+        // Enable awkernel_lib::cpu::sleep_cpu() and awkernel_lib::cpu::wakeup_cpu().
+        unsafe { awkernel_lib::cpu::init_sleep() };
 
         loop {
             awkernel_lib::interrupt::disable();
@@ -109,7 +122,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
                     awkernel_lib::timer::reset();
-                    awkernel_lib::delay::wait_interrupt();
+                    awkernel_lib::cpu::sleep_cpu();
                     awkernel_lib::interrupt::disable();
                 } else {
                     awkernel_lib::delay::wait_microsec(10);
@@ -129,6 +142,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     #[cfg(not(feature = "std"))]
     {
         awkernel_lib::interrupt::enable_irq(config::PREEMPT_IRQ);
+        awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
 
         if let Some(irq) = awkernel_lib::timer::irq_id() {
             awkernel_lib::interrupt::enable_irq(irq);
@@ -136,6 +150,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     }
 
     NUM_READY_WORKER.fetch_add(1, Ordering::Relaxed);
+
+    awkernel_lib::cpu::wait_init_sleep();
 
     unsafe { task::run() }; // Execute tasks.
 }
