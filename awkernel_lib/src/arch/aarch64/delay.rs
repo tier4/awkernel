@@ -4,6 +4,7 @@ use core::ptr::{addr_of, addr_of_mut, read_volatile, write_volatile};
 static mut COUNT_START: u64 = 0;
 
 impl Delay for super::AArch64 {
+    #[inline(always)]
     fn wait_interrupt() {
         unsafe { core::arch::asm!("wfi") };
     }

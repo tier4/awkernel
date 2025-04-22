@@ -37,16 +37,31 @@ impl SleepCpu for SleepCpuNoStd {
             return;
         }
 
-        // mark waiting before halt
-        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Waiting as u8, Ordering::SeqCst);
-
         // In case that there are any tasks to run,
         // wake up the primary CPU to wake me up.
         Self::wake_up(0);
 
-        // enable interrupts and halt until IPI arrives
-        let _int_enable = crate::interrupt::InterruptEnable::new();
-        crate::delay::wait_interrupt();
+        {
+            // enable interrupts and halt until IPI arrives
+            let _int_enable = crate::interrupt::InterruptEnable::new();
+
+            // mark waiting before halt
+            match CPU_SLEEP_TAG[cpu_id].compare_exchange(
+                SleepTag::Idle as u8,
+                SleepTag::Waiting as u8,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => (),
+                Err(x) if x == SleepTag::Waking as u8 => {
+                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
+                    return;
+                }
+                _ => unreachable!(),
+            }
+
+            crate::delay::wait_interrupt();
+        }
 
         // returned by IPI: set back to idle
         CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
