@@ -60,8 +60,6 @@ impl SleepCpu for SleepCpuNoStd {
         let cpu_id2 = super::cpu_id();
         assert_eq!(cpu_id, cpu_id2); // check no CPU migration
 
-        guard.is_wake_up = false;
-
         drop(guard);
 
         WAKE_COUNT[cpu_id].fetch_add(1, Ordering::Relaxed);
