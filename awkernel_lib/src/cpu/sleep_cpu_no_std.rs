@@ -18,16 +18,12 @@ static WAITING_INTR: [AtomicBool; NUM_MAX_CPU] = array![_ => AtomicBool::new(fal
 
 #[derive(Debug, Clone, Copy)]
 struct SleepState {
-    is_awake: bool,
     is_wake_up: bool,
 }
 
 impl SleepState {
     const fn new() -> Self {
-        Self {
-            is_awake: true,
-            is_wake_up: false,
-        }
+        Self { is_wake_up: false }
     }
 }
 
@@ -52,8 +48,6 @@ impl SleepCpu for SleepCpuNoStd {
             return;
         }
 
-        guard.is_awake = false;
-
         Self::wake_up(0);
 
         {
@@ -66,7 +60,6 @@ impl SleepCpu for SleepCpuNoStd {
         let cpu_id2 = super::cpu_id();
         assert_eq!(cpu_id, cpu_id2); // check no CPU migration
 
-        guard.is_awake = true;
         guard.is_wake_up = false;
 
         drop(guard);
@@ -89,11 +82,8 @@ impl SleepCpu for SleepCpuNoStd {
         let mut node = MCSNode::new();
 
         if let Some(mut guard) = CPU_SLEEP_STATES[cpu_id].try_lock(&mut node) {
-            if guard.is_awake {
-                return false;
-            }
-
             guard.is_wake_up = true;
+            return false;
         } else {
             while !WAITING_INTR[cpu_id].load(Ordering::Relaxed) {
                 if count != WAKE_COUNT[cpu_id].load(Ordering::Relaxed) {
