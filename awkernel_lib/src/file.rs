@@ -14,20 +14,12 @@ pub const MEMORY_FILESYSTEM_START: usize = 0;
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 pub struct FileManager {
-    pub fs: FileSystem<InMemoryDisk>,
+    fs: FileSystem<InMemoryDisk>,
 }
 
 struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
-}
-
-impl InMemoryDisk {
-    unsafe fn new(start: usize, size: usize) -> Self {
-        let ptr = start as *mut u8;
-        let data = Vec::from_raw_parts(ptr, 0, size);
-        InMemoryDisk { data, position: 0 }
-    }
 }
 
 pub fn init_filesystem() {
@@ -159,12 +151,25 @@ pub struct FileDescriptor {
     entry: Option<fatfs::dir_entry::DirEntryEditor>,
 }
 
+#[derive(Debug)]
 pub enum FileManagerError {
     OpenError,
     CreateError,
     ReadError,
     WriteError,
     SeekError,
+}
+
+impl fmt::Display for FileManagerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FileManagerError::OpenError => write!(f, "Open failed"),
+            FileManagerError::CreateError => write!(f, "Create failed"),
+            FileManagerError::ReadError => write!(f, "Read failed"),
+            FileManagerError::WriteError => write!(f, "Write failed"),
+            FileManagerError::SeekError => write!(f, "Seek failed"),
+        }
+    }
 }
 
 impl FileDescriptor {
