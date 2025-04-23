@@ -60,6 +60,11 @@ impl SleepCpu for SleepCpuNoStd {
                 _ => unreachable!(),
             }
 
+            // Rare case:
+            // If an interrupt request is arrived and handled here,
+            // we cannot detect the interrupt by `wait_interrupt()`.
+            // To avoid the problem,
+
             crate::delay::wait_interrupt();
         }
 
