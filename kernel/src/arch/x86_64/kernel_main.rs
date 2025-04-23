@@ -141,7 +141,6 @@ fn kernel_main2(
     backup_next_frame: Option<PhysFrame>,
 ) {
     // 5. Enable logger.
-    unsafe { awkernel_lib::logger::init() };
     super::console::register_console();
 
     log::info!(

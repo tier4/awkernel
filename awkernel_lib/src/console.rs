@@ -151,7 +151,14 @@ pub fn register_console(console: Box<dyn Console>) {
     let mut node = MCSNode::new();
     let mut c = CONSOLE.console.lock(&mut node);
 
+    if c.is_some() {
+        return;
+    }
+
     *c = Some(console);
+
+    // Initialize the logger.
+    unsafe { crate::logger::init() };
 
     crate::logger::set_raw_console(&CONSOLE);
     log::set_max_level(log::LevelFilter::Debug);
