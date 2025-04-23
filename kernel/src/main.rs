@@ -17,6 +17,7 @@ use awkernel_async_lib::{
 use core::{
     fmt::Debug,
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
+    time::Duration,
 };
 use kernel_info::KernelInfo;
 
@@ -62,7 +63,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {
-                awkernel_lib::timer::reset();
+                awkernel_lib::timer::reset(Duration::from_micros(100)); // TODO: remove this
             });
 
             if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
@@ -104,11 +105,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             #[cfg(not(feature = "std"))]
             {
-                let _ = dur; // TODO: wait `dur` sec.
+                let _dur = dur.unwrap_or(Duration::from_secs(1)); // TODO: use this
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset();
+                    awkernel_lib::timer::reset(Duration::from_micros(20)); // TODO: use dur later
                     awkernel_lib::delay::wait_interrupt();
                     awkernel_lib::interrupt::disable();
                 } else {

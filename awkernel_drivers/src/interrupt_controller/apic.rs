@@ -9,7 +9,7 @@ use awkernel_lib::{
     paging::{Flags, PageTable},
     timer::Timer,
 };
-use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile};
+use core::{arch::x86_64::__cpuid, fmt::Debug, ptr::write_volatile, time::Duration};
 use x86_64::registers::model_specific::Msr;
 
 const TIMER_IRQ: u8 = 254;
@@ -124,11 +124,7 @@ pub trait Apic {
 
     fn write_timer_initial_count(&mut self, _count: u32);
 
-    fn create_timer(
-        &self,
-        timer_div: u32,
-        timer_initial_count: u32,
-    ) -> Box<dyn Timer + Send + Sync>;
+    fn create_timer(&self, timer_div: u32, clock_per_ms: u64) -> Box<dyn Timer + Send + Sync>;
 }
 
 pub fn new(
@@ -256,15 +252,11 @@ impl Apic for Xapic {
         registers::XAPIC_TIMER_INITIAL_COUNT.write(count, self.apic_base);
     }
 
-    fn create_timer(
-        &self,
-        timer_div: u32,
-        timer_initial_count: u32,
-    ) -> Box<dyn Timer + Send + Sync> {
+    fn create_timer(&self, timer_div: u32, clock_per_ms: u64) -> Box<dyn Timer + Send + Sync> {
         Box::new(TimerXapic {
             apic_base: self.apic_base,
             timer_div,
-            timer_initial_count,
+            clock_per_ms,
         })
     }
 }
@@ -309,14 +301,10 @@ impl Apic for X2Apic {
         unsafe { registers::X2APIC_TIMER_INITIAL_COUNT.write(count as u64) };
     }
 
-    fn create_timer(
-        &self,
-        timer_div: u32,
-        timer_initial_count: u32,
-    ) -> Box<dyn Timer + Send + Sync> {
+    fn create_timer(&self, timer_div: u32, clock_per_ms: u64) -> Box<dyn Timer + Send + Sync> {
         Box::new(TimerX2apic {
             timer_div,
-            timer_initial_count,
+            clock_per_ms,
         })
     }
 }
@@ -580,7 +568,7 @@ impl InterruptController for X2Apic {
 pub struct TimerXapic {
     apic_base: usize,
     timer_div: u32,
-    timer_initial_count: u32,
+    clock_per_ms: u64,
 }
 
 impl awkernel_lib::timer::Timer for TimerXapic {
@@ -588,10 +576,19 @@ impl awkernel_lib::timer::Timer for TimerXapic {
         TIMER_IRQ as u16
     }
 
-    fn reset(&self) {
+    fn reset(&self, dur: Duration) {
+        let ns = dur.as_nanos();
+
+        let initial_count = (self.clock_per_ms as u128) * ns / 1000_000;
+        let initial_count = if initial_count > 0xFFFF_FFFF {
+            0xFFFF_FFFF
+        } else {
+            initial_count as u32
+        };
+
         registers::XAPIC_LVT_TIMER.write(TIMER_IRQ as u32, self.apic_base);
         registers::XAPIC_TIMER_DIV.write(self.timer_div, self.apic_base);
-        registers::XAPIC_TIMER_INITIAL_COUNT.write(self.timer_initial_count, self.apic_base);
+        registers::XAPIC_TIMER_INITIAL_COUNT.write(initial_count, self.apic_base);
     }
 
     fn disable(&self) {
@@ -601,7 +598,7 @@ impl awkernel_lib::timer::Timer for TimerXapic {
 
 pub struct TimerX2apic {
     timer_div: u32,
-    timer_initial_count: u32,
+    clock_per_ms: u64,
 }
 
 impl awkernel_lib::timer::Timer for TimerX2apic {
@@ -609,11 +606,20 @@ impl awkernel_lib::timer::Timer for TimerX2apic {
         TIMER_IRQ as u16
     }
 
-    fn reset(&self) {
+    fn reset(&self, dur: Duration) {
+        let ns = dur.as_nanos();
+
+        let initial_count = (self.clock_per_ms as u128) * ns / 1000_000;
+        let initial_count = if initial_count > 0xFFFF_FFFF {
+            0xFFFF_FFFF
+        } else {
+            initial_count as u64
+        };
+
         unsafe {
             registers::X2APIC_LVT_TIMER.write(TIMER_IRQ as u64);
             registers::X2APIC_TIMER_DIV.write(self.timer_div as u64);
-            registers::X2APIC_TIMER_INITIAL_COUNT.write(self.timer_initial_count as u64);
+            registers::X2APIC_TIMER_INITIAL_COUNT.write(initial_count);
         }
     }
 
