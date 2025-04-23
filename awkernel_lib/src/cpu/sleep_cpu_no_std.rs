@@ -1,9 +1,9 @@
 use super::{SleepCpu, NUM_MAX_CPU};
 use array_macro::array;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// CPU sleep/wakeup states
-#[repr(u8)]
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SleepTag {
     Idle = 0,    // CPU is running or just woke up
@@ -15,8 +15,8 @@ enum SleepTag {
 static READY: AtomicBool = AtomicBool::new(false);
 
 /// Per-CPU sleep state tag
-static CPU_SLEEP_TAG: [AtomicU8; NUM_MAX_CPU] =
-    array![_ => AtomicU8::new(SleepTag::Idle as u8); NUM_MAX_CPU];
+static CPU_SLEEP_TAG: [AtomicU32; NUM_MAX_CPU] =
+    array![_ => AtomicU32::new(SleepTag::Idle as u32); NUM_MAX_CPU];
 
 /// SleepCpu implementation using state-machine and edge-triggered IPI
 pub(super) struct SleepCpuNoStd;
@@ -32,8 +32,8 @@ impl SleepCpu for SleepCpuNoStd {
         let cpu_id = super::cpu_id();
 
         // if wake-up already pending, consume and return
-        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waking as u8 {
-            CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
+        if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waking as u32 {
+            CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
             return;
         }
 
@@ -47,14 +47,14 @@ impl SleepCpu for SleepCpuNoStd {
 
             // mark waiting before halt
             match CPU_SLEEP_TAG[cpu_id].compare_exchange(
-                SleepTag::Idle as u8,
-                SleepTag::Waiting as u8,
+                SleepTag::Idle as u32,
+                SleepTag::Waiting as u32,
                 Ordering::SeqCst,
                 Ordering::Relaxed,
             ) {
                 Ok(_) => (),
-                Err(x) if x == SleepTag::Waking as u8 => {
-                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
+                Err(x) if x == SleepTag::Waking as u32 => {
+                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
                     return;
                 }
                 _ => unreachable!(),
@@ -64,7 +64,7 @@ impl SleepCpu for SleepCpuNoStd {
         }
 
         // returned by IPI: set back to idle
-        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u8, Ordering::Release);
+        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
     }
 
     fn wake_up(cpu_id: usize) -> bool {
@@ -81,12 +81,12 @@ impl SleepCpu for SleepCpuNoStd {
         loop {
             let tag = CPU_SLEEP_TAG[cpu_id].load(Ordering::Acquire);
             match tag {
-                x if x == SleepTag::Idle as u8 => {
+                x if x == SleepTag::Idle as u32 => {
                     // CPU not yet sleeping: schedule wake-up
                     if CPU_SLEEP_TAG[cpu_id]
                         .compare_exchange(
-                            SleepTag::Idle as u8,
-                            SleepTag::Waking as u8,
+                            SleepTag::Idle as u32,
+                            SleepTag::Waking as u32,
                             Ordering::AcqRel,
                             Ordering::Acquire,
                         )
@@ -95,12 +95,12 @@ impl SleepCpu for SleepCpuNoStd {
                         return true;
                     }
                 }
-                x if x == SleepTag::Waiting as u8 => {
+                x if x == SleepTag::Waiting as u32 => {
                     // CPU is halted: perform IPI
                     if CPU_SLEEP_TAG[cpu_id]
                         .compare_exchange(
-                            SleepTag::Waiting as u8,
-                            SleepTag::Waking as u8,
+                            SleepTag::Waiting as u32,
+                            SleepTag::Waking as u32,
                             Ordering::AcqRel,
                             Ordering::Acquire,
                         )
@@ -111,8 +111,10 @@ impl SleepCpu for SleepCpuNoStd {
                         return true;
                     }
                 }
-                x if x == SleepTag::Waking as u8 => {
+                x if x == SleepTag::Waking as u32 => {
                     // wake-up already pending
+                    let irq = crate::interrupt::get_wakeup_irq();
+                    crate::interrupt::send_ipi(irq, cpu_id as u32);
                     return false;
                 }
                 _ => {
