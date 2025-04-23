@@ -401,7 +401,7 @@ pub mod perf {
     pub fn add_task_end(cpu_id: usize, time: u64) {
         let task_id = get_current_task(cpu_id).unwrap_or(0);
         if task_id == 0 {
-            log::warn!("CPUID#{:?} is not running any task", cpu_id);
+            // log::warn!("CPUID#{:?} is not running any task", cpu_id);
             return;
         }
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);

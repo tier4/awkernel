@@ -43,22 +43,33 @@
 //!
 //! EL1 Physical Timer (CNTP)'s #IRQ is 30.
 
+use core::time::Duration;
+
 pub struct Armv8Timer {
     irq: u16,
-    scaler: u16,
 }
 
 impl Armv8Timer {
-    pub const fn new(irq: u16, scaler: u16) -> Self {
-        Armv8Timer { irq, scaler }
+    pub const fn new(irq: u16) -> Self {
+        Armv8Timer { irq }
     }
 }
 
 impl crate::timer::Timer for Armv8Timer {
-    fn reset(&self) {
-        let t = awkernel_aarch64::cntfrq_el0::get() >> self.scaler;
+    fn reset(&self, dur: Duration) {
+        let hz = awkernel_aarch64::cntfrq_el0::get() as u128;
+
+        let ns = dur.as_nanos();
+
+        let t = (hz * ns) / 1000_000_000;
+        let tval = if t > (u64::MAX as u128) {
+            u64::MAX
+        } else {
+            t as u64
+        };
+
         unsafe {
-            awkernel_aarch64::cntv_tval_el0::set(t);
+            awkernel_aarch64::cntv_tval_el0::set(tval);
             awkernel_aarch64::cntv_ctl_el0::set(1); // Enable interrupt.
         }
     }
