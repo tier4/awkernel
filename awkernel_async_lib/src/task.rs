@@ -398,11 +398,17 @@ pub mod perf {
         unsafe { write_volatile(&mut TASK_EXEC_TIMES_STARTS[cpu_id], time) };
     }
 
-    pub fn add_task_end(cpu_id: usize, time: u64) {
+    /// Measures the CPU resource usage of tasks.
+    /// Awkernel must call this whenever the CPU stops executing a task.
+    ///
+    /// # Return Value
+    ///
+    /// - `true`: There is a task running.
+    /// - `false`: There is no running task.
+    pub fn add_task_end(cpu_id: usize, time: u64) -> bool {
         let task_id = get_current_task(cpu_id).unwrap_or(0);
         if task_id == 0 {
-            log::warn!("CPUID#{:?} is not running any task", cpu_id);
-            return;
+            return false;
         }
         let task_index = (task_id as usize) & (MAX_MEASURE_SIZE - 1);
         let start = unsafe { read_volatile(&TASK_EXEC_TIMES_STARTS[cpu_id]) };
@@ -423,6 +429,8 @@ pub mod perf {
                 write_volatile(&mut TASK_EXEC_TIMES_STARTS[cpu_id], 0);
             }
         }
+
+        true
     }
 
     pub fn reset_task_exec_time(task_id: u32) {
