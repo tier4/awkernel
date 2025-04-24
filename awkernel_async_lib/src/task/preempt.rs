@@ -180,6 +180,9 @@ impl Drop for RunningTaskGuard {
 }
 
 unsafe fn do_preemption() {
+    #[cfg(feature = "perf")]
+    super::perf2::start_context_switch();
+
     // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
     let Some(task_id) = RunningTaskGuard::take() else {
@@ -251,6 +254,9 @@ unsafe fn do_preemption() {
 
 extern "C" fn thread_entry(arg: usize) -> ! {
     // Use only the primary heap memory region.
+
+    #[cfg(feature = "perf")]
+    super::perf2::start_kernel();
 
     #[cfg(not(feature = "std"))]
     unsafe {

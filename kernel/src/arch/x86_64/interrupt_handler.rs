@@ -288,8 +288,14 @@ extern "x86-interrupt" fn irq11(_stack_frame: InterruptStackFrame) {
 macro_rules! irq_handler {
     ($name:ident, $id:expr) => {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+            #[cfg(feature = "perf")]
+            let prev = awkernel_async_lib::task::perf2::start_interrupt();
+
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf2::transition_to(prev);
         }
     };
 }
@@ -520,6 +526,9 @@ irq_handler!(irq254, 254);
 
 extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
     #[cfg(feature = "perf")]
+    let prev = awkernel_async_lib::task::perf2::start_interrupt();
+
+    #[cfg(feature = "perf")]
     {
         add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
         add_context_save_start(
@@ -531,6 +540,9 @@ extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
 
     awkernel_lib::interrupt::eoi(); // End of interrupt.
     awkernel_lib::interrupt::handle_preemption();
+
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf2::transition_to(prev);
 
     #[cfg(feature = "perf")]
     {

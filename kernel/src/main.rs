@@ -36,6 +36,9 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf2::start_kernel();
+
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {

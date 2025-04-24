@@ -225,6 +225,9 @@ ESR  = 0x{:x}
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
     #[cfg(feature = "perf")]
+    let prev = awkernel_async_lib::task::perf2::start_interrupt();
+
+    #[cfg(feature = "perf")]
     {
         add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
         add_context_save_start(
@@ -235,6 +238,9 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
     }
 
     interrupt::handle_irqs();
+
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf2::transition_to(prev);
 
     #[cfg(feature = "perf")]
     {

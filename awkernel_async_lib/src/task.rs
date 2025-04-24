@@ -353,6 +353,145 @@ fn get_next_task() -> Option<Arc<Task>> {
 }
 
 #[cfg(feature = "perf")]
+pub mod perf2 {
+    use awkernel_lib::cpu::NUM_MAX_CPU;
+    use core::ptr::{read_volatile, write_volatile};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum PerfState {
+        Boot = 0,
+        Kernel,
+        Task,
+        ContextSwitch,
+        Interrupt,
+        Idle,
+    }
+
+    impl From<u8> for PerfState {
+        fn from(value: u8) -> Self {
+            match value {
+                0 => Self::Boot,
+                1 => Self::Kernel,
+                2 => Self::Task,
+                4 => Self::Interrupt,
+                3 => Self::ContextSwitch,
+                5 => Self::Idle,
+                _ => panic!("From<u8> for PerfState::from: invalid value"),
+            }
+        }
+    }
+
+    static mut PERF_STATES: [u8; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut START_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut KERNEL_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    fn update_time_and_state(next_state: PerfState) {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+
+        let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        if state == next_state {
+            return;
+        }
+
+        let end = awkernel_lib::delay::cpu_counter();
+        let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
+
+        if start > 0 {
+            assert!(start < end);
+
+            let diff = end - start;
+
+            match state {
+                PerfState::Kernel => unsafe {
+                    let t = read_volatile(&KERNEL_TIME[cpu_id]);
+                    write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                },
+                PerfState::Task => unsafe {
+                    let t = read_volatile(&TASK_TIME[cpu_id]);
+                    write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                },
+                PerfState::Interrupt => unsafe {
+                    let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
+                    write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                },
+                PerfState::ContextSwitch => unsafe {
+                    let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                },
+                PerfState::Idle => unsafe {
+                    let t = read_volatile(&IDLE_TIME[cpu_id]);
+                    write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                },
+                PerfState::Boot => (),
+            }
+        }
+
+        let cnt = awkernel_lib::delay::cpu_counter();
+
+        unsafe {
+            // Overhead of this.
+            let t = read_volatile(&PERF_TIME[cpu_id]);
+            write_volatile(&mut PERF_TIME[cpu_id], t + (end - start));
+
+            write_volatile(&mut START_TIME[cpu_id], cnt);
+            write_volatile(&mut PERF_STATES[cpu_id], next_state as u8);
+        }
+    }
+
+    #[inline(always)]
+    pub fn start_kernel() {
+        update_time_and_state(PerfState::Kernel);
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_task() {
+        update_time_and_state(PerfState::Task);
+    }
+
+    /// Return the previous state.
+    #[inline(always)]
+    pub fn start_interrupt() -> PerfState {
+        let cpu_id = awkernel_lib::cpu::cpu_id();
+        let previous: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
+        update_time_and_state(PerfState::Interrupt);
+        previous
+    }
+
+    #[inline(always)]
+    pub fn transition_to(next: PerfState) {
+        match next {
+            PerfState::Task => start_task(),
+            PerfState::Kernel => start_kernel(),
+            PerfState::Idle => start_idle(),
+            PerfState::Boot => unreachable!(),
+            PerfState::ContextSwitch => start_context_switch(),
+            PerfState::Interrupt => {
+                start_interrupt();
+            }
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    #[inline(always)]
+    pub(crate) fn start_context_switch() {
+        update_time_and_state(PerfState::ContextSwitch);
+    }
+
+    #[inline(always)]
+    pub(crate) fn start_idle() {
+        update_time_and_state(PerfState::Idle);
+    }
+}
+
+#[cfg(feature = "perf")]
 pub mod perf {
     use crate::task::get_current_task;
     use awkernel_lib::cpu::NUM_MAX_CPU;
@@ -679,6 +818,9 @@ pub mod perf {
 pub fn run_main() {
     loop {
         #[cfg(feature = "perf")]
+        perf2::start_kernel();
+
+        #[cfg(feature = "perf")]
         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
         if let Some(task) = get_next_task() {
@@ -703,6 +845,9 @@ pub fn run_main() {
                         );
                     }
 
+                    #[cfg(feature = "perf")]
+                    perf2::start_context_switch();
+
                     unsafe { preempt::yield_and_pool(ctx) };
 
                     #[cfg(feature = "perf")]
@@ -714,6 +859,9 @@ pub fn run_main() {
                         );
                         perf::add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
                     }
+
+                    #[cfg(feature = "perf")]
+                    perf2::start_kernel();
 
                     continue;
                 }
@@ -773,8 +921,14 @@ pub fn run_main() {
                         perf::add_task_start(cpu_id, cpu_counter());
                     }
 
+                    #[cfg(feature = "perf")]
+                    perf2::start_task();
+
                     #[allow(clippy::let_and_return)]
                     let result = guard.poll_unpin(&mut ctx);
+
+                    #[cfg(feature = "perf")]
+                    perf2::start_kernel();
 
                     #[cfg(feature = "perf")]
                     {
@@ -863,6 +1017,9 @@ pub fn run_main() {
         } else {
             #[cfg(feature = "perf")]
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
+
+            #[cfg(feature = "perf")]
+            perf2::start_idle();
 
             awkernel_lib::cpu::sleep_cpu();
 
