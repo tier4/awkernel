@@ -14,7 +14,10 @@ use thread::PtrWorkerThreadContext;
 #[cfg(feature = "perf")]
 use crate::task::{
     cpu_counter,
-    perf::{add_context_restore_start, add_context_save_end, ContextSwitchType},
+    perf::{
+        add_context_restore_end, add_context_restore_start, add_context_save_end,
+        add_kernel_time_end, add_task_start, ContextSwitchType,
+    },
 };
 
 pub mod thread;
@@ -281,6 +284,16 @@ extern "C" fn thread_entry(arg: usize) -> ! {
 ///
 /// Do not call this function during mutex locking.
 pub unsafe fn preemption() {
+    #[cfg(feature = "perf")]
+    {
+        add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
+        add_context_restore_start(
+            ContextSwitchType::Preempt,
+            awkernel_lib::cpu::cpu_id(),
+            cpu_counter(),
+        );
+    }
+
     let _int_guard = InterruptGuard::new();
 
     let _heap_guard = {
@@ -292,6 +305,16 @@ pub unsafe fn preemption() {
     if let Err(e) = catch_unwind(|| do_preemption()) {
         awkernel_lib::heap::TALLOC.use_primary_then_backup();
         log::error!("caught panic!: {e:?}");
+    }
+
+    #[cfg(feature = "perf")]
+    {
+        add_context_restore_end(
+            ContextSwitchType::Preempt,
+            awkernel_lib::cpu::cpu_id(),
+            cpu_counter(),
+        );
+        add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
     }
 }
 
