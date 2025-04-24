@@ -1,4 +1,5 @@
 use awkernel_lib::net::ether::ETHER_ADDR_LEN;
+use bitflags::bitflags;
 
 use crate::pcie::{
     intel::igc::{igc_defines::*, igc_regs::*, read_reg, write_reg, write_reg_array},
@@ -92,26 +93,33 @@ pub(super) struct IgcMacInfo {
     pub(super) max_frame_size: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum IgcFcMode {
-    #[default]
-    None,
-    RxPause,
-    TxPause,
-    Full,
-    Default,
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) struct IgcFcMode: u8 {
+        const None = 0;
+        const RxPause = 1 << 1;
+        const TxPause = 1 << 2;
+        const Full = 0b11;
+        const Default = 0xff;
+    }
+}
+
+impl Default for IgcFcMode {
+    fn default() -> Self {
+        IgcFcMode::Default
+    }
 }
 
 #[derive(Debug, Default)]
-struct IgcFcInfo {
-    high_water: u32,           // Flow control high-water mark
-    low_water: u32,            // Flow control low-water mark
-    pause_time: u16,           // Flow control pause timer
-    refresh_time: u16,         // Flow control refresh timer
-    send_xon: bool,            // Flow control send XON
-    strict_ieee: bool,         // Strict IEEE mode
-    current_mode: IgcFcMode,   // FC mode in effect
-    requested_mode: IgcFcMode, // FC mode requested by caller
+pub(super) struct IgcFcInfo {
+    pub(super) high_water: u32,           // Flow control high-water mark
+    pub(super) low_water: u32,            // Flow control low-water mark
+    pub(super) pause_time: u16,           // Flow control pause timer
+    refresh_time: u16,                    // Flow control refresh timer
+    pub(super) send_xon: bool,            // Flow control send XON
+    strict_ieee: bool,                    // Strict IEEE mode
+    pub(super) current_mode: IgcFcMode,   // FC mode in effect
+    pub(super) requested_mode: IgcFcMode, // FC mode requested by caller
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -237,7 +245,7 @@ pub(super) struct IgcDevSpecI225 {
 #[derive(Debug, Default)]
 pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
-    fc: IgcFcInfo,
+    pub(super) fc: IgcFcInfo,
     pub(super) phy: IgcPhyInfo,
     pub(super) nvm: IgcNvmInfo,
     pub(super) bus: IgcBusInfo,
@@ -274,9 +282,9 @@ pub(super) trait IgcMacOperations {
     fn init_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn setup_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn setup_physical_interface(
         &self,
         _info: &mut PCIeInfo,

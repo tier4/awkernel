@@ -7,7 +7,7 @@ use crate::pcie::{
 
 use super::{
     igc_defines::*,
-    igc_hw::{IgcHw, IgcOperations},
+    igc_hw::{IgcFcMode, IgcHw, IgcOperations},
     igc_regs::*,
     read_reg, write_reg, IgcDriverErr,
 };
@@ -111,4 +111,74 @@ pub(super) fn igc_put_hw_semaphore_generic(info: &mut PCIeInfo) -> Result<(), Ig
     swsm &= !(IGC_SWSM_SMBI | IGC_SWSM_SWESMBI);
 
     write_reg(info, IGC_SWSM, swsm)
+}
+
+// 408 }
+pub(super) fn igc_setup_link_generic(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // In the case of the phy reset being blocked, we already have a link.
+    // We do not need to set it up again.
+    match ops.check_reset_block(info) {
+        Ok(_) => (),
+        Err(IgcDriverErr::BlkPhyReset) => return Ok(()),
+        Err(e) => return Err(e),
+    }
+
+    // If requested flow control is set to default, set flow control
+    // for both 'rx' and 'tx' pause frames.
+    if hw.fc.requested_mode == IgcFcMode::Default {
+        hw.fc.requested_mode = IgcFcMode::Full;
+    }
+
+    // Save off the requested flow control mode for use later.  Depending
+    // on the link partner's capabilities, we may or may not use this mode.
+    hw.fc.current_mode = hw.fc.requested_mode;
+
+    // Call the necessary media_type subroutine to configure the link.
+    ops.setup_physical_interface(info, hw)?;
+
+    // Initialize the flow control address, type, and PAUSE timer
+    // registers to their default values.  This is done even if flow
+    // control is disabled, because it does not hurt anything to
+    // initialize these registers.
+    write_reg(info, IGC_FCT, FLOW_CONTROL_TYPE)?;
+    write_reg(info, IGC_FCAH, FLOW_CONTROL_ADDRESS_HIGH)?;
+    write_reg(info, IGC_FCAL, FLOW_CONTROL_ADDRESS_LOW)?;
+
+    write_reg(info, IGC_FCTTV, hw.fc.pause_time as u32)?;
+
+    igc_set_fc_watermarks_generic(info, hw)
+}
+
+///  Sets the flow control high/low threshold (watermark) registers.  If
+///  flow control XON frame transmission is enabled, then set XON frame
+///  transmission as well.
+fn igc_set_fc_watermarks_generic(info: &mut PCIeInfo, hw: &IgcHw) -> Result<(), IgcDriverErr> {
+    let mut fcrtl = 0;
+    let mut fcrth = 0;
+
+    // Set the flow control receive threshold registers.  Normally,
+    // these registers will be set to a default threshold that may be
+    // adjusted later by the driver's runtime code.  However, if the
+    // ability to transmit pause frames is not enabled, then these
+    // registers will be set to 0.
+    if hw.fc.current_mode.contains(IgcFcMode::TxPause) {
+        // We need to set up the Receive Threshold high and low water
+        // marks as well as (optionally) enabling the transmission of
+        // XON frames.
+        fcrtl = hw.fc.low_water;
+        if hw.fc.send_xon {
+            fcrtl |= IGC_FCRTL_XONE;
+        }
+
+        fcrth = hw.fc.high_water;
+    }
+
+    write_reg(info, IGC_FCRTL, fcrtl)?;
+    write_reg(info, IGC_FCRTH, fcrth)?;
+
+    Ok(())
 }

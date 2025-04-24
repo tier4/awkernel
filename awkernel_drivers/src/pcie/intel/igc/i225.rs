@@ -14,7 +14,7 @@ use super::{
     },
     igc_mac::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
-        igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic,
+        igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic, igc_setup_link_generic,
     },
     igc_nvm::{acquire_nvm, igc_read_nvm_eerd, igc_validate_nvm_checksum_generic},
     igc_phy::{
@@ -55,6 +55,10 @@ impl IgcMacOperations for I225Flash {
         mask: u16,
     ) -> Result<(), IgcDriverErr> {
         igc_release_swfw_sync_i225(info, hw, mask)
+    }
+
+    fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_setup_link_generic(self, info, hw)
     }
 }
 
@@ -175,6 +179,10 @@ impl IgcMacOperations for I225NoFlash {
         mask: u16,
     ) -> Result<(), IgcDriverErr> {
         igc_release_swfw_sync_i225(info, hw, mask)
+    }
+
+    fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_setup_link_generic(self, info, hw)
     }
 }
 

@@ -421,6 +421,9 @@ pub(super) const IGC_RAH_AV: u32 = 0x80000000; // Receive descriptor valid
 pub(super) const IGC_RAL_MAC_ADDR_LEN: usize = 4;
 pub(super) const IGC_RAH_MAC_ADDR_LEN: usize = 2;
 
+// Flow Control
+pub(super) const IGC_FCRTL_XONE: u32 = 0x80000000; // Enable XON frame transmission
+
 // Loop limit on how long we wait for auto-negotiation to complete
 pub(super) const COPPER_LINK_UP_LIMIT: u32 = 10;
 pub(super) const PHY_AUTO_NEG_LIMIT: u32 = 45;
