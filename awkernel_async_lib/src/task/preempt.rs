@@ -16,7 +16,7 @@ use crate::task::{
     cpu_counter,
     perf::{
         add_context_restore_end, add_context_restore_start, add_context_save_end,
-        add_kernel_time_end, add_task_start, ContextSwitchType,
+        add_context_save_start, add_kernel_time_end, add_task_start, ContextSwitchType,
     },
 };
 
@@ -287,7 +287,7 @@ pub unsafe fn preemption() {
     #[cfg(feature = "perf")]
     {
         add_kernel_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-        add_context_restore_start(
+        add_context_save_start(
             ContextSwitchType::Preempt,
             awkernel_lib::cpu::cpu_id(),
             cpu_counter(),
