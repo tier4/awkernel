@@ -292,3 +292,22 @@ pub(super) const IGC_SW_FW_SYNC: usize = 0x05B5C; // SW-FW Synchronization - RW
 pub(super) const IGC_FACTPS: usize = 0x05B30;
 pub(super) const IGC_SWSM: usize = 0x05B50; // SW Semaphore
 pub(super) const IGC_FWSM: usize = 0x05B54; // FW Semaphore
+
+// RSS registers
+pub(super) const IGC_MRQC: usize = 0x05818; // Multiple Receive Control - RW
+
+// Redirection Table - RW Array
+pub(super) const IGC_RETA: fn(usize) -> usize = |i| 0x05C00 + (i * 4);
+
+// RSS Random Key - RW Array
+pub(super) const IGC_RSSRK: fn(usize) -> usize = |i| 0x05C80 + (i * 4);
+pub(super) const IGC_UTA: usize = 0x0A000; // Unicast Table Array - RW
+
+// Energy Efficient Ethernet "EEE" registers
+pub(super) const IGC_IPCNFG: usize = 0x0E38; // Internal PHY Configuration
+pub(super) const IGC_LTRC: usize = 0x01A0; // Latency Tolerance Reporting Control
+pub(super) const IGC_EEER: usize = 0x0E30; // Energy Efficient Ethernet "EEE"
+pub(super) const IGC_EEE_SU: usize = 0x0E34; // EEE Setup
+pub(super) const IGC_EEE_SU_2P5: usize = 0x0E3C; // EEE 2.5G Setup
+pub(super) const IGC_TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
+pub(super) const IGC_RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
