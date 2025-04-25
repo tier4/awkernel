@@ -97,8 +97,8 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub(super) struct IgcFcMode: u8 {
         const None = 0;
-        const RxPause = 1 << 1;
-        const TxPause = 1 << 2;
+        const RxPause = 1;
+        const TxPause = 1 << 1;
         const Full = IgcFcMode::RxPause.bits() | IgcFcMode::TxPause.bits();
         const Default = 0xff;
     }
