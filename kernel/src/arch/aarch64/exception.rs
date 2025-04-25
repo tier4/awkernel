@@ -225,7 +225,7 @@ pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usiz
     interrupt::handle_irqs(is_task);
 
     #[cfg(feature = "perf")]
-    let prev = awkernel_async_lib::task::perf::transition_to(prev);
+    awkernel_async_lib::task::perf::transition_to(prev);
 }
 
 #[no_mangle]
