@@ -99,7 +99,7 @@ bitflags! {
         const None = 0;
         const RxPause = 1 << 1;
         const TxPause = 1 << 2;
-        const Full = 0b11;
+        const Full = IgcFcMode::RxPause.bits() | IgcFcMode::TxPause.bits();
         const Default = 0xff;
     }
 }

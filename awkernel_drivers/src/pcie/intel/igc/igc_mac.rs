@@ -113,7 +113,6 @@ pub(super) fn igc_put_hw_semaphore_generic(info: &mut PCIeInfo) -> Result<(), Ig
     write_reg(info, IGC_SWSM, swsm)
 }
 
-// 408 }
 pub(super) fn igc_setup_link_generic(
     ops: &dyn IgcOperations,
     info: &mut PCIeInfo,
