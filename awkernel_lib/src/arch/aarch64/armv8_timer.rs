@@ -61,7 +61,7 @@ impl crate::timer::Timer for Armv8Timer {
 
         let ns = dur.as_nanos();
 
-        let t = (hz * ns) / 1000_000_000;
+        let t = (hz * ns) / 1_000_000_000;
         let tval = if t > (u64::MAX as u128) {
             u64::MAX
         } else {

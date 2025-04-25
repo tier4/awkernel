@@ -579,7 +579,7 @@ impl awkernel_lib::timer::Timer for TimerXapic {
     fn reset(&self, dur: Duration) {
         let ns = dur.as_nanos();
 
-        let initial_count = (self.clock_per_ms as u128) * ns / 1000_000;
+        let initial_count = (self.clock_per_ms as u128) * ns / 1_000_000;
         let initial_count = if initial_count > 0xFFFF_FFFF {
             0xFFFF_FFFF
         } else {
@@ -609,7 +609,7 @@ impl awkernel_lib::timer::Timer for TimerX2apic {
     fn reset(&self, dur: Duration) {
         let ns = dur.as_nanos();
 
-        let initial_count = (self.clock_per_ms as u128) * ns / 1000_000;
+        let initial_count = (self.clock_per_ms as u128) * ns / 1_000_000;
         let initial_count = if initial_count > 0xFFFF_FFFF {
             0xFFFF_FFFF
         } else {

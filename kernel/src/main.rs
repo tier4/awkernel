@@ -17,7 +17,6 @@ use awkernel_async_lib::{
 use core::{
     fmt::Debug,
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
-    time::Duration,
 };
 use kernel_info::KernelInfo;
 
@@ -105,11 +104,11 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
             #[cfg(not(feature = "std"))]
             {
-                let _dur = dur.unwrap_or(Duration::from_secs(1)); // TODO: use this
+                let _dur = dur.unwrap_or(core::time::Duration::from_secs(1)); // TODO: use this
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset(Duration::from_micros(20)); // TODO: use dur later
+                    awkernel_lib::timer::reset(core::time::Duration::from_micros(20)); // TODO: use dur later
                     awkernel_lib::delay::wait_interrupt();
                     awkernel_lib::interrupt::disable();
                 } else {
