@@ -62,7 +62,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {
-                awkernel_lib::timer::reset(Duration::from_micros(100)); // TODO: remove this
+                awkernel_lib::timer::reset(core::time::Duration::from_micros(100));
+                // TODO: remove this
             });
 
             if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
