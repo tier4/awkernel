@@ -427,7 +427,9 @@ impl InterruptController for GICv3 {
     }
 
     fn irq_range(&self) -> (u16, u16) {
-        (1, 1024)
+        // IRQ #0: preemption
+        // IRQ #1: wakeup CPUs
+        (2, 1024)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
