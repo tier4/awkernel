@@ -75,11 +75,18 @@ pub fn wake_cpu(cpu_id: usize) -> bool {
     SleepCpuImpl::wake_up(cpu_id)
 }
 
+/// Initialize sleep.
+/// After calling this, `sleep_cpu()` and `wake_cpu()` will be available.
+///
+/// # Safety
+///
+/// This function must be called once during kernel initialization.
 pub unsafe fn init_sleep() {
     #[cfg(not(feature = "std"))]
     sleep_cpu_no_std::init();
 }
 
+/// Wait until `init_sleep()` is called.
 pub fn wait_init_sleep() {
     #[cfg(not(feature = "std"))]
     sleep_cpu_no_std::wait_init();
