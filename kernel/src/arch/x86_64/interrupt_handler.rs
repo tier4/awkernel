@@ -1,14 +1,6 @@
-use awkernel_async_lib::cpu_id;
-#[cfg(feature = "perf")]
-use awkernel_async_lib::{
-    cpu_counter,
-    task::perf::{
-        add_context_restore_end, add_context_save_start, add_task_end, add_task_start,
-        ContextSwitchType,
-    },
+use awkernel_lib::{
+    arch::x86_64::fault::inc_num_general_protection_fault, cpu::cpu_id, delay::wait_forever,
 };
-
-use awkernel_lib::{arch::x86_64::fault::inc_num_general_protection_fault, delay::wait_forever};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
@@ -530,12 +522,22 @@ extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
 
     #[cfg(feature = "perf")]
     {
-        add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-        add_context_save_start(
-            ContextSwitchType::Preempt,
-            awkernel_lib::cpu::cpu_id(),
-            cpu_counter(),
-        );
+        use awkernel_async_lib::{
+            cpu_counter,
+            task::perf::{add_kernel_time_start, add_task_end},
+        };
+
+        if !add_task_end(cpu_id(), cpu_counter()) {
+            return;
+        }
+        add_kernel_time_start(cpu_id(), cpu_counter());
+    }
+
+    #[cfg(not(feature = "perf"))]
+    {
+        if awkernel_async_lib::task::get_current_task(cpu_id()).is_none() {
+            return;
+        }
     }
 
     awkernel_lib::interrupt::eoi(); // End of interrupt.
@@ -543,16 +545,6 @@ extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
 
     #[cfg(feature = "perf")]
     awkernel_async_lib::task::perf2::transition_to(prev);
-
-    #[cfg(feature = "perf")]
-    {
-        add_context_restore_end(
-            ContextSwitchType::Preempt,
-            awkernel_lib::cpu::cpu_id(),
-            cpu_counter(),
-        );
-        add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
-    }
 }
 
 extern "x86-interrupt" fn alignment_check(stack_frame: InterruptStackFrame, error: u64) {
