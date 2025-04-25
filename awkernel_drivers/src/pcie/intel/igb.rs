@@ -2162,36 +2162,44 @@ impl NetDevice for Igb {
     }
 
     fn add_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
-        let restart;
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.add_addr(*addr);
 
-        {
-            let mut inner = self.inner.write();
-            inner.multicast_addrs.add_addr(*addr);
-
-            restart = inner.flags.contains(NetFlags::UP);
-        }
+        let restart = inner.flags.contains(NetFlags::UP);
 
         if restart {
-            self.down()?;
-            self.up()?;
+            if matches!(
+                inner.hw.get_mac_type(),
+                MacType::Em82542Rev2_0 | MacType::Em82542Rev2_1
+            ) {
+                drop(inner);
+                self.down()?;
+                self.up()?;
+            } else {
+                inner.iff().or(Err(NetDevError::DeviceError))?;
+            }
         }
 
         Ok(())
     }
 
     fn remove_multicast_addr(&self, addr: &[u8; 6]) -> Result<(), NetDevError> {
-        let restart;
+        let mut inner = self.inner.write();
+        inner.multicast_addrs.remove_addr(addr);
 
-        {
-            let mut inner = self.inner.write();
-            inner.multicast_addrs.remove_addr(addr);
-
-            restart = inner.flags.contains(NetFlags::UP);
-        }
+        let restart = inner.flags.contains(NetFlags::UP);
 
         if restart {
-            self.down()?;
-            self.up()?;
+            if matches!(
+                inner.hw.get_mac_type(),
+                MacType::Em82542Rev2_0 | MacType::Em82542Rev2_1
+            ) {
+                drop(inner);
+                self.down()?;
+                self.up()?;
+            } else {
+                inner.iff().or(Err(NetDevError::DeviceError))?;
+            }
         }
 
         Ok(())

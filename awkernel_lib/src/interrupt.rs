@@ -338,7 +338,7 @@ pub fn handle_irq(irq: u16) {
 /// Handle all pending interrupt requests.
 /// This function will be used by only aarch64 and called from CPU's interrupt handlers.
 #[cfg(feature = "aarch64")]
-pub fn handle_irqs() {
+pub fn handle_irqs(is_task: bool) {
     use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;
 
@@ -374,7 +374,7 @@ pub fn handle_irqs() {
         }
     }
 
-    if need_preemption {
+    if need_preemption && is_task {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
         preemption();

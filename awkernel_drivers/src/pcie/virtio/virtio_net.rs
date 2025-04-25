@@ -16,6 +16,9 @@ const VIRTIO_NET_ID: u16 = 0x1041;
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 
+// Reserved Feature Bits
+const VIRTIO_F_VERSION_1: u64 = 1 << 32;
+
 // device status bits
 const VIRTIO_CONFIG_DEVICE_STATUS_RESET: u8 = 0;
 const VIRTIO_CONFIG_DEVICE_STATUS_ACK: u8 = 1;
@@ -91,7 +94,7 @@ impl VirtioNet {
 
         // 4. Read device feature bits,
         // and write the subset of feature bits understood by the OS and driver to the device.
-        let driver_features = VIRTIO_NET_F_MAC;
+        let driver_features = VIRTIO_NET_F_MAC | VIRTIO_F_VERSION_1;
         let device_features = common_cfg.virtio_get_device_features()?;
         let negotiated_features = device_features & driver_features;
         common_cfg.virtio_set_driver_features(negotiated_features);
@@ -103,6 +106,10 @@ impl VirtioNet {
         // otherwise, the device does not support our subset of features and the device is unusable.
         let device_status = common_cfg.virtio_get_device_status()?;
         if device_status & VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK == 0 {
+            common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
+            return Err(PCIeDeviceErr::InitFailure);
+        }
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
             common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
             return Err(PCIeDeviceErr::InitFailure);
         }
