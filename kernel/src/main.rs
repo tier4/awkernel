@@ -67,7 +67,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 awkernel_lib::interrupt::enable_irq(irq);
 
                 let timer_callback = Box::new(|_irq| {
-                    awkernel_lib::timer::reset(core::time::Duration::from_micros(1));
+                    awkernel_lib::timer::reset(core::time::Duration::from_micros(10));
                 });
 
                 if awkernel_lib::interrupt::register_handler(
@@ -118,12 +118,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             #[cfg(not(feature = "std"))]
             {
                 let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
+
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
-                    awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset(dur);
-                    awkernel_lib::delay::wait_interrupt();
-                    awkernel_lib::interrupt::disable();
+                    awkernel_lib::timer::reset(dur); // start timer
+                    awkernel_lib::cpu::sleep_cpu();
+                    awkernel_lib::timer::disable();
                 } else {
                     awkernel_lib::delay::wait_microsec(10);
                 }

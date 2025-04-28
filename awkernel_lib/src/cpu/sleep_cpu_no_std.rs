@@ -37,10 +37,6 @@ impl SleepCpu for SleepCpuNoStd {
             return;
         }
 
-        // In case that there are any tasks to run,
-        // wake up the primary CPU to wake me up.
-        Self::wake_up(0);
-
         {
             // enable interrupts and halt until IPI arrives
             let _int_enable = crate::interrupt::InterruptEnable::new();
@@ -59,6 +55,10 @@ impl SleepCpu for SleepCpuNoStd {
                 }
                 _ => unreachable!(),
             }
+
+            // In case that there are any tasks to run,
+            // wake up the primary CPU to wake me up.
+            Self::wake_up(0);
 
             // Rare case:
             // If an interrupt request is arrived and handled here,
