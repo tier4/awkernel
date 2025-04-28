@@ -161,8 +161,7 @@ impl InterruptController for BCM2835IntCtrl {
 
     fn irq_range(&self) -> (u16, u16) {
         // IRQ #0: preemption
-        // IRQ #1: wakeup CPUs
-        (2, 128)
+        (1, 128)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {

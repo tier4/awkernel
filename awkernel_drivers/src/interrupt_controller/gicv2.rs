@@ -285,8 +285,7 @@ impl InterruptController for GICv2 {
 
     fn irq_range(&self) -> (u16, u16) {
         // IRQ #0: preemption
-        // IRQ #1: wakeup CPUs
-        (2, self.max_it)
+        (1, self.max_it)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {

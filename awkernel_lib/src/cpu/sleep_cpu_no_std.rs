@@ -134,6 +134,40 @@ impl SleepCpu for SleepCpuNoStd {
 
 /// initialize
 pub(super) unsafe fn init() {
+    use alloc::boxed::Box;
+
+    let wakeup_callback = Box::new(|_irq| {
+        // Because IPIs are edge-trigger,
+        // IPIs may be ignored.
+        // To make IPIs level trigger, timer interrupt is enabled in this handler.
+        // See "Race Case:" in `awkernel_lib::cpu::sleep_cpu_no_std::SleepCpuNoStd::sleep()`.
+        crate::timer::reset(core::time::Duration::from_micros(100));
+    });
+
+    if crate::interrupt::register_handler(
+        crate::interrupt::get_wakeup_irq(),
+        "wake-up CPUs".into(),
+        wakeup_callback,
+    )
+    .is_ok()
+    {
+        log::info!("A wake-up CPUs handler has been initialized.");
+    }
+
+    // Set-up timer interrupt.
+    if let Some(irq) = crate::timer::irq_id() {
+        crate::interrupt::enable_irq(irq);
+
+        let timer_callback = Box::new(|_irq| {
+            // Re-enable timer.
+            crate::timer::reset(core::time::Duration::from_micros(100));
+        });
+
+        if crate::interrupt::register_handler(irq, "local timer".into(), timer_callback).is_ok() {
+            log::info!("A local timer has been initialized.");
+        }
+    }
+
     READY.store(true, Ordering::Relaxed);
 }
 

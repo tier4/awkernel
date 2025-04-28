@@ -391,8 +391,7 @@ impl InterruptController for Xapic {
 
     fn irq_range(&self) -> (u16, u16) {
         // IRQ255 is used for preemption
-        // IRQ254 is used for wakeup
-        (32, 254)
+        (32, 255)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {
@@ -507,8 +506,7 @@ impl InterruptController for X2Apic {
 
     fn irq_range(&self) -> (u16, u16) {
         // IRQ255 is used for preemption
-        // IRQ254 is used for wakeup
-        (32, 254)
+        (32, 255)
     }
 
     fn irq_range_for_pnp(&self) -> (u16, u16) {

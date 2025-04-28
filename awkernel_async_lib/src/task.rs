@@ -873,6 +873,7 @@ pub fn run_main() {
             perf::add_idle_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
 
             awkernel_lib::cpu::sleep_cpu();
+            awkernel_lib::timer::disable();
 
             #[cfg(feature = "perf")]
             perf::add_idle_time_end(awkernel_lib::cpu::cpu_id(), cpu_counter());

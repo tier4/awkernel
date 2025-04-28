@@ -50,37 +50,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
 
         // Initialize interrupts.
         #[cfg(not(feature = "std"))]
-        {
-            awkernel_lib::interrupt::set_preempt_irq(
-                config::PREEMPT_IRQ,
-                awkernel_async_lib::task::preemption,
-            );
-
-            // IRQ for wakeup CPUs.
-            awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
-            awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
-
-            // Set-up timer interrupt.
-            if let Some(irq) = awkernel_lib::timer::irq_id() {
-                use alloc::boxed::Box;
-
-                awkernel_lib::interrupt::enable_irq(irq);
-
-                let timer_callback = Box::new(|_irq| {
-                    awkernel_lib::timer::reset(core::time::Duration::from_micros(10));
-                });
-
-                if awkernel_lib::interrupt::register_handler(
-                    irq,
-                    "local timer".into(),
-                    timer_callback,
-                )
-                .is_ok()
-                {
-                    log::info!("A local timer has been initialized.");
-                }
-            }
-        }
+        init_interrupt();
 
         awkernel_lib::sanity::check();
 
@@ -164,4 +134,16 @@ fn make_stdin_nonblocking() -> std::io::Result<()> {
     let fd = stdin.as_raw_fd();
 
     awkernel_lib::file_control::set_nonblocking(fd)
+}
+
+#[cfg(not(feature = "std"))]
+fn init_interrupt() {
+    awkernel_lib::interrupt::set_preempt_irq(
+        config::PREEMPT_IRQ,
+        awkernel_async_lib::task::preemption,
+    );
+
+    // IRQ for wakeup CPUs.
+    awkernel_lib::interrupt::set_wakeup_irq(config::WAKEUP_IRQ);
+    awkernel_lib::interrupt::enable_irq(config::WAKEUP_IRQ);
 }
