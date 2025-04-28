@@ -32,7 +32,7 @@ const DEVICE_MEM_END: PhyAddr = PhyAddr::new(0x4000_0000);
 const FLASH_START: PhyAddr = PhyAddr::new(0);
 const FLASH_END: PhyAddr = PhyAddr::new(0x0800_0000);
 
-const TIMER_IRQ: u8 = 27;
+const TIMER_IRQ: u16 = 27;
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
