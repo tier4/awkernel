@@ -96,6 +96,7 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     awkernel_lib::cpu::sleep_cpu();
                     awkernel_lib::timer::disable();
                 } else {
+                    let _irq_enable = awkernel_lib::interrupt::InterruptEnable::new();
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
