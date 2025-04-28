@@ -12,6 +12,10 @@ serde = { version = "1.0.219", default-features = false, features = ["derive"] }
 path = "../../awkernel_lib"
 default-features = false
 
+[dependencies.awkernel_async_lib]
+path = "../../awkernel_async_lib"
+default-features = false
+
 [features]
 default = []
 x86 = ["awkernel_lib/x86"]

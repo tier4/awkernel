@@ -60,6 +60,10 @@ pub struct Dag {
 }
 
 impl Dag {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     pub fn node_count(&self) -> usize {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);

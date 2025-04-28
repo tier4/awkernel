@@ -29,8 +29,6 @@ struct RawData {
     nodes: Vec<RawNode>,
 }
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct NodeData {
     execution_time: u64,
@@ -41,11 +39,44 @@ pub(super) struct NodeData {
     in_links: Vec<u32>,
 }
 
+impl NodeData {
+    pub(crate) fn get_execution_time(&self) -> u64 {
+        self.execution_time
+    }
+    pub(crate) fn get_id(&self) -> u32 {
+        self.id
+    }
+    pub(crate) fn get_period(&self) -> Option<u64> {
+        self.period
+    }
+    pub(crate) fn get_end_to_end_deadline(&self) -> Option<u64> {
+        self.end_to_end_deadline
+    }
+    pub(crate) fn get_out_links(&self) -> &Vec<u32> {
+        &self.out_links
+    }
+    pub(crate) fn get_in_links(&self) -> &Vec<u32> {
+        &self.in_links
+    }
+    pub(crate) fn is_source(&self) -> bool {
+        self.in_links.is_empty() && !self.period.is_none()
+    }
+    pub(crate) fn is_sink(&self) -> bool {
+        self.out_links.is_empty() && !self.end_to_end_deadline.is_none()
+    }
+}
+
 // TODO: Remove allow(dead_code).
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct DagData {
     nodes: Vec<NodeData>,
+}
+
+impl DagData {
+    pub(crate) fn get_nodes(&self) -> &Vec<NodeData> {
+        &self.nodes
+    }
 }
 
 fn convert_to_dag(raw_data: RawData) -> DagData {

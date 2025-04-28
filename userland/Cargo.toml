@@ -79,7 +79,7 @@ path = "../applications/tests/test_dvfs"
 optional = true
 
 [features]
-default = []
+default = ["rd_gen_to_dags"]
 perf = ["awkernel_services/perf"]
 
 # Evaluation applications
