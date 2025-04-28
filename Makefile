@@ -153,7 +153,7 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
-OVMF_PATH := $(shell cat ${HOME}/.ovfmpath)
+OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
 QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
 QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
