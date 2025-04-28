@@ -32,6 +32,8 @@ const DEVICE_MEM_END: PhyAddr = PhyAddr::new(0x4000_0000);
 const FLASH_START: PhyAddr = PhyAddr::new(0);
 const FLASH_END: PhyAddr = PhyAddr::new(0x0800_0000);
 
+const TIMER_IRQ: u8 = 27;
+
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
     device_tree_base: PhyAddr,
@@ -482,7 +484,7 @@ impl AArch64Virt {
 
         if timer_node.compatible(&["arm,armv8-timer"]) {
             // IRQ #27 is the recommended value.
-            let timer = Box::new(Armv8Timer::new(27));
+            let timer = Box::new(Armv8Timer::new(TIMER_IRQ));
 
             awkernel_lib::timer::register_timer(timer);
 
