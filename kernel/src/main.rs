@@ -72,12 +72,13 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         unsafe { awkernel_lib::cpu::init_sleep() };
 
         loop {
-            awkernel_lib::interrupt::disable();
+            // handle IRQs
+            {
+                let _irq_enable = awkernel_lib::interrupt::InterruptEnable::new();
+            }
 
             let dur = wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
-
-            awkernel_lib::interrupt::enable();
 
             #[cfg(feature = "std")]
             {
