@@ -181,3 +181,26 @@ fn igc_set_fc_watermarks_generic(info: &mut PCIeInfo, hw: &IgcHw) -> Result<(), 
 
     Ok(())
 }
+
+/// Setup the receive address registers by setting the base receive address
+/// register to the devices MAC address and clearing all the other receive
+/// address registers to 0.
+pub(super) fn igc_init_rx_addrs_generic(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    rar_count: u16,
+) -> Result<(), IgcDriverErr> {
+    // Setup the receive address
+
+    let mac_addr = hw.mac.addr;
+    ops.rar_set(info, hw, &mac_addr, 0)?;
+
+    // Zero out the other (rar_entry_count - 1) receive addresses
+    let mac_addr = [0; ETHER_ADDR_LEN];
+    for i in 1..rar_count {
+        ops.rar_set(info, hw, &mac_addr, i as usize)?;
+    }
+
+    Ok(())
+}

@@ -80,7 +80,7 @@ pub(super) struct IgcMacInfo {
     ifs_ratio: u16,
     ifs_step_size: u16,
     pub(super) mta_reg_count: u16,
-    uta_reg_count: u16,
+    pub(super) uta_reg_count: u16,
 
     mta_shadow: MtaShadow,
     pub(super) rar_entry_count: u16,
@@ -279,9 +279,8 @@ pub(super) trait IgcMacOperations {
     fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn init_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
