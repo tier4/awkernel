@@ -16,6 +16,8 @@ pub struct FileManager {
 }
 
 pub async fn run() {
+    awkernel_async_lib::spawn(name.into(), reader(), SchedulerType::FIFO).await;
+
     let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
         panic!("Invalid layout")
     };
@@ -77,6 +79,45 @@ pub async fn run() {
             Ok(s) => log::info!("file.txt content: {}", s),
             Err(_) => log::info!("Error converting to string"),
         }
+    }
+}
+
+struct FileSystemRead {
+    wait: bool,
+}
+
+impl Future for FileSystemRead {
+    type Output = Result<(), FileManagerError>;
+
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let m = self.get_mut();
+
+        if !m.wait {
+            return Poll::Ready(Ok(()));
+        }
+
+        m.wait = false;
+
+        match awkernel_lib::net::register_waker_for_transmit(
+            m.interface_id,
+            m.que_id,
+            cx.waker().clone(),
+        ) {
+            Ok(true) => Poll::Pending,
+            Ok(false) => Poll::Ready(Ok(())),
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+}
+
+async fn reader(interface_id: u64) {
+    loop {
+        let mut wait_read = FileSystemRead { wait: true }.await;
+
+        awkernellib::file::read(interface_id: u64);
     }
 }
 

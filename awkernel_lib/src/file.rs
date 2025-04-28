@@ -1,5 +1,12 @@
-use crate::{heap::TALLOC, paging::PAGESIZE, sync::rwlock::RwLock};
-use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use crate::{
+    addr::{virt_addr, Addr},
+    dma_pool::DMAPool,
+    heap::TALLOC,
+    paging::PAGESIZE,
+    sync::rwlock::RwLock,
+    sync::{mcs::MCSNode, mutex::Mutex},
+};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use core::{
     alloc::{GlobalAlloc, Layout},
     fmt,
@@ -8,6 +15,10 @@ use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, LossyOemCpConverter,
     NullTimeProvider, Read, Seek, SeekFrom, Write,
 };
+
+use self::if_file::{FileSystemCmd, FileSystemCmdInfo, IfFile};
+
+pub mod if_file;
 
 pub struct FileDescriptor {
     // Note first_cluster is None if file is empty
@@ -22,111 +33,125 @@ pub struct FileDescriptor {
 
 #[derive(Debug)]
 pub enum FileManagerError {
-    OpenError,
-    CreateError,
-    ReadError,
+    InvalidFilePath,
+    InvalidInterfaceID,
+    CannotFindInterface,
     WriteError,
-    SeekError,
+    ReadError,
+    NotYetImplemented,
+    InterfaceIsNotReady,
+
+    DeviceError,
 }
 
-impl fmt::Display for FileManagerError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            FileManagerError::OpenError => write!(f, "Open failed"),
-            FileManagerError::CreateError => write!(f, "Create failed"),
-            FileManagerError::ReadError => write!(f, "Read failed"),
-            FileManagerError::WriteError => write!(f, "Write failed"),
-            FileManagerError::SeekError => write!(f, "Seek failed"),
-        }
-    }
+static FILE_MANAGER: RwLock<FileManager> = RwLock::new(FileManager {
+    fd_to_file: BTreeMap::new(),
+    interface_id: 0,
+});
+
+struct FileInfo {
+    pub if_file: Arc<IfFile>,
+    write_buf: Vec<u8>,
+    read_buf: Vec<u8>,
+}
+
+pub struct FileManager {
+    fd_to_file: BTreeMap<u64, Arc<FileInfo>>,
+    interface_id: u64,
 }
 
 impl FileDescriptor {
     pub fn open_file(path: &str) -> Result<Self, FileManagerError> {
-        let file_manager = FILE_MANAGER.read();
-        let fs;
-        if let Some(fm) = &*file_manager {
-            fs = &fm.fs;
-        } else {
-            panic!("file_manager isn't initialized");
+        let len = path.len();
+        if len == 0 {
+            return Err(FileManagerError::InvalidFilePath);
+        }
+        // TODO:Insert mount directory check and choose which interface to use
+        let interface_id = 0;
+
+        let mut file_manager = FILE_MANAGER.write();
+
+        let file = file_manager
+            .fd_to_file
+            .get(&interface_id)
+            .ok_or(FileManagerError::CannotFindInterface)?;
+
+        let mut path_vec = Vec::with_capacity(len);
+
+        unsafe {
+            core::ptr::copy_nonoverlapping(path.as_ptr(), path_vec.as_mut_ptr(), len);
+            path_vec.set_len(len);
         }
 
-        let root_dir = fs.root_dir();
-        let result;
-        if let Ok(file) = root_dir.open_file(path) {
-            result = Ok(FileDescriptor {
-                first_cluster: file.first_cluster,
-                current_cluster: file.current_cluster,
-                offset: file.offset,
-                entry: file.entry.clone(),
-            })
-        } else {
-            result = Err(FileManagerError::OpenError)
-        }
-        result
+        file.if_file.cmd_queue.push(FileSystemCmdInfo {
+            cmd: FileSystemCmd::OPEN_CMD,
+            fd: -1,
+            path: path_vec,
+            size: 0,
+        });
+
+        Err(FileManagerError::NotYetImplemented)
     }
 
     pub fn create_file(path: &str) -> Result<Self, FileManagerError> {
-        let file_manager = FILE_MANAGER.read();
-        let fs;
-        if let Some(fm) = &*file_manager {
-            fs = &fm.fs;
-        } else {
-            panic!("file_manager isn't initialized");
-        }
-
-        let root_dir = fs.root_dir();
-        let result;
-        if let Ok(file) = root_dir.create_file(path) {
-            result = Ok(FileDescriptor {
-                first_cluster: file.first_cluster,
-                current_cluster: file.current_cluster,
-                offset: file.offset,
-                entry: file.entry.clone(),
-            })
-        } else {
-            result = Err(FileManagerError::CreateError)
-        }
-        result
+        Err(FileManagerError::NotYetImplemented)
     }
 
     pub fn read_file(self, buf: &mut [u8]) -> Result<usize, FileManagerError> {
-        let mut file_manager = FILE_MANAGER.write();
-        let fs;
-        if let Some(fm) = &mut *file_manager {
-            fs = &fm.fs;
-        } else {
-            panic!("file_manager isn't initialized");
-        }
-
-        let mut file = fatfs::File {
-            first_cluster: self.first_cluster,
-            current_cluster: self.current_cluster,
-            offset: self.offset,
-            entry: self.entry,
-            fs,
-        };
-
-        file.read(buf).map_err(|_| FileManagerError::ReadError)
+        Err(FileManagerError::NotYetImplemented)
     }
 
     pub fn write_file(self, buf: &[u8]) -> Result<usize, FileManagerError> {
-        let mut file_manager = FILE_MANAGER.write();
-        let fs;
-        if let Some(fm) = &mut *file_manager {
-            fs = &fm.fs;
-        } else {
-            panic!("file_manager isn't initialized");
-        }
-
-        let mut file = fatfs::File {
-            first_cluster: self.first_cluster,
-            current_cluster: self.current_cluster,
-            offset: self.offset,
-            entry: self.entry,
-            fs,
-        };
-
-        return file.write(buf).map_err(|_| FileManagerError::WriteError);
+        Err(FileManagerError::NotYetImplemented)
     }
+}
+
+/// The old waker will be replaced.
+/// The waker will be called when calling `wake_reader()`
+/// and it will be removed after it is called.
+///
+/// Returns true if the waker is registered successfully.
+/// Returns false if it is already notified.
+pub fn register_waker_for_read(
+    interface_id: u64,
+    que_id: usize,
+    waker: core::task::Waker,
+) -> Result<bool, FileManagerError> {
+    let file_manager = FILE_MANAGER.read();
+
+    let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
+        return Err(FileManagerError::InvalidInterfaceID);
+    };
+
+    let if_file = Arc::clone(if_file);
+    drop(file_manager);
+
+    if_file.register_waker_for_reader(que_id, waker)
+}
+
+pub fn wake_reader(interface_id: u64) {
+    let file_manager = FILE_MANAGER.read();
+
+    let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let if_file = Arc::clone(if_file);
+    drop(file_manager);
+
+    if_file.wake_reader();
+}
+
+#[inline(always)]
+pub fn read(interface_id: u64) {
+    let file_manager = FILE_MANAGER.read();
+
+    let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
+        return;
+    };
+
+    let if_file = Arc::clone(if_file);
+    drop(file_manager);
+
+    if_file.poll_read();
 }
