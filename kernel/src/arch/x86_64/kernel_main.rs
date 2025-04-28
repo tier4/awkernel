@@ -350,9 +350,9 @@ fn init_apic_timer(apic: &mut dyn Apic) {
     let mut total = 0;
     for _ in 0..10 {
         apic.write_timer_initial_count(!0);
-        awkernel_lib::delay::wait_microsec(20);
+        awkernel_lib::delay::wait_millisec(1);
 
-        let diff = !0 - apic.read_current_timer_count();
+        let diff = (!0 - apic.read_current_timer_count()) as u64;
         total += diff;
     }
 

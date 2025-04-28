@@ -4,8 +4,8 @@ use crate::pcie::PCIeInfo;
 
 use super::{
     igc_base::{
-        igc_acquire_phy_base, igc_power_down_phy_copper_base, igc_release_phy_base,
-        IGC_RAR_ENTRIES_BASE,
+        igc_acquire_phy_base, igc_init_hw_base, igc_power_down_phy_copper_base,
+        igc_release_phy_base, IGC_RAR_ENTRIES_BASE,
     },
     igc_defines::*,
     igc_hw::{
@@ -59,6 +59,10 @@ impl IgcMacOperations for I225Flash {
 
     fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_setup_link_generic(self, info, hw)
+    }
+
+    fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_init_hw_base(self, info, hw)
     }
 }
 
@@ -183,6 +187,10 @@ impl IgcMacOperations for I225NoFlash {
 
     fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_setup_link_generic(self, info, hw)
+    }
+
+    fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+        igc_init_hw_base(self, info, hw)
     }
 }
 

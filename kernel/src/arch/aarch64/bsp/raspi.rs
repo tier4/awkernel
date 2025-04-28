@@ -599,8 +599,7 @@ impl Raspi {
 
         if timer_node.compatible(&["arm,armv8-timer"]) {
             // IRQ #27 is the recommended value.
-            // every 1/2^19 = .000_001_9 [s].
-            let timer = Box::new(Armv8Timer::new(27, 19));
+            let timer = Box::new(Armv8Timer::new(27));
 
             awkernel_lib::timer::register_timer(timer);
 
