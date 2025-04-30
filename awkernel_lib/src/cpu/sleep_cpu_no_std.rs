@@ -101,7 +101,7 @@ impl SleepCpu for SleepCpuNoStd {
                     }
                 }
                 x if x == SleepTag::Waiting as u32 => {
-                    // CPU is halted: perform IPI
+                    // CPU is halted: send IPI
                     if CPU_SLEEP_TAG[cpu_id]
                         .compare_exchange(
                             SleepTag::Waiting as u32,
@@ -126,7 +126,7 @@ impl SleepCpu for SleepCpuNoStd {
                     unreachable!()
                 }
             }
-            // retry on spurious failure
+            // retry
             core::hint::spin_loop();
         }
     }
