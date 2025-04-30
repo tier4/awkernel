@@ -565,9 +565,7 @@ extern "x86-interrupt" fn double_fault(stack_frame: InterruptStackFrame, error: 
 }
 
 extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "general protection fault: stack_frame = {stack_frame:?}, error = {error}",
-    );
+    log::debug!("general protection fault: stack_frame = {stack_frame:?}, error = {error}",);
 
     // increment the number of general protection fault.
     inc_num_general_protection_fault(cpu_id());
@@ -578,9 +576,7 @@ extern "x86-interrupt" fn invalid_opcode(stack_frame: InterruptStackFrame) {
 }
 
 extern "x86-interrupt" fn invalid_tss(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "invalid tss: stack_frame = {stack_frame:?}, error = {error}",
-    );
+    log::debug!("invalid tss: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn machine_check(stack_frame: InterruptStackFrame) -> ! {
@@ -599,15 +595,11 @@ extern "x86-interrupt" fn overflow(stack_frame: InterruptStackFrame) {
 extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, error: PageFaultErrorCode) {
     let addr = x86_64::registers::control::Cr2::read();
 
-    log::debug!(
-        "page fault: addr = {addr:?}, stack_frame = {stack_frame:?}, error = {error:b}",
-    );
+    log::debug!("page fault: addr = {addr:?}, stack_frame = {stack_frame:?}, error = {error:b}",);
 }
 
 extern "x86-interrupt" fn security_exception(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "security exception: stack_frame = {stack_frame:?}, error = {error}",
-    );
+    log::debug!("security exception: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn segment_not_present(stack_frame: InterruptStackFrame, error: u64) {
@@ -622,9 +614,7 @@ extern "x86-interrupt" fn simd_floating_point(stack_frame: InterruptStackFrame) 
 }
 
 extern "x86-interrupt" fn stack_segment_fault(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "stack segment fault: stack_frame = {stack_frame:?}, error = {error}",
-    );
+    log::debug!("stack segment fault: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn virtualization(stack_frame: InterruptStackFrame) {
@@ -635,9 +625,7 @@ extern "x86-interrupt" fn vmm_communication_exception(
     stack_frame: InterruptStackFrame,
     error: u64,
 ) {
-    log::debug!(
-        "vmm communication exception: stack_frame = {stack_frame:?}, error = {error}",
-    );
+    log::debug!("vmm communication exception: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn x87_floating_point(stack_frame: InterruptStackFrame) {

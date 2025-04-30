@@ -2568,7 +2568,8 @@ impl IgbHw {
             }
 
             // Set the range of the calculated length.
-            let min_length = IGP_CABLE_LENGTH_TABLE[agc_value as usize].saturating_sub(IGP01E1000_AGC_RANGE);
+            let min_length =
+                IGP_CABLE_LENGTH_TABLE[agc_value as usize].saturating_sub(IGP01E1000_AGC_RANGE);
 
             let max_length = IGP_CABLE_LENGTH_TABLE[agc_value as usize] + IGP01E1000_AGC_RANGE;
 
