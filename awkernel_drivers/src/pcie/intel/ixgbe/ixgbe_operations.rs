@@ -484,7 +484,7 @@ fn negotiate_fc(
     use ixgbe_hw::FcMode::*;
 
     if (adv_reg == 0) || (lp_reg == 0) {
-        log::error!("Local or link partner's advertised flow control settings are NULL. Local: {:?}, link partner: {:?}", adv_reg, lp_reg);
+        log::error!("Local or link partner's advertised flow control settings are NULL. Local: {adv_reg:?}, link partner: {lp_reg:?}");
         return Err(FcNotNegotiated);
     }
 
@@ -707,7 +707,7 @@ pub fn get_sfp_init_sequence_offsets<T: IxgbeOperations + ?Sized>(
         )
         .is_err()
     {
-        log::error!("eeprom read at offset {} failed", IXGBE_PHY_INIT_OFFSET_NL);
+        log::error!("eeprom read at offset {IXGBE_PHY_INIT_OFFSET_NL} failed");
         return Err(SfpNoInitSeqPresent);
     }
 
@@ -2009,7 +2009,7 @@ fn clock_out_i2c_bit(info: &PCIeInfo, data: bool) -> Result<(), IxgbeDriverErr> 
             Ok(())
         }
         Err(_) => {
-            log::error!("I2C data was not set to {}\n", data);
+            log::error!("I2C data was not set to {data}.");
             Err(IxgbeDriverErr::I2c)
         }
     }
@@ -2103,7 +2103,7 @@ fn set_i2c_data(info: &PCIeInfo, mut i2cctl: u32, data: bool) -> Result<u32, Ixg
     match get_i2c_data(info, i2cctl)? {
         (true, new_i2cctl) => Ok(new_i2cctl),
         (false, _new_i2cctl) => {
-            log::error!("Error - I2C data was not set to {}.\n", data);
+            log::error!("Error - I2C data was not set to {data}.");
             Err(IxgbeDriverErr::I2c)
         }
     }
@@ -2235,7 +2235,7 @@ pub fn hic_unlocked(
     timeout: u32,
 ) -> Result<(), IxgbeDriverErr> {
     if (length == 0) || (length > IXGBE_HI_MAX_BLOCK_BYTE_LENGTH) {
-        log::debug!("Buffer length failure buffersize={}.", length);
+        log::debug!("Buffer length failure buffersize={length}.");
         return Err(IxgbeDriverErr::HostInterfaceCommand);
     }
 
@@ -2309,7 +2309,7 @@ pub fn host_interface_command<T: IxgbeOperations + ?Sized>(
     log::debug!("ixgbe: host_interface_command");
 
     if length == 0 || length > IXGBE_HI_MAX_BLOCK_BYTE_LENGTH {
-        log::debug!("ixgbe: Buffer length failure buffersize={}.\n", length);
+        log::debug!("ixgbe: Buffer length failure buffersize={length}.");
         return Err(IxgbeDriverErr::HostInterfaceCommand);
     }
 
@@ -2732,7 +2732,7 @@ pub fn read_eeprom_bit_bang_generic<T: IxgbeOperations + ?Sized>(
 
     if eeprom.eeprom_type == EepromType::IxgbeEepromUninitialized {
         ops.eeprom_init_params(info, eeprom)?;
-        log::debug!("Eeprom params: {:?}", eeprom);
+        log::debug!("Eeprom params: {eeprom:?}");
     }
 
     if offset >= eeprom.word_size {
@@ -3130,7 +3130,7 @@ pub trait IxgbeOperations: Send {
     ) -> Result<(), IxgbeDriverErr> {
         // Make sure we are using a valid rar index range
         if index >= num_rar_entries {
-            log::error!("RAR index {} is out of range.\n", index);
+            log::error!("RAR index {index} is out of range.");
             return Err(InvalidArgument);
         }
 
@@ -3162,7 +3162,7 @@ pub trait IxgbeOperations: Send {
     ) -> Result<(), IxgbeDriverErr> {
         // Make sure we are using a valid rar index range
         if index >= num_rar_entries {
-            log::error!("RAR index {} is out of range.\n", index);
+            log::error!("RAR index {index} is out of range.");
             return Err(IxgbeDriverErr::InvalidArgument);
         }
 
@@ -3606,7 +3606,7 @@ pub trait IxgbeOperations: Send {
         let mut links_reg = ixgbe_hw::read_reg(info, IXGBE_LINKS)?;
 
         if links_orig != links_reg {
-            log::debug!("LINKS changed from {:?} to {:?}\n", links_orig, links_reg);
+            log::debug!("LINKS changed from {links_orig:?} to {links_reg:?}");
         }
 
         let mut link_up = false;

@@ -6644,7 +6644,7 @@ impl IgbHw {
                 Ok(())
             }
             _ => {
-                log::warn!("igb: NVM word {:#x} is not mapped.", offset);
+                log::warn!("igb: NVM word {offset:#x} is not mapped.");
                 data[0] = NVM_RESERVED_WORD;
                 Ok(())
             }

@@ -12,7 +12,7 @@ pub enum VirtioDriverErr {
 
 impl From<VirtioDriverErr> for PCIeDeviceErr {
     fn from(value: VirtioDriverErr) -> Self {
-        log::error!("virtio: {:?}", value);
+        log::error!("virtio: {value}");
         match value {
             VirtioDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
             _ => PCIeDeviceErr::InitFailure,

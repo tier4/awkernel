@@ -358,7 +358,7 @@ enum PCIeInt {
 
 impl From<IgbDriverErr> for PCIeDeviceErr {
     fn from(value: IgbDriverErr) -> Self {
-        log::error!("igb: {:?}", value);
+        log::error!("igb: {value:?}");
 
         match value {
             IgbDriverErr::NotImplemented => PCIeDeviceErr::NotImplemented,
@@ -1819,7 +1819,7 @@ fn allocate_msix(
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
 
-    let irq_name_tx = format!("{}-{}-Other", DEVICE_SHORT_NAME, bfd);
+    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
     let mut irq_other = msix
         .register_handler(
             irq_name_tx.into(),
@@ -2110,10 +2110,10 @@ impl NetDevice for Igb {
         if !inner.flags.contains(NetFlags::UP) {
             if let Err(err_init) = inner.init(&self.que) {
                 if let Err(err_stop) = inner.stop(true, &self.que) {
-                    log::error!("igb: stop failed: {:?}", err_stop);
+                    log::error!("igb: stop failed: {err_stop:?}");
                 }
 
-                log::error!("igb: init failed: {:?}", err_init);
+                log::error!("igb: init failed: {err_init:?}");
                 Err(NetDevError::DeviceError)
             } else {
                 inner.flags.insert(NetFlags::UP);
@@ -2129,7 +2129,7 @@ impl NetDevice for Igb {
 
         if inner.flags.contains(NetFlags::UP) {
             if let Err(e) = inner.stop(true, &self.que) {
-                log::error!("igb: stop failed: {:?}", e);
+                log::error!("igb: stop failed: {e:?}");
                 Err(NetDevError::DeviceError)
             } else {
                 inner.flags.remove(NetFlags::UP);

@@ -19,7 +19,7 @@ static mut X86_FRAME_BUFFER: Option<X86FrameBuffer> = None;
 ///
 /// This function must be called at initialization.
 pub unsafe fn init(info: FrameBufferInfo, buffer: &'static mut [u8]) {
-    log::debug!("Frame buffer has been initialized: {:?}", info);
+    log::debug!("Frame buffer has been initialized: {info:?}");
 
     X86_FRAME_BUFFER = Some(X86FrameBuffer {
         inner: X86FrameBufferInner {
