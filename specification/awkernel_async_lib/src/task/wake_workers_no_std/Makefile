@@ -2,7 +2,7 @@ pan.c: wake_workers.pml
 	spin -a $<
 
 pan: pan.c
-	gcc -O3 -o $@ $<
+	gcc -O3 -DCOLLAPSE -o $@ $<
 
 run: pan
 	rm -f *.trail

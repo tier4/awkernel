@@ -37,10 +37,6 @@ impl SleepCpu for SleepCpuNoStd {
             return;
         }
 
-        // In case that there are any tasks to run,
-        // wake up the primary CPU to wake me up.
-        Self::wake_up(0);
-
         {
             // enable interrupts and halt until IPI arrives
             let _int_enable = crate::interrupt::InterruptEnable::new();
@@ -60,12 +56,20 @@ impl SleepCpu for SleepCpuNoStd {
                 _ => unreachable!(),
             }
 
-            // Rare case:
-            // If an interrupt request is arrived and handled here,
-            // we cannot detect the interrupt by `wait_interrupt()`.
-            // To avoid the problem,
+            // In case that there are any tasks to run,
+            // wake up the primary CPU to wake me up.
+            Self::wake_up(0);
 
-            crate::delay::wait_interrupt();
+            // check again
+            match CPU_SLEEP_TAG[cpu_id].compare_exchange(
+                SleepTag::Waking as u32,
+                SleepTag::Idle as u32,
+                Ordering::SeqCst,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => (),
+                Err(_) => crate::delay::wait_interrupt(),
+            }
         }
 
         // returned by IPI: set back to idle
