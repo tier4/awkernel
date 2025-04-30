@@ -51,7 +51,7 @@ impl E1000eExample {
 
         if let Some(bar0) = info.get_bar(0) {
             if let Some(val) = bar0.read32(EECD) {
-                log::info!("EECD = 0x{:x}", val);
+                log::info!("EECD = 0x{val:x}");
             }
         }
 

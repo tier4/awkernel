@@ -286,7 +286,7 @@ impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
             if !bus.devices.is_empty() {
-                write!(f, "{}", bus)?;
+                write!(f, "{bus}")?;
             }
         }
 
@@ -453,7 +453,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
                     );
 
                     let indent_str = " ".repeat((indent as usize + 1) * 4);
-                    write!(f, "{}{}\r\n", indent_str, name)?;
+                    write!(f, "{indent_str}{name}\r\n")?;
                 }
                 ChildDevice::Bus(bus) => {
                     print_pcie_devices(bus.as_ref(), f, indent + 1)?;
@@ -650,7 +650,7 @@ fn init<F>(
 
     bus_tree.attach();
 
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{bus_tree}");
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);

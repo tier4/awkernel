@@ -50,7 +50,7 @@ async fn console_handler() -> TaskResult {
     functions.push(Box::new(PerfFfi));
 
     let code = if cfg!(feature = "perf") {
-        format!("{}\r\n{}", CODE, PERF_CODE)
+        format!("{CODE}\r\n{PERF_CODE}")
     } else {
         CODE.to_string()
     };
@@ -219,7 +219,7 @@ fn interrupt_ffi() {
 
     console::print("IRQ Name\r\n");
     for (k, v) in handlers.iter() {
-        let msg = format!("{:>3} name: {}\r\n", k, v);
+        let msg = format!("{k:>3} name: {v}\r\n");
         console::print(&msg);
     }
 }
@@ -255,15 +255,7 @@ fn perf_ffi() {
             );
 
         let msg = format!(
-            "  {:>3}   | {:>12}  |  {:>12}  | {:>12}  | | {:>9}  | {:>12}  | {:>11}  | {:>16} \r\n",
-            cpu_id,
-            cpu_time,
-            kernel_time,
-            idle_time,
-            yield_save_overhead,
-            yield_restore_overhead,
-            preempt_save_overhead,
-            preempt_restore_overhead
+            "  {cpu_id:>3}   | {cpu_time:>12}  |  {kernel_time:>12}  | {idle_time:>12}  | | {yield_save_overhead:>9}  | {yield_restore_overhead:>12}  | {preempt_save_overhead:>11}  | {preempt_restore_overhead:>16} \r\n",
         );
         console::print(&msg);
     }
@@ -284,14 +276,12 @@ fn perf_ffi() {
         );
 
     let msg = format!(
-        "  yield | {:>10} | {:>13} | {:>12} | {:>14}  \r\n",
-        yield_save_average, yield_save_worst, yield_restore_average, yield_restore_worst
+        "  yield | {yield_save_average:>10} | {yield_save_worst:>13} | {yield_restore_average:>12} | {yield_restore_worst:>14}  \r\n",
     );
     console::print(&msg);
 
     let msg = format!(
-        "preempt | {:>10} | {:>13} | {:>12} | {:>14}  \r\n",
-        preempt_save_average, preempt_save_worst, preempt_restore_average, preempt_restore_worst
+        "preempt | {preempt_save_average:>10} | {preempt_save_worst:>13} | {preempt_restore_average:>12} | {preempt_restore_worst:>14}  \r\n",
     );
     console::print(&msg);
     console::print("\r\n");
