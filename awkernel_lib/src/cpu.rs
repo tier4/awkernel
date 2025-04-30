@@ -92,7 +92,7 @@ pub fn wait_init_sleep() {
     sleep_cpu_no_std::wait_init();
 }
 
-#[allow(dead_code)]
+#[allow(dead_code)] // temporary for RV64
 #[cfg(not(feature = "std"))]
 pub(crate) fn reset_wakeup_timer() {
     sleep_cpu_no_std::reset_wakeup_timer();
