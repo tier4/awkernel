@@ -97,8 +97,6 @@ impl X86FrameBufferInner {
                 if !buf.is_empty() {
                     return;
                 }
-            } else {
-                return;
             }
         }
 
