@@ -70,6 +70,7 @@ impl FramebufferInfo {
     #[inline(always)]
     fn init_sub_buffer(&mut self) {
         unsafe {
+            #[allow(dangerous_implicit_autorefs)]
             if !(*self.sub_buffer).is_empty() || self.framebuffer_size == 0 {
                 return;
             }

@@ -156,7 +156,7 @@ pub fn new(
     let virt_base = VirtAddr::new(apic_base);
 
     if value & registers::ENABLE_X2APIC == 0 {
-        log::info!("APIC base address = 0x{:x}", apic_base);
+        log::info!("APIC base address = 0x{apic_base:x}");
     }
 
     let flags = Flags {

@@ -89,11 +89,11 @@ impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
-            ipv4_addr.push_str(&format!("{}/{}", addr, plen));
+            ipv4_addr.push_str(&format!("{addr}/{plen}"));
         }
 
         let ipv4_gateway = match self.ipv4_gateway {
-            Some(addr) => format!("{}", addr),
+            Some(addr) => format!("{addr}"),
             None => String::from("None"),
         };
 
@@ -469,7 +469,7 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
             IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
             prefix_len,
         )) {
-            log::error!("add_ipv4_addr: {}", e);
+            log::error!("add_ipv4_addr: {e}");
         }
     });
 }
