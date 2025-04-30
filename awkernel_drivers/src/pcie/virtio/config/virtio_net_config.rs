@@ -1,7 +1,4 @@
-use crate::pcie::virtio::VirtioDriverErr;
-use crate::pcie::capability::virtio::VirtioCap;
-use crate::pcie::BaseAddress;
-use crate::pcie::PCIeInfo;
+use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAddress, PCIeInfo};
 
 // The network device has the following device configuration layout.
 // All of the device configuration fields are read-only for the driver.
@@ -24,6 +21,12 @@ const VIRTIO_NET_CONFIG_STATUS: usize = 0x06;
 pub struct VirtioNetConfig {
     bar: BaseAddress,
     offset: usize,
+}
+
+impl Default for VirtioNetConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VirtioNetConfig {

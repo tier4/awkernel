@@ -1,7 +1,4 @@
-use crate::pcie::capability::virtio::VirtioCap;
-use crate::pcie::BaseAddress;
-use crate::pcie::PCIeInfo;
-use crate::pcie::virtio::VirtioDriverErr;
+use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAddress, PCIeInfo};
 
 // Common configuration structure layout
 // struct virtio_pci_common_cfg {
@@ -41,6 +38,12 @@ const VIRTIO_PCI_COMMON_CFG_DEVICE_STATUS: usize = 0x14;
 pub struct VirtioCommonConfig {
     bar: BaseAddress,
     offset: usize,
+}
+
+impl Default for VirtioCommonConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl VirtioCommonConfig {
