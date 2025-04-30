@@ -46,8 +46,8 @@ inline interrupt_handler(cpu_id) {
 
     // handle IPI
     if
-    :: IPI[cpu_id] ->
-        IPI[cpu_id] = false;
+    :: atomic { IPI[cpu_id] ->
+        IPI[cpu_id] = false; }
 
         // enable timer
         // `wakeup_callback` of `init()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
@@ -56,11 +56,13 @@ inline interrupt_handler(cpu_id) {
     fi
 
     // handle timer interrupt
-    if
-    :: timer_enable[cpu_id] && timer_interrupt[cpu_id] ->
-        timer_interrupt[cpu_id] = false;
-    :: else
-    fi
+    atomic {
+        if
+        :: timer_enable[cpu_id] && timer_interrupt[cpu_id] ->
+            timer_interrupt[cpu_id] = false;
+        :: else
+        fi
+    }
 
     // enable interrupts
     interrupt_mask[cpu_id] = false;
@@ -69,9 +71,19 @@ return_interrupt_handler:
 
 inline wait_interrupt(cpu_id) {
     if
-    :: (timer_enable[cpu_id] && timer_interrupt[cpu_id]) ->;
-    :: IPI[cpu_id] ->;
+    :: (timer_enable[cpu_id] && timer_interrupt[cpu_id])
+    :: IPI[cpu_id]
     fi
+}
+
+inline rnd3(n) {
+    atomic {
+        if
+        :: true -> n = 0
+        :: true -> n = 1
+        :: true -> n = 2
+        fi
+    }
 }
 
 // `SleepCpuNoStd::sleep()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
@@ -82,31 +94,41 @@ inline sleep(cpu_id) {
     :: else
     fi
 
-    // enable interrupts and halt until IPI arrives
-    interrupt_mask[cpu_id] = false;
-
-    interrupt_handler(cpu_id);
-
-    // mark waiting before halt
-    mtype prev_val;
-    compare_exchange(CPU_SLEEP_TAG[cpu_id], Idle, Waiting, prev_val);
-
-    interrupt_handler(cpu_id);
-
-    if
-    :: prev_val == Idle -> skip;
-    :: prev_val == Waking -> goto return_sleep1;
-    :: else -> assert(prev_val != Waiting); // unreachable!()
-    fi
-
-    interrupt_handler(cpu_id);
-
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
     bool tmp;
     wake_up(cpu_id, 0, tmp);
 
-    interrupt_handler(cpu_id);
+    // enable interrupts and halt until IPI arrives
+    interrupt_mask[cpu_id] = false;
+
+    int rnd;
+    rnd3(rnd);
+
+    if
+    :: rnd == 0 -> interrupt_handler(cpu_id)
+    :: else
+    fi
+
+    // mark waiting before halt
+    mtype prev_val;
+    compare_exchange(CPU_SLEEP_TAG[cpu_id], Idle, Waiting, prev_val);
+
+    if
+    :: rnd == 1 -> interrupt_handler(cpu_id)
+    :: else
+    fi
+
+    if
+    :: prev_val == Idle
+    :: prev_val == Waking -> goto return_sleep1;
+    :: else -> assert(prev_val != Waiting); // unreachable!()
+    fi
+
+    if
+    :: rnd == 2 -> interrupt_handler(cpu_id)
+    :: else
+    fi
 
     wait_interrupt(cpu_id);
 
@@ -123,9 +145,10 @@ return_sleep2:
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
 inline wake_up(my_id, target_cpu_id, result) {
     if
-    :: my_id == target_cpu_id ->
+    :: atomic { my_id == target_cpu_id ->
         result = false;
         goto return_wake_up;
+    }
     :: else
     fi
 
@@ -133,36 +156,27 @@ inline wake_up(my_id, target_cpu_id, result) {
     mtype prev;
 
     // attempt state transitions until success or redundant
-    do
-    :: true ->
-        tag = CPU_SLEEP_TAG[target_cpu_id];
-        if
-        :: tag == Idle ->
-            // CPU not yet sleeping: schedule wake-up
-            compare_exchange(CPU_SLEEP_TAG[target_cpu_id], Idle, Waking, prev);
-            if
-            :: prev == Idle ->
-                result = true;
-                goto return_wake_up;
-            :: else
-            fi
-        :: tag == Waiting ->
-            // CPU is halted: send IPI
-            compare_exchange(CPU_SLEEP_TAG[target_cpu_id], Waiting, Waking, prev);
-            if
-            :: prev == Waiting ->
-                result = true;
-                send_ipi(target_cpu_id);
-                goto return_wake_up;
-            :: else
-            fi
-        :: tag == Waking ->
-            // wake-up already pending
-            result = false;
-            send_ipi(target_cpu_id);
-            goto return_wake_up;
-        fi
-    od
+    if
+    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Idle ->
+        // CPU not yet sleeping: schedule wake-up
+        CPU_SLEEP_TAG[target_cpu_id] = Waking;
+        result = true;
+        goto return_wake_up;
+    }
+    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
+         // CPU is halted: send IPI
+        CPU_SLEEP_TAG[target_cpu_id] = Waking;
+        result = true;
+    }
+        send_ipi(target_cpu_id);
+        goto return_wake_up;
+    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
+        // wake-up already pending
+        result = false;
+    }
+        send_ipi(target_cpu_id);
+        goto return_wake_up;
+    fi
 
 return_wake_up:
 }
@@ -180,12 +194,11 @@ inline wake_workers(cpu_id) {
             wake_up(cpu_id, i, result);
 
             if
-            :: result == true ->
-                d_step {
-                    printf("wake_up(%d)\n", i);
-                    num_tasks--;
-                }
-            :: else -> skip;
+            :: d_step { result == true ->
+                printf("wake_up(%d)\n", i);
+                num_tasks--;
+            }
+            :: else
             fi
         fi
     }
@@ -218,9 +231,9 @@ inline task_poll() {
             printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
             break;
         }
-        :: else -> skip;
+        :: else
         fi
-    :: true -> skip;
+    :: true
     fi
 }
 
@@ -265,10 +278,12 @@ proctype spawn_tasks() {
 }
 
 proctype timer(int cpu_id) {
-    do
-    :: timer_enable[cpu_id] && timer_interrupt[cpu_id] == false ->
-        timer_interrupt[cpu_id] = true;
-    od
+    atomic {
+        do
+        :: timer_enable[cpu_id] && timer_interrupt[cpu_id] == false ->
+            timer_interrupt[cpu_id] = true;
+        od
+    }
 }
 
 init {
