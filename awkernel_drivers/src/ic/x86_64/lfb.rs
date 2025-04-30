@@ -93,7 +93,8 @@ impl X86FrameBufferInner {
     #[inline(always)]
     fn init_sub_buffer(&mut self) {
         unsafe {
-            if !(&(*self.sub_buffer)).is_empty() {
+            #[allow(dangerous_implicit_autorefs)]
+            if !(*self.sub_buffer).is_empty() {
                 return;
             }
         }
