@@ -1,7 +1,9 @@
 #define WORKERS 2
 #define TASK_NUM (WORKERS + 1)
 #define CPU_NUM (WORKERS + 1)
-#define INTERRUPT_POS 2 // from 0 to 2
+
+#define INTERRUPT_POS 255 // from 0 to 2
+#define RANDOM false
 
 mtype = { Idle, Waiting, Waking };
 mtype CPU_SLEEP_TAG[CPU_NUM];
@@ -99,18 +101,24 @@ inline sleep(cpu_id) {
     :: else
     fi
 
+#if RANDOM == true
     byte rnd;
     d_step {
         // enable interrupts and halt until IPI arrives
         interrupt_mask[cpu_id] = 0;
         rnd2(rnd);
     }
+#endif
 
 #if INTERRUPT_POS == 0
-    if
-    :: rnd == 1 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+    #if RANDOM == true
+        if
+        :: rnd == 1 -> interrupt_handler(cpu_id)
+        :: else
+        fi
+    #else
+        interrupt_handler(cpu_id)
+    #endif
 #endif
 
     // mark waiting before halt
@@ -118,10 +126,14 @@ inline sleep(cpu_id) {
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Idle, Waiting, prev_val);
 
 #if INTERRUPT_POS == 1
-    if
-    :: rnd == 1 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+    #if RANDOM == true
+        if
+        :: rnd == 1 -> interrupt_handler(cpu_id)
+        :: else
+        fi
+    #else
+        interrupt_handler(cpu_id)
+    #endif
 #endif
 
     if
@@ -136,10 +148,14 @@ inline sleep(cpu_id) {
     wake_up(cpu_id, 0, tmp);
 
 #if INTERRUPT_POS == 2
-    if
-    :: rnd == 1 -> interrupt_handler(cpu_id)
-    :: else
-    fi
+    #if RANDOM == true
+        if
+        :: rnd == 1 -> interrupt_handler(cpu_id)
+        :: else
+        fi
+    #else
+        interrupt_handler(cpu_id)
+    #endif
 #endif
 
     if
