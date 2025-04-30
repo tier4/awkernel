@@ -333,6 +333,11 @@ pub fn handle_irq(irq: u16) {
             log::warn!("an interrupt handler has been panicked: name = {name}, irq = {irq}");
         }
     }
+
+    // Because IPIs are edge-trigger,
+    // IPI sent during interrupt handlers will be ignored.
+    // To notify the interrupt again, we setup a timer.
+    crate::cpu::reset_wakeup_timer();
 }
 
 /// Handle all pending interrupt requests.
@@ -379,6 +384,11 @@ pub fn handle_irqs(is_task: bool) {
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
         preemption();
     }
+
+    // Because IPIs are edge-trigger,
+    // IPI sent during interrupt handlers will be ignored.
+    // To notify the interrupt again, we setup a timer.
+    crate::cpu::reset_wakeup_timer();
 }
 
 /// Handle preemption.

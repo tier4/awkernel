@@ -42,31 +42,32 @@ inline interrupt_handler(cpu_id) {
     // disable interrupts
     atomic {
         if
-        :: (interrupt_mask[cpu_id] == 0 && (IPI[cpu_id] == 1 || timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 1) )->
-            interrupt_mask[cpu_id] = 1;
+        :: interrupt_mask[cpu_id] == 0 -> interrupt_mask[cpu_id] = 1;
         :: else -> goto return_interrupt_handler;
         fi
-    }
 
-    // handle IPI
-    if
-    :: d_step { IPI[cpu_id] == 1 ->
-        IPI[cpu_id] = 0;
-        printf("CPU#{%d}: handle IPI\n", cpu_id);
+        // handle IPI
+        if
+        :: d_step { IPI[cpu_id] == 1 ->
+            IPI[cpu_id] = 0;
+            printf("CPU#{%d}: handle IPI\n", cpu_id);
+        }
+        :: else
+        fi
 
-        // enable timer
-        // `wakeup_callback` of `init()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
-        timer_reset(cpu_id);
-    }
-    :: else
-    fi
-
-    // handle timer interrupt
-    d_step {
+        // handle timer interrupt
         if
         :: timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 1 ->
             timer_interrupt[cpu_id] = 0;
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id);
+        :: else
+        fi
+
+        // Enable timer.
+        // `handle_irqs() and `handle_irq()` in awkernel_lib/src/interrupt.rs.
+        // `reset_wakeup_timer()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs.
+        if
+        :: CPU_SLEEP_TAG[cpu_id] == Waiting -> timer_reset(cpu_id)
         :: else
         fi
     }
@@ -148,6 +149,10 @@ inline sleep(cpu_id) {
     }
     :: else
     fi
+
+    // Rare Case:
+    //   IPIs sent here will be ignored because IPIs are edge-trigger.
+    //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
     wait_interrupt(cpu_id);
 
