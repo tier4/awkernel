@@ -55,6 +55,7 @@ pub enum PCIeDeviceErr {
     NotImplemented,
     BARFailure,
     RevisionIDMismatch,
+    Tmp,
 }
 
 impl fmt::Display for PCIeDeviceErr {
