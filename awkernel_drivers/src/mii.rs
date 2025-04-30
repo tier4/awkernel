@@ -413,7 +413,7 @@ pub fn attach(
         if let Ok(phy) = ukphy::attach(mii, &mut mii_data, args) {
             phys.insert(phy.get_phy_data().inst, phy);
         } else {
-            log::error!("mii_attach: failed to attach PHY at address {}", phy);
+            log::error!("mii_attach: failed to attach PHY at address {phy}");
         }
     }
 
