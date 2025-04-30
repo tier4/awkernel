@@ -73,7 +73,7 @@ impl SleepCpu for SleepCpuNoStd {
         }
 
         // Rare Case:
-        //   IPIs sent here will be ignored because IPIs are edge-trigger.
+        //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
         //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
         // returned by IPI: set back to idle

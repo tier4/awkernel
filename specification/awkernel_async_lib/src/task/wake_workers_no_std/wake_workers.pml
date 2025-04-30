@@ -151,7 +151,7 @@ inline sleep(cpu_id) {
     fi
 
     // Rare Case:
-    //   IPIs sent here will be ignored because IPIs are edge-trigger.
+    //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
     //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
     wait_interrupt(cpu_id);
