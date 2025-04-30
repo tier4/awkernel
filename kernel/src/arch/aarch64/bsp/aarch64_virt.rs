@@ -137,7 +137,7 @@ impl super::SoC for AArch64Virt {
         self.init_interrupt_controller()?;
 
         if let Err(msg) = self.init_pcie() {
-            log::warn!("failed to initialize PCIe: {}", msg);
+            log::warn!("failed to initialize PCIe: {msg}");
         }
 
         self.init_timer()?;

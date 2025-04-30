@@ -225,12 +225,12 @@ impl<A: Allocator + Clone> Display for DeviceTreeNode<'_, A> {
         writeln!(f, "{} {{", self.name)?;
 
         for i in &self.props {
-            writeln!(f, "\t{}", i)?;
+            writeln!(f, "\t{i}")?;
         }
 
         for i in &self.nodes {
             let mut buffer = String::new();
-            write!(buffer, "\t{}", i)?;
+            write!(buffer, "\t{i}")?;
             let mut first_line = true;
             for j in buffer.split('\n') {
                 if !first_line {
@@ -238,7 +238,7 @@ impl<A: Allocator + Clone> Display for DeviceTreeNode<'_, A> {
                 } else {
                     first_line = false;
                 }
-                writeln!(f, "{}", j)?;
+                writeln!(f, "{j}")?;
             }
         }
         write!(f, "}};")
