@@ -174,7 +174,7 @@ impl Pwm {
                 clock::MashType::Stage1,
             ) {
                 Ok(()) => log::info!("PWM clock enabled"),
-                Err(err) => log::info!("Error when enabling PWM clock: {}", err),
+                Err(err) => log::info!("Error when enabling PWM clock: {err}"),
             }
 
             *init_clock = true;

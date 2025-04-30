@@ -13,6 +13,7 @@ size for a buffer, allocate it, and let the networking stack use it.
 
 use crate::iface::Context;
 use crate::time::Instant;
+use alloc::boxed::Box;
 use awkernel_sync::{mcs::MCSNode, mutex::Mutex};
 
 #[cfg(feature = "socket-dhcpv4")]
@@ -58,17 +59,17 @@ pub(crate) enum PollAt {
 /// [SocketSet::get]: struct.SocketSet.html#method.get
 pub enum Socket<'a> {
     #[cfg(feature = "socket-raw")]
-    Raw(Mutex<raw::Socket<'a>>),
+    Raw(Box<Mutex<raw::Socket<'a>>>),
     #[cfg(feature = "socket-icmp")]
-    Icmp(Mutex<icmp::Socket<'a>>),
+    Icmp(Box<Mutex<icmp::Socket<'a>>>),
     #[cfg(feature = "socket-udp")]
-    Udp(Mutex<udp::Socket<'a>>),
+    Udp(Box<Mutex<udp::Socket<'a>>>),
     #[cfg(feature = "socket-tcp")]
-    Tcp(Mutex<tcp::Socket<'a>>),
+    Tcp(Box<Mutex<tcp::Socket<'a>>>),
     #[cfg(feature = "socket-dhcpv4")]
-    Dhcpv4(Mutex<dhcpv4::Socket<'a>>),
+    Dhcpv4(Box<Mutex<dhcpv4::Socket<'a>>>),
     #[cfg(feature = "socket-dns")]
-    Dns(Mutex<dns::Socket<'a>>),
+    Dns(Box<Mutex<dns::Socket<'a>>>),
 }
 
 impl Socket<'_> {
@@ -129,7 +130,7 @@ macro_rules! from_socket {
     ($socket:ty, $variant:ident) => {
         impl<'a> AnySocket<'a> for $socket {
             fn upcast(self) -> Socket<'a> {
-                Socket::$variant(Mutex::new(self))
+                Socket::$variant(Box::new(Mutex::new(self)))
             }
 
             fn downcast<'c>(socket: &'c Socket<'a>) -> Option<&'c Mutex<Self>> {
