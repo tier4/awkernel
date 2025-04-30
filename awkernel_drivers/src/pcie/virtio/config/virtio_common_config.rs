@@ -1,7 +1,7 @@
-use super::VirtioDriverErr;
 use crate::pcie::capability::virtio::VirtioCap;
 use crate::pcie::BaseAddress;
 use crate::pcie::PCIeInfo;
+use crate::pcie::virtio::VirtioDriverErr;
 
 // Common configuration structure layout
 // struct virtio_pci_common_cfg {
@@ -44,15 +44,21 @@ pub struct VirtioCommonConfig {
 }
 
 impl VirtioCommonConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
-        let bar = info
+    pub fn new() -> Self {
+        Self {
+            bar: BaseAddress::None,
+            offset: 0,
+        }
+    }
+
+    pub fn init(&mut self, info: &PCIeInfo, cap: VirtioCap) -> Result<(), VirtioDriverErr> {
+        self.bar = info
             .get_bar(cap.get_bar() as usize)
             .ok_or(VirtioDriverErr::NoBar)?;
 
-        Ok(Self {
-            bar,
-            offset: cap.get_offset() as usize,
-        })
+        self.offset = cap.get_offset() as usize;
+
+        Ok(())
     }
 
     pub fn virtio_get_device_features(&mut self) -> Result<u64, VirtioDriverErr> {
