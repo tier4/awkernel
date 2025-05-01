@@ -46,10 +46,9 @@ inline interrupt_handler(cpu_id) {
 
         // handle IPI
         if
-        :: d_step { IPI[cpu_id] == true ->
+        :: IPI[cpu_id] == true ->
             IPI[cpu_id] = false;
             printf("CPU#{%d}: handle IPI\n", cpu_id);
-        }
         :: else
         fi
 
@@ -179,9 +178,6 @@ inline wake_up(my_id, target_cpu_id, result) {
     }
     :: else
     fi
-
-    mtype tag;
-    mtype prev;
 
     // attempt state transitions until success or redundant
     if
