@@ -312,9 +312,9 @@ where
         );
 
         loop {
-            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
             let results = f();
             publishers.send_all(results).await;
+            sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
         }
     };
 
