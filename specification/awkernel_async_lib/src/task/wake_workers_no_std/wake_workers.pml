@@ -71,7 +71,7 @@ inline interrupt_handler(cpu_id) {
     }
 
     // enable interrupts
-    interrupt_mask[cpu_id] = 1;
+    interrupt_mask[cpu_id] = true;
 return_interrupt_handler:
 }
 
