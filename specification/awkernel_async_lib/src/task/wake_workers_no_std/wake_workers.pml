@@ -258,19 +258,15 @@ inline task_poll() {
     :: else
     fi
 
+    // Simulate blocking tasks.
+    // Even if there are `WORKERS - 1` blocking tasks,
+    // every task will be woken up.
     if
-    :: true ->
-        if
-        // Simulate blocking tasks.
-        // Even if there are `WORKERS - 1` blocking tasks,
-        // every task will be woken up.
-        :: d_step { num_blocking < WORKERS - 1 ->
-            num_blocking++;
-            printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
-        }
-        :: else
-        fi
-    :: true
+    :: d_step { num_blocking < WORKERS - 1 ->
+        num_blocking++;
+        printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
+    }
+    :: skip;
     fi
 }
 
