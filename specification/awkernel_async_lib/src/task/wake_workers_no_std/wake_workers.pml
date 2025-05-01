@@ -81,7 +81,7 @@ inline wait_interrupt(cpu_id) {
     fi
 }
 
-inline rnd5() {
+inline rnd5(rnd) {
     if
     :: rnd = 0
     :: rnd = 1
@@ -103,7 +103,7 @@ inline sleep(cpu_id) {
     d_step {
         // enable interrupts and halt until IPI arrives
         interrupt_mask[cpu_id] = false;
-        rnd5();
+        rnd5(rnd);
     }
 
     // receive interrupts
@@ -142,7 +142,9 @@ inline sleep(cpu_id) {
     if
     :: atomic { CPU_SLEEP_TAG[cpu_id] == Waking ->
         CPU_SLEEP_TAG[cpu_id] = Active;
-        goto return_sleep1;
+        // disable interrupts
+        interrupt_mask[cpu_id] = true;
+        goto return_sleep3;
     }
     :: else
     fi
@@ -167,6 +169,8 @@ return_sleep1:
 
 return_sleep2:
     CPU_SLEEP_TAG[cpu_id] = Active;
+
+return_sleep3:
 }
 
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
@@ -186,7 +190,6 @@ inline wake_up(my_id, target_cpu_id, result) {
         CPU_SLEEP_TAG[target_cpu_id] = Waking;
         result = true;
         printf("Active -> Waking: CPU#{%d}", target_cpu_id);
-        goto return_wake_up;
     }
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
          // CPU is halted: send IPI
@@ -195,14 +198,12 @@ inline wake_up(my_id, target_cpu_id, result) {
         printf("Waiting -> Waking: CPU#{%d}", target_cpu_id);
     }
         send_ipi(target_cpu_id);
-        goto return_wake_up;
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
         // wake-up already pending
         printf("already waking: CPU#{%d}", target_cpu_id);
         result = false;
     }
         send_ipi(target_cpu_id);
-        goto return_wake_up;
     fi
 
 return_wake_up:
@@ -249,14 +250,14 @@ inline task_poll() {
 
     // spawn a new task
     // `Task::wake()` in awkernel_async_lib/src/task.rs
-    if
+    do
     :: atomic { created_task < TASK_NUM ->
         created_task++;
         run_queue++;
     }
         wake_up(CPU_NUM, 0, result);
-    :: else
-    fi
+    :: break
+    od
 
     // Simulate blocking tasks.
     // Even if there are `WORKERS - 1` blocking tasks,
@@ -274,6 +275,7 @@ inline task_poll() {
 proctype run_main(byte cpu_id) {
     do
     :: d_step { run_queue > 0 ->
+        assert(run_queue == 1);
         run_queue--;
         printf("run_queue--: run_queue = %d\n", run_queue);
     };

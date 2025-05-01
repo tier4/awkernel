@@ -67,8 +67,9 @@ impl SleepCpu for SleepCpuNoStd {
                 Ordering::SeqCst,
                 Ordering::Relaxed,
             ) {
-                Ok(_) => (),
-                Err(_) => crate::delay::wait_interrupt(),
+                Ok(_) => return,
+                Err(x) if x == SleepTag::Waiting as u32 => crate::delay::wait_interrupt(),
+                Err(_) => unreachable!(),
             }
         }
 
@@ -158,7 +159,7 @@ pub(super) unsafe fn init() {
         }
     }
 
-    READY.store(true, Ordering::Relaxed);
+    READY.store(true, Ordering::Release);
 }
 
 /// wait for init
