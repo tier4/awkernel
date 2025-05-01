@@ -70,11 +70,12 @@ inline interrupt_handler(cpu_id) {
     }
 
     // enable interrupts
-    interrupt_mask[cpu_id] = true;
+    interrupt_mask[cpu_id] = false;
 return_interrupt_handler:
 }
 
 inline wait_interrupt(cpu_id) {
+    assert(interrupt_mask[cpu_id] == false);
     if
     :: (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
     :: IPI[cpu_id]
@@ -267,7 +268,11 @@ inline task_poll() {
         num_blocking++;
         printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
     }
-    :: skip;
+        if
+        :: false // block
+        fi
+        assert(false);
+    :: skip
     fi
 }
 
@@ -275,7 +280,6 @@ inline task_poll() {
 proctype run_main(byte cpu_id) {
     do
     :: d_step { run_queue > 0 ->
-        assert(run_queue == 1);
         run_queue--;
         printf("run_queue--: run_queue = %d\n", run_queue);
     };
