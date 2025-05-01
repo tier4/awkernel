@@ -251,14 +251,7 @@ fn perf_ffi() {
         let perf_time = perf::get_perf_time(cpu_id);
 
         let msg = format!(
-            "{:>4} |{:>15} |{:>15} |{:>15} |{:>15} |{:>15} |{:>15}\r\n",
-            cpu_id,
-            task_time,
-            kernel_time,
-            idle_time,
-            interrupt_time,
-            contxt_switch_time,
-            perf_time
+            "{cpu_id:>4} |{task_time:>15} |{kernel_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
         );
 
         console::print(&msg);
