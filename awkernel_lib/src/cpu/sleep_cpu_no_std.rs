@@ -106,7 +106,7 @@ impl SleepCpu for SleepCpuNoStd {
                         )
                         .is_ok()
                     {
-                        return true;
+                        return false;
                     }
                 }
                 x if x == SleepTag::Waiting as u32 => {

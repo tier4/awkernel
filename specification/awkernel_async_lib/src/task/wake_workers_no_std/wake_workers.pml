@@ -1,4 +1,4 @@
-#define WORKERS 3
+#define WORKERS 2
 #define TASK_NUM (WORKERS + 1)
 #define CPU_NUM (WORKERS + 1)
 
@@ -189,7 +189,7 @@ inline wake_up(my_id, target_cpu_id, result) {
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Active ->
         // CPU not yet sleeping: schedule wake-up
         CPU_SLEEP_TAG[target_cpu_id] = Waking;
-        result = true;
+        result = false;
         printf("Active -> Waking: CPU#{%d}", target_cpu_id);
     }
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
