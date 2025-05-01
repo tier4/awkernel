@@ -238,14 +238,14 @@ impl VirtioNetInner {
         Ok(())
     }
 
-    // To reset the device to a known state, do following:
-    //	 virtio_reset();              // this will stop the device activity
-    //	 <dequeue finished requests>; // virtio_dequeue() still can be called
-    //	 <revoke pending requests in the vqs if any>;
-    //	 virtio_reinit_start();       // dequeue prohibited
-    //	 <some other initialization>;
-    //	 virtio_reinit_end();         // device activated; enqueue allowed
-    // Once attached, features are assumed to not change again.
+    /// To reset the device to a known state, do following:
+    ///  virtio_reset();              // this will stop the device activity
+    ///  <dequeue finished requests>; // virtio_dequeue() still can be called
+    ///  <revoke pending requests in the vqs if any>;
+    ///  virtio_reinit_start();       // dequeue prohibited
+    ///  <some other initialization>;
+    ///  virtio_reinit_end();         // device activated; enqueue allowed
+    /// Once attached, features are assumed to not change again.
     fn virtio_reset(&mut self) -> Result<(), VirtioDriverErr> {
         self.common_cfg
             .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
