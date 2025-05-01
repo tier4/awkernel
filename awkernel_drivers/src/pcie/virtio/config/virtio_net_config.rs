@@ -1,7 +1,4 @@
-use super::VirtioDriverErr;
-use crate::pcie::capability::virtio::VirtioCap;
-use crate::pcie::BaseAddress;
-use crate::pcie::PCIeInfo;
+use crate::pcie::{capability::virtio::VirtioCap, virtio::VirtioDriverErr, BaseAddress, PCIeInfo};
 
 // The network device has the following device configuration layout.
 // All of the device configuration fields are read-only for the driver.
@@ -19,22 +16,35 @@ use crate::pcie::PCIeInfo;
 // };
 
 const VIRTIO_NET_CONFIG_MAC: usize = 0x00;
+const VIRTIO_NET_CONFIG_STATUS: usize = 0x06;
 
 pub struct VirtioNetConfig {
     bar: BaseAddress,
     offset: usize,
 }
 
+impl Default for VirtioNetConfig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VirtioNetConfig {
-    pub fn new(info: &PCIeInfo, cap: VirtioCap) -> Result<Self, VirtioDriverErr> {
-        let bar = info
+    pub fn new() -> Self {
+        Self {
+            bar: BaseAddress::None,
+            offset: 0,
+        }
+    }
+
+    pub fn init(&mut self, info: &PCIeInfo, cap: VirtioCap) -> Result<(), VirtioDriverErr> {
+        self.bar = info
             .get_bar(cap.get_bar() as usize)
             .ok_or(VirtioDriverErr::NoBar)?;
 
-        Ok(Self {
-            bar,
-            offset: cap.get_offset() as usize,
-        })
+        self.offset = cap.get_offset() as usize;
+
+        Ok(())
     }
 
     pub fn virtio_get_mac_addr(&mut self) -> Result<[u8; 6], VirtioDriverErr> {
@@ -47,5 +57,14 @@ impl VirtioNetConfig {
         }
 
         Ok(mac)
+    }
+
+    pub fn virtio_get_status(&self) -> Result<u16, VirtioDriverErr> {
+        let status = self
+            .bar
+            .read16(self.offset + VIRTIO_NET_CONFIG_STATUS)
+            .ok_or(VirtioDriverErr::ReadFailure)?;
+
+        Ok(status)
     }
 }

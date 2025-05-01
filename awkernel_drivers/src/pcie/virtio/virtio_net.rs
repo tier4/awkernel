@@ -4,20 +4,27 @@ use crate::pcie::{
     virtio::config::{
         virtio_common_config::VirtioCommonConfig, virtio_net_config::VirtioNetConfig,
     },
+    virtio::VirtioDriverErr,
     PCIeDevice, PCIeDeviceErr, PCIeInfo,
 };
 use alloc::{borrow::Cow, sync::Arc, vec::Vec};
-use awkernel_lib::net::net_device::{
-    EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+use awkernel_lib::{
+    net::net_device::{
+        EtherFrameBuf, EtherFrameRef, LinkStatus, NetCapabilities, NetDevError, NetDevice, NetFlags,
+    },
+    sync::rwlock::RwLock,
 };
 
 const VIRTIO_NET_ID: u16 = 0x1041;
 
 // device-specific feature bits
 const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
 
 // Reserved Feature Bits
+const VIRTIO_F_NOTIFY_ON_EMPTY: u64 = 1 << 24;
 const VIRTIO_F_VERSION_1: u64 = 1 << 32;
+const VIRTIO_F_ACCESS_PLATFORM: u64 = 1 << 33;
 
 // device status bits
 const VIRTIO_CONFIG_DEVICE_STATUS_RESET: u8 = 0;
@@ -37,11 +44,7 @@ const _VIRTIO_PCI_CAP_PCI_CFG: u8 = 5; // PCI configuration access
 const _VIRTIO_PCI_CAP_SHARED_MEMORY_CFG: u8 = 8; // Shared memory region
 const _VIRTIO_PCI_CAP_VENDOR_CFG: u8 = 9; // Vendor-specific data
 
-#[derive(Debug)]
-pub enum VirtioDriverErr {
-    NoBar,
-    ReadFailure,
-}
+const VIRTIO_NET_S_LINK_UP: u16 = 1;
 
 pub fn match_device(vendor: u16, id: u16) -> bool {
     vendor == pcie_id::VIRTIO_VENDOR_ID && id == VIRTIO_NET_ID
@@ -71,68 +74,185 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-pub struct VirtioNet {
+struct VirtioNetInner {
+    info: PCIeInfo,
     mac_addr: [u8; 6],
+    common_cfg: VirtioCommonConfig,
+    net_cfg: VirtioNetConfig,
+    driver_features: u64,
+    active_features: u64,
+    flags: NetFlags,
+    capabilities: NetCapabilities,
 }
 
-impl VirtioNet {
-    pub fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
-        let common_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_COMMON_CFG)?;
-        let net_cfg_cap = Self::virtio_pci_find_capability(&info, VIRTIO_PCI_CAP_DEVICE_CFG)?;
-
-        let mut common_cfg = VirtioCommonConfig::new(&info, common_cfg_cap)?;
-        let mut net_cfg = VirtioNetConfig::new(&info, net_cfg_cap)?;
-
-        // 1. Reset the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
-
-        // 2. Set the ACKNOWLEDGE status bit: the guest OS has noticed the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK)?;
-
-        // 3. Set the DRIVER status bit: the guest OS knows how to drive the device.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER)?;
-
-        // 4. Read device feature bits,
-        // and write the subset of feature bits understood by the OS and driver to the device.
-        let driver_features = VIRTIO_NET_F_MAC | VIRTIO_F_VERSION_1;
-        let device_features = common_cfg.virtio_get_device_features()?;
-        let negotiated_features = device_features & driver_features;
-        common_cfg.virtio_set_driver_features(negotiated_features);
-
-        // 5. Set the FEATURES_OK status bit. The driver MUST NOT accept new feature bits after this step.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK)?;
-
-        // 6. Re-read device status to ensure the FEATURES_OK bit is still set:
-        // otherwise, the device does not support our subset of features and the device is unusable.
-        let device_status = common_cfg.virtio_get_device_status()?;
-        if device_status & VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK == 0 {
-            common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
-            return Err(PCIeDeviceErr::InitFailure);
+impl VirtioNetInner {
+    pub fn new(info: PCIeInfo) -> Self {
+        Self {
+            info,
+            mac_addr: [0; 6],
+            common_cfg: VirtioCommonConfig::default(),
+            net_cfg: VirtioNetConfig::default(),
+            driver_features: 0,
+            active_features: 0,
+            flags: NetFlags::empty(),
+            capabilities: NetCapabilities::empty(),
         }
-        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
-            common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
-            return Err(PCIeDeviceErr::InitFailure);
-        }
-
-        // 7. Perform device-specific setup.
-        let mac_addr = net_cfg.virtio_get_mac_addr()?;
-
-        // 8. Set the DRIVER_OK status bit. At this point the device is “live”.
-        common_cfg.virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
-
-        Ok(Self { mac_addr })
     }
 
-    fn virtio_pci_find_capability(
-        info: &PCIeInfo,
-        cfg_type: u8,
-    ) -> Result<VirtioCap, PCIeDeviceErr> {
-        for cap in &info.virtio_caps {
+    fn virtio_pci_find_capability(&self, cfg_type: u8) -> Result<VirtioCap, VirtioDriverErr> {
+        for cap in &self.info.virtio_caps {
             if cap.get_cfg_type() == cfg_type {
                 return Ok(cap.clone());
             }
         }
-        Err(PCIeDeviceErr::InitFailure)
+        Err(VirtioDriverErr::NoCap)
+    }
+
+    fn virtio_pci_attach_10(&mut self) -> Result<(), VirtioDriverErr> {
+        let common_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_COMMON_CFG)?;
+        let net_cfg_cap = self.virtio_pci_find_capability(VIRTIO_PCI_CAP_DEVICE_CFG)?;
+
+        self.common_cfg.init(&self.info, common_cfg_cap)?;
+        self.net_cfg.init(&self.info, net_cfg_cap)?;
+
+        Ok(())
+    }
+
+    fn virtio_pci_attach(&mut self) -> Result<(), VirtioDriverErr> {
+        // TODO: setup MSIX
+
+        self.virtio_pci_attach_10()?;
+
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK)?;
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER)?;
+
+        Ok(())
+    }
+
+    fn vio_attach(&mut self) -> Result<(), VirtioDriverErr> {
+        self.driver_features = 0;
+        self.driver_features |= VIRTIO_NET_F_MAC;
+        self.driver_features |= VIRTIO_NET_F_STATUS;
+        // TODO: setup more features
+
+        self.virtio_pci_negotiate_features()?;
+
+        // TODO: VIRTIO_NET_F_MQ related setup
+        // TODO: setup virtio queues
+
+        if self.virtio_has_feature(VIRTIO_NET_F_MAC) {
+            self.mac_addr = self.net_cfg.virtio_get_mac_addr()?;
+        } else {
+            todo!()
+        }
+
+        // TODO: VIRTIO_NET_F_MRG_RXBUF related setup
+
+        self.capabilities = NetCapabilities::empty();
+        self.flags = NetFlags::BROADCAST | NetFlags::SIMPLEX | NetFlags::MULTICAST;
+
+        // TODO: VIRTIO_NET_F_CSUM related setup
+        // TODO: VIRTIO_NET_F_HOST_TSO4 related setup
+        // TODO: VIRTIO_NET_F_HOST_TSO6 related setup
+        // TODO: VIRTIO_NET_F_CTRL_GUEST_OFFLOADS related setup
+        // TODO: VIRTIO_NET_F_MRG_RXBUF related setup
+        // TODO: VIRTIO_NET_F_GUEST_TSO related setup
+        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
+        // TODO: setup virtio queues
+        // TODO: setup control queue
+        // TODO: setup interrupt
+
+        self.virtio_attach_finish()?;
+
+        // TODO: VIRTIO_NET_F_MQ related setup
+        // TODO: setup virtio queues
+
+        Ok(())
+    }
+
+    fn virtio_pci_negotiate_features(&mut self) -> Result<(), VirtioDriverErr> {
+        self.active_features = 0;
+
+        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
+        // TODO: VIRTIO_F_RING_EVENT_IDX related setup
+
+        self.virtio_pci_negotiate_features_10()?;
+
+        Ok(())
+    }
+
+    fn virtio_pci_negotiate_features_10(&mut self) -> Result<(), VirtioDriverErr> {
+        self.driver_features |= VIRTIO_F_VERSION_1;
+
+        // Without this SEV doesn't work with a KVM/qemu hypervisor on amd64
+        self.driver_features |= VIRTIO_F_ACCESS_PLATFORM;
+
+        // notify on empty is 0.9 only
+        self.driver_features &= !VIRTIO_F_NOTIFY_ON_EMPTY;
+
+        let device_features = self.common_cfg.virtio_get_device_features()?;
+
+        let negotiated_features = device_features & self.driver_features;
+
+        self.common_cfg
+            .virtio_set_driver_features(negotiated_features);
+
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK)?;
+
+        let device_status = self.common_cfg.virtio_get_device_status()?;
+        if device_status & VIRTIO_CONFIG_DEVICE_STATUS_FEATURES_OK == 0 {
+            self.common_cfg
+                .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
+            return Err(VirtioDriverErr::InitFailure);
+        }
+
+        self.active_features = negotiated_features;
+
+        // TODO: VIRTIO_F_RING_INDIRECT_DESC related setup
+
+        if negotiated_features & VIRTIO_F_VERSION_1 == 0 {
+            self.common_cfg
+                .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_FAILED)?;
+            return Err(VirtioDriverErr::InitFailure);
+        }
+
+        Ok(())
+    }
+
+    fn virtio_has_feature(&self, feature: u64) -> bool {
+        self.active_features & feature != 0
+    }
+
+    fn virtio_attach_finish(&mut self) -> Result<(), VirtioDriverErr> {
+        // TODO: setup msix
+        // TODO: setup virt queues
+
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
+
+        Ok(())
+    }
+}
+
+pub struct VirtioNet {
+    inner: RwLock<VirtioNetInner>,
+}
+
+impl VirtioNet {
+    pub fn new(info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        let mut inner = VirtioNetInner::new(info);
+
+        inner.virtio_pci_attach()?;
+        inner.vio_attach()?;
+
+        Ok(Self {
+            inner: RwLock::new(inner),
+        })
     }
 }
 
@@ -160,8 +280,15 @@ impl NetDevice for VirtioNet {
     }
 
     fn link_status(&self) -> LinkStatus {
-        // TODO: Implement this
-        LinkStatus::Down
+        let inner = self.inner.read();
+        if inner.virtio_has_feature(VIRTIO_NET_F_STATUS) {
+            let status = inner.net_cfg.virtio_get_status().unwrap_or(0);
+            if status & VIRTIO_NET_S_LINK_UP == 0 {
+                return LinkStatus::Down;
+            }
+        }
+
+        LinkStatus::UpFullDuplex
     }
 
     fn link_speed(&self) -> u64 {
@@ -170,7 +297,8 @@ impl NetDevice for VirtioNet {
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        self.mac_addr
+        let inner = self.inner.read();
+        inner.mac_addr
     }
 
     fn recv(&self, _que_id: usize) -> Result<Option<EtherFrameBuf>, NetDevError> {
