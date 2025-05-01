@@ -23,3 +23,23 @@ pub(super) fn attach(info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>
 
     Ok(info.unknown_device())
 }
+
+#[derive(Debug)]
+pub enum VirtioDriverErr {
+    NoBar,
+    ReadFailure,
+    NoCap,
+    InitFailure,
+}
+
+impl From<VirtioDriverErr> for PCIeDeviceErr {
+    fn from(value: VirtioDriverErr) -> Self {
+        log::error!("virtio: {value:?}");
+        match value {
+            VirtioDriverErr::NoBar => PCIeDeviceErr::InitFailure,
+            VirtioDriverErr::NoCap => PCIeDeviceErr::InitFailure,
+            VirtioDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
+            VirtioDriverErr::InitFailure => PCIeDeviceErr::InitFailure,
+        }
+    }
+}
