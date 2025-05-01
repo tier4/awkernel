@@ -1,9 +1,6 @@
-#define WORKERS 2
+#define WORKERS 3
 #define TASK_NUM (WORKERS + 1)
 #define CPU_NUM (WORKERS + 1)
-
-#define INTERRUPT_POS 255 // from 0 to 2
-#define RANDOM false
 
 mtype = { Idle, Waiting, Waking };
 mtype CPU_SLEEP_TAG[CPU_NUM];
@@ -13,8 +10,9 @@ byte IPI[CPU_NUM];             // edge-trigger interrupt
 byte timer_enable[CPU_NUM];
 byte timer_interrupt[CPU_NUM]; // level-sensitive interrupt
 
-byte run_queue = 0;
+byte run_queue = 1;
 byte num_blocking = 0;
+byte created_task = 1;
 
 byte int_pos;
 
@@ -86,10 +84,13 @@ inline wait_interrupt(cpu_id) {
     fi
 }
 
-inline rnd2(n) {
+inline rnd5() {
     if
-    :: true -> n = 0
-    :: true -> n = 1
+    :: true -> rnd = 0
+    :: true -> rnd = 1
+    :: true -> rnd = 2
+    :: true -> rnd = 3
+    :: true -> rnd = 4
     fi
 }
 
@@ -101,40 +102,22 @@ inline sleep(cpu_id) {
     :: else
     fi
 
-#if RANDOM == true
-    byte rnd;
+    byte rnd; // chose the position interrupts occur
     d_step {
         // enable interrupts and halt until IPI arrives
         interrupt_mask[cpu_id] = 0;
-        rnd2(rnd);
+        rnd5();
     }
-#endif
 
-#if INTERRUPT_POS == 0
-    #if RANDOM == true
-        if
-        :: rnd == 1 -> interrupt_handler(cpu_id)
-        :: else
-        fi
-    #else
-        interrupt_handler(cpu_id)
-    #endif
-#endif
+    // receive interrupts
+    if
+    :: rnd == 0 -> interrupt_handler(cpu_id)
+    :: else
+    fi
 
     // mark waiting before halt
     mtype prev_val;
     compare_exchange(CPU_SLEEP_TAG[cpu_id], Idle, Waiting, prev_val);
-
-#if INTERRUPT_POS == 1
-    #if RANDOM == true
-        if
-        :: rnd == 1 -> interrupt_handler(cpu_id)
-        :: else
-        fi
-    #else
-        interrupt_handler(cpu_id)
-    #endif
-#endif
 
     if
     :: prev_val == Idle
@@ -142,21 +125,22 @@ inline sleep(cpu_id) {
     :: else -> assert(prev_val != Waiting); // unreachable!()
     fi
 
+    // receive interrupts
+    if
+    :: rnd == 1 -> interrupt_handler(cpu_id)
+    :: else
+    fi
+
     // In case that there are any tasks to run,
     // wake up the primary CPU to wake me up.
     byte tmp;
     wake_up(cpu_id, 0, tmp);
 
-#if INTERRUPT_POS == 2
-    #if RANDOM == true
-        if
-        :: rnd == 1 -> interrupt_handler(cpu_id)
-        :: else
-        fi
-    #else
-        interrupt_handler(cpu_id)
-    #endif
-#endif
+    // receive interrupts
+    if
+    :: rnd == 2 -> interrupt_handler(cpu_id)
+    :: else
+    fi
 
     if
     :: atomic { CPU_SLEEP_TAG[cpu_id] == Waking ->
@@ -169,6 +153,12 @@ inline sleep(cpu_id) {
     // Rare Case:
     //   IPIs sent during interrupt handlers invoked here will be ignored because IPIs are edge-trigger.
     //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
+
+    // receive interrupts
+    if
+    :: rnd == 3 -> interrupt_handler(cpu_id)
+    :: else
+    fi
 
     wait_interrupt(cpu_id);
 
@@ -261,6 +251,19 @@ inline timer_disable(cpu_id) {
 
 // Simulate tasks
 inline task_poll() {
+    byte result;
+
+    // spawn a new task
+    // `Task::wake()` in awkernel_async_lib/src/task.rs
+    if
+    :: atomic { created_task < TASK_NUM ->
+        created_task++;
+        run_queue++;
+    }
+        wake_up(CPU_NUM, 0, result);
+    :: else
+    fi
+
     if
     :: true ->
         if
@@ -302,20 +305,6 @@ proctype primary_main() {
     od
 }
 
-// `Task::wake()` in awkernel_async_lib/src/task.rs
-proctype spawn_tasks() {
-    byte i;
-    byte result;
-
-    for (i: 0 .. TASK_NUM - 1) {
-        d_step {
-            run_queue++;
-            printf("run_queue++: run_queue = %d\n", run_queue);
-        }
-        wake_up(CPU_NUM, 0, result);
-    }
-}
-
 proctype timer(byte cpu_id) {
     do
     :: d_step { timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 0 ->
@@ -344,10 +333,6 @@ init {
     for (i: 0 .. WORKERS - 1) {
         run run_main(i + 1);
     }
-
-    run spawn_tasks();
-
-    skip;
 }
 
 ltl eventually_execute  {
