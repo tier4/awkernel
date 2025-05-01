@@ -5,16 +5,14 @@
 mtype = { Active, Waiting, Waking };
 mtype CPU_SLEEP_TAG[CPU_NUM];
 
-byte interrupt_mask[CPU_NUM];
-byte IPI[CPU_NUM];             // edge-trigger interrupt
-byte timer_enable[CPU_NUM];
-byte timer_interrupt[CPU_NUM]; // level-sensitive interrupt
+bool interrupt_mask[CPU_NUM];
+bool IPI[CPU_NUM];             // edge-trigger interrupt
+bool timer_enable[CPU_NUM];
+bool timer_interrupt[CPU_NUM]; // level-sensitive interrupt
 
 byte run_queue = 1;
 byte num_blocking = 0;
 byte created_task = 1;
-
-byte int_pos;
 
 inline compare_exchange(target, current, new, prev)
 {
@@ -32,7 +30,7 @@ inline send_ipi(cpu_id) {
     d_step {
         printf("send IPI to CPU#{%d}, interrupt_mask[%d] = %d\n", cpu_id, cpu_id, interrupt_mask[cpu_id]);
         if
-        :: interrupt_mask[cpu_id] == 0 -> IPI[cpu_id] = 1;
+        :: interrupt_mask[cpu_id] == false -> IPI[cpu_id] = true;
         :: else
         fi
     }
@@ -42,14 +40,14 @@ inline interrupt_handler(cpu_id) {
     // disable interrupts
     atomic {
         if
-        :: interrupt_mask[cpu_id] == 0 -> interrupt_mask[cpu_id] = 1;
+        :: interrupt_mask[cpu_id] == false -> interrupt_mask[cpu_id] = true;
         :: else -> goto return_interrupt_handler;
         fi
 
         // handle IPI
         if
-        :: d_step { IPI[cpu_id] == 1 ->
-            IPI[cpu_id] = 0;
+        :: d_step { IPI[cpu_id] == true ->
+            IPI[cpu_id] = false;
             printf("CPU#{%d}: handle IPI\n", cpu_id);
         }
         :: else
@@ -57,8 +55,8 @@ inline interrupt_handler(cpu_id) {
 
         // handle timer interrupt
         if
-        :: timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 1 ->
-            timer_interrupt[cpu_id] = 0;
+        :: timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true ->
+            timer_interrupt[cpu_id] = false;
             printf("CPU#{%d}: handle timer interrupt\n", cpu_id);
         :: else
         fi
@@ -79,7 +77,7 @@ return_interrupt_handler:
 
 inline wait_interrupt(cpu_id) {
     if
-    :: (timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 1)
+    :: (timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == true)
     :: IPI[cpu_id]
     fi
 }
@@ -105,7 +103,7 @@ inline sleep(cpu_id) {
     byte rnd; // chose the position interrupts occur
     d_step {
         // enable interrupts and halt until IPI arrives
-        interrupt_mask[cpu_id] = 0;
+        interrupt_mask[cpu_id] = false;
         rnd5();
     }
 
@@ -166,7 +164,7 @@ inline sleep(cpu_id) {
 
 return_sleep1:
     // disable interrupts
-    interrupt_mask[cpu_id] = 1;
+    interrupt_mask[cpu_id] = true;
 
 return_sleep2:
     CPU_SLEEP_TAG[cpu_id] = Active;
@@ -190,14 +188,14 @@ inline wake_up(my_id, target_cpu_id, result) {
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Active ->
         // CPU not yet sleeping: schedule wake-up
         CPU_SLEEP_TAG[target_cpu_id] = Waking;
-        result = 1;
+        result = true;
         printf("Active -> Waking: CPU#{%d}", target_cpu_id);
         goto return_wake_up;
     }
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
          // CPU is halted: send IPI
         CPU_SLEEP_TAG[target_cpu_id] = Waking;
-        result = 1;
+        result = true;
         printf("Waiting -> Waking: CPU#{%d}", target_cpu_id);
     }
         send_ipi(target_cpu_id);
@@ -205,7 +203,7 @@ inline wake_up(my_id, target_cpu_id, result) {
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waking ->
         // wake-up already pending
         printf("already waking: CPU#{%d}", target_cpu_id);
-        result = 0;
+        result = false;
     }
         send_ipi(target_cpu_id);
         goto return_wake_up;
@@ -218,7 +216,7 @@ return_wake_up:
 inline wake_workers(cpu_id) {
     byte num_tasks = run_queue;
     byte i;
-    byte result;
+    bool result;
 
     for (i: 1 .. CPU_NUM - 1) {
         if
@@ -227,7 +225,7 @@ inline wake_workers(cpu_id) {
             wake_up(cpu_id, i, result);
 
             if
-            :: d_step { result == 1 ->
+            :: d_step { result == true ->
                 printf("wake_up(%d)\n", i);
                 num_tasks--;
             }
@@ -239,13 +237,13 @@ inline wake_workers(cpu_id) {
 
 inline timer_reset(cpu_id) {
     printf("CPU#{%d}: reset timer\n", cpu_id);
-    timer_enable[cpu_id] = 1;
+    timer_enable[cpu_id] = true;
 }
 
 inline timer_disable(cpu_id) {
     d_step {
         printf("CPU#{%d}: disable timer\n", cpu_id);
-        timer_enable[cpu_id] = 2;
+        timer_enable[cpu_id] = false;
     }
 }
 
@@ -307,8 +305,8 @@ proctype primary_main() {
 
 proctype timer(byte cpu_id) {
     do
-    :: d_step { timer_enable[cpu_id] == 1 && timer_interrupt[cpu_id] == 0 ->
-            timer_interrupt[cpu_id] = 1;
+    :: d_step { timer_enable[cpu_id] == true && timer_interrupt[cpu_id] == false ->
+            timer_interrupt[cpu_id] = true;
     }
     od
 }
@@ -318,10 +316,10 @@ init {
 
     for (i: 0 .. CPU_NUM - 1) {
         CPU_SLEEP_TAG[i] = Active;
-        interrupt_mask[i] = 1;
-        IPI[i] = 0;
-        timer_enable[i] = 0;
-        timer_interrupt[i] = 0;
+        interrupt_mask[i] = true;
+        IPI[i] = false;
+        timer_enable[i] = false;
+        timer_interrupt[i] = false;
     }
 
     for (i: 0 .. CPU_NUM - 1) {
