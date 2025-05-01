@@ -83,11 +83,11 @@ inline wait_interrupt(cpu_id) {
 
 inline rnd5() {
     if
-    :: true -> rnd = 0
-    :: true -> rnd = 1
-    :: true -> rnd = 2
-    :: true -> rnd = 3
-    :: true -> rnd = 4
+    :: rnd = 0
+    :: rnd = 1
+    :: rnd = 2
+    :: rnd = 3
+    :: rnd = 4
     fi
 }
 
