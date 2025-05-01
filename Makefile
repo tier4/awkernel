@@ -55,7 +55,7 @@ X86_64_LD=$(LINKERDIR)/x86_64-link.lds
 RV32_LD=$(LINKERDIR)/rv32-link.lds
 RV64_LD=$(LINKERDIR)/rv64-link.lds
 
-RUSTV=nightly-2025-02-27
+RUSTV=nightly-2025-04-29
 
 all: aarch64 x86_64 riscv32 riscv64 std
 
@@ -153,7 +153,7 @@ x86_64_uefi.img: kernel-x86_64.elf
 $(X86ASM): FORCE
 	$(MAKE) -C $@
 
-OVMF_PATH := $(shell cat ${HOME}/.ovfmpath)
+OVMF_PATH := $(shell cat ${HOME}/.ovmfpath)
 
 QEMU_X86_ARGS= -drive if=pflash,format=raw,readonly=on,file=${OVMF_PATH}/code.fd
 QEMU_X86_ARGS+= -drive if=pflash,format=raw,file=${OVMF_PATH}/vars_qemu.fd
@@ -176,7 +176,7 @@ QEMU_X86_NET_ARGS+= -netdev user,id=net0,hostfwd=udp::4445-:2000
 QEMU_X86_NET_ARGS+= -device e1000e,netdev=net0,mac=12:34:56:11:22:33
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net0,netdev=net0,file=packets_net0.pcap
 QEMU_X86_NET_ARGS+= -netdev user,id=net1,hostfwd=udp::4446-:2001
-QEMU_X86_NET_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34
+QEMU_X86_NET_ARGS+= -device virtio-net-pci,netdev=net1,mac=12:34:56:11:22:34,disable-legacy=on,disable-modern=off
 QEMU_X86_NET_ARGS+= -object filter-dump,id=net1,netdev=net1,file=packets_net1.pcap
 
 tcp-dump:

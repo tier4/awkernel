@@ -50,7 +50,7 @@ async fn console_handler() -> TaskResult {
     functions.push(Box::new(PerfFfi));
 
     let code = if cfg!(feature = "perf") {
-        format!("{}\r\n{}", CODE, PERF_CODE)
+        format!("{CODE}\r\n{PERF_CODE}")
     } else {
         CODE.to_string()
     };
@@ -219,7 +219,7 @@ fn interrupt_ffi() {
 
     console::print("IRQ Name\r\n");
     for (k, v) in handlers.iter() {
-        let msg = format!("{:>3} name: {}\r\n", k, v);
+        let msg = format!("{k:>3} name: {v}\r\n");
         console::print(&msg);
     }
 }
