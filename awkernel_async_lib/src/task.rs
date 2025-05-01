@@ -371,8 +371,8 @@ pub mod perf {
                 0 => Self::Boot,
                 1 => Self::Kernel,
                 2 => Self::Task,
-                4 => Self::Interrupt,
                 3 => Self::ContextSwitch,
+                4 => Self::Interrupt,
                 5 => Self::Idle,
                 _ => panic!("From<u8> for PerfState::from: invalid value"),
             }
@@ -391,6 +391,7 @@ pub mod perf {
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
     fn update_time_and_state(next_state: PerfState) {
+        let end = awkernel_lib::delay::cpu_counter();
         let cpu_id = awkernel_lib::cpu::cpu_id();
 
         let state: PerfState = unsafe { read_volatile(&PERF_STATES[cpu_id]) }.into();
@@ -398,7 +399,6 @@ pub mod perf {
             return;
         }
 
-        let end = awkernel_lib::delay::cpu_counter();
         let start = unsafe { read_volatile(&START_TIME[cpu_id]) };
 
         if start > 0 && start <= end {
@@ -464,14 +464,14 @@ pub mod perf {
     #[inline(always)]
     pub fn transition_to(next: PerfState) {
         match next {
-            PerfState::Task => start_task(),
-            PerfState::Kernel => start_kernel(),
-            PerfState::Idle => start_idle(),
             PerfState::Boot => unreachable!(),
+            PerfState::Kernel => start_kernel(),
+            PerfState::Task => start_task(),
             PerfState::ContextSwitch => start_context_switch(),
             PerfState::Interrupt => {
                 start_interrupt();
             }
+            PerfState::Idle => start_idle(),
         }
     }
 
