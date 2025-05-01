@@ -247,7 +247,8 @@ impl VirtioNetInner {
     //	 virtio_reinit_end();         // device activated; enqueue allowed
     // Once attached, features are assumed to not change again.
     fn virtio_reset(&mut self) -> Result<(), VirtioDriverErr> {
-        self.common_cfg.virtio_set_device_status(0)?;
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_RESET)?;
         self.active_features = 0;
         Ok(())
     }
