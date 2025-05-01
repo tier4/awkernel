@@ -237,6 +237,63 @@ impl VirtioNetInner {
 
         Ok(())
     }
+
+    // To reset the device to a known state, do following:
+    //	 virtio_reset();              // this will stop the device activity
+    //	 <dequeue finished requests>; // virtio_dequeue() still can be called
+    //	 <revoke pending requests in the vqs if any>;
+    //	 virtio_reinit_start();       // dequeue prohibited
+    //	 <some other initialization>;
+    //	 virtio_reinit_end();         // device activated; enqueue allowed
+    // Once attached, features are assumed to not change again.
+    fn virtio_reset(&mut self) -> Result<(), VirtioDriverErr> {
+        self.common_cfg.virtio_set_device_status(0)?;
+        self.active_features = 0;
+        Ok(())
+    }
+
+    fn virtio_reinit_start(&mut self) -> Result<(), VirtioDriverErr> {
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_ACK)?;
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER)?;
+
+        // TODO: setup interrupts
+
+        self.virtio_pci_negotiate_features()?;
+
+        // TODO: setup virtio queues
+
+        Ok(())
+    }
+
+    fn virtio_reinit_end(&mut self) -> Result<(), VirtioDriverErr> {
+        self.common_cfg
+            .virtio_set_device_status(VIRTIO_CONFIG_DEVICE_STATUS_DRIVER_OK)?;
+
+        Ok(())
+    }
+
+    fn vio_stop(&mut self) -> Result<(), VirtioDriverErr> {
+        self.flags.remove(NetFlags::RUNNING);
+
+        // TODO: stop timers
+
+        self.virtio_reset()?;
+
+        // TODO: drain tx/rx queues
+
+        self.virtio_reinit_start()?;
+
+        // TODO: interrupt tx/rx queues
+
+        self.virtio_reinit_end()?;
+
+        // TODO: VIRTIO_NET_F_MQ related setup
+        // TODO: VIRTIO_NET_F_CTRL_VQ related setup
+
+        Ok(())
+    }
 }
 
 pub struct VirtioNet {
@@ -319,7 +376,19 @@ impl NetDevice for VirtioNet {
     }
 
     fn down(&self) -> Result<(), NetDevError> {
-        todo!()
+        let mut inner = self.inner.write();
+
+        if inner.flags.contains(NetFlags::UP) {
+            if let Err(e) = inner.vio_stop() {
+                log::error!("virtio-net: stop failed: {e:?}");
+                Err(NetDevError::DeviceError)
+            } else {
+                inner.flags.remove(NetFlags::UP);
+                Ok(())
+            }
+        } else {
+            Err(NetDevError::AlreadyDown)
+        }
     }
 
     fn interrupt(&self, _irq: u16) -> Result<(), NetDevError> {
