@@ -2,7 +2,7 @@
 #define TASK_NUM (WORKERS + 1)
 #define CPU_NUM (WORKERS + 1)
 
-mtype = { Idle, Waiting, Waking };
+mtype = { Active, Waiting, Waking };
 mtype CPU_SLEEP_TAG[CPU_NUM];
 
 byte interrupt_mask[CPU_NUM];
@@ -117,10 +117,10 @@ inline sleep(cpu_id) {
 
     // mark waiting before halt
     mtype prev_val;
-    compare_exchange(CPU_SLEEP_TAG[cpu_id], Idle, Waiting, prev_val);
+    compare_exchange(CPU_SLEEP_TAG[cpu_id], Active, Waiting, prev_val);
 
     if
-    :: prev_val == Idle
+    :: prev_val == Active
     :: prev_val == Waking -> goto return_sleep1;
     :: else -> assert(prev_val != Waiting); // unreachable!()
     fi
@@ -144,7 +144,7 @@ inline sleep(cpu_id) {
 
     if
     :: atomic { CPU_SLEEP_TAG[cpu_id] == Waking ->
-        CPU_SLEEP_TAG[cpu_id] = Idle;
+        CPU_SLEEP_TAG[cpu_id] = Active;
         goto return_sleep1;
     }
     :: else
@@ -169,7 +169,7 @@ return_sleep1:
     interrupt_mask[cpu_id] = 1;
 
 return_sleep2:
-    CPU_SLEEP_TAG[cpu_id] = Idle;
+    CPU_SLEEP_TAG[cpu_id] = Active;
 }
 
 // `SleepCpuNoStd::wake_up()` in awkernel_lib/src/cpu/sleep_cpu_no_std.rs
@@ -187,11 +187,11 @@ inline wake_up(my_id, target_cpu_id, result) {
 
     // attempt state transitions until success or redundant
     if
-    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Idle ->
+    :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Active ->
         // CPU not yet sleeping: schedule wake-up
         CPU_SLEEP_TAG[target_cpu_id] = Waking;
         result = 1;
-        printf("Idle -> Waking: CPU#{%d}", target_cpu_id);
+        printf("Active -> Waking: CPU#{%d}", target_cpu_id);
         goto return_wake_up;
     }
     :: atomic { CPU_SLEEP_TAG[target_cpu_id] == Waiting ->
@@ -317,7 +317,7 @@ init {
     byte i;
 
     for (i: 0 .. CPU_NUM - 1) {
-        CPU_SLEEP_TAG[i] = Idle;
+        CPU_SLEEP_TAG[i] = Active;
         interrupt_mask[i] = 1;
         IPI[i] = 0;
         timer_enable[i] = 0;

@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SleepTag {
-    Idle = 0,    // CPU is running or just woke up
+    Active = 0,  // CPU is running or just woke up
     Waiting = 1, // CPU is halted waiting for wakeup
     Waking = 2,  // Wake-up pending or in progress
 }
@@ -16,7 +16,7 @@ static READY: AtomicBool = AtomicBool::new(false);
 
 /// Per-CPU sleep state tag
 static CPU_SLEEP_TAG: [AtomicU32; NUM_MAX_CPU] =
-    array![_ => AtomicU32::new(SleepTag::Idle as u32); NUM_MAX_CPU];
+    array![_ => AtomicU32::new(SleepTag::Active as u32); NUM_MAX_CPU];
 
 /// SleepCpu implementation using state-machine and edge-triggered IPI
 pub(super) struct SleepCpuNoStd;
@@ -33,7 +33,7 @@ impl SleepCpu for SleepCpuNoStd {
 
         // if wake-up already pending, consume and return
         if CPU_SLEEP_TAG[cpu_id].load(Ordering::Relaxed) == SleepTag::Waking as u32 {
-            CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
+            CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
             return;
         }
 
@@ -43,14 +43,14 @@ impl SleepCpu for SleepCpuNoStd {
 
             // mark waiting before halt
             match CPU_SLEEP_TAG[cpu_id].compare_exchange(
-                SleepTag::Idle as u32,
+                SleepTag::Active as u32,
                 SleepTag::Waiting as u32,
                 Ordering::SeqCst,
                 Ordering::Relaxed,
             ) {
                 Ok(_) => (),
                 Err(x) if x == SleepTag::Waking as u32 => {
-                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
+                    CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
                     return;
                 }
                 _ => unreachable!(),
@@ -63,7 +63,7 @@ impl SleepCpu for SleepCpuNoStd {
             // check again
             match CPU_SLEEP_TAG[cpu_id].compare_exchange(
                 SleepTag::Waking as u32,
-                SleepTag::Idle as u32,
+                SleepTag::Active as u32,
                 Ordering::SeqCst,
                 Ordering::Relaxed,
             ) {
@@ -77,7 +77,7 @@ impl SleepCpu for SleepCpuNoStd {
         //   To notify it again, Awkernel setup a timer by `reset_wakeup_timer()` in interrupt handlers.
 
         // returned by IPI: set back to idle
-        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Idle as u32, Ordering::Release);
+        CPU_SLEEP_TAG[cpu_id].store(SleepTag::Active as u32, Ordering::Release);
     }
 
     fn wake_up(cpu_id: usize) -> bool {
@@ -94,11 +94,11 @@ impl SleepCpu for SleepCpuNoStd {
         loop {
             let tag = CPU_SLEEP_TAG[cpu_id].load(Ordering::Acquire);
             match tag {
-                x if x == SleepTag::Idle as u32 => {
+                x if x == SleepTag::Active as u32 => {
                     // CPU not yet sleeping: schedule wake-up
                     if CPU_SLEEP_TAG[cpu_id]
                         .compare_exchange(
-                            SleepTag::Idle as u32,
+                            SleepTag::Active as u32,
                             SleepTag::Waking as u32,
                             Ordering::AcqRel,
                             Ordering::Acquire,
