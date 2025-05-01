@@ -131,9 +131,9 @@ macro_rules! spawn_source {
 async fn spawn_source_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Result<(), GenError> {
     let out_links_len = node.get_out_links().len();
     match out_links_len {
-        1 => spawn_source!(dag, dag_id, node, i32),
-        2 => spawn_source!(dag, dag_id, node, i32, i32),
-        3 => spawn_source!(dag, dag_id, node, i32, i32, i32),
+        1 => spawn_source!(dag, dag_id, node, u64),
+        2 => spawn_source!(dag, dag_id, node, u64, u64),
+        3 => spawn_source!(dag, dag_id, node, u64, u64, u64),
         _ => return Err(GenError::UnsupportedInArity(dag_id)),
     }
 }
@@ -181,9 +181,9 @@ macro_rules! spawn_sink {
 async fn spawn_sink_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Result<(), GenError> {
     let in_links_len = node.get_in_links().len();
     match in_links_len {
-        1 => spawn_sink!(dag, dag_id, node, i32),
-        2 => spawn_sink!(dag, dag_id, node, i32, i32),
-        3 => spawn_sink!(dag, dag_id, node, i32, i32, i32),
+        1 => spawn_sink!(dag, dag_id, node, u64),
+        2 => spawn_sink!(dag, dag_id, node, u64, u64),
+        3 => spawn_sink!(dag, dag_id, node, u64, u64, u64),
         _ => return Err(GenError::UnsupportedOutArity(dag_id)),
     }
 }
@@ -239,15 +239,15 @@ async fn spawn_normal_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Re
     let out_links_len = node.get_out_links().len();
 
     match (in_links_len, out_links_len) {
-        (1, 1) => spawn_normal!(dag, dag_id, node, i32; i32),
-        (1, 2) => spawn_normal!(dag, dag_id, node, i32; i32, i32),
-        (1, 3) => spawn_normal!(dag, dag_id, node, i32; i32, i32, i32),
-        (2, 1) => spawn_normal!(dag, dag_id, node, i32, i32; i32),
-        (2, 2) => spawn_normal!(dag, dag_id, node, i32, i32; i32, i32),
-        (2, 3) => spawn_normal!(dag, dag_id, node, i32, i32; i32, i32, i32),
-        (3, 1) => spawn_normal!(dag, dag_id, node, i32, i32, i32; i32),
-        (3, 2) => spawn_normal!(dag, dag_id, node, i32, i32, i32; i32, i32),
-        (3, 3) => spawn_normal!(dag, dag_id, node, i32, i32, i32; i32, i32, i32),
+        (1, 1) => spawn_normal!(dag, dag_id, node, u64; u64),
+        (1, 2) => spawn_normal!(dag, dag_id, node, u64; u64, u64),
+        (1, 3) => spawn_normal!(dag, dag_id, node, u64; u64, u64, u64),
+        (2, 1) => spawn_normal!(dag, dag_id, node, u64, u64; u64),
+        (2, 2) => spawn_normal!(dag, dag_id, node, u64, u64; u64, u64),
+        (2, 3) => spawn_normal!(dag, dag_id, node, u64, u64; u64, u64, u64),
+        (3, 1) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64),
+        (3, 2) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64),
+        (3, 3) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64, u64),
         _ => return Err(GenError::UnsupportedArity(dag_id)),
     }
 }
@@ -273,8 +273,8 @@ pub async fn run() {
     wait_millisec(1000);
     log::info!("Starting DAG generation...");
     let dag_files = [DAG_FILE_0];
-    let dag_data = parse_yaml::parse_dags(&dag_files);
-    match dag_data {
+    let dags_data = parse_yaml::parse_dags(&dag_files);
+    match dags_data {
         Ok(dags_data) => {
             log::info!("Creating DAGs...");
             let mut gen_dags = vec![];

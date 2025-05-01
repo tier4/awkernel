@@ -68,8 +68,6 @@ impl NodeData {
     }
 }
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct DagData {
     nodes: Vec<NodeData>,
@@ -113,7 +111,6 @@ fn convert_to_dag(raw_data: RawData) -> DagData {
     DagData { nodes }
 }
 
-// TODO: Remove allow(dead_code).
 #[allow(dead_code)]
 pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<DagData>, ParseError> {
     dag_files
