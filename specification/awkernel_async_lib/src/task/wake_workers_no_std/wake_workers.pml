@@ -174,7 +174,7 @@ return_sleep2:
 inline wake_up(my_id, target_cpu_id, result) {
     if
     :: atomic { my_id == target_cpu_id ->
-        result = 0;
+        result = false;
         goto return_wake_up;
     }
     :: else
@@ -249,7 +249,7 @@ inline timer_disable(cpu_id) {
 
 // Simulate tasks
 inline task_poll() {
-    byte result;
+    bool result;
 
     // spawn a new task
     // `Task::wake()` in awkernel_async_lib/src/task.rs
