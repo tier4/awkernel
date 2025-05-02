@@ -59,16 +59,13 @@ fn convert_millisec(duration: u64) -> u64 {
 }
 
 fn create_reactor_name(dag_id: u32, node_id: u32) -> Cow<'static, str> {
-    Cow::from(format!("dag_{}_node_{}", dag_id, node_id))
+    Cow::from(format!("dag_{dag_id}_node_{node_id}"))
 }
 
 fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &[u32]) -> Vec<Cow<'static, str>> {
     let mut topics = vec![];
     in_links.iter().for_each(|link| {
-        topics.push(Cow::from(format!(
-            "dag_{}_node_{}_{}",
-            dag_id, link, node_id
-        )));
+        topics.push(Cow::from(format!("dag_{dag_id}_node_{link}_{node_id}")));
     });
     topics
 }
@@ -76,10 +73,7 @@ fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &[u32]) -> Vec<Cow<'st
 fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'static, str>> {
     let mut topics = vec![];
     out_links.iter().for_each(|link| {
-        topics.push(Cow::from(format!(
-            "dag_{}_node_{}_{}",
-            dag_id, node_id, link
-        )));
+        topics.push(Cow::from(format!("dag_{dag_id}_node_{node_id}_{link}")));
     });
     topics
 }
@@ -298,13 +292,13 @@ pub async fn run() {
                     }
                     Err(e) => match e {
                         UnsupportedError::Input(dag_id) => {
-                            log::error!("Unsupported input arity for DAG ID: {}", dag_id);
+                            log::error!("Unsupported input arity for DAG ID: {dag_id}");
                         }
                         UnsupportedError::Output(dag_id) => {
-                            log::error!("Unsupported output arity for DAG ID: {}", dag_id);
+                            log::error!("Unsupported output arity for DAG ID: {dag_id}");
                         }
                         UnsupportedError::InputOutput(dag_id) => {
-                            log::error!("Unsupported arity for DAG ID: {}", dag_id);
+                            log::error!("Unsupported arity for DAG ID: {dag_id}");
                         }
                     },
                 }
@@ -318,13 +312,13 @@ pub async fn run() {
                 }
                 Err(e) => match e {
                     dag::DagError::MissingPendingTasks(dag_id) => {
-                        log::error!("Missing pending tasks for DAG ID: {}", dag_id);
+                        log::error!("Missing pending tasks for DAG ID: {dag_id}");
                     }
                     dag::DagError::NotWeaklyConnected(dag_id) => {
-                        log::error!("DAG ID {} is not weakly connected.", dag_id);
+                        log::error!("DAG ID {dag_id} is not weakly connected.");
                     }
                     dag::DagError::ContainsCycle(dag_id) => {
-                        log::error!("DAG ID {} contains a cycle.", dag_id);
+                        log::error!("DAG ID {dag_id} contains a cycle.");
                     }
                 },
             }
