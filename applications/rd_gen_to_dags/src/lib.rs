@@ -28,17 +28,17 @@ enum TimeUnit {
     Nanoseconds,
 }
 
-enum GenError {
-    UnsupportedInArity(u32),
-    UnsupportedOutArity(u32),
-    UnsupportedArity(u32),
+enum UnsupportedError {
+    Input(u32),
+    Output(u32),
+    InputOutput(u32),
 }
 
 // A newline is required at the end due to yaml_peg specification.
 // If you have multiple files, define a `const` for each.
 // TODO: to be removed after filesystem implementation.
-const DAG_FILE_0: &'static str = concat!(include_str!("../DAGs/dag_0.yaml"), "\n");
-// const DAG_FILE_1: &'static str = concat!(include_str!("../../../../DAGs/dag_1.yaml"), "\n");
+const DAG_FILE_0: &str = concat!(include_str!("../DAGs/dag_0.yaml"), "\n");
+// const DAG_FILE_1: &str = concat!(include_str!("../../../../DAGs/dag_1.yaml"), "\n");
 
 fn convert_duration(duration: u64) -> Duration {
     match TIME_UNIT {
@@ -62,7 +62,7 @@ fn create_reactor_name(dag_id: u32, node_id: u32) -> Cow<'static, str> {
     Cow::from(format!("dag_{}_node_{}", dag_id, node_id))
 }
 
-fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &Vec<u32>) -> Vec<Cow<'static, str>> {
+fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &[u32]) -> Vec<Cow<'static, str>> {
     let mut topics = vec![];
     in_links.iter().for_each(|link| {
         topics.push(Cow::from(format!(
@@ -73,7 +73,7 @@ fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &Vec<u32>) -> Vec<Cow<
     topics
 }
 
-fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &Vec<u32>) -> Vec<Cow<'static, str>> {
+fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'static, str>> {
     let mut topics = vec![];
     out_links.iter().for_each(|link| {
         topics.push(Cow::from(format!(
@@ -128,13 +128,17 @@ macro_rules! spawn_source {
     };
 }
 
-async fn spawn_source_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Result<(), GenError> {
+async fn spawn_source_reactor(
+    dag: Arc<Dag>,
+    dag_id: u32,
+    node: &NodeData,
+) -> Result<(), UnsupportedError> {
     let out_links_len = node.get_out_links().len();
     match out_links_len {
         1 => spawn_source!(dag, dag_id, node, u64),
         2 => spawn_source!(dag, dag_id, node, u64, u64),
         3 => spawn_source!(dag, dag_id, node, u64, u64, u64),
-        _ => return Err(GenError::UnsupportedInArity(dag_id)),
+        _ => Err(UnsupportedError::Input(dag_id)),
     }
 }
 
@@ -178,13 +182,17 @@ macro_rules! spawn_sink {
     };
 }
 
-async fn spawn_sink_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Result<(), GenError> {
+async fn spawn_sink_reactor(
+    dag: Arc<Dag>,
+    dag_id: u32,
+    node: &NodeData,
+) -> Result<(), UnsupportedError> {
     let in_links_len = node.get_in_links().len();
     match in_links_len {
         1 => spawn_sink!(dag, dag_id, node, u64),
         2 => spawn_sink!(dag, dag_id, node, u64, u64),
         3 => spawn_sink!(dag, dag_id, node, u64, u64, u64),
-        _ => return Err(GenError::UnsupportedOutArity(dag_id)),
+        _ => Err(UnsupportedError::Output(dag_id)),
     }
 }
 
@@ -234,7 +242,11 @@ macro_rules! spawn_normal {
     };
 }
 
-async fn spawn_normal_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Result<(), GenError> {
+async fn spawn_normal_reactor(
+    dag: Arc<Dag>,
+    dag_id: u32,
+    node: &NodeData,
+) -> Result<(), UnsupportedError> {
     let in_links_len = node.get_in_links().len();
     let out_links_len = node.get_out_links().len();
 
@@ -248,11 +260,11 @@ async fn spawn_normal_reactor(dag: Arc<Dag>, dag_id: u32, node: &NodeData) -> Re
         (3, 1) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64),
         (3, 2) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64),
         (3, 3) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64, u64),
-        _ => return Err(GenError::UnsupportedArity(dag_id)),
+        _ => Err(UnsupportedError::InputOutput(dag_id)),
     }
 }
 
-async fn generate_dag(dag_data: DagData) -> Result<Arc<Dag>, GenError> {
+async fn generate_dag(dag_data: DagData) -> Result<Arc<Dag>, UnsupportedError> {
     let dag = create_dag();
     let dag_id = dag.get_id();
 
@@ -285,13 +297,13 @@ pub async fn run() {
                         gen_dags.push(dag);
                     }
                     Err(e) => match e {
-                        GenError::UnsupportedInArity(dag_id) => {
+                        UnsupportedError::Input(dag_id) => {
                             log::error!("Unsupported input arity for DAG ID: {}", dag_id);
                         }
-                        GenError::UnsupportedOutArity(dag_id) => {
+                        UnsupportedError::Output(dag_id) => {
                             log::error!("Unsupported output arity for DAG ID: {}", dag_id);
                         }
-                        GenError::UnsupportedArity(dag_id) => {
+                        UnsupportedError::InputOutput(dag_id) => {
                             log::error!("Unsupported arity for DAG ID: {}", dag_id);
                         }
                     },

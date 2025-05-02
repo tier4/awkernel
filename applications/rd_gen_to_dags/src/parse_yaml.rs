@@ -59,12 +59,10 @@ impl NodeData {
         &self.in_links
     }
     pub(crate) fn is_source(&self) -> bool {
-        self.in_links.is_empty() && !self.out_links.is_empty() && !self.period.is_none()
+        self.in_links.is_empty() && !self.out_links.is_empty() && self.period.is_some()
     }
     pub(crate) fn is_sink(&self) -> bool {
-        self.out_links.is_empty()
-            && !self.in_links.is_empty()
-            && !self.end_to_end_deadline.is_none()
+        self.out_links.is_empty() && !self.in_links.is_empty() && self.end_to_end_deadline.is_some()
     }
 }
 
