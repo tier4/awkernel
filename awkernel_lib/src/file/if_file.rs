@@ -124,9 +124,14 @@ pub enum FileSystemWrapperError {
 }
 
 pub trait FileSystemWrapper {
-    fn open(&self, path: &str, waker: core::task::Waker) -> Result<(), FileSystemWrapperError>;
-    fn create(&self, path: &str);
-    fn read(&self, fd: u32, buf: &mut u8, waker: core::task::Waker);
-    fn device_short_name(&self) -> Cow<'static, str>;
-    fn filesystem_short_name(&self) -> Cow<'static, str>;
+    fn open(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<bool, FileSystemWrapperError>;
+    //fn create(&self, path: &str);
+    //fn read(&self, fd: u32, buf: &mut u8, waker: core::task::Waker);
+    //fn device_short_name(&self) -> Cow<'static, str>;
+    //fn filesystem_short_name(&self) -> Cow<'static, str>;
 }

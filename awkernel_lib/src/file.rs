@@ -82,6 +82,7 @@ impl FileManager {
 pub struct FileDescriptor {
     pub fd: i64,
     pub interface_id: u64,
+    pub filesystem: Arc<dyn FileSystemWrapper + Sync + Send>,
 }
 
 impl FileDescriptor {
@@ -118,33 +119,11 @@ impl FileDescriptor {
 
         if_file.wake_fs();
 
-        Ok(FileDescriptor { fd, interface_id })
-    }
-
-    pub fn open(&self, waker: &core::task::Waker) -> Result<bool, FileManagerError> {
-        let file_manager = FILE_MANAGER.read();
-
-        let file = file_manager
-            .fd_to_file
-            .get(&self.fd)
-            .ok_or(FileManagerError::CannotFindInterface)?;
-
-        let mut node = MCSNode::new();
-        let ret_guard = file.ret.lock(&mut node);
-        if *ret_guard != FileSystemResult::None {
-            match *ret_guard {
-                FileSystemResult::Success => Ok(true),
-                FileSystemResult::Failure => Err(FileManagerError::OpenError),
-                _ => panic!("Unexpected return from IfFile"),
-            }
-        } else {
-            let if_file: &Arc<IfFile> = file_manager
-                .interfaces
-                .get(&self.interface_id)
-                .ok_or(FileManagerError::InvalidInterfaceID)?;
-            if_file.register_waker_for_fd(self.fd, waker.clone());
-            Ok(false)
-        }
+        Ok(FileDescriptor {
+            fd,
+            interface_id,
+            filesystem: if_file.filesystem.clone(),
+        })
     }
 
     pub fn create_file(path: &str) -> Result<Self, FileManagerError> {
@@ -163,42 +142,40 @@ impl FileDescriptor {
 #[derive(Debug)]
 pub struct IfFileStatus {
     pub interface_id: u64,
-    pub filesystem_name: Cow<'static, str>,
-    pub device_name: Cow<'static, str>,
+    //pub filesystem_name: Cow<'static, str>,
+    //pub device_name: Cow<'static, str>,
 }
 
-pub fn get_interface(interface_id: u64) -> Result<IfFileStatus, FileManagerError> {
-    let file_manager = FILE_MANAGER.read();
+//pub fn get_interface(interface_id: u64) -> Result<IfFileStatus, FileManagerError> {
+//let file_manager = FILE_MANAGER.read();
 
-    let if_file = file_manager
-        .interfaces
-        .get(&interface_id)
-        .ok_or(FileManagerError::InvalidInterfaceID)?;
+//let if_file = file_manager
+//.interfaces
+//.get(&interface_id)
+//.ok_or(FileManagerError::InvalidInterfaceID)?;
 
-    let inner = &if_file.filesystem;
+//let if_status = IfFileStatus {
+//interface_id,
+////filesystem_name: inner.filesystem_short_name(),
+////device_name: inner.device_short_name(),
+//};
 
-    let if_status = IfFileStatus {
-        interface_id,
-        filesystem_name: inner.filesystem_short_name(),
-        device_name: inner.device_short_name(),
-    };
+//Ok(if_status)
+//}
 
-    Ok(if_status)
-}
+//pub fn get_all_interface() -> Vec<IfFileStatus> {
+//let file_manager = FILE_MANAGER.read();
 
-pub fn get_all_interface() -> Vec<IfFileStatus> {
-    let file_manager = FILE_MANAGER.read();
+//let mut result = Vec::new();
 
-    let mut result = Vec::new();
+//for id in file_manager.interfaces.keys() {
+//if let Ok(if_status) = get_interface(*id) {
+//result.push(if_status);
+//}
+//}
 
-    for id in file_manager.interfaces.keys() {
-        if let Ok(if_status) = get_interface(*id) {
-            result.push(if_status);
-        }
-    }
-
-    result
-}
+//result
+//}
 
 pub fn add_interface(file_system: Arc<dyn FileSystemWrapper + Sync + Send>) {
     let mut file_manager = FILE_MANAGER.write();
@@ -213,6 +190,25 @@ pub fn add_interface(file_system: Arc<dyn FileSystemWrapper + Sync + Send>) {
     let if_file = Arc::new(IfFile::new(file_system));
 
     file_manager.interfaces.insert(id, if_file);
+}
+
+pub fn register_waker_for_fd(
+    interface_id: u64,
+    fd: i64,
+    waker: core::task::Waker,
+) -> Result<(), FileManagerError> {
+    let file_manager = FILE_MANAGER.read();
+
+    let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
+        return Err(FileManagerError::InvalidInterfaceID);
+    };
+
+    let if_file = Arc::clone(if_file);
+    drop(file_manager);
+
+    if_file.register_waker_for_fd(fd, waker);
+
+    Ok(())
 }
 
 /// The old waker will be replaced.
@@ -275,5 +271,32 @@ pub fn ret_push(fd: i64, ret: FileSystemResult) -> Result<(), FileManagerError> 
         Ok(())
     } else {
         return Err(FileManagerError::InvalidFileDescriptor);
+    }
+}
+
+pub fn ret_pop(fd: i64) -> Result<FileSystemResult, FileManagerError> {
+    let file_manager = FILE_MANAGER.read();
+
+    let file = file_manager.fd_to_file.get(&fd);
+    if let Some(file) = file {
+        let mut node = MCSNode::new();
+        let mut ret_guard = file.ret.lock(&mut node);
+        match *ret_guard {
+            FileSystemResult::ReadResult(_) => panic!("Unexpected return"),
+            FileSystemResult::Failure => {
+                *ret_guard = FileSystemResult::None;
+                Ok(FileSystemResult::Failure)
+            }
+            FileSystemResult::Success => {
+                *ret_guard = FileSystemResult::None;
+                Ok(FileSystemResult::Success)
+            }
+            FileSystemResult::None => {
+                *ret_guard = FileSystemResult::None;
+                Ok(FileSystemResult::None)
+            }
+        }
+    } else {
+        Err(FileManagerError::InvalidFileDescriptor)
     }
 }

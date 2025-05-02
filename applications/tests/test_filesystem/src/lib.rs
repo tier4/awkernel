@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use awkernel_lib::file::{init_filesystem, FileDescriptor};
+use awkernel_lib::file::FileDescriptor;
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -15,7 +15,7 @@ pub async fn run() {
 }
 
 async fn filesystem_test() {
-    init_filesystem();
+    //init_filesystem();
 
     log::info!("okay!!!");
 

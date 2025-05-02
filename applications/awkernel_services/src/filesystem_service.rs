@@ -2,13 +2,13 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, string::String, vec::Vec};
+use alloc::{collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
     future::FutureExt, pubsub, scheduler::SchedulerType, select_biased, session_types::*,
 };
 use awkernel_lib::{
     file::{
-        if_file::{FileSystemCmd, FileSystemCmdInfo},
+        if_file::{FileSystemCmd, FileSystemCmdInfo, FileSystemWrapper, FileSystemWrapperError},
         FileManagerError, FileSystemResult,
     },
     heap::TALLOC,
@@ -38,6 +38,8 @@ pub async fn run() {
     //);
 
     //let interface_id = if_file_status.interface_id;
+    let filesystem = FatfsInMemory {};
+    awkernel_lib::file::add_interface(Arc::new(filesystem));
     let interface_id = 0;
     //awkernel_async_lib::spawn(
     //name.into(),
@@ -69,7 +71,7 @@ pub async fn run() {
 
     let mut fd_to_file = BTreeMap::new();
     loop {
-        let mut wait_read = FileSystemPolling {
+        let mut wait_fs = FileSystemPolling {
             interface_id,
             wait: true,
         }
@@ -99,6 +101,32 @@ pub async fn run() {
                 FileSystemCmd::WriteCmd => {}
                 FileSystemCmd::SeekCmd => {}
             }
+        }
+    }
+}
+
+pub struct FatfsInMemory {}
+
+impl FileSystemWrapper for FatfsInMemory {
+    fn open(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<bool, FileSystemWrapperError> {
+        let Ok(res) = awkernel_lib::file::ret_pop(fd) else {
+            return Err(FileSystemWrapperError::OpenError);
+        };
+
+        if res != FileSystemResult::None {
+            match res {
+                FileSystemResult::Success => Ok(true),
+                FileSystemResult::Failure => Err(FileSystemWrapperError::OpenError),
+                _ => panic!("Unexpected return from IfFile"),
+            }
+        } else {
+            awkernel_lib::file::register_waker_for_fd(interface_id, fd, waker.clone());
+            Ok(false)
         }
     }
 }
@@ -131,63 +159,63 @@ impl Future for FileSystemPolling {
     }
 }
 
-async fn filesystem_polling(interface_id: u64) {
-    let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
-        panic!("Invalid layout")
-    };
+//async fn filesystem_polling(interface_id: u64) {
+//let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
+//panic!("Invalid layout")
+//};
 
-    let result = unsafe { TALLOC.alloc(layout) };
-    if result.is_null() {
-        panic!("NULL pointer");
-    }
+//let result = unsafe { TALLOC.alloc(layout) };
+//if result.is_null() {
+//panic!("NULL pointer");
+//}
 
-    let data =
-        unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
-    let mut disk = InMemoryDisk { data, position: 0 };
-    let options = FormatVolumeOptions::new();
-    if format_volume(&mut disk, options).is_ok() {
-        log::info!("FAT filesystem formatted successfully in memory!");
-    } else {
-        log::info!("Error formatting!");
-    }
-    let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
-    let root_dir = fs.root_dir();
+//let data =
+//unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
+//let mut disk = InMemoryDisk { data, position: 0 };
+//let options = FormatVolumeOptions::new();
+//if format_volume(&mut disk, options).is_ok() {
+//log::info!("FAT filesystem formatted successfully in memory!");
+//} else {
+//log::info!("Error formatting!");
+//}
+//let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
+//let root_dir = fs.root_dir();
 
-    let mut fd_to_file = BTreeMap::new();
-    loop {
-        let mut wait_read = FileSystemPolling {
-            interface_id,
-            wait: true,
-        }
-        .await;
+//let mut fd_to_file = BTreeMap::new();
+//loop {
+//let mut wait_fs = FileSystemPolling {
+//interface_id,
+//wait: true,
+//}
+//.await;
 
-        let Ok(cmdinfo) = awkernel_lib::file::cmd_queue_pop(interface_id) else {
-            panic!("Wrong interface");
-        };
+//let Ok(cmdinfo) = awkernel_lib::file::cmd_queue_pop(interface_id) else {
+//panic!("Wrong interface");
+//};
 
-        if let Some(cmdinfo) = cmdinfo {
-            match cmdinfo.cmd {
-                FileSystemCmd::OpenCmd => {
-                    let file = match root_dir.open_file(&cmdinfo.path) {
-                        Ok(file) => file,
-                        Err(e) => panic!("Error create file: {:?}", e),
-                    };
-                    fd_to_file.insert(cmdinfo.fd, file);
+//if let Some(cmdinfo) = cmdinfo {
+//match cmdinfo.cmd {
+//FileSystemCmd::OpenCmd => {
+//let file = match root_dir.open_file(&cmdinfo.path) {
+//Ok(file) => file,
+//Err(e) => panic!("Error create file: {:?}", e),
+//};
+//fd_to_file.insert(cmdinfo.fd, file);
 
-                    if let Err(_) =
-                        awkernel_lib::file::ret_push(cmdinfo.fd, FileSystemResult::Success)
-                    {
-                        panic!("Invalid file descriptor");
-                    }
-                }
-                FileSystemCmd::CreateCmd => {}
-                FileSystemCmd::ReadCmd => {}
-                FileSystemCmd::WriteCmd => {}
-                FileSystemCmd::SeekCmd => {}
-            }
-        }
-    }
-}
+//if let Err(_) =
+//awkernel_lib::file::ret_push(cmdinfo.fd, FileSystemResult::Success)
+//{
+//panic!("Invalid file descriptor");
+//}
+//}
+//FileSystemCmd::CreateCmd => {}
+//FileSystemCmd::ReadCmd => {}
+//FileSystemCmd::WriteCmd => {}
+//FileSystemCmd::SeekCmd => {}
+//}
+//}
+//}
+//}
 struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
