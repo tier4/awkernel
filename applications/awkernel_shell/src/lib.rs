@@ -237,53 +237,26 @@ fn ifconfig_ffi() {
 #[embedded]
 fn perf_ffi() {
     console::print("Perform non-primary CPU [tsc]:\r\n");
-    console::print("  cpu   |    task_time  |   kernel_time  |    idle_time  | | yield_save | yield_restore | preempt_save | preempt_restore  \r\n");
-    console::print("--------|---------------|----------------|---------------| |------------|---------------|--------------|------------------\r\n");
-    for cpu_id in 1..awkernel_lib::cpu::num_cpu() {
-        let cpu_time = awkernel_async_lib::task::perf::get_cpu_time(cpu_id);
-        let kernel_time = awkernel_async_lib::task::perf::get_kernel_time(cpu_id);
-        let idle_time = awkernel_async_lib::task::perf::get_idle_time(cpu_id);
-        let (yield_save_overhead, yield_restore_overhead) =
-            awkernel_async_lib::task::perf::get_overheads(
-                awkernel_async_lib::task::perf::ContextSwitchType::Yield,
-                cpu_id,
-            );
-        let (preempt_save_overhead, preempt_restore_overhead) =
-            awkernel_async_lib::task::perf::get_overheads(
-                awkernel_async_lib::task::perf::ContextSwitchType::Preempt,
-                cpu_id,
-            );
+    console::print(" cpu |    task_time   |   kernel_time  |    idle_time   | interrupt_time | context_switch |    perf_time   \r\n");
+    console::print("-----|----------------|----------------|----------------|----------------|----------------|----------------\r\n");
+
+    use awkernel_async_lib::task::perf;
+
+    for cpu_id in 0..awkernel_lib::cpu::num_cpu() {
+        let kernel_time = perf::get_kernel_time(cpu_id);
+        let task_time = perf::get_task_time(cpu_id);
+        let idle_time = perf::get_idle_time(cpu_id);
+        let interrupt_time = perf::get_interrupt_time(cpu_id);
+        let contxt_switch_time = perf::get_context_switch_time(cpu_id);
+        let perf_time = perf::get_perf_time(cpu_id);
 
         let msg = format!(
-            "  {cpu_id:>3}   | {cpu_time:>12}  |  {kernel_time:>12}  | {idle_time:>12}  | | {yield_save_overhead:>9}  | {yield_restore_overhead:>12}  | {preempt_save_overhead:>11}  | {preempt_restore_overhead:>16} \r\n",
+            "{cpu_id:>4} |{task_time:>15} |{kernel_time:>15} |{idle_time:>15} |{interrupt_time:>15} |{contxt_switch_time:>15} |{perf_time:>15}\r\n"
         );
+
         console::print(&msg);
     }
 
-    console::print("\r\n");
-
-    console::print("Perform overhead [tsc]:\r\n");
-    console::print("  type  |  avg_save  |   worst_save  |  avg_restore |  worst_restore  \r\n");
-    console::print("--------|------------|---------------|--------------|-----------------\r\n");
-
-    let (yield_save_average, yield_save_worst, yield_restore_average, yield_restore_worst) =
-        awkernel_async_lib::task::perf::calc_context_switch_overhead(
-            awkernel_async_lib::task::perf::ContextSwitchType::Yield,
-        );
-    let (preempt_save_average, preempt_save_worst, preempt_restore_average, preempt_restore_worst) =
-        awkernel_async_lib::task::perf::calc_context_switch_overhead(
-            awkernel_async_lib::task::perf::ContextSwitchType::Preempt,
-        );
-
-    let msg = format!(
-        "  yield | {yield_save_average:>10} | {yield_save_worst:>13} | {yield_restore_average:>12} | {yield_restore_worst:>14}  \r\n",
-    );
-    console::print(&msg);
-
-    let msg = format!(
-        "preempt | {preempt_save_average:>10} | {preempt_save_worst:>13} | {preempt_restore_average:>12} | {preempt_restore_worst:>14}  \r\n",
-    );
-    console::print(&msg);
     console::print("\r\n");
 }
 
