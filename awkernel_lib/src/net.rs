@@ -77,6 +77,9 @@ impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
+            if !ipv4_addr.is_empty() {
+                ipv4_addr.push_str(", ");
+            }
             ipv4_addr.push_str(&format!("{}/{}", addr, plen));
         }
 

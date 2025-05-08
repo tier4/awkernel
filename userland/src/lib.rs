@@ -11,7 +11,7 @@ pub async fn main() -> Result<(), Cow<'static, str>> {
     test_network::run().await; // test for network
 
     #[cfg(feature = "test_ntp")]
-    test_ntp::run().await; // test for network
+    test_ntp::run().await; // test for NTP
 
     #[cfg(feature = "test_pubsub")]
     test_pubsub::run().await; // test for pubsub
