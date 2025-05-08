@@ -1,6 +1,6 @@
-# Autoware Kernel
+# Awkernel
 
-Autoware kernel is a safe and realtime operating system.
+Awkernel is a safe and realtime operating system.
 It can execute async/await applications in kernel space safely.
 
 ## Progress
@@ -87,9 +87,9 @@ It can execute async/await applications in kernel space safely.
 ### Compiler Tools
 
 ```text
-$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc
-$ rustup toolchain install nightly-2025-02-27
-$ rustup default nightly-2025-02-27
+$ sudo apt install clang qemu-system-arm qemu-system-x86 qemu-system-misc python3-pyelftools
+$ rustup toolchain install nightly-2025-04-29
+$ rustup default nightly-2025-04-29
 $ rustup component add rust-src llvm-tools-preview
 $ rustup target add x86_64-unknown-none aarch64-unknown-none riscv64gc-unknown-none-elf
 ```
@@ -119,6 +119,7 @@ $ cargo binstall mdbook-mermaid
 - [awkernel_async_lib_verified](./awkernel_async_lib_verified/)
   - verified library for awkernel_async_lib
   - pure Rust (no dependencies on external functions and no inline assembly)
+- [awkernel_futures_macro](./awkernel_futures_macro/)
 - [awkernel_drivers](./awkernel_drivers/)
 - [awkernel_aarch64](./awkernel_aarch64/)
 - [userland](./userland/)
@@ -128,6 +129,7 @@ $ cargo binstall mdbook-mermaid
 ```mermaid
 graph TD;
     awkernel_async_lib-->awkernel_async_lib_verified;
+    awkernel_async_lib-->awkernel_futures_macro;
     awkernel_lib-->awkernel_aarch64;
     awkernel_async_lib-->awkernel_lib;
     awkernel_lib-->awkernel_sync;

@@ -12,8 +12,10 @@ members = [
     "awkernel_drivers",
     "applications/awkernel_services",
     "applications/awkernel_shell",
+    "applications/awkernel_display",
     "applications/tests/*",
     "smoltcp",
+    "awkernel_futures_macro",
 ]
 
 resolver = "2"

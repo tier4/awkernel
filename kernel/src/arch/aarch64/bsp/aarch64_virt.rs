@@ -6,7 +6,7 @@ use awkernel_drivers::{
 };
 use awkernel_lib::{
     addr::{phy_addr::PhyAddr, virt_addr::VirtAddr, Addr},
-    arch::aarch64::set_max_affinity,
+    arch::aarch64::{armv8_timer::Armv8Timer, set_max_affinity},
     console::register_console,
     device_tree::{prop::PropertyValue, traits::HasNamedChildNode},
     err_msg,
@@ -31,6 +31,8 @@ const DEVICE_MEM_START: PhyAddr = PhyAddr::new(0x0800_0000);
 const DEVICE_MEM_END: PhyAddr = PhyAddr::new(0x4000_0000);
 const FLASH_START: PhyAddr = PhyAddr::new(0);
 const FLASH_END: PhyAddr = PhyAddr::new(0x0800_0000);
+
+const TIMER_IRQ: u16 = 27;
 
 pub struct AArch64Virt {
     device_tree: DeviceTreeRef,
@@ -135,8 +137,10 @@ impl super::SoC for AArch64Virt {
         self.init_interrupt_controller()?;
 
         if let Err(msg) = self.init_pcie() {
-            log::warn!("failed to initialize PCIe: {}", msg);
+            log::warn!("failed to initialize PCIe: {msg}");
         }
+
+        self.init_timer()?;
 
         Ok(())
     }
@@ -465,6 +469,27 @@ impl AArch64Virt {
             255,
             32,
         );
+
+        Ok(())
+    }
+
+    fn init_timer(&self) -> Result<(), &'static str> {
+        let timer_node = self
+            .device_tree
+            .root()
+            .find_child("timer")
+            .ok_or(err_msg!("could not find timer"))?;
+
+        unsafe { awkernel_lib::device_tree::print_device_tree_node(timer_node, 0) };
+
+        if timer_node.compatible(&["arm,armv8-timer"]) {
+            // IRQ #27 is the recommended value.
+            let timer = Box::new(Armv8Timer::new(TIMER_IRQ));
+
+            awkernel_lib::timer::register_timer(timer);
+
+            log::info!("armv8-timer has been initialized.");
+        }
 
         Ok(())
     }

@@ -192,6 +192,10 @@ impl<T: Send> Sender<T> {
 
         assert!(matches!(chan.queue.push(data), Ok(())));
 
+        if let Some(waker_receiver) = chan.waker_receiver.take() {
+            waker_receiver.wake();
+        }
+
         Ok(())
     }
 

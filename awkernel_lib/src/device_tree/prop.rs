@@ -62,24 +62,24 @@ impl<A: Allocator + Clone> Display for PropertyValue<'_, A> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             PropertyValue::None => write!(f, ""),
-            PropertyValue::Integer(it) => write!(f, "<{:#x}>", it),
+            PropertyValue::Integer(it) => write!(f, "<{it:#x}>"),
             PropertyValue::Integers(it) => write!(
                 f,
                 "<{}>",
                 it.iter()
-                    .map(|x| format!("{:#x}", x))
+                    .map(|x| format!("{x:#x}"))
                     .collect::<Vec<String>>()
                     .join(" ")
             ),
-            PropertyValue::String(it) => write!(f, "\"{}\"", it),
+            PropertyValue::String(it) => write!(f, "\"{it}\""),
             PropertyValue::Strings(it) => write!(f, "[\"{}\"]", it.join("\",\"")),
-            PropertyValue::PHandle(it) => write!(f, "<{:#x}>", it),
-            PropertyValue::Address(address, size) => write!(f, "<{} {}>", address, size),
+            PropertyValue::PHandle(it) => write!(f, "<{it:#x}>"),
+            PropertyValue::Address(address, size) => write!(f, "<{address} {size}>"),
             PropertyValue::Addresses(it) => write!(
                 f,
                 "<{}>",
                 it.iter()
-                    .map(|(address, size)| format!("{} {}", address, size))
+                    .map(|(address, size)| format!("{address} {size}"))
                     .collect::<Vec<String>>()
                     .join(" ")
             ),

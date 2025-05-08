@@ -9,6 +9,7 @@ use crate::socket::{AnySocket, Socket};
 ///
 /// This is public so you can use it to allocate space for storing
 /// sockets when creating an Interface.
+#[derive(Default)]
 pub struct SocketStorage<'a> {
     inner: Option<Item<'a>>,
 }

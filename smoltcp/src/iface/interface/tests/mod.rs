@@ -14,10 +14,8 @@ use rstest::*;
 
 use super::*;
 
-use crate::iface::Interface;
 use crate::phy::ChecksumCapabilities;
 #[cfg(feature = "alloc")]
-use crate::phy::Loopback;
 use crate::time::Instant;
 
 #[allow(unused)]
@@ -27,6 +25,7 @@ fn fill_slice(s: &mut [u8], val: u8) {
     }
 }
 
+#[allow(unused)]
 #[cfg(feature = "proto-igmp")]
 fn recv_all(device: &mut crate::tests::TestingDevice, timestamp: Instant) -> Vec<Vec<u8>> {
     let mut pkts = Vec::new();
@@ -56,9 +55,9 @@ impl TxToken for MockTxToken {
 #[should_panic(expected = "The hardware address does not match the medium of the interface.")]
 #[cfg(all(feature = "medium-ip", feature = "medium-ethernet", feature = "alloc"))]
 fn test_new_panic() {
-    let mut device = Loopback::new(Medium::Ethernet);
+    let mut device = crate::phy::Loopback::new(Medium::Ethernet);
     let config = Config::new(HardwareAddress::Ip);
-    Interface::new(config, &mut device, Instant::ZERO);
+    crate::iface::Interface::new(config, &mut device, Instant::ZERO);
 }
 
 #[rstest]

@@ -13,7 +13,7 @@ embedded-graphics = "0.8"
 array-macro = "2.1"
 
 [dependencies.rand]
-version = "0.8"
+version = "0.9"
 features = ["small_rng"]
 default-features = false
 optional = true
@@ -99,6 +99,11 @@ genet = ["mii"] # Broadcom GENET for Raspberry Pi
 
 ## PCIe
 pcie = []
-all_pcie = ["pcie", "igb", "ixgbe"]
-igb = ["dep:memoffset"]             # Intel Gigabit Ethernet
-ixgbe = ["dep:rand"]                # Intel 10 Gigabit Ethernet
+all_pcie = ["pcie", "igb", "ixgbe", "igc", "rp1", "bcm2712", "virtio-net", "virtio-blk"]
+igb = ["dep:memoffset"]                                      # Intel Gigabit Ethernet
+igc = []                                                     # Intel 2.5 Gigabit Ethernet
+ixgbe = ["dep:rand"]                                         # Intel 10 Gigabit Ethernet
+rp1 = []                                                     # RP1 of Raspberry Pi 5
+bcm2712 = []                                                 # Broadcom BCM2712 for Raspberry Pi 5
+virtio-net = []                                              # VirtIO Network Card
+virtio-blk = []                                              # VirtIO Block Device

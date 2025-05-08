@@ -74,8 +74,12 @@ optional = true
 path = "../applications/tests/test_dag"
 optional = true
 
+[dependencies.test_dvfs]
+path = "../applications/tests/test_dvfs"
+optional = true
+
 [features]
-default = ["test_load_udp"]
+default = []
 perf = ["awkernel_services/perf"]
 
 # Test applications

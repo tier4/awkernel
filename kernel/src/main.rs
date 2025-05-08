@@ -1,6 +1,6 @@
-//! # Autoware Kernel
+//! # Awkernel
 //!
-//! Autoware kernel is a safe and realtime operating system.
+//! Awkernel is a safe and realtime operating system.
 //! It can execute async/await applications in kernel space safely.
 
 #![feature(abi_x86_interrupt)]
@@ -17,10 +17,6 @@ use awkernel_async_lib::{
 use core::{
     fmt::Debug,
     sync::atomic::{AtomicBool, AtomicU16, Ordering},
-};
-use embedded_graphics::{
-    mono_font::{ascii::FONT_10X20, MonoTextStyle},
-    pixelcolor::Rgb888,
 };
 use kernel_info::KernelInfo;
 
@@ -40,14 +36,20 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf::start_kernel();
+
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
         // Primary CPU.
 
-        unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
+        #[cfg(feature = "std")]
+        if make_stdin_nonblocking().is_err() {
+            log::warn!("failed to make stdin non-blocking.");
+        }
 
-        let _ = draw_splash();
+        unsafe { awkernel_lib::cpu::set_num_cpu(kernel_info.num_cpu) };
 
         #[cfg(not(feature = "std"))]
         awkernel_lib::interrupt::set_preempt_irq(
@@ -63,7 +65,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {
-                awkernel_lib::timer::reset();
+                awkernel_lib::timer::reset(core::time::Duration::from_micros(100));
+                // TODO: remove this
             });
 
             if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
@@ -92,26 +95,39 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
         loop {
             awkernel_lib::interrupt::disable();
 
-            wake_task(); // Wake executable tasks periodically.
+            let dur = wake_task(); // Wake executable tasks periodically.
             awkernel_lib::net::poll(); // Poll network devices.
 
             awkernel_lib::interrupt::enable();
 
             #[cfg(feature = "std")]
-            awkernel_lib::delay::wait_microsec(50);
+            {
+                let dur = dur.unwrap_or(core::time::Duration::from_secs(1));
+                awkernel_lib::select::wait(dur);
+            }
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_idle();
 
             #[cfg(not(feature = "std"))]
             {
+                let _dur = dur.unwrap_or(core::time::Duration::from_secs(1)); // TODO: use this
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset();
+                    awkernel_lib::timer::reset(core::time::Duration::from_micros(20)); // TODO: use dur later
                     awkernel_lib::delay::wait_interrupt();
                     awkernel_lib::interrupt::disable();
                 } else {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_kernel();
+
+            // Wake up other CPUs if there are any tasks to run.
+            awkernel_async_lib::task::wake_workers();
         }
     }
 
@@ -134,74 +150,12 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
     unsafe { task::run() }; // Execute tasks.
 }
 
-fn draw_splash() -> Result<(), awkernel_lib::graphics::FrameBufferError> {
-    use awkernel_lib::graphics;
+#[cfg(feature = "std")]
+fn make_stdin_nonblocking() -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
 
-    graphics::fill(&Rgb888::new(0, 0, 0));
+    let stdin = std::io::stdin();
+    let fd = stdin.as_raw_fd();
 
-    let center = graphics::bounding_box().center();
-    let white = Rgb888::new(255, 255, 255);
-
-    let character_style = MonoTextStyle::new(&FONT_10X20, white);
-    let text = "Welcome to Autoware Kernel v0.1";
-
-    graphics::draw_mono_text(
-        text,
-        graphics::bounding_box().center() + embedded_graphics::geometry::Point::new(0, 15),
-        character_style,
-        embedded_graphics::text::Alignment::Center,
-    )?;
-
-    // Draw a circle.
-    let mut top_left = center;
-
-    top_left.x -= 50;
-    top_left.y += 50;
-
-    graphics::circle(top_left, 20, &white, 4, false)?;
-
-    // Draw a cross.
-    let mut start = center;
-    let mut end = center;
-
-    start.x -= 25;
-    start.y += 50;
-    end.x = start.x + 20;
-    end.y = start.y + 20;
-
-    graphics::line(start, end, &white, 4)?;
-
-    start.x += 20;
-    end.x -= 20;
-    graphics::line(start, end, &white, 4)?;
-
-    // Draw a triangle.
-    let mut vertex_1 = center;
-    let mut vertex_2 = center;
-    let mut vertex_3 = center;
-
-    vertex_1.x += 15;
-    vertex_1.y += 50;
-    vertex_2.x += 25;
-    vertex_2.y += 70;
-    vertex_3.x += 5;
-    vertex_3.y += 70;
-
-    graphics::triangle(vertex_1, vertex_2, vertex_3, &white, 4, false)?;
-
-    // Draw a rectangle.
-    let mut corner_1 = center;
-    let mut corner_2 = center;
-
-    corner_1.x += 35;
-    corner_1.y += 50;
-
-    corner_2.x += 55;
-    corner_2.y += 70;
-
-    graphics::rectangle(corner_1, corner_2, &white, 4, false)?;
-
-    graphics::flush();
-
-    Ok(())
+    awkernel_lib::file_control::set_nonblocking(fd)
 }

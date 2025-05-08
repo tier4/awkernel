@@ -705,8 +705,8 @@ mod test {
                 let mut map = [false; MAX_INDEX];
 
                 for _ in 0..60 {
-                    let offset = rand::thread_rng().gen_range(0..MAX_INDEX - max_size - 1);
-                    let size = rand::thread_rng().gen_range(1..=max_size);
+                    let offset = rand::rng().random_range(0..MAX_INDEX - max_size - 1);
+                    let size = rand::rng().random_range(1..=max_size);
 
                     //println!("add {}..{} {}", offset, offset + size, size);
                     // Real impl

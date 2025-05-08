@@ -157,6 +157,7 @@ required-features = [
 
 [dependencies.awkernel_sync]
 git = "https://github.com/tier4/awkernel_sync.git"
+default-features = false
 
 [dependencies.bitflags]
 version = "1.0"
@@ -191,16 +192,16 @@ features = ["map"]
 default-features = false
 
 [dev-dependencies.env_logger]
-version = "0.10"
+version = "0.11"
 
 [dev-dependencies.getopts]
 version = "0.2"
 
 [dev-dependencies.rand]
-version = "0.8"
+version = "0.9"
 
 [dev-dependencies.rstest]
-version = "0.17"
+version = "0.25"
 
 [dev-dependencies.url]
 version = "2.0"
@@ -404,5 +405,17 @@ socket-mdns = ["socket-dns"]
 socket-raw = ["socket"]
 socket-tcp = ["socket"]
 socket-udp = ["socket"]
-std = ["managed/std", "alloc"]
+std = ["managed/std", "alloc", "awkernel_sync/std"]
 verbose = []
+awkernel = [
+    "alloc",
+    "async",
+    "log",
+    "socket-udp",
+    "socket-tcp",
+    "proto-ipv4",
+    "proto-ipv6",
+    "socket-icmp",
+    "medium-ethernet",
+    "proto-igmp",
+]
