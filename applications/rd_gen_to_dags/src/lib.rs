@@ -2,6 +2,7 @@
 extern crate alloc;
 
 mod parse_yaml;
+mod time_unit;
 
 use awkernel_lib::delay::wait_millisec;
 
