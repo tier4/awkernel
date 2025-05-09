@@ -3,20 +3,14 @@ extern crate alloc;
 
 mod parse_yaml;
 
-use alloc::borrow::Cow;
-use alloc::format;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
-use awkernel_async_lib::dag;
-use awkernel_async_lib::dag::create_dag;
-use awkernel_async_lib::dag::finish_create_dags;
-use awkernel_async_lib::dag::Dag;
-use awkernel_async_lib::scheduler::SchedulerType;
+use alloc::{borrow::Cow, format, sync::Arc, vec, vec::Vec};
+use awkernel_async_lib::{
+    dag::{self, create_dag, finish_create_dags, Dag},
+    scheduler::SchedulerType,
+};
 use awkernel_lib::delay::wait_millisec;
 use core::time::Duration;
-use parse_yaml::DagData;
-use parse_yaml::NodeData;
+use parse_yaml::{DagData, NodeData};
 
 static TIME_UNIT: TimeUnit = TimeUnit::Milliseconds;
 
@@ -79,18 +73,17 @@ fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'s
 }
 
 macro_rules! spawn_source {
-    ($dag:expr, $dag_id:expr, $node:expr, $($T:ident),*) => {
+    ($dag:expr, $node:expr, $($T:ident),*) => {
         {
             let expected_arity = [$(stringify!($T)),*].len();
 
+            let dag_id = $dag.get_id();
             let node_id = $node.get_id();
             let execution_time = $node.get_execution_time();
             let out_links = $node.get_out_links();
             let period = $node.get_period().unwrap();
-            let reactor_name = create_reactor_name($dag_id, node_id);
-            let pub_topics = create_pub_topics($dag_id, node_id, &out_links);
-            let node_idx = node_id;
-            let dag_idx = $dag_id;
+            let reactor_name = create_reactor_name(dag_id, node_id);
+            let pub_topics = create_pub_topics(dag_id, node_id, &out_links);
 
             if pub_topics.len() == expected_arity {
                 $dag.spawn_periodic_reactor::<_, ($($T,)*)>(
@@ -102,8 +95,8 @@ macro_rules! spawn_source {
 
                         log::debug!(
                             "dag_id={}, node_id={}, out_num = {}, data={:?}",
-                            dag_idx,
-                            node_idx,
+                            dag_id,
+                            node_id,
                             expected_arity,
                             outputs
                         );
@@ -122,34 +115,29 @@ macro_rules! spawn_source {
     };
 }
 
-async fn spawn_source_reactor(
-    dag: Arc<Dag>,
-    dag_id: u32,
-    node: &NodeData,
-) -> Result<(), UnsupportedError> {
+async fn spawn_source_reactor(dag: Arc<Dag>, node: &NodeData) -> Result<(), UnsupportedError> {
     let out_links_len = node.get_out_links().len();
     match out_links_len {
-        1 => spawn_source!(dag, dag_id, node, u64),
-        2 => spawn_source!(dag, dag_id, node, u64, u64),
-        3 => spawn_source!(dag, dag_id, node, u64, u64, u64),
-        _ => Err(UnsupportedError::Input(dag_id)),
+        1 => spawn_source!(dag, node, u64),
+        2 => spawn_source!(dag, node, u64, u64),
+        3 => spawn_source!(dag, node, u64, u64, u64),
+        _ => Err(UnsupportedError::Input(dag.get_id())),
     }
 }
 
 macro_rules! spawn_sink {
-    ($dag:expr, $dag_id:expr, $node:expr, $($T:ident),*) => {
+    ($dag:expr, $node:expr, $($T:ident),*) => {
         {
             let expected_arity = [$(stringify!($T)),*].len();
 
+            let dag_id = $dag.get_id();
             let node_id = $node.get_id();
             let execution_time = $node.get_execution_time();
             let in_links = $node.get_in_links();
             let relative_deadline = $node.get_end_to_end_deadline()
                                         .unwrap();
-            let reactor_name = create_reactor_name($dag_id, node_id);
-            let sub_topics = create_sub_topics($dag_id, node_id, &in_links);
-            let node_idx = node_id;
-            let dag_idx = $dag_id;
+            let reactor_name = create_reactor_name(dag_id, node_id);
+            let sub_topics = create_sub_topics(dag_id, node_id, &in_links);
 
             if sub_topics.len() == expected_arity {
                 $dag.spawn_sink_reactor::<_, ($($T,)*)>(
@@ -158,8 +146,8 @@ macro_rules! spawn_sink {
                         wait_millisec(convert_millisec(execution_time));
                         log::debug!(
                             "dag_id={}, node_id={}, in_num = {}, data={:?}",
-                            dag_idx,
-                            node_idx,
+                            dag_id,
+                            node_id,
                             expected_arity,
                             inputs
                         );
@@ -176,35 +164,30 @@ macro_rules! spawn_sink {
     };
 }
 
-async fn spawn_sink_reactor(
-    dag: Arc<Dag>,
-    dag_id: u32,
-    node: &NodeData,
-) -> Result<(), UnsupportedError> {
+async fn spawn_sink_reactor(dag: Arc<Dag>, node: &NodeData) -> Result<(), UnsupportedError> {
     let in_links_len = node.get_in_links().len();
     match in_links_len {
-        1 => spawn_sink!(dag, dag_id, node, u64),
-        2 => spawn_sink!(dag, dag_id, node, u64, u64),
-        3 => spawn_sink!(dag, dag_id, node, u64, u64, u64),
-        _ => Err(UnsupportedError::Output(dag_id)),
+        1 => spawn_sink!(dag, node, u64),
+        2 => spawn_sink!(dag, node, u64, u64),
+        3 => spawn_sink!(dag, node, u64, u64, u64),
+        _ => Err(UnsupportedError::Output(dag.get_id())),
     }
 }
 
 macro_rules! spawn_normal {
-    ($dag:expr, $dag_id:expr, $node:expr, $($T_in:ident),*; $($T_out:ident),*) => {
+    ($dag:expr, $node:expr, $($T_in:ident),*; $($T_out:ident),*) => {
         {
             let expected_arity_in = [$(stringify!($T_in)),*].len();
             let expected_arity_out = [$(stringify!($T_out)),*].len();
 
+            let dag_id = $dag.get_id();
             let node_id = $node.get_id();
             let execution_time = $node.get_execution_time();
             let in_links = $node.get_in_links();
             let out_links = $node.get_out_links();
-            let reactor_name = create_reactor_name($dag_id, node_id);
-            let sub_topics = create_sub_topics($dag_id, node_id, &in_links);
-            let pub_topics = create_pub_topics($dag_id, node_id, &out_links);
-            let node_idx = node_id;
-            let dag_idx = $dag_id;
+            let reactor_name = create_reactor_name(dag_id, node_id);
+            let sub_topics = create_sub_topics(dag_id, node_id, &in_links);
+            let pub_topics = create_pub_topics(dag_id, node_id, &out_links);
 
             if sub_topics.len() == expected_arity_in && pub_topics.len() == expected_arity_out {
                 $dag.spawn_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
@@ -214,8 +197,8 @@ macro_rules! spawn_normal {
                         let outputs = ($(execution_time as $T_out,)*);
                         log::debug!(
                             " dag_id={}, node_id={}, in_num={}, out_num={}, in_data={:?}, out_data={:?}",
-                            dag_idx,
-                            node_idx,
+                            dag_id,
+                            node_id,
                             expected_arity_in,
                             expected_arity_out,
                             inputs,
@@ -236,39 +219,34 @@ macro_rules! spawn_normal {
     };
 }
 
-async fn spawn_normal_reactor(
-    dag: Arc<Dag>,
-    dag_id: u32,
-    node: &NodeData,
-) -> Result<(), UnsupportedError> {
+async fn spawn_normal_reactor(dag: Arc<Dag>, node: &NodeData) -> Result<(), UnsupportedError> {
     let in_links_len = node.get_in_links().len();
     let out_links_len = node.get_out_links().len();
 
     match (in_links_len, out_links_len) {
-        (1, 1) => spawn_normal!(dag, dag_id, node, u64; u64),
-        (1, 2) => spawn_normal!(dag, dag_id, node, u64; u64, u64),
-        (1, 3) => spawn_normal!(dag, dag_id, node, u64; u64, u64, u64),
-        (2, 1) => spawn_normal!(dag, dag_id, node, u64, u64; u64),
-        (2, 2) => spawn_normal!(dag, dag_id, node, u64, u64; u64, u64),
-        (2, 3) => spawn_normal!(dag, dag_id, node, u64, u64; u64, u64, u64),
-        (3, 1) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64),
-        (3, 2) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64),
-        (3, 3) => spawn_normal!(dag, dag_id, node, u64, u64, u64; u64, u64, u64),
-        _ => Err(UnsupportedError::InputOutput(dag_id)),
+        (1, 1) => spawn_normal!(dag, node, u64; u64),
+        (1, 2) => spawn_normal!(dag, node, u64; u64, u64),
+        (1, 3) => spawn_normal!(dag, node, u64; u64, u64, u64),
+        (2, 1) => spawn_normal!(dag, node, u64, u64; u64),
+        (2, 2) => spawn_normal!(dag, node, u64, u64; u64, u64),
+        (2, 3) => spawn_normal!(dag, node, u64, u64; u64, u64, u64),
+        (3, 1) => spawn_normal!(dag, node, u64, u64, u64; u64),
+        (3, 2) => spawn_normal!(dag, node, u64, u64, u64; u64, u64),
+        (3, 3) => spawn_normal!(dag, node, u64, u64, u64; u64, u64, u64),
+        _ => Err(UnsupportedError::InputOutput(dag.get_id())),
     }
 }
 
 async fn generate_dag(dag_data: DagData) -> Result<Arc<Dag>, UnsupportedError> {
     let dag = create_dag();
-    let dag_id = dag.get_id();
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
-            spawn_source_reactor(dag.clone(), dag_id, node).await?;
+            spawn_source_reactor(dag.clone(), node).await?;
         } else if node.is_sink() {
-            spawn_sink_reactor(dag.clone(), dag_id, node).await?;
+            spawn_sink_reactor(dag.clone(), node).await?;
         } else {
-            spawn_normal_reactor(dag.clone(), dag_id, node).await?;
+            spawn_normal_reactor(dag.clone(), node).await?;
         }
     }
 
