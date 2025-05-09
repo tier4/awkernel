@@ -9,6 +9,7 @@ test_awkernel_lib = "test --package awkernel_lib --no-default-features --feature
 test_awkernel_async_lib = "test --package awkernel_async_lib --no-default-features --features std"
 test_awkernel_drivers = "test --package awkernel_drivers --no-default-features --features std"
 test_smoltcp = "test --package smoltcp --no-default-features --features std --features awkernel"
+test_rd_gen_to_dags = "test --package rd_gen_to_dags --no-default-features --features std"
 
 clippy_x86 = "clippy --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_raspi = "clippy --package awkernel --no-default-features --features raspi --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
