@@ -10,6 +10,8 @@ pub enum UdpSocketError {
     SocketCreationError,
     SendError,
     InterfaceIsNotReady,
+    MulticastInvalidIPv4Address,
+    MulitcastError,
 }
 
 #[derive(Debug, Clone)]
@@ -38,11 +40,11 @@ pub struct UdpSocket {
 impl UdpSocket {
     pub fn bind_on_interface(
         interface_id: u64,
-        config: UdpConfig,
+        config: &UdpConfig,
     ) -> Result<UdpSocket, UdpSocketError> {
         let socket_handle = awkernel_lib::net::udp_socket::UdpSocket::bind_on_interface(
             interface_id,
-            config.addr,
+            &config.addr,
             config.port,
             config.rx_buffer_size,
             config.tx_buffer_size,
@@ -77,6 +79,33 @@ impl UdpSocket {
     #[inline(always)]
     pub async fn recv(&mut self, buf: &mut [u8]) -> Result<(usize, IpAddr, u16), UdpSocketError> {
         UdpReceiver { socket: self, buf }.await
+    }
+
+    #[inline(always)]
+    pub fn join_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), UdpSocketError> {
+        match self.socket_handle.join_multicast_v4(addr) {
+            Ok(()) => Ok(()),
+            Err(NetManagerError::SendError) => Err(UdpSocketError::SendError),
+            Err(NetManagerError::MulticastInvalidIpv4Address) => {
+                Err(UdpSocketError::MulticastInvalidIPv4Address)
+            }
+            Err(e) => {
+                log::debug!("{e:?}");
+                Err(UdpSocketError::MulitcastError)
+            }
+        }
+    }
+
+    #[inline(always)]
+    pub fn leave_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), UdpSocketError> {
+        match self.socket_handle.leave_multicast_v4(addr) {
+            Ok(()) => Ok(()),
+            Err(NetManagerError::SendError) => Err(UdpSocketError::SendError),
+            Err(NetManagerError::MulticastInvalidIpv4Address) => {
+                Err(UdpSocketError::MulticastInvalidIPv4Address)
+            }
+            Err(_) => Err(UdpSocketError::MulitcastError),
+        }
     }
 }
 

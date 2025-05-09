@@ -1,14 +1,6 @@
-use awkernel_async_lib::cpu_id;
-#[cfg(feature = "perf")]
-use awkernel_async_lib::{
-    cpu_counter,
-    task::perf::{
-        add_context_restore_end, add_context_save_start, add_task_end, add_task_start,
-        ContextSwitchType,
-    },
+use awkernel_lib::{
+    arch::x86_64::fault::inc_num_general_protection_fault, cpu::cpu_id, delay::wait_forever,
 };
-
-use awkernel_lib::{arch::x86_64::fault::inc_num_general_protection_fault, delay::wait_forever};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
@@ -288,8 +280,14 @@ extern "x86-interrupt" fn irq11(_stack_frame: InterruptStackFrame) {
 macro_rules! irq_handler {
     ($name:ident, $id:expr) => {
         extern "x86-interrupt" fn $name(_stack_frame: InterruptStackFrame) {
+            #[cfg(feature = "perf")]
+            let prev = awkernel_async_lib::task::perf::start_interrupt();
+
             awkernel_lib::interrupt::eoi(); // End of interrupt.
             awkernel_lib::interrupt::handle_irq($id);
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::transition_to(prev);
         }
     };
 }
@@ -520,149 +518,115 @@ irq_handler!(irq254, 254);
 
 extern "x86-interrupt" fn preemption(_stack_frame: InterruptStackFrame) {
     #[cfg(feature = "perf")]
+    let prev = awkernel_async_lib::task::perf::start_interrupt();
+
+    #[cfg(not(feature = "perf"))]
     {
-        add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-        add_context_save_start(
-            ContextSwitchType::Preempt,
-            awkernel_lib::cpu::cpu_id(),
-            cpu_counter(),
-        );
+        if awkernel_async_lib::task::get_current_task(cpu_id()).is_none() {
+            return;
+        }
     }
 
     awkernel_lib::interrupt::eoi(); // End of interrupt.
     awkernel_lib::interrupt::handle_preemption();
 
     #[cfg(feature = "perf")]
-    {
-        add_context_restore_end(
-            ContextSwitchType::Preempt,
-            awkernel_lib::cpu::cpu_id(),
-            cpu_counter(),
-        );
-        add_task_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
-    }
+    awkernel_async_lib::task::perf::transition_to(prev);
 }
 
 extern "x86-interrupt" fn alignment_check(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "alignment check: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("alignment check: stack_frame = {stack_frame:?}, error = {error}");
 }
 
 extern "x86-interrupt" fn bound_range_exceeded(stack_frame: InterruptStackFrame) {
-    log::debug!("bound range exceeded: stack_frame = {:?}", stack_frame,);
+    log::debug!("bound range exceeded: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn breakpoint(stack_frame: InterruptStackFrame) {
-    log::debug!("breakpoint: stack_frame = {:?}", stack_frame,);
+    log::debug!("breakpoint: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn debug(stack_frame: InterruptStackFrame) {
-    log::debug!("debug: stack_frame = {:?}", stack_frame,);
+    log::debug!("debug: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn device_not_available(stack_frame: InterruptStackFrame) {
-    log::debug!("device not available: stack_frame = {:?}", stack_frame,);
+    log::debug!("device not available: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn divide_error(stack_frame: InterruptStackFrame) {
-    log::debug!("divide error: stack_frame = {:?}", stack_frame,);
+    log::debug!("divide error: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn double_fault(stack_frame: InterruptStackFrame, error: u64) -> ! {
-    log::debug!(
-        "double fault: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("double fault: stack_frame = {stack_frame:?}, error = {error}");
     wait_forever()
 }
 
 extern "x86-interrupt" fn general_protection_fault(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "general protection fault: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("general protection fault: stack_frame = {stack_frame:?}, error = {error}",);
 
     // increment the number of general protection fault.
     inc_num_general_protection_fault(cpu_id());
 }
 
 extern "x86-interrupt" fn invalid_opcode(stack_frame: InterruptStackFrame) {
-    log::debug!("invalid opcode: stack_frame = {:?}", stack_frame,);
+    log::debug!("invalid opcode: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn invalid_tss(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "invalid tss: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("invalid tss: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn machine_check(stack_frame: InterruptStackFrame) -> ! {
-    log::debug!("machine check: stack_frame = {:?}", stack_frame,);
+    log::debug!("machine check: stack_frame = {stack_frame:?}");
     wait_forever()
 }
 
 extern "x86-interrupt" fn non_maskable_interrupt(stack_frame: InterruptStackFrame) {
-    log::debug!("non maskable interrupt: stack_frame = {:?}", stack_frame,);
+    log::debug!("non maskable interrupt: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn overflow(stack_frame: InterruptStackFrame) {
-    log::debug!("overflow: stack_frame = {:?}", stack_frame,);
+    log::debug!("overflow: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn page_fault(stack_frame: InterruptStackFrame, error: PageFaultErrorCode) {
     let addr = x86_64::registers::control::Cr2::read();
 
-    log::debug!(
-        "page fault: addr = {:?}, stack_frame = {:?}, error = {:b}",
-        addr,
-        stack_frame,
-        error.bits()
-    );
+    log::debug!("page fault: addr = {addr:?}, stack_frame = {stack_frame:?}, error = {error:b}",);
 }
 
 extern "x86-interrupt" fn security_exception(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "security exception: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("security exception: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn segment_not_present(stack_frame: InterruptStackFrame, error: u64) {
     log::debug!(
-        "segment not present: cpu = {}, stack_frame = {:?}, error = {error}",
+        "segment not present: cpu = {}, stack_frame = {stack_frame:?}, error = {error}",
         awkernel_lib::cpu::cpu_id(),
-        stack_frame,
     );
 }
 
 extern "x86-interrupt" fn simd_floating_point(stack_frame: InterruptStackFrame) {
-    log::debug!("simd floating point: stack_frame = {:?}", stack_frame,);
+    log::debug!("simd floating point: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn stack_segment_fault(stack_frame: InterruptStackFrame, error: u64) {
-    log::debug!(
-        "stack segment fault: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("stack segment fault: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn virtualization(stack_frame: InterruptStackFrame) {
-    log::debug!("virtualization: stack_frame = {:?}", stack_frame,);
+    log::debug!("virtualization: stack_frame = {stack_frame:?}");
 }
 
 extern "x86-interrupt" fn vmm_communication_exception(
     stack_frame: InterruptStackFrame,
     error: u64,
 ) {
-    log::debug!(
-        "vmm communication exception: stack_frame = {:?}, error = {error}",
-        stack_frame,
-    );
+    log::debug!("vmm communication exception: stack_frame = {stack_frame:?}, error = {error}",);
 }
 
 extern "x86-interrupt" fn x87_floating_point(stack_frame: InterruptStackFrame) {
-    log::debug!("x87 floating point: stack_frame = {:?}", stack_frame,);
+    log::debug!("x87 floating point: stack_frame = {stack_frame:?}");
 }

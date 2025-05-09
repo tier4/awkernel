@@ -11,12 +11,6 @@ use awkernel_lib::{
 use core::sync::atomic::{AtomicUsize, Ordering};
 use thread::PtrWorkerThreadContext;
 
-#[cfg(feature = "perf")]
-use crate::task::{
-    cpu_counter,
-    perf::{add_context_restore_start, add_context_save_end, ContextSwitchType},
-};
-
 pub mod thread;
 
 /// Threads to be moved to THREADS::pooled.
@@ -42,21 +36,7 @@ pub unsafe fn yield_and_pool(next_ctx: PtrWorkerThreadContext) {
     let current_cpu_ctx = current_ctx.get_cpu_context_mut();
     let next_cpu_ctx = next_ctx.get_cpu_context();
 
-    #[cfg(feature = "perf")]
-    add_context_save_end(
-        ContextSwitchType::Yield,
-        awkernel_lib::cpu::cpu_id(),
-        cpu_counter(),
-    );
-
     unsafe { context_switch(current_cpu_ctx, next_cpu_ctx) };
-
-    #[cfg(feature = "perf")]
-    add_context_restore_start(
-        ContextSwitchType::Yield,
-        awkernel_lib::cpu::cpu_id(),
-        cpu_counter(),
-    );
 
     thread::set_current_context(current_ctx);
 
@@ -90,18 +70,8 @@ fn yield_preempted_and_wake_task(current_task: Arc<Task>, next_thread: PtrWorker
     let next_cpu_ctx = next_thread.get_cpu_context();
 
     unsafe {
-        #[cfg(feature = "perf")]
-        add_context_save_end(ContextSwitchType::Preempt, cpu_id, cpu_counter());
-
         // Save the current context.
         context_switch(current_cpu_ctx, next_cpu_ctx);
-
-        #[cfg(feature = "perf")]
-        add_context_restore_start(
-            ContextSwitchType::Preempt,
-            awkernel_lib::cpu::cpu_id(),
-            cpu_counter(),
-        );
         thread::set_current_context(current_ctx);
     }
 
@@ -180,6 +150,9 @@ impl Drop for RunningTaskGuard {
 }
 
 unsafe fn do_preemption() {
+    #[cfg(feature = "perf")]
+    super::perf::start_context_switch();
+
     // If there is a running task on this CPU core, preemption will be performed.
     // Otherwise, this function just returns.
     let Some(task_id) = RunningTaskGuard::take() else {
@@ -251,6 +224,9 @@ unsafe fn do_preemption() {
 
 extern "C" fn thread_entry(arg: usize) -> ! {
     // Use only the primary heap memory region.
+
+    #[cfg(feature = "perf")]
+    super::perf::start_kernel();
 
     #[cfg(not(feature = "std"))]
     unsafe {

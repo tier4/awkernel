@@ -183,29 +183,29 @@ pub(super) const SPEED_2500: u32 = 2500;
 pub(super) const HALF_DUPLEX: u32 = 1;
 pub(super) const FULL_DUPLEX: u32 = 2;
 
-pub(super) const ADVERTISE_10_HALF: u32 = 0x0001;
-pub(super) const ADVERTISE_10_FULL: u32 = 0x0002;
-pub(super) const ADVERTISE_100_HALF: u32 = 0x0004;
-pub(super) const ADVERTISE_100_FULL: u32 = 0x0008;
-pub(super) const ADVERTISE_1000_HALF: u32 = 0x0010; // Not used, just FYI
-pub(super) const ADVERTISE_1000_FULL: u32 = 0x0020;
-pub(super) const ADVERTISE_2500_HALF: u32 = 0x0040; // NOT used, just FYI
-pub(super) const ADVERTISE_2500_FULL: u32 = 0x0080;
+pub(super) const ADVERTISE_10_HALF: u16 = 0x0001;
+pub(super) const ADVERTISE_10_FULL: u16 = 0x0002;
+pub(super) const ADVERTISE_100_HALF: u16 = 0x0004;
+pub(super) const ADVERTISE_100_FULL: u16 = 0x0008;
+pub(super) const ADVERTISE_1000_HALF: u16 = 0x0010; // Not used, just FYI
+pub(super) const ADVERTISE_1000_FULL: u16 = 0x0020;
+pub(super) const ADVERTISE_2500_HALF: u16 = 0x0040; // NOT used, just FYI
+pub(super) const ADVERTISE_2500_FULL: u16 = 0x0080;
 
 // 1000/H is not supported, nor spec-compliant.
-pub(super) const IGC_ALL_SPEED_DUPLEX: u32 = ADVERTISE_10_HALF
+pub(super) const IGC_ALL_SPEED_DUPLEX: u16 = ADVERTISE_10_HALF
     | ADVERTISE_10_FULL
     | ADVERTISE_100_HALF
     | ADVERTISE_100_FULL
     | ADVERTISE_1000_FULL;
-pub(super) const IGC_ALL_SPEED_DUPLEX_2500: u32 = ADVERTISE_10_HALF
+pub(super) const IGC_ALL_SPEED_DUPLEX_2500: u16 = ADVERTISE_10_HALF
     | ADVERTISE_10_FULL
     | ADVERTISE_100_HALF
     | ADVERTISE_100_FULL
     | ADVERTISE_1000_FULL
     | ADVERTISE_2500_FULL;
-pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT: u32 = IGC_ALL_SPEED_DUPLEX;
-pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT_2500: u32 = IGC_ALL_SPEED_DUPLEX_2500;
+pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT: u16 = IGC_ALL_SPEED_DUPLEX;
+pub(super) const AUTONEG_ADVERTISE_SPEED_DEFAULT_2500: u16 = IGC_ALL_SPEED_DUPLEX_2500;
 
 // Transmit Descriptor bit definitions
 pub(super) const IGC_TXD_DTYP_D: u32 = 0x00100000; // Data Descriptor
@@ -421,6 +421,9 @@ pub(super) const IGC_RAH_AV: u32 = 0x80000000; // Receive descriptor valid
 pub(super) const IGC_RAL_MAC_ADDR_LEN: usize = 4;
 pub(super) const IGC_RAH_MAC_ADDR_LEN: usize = 2;
 
+// Flow Control
+pub(super) const IGC_FCRTL_XONE: u32 = 0x80000000; // Enable XON frame transmission
+
 // Loop limit on how long we wait for auto-negotiation to complete
 pub(super) const COPPER_LINK_UP_LIMIT: u32 = 10;
 pub(super) const PHY_AUTO_NEG_LIMIT: u32 = 45;
@@ -620,7 +623,7 @@ pub(super) const IGC_EECD_FLUPD_I225: u32 = 0x00800000; // Update FLASH
 pub(super) const IGC_EECD_FLUDONE_I225: u32 = 0x04000000; // Update FLASH done
 pub(super) const IGC_EECD_FLASH_DETECTED_I225: u32 = 0x00080000; // FLASH detected
 pub(super) const IGC_FLUDONE_ATTEMPTS: u32 = 20000;
-pub(super) const IGC_EERD_EEWR_MAX_COUNT: u32 = 512; // buffered EEPROM words rw
+pub(super) const IGC_EERD_EEWR_MAX_COUNT: u16 = 512; // buffered EEPROM words rw
 pub(super) const IGC_EECD_SEC1VAL_I225: u32 = 0x02000000; // Sector One Valid
 pub(super) const IGC_FLSECU_BLK_SW_ACCESS_I225: u32 = 0x00000004; // Block SW access
 pub(super) const IGC_FWSM_FW_VALID_I225: u32 = 0x8000; // FW valid bit
@@ -647,7 +650,10 @@ pub(super) const NVM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
 pub(super) const NVM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
 pub(super) const NVM_CFG: u32 = 0x0012;
 pub(super) const NVM_ALT_MAC_ADDR_PTR: u16 = 0x0037;
-pub(super) const NVM_CHECKSUM_REG: u32 = 0x003F;
+pub(super) const NVM_CHECKSUM_REG: u16 = 0x003F;
+
+// For checksumming, the sum of all words in the NVM should equal 0xBABA.
+pub(super) const NVM_SUM: u16 = 0xBABA;
 
 // PBA (printed board assembly) number words
 pub(super) const NVM_PBA_OFFSET_0: u32 = 8;

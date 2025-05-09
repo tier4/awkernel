@@ -36,6 +36,9 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf::start_kernel();
+
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
@@ -62,7 +65,8 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
             awkernel_lib::interrupt::enable_irq(irq);
 
             let timer_callback = Box::new(|_irq| {
-                awkernel_lib::timer::reset();
+                awkernel_lib::timer::reset(core::time::Duration::from_micros(100));
+                // TODO: remove this
             });
 
             if awkernel_lib::interrupt::register_handler(irq, "local timer".into(), timer_callback)
@@ -102,19 +106,28 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 awkernel_lib::select::wait(dur);
             }
 
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_idle();
+
             #[cfg(not(feature = "std"))]
             {
-                let _ = dur; // TODO: wait `dur` sec.
+                let _dur = dur.unwrap_or(core::time::Duration::from_secs(1)); // TODO: use this
                 if awkernel_lib::timer::is_timer_enabled() {
                     let _int_guard = awkernel_lib::interrupt::InterruptGuard::new();
                     awkernel_lib::interrupt::enable();
-                    awkernel_lib::timer::reset();
+                    awkernel_lib::timer::reset(core::time::Duration::from_micros(20)); // TODO: use dur later
                     awkernel_lib::delay::wait_interrupt();
                     awkernel_lib::interrupt::disable();
                 } else {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_kernel();
+
+            // Wake up other CPUs if there are any tasks to run.
+            awkernel_async_lib::task::wake_workers();
         }
     }
 

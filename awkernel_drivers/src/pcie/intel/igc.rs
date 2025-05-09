@@ -1,7 +1,11 @@
 //! This is a skelton of a PCIe device driver.
 
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
 use awkernel_lib::net::net_device::{self, NetDevice};
+use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
+use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
+use igc_defines::*;
+use igc_hw::{IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
@@ -11,8 +15,18 @@ mod igc_base;
 mod igc_defines;
 mod igc_hw;
 mod igc_mac;
+mod igc_nvm;
 mod igc_phy;
 mod igc_regs;
+
+const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
+    | ADVERTISE_10_FULL
+    | ADVERTISE_100_HALF
+    | ADVERTISE_100_FULL
+    | ADVERTISE_1000_FULL
+    | ADVERTISE_2500_FULL;
+
+const AUTO_ALL_MODES: u8 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
@@ -26,6 +40,7 @@ pub enum IgcDriverErr {
     BlkPhyReset,
     Param,
     Phy,
+    Config,
 }
 
 /// Check if the device is an Intel I225/I226.
@@ -48,7 +63,8 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     // Read capabilities of PCIe.
     info.read_capability();
 
-    let igc = Igc::new(info);
+    let igc = Igc::new(info)?;
+
     let result = Arc::new(igc);
 
     // Add the network interface, if needed.
@@ -59,14 +75,61 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
 
 pub struct Igc {
     info: PCIeInfo,
-    // Add more fields if needed.
+    hw: IgcHw,
+    ops: Box<dyn IgcOperations + Sync + Send>, // Add more fields if needed.
 }
 
 impl Igc {
-    fn new(info: PCIeInfo) -> Self {
-        // TODO: Initialize the device.
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        use PCIeDeviceErr::InitFailure;
 
-        Self { info }
+        let mut hw = IgcHw::default();
+        hw.device_id = info.id;
+
+        igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
+
+        // TODO:
+        // - allocate PCIe resources.
+        // - allocate tx/rx queues.
+
+        let ops = igc_setup_init_funcs(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        hw.mac.autoneg = true;
+        hw.phy.autoneg_wait_to_complete = false;
+        hw.phy.autoneg_advertised = AUTONEG_ADV_DEFAULT;
+
+        // Copper options.
+        if hw.phy.media_type == IgcMediaType::Copper {
+            hw.phy.mdix = AUTO_ALL_MODES;
+        }
+
+        // Set the max frame size.
+        hw.mac.max_frame_size = 9234;
+
+        // TODO: Allocate multicast array memory.
+
+        if ops.check_reset_block(&mut info).is_err() {
+            log::info!("PHY reset is blocked due to SOL/IDER session");
+        }
+
+        // Disable Energy Efficient Ethernet (EEE).
+        hw.dev_spec.eee_disable = true;
+
+        ops.reset_hw(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        // Make sure we have a good EEPROM before we read from it.
+        if ops.validate(&mut info, &mut hw).is_err() {
+            // Some PCI-E parts fail the first check due to
+            // the link being in sleep state, call it again,
+            // if it fails a second time its a real issue.
+            ops.validate(&mut info, &mut hw).or(Err(InitFailure))?;
+        }
+
+        ops.read_mac_addr(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        // TODO: continue initialization
+
+        Ok(Igc { info, hw, ops })
     }
 }
 
@@ -129,8 +192,7 @@ impl NetDevice for Igc {
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        // TODO
-        [0; 6]
+        self.hw.mac.addr
     }
 
     fn num_queues(&self) -> usize {

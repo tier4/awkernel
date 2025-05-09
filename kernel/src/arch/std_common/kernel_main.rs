@@ -8,10 +8,7 @@ use libc::c_void;
 #[no_mangle]
 pub extern "C" fn main(_argc: isize, _argv: *const *const u8) -> isize {
     // Initialize.
-    unsafe {
-        crate::config::init();
-        awkernel_lib::logger::init();
-    }
+    unsafe { crate::config::init() };
     awkernel_lib::arch::std_common::init();
     awkernel_lib::arch::std_common::init_per_thread(0);
     console::init();

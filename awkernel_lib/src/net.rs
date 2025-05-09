@@ -12,8 +12,10 @@ use smoltcp::wire::{IpAddress, IpCidr};
 use self::{
     if_net::IfNet,
     net_device::{LinkStatus, NetCapabilities, NetDevice},
-    tcp::TcpPort,
 };
+
+#[cfg(not(feature = "std"))]
+use self::tcp::TcpPort;
 
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeSet;
@@ -42,6 +44,7 @@ pub mod udp_socket;
 pub enum NetManagerError {
     InvalidInterfaceID,
     InvalidIPv4Address,
+    InvalidSocketAddress,
     CannotFindInterface,
     PortInUse,
     SendError,
@@ -53,6 +56,10 @@ pub enum NetManagerError {
     InterfaceIsNotReady,
     BindError,
     FailedToMakeNonblocking,
+    SocketError,
+    ConnectError,
+    ListenError,
+    AcceptError,
 
     // Multicast
     MulticastInvalidIpv4Address,
@@ -82,11 +89,11 @@ impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
-            ipv4_addr.push_str(&format!("{}/{}", addr, plen));
+            ipv4_addr.push_str(&format!("{addr}/{plen}"));
         }
 
         let ipv4_gateway = match self.ipv4_gateway {
-            Some(addr) => format!("{}", addr),
+            Some(addr) => format!("{addr}"),
             None => String::from("None"),
         };
 
@@ -127,9 +134,17 @@ static NET_MANAGER: RwLock<NetManager> = RwLock::new(NetManager {
 
     #[cfg(not(feature = "std"))]
     udp_port_ipv6_ephemeral: u16::MAX >> 2,
+
+    #[cfg(not(feature = "std"))]
     tcp_ports_ipv4: BTreeMap::new(),
+
+    #[cfg(not(feature = "std"))]
     tcp_port_ipv4_ephemeral: u16::MAX >> 2,
+
+    #[cfg(not(feature = "std"))]
     tcp_ports_ipv6: BTreeMap::new(),
+
+    #[cfg(not(feature = "std"))]
     tcp_port_ipv6_ephemeral: u16::MAX >> 2,
 });
 
@@ -151,9 +166,17 @@ pub struct NetManager {
 
     #[cfg(not(feature = "std"))]
     udp_port_ipv6_ephemeral: u16,
+
+    #[cfg(not(feature = "std"))]
     tcp_ports_ipv4: BTreeMap<u16, u64>,
+
+    #[cfg(not(feature = "std"))]
     tcp_port_ipv4_ephemeral: u16,
+
+    #[cfg(not(feature = "std"))]
     tcp_ports_ipv6: BTreeMap<u16, u64>,
+
+    #[cfg(not(feature = "std"))]
     tcp_port_ipv6_ephemeral: u16,
 }
 
@@ -230,6 +253,7 @@ impl NetManager {
         self.udp_ports_ipv6.remove(&port);
     }
 
+    #[cfg(not(feature = "std"))]
     fn get_ephemeral_port_tcp_ipv4(&mut self) -> Option<TcpPort> {
         let mut ephemeral_port = None;
         for i in 0..(u16::MAX >> 2) {
@@ -252,11 +276,13 @@ impl NetManager {
         ephemeral_port
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn is_port_in_use_tcp_ipv4(&mut self, port: u16) -> bool {
         self.tcp_ports_ipv4.contains_key(&port)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn port_in_use_tcp_ipv4(&mut self, port: u16) -> TcpPort {
         if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
@@ -268,6 +294,7 @@ impl NetManager {
         TcpPort::new(port, true)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn decrement_port_in_use_tcp_ipv4(&mut self, port: u16) {
         if let Some(e) = self.tcp_ports_ipv4.get_mut(&port) {
@@ -278,6 +305,7 @@ impl NetManager {
         }
     }
 
+    #[cfg(not(feature = "std"))]
     fn get_ephemeral_port_tcp_ipv6(&mut self) -> Option<TcpPort> {
         let mut ephemeral_port = None;
         for i in 0..(u16::MAX >> 2) {
@@ -300,11 +328,13 @@ impl NetManager {
         ephemeral_port
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn is_port_in_use_tcp_ipv6(&mut self, port: u16) -> bool {
         self.tcp_ports_ipv6.contains_key(&port)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn port_in_use_tcp_ipv6(&mut self, port: u16) -> TcpPort {
         if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
@@ -316,6 +346,7 @@ impl NetManager {
         TcpPort::new(port, true)
     }
 
+    #[cfg(not(feature = "std"))]
     #[inline(always)]
     fn decrement_port_in_use_tcp_ipv6(&mut self, port: u16) {
         if let Some(e) = self.tcp_ports_ipv6.get_mut(&port) {
@@ -438,7 +469,7 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
             IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
             prefix_len,
         )) {
-            log::error!("add_ipv4_addr: {}", e);
+            log::error!("add_ipv4_addr: {e}");
         }
     });
 }
@@ -684,7 +715,8 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
 ///
 /// Returns `Ok(announce_sent)` if the address was added successfully,
 /// where `announce_sent` indicates whether an initial immediate announcement has been sent.
-pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+#[cfg(not(feature = "std"))]
+fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
@@ -698,7 +730,8 @@ pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetM
 ///
 /// Returns `Ok(leave_sent)` if the address was removed successfully,
 /// where `leave_sent` indicates whether an immediate leave packet has been sent.
-pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+#[cfg(not(feature = "std"))]
+fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
