@@ -5,25 +5,8 @@ use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
 use super::{FileManagerError, FileSystemResult, FILE_MANAGER};
 
-const IF_FILE_CMD_QUEUE_SIZE: usize = 256;
-
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
-
-pub enum FileSystemCmd {
-    OpenCmd,
-    CreateCmd,
-    ReadCmd,
-    WriteCmd,
-    SeekCmd,
-}
-
-pub struct FileSystemCmdInfo {
-    pub cmd: FileSystemCmd,
-    pub fd: i64,
-    pub path: String,
-    pub size: usize,
-}
 
 enum FileSystemWakeState {
     None,
@@ -40,7 +23,6 @@ pub(super) struct IfFile {
     pub(super) filesystem: Arc<dyn FileSystemWrapper + Sync + Send>,
     fdwakers: Mutex<BTreeMap<i64, FdWakeState>>,
     fswaker: Mutex<FileSystemWakeState>,
-    pub(super) cmd_queue: Mutex<RingQ<FileSystemCmdInfo>>,
 }
 
 impl IfFile {
@@ -128,6 +110,7 @@ pub trait FileSystemWrapper {
         &self,
         interface_id: u64,
         fd: i64,
+        path: &String,
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError>;
     //fn create(&self, path: &str);

@@ -15,9 +15,9 @@ use awkernel_lib::{
     paging::{self, PAGESIZE},
     sync::{mcs::MCSNode, mutex::Mutex},
 };
-use core::fmt;
 use core::{
     alloc::{GlobalAlloc, Layout},
+    fmt,
     future::Future,
     task::Poll,
     time::Duration,
@@ -26,28 +26,12 @@ use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek, SeekFrom, Write,
 };
 
-pub const MEMORY_FILESYSTEM_START: usize = 0;
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 pub async fn run() {
-    //for if_file_status in awkernel_lib::file::get_all_interface() {
-    //let name = format!(
-    //"{}:{}",
-    //crate::FILESYSTEM_SERVICE_NAME,
-    //if_file_status.device_name,
-    //);
-
-    //let interface_id = if_file_status.interface_id;
     let filesystem = FatfsInMemory {};
     awkernel_lib::file::add_interface(Arc::new(filesystem));
     let interface_id = 0;
-    //awkernel_async_lib::spawn(
-    //name.into(),
-    //filesystem_polling(interface_id),
-    //SchedulerType::FIFO,
-    //)
-    //.await;
-    //}
     let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
         panic!("Invalid layout")
     };
@@ -112,6 +96,7 @@ impl FileSystemWrapper for FatfsInMemory {
         &self,
         interface_id: u64,
         fd: i64,
+        path: &String,
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError> {
         let Ok(res) = awkernel_lib::file::ret_pop(fd) else {

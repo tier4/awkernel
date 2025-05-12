@@ -7,6 +7,7 @@ use if_file::FileSystemWrapper;
 
 use self::if_file::{FileSystemCmd, FileSystemCmdInfo, IfFile};
 
+pub mod fatfs;
 pub mod if_file;
 
 #[derive(Debug)]
@@ -82,6 +83,7 @@ impl FileManager {
 pub struct FileDescriptor {
     pub fd: i64,
     pub interface_id: u64,
+    pub path: String,
     pub filesystem: Arc<dyn FileSystemWrapper + Sync + Send>,
 }
 
@@ -106,22 +108,23 @@ impl FileDescriptor {
             .ok_or(FileManagerError::CannotFindInterface)?;
 
         let path_string = String::from(path);
-        {
-            let mut node = MCSNode::new();
-            let mut cmd_queue_guard = if_file.cmd_queue.lock(&mut node);
-            let _ = cmd_queue_guard.push(FileSystemCmdInfo {
-                cmd: FileSystemCmd::OpenCmd,
-                fd,
-                path: path_string,
-                size: 0,
-            }); // TODO: Error handling
-        }
+        //{
+        //let mut node = MCSNode::new();
+        //let mut cmd_queue_guard = if_file.cmd_queue.lock(&mut node);
+        //let _ = cmd_queue_guard.push(FileSystemCmdInfo {
+        //cmd: FileSystemCmd::OpenCmd,
+        //fd,
+        //path: path_string,
+        //size: 0,
+        //}); // TODO: Error handling
+        //}
 
-        if_file.wake_fs();
+        //if_file.wake_fs();
 
         Ok(FileDescriptor {
             fd,
             interface_id,
+            path: path_string,
             filesystem: if_file.filesystem.clone(),
         })
     }
