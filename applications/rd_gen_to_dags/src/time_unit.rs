@@ -1,6 +1,3 @@
-// TODO: Remove allow(dead_code).
-#![allow(dead_code)]
-
 use awkernel_lib::delay::wait_millisec;
 use core::time::Duration;
 
