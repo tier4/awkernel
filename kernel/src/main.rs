@@ -36,6 +36,9 @@ static NUM_READY_WORKER: AtomicU16 = AtomicU16::new(0);
 ///
 /// `Info` of `KernelInfo<Info>` represents architecture specific information.
 fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf::start_kernel();
+
     log::info!("CPU#{} is starting.", kernel_info.cpu_id);
 
     if kernel_info.cpu_id == 0 {
@@ -103,6 +106,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                 awkernel_lib::select::wait(dur);
             }
 
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_idle();
+
             #[cfg(not(feature = "std"))]
             {
                 let _dur = dur.unwrap_or(core::time::Duration::from_secs(1)); // TODO: use this
@@ -116,6 +122,9 @@ fn main<Info: Debug>(kernel_info: KernelInfo<Info>) {
                     awkernel_lib::delay::wait_microsec(10);
                 }
             }
+
+            #[cfg(feature = "perf")]
+            awkernel_async_lib::task::perf::start_kernel();
 
             // Wake up other CPUs if there are any tasks to run.
             awkernel_async_lib::task::wake_workers();

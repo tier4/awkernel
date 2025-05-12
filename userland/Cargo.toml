@@ -14,6 +14,10 @@ path = "../awkernel_async_lib"
 [dependencies.awkernel_services]
 path = "../applications/awkernel_services"
 
+[dependencies.rd_gen_to_dags]
+path = "../applications/rd_gen_to_dags"
+optional = true
+
 [dependencies.test_pubsub]
 path = "../applications/tests/test_pubsub"
 optional = true
@@ -77,6 +81,9 @@ optional = true
 [features]
 default = []
 perf = ["awkernel_services/perf"]
+
+# Evaluation applications
+rd_gen_to_dags = ["dep:rd_gen_to_dags"]
 
 # Test applications
 test_network = ["dep:test_network"]

@@ -7,6 +7,9 @@ use alloc::borrow::Cow;
 pub async fn main() -> Result<(), Cow<'static, str>> {
     awkernel_services::run().await;
 
+    #[cfg(feature = "rd_gen_to_dags")]
+    rd_gen_to_dags::run().await; // run the rd_gen_to_dags application
+
     #[cfg(feature = "test_network")]
     test_network::run().await; // test for network
 
