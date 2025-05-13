@@ -33,9 +33,9 @@ pub enum DagError {
 impl core::fmt::Display for DagError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            DagError::NotWeaklyConnected(id) => write!(f, "DAG#{} is not weakly connected", id),
-            DagError::ContainsCycle(id) => write!(f, "DAG#{} contains a cycle", id),
-            DagError::MissingPendingTasks(id) => write!(f, "DAG#{} has missing pending tasks", id),
+            DagError::NotWeaklyConnected(id) => write!(f, "DAG#{id} is not weakly connected"),
+            DagError::ContainsCycle(id) => write!(f, "DAG#{id} contains a cycle"),
+            DagError::MissingPendingTasks(id) => write!(f, "DAG#{id} has missing pending tasks"),
         }
     }
 }

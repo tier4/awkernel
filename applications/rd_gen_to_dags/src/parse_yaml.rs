@@ -121,7 +121,6 @@ fn convert_to_dag(raw_data: RawData) -> DagData {
     DagData { nodes }
 }
 
-#[allow(dead_code)]
 pub(super) fn parse_dags(dag_files: &[&str]) -> Result<Vec<DagData>, ParseError> {
     dag_files
         .iter()
