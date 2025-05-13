@@ -88,16 +88,23 @@ pub struct FatFileSystemCmdInfo {
     pub size: usize,
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Debug)]
 pub enum FatFileSystemResult {
-    None,
     Success,
-    Failure,
     ReadResult(Vec<u8>),
 }
+pub enum FatFsError {
+    OpenError,
+}
 
-static CMD_QUEUE: RwLock<Option<RingQ<FatFileSystemCmdInfo>>> = RwLock::new(None);
-static RET_RESULT: RwLock<FatFileSystemResult> = RwLock::new(FatFileSystemResult::None);
+pub struct PendingOperation {
+    waker: Option<core::task::Waker>,
+    result: Option<Result<FatFileSystemResult, FatFsError>>,
+}
+
+pub static PENDING_OPS: RwLock<BTreeMap<(u64, i64), PendingOperation>> =
+    RwLock::new(BTreeMap::new());
+static CMD_QUEUE: RwLock<Vec<FatFileSystemCmdInfo>> = RwLock::new(Vec::new()); // TODO: change this to RingQ
 
 impl FileSystemWrapper for FatfsInMemory {
     fn open(
@@ -105,34 +112,99 @@ impl FileSystemWrapper for FatfsInMemory {
         interface_id: u64,
         fd: i64,
         path: &String,
+    ) -> Result<bool, FileSystemWrapperError> {
+        let id = (interface_id, fd);
+
+        let mut cmd_queue_guard = CMD_QUEUE.write();
+
+        let cmd_info = FatFileSystemCmdInfo {
+            cmd: FatFileSystemCmd::OpenCmd,
+            fd,
+            path: path.to_string(),
+            size: 0,
+        };
+
+        cmd_queue_guard.push(cmd_info);
+        let mut pending_ops = PENDING_OPS.write();
+        if pending_ops
+            .insert(
+                id,
+                PendingOperation {
+                    waker: None,
+                    result: None,
+                },
+            )
+            .is_some()
+        {
+            panic!(
+                "PENDING_OPS entry for ({}, {}) already existed on open push success.",
+                id.0, id.1
+            );
+        }
+        drop(pending_ops);
+        super::wake_fs(interface_id);
+
+        Ok(true)
+    }
+
+    fn open_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError> {
-        {
-            let mut cmd_queue_guard = CMD_QUEUE.write();
-            let queue: &mut RingQ<FatFileSystemCmdInfo> =
-                cmd_queue_guard.get_or_insert_with(|| {
-                    log::info!("Initializing command queue.");
-                    RingQ::new(FATFS_CMD_QUEUE_SIZE)
-                });
+        let id = (interface_id, fd);
+        log::trace!("FatfsInMemory::open_wait called for ({}, {})", id.0, id.1);
 
-            let cmd_info = FatFileSystemCmdInfo {
-                cmd: FatFileSystemCmd::OpenCmd,
-                fd,
-                path: path.to_string(),
-                size: 0,
-            };
+        let mut pending_ops = PENDING_OPS.write();
 
-            match queue.push(cmd_info) {
-                Ok(_) => {
-                    super::wake_fs(interface_id);
-                    return Ok(true);
-                }
-                Err(_) => {
-                    let _ = super::register_waker_for_fd(interface_id, fd, waker.clone());
-                    return Ok(false);
-                }
+        if let Some(op) = pending_ops.get_mut(&id) {
+            if op.waker.is_none() {
+                op.waker = Some(waker.clone());
             }
+
+            if let Some(result) = op.result.take() {
+                pending_ops.remove(&id);
+                drop(pending_ops);
+
+                log::trace!("Open operation completed for ({}, {})", id.0, id.1,);
+                match result {
+                    Ok(_) => Ok(true),
+                    Err(_) => {
+                        log::error!("Remote open operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::OpenError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                    }
+                }
+            } else {
+                drop(pending_ops);
+                Ok(false)
+            }
+        } else {
+            panic!("PENDING_OPS entry not found for ({}, {}) in open_wait. This indicates a logic error.", id.0, id.1);
         }
+    }
+}
+
+fn complete_file_operation(
+    interface_id: u64,
+    fd: i64,
+    ret: Result<FatFileSystemResult, FatFsError>,
+) {
+    let mut pending_ops = PENDING_OPS.write();
+
+    let id = (interface_id, fd);
+
+    if let Some(op) = pending_ops.get_mut(&id) {
+        op.result = Some(ret);
+        if let Some(_) = op.waker {
+            op.waker.clone().unwrap().wake();
+        }
+        // If op.waker is None, it means the file operation has completed before open_wait is called. It works fine since open_wait will soon be called.
+    } else {
+        panic!(
+            "Received completion for unknown/cancelled open operation: ({}, {})",
+            interface_id, fd
+        );
     }
 }
 

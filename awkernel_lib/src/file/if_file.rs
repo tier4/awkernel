@@ -21,28 +21,16 @@ enum FdWakeState {
 
 pub(super) struct IfFile {
     pub(super) filesystem: Arc<dyn FileSystemWrapper + Sync + Send>,
-    fdwakers: Mutex<BTreeMap<i64, FdWakeState>>,
     fswaker: Mutex<FileSystemWakeState>,
 }
 
 impl IfFile {
     pub fn new(filesystem: Arc<dyn FileSystemWrapper + Sync + Send>) -> Self {
-        let fdwakers = Mutex::new(BTreeMap::new());
         let fswaker = Mutex::new(FileSystemWakeState::None);
-        let cmd_queue = Mutex::new(RingQ::new(IF_FILE_CMD_QUEUE_SIZE));
         IfFile {
             filesystem,
-            fdwakers,
             fswaker,
-            cmd_queue,
         }
-    }
-
-    pub fn cmd_queue_pop(&self) -> Option<FileSystemCmdInfo> {
-        let mut node = MCSNode::new();
-        let mut cmd_queue_guard = self.cmd_queue.lock(&mut node);
-        let cmdinfo = cmd_queue_guard.pop();
-        cmdinfo
     }
 
     #[inline(always)]
@@ -85,17 +73,6 @@ impl IfFile {
             }
         }
     }
-
-    pub fn register_waker_for_fd(&self, fd: i64, waker: core::task::Waker) {
-        let mut node = MCSNode::new();
-        let mut fdwakers = self.fdwakers.lock(&mut node);
-        let fdwaker = fdwakers.get_mut(&fd);
-        if let Some(fdwaker) = fdwaker {
-            *fdwaker = FdWakeState::Wake(waker);
-        } else {
-            fdwakers.insert(fd, FdWakeState::Wake(waker));
-        }
-    }
 }
 pub enum FileSystemWrapperError {
     OpenError,
@@ -111,8 +88,15 @@ pub trait FileSystemWrapper {
         interface_id: u64,
         fd: i64,
         path: &String,
+    ) -> Result<bool, FileSystemWrapperError>;
+
+    fn open_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError>;
+
     //fn create(&self, path: &str);
     //fn read(&self, fd: u32, buf: &mut u8, waker: core::task::Waker);
     //fn device_short_name(&self) -> Cow<'static, str>;
