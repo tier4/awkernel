@@ -87,11 +87,15 @@ impl super::SockUdp for UdpSocket {
         }
     }
 
-    fn join_multicast_v4(&mut self, _addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
-        todo!()
+    fn join_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
+        self.socket
+            .join_multicast_v4(&addr, &core::net::Ipv4Addr::UNSPECIFIED)
+            .or(Err(NetManagerError::MulticastError))
     }
 
     fn leave_multicast_v4(&mut self, _addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
-        todo!()
+        self.socket
+            .leave_multicast_v4(&_addr, &core::net::Ipv4Addr::UNSPECIFIED)
+            .or(Err(NetManagerError::MulticastError))
     }
 }
