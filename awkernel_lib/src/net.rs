@@ -63,6 +63,7 @@ pub enum NetManagerError {
 
     // Multicast
     MulticastInvalidIpv4Address,
+    MulticastInvalidInterfaceAddress,
     MulticastError,
     MulticastNotJoined,
 

@@ -87,15 +87,24 @@ impl super::SockUdp for UdpSocket {
         }
     }
 
-    fn join_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
+    fn join_multicast_v4(
+        &mut self,
+        multicast_addr: core::net::Ipv4Addr,
+        interface_addr: core::net::Ipv4Addr,
+    ) -> Result<(), NetManagerError> {
+        log::debug!("Joining multicast group: {multicast_addr} on interface: {interface_addr}");
         self.socket
-            .join_multicast_v4(&addr, &core::net::Ipv4Addr::UNSPECIFIED)
+            .join_multicast_v4(&multicast_addr, &interface_addr)
             .or(Err(NetManagerError::MulticastError))
     }
 
-    fn leave_multicast_v4(&mut self, _addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
+    fn leave_multicast_v4(
+        &mut self,
+        multicast_addr: core::net::Ipv4Addr,
+        interface_addr: core::net::Ipv4Addr,
+    ) -> Result<(), NetManagerError> {
         self.socket
-            .leave_multicast_v4(&_addr, &core::net::Ipv4Addr::UNSPECIFIED)
+            .leave_multicast_v4(&multicast_addr, &interface_addr)
             .or(Err(NetManagerError::MulticastError))
     }
 }

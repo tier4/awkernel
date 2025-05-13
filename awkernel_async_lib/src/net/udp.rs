@@ -38,6 +38,24 @@ pub struct UdpSocket {
 }
 
 impl UdpSocket {
+    /// Create a new UDP socket.
+    ///
+    /// On std environments `interface_id`, `config.rx_buffer_size`, and `config.tx_buffer_size` are ignored.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use awkernel_async_lib::net::{IpAddr, udp::{UdpConfig, UdpSocket}};
+    /// let mut socket = udp::UdpSocket::bind_on_interface(
+    ///     INTERFACE_ID,
+    ///     &UdpConfig {
+    ///         addr: IpAddr::new_v4(core::net::Ipv4Addr::new(192, 168, 0, 1)),
+    ///         port: Some(10000),
+    ///         ..Default::default()
+    ///     },
+    /// )
+    /// .unwrap();
+    /// ```
     pub fn bind_on_interface(
         interface_id: u64,
         config: &UdpConfig,
@@ -81,9 +99,17 @@ impl UdpSocket {
         UdpReceiver { socket: self, buf }.await
     }
 
+    /// Join a multicast group.
     #[inline(always)]
-    pub fn join_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), UdpSocketError> {
-        match self.socket_handle.join_multicast_v4(addr) {
+    pub fn join_multicast_v4(
+        &mut self,
+        multicast_addr: Ipv4Addr,
+        interface_addr: Ipv4Addr,
+    ) -> Result<(), UdpSocketError> {
+        match self
+            .socket_handle
+            .join_multicast_v4(multicast_addr, interface_addr)
+        {
             Ok(()) => Ok(()),
             Err(NetManagerError::SendError) => Err(UdpSocketError::SendError),
             Err(NetManagerError::MulticastInvalidIpv4Address) => {
@@ -97,8 +123,15 @@ impl UdpSocket {
     }
 
     #[inline(always)]
-    pub fn leave_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), UdpSocketError> {
-        match self.socket_handle.leave_multicast_v4(addr) {
+    pub fn leave_multicast_v4(
+        &mut self,
+        multicast_addr: Ipv4Addr,
+        interface_addr: Ipv4Addr,
+    ) -> Result<(), UdpSocketError> {
+        match self
+            .socket_handle
+            .leave_multicast_v4(multicast_addr, interface_addr)
+        {
             Ok(()) => Ok(()),
             Err(NetManagerError::SendError) => Err(UdpSocketError::SendError),
             Err(NetManagerError::MulticastInvalidIpv4Address) => {
