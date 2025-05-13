@@ -46,15 +46,20 @@ impl UdpSocket {
     ///
     /// ```
     /// use awkernel_async_lib::net::{IpAddr, udp::{UdpConfig, UdpSocket}};
-    /// let mut socket = udp::UdpSocket::bind_on_interface(
-    ///     INTERFACE_ID,
-    ///     &UdpConfig {
-    ///         addr: IpAddr::new_v4(core::net::Ipv4Addr::new(192, 168, 0, 1)),
-    ///         port: Some(10000),
-    ///         ..Default::default()
-    ///     },
-    /// )
-    /// .unwrap();
+    ///
+    /// const INTERFACE_ID: u64 = 0;
+    ///
+    /// async fn example_udp_socket() {
+    ///     let mut socket = UdpSocket::bind_on_interface(
+    ///         INTERFACE_ID,
+    ///         &UdpConfig {
+    ///             addr: IpAddr::new_v4(core::net::Ipv4Addr::new(192, 168, 0, 1)),
+    ///             port: Some(10000),
+    ///             ..Default::default()
+    ///         },
+    ///     )
+    ///     .unwrap();
+    /// }
     /// ```
     pub fn bind_on_interface(
         interface_id: u64,
