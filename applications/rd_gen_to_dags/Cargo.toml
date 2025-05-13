@@ -17,10 +17,14 @@ path = "../../awkernel_async_lib"
 default-features = false
 
 [features]
-default = []
-x86 = ["awkernel_lib/x86"]
-aarch64 = ["awkernel_lib/aarch64"]
-rv32 = ["awkernel_lib/rv32"]
-rv64 = ["awkernel_lib/rv64"]
+default = ["milliseconds"]
+
+# Time Unit 
+seconds = []
+milliseconds = []
+microseconds = []
+nanoseconds = []
+
+# For test
 std = ["awkernel_lib/std", "awkernel_async_lib/std"]
 
