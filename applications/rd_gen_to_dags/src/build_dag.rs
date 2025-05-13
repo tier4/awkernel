@@ -21,17 +21,19 @@ impl core::fmt::Display for LinkNumError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             LinkNumError::Input(dag_id, node_id) => {
-                write!(f, "Input error: DAG ID: {dag_id}, Node ID: {node_id}")
+                write!(f, "DAG#{dag_id} Node#{node_id}'s input is too many.")
             }
             LinkNumError::Output(dag_id, node_id) => {
-                write!(f, "Output error: DAG ID: {dag_id}, Node ID: {node_id}")
+                write!(f, "DAG#{dag_id} Node{node_id}'s output is too many.")
             }
-            LinkNumError::InOut(dag_id, node_id) => write!(
-                f,
-                "Input/Output error: DAG ID: {dag_id}, Node ID: {node_id}"
-            ),
+            LinkNumError::InOut(dag_id, node_id) => {
+                write!(
+                    f,
+                    "DAG#{dag_id} Node{node_id}'s input and output are too many."
+                )
+            }
             LinkNumError::NoLink(dag_id, node_id) => {
-                write!(f, "No link error: DAG ID: {dag_id}, Node ID: {node_id}")
+                write!(f, "DAG#{dag_id} Node{node_id} has no input and output.")
             }
         }
     }

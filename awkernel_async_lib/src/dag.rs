@@ -30,6 +30,16 @@ pub enum DagError {
     MissingPendingTasks(u32),
 }
 
+impl core::fmt::Display for DagError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DagError::NotWeaklyConnected(id) => write!(f, "DAG#{} is not weakly connected", id),
+            DagError::ContainsCycle(id) => write!(f, "DAG#{} contains a cycle", id),
+            DagError::MissingPendingTasks(id) => write!(f, "DAG#{} has missing pending tasks", id),
+        }
+    }
+}
+
 struct PendingTask {
     node_idx: NodeIndex,
     spawn: Box<dyn FnOnce() -> Pin<Box<dyn Future<Output = u32> + Send>> + Send>,
@@ -115,7 +125,7 @@ impl Dag {
         add_node_idx
     }
 
-    pub async fn spawn_reactor<F, Args, Ret>(
+    pub async fn register_reactor<F, Args, Ret>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,
@@ -155,7 +165,7 @@ impl Dag {
             }));
     }
 
-    pub async fn spawn_periodic_reactor<F, Ret>(
+    pub async fn register_periodic_reactor<F, Ret>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,
@@ -189,7 +199,7 @@ impl Dag {
             }));
     }
 
-    pub async fn spawn_sink_reactor<F, Args>(
+    pub async fn register_sink_reactor<F, Args>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,

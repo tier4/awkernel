@@ -11,6 +11,16 @@ pub(super) enum ParseError {
     MultipleDocumentsFound,
 }
 
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            ParseError::EmptyYaml => write!(f, "Empty YAML file"),
+            ParseError::UnmatchedYaml(e) => write!(f, "Unmatched YAML: {e}"),
+            ParseError::MultipleDocumentsFound => write!(f, "Multiple documents found in YAML"),
+        }
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct RawNode {
     end_to_end_deadline: Option<u64>,
