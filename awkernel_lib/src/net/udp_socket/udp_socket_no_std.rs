@@ -231,11 +231,10 @@ impl super::SockUdp for UdpSocket {
         }
 
         let interface = crate::net::get_interface(self.interface_id)?;
-        if interface
+        if !interface
             .ipv4_addrs
             .iter()
-            .find(|ipv4_addr| ipv4_addr.0 == interface_addr)
-            .is_none()
+            .any(|ipv4_addr| ipv4_addr.0 == interface_addr)
         {
             return Err(NetManagerError::MulticastInvalidInterfaceAddress);
         }
@@ -278,11 +277,10 @@ impl super::SockUdp for UdpSocket {
         }
 
         let interface = crate::net::get_interface(self.interface_id)?;
-        if interface
+        if !interface
             .ipv4_addrs
             .iter()
-            .find(|ipv4_addr| ipv4_addr.0 == interface_addr)
-            .is_none()
+            .any(|ipv4_addr| ipv4_addr.0 == interface_addr)
         {
             return Err(NetManagerError::MulticastInvalidInterfaceAddress);
         }
