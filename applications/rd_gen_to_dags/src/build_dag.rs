@@ -35,7 +35,7 @@ fn create_sub_topics(dag_id: u32, node_id: u32, in_links: &[u32]) -> Vec<Cow<'st
 fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'static, str>> {
     let mut topics = Vec::with_capacity(out_links.len());
     out_links.iter().for_each(|link| {
-        topics.push(Cow::from(format!("dag{dag_id}_path_{node_id}-{link}")));
+        topics.push(Cow::from(format!("dag{dag_id}_path{node_id}-{link}")));
     });
     topics
 }
