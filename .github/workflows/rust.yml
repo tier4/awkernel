@@ -71,4 +71,4 @@ jobs:
         run: make udeps
 
       - name: test
-        run: make test
+        run: RUSTFLAGS="-D warnings" make test
