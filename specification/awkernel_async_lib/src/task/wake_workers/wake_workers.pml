@@ -123,9 +123,7 @@ inline task_poll() {
             num_blocking++;
             printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
         }
-            if
-            :: false // block
-            fi
+            false; // block
             assert(false);
         :: else
         fi
