@@ -188,6 +188,8 @@ async fn register_intermediate_node(
 
     match (in_links_len, out_links_len) {
         (0, 0) => Err(LinkNumError::NoInOut(dag_id, node_id)),
+        (0, _) => Err(LinkNumError::NoInput(dag_id, node_id)),
+        (_, 0) => Err(LinkNumError::NoOutput(dag_id, node_id)),
         (1, 1) => register_intermediate!(dag, node_data, sched_type, u64; u64),
         (1, 2) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64),
         (1, 3) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64),
