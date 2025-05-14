@@ -213,17 +213,30 @@ impl super::SockUdp for UdpSocket {
         }
     }
 
-    fn join_multicast_v4(&mut self, addr: core::net::Ipv4Addr) -> Result<(), NetManagerError> {
+    fn join_multicast_v4(
+        &mut self,
+        multicast_addr: core::net::Ipv4Addr,
+        interface_addr: core::net::Ipv4Addr,
+    ) -> Result<(), NetManagerError> {
         if !self.addr.get_addr().is_ipv4() {
             return Err(NetManagerError::MulticastError);
         }
 
-        if !addr.is_multicast() {
+        if !multicast_addr.is_multicast() {
             return Err(NetManagerError::MulticastInvalidIpv4Address);
         }
 
-        if self.joined_multicast_addr_v4.contains(&addr) {
+        if self.joined_multicast_addr_v4.contains(&multicast_addr) {
             return Ok(());
+        }
+
+        let interface = crate::net::get_interface(self.interface_id)?;
+        if !interface
+            .ipv4_addrs
+            .iter()
+            .any(|ipv4_addr| ipv4_addr.0 == interface_addr)
+        {
+            return Err(NetManagerError::MulticastInvalidInterfaceAddress);
         }
 
         {
@@ -232,31 +245,44 @@ impl super::SockUdp for UdpSocket {
 
             use alloc::collections::btree_map::Entry;
 
-            match guard.entry((self.interface_id, addr)) {
+            match guard.entry((self.interface_id, multicast_addr)) {
                 Entry::Occupied(mut entry) => {
                     // There are other sockets joined the multicast group on this interface.
                     *entry.get_mut() += 1
                 }
                 Entry::Vacant(entry) => {
                     // Join the multicast group if the interface is not already joined.
-                    crate::net::join_multicast_v4(self.interface_id, addr)?;
+                    crate::net::join_multicast_v4(self.interface_id, multicast_addr)?;
                     entry.insert(1);
                 }
             }
         }
 
-        self.joined_multicast_addr_v4.insert(addr);
+        self.joined_multicast_addr_v4.insert(multicast_addr);
 
         Ok(())
     }
 
-    fn leave_multicast_v4(&mut self, addr: Ipv4Addr) -> Result<(), NetManagerError> {
+    fn leave_multicast_v4(
+        &mut self,
+        multicast_addr: core::net::Ipv4Addr,
+        interface_addr: core::net::Ipv4Addr,
+    ) -> Result<(), NetManagerError> {
         if !self.addr.get_addr().is_ipv4() {
             return Err(NetManagerError::MulticastError);
         }
 
-        if !self.joined_multicast_addr_v4.contains(&addr) {
+        if !self.joined_multicast_addr_v4.contains(&multicast_addr) {
             return Ok(());
+        }
+
+        let interface = crate::net::get_interface(self.interface_id)?;
+        if !interface
+            .ipv4_addrs
+            .iter()
+            .any(|ipv4_addr| ipv4_addr.0 == interface_addr)
+        {
+            return Err(NetManagerError::MulticastInvalidInterfaceAddress);
         }
 
         {
@@ -265,13 +291,13 @@ impl super::SockUdp for UdpSocket {
 
             use alloc::collections::btree_map::Entry;
 
-            match guard.entry((self.interface_id, addr)) {
+            match guard.entry((self.interface_id, multicast_addr)) {
                 Entry::Occupied(mut entry) => {
                     let num = entry.get_mut();
 
                     if *num == 1 {
                         // Leave the multicast group if any other socket is not joined the group on this interface.
-                        crate::net::leave_multicast_v4(self.interface_id, addr)?;
+                        crate::net::leave_multicast_v4(self.interface_id, multicast_addr)?;
                         entry.remove();
                     } else {
                         // There are other sockets joined the multicast group on this interface.
@@ -286,7 +312,7 @@ impl super::SockUdp for UdpSocket {
             }
         }
 
-        self.joined_multicast_addr_v4.remove(&addr);
+        self.joined_multicast_addr_v4.remove(&multicast_addr);
 
         Ok(())
     }
@@ -294,8 +320,15 @@ impl super::SockUdp for UdpSocket {
 
 impl Drop for UdpSocket {
     fn drop(&mut self) {
-        for addr in self.joined_multicast_addr_v4.clone().iter() {
-            let _ = self.leave_multicast_v4(*addr);
+        let Ok(interface) = crate::net::get_interface(self.interface_id) else {
+            log::error!("UdpSocket::drop: interface {} not found", self.interface_id);
+            return;
+        };
+
+        if let Some(interface_addr) = interface.ipv4_addrs.first() {
+            for addr in self.joined_multicast_addr_v4.clone().iter() {
+                let _ = self.leave_multicast_v4(*addr, interface_addr.0);
+            }
         }
 
         let mut net_manager = NET_MANAGER.write();
