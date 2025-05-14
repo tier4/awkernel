@@ -28,6 +28,9 @@ const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
 
 const AUTO_ALL_MODES: u8 = 0;
 
+const IGC_TXPBSIZE: u32 = 20408;
+const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
     NoBar0,
@@ -265,5 +268,96 @@ fn write_reg_array(
 ) -> Result<(), IgcDriverErr> {
     let mut bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.write32(offset + (index << 2), value);
+    Ok(())
+}
+
+/// Initialize the DMA Coalescing feature
+fn igc_init_dmac(
+    info: &mut PCIeInfo,
+    hw: &IgcHw,
+    pba: u32,
+    sc_dmac: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    let reg = !IGC_DMACR_DMAC_EN;
+
+    let max_frame_size = hw.mac.max_frame_size;
+
+    if sc_dmac == 0 {
+        // Disabling it
+        write_reg(info, IGC_DMACR, reg)?;
+        return Ok(());
+    } else {
+        log::info!("igc: DMA Coalescing enabled");
+    }
+
+    // Set starting threshold
+    write_reg(info, IGC_DMCTXTH, 0)?;
+
+    let hwm = 64 * pba - max_frame_size / 16;
+    let hwm = if hwm < 64 * (pba - 6) {
+        64 * (pba - 6)
+    } else {
+        hwm
+    };
+
+    let mut reg = read_reg(info, IGC_FCRTC)?;
+    reg &= !IGC_FCRTC_RTH_COAL_MASK;
+    reg |= (hwm << IGC_FCRTC_RTH_COAL_SHIFT) & IGC_FCRTC_RTH_COAL_MASK;
+    write_reg(info, IGC_FCRTC, reg)?;
+
+    let dmac = pba - max_frame_size / 512;
+    let dmac = if dmac < pba - 10 { pba - 10 } else { dmac };
+    let mut reg = read_reg(info, IGC_DMACR)?;
+    reg &= !IGC_DMACR_DMACTHR_MASK;
+    reg |= (dmac << IGC_DMACR_DMACTHR_SHIFT) & IGC_DMACR_DMACTHR_MASK;
+
+    // transition to L0x or L1 if available
+    reg |= IGC_DMACR_DMAC_EN | IGC_DMACR_DMAC_LX_MASK;
+
+    // Check if status is 2.5Gb backplane connection
+    // before configuration of watchdog timer, which is
+    // in msec values in 12.8usec intervals
+    // watchdog timer= msec values in 32usec intervals
+    // for non 2.5Gb connection
+    let status = read_reg(info, IGC_STATUS)?;
+    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER == 0 {
+        reg |= (sc_dmac * 5) >> 6;
+    } else {
+        reg |= sc_dmac >> 5;
+    }
+
+    write_reg(info, IGC_DMACR, reg)?;
+
+    write_reg(info, IGC_DMCRTRH, 0)?;
+
+    // Set the interval before transition
+    let mut reg = read_reg(info, IGC_DMCTLX)?;
+    reg |= IGC_DMCTLX_DCFLUSH_DIS;
+
+    // in 2.5Gb connection, TTLX unit is 0.4 usec
+    // which is 0x4*2 = 0xA. But delay is still 4 usec
+    let status = read_reg(info, IGC_STATUS)?;
+    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER == 0 {
+        reg |= 0xA;
+    } else {
+        reg |= 0x4;
+    }
+
+    write_reg(info, IGC_DMCTLX, reg)?;
+
+    // free space in tx packet buffer to wake from DMA coal
+    write_reg(
+        info,
+        IGC_DMCTXTH,
+        (IGC_TXPBSIZE - (2 * max_frame_size)) >> 6,
+    )?;
+
+    // make low power state decision controlled by DMA coal
+    let mut reg = read_reg(info, IGC_PCIEMISC)?;
+    reg &= !IGC_PCIEMISC_LX_DECISION;
+    write_reg(info, IGC_PCIEMISC, reg)?;
+
     Ok(())
 }
