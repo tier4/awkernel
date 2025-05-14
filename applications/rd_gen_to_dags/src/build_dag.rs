@@ -206,10 +206,7 @@ async fn register_intermediate_node(
 
 // TODO: Remove allow(dead_code).
 #[allow(dead_code)]
-async fn build_dag_structure(
-    dag_data: DagData,
-    sched_type: SchedulerType,
-) -> Result<Arc<Dag>, LinkNumError> {
+async fn build_dag(dag_data: DagData, sched_type: SchedulerType) -> Result<Arc<Dag>, LinkNumError> {
     let dag = create_dag();
 
     for node in dag_data.get_nodes() {
@@ -244,7 +241,7 @@ mod tests {
         let dag_id = 1;
         let node_id = 2;
         let in_links = vec![3, 4];
-        let expected_topics = vec![Cow::from("dag1_path_3-2"), Cow::from("dag1_path_4-2")];
+        let expected_topics = vec![Cow::from("dag1_path3-2"), Cow::from("dag1_path4-2")];
         let sub_topics = create_sub_topics(dag_id, node_id, &in_links);
         assert_eq!(sub_topics, expected_topics);
     }
@@ -254,7 +251,7 @@ mod tests {
         let dag_id = 1;
         let node_id = 2;
         let out_links = vec![3, 4];
-        let expected_topics = vec![Cow::from("dag1_path_2-3"), Cow::from("dag1_path_2-4")];
+        let expected_topics = vec![Cow::from("dag1_path2-3"), Cow::from("dag1_path2-4")];
         let pub_topics = create_pub_topics(dag_id, node_id, &out_links);
         assert_eq!(pub_topics, expected_topics);
     }
