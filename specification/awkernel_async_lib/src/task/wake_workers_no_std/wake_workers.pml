@@ -140,14 +140,15 @@ inline sleep(cpu_id) {
     :: else
     fi
 
+
+    compare_exchange(CPU_SLEEP_TAG[cpu_id], Waking, Active, prev_val);
+
     if
-    :: atomic { CPU_SLEEP_TAG[cpu_id] == Waking ->
-        CPU_SLEEP_TAG[cpu_id] = Active;
-        // disable interrupts
+    :: prev_val == Waking ->
         interrupt_mask[cpu_id] = true;
         goto return_sleep3;
-    }
-    :: else
+    :: prev_val == Waiting
+    :: else -> assert(false); // unreachable!()
     fi
 
     // Rare Case:
