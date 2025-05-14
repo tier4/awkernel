@@ -303,6 +303,15 @@ pub(super) const IGC_RETA: fn(usize) -> usize = |i| 0x05C00 + (i * 4);
 pub(super) const IGC_RSSRK: fn(usize) -> usize = |i| 0x05C80 + (i * 4);
 pub(super) const IGC_UTA: usize = 0x0A000; // Unicast Table Array - RW
 
+// DMA Coalescing registers
+pub(super) const IGC_DMACR: usize = 0x02508; // Control Register
+pub(super) const IGC_DMCTXTH: usize = 0x03550; // Transmit Threshold
+pub(super) const IGC_DMCTLX: usize = 0x02514; // Time to Lx Request
+pub(super) const IGC_DMCRTRH: usize = 0x05DD0; // Receive Packet Rate Threshold
+pub(super) const IGC_DMCCNT: usize = 0x05DD4; // Current Rx Count
+pub(super) const IGC_FCRTC: usize = 0x02170; // Flow Control Rx high watermark
+pub(super) const IGC_PCIEMISC: usize = 0x05BB8; // PCIE misc config register
+
 // Energy Efficient Ethernet "EEE" registers
 pub(super) const IGC_IPCNFG: usize = 0x0E38; // Internal PHY Configuration
 pub(super) const IGC_LTRC: usize = 0x01A0; // Latency Tolerance Reporting Control

@@ -20,7 +20,7 @@ inline sleep(cpu_id) {
 
     if
     :: is_wake_up[cpu_id - 1] -> goto awake;
-    :: else -> skip;
+    :: else
     fi
 
     is_awake[cpu_id - 1] = false;
@@ -34,7 +34,7 @@ inline sleep(cpu_id) {
             is_awake[cpu_id - 1] = true;
             is_wake_up[cpu_id - 1] = false;
             goto awake;
-        :: else -> skip;
+        :: else
         fi
     od
 
@@ -49,7 +49,7 @@ inline wake_up(cpu_id, result) {
         select_notify();
         result = true;
         goto finish_wake_up2;
-    :: else -> skip;
+    :: else
     fi
 
     lock(cpu_id);
@@ -59,7 +59,7 @@ inline wake_up(cpu_id, result) {
         result = false;
         goto finish_wake_up1;
     }
-    :: else -> skip;
+    :: else
     fi
 
     is_wake_up[cpu_id - 1] = true;
@@ -90,7 +90,7 @@ inline wake_workers() {
                     printf("wake_up(%d)\n", i);
                     num_tasks--;
                 }
-            :: else -> skip;
+            :: else
             fi
         fi
     }
@@ -98,17 +98,16 @@ inline wake_workers() {
 
 // `wait()` in awkernel_lib/src/select.rs
 inline select_wait() {
-    do
-    :: atomic { len(epoll) > 0 -> epoll ? eventfd; break };
-    od
-
+    if
+    :: atomic { len(epoll) > 0 -> epoll ? eventfd };
+    fi
 }
 
 // `notify()` in awkernel_lib/src/select.rs
 inline select_notify() {
     if
     :: d_step { len(epoll) == 0 -> epoll ! eventfd };
-    :: else -> skip;
+    :: else
     fi
 }
 
@@ -123,11 +122,12 @@ inline task_poll() {
         :: atomic { num_blocking < WORKERS - 1 ->
             num_blocking++;
             printf("num_blocking = %d, cpu_id = %d\n", num_blocking, cpu_id);
-            break;
         }
-        :: else -> skip;
+            false; // block
+            assert(false);
+        :: else
         fi
-    :: true -> skip;
+    :: true
     fi
 }
 
@@ -183,8 +183,6 @@ init {
     }
 
     run spawn_tasks();
-
-    skip;
 }
 
 ltl eventually_execute  {
