@@ -322,7 +322,7 @@ fn igc_init_dmac(
     // watchdog timer= msec values in 32usec intervals
     // for non 2.5Gb connection
     let status = read_reg(info, IGC_STATUS)?;
-    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER != 0 {
+    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER == 0 {
         reg |= (sc_dmac * 5) >> 6;
     } else {
         reg |= sc_dmac >> 5;
