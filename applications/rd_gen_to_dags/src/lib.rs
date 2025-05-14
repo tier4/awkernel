@@ -8,7 +8,7 @@ mod time_unit;
 use alloc::vec;
 use awkernel_async_lib::{dag::finish_create_dags, scheduler::SchedulerType};
 use awkernel_lib::delay::wait_millisec;
-use build_dag::build_dag_structure;
+use build_dag::build_dag;
 
 // A newline is required at the end due to yaml_peg specification.
 // If you have multiple files, define a `const` for each.
@@ -34,7 +34,7 @@ pub async fn run() {
     let mut success_build_dags = vec![];
 
     for dag_data in dags_data {
-        match build_dag_structure(dag_data, SchedulerType::FIFO).await {
+        match build_dag(dag_data, SchedulerType::FIFO).await {
             Ok(dag) => {
                 success_build_dags.push(dag);
             }
