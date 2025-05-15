@@ -152,6 +152,7 @@ fn init_interrupt() {
     awkernel_lib::interrupt::set_preempt_irq(
         config::PREEMPT_IRQ,
         awkernel_async_lib::task::preemption,
+        awkernel_async_lib::task::voluntary_preemption,
     );
 
     // IRQ for wakeup CPUs.
