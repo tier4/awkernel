@@ -27,6 +27,7 @@ static mut TSC_FREQ: u128 = 0;
 const HPET_GENERAL_CONF_ENABLE: u64 = 1;
 
 impl Delay for super::X86 {
+    #[inline(always)]
     fn wait_interrupt() {
         unsafe { core::arch::asm!("hlt") };
     }

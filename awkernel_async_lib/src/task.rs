@@ -671,6 +671,7 @@ pub fn run_main() {
             perf::start_idle();
 
             awkernel_lib::cpu::sleep_cpu();
+            awkernel_lib::timer::disable();
         }
     }
 }
