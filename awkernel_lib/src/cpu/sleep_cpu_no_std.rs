@@ -83,7 +83,7 @@ impl SleepCpu for SleepCpuNoStd {
 
     fn wake_up(cpu_id: usize) -> bool {
         // early exit if not ready or targeting self
-        if !READY.load(Ordering::Relaxed) {
+        if !READY.load(Ordering::Acquire) {
             return false;
         }
         let my_id = crate::cpu::cpu_id();
