@@ -242,8 +242,6 @@ fn perf_ffi() {
 
     use awkernel_async_lib::task::perf;
 
-    const F: usize = 2;
-
     for cpu_id in 0..awkernel_lib::cpu::num_cpu() {
         let kernel_time = perf::get_kernel_time(cpu_id);
         let task_time = perf::get_task_time(cpu_id);
@@ -266,7 +264,7 @@ fn perf_ffi() {
         let ave_perf_time = perf::get_ave_perf_time(cpu_id).unwrap_or(0.0);
 
         let msg_ave = format!(
-            "     | Avg            | {ave_kernel_time:>14.F$} | {ave_task_time:>14.F$} |{ave_idle_time:>15.F$} |{ave_interrupt_time:>15.F$} |{ave_contxt_switch_time:>15.F$} |{ave_perf_time:>15.F$}\r\n",
+            "     | Avg            | {ave_kernel_time:>14.2} | {ave_task_time:>14.2} |{ave_idle_time:>15.2} |{ave_interrupt_time:>15.2} |{ave_contxt_switch_time:>15.2} |{ave_perf_time:>15.2}\r\n",
         );
 
         console::print(&msg_ave);
