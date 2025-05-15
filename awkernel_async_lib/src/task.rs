@@ -390,6 +390,20 @@ pub mod perf {
     static mut IDLE_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
     static mut PERF_TIME: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
 
+    static mut KERNEL_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_WCET: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
+    static mut KERNEL_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut TASK_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut INTERRUPT_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut CONTEXT_SWITCH_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut IDLE_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+    static mut PERF_COUNT: [u64; NUM_MAX_CPU] = [0; NUM_MAX_CPU];
+
     fn update_time_and_state(next_state: PerfState) {
         let end = awkernel_lib::delay::cpu_counter();
         let cpu_id = awkernel_lib::cpu::cpu_id();
@@ -408,22 +422,42 @@ pub mod perf {
                 PerfState::Kernel => unsafe {
                     let t = read_volatile(&KERNEL_TIME[cpu_id]);
                     write_volatile(&mut KERNEL_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&KERNEL_COUNT[cpu_id]);
+                    write_volatile(&mut KERNEL_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&KERNEL_WCET[cpu_id]);
+                    write_volatile(&mut KERNEL_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Task => unsafe {
                     let t = read_volatile(&TASK_TIME[cpu_id]);
                     write_volatile(&mut TASK_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&TASK_COUNT[cpu_id]);
+                    write_volatile(&mut TASK_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&TASK_WCET[cpu_id]);
+                    write_volatile(&mut TASK_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Interrupt => unsafe {
                     let t = read_volatile(&INTERRUPT_TIME[cpu_id]);
                     write_volatile(&mut INTERRUPT_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&INTERRUPT_COUNT[cpu_id]);
+                    write_volatile(&mut INTERRUPT_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&INTERRUPT_WCET[cpu_id]);
+                    write_volatile(&mut INTERRUPT_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::ContextSwitch => unsafe {
                     let t = read_volatile(&CONTEXT_SWITCH_TIME[cpu_id]);
                     write_volatile(&mut CONTEXT_SWITCH_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]);
+                    write_volatile(&mut CONTEXT_SWITCH_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Idle => unsafe {
                     let t = read_volatile(&IDLE_TIME[cpu_id]);
                     write_volatile(&mut IDLE_TIME[cpu_id], t + diff);
+                    let c = read_volatile(&IDLE_COUNT[cpu_id]);
+                    write_volatile(&mut IDLE_COUNT[cpu_id], c + 1);
+                    let wcet = read_volatile(&IDLE_WCET[cpu_id]);
+                    write_volatile(&mut IDLE_WCET[cpu_id], wcet.max(diff));
                 },
                 PerfState::Boot => (),
             }
@@ -435,6 +469,10 @@ pub mod perf {
             // Overhead of this.
             let t = read_volatile(&PERF_TIME[cpu_id]);
             write_volatile(&mut PERF_TIME[cpu_id], t + (cnt - end));
+            let c = read_volatile(&PERF_COUNT[cpu_id]);
+            write_volatile(&mut PERF_COUNT[cpu_id], c + 1);
+            let wcet = read_volatile(&PERF_WCET[cpu_id]);
+            write_volatile(&mut PERF_WCET[cpu_id], wcet.max(cnt - end));
 
             // State transition.
             write_volatile(&mut START_TIME[cpu_id], cnt);
@@ -513,6 +551,73 @@ pub mod perf {
     #[inline(always)]
     pub fn get_perf_time(cpu_id: usize) -> u64 {
         unsafe { read_volatile(&PERF_TIME[cpu_id]) }
+    }
+
+    #[inline(always)]
+    pub fn get_ave_kernel_time(cpu_id: usize) -> Option<f64> {
+        let total = get_kernel_time(cpu_id);
+        let count = unsafe { read_volatile(&KERNEL_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_task_time(cpu_id: usize) -> Option<f64> {
+        let total = get_task_time(cpu_id);
+        let count = unsafe { read_volatile(&TASK_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_interrupt_time(cpu_id: usize) -> Option<f64> {
+        let total = get_interrupt_time(cpu_id);
+        let count = unsafe { read_volatile(&INTERRUPT_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_context_switch_time(cpu_id: usize) -> Option<f64> {
+        let total = get_context_switch_time(cpu_id);
+        let count = unsafe { read_volatile(&CONTEXT_SWITCH_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_idle_time(cpu_id: usize) -> Option<f64> {
+        let total = get_idle_time(cpu_id);
+        let count = unsafe { read_volatile(&IDLE_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_ave_perf_time(cpu_id: usize) -> Option<f64> {
+        let total = get_perf_time(cpu_id);
+        let count = unsafe { read_volatile(&PERF_COUNT[cpu_id]) };
+        (count != 0).then_some((total as f64) / (count as f64))
+    }
+
+    #[inline(always)]
+    pub fn get_kernel_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&KERNEL_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_task_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&TASK_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_idle_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&IDLE_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_interrupt_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&INTERRUPT_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_context_switch_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&CONTEXT_SWITCH_WCET[cpu_id]) }
+    }
+    #[inline(always)]
+    pub fn get_perf_wcet(cpu_id: usize) -> u64 {
+        unsafe { read_volatile(&PERF_WCET[cpu_id]) }
     }
 }
 
