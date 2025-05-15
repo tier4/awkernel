@@ -21,6 +21,13 @@ enum LinkNumError {
     MisMatch(u32, u32),
 }
 
+pub struct NodeRegistrationInfo {
+    pub execution_time: u64,
+    pub reactor_name: Cow<'static, str>,
+    pub pub_topics: Vec<Cow<'static, str>>,
+    pub sub_topics: Vec<Cow<'static, str>>,
+}
+
 fn create_reactor_name(dag_id: u32, node_id: u32) -> Cow<'static, str> {
     Cow::from(format!("dag{dag_id}_node{node_id}"))
 }
@@ -41,36 +48,35 @@ fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'s
     topics
 }
 
-fn setup_node_registration(
-    dag_id: u32,
-    node_data: &NodeData,
-) -> (
-    u64,
-    Cow<'static, str>,
-    Vec<Cow<'static, str>>,
-    Vec<Cow<'static, str>>,
-) {
+fn setup_node_registration(dag_id: u32, node_data: &NodeData) -> NodeRegistrationInfo {
     let node_id = node_data.get_id();
 
     let execution_time = node_data.get_execution_time();
     let reactor_name = create_reactor_name(dag_id, node_id);
-    let pub_topics = create_pub_topics(dag_id, node_id, &node_data.get_out_links());
-    let sub_topics = create_sub_topics(dag_id, node_id, &node_data.get_in_links());
+    let pub_topics = create_pub_topics(dag_id, node_id, node_data.get_out_links());
+    let sub_topics = create_sub_topics(dag_id, node_id, node_data.get_in_links());
 
-    (execution_time, reactor_name, pub_topics, sub_topics)
+    NodeRegistrationInfo {
+        execution_time,
+        reactor_name,
+        pub_topics,
+        sub_topics,
+    }
 }
 
 macro_rules! register_source {
     ($dag:expr, $node_data:expr, $sched_type:expr, $($T_out:ident),*) => {
         {
             let dag_id = $dag.get_id();
-            let (execution_time, reactor_name, pub_topics, _) =
-                setup_node_registration(dag_id, $node_data);
+            let registration_info = setup_node_registration(dag_id, $node_data);
 
+            let pub_topics = registration_info.pub_topics;
             if [$(stringify!($T_out)),*].len() != pub_topics.len() {
                 return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
             }
 
+            let reactor_name = registration_info.reactor_name;
+            let execution_time = registration_info.execution_time;
             $dag.register_periodic_reactor::<_, ($($T_out,)*)>(
                 reactor_name.clone(),
                 move || -> ($($T_out,)*) {
@@ -110,13 +116,15 @@ macro_rules! register_sink {
     ($dag:expr, $node_data:expr, $sched_type:expr, $($T_in:ident),*) => {
         {
             let dag_id = $dag.get_id();
-            let (execution_time, reactor_name, _, sub_topics) =
-                setup_node_registration(dag_id, $node_data);
+            let registration_info = setup_node_registration(dag_id, $node_data);
 
+            let sub_topics = registration_info.sub_topics;
             if [$(stringify!($T_in)),*].len() != sub_topics.len() {
                 return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
             }
 
+            let reactor_name = registration_info.reactor_name;
+            let execution_time = registration_info.execution_time;
             $dag.register_sink_reactor::<_, ($($T_in,)*)>(
                 reactor_name.clone(),
                 move |inputs: ($($T_in,)*)| {
@@ -155,9 +163,10 @@ macro_rules! register_intermediate {
             let dag_id = $dag.get_id();
             let node_id = $node_data.get_id();
 
-            let (execution_time, reactor_name, pub_topics, sub_topics) =
-                setup_node_registration(dag_id, $node_data);
+            let registration_info = setup_node_registration(dag_id, $node_data);
 
+            let sub_topics = registration_info.sub_topics;
+            let pub_topics = registration_info.pub_topics;
             if [$(stringify!($T_in)),*].len() != sub_topics.len() {
                 return Err(LinkNumError::MisMatch(dag_id, node_id));
             }
@@ -165,6 +174,8 @@ macro_rules! register_intermediate {
                 return Err(LinkNumError::MisMatch(dag_id, node_id));
             }
 
+            let execution_time = registration_info.execution_time;
+            let reactor_name = registration_info.reactor_name;
             $dag.register_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
                 reactor_name.clone(),
                 move |inputs: ($($T_in,)*)| -> ($($T_out,)*) {
