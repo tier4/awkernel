@@ -276,9 +276,8 @@ pub(super) trait IgcMacOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
@@ -423,9 +422,11 @@ pub(super) trait IgcPhyOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
+
     fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn set_page(
         &self,
         _info: &mut PCIeInfo,
