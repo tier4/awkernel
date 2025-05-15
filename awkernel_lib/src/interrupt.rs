@@ -511,6 +511,8 @@ pub fn set_preempt_irq(irq: u16, preemption: unsafe fn(), voluntary_preemption: 
     PREEMPT_IRQ.store(irq, Ordering::Relaxed);
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
     VOLUNTARY_PREEMPT_FN.store(voluntary_preemption as *mut (), Ordering::Relaxed);
+
+    awkernel_sync::set_voluntary_preemption_fn(voluntary_preemption);
 }
 
 /// Return the IRQ number for preemption.

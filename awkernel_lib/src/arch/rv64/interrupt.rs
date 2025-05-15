@@ -17,6 +17,12 @@ impl Interrupt for super::RV64 {
         unsafe { core::arch::asm!("csrrs {}, mstatus, 0x08", out(reg) _x) };
     }
 
+    fn are_enabled() -> bool {
+        let x: usize;
+        unsafe { core::arch::asm!("csrr {}, mstatus", out(reg) x) };
+        (x & 0x08) > 0
+    }
+
     fn set_flag(flag: usize) {
         if flag & 0x08 > 0 {
             Self::enable();
