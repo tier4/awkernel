@@ -72,37 +72,34 @@ fn create_pub_topics(dag_id: u32, node_id: u32, out_links: &[u32]) -> Vec<Cow<'s
     topics
 }
 
-macro_rules! setup_node_registration {
-    ($dag:expr, $node_data:expr) => {{
-        let dag_id = $dag.get_id();
-        let node_id = $node_data.get_id();
-        let execution_time = $node_data.get_execution_time();
-        let in_links = $node_data.get_in_links();
-        let out_links = $node_data.get_out_links();
-        let reactor_name = create_reactor_name(dag_id, node_id);
-        let sub_topics = create_sub_topics(dag_id, node_id, &in_links);
-        let pub_topics = create_pub_topics(dag_id, node_id, &out_links);
-        let period = $node_data.get_period();
-        let relative_deadline = $node_data.get_end_to_end_deadline();
+fn setup_node_registration(
+    dag_id: u32,
+    node_data: &NodeData,
+) -> (
+    u64,
+    Cow<'static, str>,
+    Vec<Cow<'static, str>>,
+    Vec<Cow<'static, str>>,
+) {
+    let node_id = node_data.get_id();
 
-        (
-            execution_time,
-            reactor_name,
-            sub_topics,
-            pub_topics,
-            period,
-            relative_deadline,
-        )
-    }};
+    let execution_time = node_data.get_execution_time();
+    let reactor_name = create_reactor_name(dag_id, node_id);
+    let pub_topics = create_pub_topics(dag_id, node_id, &node_data.get_out_links());
+    let sub_topics = create_sub_topics(dag_id, node_id, &node_data.get_in_links());
+
+    (execution_time, reactor_name, pub_topics, sub_topics)
 }
 
 macro_rules! register_source {
     ($dag:expr, $node_data:expr, $sched_type:expr, $($T_out:ident),*) => {
         {
-            let (execution_time, reactor_name, _, pub_topics, period, _) = setup_node_registration!($dag, $node_data);
+            let dag_id = $dag.get_id();
+            let (execution_time, reactor_name, pub_topics, _) =
+                setup_node_registration(dag_id, $node_data);
 
             if [$(stringify!($T_out)),*].len() != pub_topics.len() {
-                return Err(LinkNumError::MisMatch($dag.get_id(), $node_data.get_id()));
+                return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
             }
 
             $dag.register_periodic_reactor::<_, ($($T_out,)*)>(
@@ -116,7 +113,7 @@ macro_rules! register_source {
                 },
                 pub_topics,
                 $sched_type,
-                convert_duration(period.expect("Source node's period should always be Some.")),
+                convert_duration($node_data.get_period().expect("Source node's period should always be Some.")),
             ).await;
             Ok(())
         }
@@ -124,28 +121,31 @@ macro_rules! register_source {
 }
 
 async fn register_source_node(
-    dag: Arc<Dag>,
+    dag: &Arc<Dag>,
     node_data: &NodeData,
     sched_type: SchedulerType,
 ) -> Result<(), LinkNumError> {
-    let out_links_len = node_data.get_out_links().len();
+    let dag_id = dag.get_id();
+    let node_id = node_data.get_id();
 
-    match out_links_len {
-        0 => Err(LinkNumError::NoOutput(dag.get_id(), node_data.get_id())),
+    match node_data.get_out_links().len() {
+        0 => Err(LinkNumError::NoOutput(dag_id, node_id)),
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
         3 => register_source!(dag, node_data, sched_type, u64, u64, u64),
-        _ => Err(LinkNumError::Output(dag.get_id(), node_data.get_id())),
+        _ => Err(LinkNumError::Output(dag_id, node_id)),
     }
 }
 
 macro_rules! register_sink {
     ($dag:expr, $node_data:expr, $sched_type:expr, $($T_in:ident),*) => {
         {
-            let (execution_time, reactor_name, sub_topics, _, _, relative_deadline) = setup_node_registration!($dag, $node_data);
+            let dag_id = $dag.get_id();
+            let (execution_time, reactor_name, _, sub_topics) =
+                setup_node_registration(dag_id, $node_data);
 
             if [$(stringify!($T_in)),*].len() != sub_topics.len() {
-                return Err(LinkNumError::MisMatch($dag.get_id(), $node_data.get_id()));
+                return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
             }
 
             $dag.register_sink_reactor::<_, ($($T_in,)*)>(
@@ -156,7 +156,7 @@ macro_rules! register_sink {
                 },
                 sub_topics,
                 $sched_type,
-                convert_duration(relative_deadline.expect("Sink node's relative_deadline should always be Some.")),
+                convert_duration($node_data.get_end_to_end_deadline().expect("Sink node's relative_deadline should always be Some.")),
             ).await;
             Ok(())
         }
@@ -164,31 +164,36 @@ macro_rules! register_sink {
 }
 
 async fn register_sink_node(
-    dag: Arc<Dag>,
+    dag: &Arc<Dag>,
     node_data: &NodeData,
     sched_type: SchedulerType,
 ) -> Result<(), LinkNumError> {
-    let in_links_len = node_data.get_in_links().len();
+    let dag_id = dag.get_id();
+    let node_id = node_data.get_id();
 
-    match in_links_len {
-        0 => Err(LinkNumError::NoInput(dag.get_id(), node_data.get_id())),
+    match node_data.get_in_links().len() {
+        0 => Err(LinkNumError::NoInput(dag_id, node_id)),
         1 => register_sink!(dag, node_data, sched_type, u64),
         2 => register_sink!(dag, node_data, sched_type, u64, u64),
         3 => register_sink!(dag, node_data, sched_type, u64, u64, u64),
-        _ => Err(LinkNumError::Input(dag.get_id(), node_data.get_id())),
+        _ => Err(LinkNumError::Input(dag_id, node_id)),
     }
 }
 
 macro_rules! register_intermediate {
     ($dag:expr, $node_data:expr, $sched_type:expr, $($T_in:ident),*; $($T_out:ident),*) => {
         {
-            let (execution_time, reactor_name, sub_topics, pub_topics, _, _) = setup_node_registration!($dag, $node_data);
+            let dag_id = $dag.get_id();
+            let node_id = $node_data.get_id();
+
+            let (execution_time, reactor_name, pub_topics, sub_topics) =
+                setup_node_registration(dag_id, $node_data);
 
             if [$(stringify!($T_in)),*].len() != sub_topics.len() {
-                return Err(LinkNumError::MisMatch($dag.get_id(), $node_data.get_id()));
+                return Err(LinkNumError::MisMatch(dag_id, node_id));
             }
             if [$(stringify!($T_out)),*].len() != pub_topics.len() {
-                return Err(LinkNumError::MisMatch($dag.get_id(), $node_data.get_id()));
+                return Err(LinkNumError::MisMatch(dag_id, node_id));
             }
 
             $dag.register_reactor::<_, ($($T_in,)*), ($($T_out,)*)>(
@@ -209,16 +214,17 @@ macro_rules! register_intermediate {
 }
 
 async fn register_intermediate_node(
-    dag: Arc<Dag>,
+    dag: &Arc<Dag>,
     node_data: &NodeData,
     sched_type: SchedulerType,
 ) -> Result<(), LinkNumError> {
     let dag_id = dag.get_id();
     let node_id = node_data.get_id();
-    let in_links_len = node_data.get_in_links().len();
-    let out_links_len = node_data.get_out_links().len();
 
-    match (in_links_len, out_links_len) {
+    match (
+        node_data.get_in_links().len(),
+        node_data.get_out_links().len(),
+    ) {
         (0, 0) => Err(LinkNumError::NoInOut(dag_id, node_id)),
         (0, _) => Err(LinkNumError::NoInput(dag_id, node_id)),
         (_, 0) => Err(LinkNumError::NoOutput(dag_id, node_id)),
@@ -246,11 +252,11 @@ pub async fn build_dag(
 
     for node in dag_data.get_nodes() {
         if node.is_source() {
-            register_source_node(dag.clone(), node, sched_type).await?;
+            register_source_node(&dag, node, sched_type).await?;
         } else if node.is_sink() {
-            register_sink_node(dag.clone(), node, sched_type).await?;
+            register_sink_node(&dag, node, sched_type).await?;
         } else {
-            register_intermediate_node(dag.clone(), node, sched_type).await?;
+            register_intermediate_node(&dag, node, sched_type).await?;
         }
     }
 
