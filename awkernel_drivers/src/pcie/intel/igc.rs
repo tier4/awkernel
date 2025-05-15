@@ -1,11 +1,14 @@
 //! This is a skelton of a PCIe device driver.
 
 use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
-use awkernel_lib::net::net_device::{self, NetDevice};
+use awkernel_lib::net::{
+    ether::ETHER_TYPE_VLAN,
+    net_device::{self, NetDevice},
+};
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
 use igc_defines::*;
-use igc_hw::{IgcHw, IgcMacType, IgcMediaType, IgcOperations};
+use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
@@ -27,6 +30,8 @@ const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
     | ADVERTISE_2500_FULL;
 
 const AUTO_ALL_MODES: u8 = 0;
+
+const IGC_FC_PAUSE_TIME: u16 = 0x0680;
 
 const IGC_TXPBSIZE: u32 = 20408;
 const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
@@ -360,4 +365,89 @@ fn igc_init_dmac(
     write_reg(info, IGC_PCIEMISC, reg)?;
 
     Ok(())
+}
+
+fn igc_reset(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    sc_fc: IgcFcMode,
+    sc_dmac: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Packet Buffer Allocation (PBA)
+    // Writing PBA sets the receive portion of the buffer
+    // the remainder is used for the transmit buffer.
+    let pba = IGC_PBA_34K;
+
+    // These parameters control the automatic generation (Tx) and
+    // response (Rx) to Ethernet PAUSE frames.
+    // - High water mark should allow for at least two frames to be
+    //   received after sending an XOFF.
+    // - Low water mark works best when it is very near the high water mark.
+    //   This allows the receiver to restart by sending XON when it has
+    //   drained a bit. Here we use an arbitrary value of 1500 which will
+    //   restart after one full frame is pulled from the buffer. There
+    //   could be several smaller frames in the buffer and if so they will
+    //   not trigger the XON until their total number reduces the buffer
+    //   by 1500.
+    // - The pause time is fairly large at 1000 x 512ns = 512 usec.
+    let rx_buffer_size = (pba & 0xffff) << 10;
+    hw.fc.high_water = rx_buffer_size - roundup2(hw.mac.max_frame_size, 1024);
+    // 16-byte granularity
+    hw.fc.low_water = hw.fc.high_water - 16;
+
+    // locally set flow control value?
+    if sc_fc != IgcFcMode::None {
+        hw.fc.requested_mode = sc_fc;
+    } else {
+        hw.fc.requested_mode = IgcFcMode::Full;
+    }
+
+    hw.fc.pause_time = IGC_FC_PAUSE_TIME;
+
+    hw.fc.send_xon = true;
+
+    // Issue a global reset
+    ops.reset_hw(info, hw)?;
+    write_reg(info, IGC_WUC, 0)?;
+
+    // and a re-init
+    ops.init_hw(info, hw)?;
+
+    // Setup DMA Coalescing
+    igc_init_dmac(info, hw, pba, sc_dmac)?;
+
+    write_reg(info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
+    ops.get_info(info, hw)?;
+    ops.check_for_link(info, hw)?;
+
+    Ok(())
+}
+
+/// igc_get_hw_control sets the {CTRL_EXT|FWSM}:DRV_LOAD bit.
+/// For ASF and Pass Through versions of f/w this means
+/// that the driver is loaded. For AMT version type f/w
+/// this means that the network i/f is open.
+fn igc_get_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    let ctrl_ext = read_reg(info, igc_regs::IGC_CTRL_EXT)?;
+    write_reg(
+        info,
+        igc_regs::IGC_CTRL_EXT,
+        ctrl_ext | IGC_CTRL_EXT_DRV_LOAD,
+    )
+}
+
+fn roundup2<T>(size: T, unit: T) -> T
+where
+    T: Copy
+        + core::ops::Add<Output = T>
+        + core::ops::BitAnd<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::Not<Output = T>
+        + From<u8>,
+{
+    let one = T::from(1);
+    (size + unit - one) & !(unit - one)
 }
