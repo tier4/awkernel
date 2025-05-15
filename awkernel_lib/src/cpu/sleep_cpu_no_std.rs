@@ -164,7 +164,7 @@ pub(super) unsafe fn init() {
 
 /// wait for init
 pub(super) fn wait_init() {
-    while !READY.load(Ordering::Relaxed) {
+    while !READY.load(Ordering::Acquire) {
         core::hint::spin_loop();
     }
 }
