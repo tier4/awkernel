@@ -376,6 +376,9 @@ fn igc_reset(
 ) -> Result<(), IgcDriverErr> {
     use igc_regs::*;
 
+    // Let the firmware know the OS is in control
+    igc_get_hw_control(info)?;
+
     // Packet Buffer Allocation (PBA)
     // Writing PBA sets the receive portion of the buffer
     // the remainder is used for the transmit buffer.
