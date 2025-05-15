@@ -555,3 +555,7 @@ pub fn eoi() {
         log::warn!("Interrupt controller is not yet enabled.");
     }
 }
+
+pub fn are_enabled() -> bool {
+    ArchImpl::are_enabled()
+}
