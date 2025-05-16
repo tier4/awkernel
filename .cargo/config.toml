@@ -18,7 +18,6 @@ clippy_aarch64_virt = "clippy --package awkernel --no-default-features --feature
 clippy_std = "clippy --package awkernel --no-default-features --features std"
 clippy_rv32 = "clippy --package awkernel --no-default-features --features rv32 --target riscv32imac-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 clippy_rv64 = "clippy --package awkernel --no-default-features --features rv64 --target riscv64gc-unknown-none-elf -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
-clippy_rd_gen_to_dags = "clippy --package rd_gen_to_dags --no-default-features  --features std --features milliseconds"
 
 check_aarch64 = "check --package awkernel --no-default-features --features aarch64 --target targets/aarch64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"
 check_x86 = "check --package awkernel --no-default-features --features x86 --target targets/x86_64-kernel.json -Zbuild-std=core,alloc,compiler_builtins -Zbuild-std-features=compiler-builtins-mem"

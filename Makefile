@@ -68,7 +68,6 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_aarch64_virt
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
-	cargo +$(RUSTV) clippy_rd_gen_to_dags
 
 udeps: $(X86ASM)
 	cargo +$(RUSTV) udeps_x86
