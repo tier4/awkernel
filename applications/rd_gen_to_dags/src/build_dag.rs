@@ -3,7 +3,7 @@ use crate::time_unit::{convert_duration, simulated_execution_time};
 
 use alloc::{borrow::Cow, format, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
-    dag::{create_dag, Dag},
+    dag::{Dag, create_dag},
     scheduler::SchedulerType,
 };
 
