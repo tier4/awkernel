@@ -14,7 +14,8 @@ use super::{
     },
     igc_mac::{
         igc_check_alt_mac_addr_generic, igc_disable_pcie_master_generic,
-        igc_get_auto_rd_done_generic, igc_put_hw_semaphore_generic, igc_setup_link_generic,
+        igc_get_auto_rd_done_generic, igc_get_speed_and_duplex_copper_generic,
+        igc_put_hw_semaphore_generic, igc_setup_link_generic,
     },
     igc_nvm::{acquire_nvm, igc_read_nvm_eerd, igc_validate_nvm_checksum_generic},
     igc_phy::{
@@ -33,6 +34,14 @@ impl IgcMacOperations for I225Flash {
     fn init_params(&self, _info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_init_mac_params_i225(hw);
         Ok(())
+    }
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr> {
+        igc_get_speed_and_duplex_copper_generic(info, hw)
     }
 
     fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
@@ -161,6 +170,14 @@ impl IgcMacOperations for I225NoFlash {
     fn init_params(&self, _info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         igc_init_mac_params_i225(hw);
         Ok(())
+    }
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr> {
+        igc_get_speed_and_duplex_copper_generic(info, hw)
     }
 
     fn reset_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
