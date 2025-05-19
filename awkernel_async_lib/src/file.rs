@@ -19,11 +19,9 @@ impl FileDescriptor {
         let file_handle = awkernel_lib::file::FileDescriptor::open_file(path)
             .or(Err(FileDescriptorError::FileDescriptionCreationError))?;
 
-        file_handle.filesystem.open(
-            self.file_handle.interface_id,
-            self.file_handle.fd,
-            self - file_handle.path,
-        );
+        file_handle
+            .filesystem
+            .open(file_handle.interface_id, file_handle.fd, &file_handle.path);
 
         FileOpenWaiter {
             file_handle: file_handle.clone(),
@@ -34,6 +32,7 @@ impl FileDescriptor {
     }
 }
 
+#[pin_project]
 pub struct FileOpenWaiter {
     file_handle: awkernel_lib::file::FileDescriptor,
 }
@@ -44,9 +43,11 @@ impl Future for FileOpenWaiter {
         self: core::pin::Pin<&mut Self>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Self::Output> {
-        match self.file_handle.filesystem.open_wait(
-            self.file_handle.interface_id,
-            self.file_handle.fd,
+        let this = self.project();
+
+        match this.file_handle.filesystem.open_wait(
+            this.file_handle.interface_id,
+            this.file_handle.fd,
             cx.waker(),
         ) {
             Ok(true) => core::task::Poll::Ready(Ok(())),

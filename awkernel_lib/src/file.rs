@@ -1,11 +1,8 @@
-use crate::{
-    sync::rwlock::RwLock,
-    sync::{mcs::MCSNode, mutex::Mutex},
-};
-use alloc::{borrow::Cow, collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use crate::sync::rwlock::RwLock;
+use alloc::{collections::BTreeMap, string::String, sync::Arc};
 use if_file::FileSystemWrapper;
 
-use self::if_file::{FileSystemCmd, FileSystemCmdInfo, IfFile};
+use self::if_file::IfFile;
 
 pub mod fatfs;
 pub mod if_file;
@@ -91,15 +88,15 @@ impl FileDescriptor {
         })
     }
 
-    pub fn create_file(path: &str) -> Result<Self, FileManagerError> {
+    pub fn create_file(_path: &str) -> Result<Self, FileManagerError> {
         Err(FileManagerError::NotYetImplemented)
     }
 
-    pub fn read_file(self, buf: &mut [u8]) -> Result<usize, FileManagerError> {
+    pub fn read_file(self, _buf: &mut [u8]) -> Result<usize, FileManagerError> {
         Err(FileManagerError::NotYetImplemented)
     }
 
-    pub fn write_file(self, buf: &[u8]) -> Result<usize, FileManagerError> {
+    pub fn write_file(self, _buf: &[u8]) -> Result<usize, FileManagerError> {
         Err(FileManagerError::NotYetImplemented)
     }
 }
@@ -170,6 +167,7 @@ pub fn register_waker_for_fs(
     let file_manager = FILE_MANAGER.read();
 
     let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
+        log::info!("register_wake_for_fs file_manager.interfaces.get failed");
         return Err(FileManagerError::InvalidInterfaceID);
     };
 

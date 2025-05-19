@@ -19,12 +19,12 @@ use crate::time::TimeProvider;
 
 const LFN_PADDING: u16 = 0xFFFF;
 
-pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> {
+pub(crate) enum DirRawStream<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     File(File<'a, IO, TP, OCC>),
     Root(DiskSlice<FsIoAdapter<'a, IO, TP, OCC>, FsIoAdapter<'a, IO, TP, OCC>>),
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> DirRawStream<'_, IO, TP, OCC> {
     fn abs_pos(&self) -> Option<u64> {
         match self {
             DirRawStream::File(file) => file.abs_pos(),
@@ -48,7 +48,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> DirRawS
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Clone for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for DirRawStream<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         match self {
             DirRawStream::File(file) => DirRawStream::File(file.clone()),
@@ -57,11 +57,11 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Clone f
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> IoBase for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> IoBase for DirRawStream<'_, IO, TP, OCC> {
     type Error = Error<IO::Error>;
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Read for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Read for DirRawStream<'_, IO, TP, OCC> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.read(buf),
@@ -70,7 +70,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Read f
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Write for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Write for DirRawStream<'_, IO, TP, OCC> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         match self {
             DirRawStream::File(file) => file.write(buf),
@@ -85,7 +85,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Write 
     }
 }
 
-impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Seek for DirRawStream<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Seek for DirRawStream<'_, IO, TP, OCC> {
     fn seek(&mut self, pos: SeekFrom) -> Result<u64, Self::Error> {
         match self {
             DirRawStream::File(file) => file.seek(pos),
@@ -101,7 +101,7 @@ fn split_path(path: &str) -> (&str, Option<&str>) {
     })
 }
 
-enum DirEntryOrShortName<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> {
+enum DirEntryOrShortName<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     DirEntry(DirEntry<'a, IO, TP, OCC>),
     ShortName([u8; SFN_SIZE]),
 }
@@ -110,12 +110,12 @@ enum DirEntryOrShortName<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, O
 ///
 /// This struct is created by the `open_dir` or `create_dir` methods on `Dir`.
 /// The root directory is returned by the `root_dir` method on `FileSystem`.
-pub struct Dir<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> {
+pub struct Dir<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Dir<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> Dir<'a, IO, TP, OCC> {
     pub(crate) fn new(stream: DirRawStream<'a, IO, TP, OCC>, fs: &'a FileSystem<IO, TP, OCC>) -> Self {
         Dir { stream, fs }
     }
@@ -603,14 +603,14 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: OemCpConverter> Clo
 /// An iterator over the directory entries.
 ///
 /// This struct is created by the `iter` method on `Dir`.
-pub struct DirIter<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> {
+pub struct DirIter<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> {
     stream: DirRawStream<'a, IO, TP, OCC>,
     fs: &'a FileSystem<IO, TP, OCC>,
     skip_volume: bool,
     err: bool,
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> DirIter<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP, OCC> DirIter<'a, IO, TP, OCC> {
     fn new(stream: DirRawStream<'a, IO, TP, OCC>, fs: &'a FileSystem<IO, TP, OCC>, skip_volume: bool) -> Self {
         DirIter {
             stream,
@@ -621,7 +621,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Dir
     }
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> DirIter<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> DirIter<'a, IO, TP, OCC> {
     fn should_skip_entry(&self, raw_entry: &DirEntryData) -> bool {
         if raw_entry.is_deleted() {
             return true;
@@ -688,7 +688,7 @@ impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Di
 }
 
 // Note: derive cannot be used because of invalid bounds. See: https://github.com/rust-lang/rust/issues/26925
-impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Clone for DirIter<'_, IO, TP, OCC> {
+impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Clone for DirIter<'_, IO, TP, OCC> {
     fn clone(&self) -> Self {
         Self {
             stream: self.stream.clone(),
@@ -699,7 +699,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP: Send + Sync, OCC: Send + Sync> Clone f
     }
 }
 
-impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC: Send + Sync> Iterator for DirIter<'a, IO, TP, OCC> {
+impl<'a, IO: ReadWriteSeek + Send + Sync, TP: TimeProvider, OCC> Iterator for DirIter<'a, IO, TP, OCC> {
     type Item = Result<DirEntry<'a, IO, TP, OCC>, Error<IO::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {

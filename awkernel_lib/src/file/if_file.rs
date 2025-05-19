@@ -1,19 +1,13 @@
-use alloc::{borrow::Cow, collections::BTreeMap, sync::Arc};
-use awkernel_async_lib_verified::ringq::RingQ;
+use alloc::sync::Arc;
 
 use crate::sync::{mcs::MCSNode, mutex::Mutex};
 
-use super::{FileManagerError, FileSystemResult, FILE_MANAGER};
+use super::FileManagerError;
 
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, vec::Vec};
+use alloc::string::String;
 
 enum FileSystemWakeState {
-    None,
-    Notified,
-    Wake(core::task::Waker),
-}
-enum FdWakeState {
     None,
     Notified,
     Wake(core::task::Waker),
@@ -58,6 +52,8 @@ impl IfFile {
         let mut node = MCSNode::new();
         let mut guard = self.fswaker.lock(&mut node);
 
+        log::info!("register_waker_for_fs");
+
         match guard.as_ref() {
             FileSystemWakeState::None => {
                 *guard = FileSystemWakeState::Wake(waker);
@@ -83,12 +79,7 @@ pub enum FileSystemWrapperError {
 }
 
 pub trait FileSystemWrapper {
-    fn open(
-        &self,
-        interface_id: u64,
-        fd: i64,
-        path: &String,
-    ) -> Result<bool, FileSystemWrapperError>;
+    fn open(&self, interface_id: u64, fd: i64, path: &String);
 
     fn open_wait(
         &self,
@@ -97,7 +88,6 @@ pub trait FileSystemWrapper {
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError>;
 
-    //fn create(&self, path: &str);
     //fn read(&self, fd: u32, buf: &mut u8, waker: core::task::Waker);
     //fn device_short_name(&self) -> Cow<'static, str>;
     //fn filesystem_short_name(&self) -> Cow<'static, str>;

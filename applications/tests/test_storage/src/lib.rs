@@ -57,7 +57,7 @@ async fn fatfs_test() {
         };
 
         match core::str::from_utf8(&buf) {
-            Ok(s) => log::info!("file.txt content: {}", s),
+            Ok(s) => log::info!("file.txt content!!!!!!: {}", s),
             Err(_) => log::info!("Error converting to string"),
         }
     }

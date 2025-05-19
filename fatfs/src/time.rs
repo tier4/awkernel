@@ -186,7 +186,7 @@ impl From<chrono::NaiveDateTime> for DateTime {
 ///
 /// Provides a custom implementation for a time resolution used when updating directory entry time fields.
 /// `TimeProvider` is specified by the `time_provider` property in `FsOptions` struct.
-pub trait TimeProvider: Debug + Send + Sync {
+pub trait TimeProvider: Debug {
     fn get_current_date(&self) -> Date;
     fn get_current_date_time(&self) -> DateTime;
 }

@@ -64,7 +64,7 @@ mod log_macros;
 
 mod boot_sector;
 mod dir;
-pub mod dir_entry;
+mod dir_entry;
 mod error;
 mod file;
 mod fs;

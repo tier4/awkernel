@@ -17,38 +17,44 @@ pub async fn run() {
 async fn filesystem_test() {
     //init_filesystem();
 
-    log::info!("okay!!!");
+    //log::info!("okay!!!");
 
-    let w_bytes;
-    {
-        let fd = match FileDescriptor::create_file("file.txt") {
-            Ok(file) => file,
-            Err(e) => panic!("Error create file: {:?}", e),
-        };
-
-        let data_to_write = b"Hello World!";
-        w_bytes = match fd.write_file(data_to_write) {
-            Ok(w_bytes) => w_bytes,
-            Err(e) => panic!("Error write file: {:?}", e),
-        };
+    if let Err(e) = awkernel_async_lib::file::FileDescriptor::open("a.txt").await {
+        log::error!("Failed to open a file - a.txt: {:?}", e);
     }
 
-    {
-        let fd = match FileDescriptor::open_file("file.txt") {
-            Ok(file) => file,
-            Err(e) => panic!("Error create file: {:?}", e),
-        };
+    log::info!("opened a file! - a.txt");
 
-        let mut buf = Vec::new();
-        buf.resize(w_bytes, 0);
-        let _ = match fd.read_file(&mut buf) {
-            Ok(w_bytes) => w_bytes,
-            Err(e) => panic!("Erro write file: {:?}", e),
-        };
+    //let w_bytes;
+    //{
+    //let fd = match FileDescriptor::create_file("file.txt") {
+    //Ok(file) => file,
+    //Err(e) => panic!("Error create file: {:?}", e),
+    //};
 
-        match core::str::from_utf8(&buf) {
-            Ok(s) => log::info!("file.txt content: {}", s),
-            Err(_) => log::info!("Error converting to string"),
-        }
-    }
+    //let data_to_write = b"Hello World!";
+    //w_bytes = match fd.write_file(data_to_write) {
+    //Ok(w_bytes) => w_bytes,
+    //Err(e) => panic!("Error write file: {:?}", e),
+    //};
+    //}
+
+    //{
+    //let fd = match FileDescriptor::open_file("file.txt") {
+    //Ok(file) => file,
+    //Err(e) => panic!("Error create file: {:?}", e),
+    //};
+
+    //let mut buf = Vec::new();
+    //buf.resize(w_bytes, 0);
+    //let _ = match fd.read_file(&mut buf) {
+    //Ok(w_bytes) => w_bytes,
+    //Err(e) => panic!("Erro write file: {:?}", e),
+    //};
+
+    //match core::str::from_utf8(&buf) {
+    //Ok(s) => log::info!("file.txt content: {}", s),
+    //Err(_) => log::info!("Error converting to string"),
+    //}
+    //}
 }
