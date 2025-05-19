@@ -4,7 +4,7 @@ use crate::pcie::PCIeInfo;
 
 use super::{
     igc_defines::*,
-    igc_hw::{IgcHw, IgcPhyOperations, IgcPhyType},
+    igc_hw::{IgcHw, IgcPhyOperations},
     igc_regs::*,
     read_reg, write_flush, write_reg, IgcDriverErr,
 };
