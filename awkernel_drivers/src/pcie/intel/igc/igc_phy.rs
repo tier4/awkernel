@@ -363,12 +363,6 @@ pub(super) fn igc_phy_has_link_generic(
 ///
 /// A downshift is detected by querying the PHY link health.
 pub(super) fn igc_check_downshift_generic(hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-    match hw.phy.phy_type {
-        _ => {
-            // Speed downshift not supported
-            hw.phy.speed_downgraded = false;
-        }
-    }
-
+    hw.phy.speed_downgraded = false;
     Ok(())
 }

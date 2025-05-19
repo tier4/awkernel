@@ -664,6 +664,8 @@ fn igc_check_for_link_i225(
     struct IgcSetLtrI225;
     let mut link = false;
 
+    // To implement goto statements in Rust, we use a loop with a break statement.
+    #[allow(clippy::never_loop)]
     loop {
         // We only want to go out to the PHY registers to see if
         // Auto-Neg has completed and/or if our link status has
