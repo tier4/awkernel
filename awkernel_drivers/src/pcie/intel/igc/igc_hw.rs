@@ -266,9 +266,13 @@ pub(super) trait IgcMacOperations {
     fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr>;
+
     fn update_mc_addr_list(
         &self,
         _info: &mut PCIeInfo,

@@ -9,7 +9,7 @@ use super::{
     igc_defines::*,
     igc_hw::{IgcFcMode, IgcHw, IgcOperations},
     igc_regs::*,
-    read_reg, write_reg, IgcDriverErr,
+    read_reg, write_reg, IgcDriverErr, IgcMacType,
 };
 
 /// Disables PCI-Express master access and verifies there are no pending
@@ -203,4 +203,224 @@ pub(super) fn igc_init_rx_addrs_generic(
     }
 
     Ok(())
+}
+
+/// igc_config_fc_after_link_up_generic - Configures flow control after link
+/// @hw: pointer to the HW structure
+///
+/// Checks the status of auto-negotiation after link up to ensure that the
+/// speed and duplex were not forced.  If the link needed to be forced, then
+/// flow control needs to be forced also.  If auto-negotiation is enabled
+/// and did not fail, then we configure flow control based on our link
+/// partner.
+pub(super) fn igc_config_fc_after_link_up_generic(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+) -> Result<(), IgcDriverErr> {
+    // Check for the case where we have copper media and auto-neg is
+    // enabled.  In this case, we need to check and see if Auto-Neg
+    // has completed, and if so, how the PHY and link partner has
+    // flow control configured.
+    if hw.mac.autoneg {
+        // Read the MII Status Register and check to see if AutoNeg
+        // has completed.  We read this twice because this reg has
+        // some "sticky" (latched) bits.
+        let _mii_status_reg = ops.read_reg(info, hw, PHY_STATUS)?;
+        let mii_status_reg = ops.read_reg(info, hw, PHY_STATUS)?;
+
+        if mii_status_reg & MII_SR_AUTONEG_COMPLETE == 0 {
+            return Ok(());
+        }
+
+        // The AutoNeg process has completed, so we now need to
+        // read both the Auto Negotiation Advertisement
+        // Register (Address 4) and the Auto_Negotiation Base
+        // Page Ability Register (Address 5) to determine how
+        // flow control was negotiated.
+        let mii_nway_adv_reg = ops.read_reg(info, hw, PHY_AUTONEG_ADV)?;
+        let mii_nway_lp_ability_reg = ops.read_reg(info, hw, PHY_LP_ABILITY)?;
+
+        // Two bits in the Auto Negotiation Advertisement Register
+        // (Address 4) and two bits in the Auto Negotiation Base
+        // Page Ability Register (Address 5) determine flow control
+        // for both the PHY and the link partner.  The following
+        // table, taken out of the IEEE 802.3ab/D6.0 dated March 25,
+        // 1999, describes these PAUSE resolution bits and how flow
+        // control is determined based upon these settings.
+        // NOTE:  DC = Don't Care
+        //
+        //   LOCAL DEVICE  |   LINK PARTNER
+        // PAUSE | ASM_DIR | PAUSE | ASM_DIR | NIC Resolution
+        //-------|---------|-------|---------|--------------------
+        //   0   |    0    |  DC   |   DC    | igc_fc_none
+        //   0   |    1    |   0   |   DC    | igc_fc_none
+        //   0   |    1    |   1   |    0    | igc_fc_none
+        //   0   |    1    |   1   |    1    | igc_fc_tx_pause
+        //   1   |    0    |   0   |   DC    | igc_fc_none
+        //   1   |   DC    |   1   |   DC    | igc_fc_full
+        //   1   |    1    |   0   |    0    | igc_fc_none
+        //   1   |    1    |   0   |    1    | igc_fc_rx_pause
+        //
+        // Are both PAUSE bits set to 1?  If so, this implies
+        // Symmetric Flow Control is enabled at both ends.  The
+        // ASM_DIR bits are irrelevant per the spec.
+        //
+        // For Symmetric Flow Control:
+        //
+        //   LOCAL DEVICE  |   LINK PARTNER
+        // PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+        //-------|---------|-------|---------|--------------------
+        //   1   |   DC    |   1   |   DC    | IGC_fc_full
+        if (mii_nway_adv_reg & NWAY_AR_PAUSE != 0)
+            && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE != 0)
+        {
+            // Now we need to check if the user selected Rx ONLY
+            // of pause frames.  In this case, we had to advertise
+            // FULL flow control because we could not advertise Rx
+            // ONLY. Hence, we must now check to see if we need to
+            // turn OFF the TRANSMISSION of PAUSE frames.
+            if hw.fc.requested_mode == IgcFcMode::Full {
+                hw.fc.current_mode = IgcFcMode::Full;
+            } else {
+                hw.fc.current_mode = IgcFcMode::RxPause;
+            }
+        }
+        // For receiving PAUSE frames ONLY.
+        //
+        //   LOCAL DEVICE  |   LINK PARTNER
+        // PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+        //-------|---------|-------|---------|--------------------
+        //   0   |    1    |   1   |    1    | igc_fc_tx_pause
+        else if (mii_nway_adv_reg & NWAY_AR_PAUSE == 0)
+            && (mii_nway_adv_reg & NWAY_AR_ASM_DIR != 0)
+            && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE != 0)
+            && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
+        {
+            hw.fc.current_mode = IgcFcMode::TxPause;
+        }
+        // For transmitting PAUSE frames ONLY.
+        //
+        //   LOCAL DEVICE  |   LINK PARTNER
+        // PAUSE | ASM_DIR | PAUSE | ASM_DIR | Result
+        //-------|---------|-------|---------|--------------------
+        //   1   |    1    |   0   |    1    | igc_fc_rx_pause
+        else if (mii_nway_adv_reg & NWAY_AR_PAUSE != 0)
+            && (mii_nway_adv_reg & NWAY_AR_ASM_DIR != 0)
+            && (mii_nway_lp_ability_reg & NWAY_LPAR_PAUSE == 0)
+            && (mii_nway_lp_ability_reg & NWAY_LPAR_ASM_DIR != 0)
+        {
+            hw.fc.current_mode = IgcFcMode::RxPause;
+        } else {
+            // Per the IEEE spec, at this point flow control
+            // should be disabled.
+            hw.fc.current_mode = IgcFcMode::None;
+        }
+
+        // Now we need to do one last check...  If we auto-
+        // negotiated to HALF DUPLEX, flow control should not be
+        // enabled per IEEE 802.3 spec.
+        let (_speed, dupex) = ops.get_link_up_info(info, hw)?;
+
+        if dupex == IgcDuplex::Half {
+            hw.fc.current_mode = IgcFcMode::None;
+        }
+
+        // Now we call a subroutine to actually force the MAC
+        // controller to use the correct flow control settings.
+        igc_force_mac_fc_generic(info, hw)?;
+    }
+
+    Ok(())
+}
+
+/// igc_force_mac_fc_generic - Force the MAC's flow control settings
+/// @hw: pointer to the HW structure
+//
+/// Force the MAC's flow control settings.  Sets the TFCE and RFCE bits in the
+/// device control register to reflect the adapter settings.  TFCE and RFCE
+/// need to be explicitly set by software when a copper PHY is used because
+/// autonegotiation is managed by the PHY rather than the MAC.  Software must
+/// also configure these bits when link is forced on a fiber connection.
+fn igc_force_mac_fc_generic(info: &mut PCIeInfo, hw: &IgcHw) -> Result<(), IgcDriverErr> {
+    let mut ctrl = read_reg(info, IGC_CTRL)?;
+
+    // Because we didn't get link via the internal auto-negotiation
+    // mechanism (we either forced link or we got link via PHY
+    // auto-neg), we have to manually enable/disable transmit an
+    // receive flow control.
+    //
+    // The "Case" statement below enables/disable flow control
+    // according to the "hw->fc.current_mode" parameter.
+    //
+    // The possible values of the "fc" parameter are:
+    //      0:  Flow control is completely disabled
+    //      1:  Rx flow control is enabled (we can receive pause
+    //          frames but not send pause frames).
+    //      2:  Tx flow control is enabled (we can send pause frames
+    //          frames but we do not receive pause frames).
+    //      3:  Both Rx and Tx flow control (symmetric) is enabled.
+    //  other:  No other values should be possible at this point.
+
+    match hw.fc.current_mode {
+        IgcFcMode::None => {
+            ctrl &= !(IGC_CTRL_TFCE | IGC_CTRL_RFCE);
+        }
+        IgcFcMode::RxPause => {
+            ctrl &= !IGC_CTRL_TFCE;
+            ctrl |= IGC_CTRL_RFCE;
+        }
+        IgcFcMode::TxPause => {
+            ctrl &= !IGC_CTRL_RFCE;
+            ctrl |= IGC_CTRL_TFCE;
+        }
+        IgcFcMode::Full => {
+            ctrl |= IGC_CTRL_TFCE | IGC_CTRL_RFCE;
+        }
+        _ => {
+            log::error!("Flow control param set incorrectly");
+            return Err(IgcDriverErr::Config);
+        }
+    }
+
+    write_reg(info, IGC_CTRL, ctrl)?;
+
+    Ok(())
+}
+
+///  igc_get_speed_and_duplex_copper_generic - Retrieve current speed/duplex
+///  @hw: pointer to the HW structure
+///  @speed: stores the current speed
+///  @duplex: stores the current duplex
+///
+///  Read the status register for the current speed/duplex and store the current
+///  speed and duplex for copper connections.
+pub(super) fn igc_get_speed_and_duplex_copper_generic(
+    info: &mut PCIeInfo,
+    hw: &IgcHw,
+) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr> {
+    let status = read_reg(info, IGC_STATUS)?;
+
+    let speed = if status & IGC_STATUS_SPEED_1000 != 0 {
+        // For I225, STATUS will indicate 1G speed in both 1 Gbps
+        // and 2.5 Gbps link modes. An additional bit is used
+        // to differentiate between 1 Gbps and 2.5 Gbps.
+        if (hw.mac.mac_type == IgcMacType::I225) && (status & IGC_STATUS_SPEED_2500 != 0) {
+            IgcSpeed::Speed2500
+        } else {
+            IgcSpeed::Speed1000
+        }
+    } else if status & IGC_STATUS_SPEED_100 != 0 {
+        IgcSpeed::Speed100
+    } else {
+        IgcSpeed::Speed10
+    };
+
+    let duplex = if status & IGC_STATUS_FD != 0 {
+        IgcDuplex::Full
+    } else {
+        IgcDuplex::Half
+    };
+
+    Ok((speed, duplex))
 }
