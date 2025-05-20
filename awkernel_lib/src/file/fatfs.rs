@@ -147,13 +147,10 @@ pub fn complete_file_operation(
 pub fn cmd_queue_pop() -> Option<FatFileSystemCmdInfo> {
     let mut cmd_queue_guard = CMD_QUEUE.write();
 
-    log::info!("cmd_queue_pop");
     if cmd_queue_guard.len() == 0 {
-        log::info!("no cmd");
         return None;
     }
 
-    log::info!("cmdinfo");
     let cmdinfo = cmd_queue_guard.remove(0);
     Some(cmdinfo)
 }

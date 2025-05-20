@@ -554,6 +554,7 @@ impl<IO: Read + Write + Seek + Send + Sync, TP, OCC> FileSystem<IO, TP, OCC> {
         let mut node = MCSNode::new();
         let fs_info_guard = self.fs_info.lock(&mut node);
         let free_clusters_option = fs_info_guard.free_cluster_count;
+        drop(fs_info_guard);
         let free_clusters = if let Some(n) = free_clusters_option {
             n
         } else {
@@ -755,6 +756,7 @@ impl<IO: ReadWriteSeek + Send + Sync, TP, OCC> Write for FsIoAdapter<'_, IO, TP,
         let mut node = MCSNode::new();
         let mut disk_guard = self.fs.disk.lock(&mut node);
         let size = disk_guard.write(buf)?;
+        drop(disk_guard);
         if size > 0 {
             self.fs.set_dirty_flag(true)?;
         }

@@ -47,6 +47,7 @@ pub async fn run() {
         data: vecc,
         position: 0,
     };
+
     let options = FormatVolumeOptions::new();
     if format_volume(&mut disk, options).is_ok() {
         log::info!("FAT filesystem formatted successfully in memory!");
@@ -71,19 +72,14 @@ pub async fn run() {
 
         log::info!("fatfs service woke");
 
-        wait_millisec(2000);
-
         loop {
             let cmdinfo = awkernel_lib::file::fatfs::cmd_queue_pop();
             let Some(cmdinfo) = cmdinfo else {
                 break;
             };
 
-            log::info!("cmdinfo.cmd {:?}", cmdinfo.cmd);
-
             match cmdinfo.cmd {
                 FatFileSystemCmd::OpenCmd => {
-                    log::info!("open cmd");
                     let ret;
                     match root_dir.create_file(cmdinfo.path.as_str()) {
                         Ok(file) => {
@@ -101,7 +97,6 @@ pub async fn run() {
                         cmdinfo.fd,
                         ret,
                     );
-                    log::info!("create_file called");
                 }
                 FatFileSystemCmd::CreateCmd => {}
                 FatFileSystemCmd::ReadCmd => {}
@@ -172,6 +167,7 @@ impl Read for InMemoryDisk {
 
 impl Write for InMemoryDisk {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        //log::info!("write InMemoryDisk");
         let len = core::cmp::min(buf.len(), (self.data.len() as u64 - self.position) as usize);
         if len == 0 {
             return Ok(0);

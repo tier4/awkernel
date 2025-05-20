@@ -38,7 +38,7 @@ pub async fn run() {
     awkernel_async_lib::spawn(
         FILESYSTEM_SERVICE_NAME.into(),
         filesystem_service::run(),
-        awkernel_async_lib::scheduler::SchedulerType::FIFO,
+        awkernel_async_lib::scheduler::SchedulerType::GEDF(0),
     )
     .await;
 
