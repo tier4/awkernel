@@ -69,6 +69,9 @@ pub(super) const IGC_RDFPC: usize = 0x02430; // Rx Data FIFO Packet Count - RW
 pub(super) const IGC_PBRTH: usize = 0x02458; // PB Rx Arbitration Threshold - RW
 pub(super) const IGC_FCRTV: usize = 0x02460; // Flow Control Refresh Timer Value - RW
 
+// Split and Replication Rx Control - RW
+pub(super) const IGC_RXPBS: usize = 0x02404; // Rx Packet Buffer Size - RW
+
 // Shadow Ram Write Register - RW
 pub(super) const IGC_SRWR: usize = 0x12018;
 
@@ -320,3 +323,6 @@ pub(super) const IGC_EEE_SU: usize = 0x0E34; // EEE Setup
 pub(super) const IGC_EEE_SU_2P5: usize = 0x0E3C; // EEE 2.5G Setup
 pub(super) const IGC_TLPIC: usize = 0x4148; // EEE Tx LPI Count - TLPIC
 pub(super) const IGC_RLPIC: usize = 0x414C; // EEE Rx LPI Count - RLPIC
+
+pub(super) const IGC_LTRMINV: usize = 0x5BB0; // LTR Minimum Value
+pub(super) const IGC_LTRMAXV: usize = 0x5BB4; // LTR Maximum Value
