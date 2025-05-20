@@ -823,7 +823,7 @@ fn igc_set_ltr_i225(
 
         let ltrv = read_reg(info, IGC_LTRMAXV)?;
         if ltr_max != (ltrv & IGC_LTRMAXV_LTRV_MASK) {
-            let ltrv = ltr_max | (scale_max << IGC_LTRMAXV_SCALE_SHIFT);
+            let ltrv = IGC_LTRMAXV_LSNP_REQ | ltr_max | (scale_max << IGC_LTRMAXV_SCALE_SHIFT);
             write_reg(info, IGC_LTRMAXV, ltrv)?;
         }
     }
