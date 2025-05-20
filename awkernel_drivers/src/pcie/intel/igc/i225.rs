@@ -672,8 +672,7 @@ fn igc_check_for_link_i225(
         // changed.  The get_link_status flag is set upon receiving
         // a Link Status Change or Rx Sequence Error interrupt.
         if !hw.mac.get_link_status {
-            igc_set_ltr_i225(ops, info, hw, link)?;
-            return Ok(());
+            break;
         }
 
         // First we want to see if the MII Status Register reports
@@ -772,17 +771,18 @@ fn igc_set_ltr_i225(
         // Calculations vary based on DMAC settings.
         let size = if read_reg(info, IGC_DMACR)? & IGC_DMACR_DMAC_EN != 0 {
             size.checked_sub(
-                ((read_reg(info, IGC_DMACR)? & IGC_DMACR_DMACTHR_MASK) >> IGC_DMACR_DMACTHR_SHIFT)
-                    * 1024
-                    * 8,
+                (read_reg(info, IGC_DMACR)? & IGC_DMACR_DMACTHR_MASK) >> IGC_DMACR_DMACTHR_SHIFT,
             )
             .ok_or(IgcDriverErr::Config)?
+                * 1024
+                * 8
         } else {
             // Convert size to bytes, subtract the MTU, and then
             // convert the size to bits.
             (size * 1024)
-                .checked_sub(hw.dev_spec.mtu * 8)
+                .checked_sub(hw.dev_spec.mtu)
                 .ok_or(IgcDriverErr::Config)?
+                * 8
         };
 
         // Calculate the thresholds. Since speed is in Mbps, simplify
