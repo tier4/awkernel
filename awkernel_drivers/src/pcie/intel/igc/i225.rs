@@ -671,7 +671,7 @@ fn igc_check_for_link_i225(
         // Auto-Neg has completed and/or if our link status has
         // changed.  The get_link_status flag is set upon receiving
         // a Link Status Change or Rx Sequence Error interrupt.
-        if hw.mac.get_link_status {
+        if !hw.mac.get_link_status {
             igc_set_ltr_i225(ops, info, hw, link)?;
             return Ok(());
         }
