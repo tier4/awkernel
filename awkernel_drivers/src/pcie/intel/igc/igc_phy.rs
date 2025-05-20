@@ -334,12 +334,11 @@ pub(super) fn igc_phy_has_link_generic(
         // Some PHYs require the PHY_STATUS register to be read
         // twice due to the link bit being sticky.  No harm doing
         // it across the board.
-        let Ok(_phy_status) = ops.read_reg(info, hw, PHY_STATUS) else {
+        if ops.read_reg(info, hw, PHY_STATUS).is_err() {
             // If the first read fails, another entity may have
             // ownership of the resources, wait and try again to
             // see if they have relinquished the resources yet.
             wait_microsec(usec_interval as u64);
-            continue;
         };
 
         let phy_status = ops.read_reg(info, hw, PHY_STATUS)?;
