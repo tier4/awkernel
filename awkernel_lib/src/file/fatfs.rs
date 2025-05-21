@@ -6,7 +6,7 @@ use alloc::{
 
 use crate::sync::rwlock::RwLock;
 
-use super::if_file::{FileSystemWrapper, FileSystemWrapperError};
+use super::if_file::{FileSystemWrapper, FileSystemWrapperError, SeekFrom};
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 #[derive(Debug)]
@@ -15,7 +15,7 @@ pub enum FatFileSystemCmd {
     CreateCmd { fd: i64, path: String },
     ReadCmd { fd: i64, bufsize: usize },
     WriteCmd { fd: i64, buf: Vec<u8> },
-    SeekCmd { fd: i64 },
+    SeekCmd { fd: i64, from: SeekFrom },
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -23,6 +23,7 @@ pub enum FatFileSystemResult {
     Success,
     ReadResult(Vec<u8>),
     WriteBytes(usize),
+    SeekBytes(usize),
 }
 
 #[derive(Debug)]
@@ -232,7 +233,7 @@ impl FileSystemWrapper for Fatfs {
                         Ok(Some(len))
                     }
                     _ => {
-                        log::error!("Remote create operation failed for ({}, {})", id.0, id.1,);
+                        log::error!("Remote read operation failed for ({}, {})", id.0, id.1,);
                         Err(FileSystemWrapperError::ReadError) // TODO: Consider if it is okay to lose the information of error in fatfs.
                     }
                 }
@@ -247,6 +248,7 @@ impl FileSystemWrapper for Fatfs {
             );
         }
     }
+
     fn write(&self, interface_id: u64, fd: i64, buf: &[u8]) {
         let id = (interface_id, fd);
 
@@ -299,8 +301,73 @@ impl FileSystemWrapper for Fatfs {
                 match result {
                     Ok(FatFileSystemResult::WriteBytes(bytes)) => Ok(Some(bytes)),
                     _ => {
-                        log::error!("Remote create operation failed for ({}, {})", id.0, id.1,);
-                        Err(FileSystemWrapperError::ReadError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                        log::error!("Remote write operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::WriteError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                    }
+                }
+            } else {
+                drop(pending_ops);
+                Ok(None)
+            }
+        } else {
+            panic!(
+                "PENDING_OPS entry not found for ({}, {}) in read. This indicates a logic error.",
+                id.0, id.1
+            );
+        }
+    }
+
+    fn seek(&self, interface_id: u64, fd: i64, from: SeekFrom) {
+        let id = (interface_id, fd);
+
+        let mut cmd_queue_guard = CMD_QUEUE.write();
+        let cmd_info = FatFileSystemCmd::SeekCmd { fd, from };
+        cmd_queue_guard.push(cmd_info);
+
+        let mut pending_ops = PENDING_OPS.write();
+        if pending_ops
+            .insert(
+                id,
+                PendingOperation {
+                    waker: None,
+                    result: None,
+                },
+            )
+            .is_some()
+        {
+            panic!(
+                "PENDING_OPS entry for ({}, {}) already existed on read push success.",
+                id.0, id.1
+            );
+        }
+        drop(pending_ops);
+
+        super::wake_fs(interface_id);
+    }
+
+    fn seek_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError> {
+        let mut pending_ops = PENDING_OPS.write();
+
+        let id = (interface_id, fd);
+        if let Some(op) = pending_ops.get_mut(&id) {
+            if op.waker.is_none() {
+                op.waker = Some(waker.clone());
+            }
+
+            if let Some(result) = op.result.take() {
+                pending_ops.remove(&id);
+                drop(pending_ops);
+
+                match result {
+                    Ok(FatFileSystemResult::SeekBytes(bytes)) => Ok(Some(bytes)),
+                    _ => {
+                        log::error!("Remote seek operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::SeekError) // TODO: Consider if it is okay to lose the information of error in fatfs.
                     }
                 }
             } else {

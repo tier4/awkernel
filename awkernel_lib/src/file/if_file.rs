@@ -18,6 +18,13 @@ pub(super) struct IfFile {
     fswaker: Mutex<FileSystemWakeState>,
 }
 
+#[derive(Debug)]
+pub enum SeekFrom {
+    Start(u64),
+    End(i64),
+    Current(i64),
+}
+
 impl IfFile {
     pub fn new(filesystem: Arc<dyn FileSystemWrapper + Sync + Send>) -> Self {
         let fswaker = Mutex::new(FileSystemWakeState::None);
@@ -113,6 +120,16 @@ pub trait FileSystemWrapper {
         fd: i64,
         waker: &core::task::Waker,
     ) -> Result<Option<usize>, FileSystemWrapperError>;
+
+    fn seek(&self, interface_id: u64, fd: i64, from: SeekFrom);
+
+    fn seek_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError>;
+
     //fn device_short_name(&self) -> Cow<'static, str>;
     //fn filesystem_short_name(&self) -> Cow<'static, str>;
 }
