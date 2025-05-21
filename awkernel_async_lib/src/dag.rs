@@ -16,9 +16,13 @@ use alloc::{
     boxed::Box,
     collections::{btree_map, BTreeMap},
     sync::Arc,
+    vec,
     vec::Vec,
 };
-use awkernel_lib::sync::mutex::{MCSNode, Mutex};
+use awkernel_lib::{
+    delay::cpu_counter,
+    sync::mutex::{MCSNode, Mutex},
+};
 use core::{future::Future, pin::Pin, time::Duration};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
@@ -54,9 +58,76 @@ struct NodeInfo {
     relative_deadline: Option<Duration>,
 }
 
+#[cfg(feature = "perf")]
+struct ResponseInfo {
+    release_time: Vec<u64>,
+    response_time: Vec<u64>,
+    release_count: usize,
+    finish_count: usize,
+}
+
+#[cfg(feature = "perf")]
+impl ResponseInfo {
+    fn new() -> Self {
+        Self {
+            release_time: vec![0],  // Using index 0 as a dummy for 1-based count.
+            response_time: vec![0], // Using index 0 as a dummy for 1-based count.
+            release_count: 0,
+            finish_count: 0,
+        }
+    }
+
+    fn get_release_time_at(&self, index: usize) -> Option<u64> {
+        self.release_time.get(index).cloned()
+    }
+
+    fn add_release_time(&mut self) {
+        let release_count = self.release_count;
+        if self.get_release_time_at(release_count as usize).is_none() {
+            self.release_time.push(cpu_counter());
+        }
+    }
+
+    fn add_response_time(&mut self, finish_time: u64) {
+        let finish_count = self.finish_count;
+
+        let value_to_push = if let Some(release_time) = self.get_release_time_at(finish_count) {
+            if finish_time >= release_time {
+                finish_time - release_time
+            } else {
+                log::error!(
+                    "Error: Finish time {} is earlier than release time {}. Cannot calculate response duration for finish_count {}.",
+                    finish_time, release_time, finish_count
+                );
+                u64::MAX
+            }
+        } else {
+            log::error!(
+                "Error: Release time not found for finish count {}. Cannot calculate response duration.",
+                finish_count
+            );
+            u64::MAX
+        };
+
+        self.response_time.push(value_to_push);
+    }
+
+    fn increment_release_count(&mut self) {
+        self.release_count += 1;
+    }
+
+    fn increment_finish_count(&mut self) {
+        self.finish_count += 1;
+    }
+}
+
 pub struct Dag {
     id: u32,
     graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
+
+    #[cfg(feature = "perf")]
+    #[allow(dead_code)]
+    response_info: Mutex<ResponseInfo>,
 }
 
 impl Dag {
@@ -168,6 +239,41 @@ impl Dag {
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
 
+        #[cfg(feature = "perf")]
+        {
+            let dag_id = self.id;
+
+            let wrapped_f = move || {
+                {
+                    let dag = get_dag(dag_id).unwrap();
+                    let mut node = MCSNode::new();
+                    let mut response_info = dag.response_info.lock(&mut node);
+                    response_info.increment_release_count();
+                    response_info.add_release_time();
+                }
+
+                let result = f();
+                result
+            };
+
+            pending_tasks
+                .entry(self.id)
+                .or_default()
+                .push(PendingTask::new(node_idx, move || {
+                    Box::pin(async move {
+                        spawn_periodic_reactor::<_, Ret>(
+                            reactor_name.clone(),
+                            wrapped_f,
+                            publish_topic_names.clone(),
+                            sched_type,
+                            period,
+                        )
+                        .await
+                    })
+                }));
+        }
+
+        #[cfg(not(feature = "perf"))]
         pending_tasks
             .entry(self.id)
             .or_default()
@@ -207,6 +313,40 @@ impl Dag {
         let mut node = MCSNode::new();
         let mut pending_tasks = PENDING_TASKS.lock(&mut node);
 
+        #[cfg(feature = "perf")]
+        {
+            let dag_id = self.id;
+
+            let wrapped_f = move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
+                f(arg);
+
+                {
+                    let finish_time = cpu_counter();
+                    let dag = get_dag(dag_id).unwrap();
+                    let mut node = MCSNode::new();
+                    let mut response_info = dag.response_info.lock(&mut node);
+                    response_info.increment_finish_count();
+                    response_info.add_response_time(finish_time);
+                }
+            };
+
+            pending_tasks
+                .entry(self.id)
+                .or_default()
+                .push(PendingTask::new(node_idx, move || {
+                    Box::pin(async move {
+                        spawn_sink_reactor::<_, Args>(
+                            reactor_name.clone(),
+                            wrapped_f,
+                            subscribe_topic_names.clone(),
+                            sched_type,
+                        )
+                        .await
+                    })
+                }));
+        }
+
+        #[cfg(not(feature = "perf"))]
         pending_tasks
             .entry(self.id)
             .or_default()
@@ -246,6 +386,9 @@ impl Dags {
                 let dag = Arc::new(Dag {
                     id,
                     graph: Mutex::new(graph::Graph::new()),
+
+                    #[cfg(feature = "perf")]
+                    response_info: Mutex::new(ResponseInfo::new()),
                 });
 
                 e.insert(dag.clone());
