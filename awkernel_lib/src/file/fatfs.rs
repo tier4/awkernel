@@ -11,29 +11,24 @@ pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 #[derive(Debug)]
 pub enum FatFileSystemCmd {
-    OpenCmd,
-    CreateCmd,
-    ReadCmd,
-    WriteCmd,
-    SeekCmd,
-}
-
-pub struct FatFileSystemCmdInfo {
-    pub cmd: FatFileSystemCmd,
-    pub fd: i64,
-    pub path: String,
-    pub size: usize,
+    OpenCmd { fd: i64, path: String },
+    CreateCmd { fd: i64, path: String },
+    ReadCmd { fd: i64, bufsize: usize },
+    WriteCmd { fd: i64, buf: Vec<u8> },
+    SeekCmd { fd: i64 },
 }
 
 #[derive(Eq, PartialEq, Debug)]
 pub enum FatFileSystemResult {
     Success,
     ReadResult(Vec<u8>),
+    WriteBytes(usize),
 }
 
 #[derive(Debug)]
 pub enum FatFsError {
     OpenError,
+    CreateError,
 }
 
 pub struct PendingOperation {
@@ -43,7 +38,7 @@ pub struct PendingOperation {
 
 pub static PENDING_OPS: RwLock<BTreeMap<(u64, i64), PendingOperation>> =
     RwLock::new(BTreeMap::new());
-static CMD_QUEUE: RwLock<Vec<FatFileSystemCmdInfo>> = RwLock::new(Vec::new()); // TODO: change this to RingQ
+static CMD_QUEUE: RwLock<Vec<FatFileSystemCmd>> = RwLock::new(Vec::new()); // TODO: change this to RingQ
 
 pub struct Fatfs {}
 
@@ -52,15 +47,12 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-
-        let cmd_info = FatFileSystemCmdInfo {
-            cmd: FatFileSystemCmd::OpenCmd,
+        let cmd_info = FatFileSystemCmd::OpenCmd {
             fd,
             path: path.to_string(),
-            size: 0,
         };
-
         cmd_queue_guard.push(cmd_info);
+
         let mut pending_ops = PENDING_OPS.write();
         if pending_ops
             .insert(
@@ -79,7 +71,6 @@ impl FileSystemWrapper for Fatfs {
         }
         drop(pending_ops);
 
-        log::info!("call wake_fs");
         super::wake_fs(interface_id);
     }
 
@@ -90,7 +81,6 @@ impl FileSystemWrapper for Fatfs {
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError> {
         let id = (interface_id, fd);
-        log::info!("FatfsInMemory::open_wait called for ({}, {})", id.0, id.1);
 
         let mut pending_ops = PENDING_OPS.write();
 
@@ -119,6 +109,211 @@ impl FileSystemWrapper for Fatfs {
             panic!("PENDING_OPS entry not found for ({}, {}) in open_wait. This indicates a logic error.", id.0, id.1);
         }
     }
+
+    fn create(&self, interface_id: u64, fd: i64, path: &String) {
+        let id = (interface_id, fd);
+
+        let mut cmd_queue_guard = CMD_QUEUE.write();
+        let cmd_info = FatFileSystemCmd::CreateCmd {
+            fd,
+            path: path.to_string(),
+        };
+        cmd_queue_guard.push(cmd_info);
+
+        let mut pending_ops = PENDING_OPS.write();
+        if pending_ops
+            .insert(
+                id,
+                PendingOperation {
+                    waker: None,
+                    result: None,
+                },
+            )
+            .is_some()
+        {
+            panic!(
+                "PENDING_OPS entry for ({}, {}) already existed on open push success.",
+                id.0, id.1
+            );
+        }
+        drop(pending_ops);
+
+        super::wake_fs(interface_id);
+    }
+
+    fn create_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<bool, FileSystemWrapperError> {
+        let id = (interface_id, fd);
+
+        let mut pending_ops = PENDING_OPS.write();
+
+        if let Some(op) = pending_ops.get_mut(&id) {
+            if op.waker.is_none() {
+                op.waker = Some(waker.clone());
+            }
+
+            if let Some(result) = op.result.take() {
+                pending_ops.remove(&id);
+                drop(pending_ops);
+
+                match result {
+                    Ok(_) => Ok(true),
+                    Err(_) => {
+                        log::error!("Remote create operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::CreateError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                    }
+                }
+            } else {
+                drop(pending_ops);
+                Ok(false)
+            }
+        } else {
+            panic!("PENDING_OPS entry not found for ({}, {}) in create_wait. This indicates a logic error.", id.0, id.1);
+        }
+    }
+
+    fn read(&self, interface_id: u64, fd: i64, bufsize: usize) {
+        let id = (interface_id, fd);
+
+        let mut cmd_queue_guard = CMD_QUEUE.write();
+        let cmd_info = FatFileSystemCmd::ReadCmd { fd, bufsize };
+        cmd_queue_guard.push(cmd_info);
+
+        let mut pending_ops = PENDING_OPS.write();
+        if pending_ops
+            .insert(
+                id,
+                PendingOperation {
+                    waker: None,
+                    result: None,
+                },
+            )
+            .is_some()
+        {
+            panic!(
+                "PENDING_OPS entry for ({}, {}) already existed on read push success.",
+                id.0, id.1
+            );
+        }
+        drop(pending_ops);
+
+        super::wake_fs(interface_id);
+    }
+
+    fn read_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        buf: &mut [u8],
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError> {
+        let mut pending_ops = PENDING_OPS.write();
+
+        let id = (interface_id, fd);
+        if let Some(op) = pending_ops.get_mut(&id) {
+            if op.waker.is_none() {
+                op.waker = Some(waker.clone());
+            }
+
+            if let Some(result) = op.result.take() {
+                pending_ops.remove(&id);
+                drop(pending_ops);
+
+                match result {
+                    Ok(FatFileSystemResult::ReadResult(data)) => {
+                        let len = buf.len().min(data.len());
+                        unsafe {
+                            core::ptr::copy_nonoverlapping(data.as_ptr(), buf.as_mut_ptr(), len)
+                        };
+                        Ok(Some(len))
+                    }
+                    _ => {
+                        log::error!("Remote create operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::ReadError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                    }
+                }
+            } else {
+                drop(pending_ops);
+                Ok(None)
+            }
+        } else {
+            panic!(
+                "PENDING_OPS entry not found for ({}, {}) in read. This indicates a logic error.",
+                id.0, id.1
+            );
+        }
+    }
+    fn write(&self, interface_id: u64, fd: i64, buf: &[u8]) {
+        let id = (interface_id, fd);
+
+        let mut cmd_queue_guard = CMD_QUEUE.write();
+        let cmd_info = FatFileSystemCmd::WriteCmd {
+            fd,
+            buf: buf.to_vec(),
+        };
+        cmd_queue_guard.push(cmd_info);
+
+        let mut pending_ops = PENDING_OPS.write();
+        if pending_ops
+            .insert(
+                id,
+                PendingOperation {
+                    waker: None,
+                    result: None,
+                },
+            )
+            .is_some()
+        {
+            panic!(
+                "PENDING_OPS entry for ({}, {}) already existed on read push success.",
+                id.0, id.1
+            );
+        }
+        drop(pending_ops);
+
+        super::wake_fs(interface_id);
+    }
+
+    fn write_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError> {
+        let mut pending_ops = PENDING_OPS.write();
+
+        let id = (interface_id, fd);
+        if let Some(op) = pending_ops.get_mut(&id) {
+            if op.waker.is_none() {
+                op.waker = Some(waker.clone());
+            }
+
+            if let Some(result) = op.result.take() {
+                pending_ops.remove(&id);
+                drop(pending_ops);
+
+                match result {
+                    Ok(FatFileSystemResult::WriteBytes(bytes)) => Ok(Some(bytes)),
+                    _ => {
+                        log::error!("Remote create operation failed for ({}, {})", id.0, id.1,);
+                        Err(FileSystemWrapperError::ReadError) // TODO: Consider if it is okay to lose the information of error in fatfs.
+                    }
+                }
+            } else {
+                drop(pending_ops);
+                Ok(None)
+            }
+        } else {
+            panic!(
+                "PENDING_OPS entry not found for ({}, {}) in read. This indicates a logic error.",
+                id.0, id.1
+            );
+        }
+    }
 }
 
 pub fn complete_file_operation(
@@ -138,13 +333,13 @@ pub fn complete_file_operation(
         // If op.waker is None, it means the file operation has completed before open_wait is called. It works fine since open_wait will soon be called.
     } else {
         panic!(
-            "Received completion for unknown/cancelled open operation: ({}, {})",
+            "Received completion for unknown/cancelled operation: ({}, {})",
             interface_id, fd
         );
     }
 }
 
-pub fn cmd_queue_pop() -> Option<FatFileSystemCmdInfo> {
+pub fn cmd_queue_pop() -> Option<FatFileSystemCmd> {
     let mut cmd_queue_guard = CMD_QUEUE.write();
 
     if cmd_queue_guard.len() == 0 {

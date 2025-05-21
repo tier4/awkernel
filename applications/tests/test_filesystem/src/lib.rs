@@ -4,6 +4,7 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 use awkernel_lib::file::FileDescriptor;
+use core::str;
 
 pub async fn run() {
     awkernel_async_lib::spawn(
@@ -15,46 +16,34 @@ pub async fn run() {
 }
 
 async fn filesystem_test() {
-    //init_filesystem();
+    let fd = match awkernel_async_lib::file::FileDescriptor::create("a.txt").await {
+        Ok(fd) => fd,
+        Err(e) => {
+            panic!("Failed to open a file - a.txt: {:?}", e);
+        }
+    };
 
-    //log::info!("okay!!!");
+    log::info!("created a file! - a.txt");
 
-    if let Err(e) = awkernel_async_lib::file::FileDescriptor::open("a.txt").await {
-        log::error!("Failed to open a file - a.txt: {:?}", e);
+    let data_to_write = b"Hello World!";
+    let _ = match fd.write(data_to_write).await {
+        Ok(w_bytes) => {
+            log::info!("write bytes:{}", w_bytes);
+        }
+        Err(e) => panic!("Error write files"),
+    };
+
+    let mut buf = [0_u8; 13];
+    let read_bytes = match fd.read(&mut buf).await {
+        Ok(r_bytes) => {
+            log::info!("read bytes:{}", r_bytes);
+            r_bytes
+        }
+        Err(e) => panic!("Erro read file: {:?}", e),
+    };
+
+    match str::from_utf8(&buf[..read_bytes]) {
+        Ok(s) => log::info!("read result:{}", s),
+        Err(_) => panic!("read result panic"),
     }
-
-    log::info!("opened a file! - a.txt");
-
-    //let w_bytes;
-    //{
-    //let fd = match FileDescriptor::create_file("file.txt") {
-    //Ok(file) => file,
-    //Err(e) => panic!("Error create file: {:?}", e),
-    //};
-
-    //let data_to_write = b"Hello World!";
-    //w_bytes = match fd.write_file(data_to_write) {
-    //Ok(w_bytes) => w_bytes,
-    //Err(e) => panic!("Error write file: {:?}", e),
-    //};
-    //}
-
-    //{
-    //let fd = match FileDescriptor::open_file("file.txt") {
-    //Ok(file) => file,
-    //Err(e) => panic!("Error create file: {:?}", e),
-    //};
-
-    //let mut buf = Vec::new();
-    //buf.resize(w_bytes, 0);
-    //let _ = match fd.read_file(&mut buf) {
-    //Ok(w_bytes) => w_bytes,
-    //Err(e) => panic!("Erro write file: {:?}", e),
-    //};
-
-    //match core::str::from_utf8(&buf) {
-    //Ok(s) => log::info!("file.txt content: {}", s),
-    //Err(_) => log::info!("Error converting to string"),
-    //}
-    //}
 }

@@ -59,7 +59,7 @@ pub struct FileDescriptor {
 }
 
 impl FileDescriptor {
-    pub fn open_file(path: &str) -> Result<Self, FileManagerError> {
+    pub fn new(path: &str) -> Result<Self, FileManagerError> {
         let len = path.len();
         if len == 0 {
             return Err(FileManagerError::InvalidFilePath);
@@ -86,18 +86,6 @@ impl FileDescriptor {
             path: path_string,
             filesystem: if_file.filesystem.clone(),
         })
-    }
-
-    pub fn create_file(_path: &str) -> Result<Self, FileManagerError> {
-        Err(FileManagerError::NotYetImplemented)
-    }
-
-    pub fn read_file(self, _buf: &mut [u8]) -> Result<usize, FileManagerError> {
-        Err(FileManagerError::NotYetImplemented)
-    }
-
-    pub fn write_file(self, _buf: &[u8]) -> Result<usize, FileManagerError> {
-        Err(FileManagerError::NotYetImplemented)
     }
 }
 

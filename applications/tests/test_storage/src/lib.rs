@@ -42,13 +42,7 @@ async fn fatfs_test() {
             Ok(w_bytes) => w_bytes,
             Err(e) => panic!("Erro write file: {:?}", e),
         };
-    }
 
-    {
-        let mut file = match root_dir.open_file("file.txt") {
-            Ok(file) => file,
-            Err(e) => panic!("Error open file: {:?}", e),
-        };
         let mut buf = Vec::new();
         buf.resize(w_bytes, 0);
         let _ = match file.read(&mut buf) {
@@ -61,6 +55,24 @@ async fn fatfs_test() {
             Err(_) => log::info!("Error converting to string"),
         }
     }
+
+    //{
+    //let mut file = match root_dir.open_file("file.txt") {
+    //Ok(file) => file,
+    //Err(e) => panic!("Error open file: {:?}", e),
+    //};
+    //let mut buf = Vec::new();
+    //buf.resize(w_bytes, 0);
+    //let _ = match file.read(&mut buf) {
+    //Ok(r_bytes) => r_bytes,
+    //Err(e) => panic!("Erro read file: {:?}", e),
+    //};
+
+    //match core::str::from_utf8(&buf) {
+    //Ok(s) => log::info!("file.txt content!!!!!!: {}", s),
+    //Err(_) => log::info!("Error converting to string"),
+    //}
+    //}
 }
 
 const DISK_SIZE: usize = 1024 * 1024; // 1MB

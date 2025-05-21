@@ -2,9 +2,8 @@
 
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use awkernel_lib::{
-    delay::wait_millisec,
     file::{
         fatfs::{FatFileSystemCmd, FatFileSystemResult, Fatfs},
         FileManagerError,
@@ -28,25 +27,18 @@ pub async fn run() {
     let filesystem = Fatfs {};
     awkernel_lib::file::add_interface(Arc::new(filesystem));
     let interface_id = 0;
-    //let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
-    //panic!("Invalid layout")
-    //};
-
-    //let result = unsafe { TALLOC.alloc(layout) };
-    //if result.is_null() {
-    //panic!("NULL pointer");
-    //}
-
-    //let data =
-    //unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
-    ////let mut disk = InMemoryDisk { data, position: 0 };
-    let mut vecc = Vec::new();
-    vecc.resize(MEMORY_FILESYSTEM_SIZE, 0);
-
-    let mut disk = InMemoryDisk {
-        data: vecc,
-        position: 0,
+    let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
+        panic!("Invalid layout")
     };
+
+    let result = unsafe { TALLOC.alloc(layout) };
+    if result.is_null() {
+        panic!("NULL pointer");
+    }
+
+    let data =
+        unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
+    let mut disk = InMemoryDisk { data, position: 0 };
 
     let options = FormatVolumeOptions::new();
     if format_volume(&mut disk, options).is_ok() {
@@ -73,35 +65,81 @@ pub async fn run() {
         log::info!("fatfs service woke");
 
         loop {
-            let cmdinfo = awkernel_lib::file::fatfs::cmd_queue_pop();
-            let Some(cmdinfo) = cmdinfo else {
+            let cmd = awkernel_lib::file::fatfs::cmd_queue_pop();
+            let Some(cmd) = cmd else {
                 break;
             };
 
-            match cmdinfo.cmd {
-                FatFileSystemCmd::OpenCmd => {
+            match cmd {
+                FatFileSystemCmd::CreateCmd { fd, path } => {
                     let ret;
-                    match root_dir.create_file(cmdinfo.path.as_str()) {
-                        Ok(file) => {
+                    match root_dir.create_file(path.as_str()) {
+                        Ok(mut file) => {
                             ret = Ok(FatFileSystemResult::Success);
-                            fd_to_file.insert(cmdinfo.fd, file);
+                            fd_to_file.insert(fd, file);
                         }
-                        Err(e) => {
-                            ret = Err(awkernel_lib::file::fatfs::FatFsError::OpenError);
+                        Err(_) => {
+                            ret = Err(awkernel_lib::file::fatfs::FatFsError::CreateError);
                         }
                     };
 
-                    log::info!("create_file called ret:{:?}", ret);
-                    awkernel_lib::file::fatfs::complete_file_operation(
-                        interface_id,
-                        cmdinfo.fd,
-                        ret,
-                    );
+                    awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
                 }
-                FatFileSystemCmd::CreateCmd => {}
-                FatFileSystemCmd::ReadCmd => {}
-                FatFileSystemCmd::WriteCmd => {}
-                FatFileSystemCmd::SeekCmd => {}
+                FatFileSystemCmd::OpenCmd { fd, path } => {
+                    let ret = match root_dir.open_file(path.as_str()) {
+                        Ok(file) => {
+                            fd_to_file.insert(fd, file);
+                            Ok(FatFileSystemResult::Success)
+                        }
+                        Err(e) => Err(awkernel_lib::file::fatfs::FatFsError::OpenError),
+                    };
+
+                    awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                }
+                FatFileSystemCmd::ReadCmd { fd, bufsize } => {
+                    let ret;
+                    let file = fd_to_file.get_mut(&fd);
+                    if let Some(file) = file {
+                        let mut buf = Vec::new();
+                        buf.resize(bufsize, 0);
+                        match file.seek(SeekFrom::Start(0)) {
+                            Ok(w_bytes) => w_bytes,
+                            Err(e) => panic!("Erro write file: {:?}", e),
+                        };
+                        match file.read(&mut buf) {
+                            Ok(r_bytes) => {
+                                log::info!("read:{:?}", buf);
+                                ret = Ok(FatFileSystemResult::ReadResult(buf));
+                                r_bytes
+                            }
+                            Err(e) => panic!("Erro read file: {:?}", e),
+                        };
+
+                        log::info!("read called ret:{:?}", ret);
+                        awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                    } else {
+                        panic!("file not found in in fd_to_file");
+                    }
+                }
+                FatFileSystemCmd::WriteCmd { fd, buf } => {
+                    let ret;
+                    let file = fd_to_file.get_mut(&fd);
+                    if let Some(file) = file {
+                        match file.write(&buf) {
+                            Ok(w_bytes) => {
+                                log::info!("write:{:?}", buf);
+                                ret = Ok(FatFileSystemResult::WriteBytes(w_bytes));
+                            }
+                            Err(e) => panic!("Erro read file: {:?}", e),
+                        };
+
+                        log::info!("write called ret:{:?}", ret);
+                        awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                    } else {
+                        panic!("file not found in in fd_to_file");
+                    }
+                }
+                FatFileSystemCmd::SeekCmd { fd } => {}
             }
         }
     }

@@ -52,8 +52,6 @@ impl IfFile {
         let mut node = MCSNode::new();
         let mut guard = self.fswaker.lock(&mut node);
 
-        log::info!("register_waker_for_fs");
-
         match guard.as_ref() {
             FileSystemWakeState::None => {
                 *guard = FileSystemWakeState::Wake(waker);
@@ -88,7 +86,33 @@ pub trait FileSystemWrapper {
         waker: &core::task::Waker,
     ) -> Result<bool, FileSystemWrapperError>;
 
-    //fn read(&self, fd: u32, buf: &mut u8, waker: core::task::Waker);
+    fn create(&self, interface_id: u64, fd: i64, path: &String);
+
+    fn create_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<bool, FileSystemWrapperError>;
+
+    fn read(&self, interface_id: u64, fd: i64, size: usize);
+
+    fn read_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        buf: &mut [u8],
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError>;
+
+    fn write(&self, interface_id: u64, fd: i64, buf: &[u8]);
+
+    fn write_wait(
+        &self,
+        interface_id: u64,
+        fd: i64,
+        waker: &core::task::Waker,
+    ) -> Result<Option<usize>, FileSystemWrapperError>;
     //fn device_short_name(&self) -> Cow<'static, str>;
     //fn filesystem_short_name(&self) -> Cow<'static, str>;
 }
