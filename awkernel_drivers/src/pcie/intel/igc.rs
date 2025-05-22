@@ -1,9 +1,12 @@
 //! This is a skelton of a PCIe device driver.
 
 use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
-use awkernel_lib::net::{
-    ether::ETHER_TYPE_VLAN,
-    net_device::{self, NetDevice},
+use awkernel_lib::{
+    net::{
+        ether::ETHER_TYPE_VLAN,
+        net_device::{self, LinkStatus, NetDevice},
+    },
+    sync::rwlock::RwLock,
 };
 use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
 use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
@@ -81,10 +84,18 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-pub struct Igc {
+pub struct IgcInner {
+    ops: Box<dyn IgcOperations + Sync + Send>,
     info: PCIeInfo,
     hw: IgcHw,
-    ops: Box<dyn IgcOperations + Sync + Send>, // Add more fields if needed.
+    link_active: bool,
+    link_speed: Option<IgcSpeed>,
+    link_duplex: Option<IgcDuplex>,
+    link_status: LinkStatus,
+}
+
+pub struct Igc {
+    inner: RwLock<IgcInner>,
 }
 
 impl Igc {
@@ -137,7 +148,9 @@ impl Igc {
 
         // TODO: continue initialization
 
-        Ok(Igc { info, hw, ops })
+        let inner = RwLock::new(IgcInner::new(ops, info, hw));
+
+        Ok(Igc { inner })
     }
 }
 
@@ -190,17 +203,18 @@ impl NetDevice for Igc {
     }
 
     fn link_speed(&self) -> u64 {
-        // TODO
-        0
+        let inner = self.inner.read();
+        inner.link_speed.map_or(0, |s| s as u64)
     }
 
     fn link_status(&self) -> net_device::LinkStatus {
-        // TODO
-        net_device::LinkStatus::Down
+        let inner = self.inner.read();
+        inner.link_status
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        self.hw.mac.addr
+        let inner = self.inner.read();
+        inner.hw.mac.addr
     }
 
     fn num_queues(&self) -> usize {
@@ -453,4 +467,49 @@ where
 {
     let one = T::from(1);
     (size + unit - one) & !(unit - one)
+}
+
+impl IgcInner {
+    fn new(ops: Box<dyn IgcOperations + Sync + Send>, info: PCIeInfo, hw: IgcHw) -> Self {
+        Self {
+            ops,
+            info,
+            hw,
+            link_active: false,
+            link_speed: None,
+            link_duplex: None,
+            link_status: LinkStatus::Down,
+        }
+    }
+
+    fn igc_update_link_status(
+        &mut self,
+        ops: &dyn IgcOperations,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        self.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
+            if !self.link_active {
+                let (speed, duplex) = ops.get_link_up_info(info, hw)?;
+                self.link_speed = Some(speed);
+                self.link_duplex = Some(duplex);
+                self.link_active = true;
+            }
+
+            if self.link_duplex == Some(IgcDuplex::Full) {
+                LinkStatus::UpFullDuplex
+            } else {
+                LinkStatus::UpHalfDuplex
+            }
+        } else {
+            if self.link_active {
+                self.link_speed = None;
+                self.link_duplex = None;
+                self.link_active = false;
+            }
+            LinkStatus::Down
+        };
+
+        Ok(())
+    }
 }
