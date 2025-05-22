@@ -155,7 +155,6 @@ pub fn register_waker_for_fs(
     let file_manager = FILE_MANAGER.read();
 
     let Some(if_file) = file_manager.interfaces.get(&interface_id) else {
-        log::info!("register_wake_for_fs file_manager.interfaces.get failed");
         return Err(FileManagerError::InvalidInterfaceID);
     };
 

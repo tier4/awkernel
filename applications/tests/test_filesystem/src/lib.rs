@@ -3,7 +3,7 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use awkernel_lib::file::FileDescriptor;
+use awkernel_lib::file::{if_file::SeekFrom, FileDescriptor};
 use core::str;
 
 pub async fn run() {
@@ -23,8 +23,6 @@ async fn filesystem_test() {
         }
     };
 
-    log::info!("created a file! - a.txt");
-
     let data_to_write = b"Hello World!";
     let _ = match fd.write(data_to_write).await {
         Ok(w_bytes) => {
@@ -32,6 +30,8 @@ async fn filesystem_test() {
         }
         Err(e) => panic!("Error write files"),
     };
+
+    let _ = fd.seek(SeekFrom::Start(0)).await;
 
     let mut buf = [0_u8; 13];
     let read_bytes = match fd.read(&mut buf).await {

@@ -129,7 +129,4 @@ pub trait FileSystemWrapper {
         fd: i64,
         waker: &core::task::Waker,
     ) -> Result<Option<usize>, FileSystemWrapperError>;
-
-    //fn device_short_name(&self) -> Cow<'static, str>;
-    //fn filesystem_short_name(&self) -> Cow<'static, str>;
 }

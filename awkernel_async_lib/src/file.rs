@@ -1,4 +1,4 @@
-use awkernel_lib::file::if_file::FileSystemWrapperError;
+use awkernel_lib::file::if_file::{FileSystemWrapperError, SeekFrom};
 use futures::Future;
 use pin_project::pin_project;
 
@@ -66,6 +66,17 @@ impl FileDescriptor {
             .write(self.file_handle.interface_id, self.file_handle.fd, buf);
 
         FileWriter {
+            file_handle: self.file_handle.clone(),
+        }
+        .await
+    }
+
+    pub async fn seek(&self, from: SeekFrom) -> Result<usize, FileDescriptorError> {
+        self.file_handle
+            .filesystem
+            .seek(self.file_handle.interface_id, self.file_handle.fd, from);
+
+        FileSeeker {
             file_handle: self.file_handle.clone(),
         }
         .await
@@ -178,6 +189,36 @@ impl Future for FileWriter {
         let this = self.project();
 
         match this.file_handle.filesystem.write_wait(
+            this.file_handle.interface_id,
+            this.file_handle.fd,
+            cx.waker(),
+        ) {
+            Ok(Some(size)) => core::task::Poll::Ready(Ok(size)),
+            Ok(None) => core::task::Poll::Pending,
+            Err(FileSystemWrapperError::ReadError) => {
+                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
+            }
+            Err(_) => {
+                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
+            }
+        }
+    }
+}
+
+#[pin_project]
+pub struct FileSeeker {
+    file_handle: awkernel_lib::file::FileDescriptor,
+}
+
+impl Future for FileSeeker {
+    type Output = Result<usize, FileDescriptorError>;
+    fn poll(
+        self: core::pin::Pin<&mut Self>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Self::Output> {
+        let this = self.project();
+
+        match this.file_handle.filesystem.seek_wait(
             this.file_handle.interface_id,
             this.file_handle.fd,
             cx.waker(),
