@@ -15,10 +15,6 @@ enum LinkNumError {
     Input(u32, u32),
     Output(u32, u32),
     InOut(u32, u32),
-    NoInput(u32, u32),
-    NoOutput(u32, u32),
-    NoInOut(u32, u32),
-    MisMatch(u32, u32),
 }
 
 pub struct NodeRegistrationInfo {
@@ -107,8 +103,16 @@ async fn register_source_node(
     let dag_id = dag.get_id();
     let node_id = node_data.get_id();
 
-    match node_data.get_out_links().len() {
-        0 => Err(LinkNumError::NoOutput(dag_id, node_id)),
+    let out_links_num = node_data.get_out_links().len();
+
+    assert!(
+        out_links_num == 0,
+        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
+        dag_id,
+        node_id
+    );
+
+    match out_links_num {
         1 => register_source!(dag, node_data, sched_type, u64),
         2 => register_source!(dag, node_data, sched_type, u64, u64),
         3 => register_source!(dag, node_data, sched_type, u64, u64, u64),
@@ -156,8 +160,16 @@ async fn register_sink_node(
     let dag_id = dag.get_id();
     let node_id = node_data.get_id();
 
-    match node_data.get_in_links().len() {
-        0 => Err(LinkNumError::NoInput(dag_id, node_id)),
+    let in_links_num = node_data.get_in_links().len();
+
+    assert!(
+        in_links_num == 0,
+        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
+        dag_id,
+        node_id
+    );
+
+    match in_links_num {
         1 => register_sink!(dag, node_data, sched_type, u64),
         2 => register_sink!(dag, node_data, sched_type, u64, u64),
         3 => register_sink!(dag, node_data, sched_type, u64, u64, u64),
@@ -217,13 +229,29 @@ async fn register_intermediate_node(
     let dag_id = dag.get_id();
     let node_id = node_data.get_id();
 
-    match (
-        node_data.get_in_links().len(),
-        node_data.get_out_links().len(),
-    ) {
-        (0, 0) => Err(LinkNumError::NoInOut(dag_id, node_id)),
-        (0, _) => Err(LinkNumError::NoInput(dag_id, node_id)),
-        (_, 0) => Err(LinkNumError::NoOutput(dag_id, node_id)),
+    let in_links_num = node_data.get_in_links().len();
+    let out_links_num = node_data.get_out_links().len();
+
+    assert!(
+        in_links_num > 0 && out_links_num > 0,
+        "LinkNumError::NoInOut: dag_id={:?}, node_id={:?}",
+        dag_id,
+        node_id
+    );
+    assert!(
+        in_links_num == 0,
+        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
+        dag_id,
+        node_id
+    );
+    assert!(
+        out_links_num == 0,
+        "LinkNumError::NoOutput: dag_id={:?}, node_id={:?}",
+        dag_id,
+        node_id
+    );
+
+    match (in_links_num, out_links_num) {
         (1, 1) => register_intermediate!(dag, node_data, sched_type, u64; u64),
         (1, 2) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64),
         (1, 3) => register_intermediate!(dag, node_data, sched_type, u64; u64, u64, u64),
