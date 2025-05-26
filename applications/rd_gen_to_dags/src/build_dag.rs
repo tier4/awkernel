@@ -107,9 +107,7 @@ async fn register_source_node(
 
     assert!(
         out_links_num == 0,
-        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
-        dag_id,
-        node_id
+        "LinkNumError::NoInput: dag_id={dag_id}, node_id={node_id}"
     );
 
     match out_links_num {
@@ -164,9 +162,7 @@ async fn register_sink_node(
 
     assert!(
         in_links_num == 0,
-        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
-        dag_id,
-        node_id
+        "LinkNumError::NoInput: dag_id={dag_id}, node_id={node_id}"
     );
 
     match in_links_num {
@@ -234,21 +230,15 @@ async fn register_intermediate_node(
 
     assert!(
         in_links_num > 0 && out_links_num > 0,
-        "LinkNumError::NoInOut: dag_id={:?}, node_id={:?}",
-        dag_id,
-        node_id
+        "LinkNumError::NoInOut: dag_id={dag_id}, node_id={node_id}"
     );
     assert!(
         in_links_num == 0,
-        "LinkNumError::NoInput: dag_id={:?}, node_id={:?}",
-        dag_id,
-        node_id
+        "LinkNumError::NoInput: dag_id={dag_id}, node_id={node_id}",
     );
     assert!(
         out_links_num == 0,
-        "LinkNumError::NoOutput: dag_id={:?}, node_id={:?}",
-        dag_id,
-        node_id
+        "LinkNumError::NoOutput: dag_id={dag_id}, node_id={node_id}",
     );
 
     match (in_links_num, out_links_num) {
