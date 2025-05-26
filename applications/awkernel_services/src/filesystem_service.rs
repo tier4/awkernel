@@ -5,7 +5,9 @@ extern crate alloc;
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use awkernel_lib::{
     file::{
-        fatfs::{FatFileSystemCmd, FatFileSystemResult, Fatfs},
+        fatfs::{
+            complete_file_operation, FatFileSystemReq, FatFileSystemResult, FatFsError, Fatfs,
+        },
         if_file::SeekFrom as KernelSeekFrom,
         FileManagerError,
     },
@@ -16,6 +18,7 @@ use awkernel_lib::{
 use core::{
     alloc::{GlobalAlloc, Layout},
     fmt,
+    fmt::Debug,
     future::Future,
     task::Poll,
 };
@@ -25,6 +28,22 @@ use fatfs::{
 };
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
+fn handle_file_operation<T, E: Debug>(
+    interface_id: u64,
+    fd: i64,
+    result: Result<T, E>,
+    success_mapper: impl FnOnce(T) -> FatFileSystemResult,
+    error_kind: FatFsError,
+) {
+    let ret = match result {
+        Ok(val) => Ok(success_mapper(val)),
+        Err(e) => {
+            log::info!("File operation error: {:?}", e);
+            Err(error_kind)
+        }
+    };
+    complete_file_operation(interface_id, fd, ret);
+}
 
 pub async fn run() {
     let filesystem = Fatfs {};
@@ -70,69 +89,74 @@ pub async fn run() {
             };
 
             match cmd {
-                FatFileSystemCmd::CreateCmd { fd, path } => {
-                    let ret = match root_dir.create_file(path.as_str()) {
-                        Ok(file) => {
-                            fd_to_file.insert(fd, file);
-                            Ok(FatFileSystemResult::Success)
-                        }
-                        Err(_) => Err(awkernel_lib::file::fatfs::FatFsError::CreateError),
-                    };
-
-                    awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                FatFileSystemReq::Create { fd, path } => {
+                    let result = root_dir.create_file(path.as_str()).map(|file| {
+                        fd_to_file.insert(fd, file);
+                    });
+                    handle_file_operation(
+                        interface_id,
+                        fd,
+                        result,
+                        |_| FatFileSystemResult::Success,
+                        FatFsError::CreateError,
+                    );
                 }
-                FatFileSystemCmd::OpenCmd { fd, path } => {
-                    let ret = match root_dir.open_file(path.as_str()) {
-                        Ok(file) => {
-                            fd_to_file.insert(fd, file);
-                            Ok(FatFileSystemResult::Success)
-                        }
-                        Err(e) => Err(awkernel_lib::file::fatfs::FatFsError::OpenError),
-                    };
-
-                    awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                FatFileSystemReq::Open { fd, path } => {
+                    let result = root_dir.open_file(path.as_str()).map(|file| {
+                        fd_to_file.insert(fd, file);
+                    });
+                    handle_file_operation(
+                        interface_id,
+                        fd,
+                        result,
+                        |_| FatFileSystemResult::Success,
+                        FatFsError::OpenError,
+                    );
                 }
-                FatFileSystemCmd::ReadCmd { fd, bufsize } => {
-                    let file = fd_to_file.get_mut(&fd);
-                    if let Some(file) = file {
+                FatFileSystemReq::Read { fd, bufsize } => {
+                    if let Some(file) = fd_to_file.get_mut(&fd) {
                         let mut buf = Vec::new();
                         buf.resize(bufsize, 0);
-                        let ret = match file.read(&mut buf) {
-                            Ok(r_bytes) => Ok(FatFileSystemResult::ReadResult(buf)),
-                            Err(e) => panic!("Erro read file: {:?}", e),
-                        };
-
-                        awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                        let result = file.read(&mut buf).map(|_| buf);
+                        handle_file_operation(
+                            interface_id,
+                            fd,
+                            result,
+                            FatFileSystemResult::ReadResult,
+                            FatFsError::ReadError,
+                        );
                     } else {
-                        panic!("file not found in in fd_to_file");
+                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
                     }
                 }
-                FatFileSystemCmd::WriteCmd { fd, buf } => {
-                    let file = fd_to_file.get_mut(&fd);
-                    if let Some(file) = file {
-                        let ret = match file.write(&buf) {
-                            Ok(w_bytes) => Ok(FatFileSystemResult::WriteBytes(w_bytes)),
-                            Err(e) => panic!("Erro write file: {:?}", e),
-                        };
-
-                        awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                FatFileSystemReq::Write { fd, buf } => {
+                    if let Some(file) = fd_to_file.get_mut(&fd) {
+                        let result = file.write(&buf);
+                        handle_file_operation(
+                            interface_id,
+                            fd,
+                            result,
+                            FatFileSystemResult::WriteBytes,
+                            FatFsError::WriteError,
+                        );
                     } else {
-                        panic!("file not found in in fd_to_file");
+                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
                     }
                 }
-                FatFileSystemCmd::SeekCmd { fd, from } => {
-                    let file = fd_to_file.get_mut(&fd);
-                    if let Some(file) = file {
+                FatFileSystemReq::Seek { fd, from } => {
+                    if let Some(file) = fd_to_file.get_mut(&fd) {
                         let fatfs_seek_from: ExternalFatFsSeekFrom =
                             FatFsSeekFromWrapper::from(from).into();
-                        let ret = match file.seek(fatfs_seek_from) {
-                            Ok(s_bytes) => Ok(FatFileSystemResult::SeekBytes(s_bytes as usize)),
-                            Err(e) => panic!("Erro seek file: {:?}", e),
-                        };
-
-                        awkernel_lib::file::fatfs::complete_file_operation(interface_id, fd, ret);
+                        let result = file.seek(fatfs_seek_from).map(|s_bytes| s_bytes as usize);
+                        handle_file_operation(
+                            interface_id,
+                            fd,
+                            result,
+                            FatFileSystemResult::SeekBytes,
+                            FatFsError::SeekError,
+                        );
                     } else {
-                        panic!("file not found in in fd_to_file");
+                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
                     }
                 }
             }
@@ -171,14 +195,6 @@ impl Future for FileSystemPolling {
 struct InMemoryDisk {
     data: Vec<u8>,
     position: u64,
-}
-
-impl InMemoryDisk {
-    fn new(size: usize) -> Self {
-        let mut data = Vec::new();
-        data.resize(size, 0);
-        InMemoryDisk { data, position: 0 }
-    }
 }
 
 impl IoBase for InMemoryDisk {

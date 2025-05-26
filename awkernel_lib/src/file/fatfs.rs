@@ -10,12 +10,12 @@ use super::if_file::{FileSystemWrapper, FileSystemWrapperError, SeekFrom};
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 
 #[derive(Debug)]
-pub enum FatFileSystemCmd {
-    OpenCmd { fd: i64, path: String },
-    CreateCmd { fd: i64, path: String },
-    ReadCmd { fd: i64, bufsize: usize },
-    WriteCmd { fd: i64, buf: Vec<u8> },
-    SeekCmd { fd: i64, from: SeekFrom },
+pub enum FatFileSystemReq {
+    Open { fd: i64, path: String },
+    Create { fd: i64, path: String },
+    Read { fd: i64, bufsize: usize },
+    Write { fd: i64, buf: Vec<u8> },
+    Seek { fd: i64, from: SeekFrom },
 }
 
 #[derive(Eq, PartialEq, Debug)]
@@ -30,6 +30,10 @@ pub enum FatFileSystemResult {
 pub enum FatFsError {
     OpenError,
     CreateError,
+    ReadError,
+    WriteError,
+    SeekError,
+    InvalidFd,
 }
 
 pub struct PendingOperation {
@@ -39,7 +43,7 @@ pub struct PendingOperation {
 
 pub static PENDING_OPS: RwLock<BTreeMap<(u64, i64), PendingOperation>> =
     RwLock::new(BTreeMap::new());
-static CMD_QUEUE: RwLock<Vec<FatFileSystemCmd>> = RwLock::new(Vec::new()); // TODO: change this to RingQ
+static CMD_QUEUE: RwLock<Vec<FatFileSystemReq>> = RwLock::new(Vec::new()); // TODO: change this to RingQ
 
 pub struct Fatfs {}
 
@@ -48,7 +52,7 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-        let cmd_info = FatFileSystemCmd::OpenCmd {
+        let cmd_info = FatFileSystemReq::Open {
             fd,
             path: path.to_string(),
         };
@@ -115,7 +119,7 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-        let cmd_info = FatFileSystemCmd::CreateCmd {
+        let cmd_info = FatFileSystemReq::Create {
             fd,
             path: path.to_string(),
         };
@@ -181,7 +185,7 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-        let cmd_info = FatFileSystemCmd::ReadCmd { fd, bufsize };
+        let cmd_info = FatFileSystemReq::Read { fd, bufsize };
         cmd_queue_guard.push(cmd_info);
 
         let mut pending_ops = PENDING_OPS.write();
@@ -253,7 +257,7 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-        let cmd_info = FatFileSystemCmd::WriteCmd {
+        let cmd_info = FatFileSystemReq::Write {
             fd,
             buf: buf.to_vec(),
         };
@@ -321,7 +325,7 @@ impl FileSystemWrapper for Fatfs {
         let id = (interface_id, fd);
 
         let mut cmd_queue_guard = CMD_QUEUE.write();
-        let cmd_info = FatFileSystemCmd::SeekCmd { fd, from };
+        let cmd_info = FatFileSystemReq::Seek { fd, from };
         cmd_queue_guard.push(cmd_info);
 
         let mut pending_ops = PENDING_OPS.write();
@@ -406,7 +410,7 @@ pub fn complete_file_operation(
     }
 }
 
-pub fn cmd_queue_pop() -> Option<FatFileSystemCmd> {
+pub fn cmd_queue_pop() -> Option<FatFileSystemReq> {
     let mut cmd_queue_guard = CMD_QUEUE.write();
 
     if cmd_queue_guard.len() == 0 {
