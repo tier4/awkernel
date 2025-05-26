@@ -71,9 +71,13 @@ macro_rules! register_source {
             let registration_info = setup_node_registration(dag_id, $node_data);
 
             let pub_topics = registration_info.pub_topics;
-            if [$(stringify!($T_out)),*].len() != pub_topics.len() {
-                return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
-            }
+
+            assert!(
+                [$(stringify!($T_out)),*].len() == pub_topics.len(),
+                "LinkNumError::MisMatch: dag_id={:?}, node_id={:?}",
+                dag_id,
+                $node_data.get_id()
+            );
 
             let reactor_name = registration_info.reactor_name;
             let execution_time = registration_info.execution_time;
@@ -119,9 +123,13 @@ macro_rules! register_sink {
             let registration_info = setup_node_registration(dag_id, $node_data);
 
             let sub_topics = registration_info.sub_topics;
-            if [$(stringify!($T_in)),*].len() != sub_topics.len() {
-                return Err(LinkNumError::MisMatch(dag_id, $node_data.get_id()));
-            }
+
+            assert!(
+                [$(stringify!($T_in)),*].len() == sub_topics.len(),
+                "LinkNumError::MisMatch: dag_id={:?}, node_id={:?}",
+                dag_id,
+                $node_data.get_id()
+            );
 
             let reactor_name = registration_info.reactor_name;
             let execution_time = registration_info.execution_time;
@@ -167,12 +175,20 @@ macro_rules! register_intermediate {
 
             let sub_topics = registration_info.sub_topics;
             let pub_topics = registration_info.pub_topics;
-            if [$(stringify!($T_in)),*].len() != sub_topics.len() {
-                return Err(LinkNumError::MisMatch(dag_id, node_id));
-            }
-            if [$(stringify!($T_out)),*].len() != pub_topics.len() {
-                return Err(LinkNumError::MisMatch(dag_id, node_id));
-            }
+
+            assert!(
+                [$(stringify!($T_in)),*].len() == sub_topics.len(),
+                "LinkNumError::MisMatch (input topics): dag_id={:?}, node_id={:?}",
+                dag_id,
+                node_id
+            );
+
+            assert!(
+                [$(stringify!($T_out)),*].len() == pub_topics.len(),
+                "LinkNumError::MisMatch (output topics): dag_id={:?}, node_id={:?}",
+                dag_id,
+                node_id
+            );
 
             let execution_time = registration_info.execution_time;
             let reactor_name = registration_info.reactor_name;
