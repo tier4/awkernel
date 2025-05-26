@@ -60,9 +60,8 @@ struct NodeInfo {
 
 #[cfg(feature = "perf")]
 struct ResponseInfo {
-    release_time: Vec<u64>,
+    release_time: BTreeMap<NodeIndex, Vec<u64>>,
     response_time: Vec<u64>,
-    release_count: usize,
     finish_count: usize,
 }
 
@@ -70,22 +69,36 @@ struct ResponseInfo {
 impl ResponseInfo {
     fn new() -> Self {
         Self {
-            release_time: vec![0],  // Using index 0 as a dummy for 1-based count.
+            release_time: BTreeMap::new(),
             response_time: vec![0], // Using index 0 as a dummy for 1-based count.
-            release_count: 0,
             finish_count: 0,
         }
     }
 
-    fn get_release_time_at(&self, index: usize) -> Option<u64> {
-        self.release_time.get(index).cloned()
+    fn get_release_time_at(&self, cycle: usize) -> Option<u64> {
+        let cycle_idx = cycle - 1; // Adjust for 1-based index
+        let mut earliest_release_time = u64::MAX;
+
+        for (_, release_times) in self.release_time.iter() {
+            if let Some(&release_time) = release_times.get(cycle_idx) {
+                if release_time < earliest_release_time {
+                    earliest_release_time = release_time;
+                }
+            }
+        }
+        if earliest_release_time == u64::MAX {
+            None
+        } else {
+            Some(earliest_release_time)
+        }
     }
 
-    fn add_release_time(&mut self) {
-        let release_count = self.release_count;
-        if self.get_release_time_at(release_count as usize).is_none() {
-            self.release_time.push(cpu_counter());
-        }
+    fn add_release_time(&mut self, node_idx: NodeIndex) {
+        let release_time = cpu_counter();
+        self.release_time
+            .entry(node_idx)
+            .or_insert_with(Vec::new)
+            .push(release_time);
     }
 
     fn add_response_time(&mut self, finish_time: u64) {
@@ -110,10 +123,11 @@ impl ResponseInfo {
         };
 
         self.response_time.push(value_to_push);
-    }
-
-    fn increment_release_count(&mut self) {
-        self.release_count += 1;
+        log::debug!(
+            "Response time for finish count {}: {}",
+            finish_count,
+            value_to_push
+        );
     }
 
     fn increment_finish_count(&mut self) {
@@ -126,7 +140,6 @@ pub struct Dag {
     graph: Mutex<graph::Graph<NodeInfo, u32>>, //TODO: Change to edge attribute
 
     #[cfg(feature = "perf")]
-    #[allow(dead_code)]
     response_info: Mutex<ResponseInfo>,
 }
 
@@ -248,8 +261,7 @@ impl Dag {
                     let dag = get_dag(dag_id).unwrap();
                     let mut node = MCSNode::new();
                     let mut response_info = dag.response_info.lock(&mut node);
-                    response_info.increment_release_count();
-                    response_info.add_release_time();
+                    response_info.add_release_time(node_idx);
                 }
 
                 let result = f();
