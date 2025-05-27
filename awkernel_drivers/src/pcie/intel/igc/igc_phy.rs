@@ -320,3 +320,48 @@ pub(super) fn igc_get_phy_id(
 
     Ok(())
 }
+
+pub(super) fn igc_phy_has_link_generic(
+    ops: &dyn IgcPhyOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    iterations: u32,
+    usec_interval: u32,
+) -> Result<bool, IgcDriverErr> {
+    let mut i = 0;
+
+    for _ in 0..iterations {
+        // Some PHYs require the PHY_STATUS register to be read
+        // twice due to the link bit being sticky.  No harm doing
+        // it across the board.
+        if ops.read_reg(info, hw, PHY_STATUS).is_err() {
+            // If the first read fails, another entity may have
+            // ownership of the resources, wait and try again to
+            // see if they have relinquished the resources yet.
+            wait_microsec(usec_interval as u64);
+        };
+
+        let phy_status = ops.read_reg(info, hw, PHY_STATUS)?;
+
+        if phy_status & MII_SR_LINK_STATUS != 0 {
+            break;
+        }
+
+        wait_microsec(usec_interval as u64);
+
+        i += 1;
+    }
+
+    Ok(i < iterations)
+}
+
+/// igc_check_downshift_generic - Checks whether a downshift in speed occurred
+/// @hw: pointer to the HW structure
+///
+/// Success returns 0, Failure returns 1
+///
+/// A downshift is detected by querying the PHY link health.
+pub(super) fn igc_check_downshift_generic(hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
+    hw.phy.speed_downgraded = false;
+    Ok(())
+}

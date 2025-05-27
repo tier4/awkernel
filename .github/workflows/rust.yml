@@ -66,6 +66,8 @@ jobs:
         run: cargo clippy_rv64 -- --deny warnings
       - name: Clippy std
         run: cargo clippy_std -- --deny warnings
+      - name: Clippy rd_gen_to_dags
+        run: cargo clippy_rd_gen_to_dags -- --deny warnings
 
       - name: udeps
         run: make udeps

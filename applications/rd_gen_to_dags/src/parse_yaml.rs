@@ -50,27 +50,34 @@ pub(super) struct NodeData {
 }
 
 impl NodeData {
-    pub(crate) fn get_execution_time(&self) -> u64 {
-        self.execution_time
-    }
-    pub(crate) fn get_id(&self) -> u32 {
+    pub(super) fn get_id(&self) -> u32 {
         self.id
     }
-    pub(crate) fn get_period(&self) -> Option<u64> {
+
+    pub(super) fn get_execution_time(&self) -> u64 {
+        self.execution_time
+    }
+
+    pub(super) fn get_period(&self) -> Option<u64> {
         self.period
     }
-    pub(crate) fn get_end_to_end_deadline(&self) -> Option<u64> {
-        self.end_to_end_deadline
-    }
-    pub(crate) fn get_out_links(&self) -> &Vec<u32> {
+
+    pub(super) fn get_out_links(&self) -> &[u32] {
         &self.out_links
     }
-    pub(crate) fn get_in_links(&self) -> &Vec<u32> {
+
+    pub(super) fn get_in_links(&self) -> &[u32] {
         &self.in_links
     }
+
+    pub(super) fn get_end_to_end_deadline(&self) -> Option<u64> {
+        self.end_to_end_deadline
+    }
+
     pub(crate) fn is_source(&self) -> bool {
         self.in_links.is_empty() && !self.out_links.is_empty() && self.period.is_some()
     }
+
     pub(crate) fn is_sink(&self) -> bool {
         self.out_links.is_empty() && !self.in_links.is_empty() && self.end_to_end_deadline.is_some()
     }
@@ -82,7 +89,7 @@ pub(super) struct DagData {
 }
 
 impl DagData {
-    pub(crate) fn get_nodes(&self) -> &Vec<NodeData> {
+    pub(super) fn get_nodes(&self) -> &[NodeData] {
         &self.nodes
     }
 }
