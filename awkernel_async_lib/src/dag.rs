@@ -70,7 +70,7 @@ impl ResponseInfo {
     fn new() -> Self {
         Self {
             release_time: BTreeMap::new(),
-            response_time: vec![0], // Using index 0 as a dummy for 1-based count.
+            response_time: vec![0],
             finish_count: 0,
         }
     }
@@ -94,11 +94,11 @@ impl ResponseInfo {
     }
 
     fn add_release_time(&mut self, node_idx: NodeIndex) {
-        let release_time = cpu_counter();
+        let current_time = cpu_counter();
         self.release_time
             .entry(node_idx)
             .or_insert_with(Vec::new)
-            .push(release_time);
+            .push(current_time);
     }
 
     fn add_response_time(&mut self, finish_time: u64) {
