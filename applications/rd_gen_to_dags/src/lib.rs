@@ -1,6 +1,7 @@
 #![no_std]
 extern crate alloc;
 
+mod build_dag;
 mod parse_yaml;
 mod time_unit;
 
