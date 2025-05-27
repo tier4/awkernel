@@ -15,6 +15,18 @@ use build_dag::build_dag;
 // const DAG_FILE_0: &str = concat!(include_str!("path/to/dag_0.yaml"), "\n");
 // const DAG_FILE_1: &str = concat!(include_str!("path/to/dag_1.yaml"), "\n");
 
+/// If no specific scheduler feature is enabled, it defaults to `SchedulerType::FIFO`.
+/// Only schedulers for DAGs can be defined here.
+fn get_configured_scheduler_type() -> SchedulerType {
+    if cfg!(feature = "fifo") {
+        SchedulerType::FIFO
+    } else if cfg!(feature = "rr") {
+        SchedulerType::RR
+    } else {
+        SchedulerType::FIFO
+    }
+}
+
 pub async fn run() {
     wait_millisec(1000);
 
@@ -29,9 +41,10 @@ pub async fn run() {
     };
 
     let mut success_build_dags = vec![];
+    let sched_type = get_configured_scheduler_type();
 
     for dag_data in dags_data {
-        match build_dag(dag_data, SchedulerType::FIFO).await {
+        match build_dag(dag_data, sched_type).await {
             Ok(dag) => {
                 success_build_dags.push(dag);
             }
