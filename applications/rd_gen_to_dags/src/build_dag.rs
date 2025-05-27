@@ -7,8 +7,6 @@ use awkernel_async_lib::{
     scheduler::SchedulerType,
 };
 
-// TODO: Remove allow(dead_code).
-#[allow(dead_code)]
 /// Represents errors related to the number of links for a node.
 /// `(DAG ID, Node ID)` tuple to identify the specific DAG and node where the error occurred.
 pub(crate) enum LinkNumError {
