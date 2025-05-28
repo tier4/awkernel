@@ -3,7 +3,6 @@
 extern crate alloc;
 
 use alloc::vec::Vec;
-use awkernel_lib::file::{if_file::SeekFrom, FileDescriptor};
 use core::str;
 
 pub async fn run() {
@@ -23,27 +22,29 @@ async fn filesystem_test() {
         }
     };
 
-    let data_to_write = b"Hello World!";
-    let _ = match fd.write(data_to_write).await {
-        Ok(w_bytes) => {
-            log::info!("write bytes:{}", w_bytes);
-        }
-        Err(e) => panic!("Error write files"),
-    };
+    log::info!("fd:{}", fd.fd);
 
-    let _ = fd.seek(SeekFrom::Start(0)).await;
+    //let data_to_write = b"Hello World!";
+    //let _ = match fd.write(data_to_write).await {
+    //Ok(w_bytes) => {
+    //log::info!("write bytes:{}", w_bytes);
+    //}
+    //Err(e) => panic!("Error write files"),
+    //};
 
-    let mut buf = [0_u8; 13];
-    let read_bytes = match fd.read(&mut buf).await {
-        Ok(r_bytes) => {
-            log::info!("read bytes:{}", r_bytes);
-            r_bytes
-        }
-        Err(e) => panic!("Erro read file: {:?}", e),
-    };
+    //let _ = fd.seek(SeekFrom::Start(0)).await;
 
-    match str::from_utf8(&buf[..read_bytes]) {
-        Ok(s) => log::info!("read result:{}", s),
-        Err(_) => panic!("read result panic"),
-    }
+    //let mut buf = [0_u8; 13];
+    //let read_bytes = match fd.read(&mut buf).await {
+    //Ok(r_bytes) => {
+    //log::info!("read bytes:{}", r_bytes);
+    //r_bytes
+    //}
+    //Err(e) => panic!("Erro read file: {:?}", e),
+    //};
+
+    //match str::from_utf8(&buf[..read_bytes]) {
+    //Ok(s) => log::info!("read result:{}", s),
+    //Err(_) => panic!("read result panic"),
+    //}
 }

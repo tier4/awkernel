@@ -1,6 +1,54 @@
-use awkernel_lib::file::if_file::{FileSystemWrapperError, SeekFrom};
+use crate::channel::unbounded;
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
+use awkernel_lib::{delay::wait_millisec, sync::rwlock::RwLock};
 use futures::Future;
 use pin_project::pin_project;
+
+#[derive(Clone)]
+pub enum FileSystemReq {
+    Open {
+        fd: i64,
+        path: String,
+        tx: unbounded::Sender<FileSystemRes>,
+    },
+    Create {
+        fd: i64,
+        path: String,
+        tx: unbounded::Sender<FileSystemRes>,
+    },
+    Read {
+        fd: i64,
+        bufsize: usize,
+    },
+    Write {
+        fd: i64,
+        buf: Vec<u8>,
+    },
+    Seek {
+        fd: i64,
+        from: SeekFrom,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum SeekFrom {
+    Start(u64),
+    End(i64),
+    Current(i64),
+}
+
+#[derive(Eq, PartialEq, Debug)]
+pub enum FileSystemRes {
+    Success,
+    ReadResult(Vec<u8>),
+    WriteBytes(usize),
+    SeekBytes(usize),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileDescriptorError {
@@ -9,228 +57,162 @@ pub enum FileDescriptorError {
     InterfaceIsNotReady,
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
+pub enum FileManagerError {
+    InvalidFilePath,
+    InvalidInterfaceID,
+    InvalidFileDescriptor,
+    CannotFindInterface,
+    OpenError,
+    WriteError,
+    ReadError,
+    NotYetImplemented,
+    InterfaceIsNotReady,
+    OutOfFds,
+    DeviceError,
+}
+
+pub static FILESYSTEM_MANAGER: RwLock<FileSystemManager> = RwLock::new(FileSystemManager {
+    filesystems: BTreeMap::new(),
+    filesystem_id: 0,
+    fd: 0,
+});
+
+pub struct FileSystemManager {
+    filesystems: BTreeMap<u64, Arc<unbounded::Sender<FileSystemReq>>>,
+    filesystem_id: u64,
+    fd: i64, // TODO: We will need a vacant fd BTreeMap.
+}
+
+impl FileSystemManager {
+    fn get_new_fd(&mut self) -> Option<i64> {
+        let mut current_fd = self.fd;
+        let max_fd = i64::MAX;
+
+        current_fd += 1;
+
+        if current_fd == max_fd {
+            None
+        } else {
+            self.fd = current_fd;
+            Some(current_fd)
+        }
+    }
+}
+
+pub fn add_filesystem(tx: unbounded::Sender<FileSystemReq>) {
+    let mut file_manager = FILESYSTEM_MANAGER.write();
+
+    if file_manager.filesystem_id == u64::MAX {
+        panic!("filesystem id overflow");
+    }
+
+    let id = file_manager.filesystem_id;
+    file_manager.filesystem_id += 1;
+
+    file_manager.filesystems.insert(id, Arc::new(tx));
+}
+
 pub struct FileDescriptor {
-    file_handle: awkernel_lib::file::FileDescriptor,
+    pub fd: i64,
+    pub interface_id: u64,
+    pub path: String,
+    pub rx: unbounded::Receiver<FileSystemRes>,
 }
 
 impl FileDescriptor {
+    pub fn new(
+        path: &str,
+        rx: unbounded::Receiver<FileSystemRes>,
+    ) -> Result<Self, FileManagerError> {
+        let len = path.len();
+        if len == 0 {
+            return Err(FileManagerError::InvalidFilePath);
+        }
+        // TODO:Insert mount directory check and choose which interface to use.
+        let interface_id = 0;
+
+        let mut file_manager = FILESYSTEM_MANAGER.write();
+
+        let fd = file_manager
+            .get_new_fd()
+            .ok_or(FileManagerError::OutOfFds)?;
+
+        let path_string = String::from(path);
+
+        Ok(FileDescriptor {
+            fd,
+            interface_id,
+            path: path_string,
+            rx,
+        })
+    }
+}
+
+impl FileDescriptor {
+    pub fn get_tx(filesystem_id: u64) -> Arc<unbounded::Sender<FileSystemReq>> {
+        let filesystem_manager = FILESYSTEM_MANAGER.read();
+        filesystem_manager
+            .filesystems
+            .get(&filesystem_id)
+            .unwrap()
+            .clone()
+    }
+
     pub async fn open(path: &str) -> Result<FileDescriptor, FileDescriptorError> {
-        let file_handle = awkernel_lib::file::FileDescriptor::new(path)
+        // TODO: determine the filesystem_id from the path
+        let filesystem_id = 0;
+
+        let tx = FileDescriptor::get_tx(filesystem_id);
+        let (tx_fd, rx_fd) = unbounded::new();
+        let file_handle = FileDescriptor::new(path, rx_fd)
             .or(Err(FileDescriptorError::FileDescriptionCreationError))?;
 
-        file_handle
-            .filesystem
-            .open(file_handle.interface_id, file_handle.fd, &file_handle.path);
+        tx.send(
+            (FileSystemReq::Open {
+                fd: file_handle.fd,
+                path: path.to_string(),
+                tx: tx_fd,
+            }),
+        )
+        .await
+        .unwrap(); // TODO
 
-        FileOpenWaiter {
-            file_handle: file_handle.clone(),
-        }
-        .await?;
+        let res = file_handle.rx.recv().await.unwrap(); // TODO
 
-        Ok(FileDescriptor { file_handle })
+        Ok(file_handle)
     }
+
     pub async fn create(path: &str) -> Result<FileDescriptor, FileDescriptorError> {
-        let file_handle = awkernel_lib::file::FileDescriptor::new(path)
+        wait_millisec(100);
+
+        // TODO: determine the filesystem_id from the path
+        let filesystem_id = 0;
+        log::info!("create called");
+
+        let tx = FileDescriptor::get_tx(filesystem_id);
+        let (tx_fd, rx_fd) = unbounded::new();
+        let file_handle = FileDescriptor::new(path, rx_fd)
             .or(Err(FileDescriptorError::FileDescriptionCreationError))?;
 
-        file_handle
-            .filesystem
-            .create(file_handle.interface_id, file_handle.fd, &file_handle.path);
+        log::info!("before send");
+        let Ok(_) = tx
+            .send(
+                (FileSystemReq::Create {
+                    fd: file_handle.fd,
+                    path: path.to_string(),
+                    tx: tx_fd,
+                }),
+            )
+            .await
+        else {
+            panic!("send error");
+        };
 
-        FileCreateWaiter {
-            file_handle: file_handle.clone(),
-        }
-        .await?;
+        log::info!("before recv");
 
-        Ok(FileDescriptor { file_handle })
-    }
+        let res = file_handle.rx.recv().await.unwrap(); // TODO
 
-    pub async fn read(&self, buf: &mut [u8]) -> Result<usize, FileDescriptorError> {
-        self.file_handle.filesystem.read(
-            self.file_handle.interface_id,
-            self.file_handle.fd,
-            buf.len(),
-        );
-
-        FileReader {
-            file_handle: self.file_handle.clone(),
-            buf,
-        }
-        .await
-    }
-
-    pub async fn write(&self, buf: &[u8]) -> Result<usize, FileDescriptorError> {
-        self.file_handle
-            .filesystem
-            .write(self.file_handle.interface_id, self.file_handle.fd, buf);
-
-        FileWriter {
-            file_handle: self.file_handle.clone(),
-        }
-        .await
-    }
-
-    pub async fn seek(&self, from: SeekFrom) -> Result<usize, FileDescriptorError> {
-        self.file_handle
-            .filesystem
-            .seek(self.file_handle.interface_id, self.file_handle.fd, from);
-
-        FileSeeker {
-            file_handle: self.file_handle.clone(),
-        }
-        .await
-    }
-}
-
-#[pin_project]
-pub struct FileOpenWaiter {
-    file_handle: awkernel_lib::file::FileDescriptor,
-}
-
-impl Future for FileOpenWaiter {
-    type Output = Result<(), FileDescriptorError>;
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-
-        match this.file_handle.filesystem.open_wait(
-            this.file_handle.interface_id,
-            this.file_handle.fd,
-            cx.waker(),
-        ) {
-            Ok(true) => core::task::Poll::Ready(Ok(())),
-            Ok(false) => core::task::Poll::Pending,
-            Err(FileSystemWrapperError::OpenError) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
-            }
-            Err(_) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
-            }
-        }
-    }
-}
-
-#[pin_project]
-pub struct FileCreateWaiter {
-    file_handle: awkernel_lib::file::FileDescriptor,
-}
-
-impl Future for FileCreateWaiter {
-    type Output = Result<(), FileDescriptorError>;
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-
-        match this.file_handle.filesystem.create_wait(
-            this.file_handle.interface_id,
-            this.file_handle.fd,
-            cx.waker(),
-        ) {
-            Ok(true) => core::task::Poll::Ready(Ok(())),
-            Ok(false) => core::task::Poll::Pending,
-            Err(FileSystemWrapperError::OpenError) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
-            }
-            Err(_) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
-            }
-        }
-    }
-}
-
-#[pin_project]
-pub struct FileReader<'a> {
-    file_handle: awkernel_lib::file::FileDescriptor,
-    buf: &'a mut [u8],
-}
-
-impl Future for FileReader<'_> {
-    type Output = Result<usize, FileDescriptorError>;
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-
-        match this.file_handle.filesystem.read_wait(
-            this.file_handle.interface_id,
-            this.file_handle.fd,
-            this.buf,
-            cx.waker(),
-        ) {
-            Ok(Some(size)) => core::task::Poll::Ready(Ok(size)),
-            Ok(None) => core::task::Poll::Pending,
-            Err(FileSystemWrapperError::ReadError) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
-            }
-            Err(_) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
-            }
-        }
-    }
-}
-
-#[pin_project]
-pub struct FileWriter {
-    file_handle: awkernel_lib::file::FileDescriptor,
-}
-
-impl Future for FileWriter {
-    type Output = Result<usize, FileDescriptorError>;
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-
-        match this.file_handle.filesystem.write_wait(
-            this.file_handle.interface_id,
-            this.file_handle.fd,
-            cx.waker(),
-        ) {
-            Ok(Some(size)) => core::task::Poll::Ready(Ok(size)),
-            Ok(None) => core::task::Poll::Pending,
-            Err(FileSystemWrapperError::ReadError) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
-            }
-            Err(_) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
-            }
-        }
-    }
-}
-
-#[pin_project]
-pub struct FileSeeker {
-    file_handle: awkernel_lib::file::FileDescriptor,
-}
-
-impl Future for FileSeeker {
-    type Output = Result<usize, FileDescriptorError>;
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let this = self.project();
-
-        match this.file_handle.filesystem.seek_wait(
-            this.file_handle.interface_id,
-            this.file_handle.fd,
-            cx.waker(),
-        ) {
-            Ok(Some(size)) => core::task::Poll::Ready(Ok(size)),
-            Ok(None) => core::task::Poll::Pending,
-            Err(FileSystemWrapperError::ReadError) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::InterfaceIsNotReady))
-            }
-            Err(_) => {
-                core::task::Poll::Ready(Err(FileDescriptorError::FileDescriptionCreationError))
-            }
-        }
+        Ok(file_handle)
     }
 }

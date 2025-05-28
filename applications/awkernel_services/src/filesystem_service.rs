@@ -3,17 +3,11 @@
 extern crate alloc;
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
-use awkernel_lib::{
-    file::{
-        fatfs::{
-            complete_file_operation, FatFileSystemReq, FatFileSystemResult, FatFsError, Fatfs,
-        },
-        if_file::SeekFrom as KernelSeekFrom,
-        FileManagerError,
-    },
-    heap::TALLOC,
-    paging::PAGESIZE,
+use awkernel_async_lib::{
+    channel::unbounded,
+    file::{FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
+use awkernel_lib::{heap::TALLOC, paging::PAGESIZE};
 
 use core::{
     alloc::{GlobalAlloc, Layout},
@@ -28,26 +22,10 @@ use fatfs::{
 };
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
-fn handle_file_operation<T, E: Debug>(
-    interface_id: u64,
-    fd: i64,
-    result: Result<T, E>,
-    success_mapper: impl FnOnce(T) -> FatFileSystemResult,
-    error_kind: FatFsError,
-) {
-    let ret = match result {
-        Ok(val) => Ok(success_mapper(val)),
-        Err(e) => {
-            log::info!("File operation error: {:?}", e);
-            Err(error_kind)
-        }
-    };
-    complete_file_operation(interface_id, fd, ret);
-}
-
 pub async fn run() {
-    let filesystem = Fatfs {};
-    awkernel_lib::file::add_interface(Arc::new(filesystem));
+    let (tx, rx) = unbounded::new();
+
+    awkernel_async_lib::file::add_filesystem(tx);
     let interface_id = 0;
     let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
         panic!("Invalid layout")
@@ -74,120 +52,31 @@ pub async fn run() {
     let root_dir = fs.root_dir();
 
     let mut fd_to_file = BTreeMap::new();
+
+    log::info!("fatfs service recv wait");
     loop {
-        let _ = FileSystemPolling {
-            // TODO: error handling?
-            interface_id,
-            wait: true,
-        }
-        .await;
+        let req = rx.recv().await.unwrap(); // TODO
 
-        loop {
-            let cmd = awkernel_lib::file::fatfs::cmd_queue_pop();
-            let Some(cmd) = cmd else {
-                break;
-            };
+        log::info!("fatfs service wake");
 
-            match cmd {
-                FatFileSystemReq::Create { fd, path } => {
-                    let result = root_dir.create_file(path.as_str()).map(|file| {
-                        fd_to_file.insert(fd, file);
-                    });
-                    handle_file_operation(
-                        interface_id,
-                        fd,
-                        result,
-                        |_| FatFileSystemResult::Success,
-                        FatFsError::CreateError,
-                    );
-                }
-                FatFileSystemReq::Open { fd, path } => {
-                    let result = root_dir.open_file(path.as_str()).map(|file| {
-                        fd_to_file.insert(fd, file);
-                    });
-                    handle_file_operation(
-                        interface_id,
-                        fd,
-                        result,
-                        |_| FatFileSystemResult::Success,
-                        FatFsError::OpenError,
-                    );
-                }
-                FatFileSystemReq::Read { fd, bufsize } => {
-                    if let Some(file) = fd_to_file.get_mut(&fd) {
-                        let mut buf = Vec::new();
-                        buf.resize(bufsize, 0);
-                        let result = file.read(&mut buf).map(|_| buf);
-                        handle_file_operation(
-                            interface_id,
-                            fd,
-                            result,
-                            FatFileSystemResult::ReadResult,
-                            FatFsError::ReadError,
-                        );
-                    } else {
-                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
-                    }
-                }
-                FatFileSystemReq::Write { fd, buf } => {
-                    if let Some(file) = fd_to_file.get_mut(&fd) {
-                        let result = file.write(&buf);
-                        handle_file_operation(
-                            interface_id,
-                            fd,
-                            result,
-                            FatFileSystemResult::WriteBytes,
-                            FatFsError::WriteError,
-                        );
-                    } else {
-                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
-                    }
-                }
-                FatFileSystemReq::Seek { fd, from } => {
-                    if let Some(file) = fd_to_file.get_mut(&fd) {
-                        let fatfs_seek_from: ExternalFatFsSeekFrom =
-                            FatFsSeekFromWrapper::from(from).into();
-                        let result = file.seek(fatfs_seek_from).map(|s_bytes| s_bytes as usize);
-                        handle_file_operation(
-                            interface_id,
-                            fd,
-                            result,
-                            FatFileSystemResult::SeekBytes,
-                            FatFsError::SeekError,
-                        );
-                    } else {
-                        complete_file_operation(interface_id, fd, Err(FatFsError::InvalidFd));
-                    }
-                }
+        match req {
+            FileSystemReq::Create { fd, path, tx } => {
+                let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
+                tx.send(FileSystemRes::Success).await.unwrap(); // TODO
+                fd_to_file.insert(fd, (file, tx));
             }
-        }
-    }
-}
-
-struct FileSystemPolling {
-    interface_id: u64,
-    wait: bool,
-}
-
-impl Future for FileSystemPolling {
-    type Output = Result<(), FileManagerError>;
-
-    fn poll(
-        self: core::pin::Pin<&mut Self>,
-        cx: &mut core::task::Context<'_>,
-    ) -> core::task::Poll<Self::Output> {
-        let m = self.get_mut();
-
-        if !m.wait {
-            return Poll::Ready(Ok(()));
-        }
-
-        m.wait = false;
-
-        match awkernel_lib::file::register_waker_for_fs(m.interface_id, cx.waker().clone()) {
-            Ok(true) => Poll::Pending,
-            Ok(false) => Poll::Ready(Ok(())),
-            Err(e) => Poll::Ready(Err(e)),
+            FileSystemReq::Open { fd, path, tx } => {
+                let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
+                tx.send(FileSystemRes::Success).await.unwrap(); // TODO
+                fd_to_file.insert(fd, (file, tx));
+            }
+            FileSystemReq::Read { fd, bufsize } => {
+                let Some((file, tx)) = fd_to_file.get_mut(&fd) else {
+                    panic!("Read failed");
+                };
+            }
+            FileSystemReq::Write { fd, buf } => {}
+            FileSystemReq::Seek { fd, from } => {}
         }
     }
 }
