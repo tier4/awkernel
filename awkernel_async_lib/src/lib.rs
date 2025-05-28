@@ -325,7 +325,7 @@ pub async fn spawn_periodic_reactor_with_measure<F, Ret, MF>(
     publish_topic_names: Vec<Cow<'static, str>>,
     sched_type: SchedulerType,
     period: Duration,
-    measure_f: MF,
+    _measure_f: MF,
 ) -> u32
 where
     F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
@@ -334,7 +334,7 @@ where
     MF: Fn() + Send + Sync + 'static + Clone,
 {
     #[cfg(feature = "perf")]
-    let measure_f_for_future = measure_f.clone();
+    let measure_f_for_future = _measure_f.clone();
 
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
@@ -355,7 +355,7 @@ where
     let task_id = crate::task::spawn(reactor_name, future, sched_type);
 
     #[cfg(feature = "perf")]
-    measure_f();
+    _measure_f();
 
     task_id
 }

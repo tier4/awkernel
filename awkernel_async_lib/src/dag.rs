@@ -14,6 +14,8 @@ use crate::{
 
 #[cfg(feature = "perf")]
 use crate::spawn_periodic_reactor_with_measure;
+#[cfg(feature = "perf")]
+use awkernel_lib::delay::cpu_counter;
 
 #[cfg(not(feature = "perf"))]
 use crate::spawn_periodic_reactor;
@@ -23,13 +25,9 @@ use alloc::{
     boxed::Box,
     collections::{btree_map, BTreeMap},
     sync::Arc,
-    vec,
     vec::Vec,
 };
-use awkernel_lib::{
-    delay::cpu_counter,
-    sync::mutex::{MCSNode, Mutex},
-};
+use awkernel_lib::sync::mutex::{MCSNode, Mutex};
 use core::{future::Future, pin::Pin, time::Duration};
 
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
@@ -80,7 +78,7 @@ impl ResponseInfo {
     fn new() -> Self {
         Self {
             release_time: BTreeMap::new(),
-            response_time: vec![0],
+            response_time: Vec::new(),
             finish_count: 0,
         }
     }
