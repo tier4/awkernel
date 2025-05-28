@@ -8,9 +8,16 @@ use crate::{
         NodeIndex,
     },
     scheduler::SchedulerType,
-    spawn_periodic_reactor, spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender,
-    VectorToPublishers, VectorToSubscribers,
+    spawn_reactor, spawn_sink_reactor, MultipleReceiver, MultipleSender, VectorToPublishers,
+    VectorToSubscribers,
 };
+
+#[cfg(feature = "perf")]
+use crate::spawn_periodic_reactor_with_measure;
+
+#[cfg(not(feature = "perf"))]
+use crate::spawn_periodic_reactor;
+
 use alloc::{
     borrow::Cow,
     boxed::Box,
@@ -109,25 +116,19 @@ impl ResponseInfo {
                 finish_time - release_time
             } else {
                 log::error!(
-                    "Error: Finish time {} is earlier than release time {}. Cannot calculate response duration for finish_count {}.",
-                    finish_time, release_time, finish_count
+                    "Error: Finish time {finish_time} < Release time {release_time}. Cannot calculate response duration for finish_count {finish_count}.",
                 );
                 u64::MAX
             }
         } else {
             log::error!(
-                "Error: Release time not found for finish count {}. Cannot calculate response duration.",
-                finish_count
+                "Error: Release time not found for finish count {finish_count}. Cannot calculate response duration."
             );
             u64::MAX
         };
 
         self.response_time.push(value_to_push);
-        log::debug!(
-            "Response time for finish count {}: {}",
-            finish_count,
-            value_to_push
-        );
+        log::debug!("Response time for finish count {finish_count}: {value_to_push}");
     }
 
     fn increment_finish_count(&mut self) {
@@ -260,16 +261,11 @@ impl Dag {
         {
             let dag_id = self.id;
 
-            let wrapped_f = move || {
-                {
-                    let dag = get_dag(dag_id).unwrap();
-                    let mut node = MCSNode::new();
-                    let mut response_info = dag.response_info.lock(&mut node);
-                    response_info.add_release_time(node_idx);
-                }
-
-                let result = f();
-                result
+            let measure_f = move || {
+                let dag = get_dag(dag_id).unwrap();
+                let mut node = MCSNode::new();
+                let mut response_info = dag.response_info.lock(&mut node);
+                response_info.add_release_time(node_idx);
             };
 
             pending_tasks
@@ -277,12 +273,13 @@ impl Dag {
                 .or_default()
                 .push(PendingTask::new(node_idx, move || {
                     Box::pin(async move {
-                        spawn_periodic_reactor::<_, Ret>(
+                        spawn_periodic_reactor_with_measure::<_, Ret, _>(
                             reactor_name.clone(),
-                            wrapped_f,
+                            f,
                             publish_topic_names.clone(),
                             sched_type,
                             period,
+                            measure_f,
                         )
                         .await
                     })

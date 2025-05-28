@@ -304,6 +304,38 @@ where
     Ret: VectorToPublishers,
     Ret::Publishers: Send,
 {
+    let mf = || {
+        // This is a no-op function to measure the time taken by the periodic reactor.
+        // It can be replaced with any measurement logic as needed.
+    };
+    spawn_periodic_reactor_with_measure::<_, Ret, _>(
+        reactor_name,
+        f,
+        publish_topic_names,
+        sched_type,
+        period,
+        mf,
+    )
+    .await
+}
+
+pub async fn spawn_periodic_reactor_with_measure<F, Ret, MF>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    publish_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+    period: Duration,
+    measure_f: MF,
+) -> u32
+where
+    F: Fn() -> <Ret::Publishers as MultipleSender>::Item + Send + 'static,
+    Ret: VectorToPublishers,
+    Ret::Publishers: Send,
+    MF: Fn() + Send + Sync + 'static + Clone,
+{
+    #[cfg(feature = "perf")]
+    let measure_f_for_future = measure_f.clone();
+
     // TODO(sykwer): Improve mechanisms to more closely align performance behavior with the DAG scheduling model.
     let future = async move {
         let publishers = <Ret as VectorToPublishers>::create_publishers(
@@ -315,10 +347,17 @@ where
             let results = f();
             publishers.send_all(results).await;
             sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
+            #[cfg(feature = "perf")]
+            measure_f_for_future();
         }
     };
 
-    crate::task::spawn(reactor_name, future, sched_type)
+    let task_id = crate::task::spawn(reactor_name, future, sched_type);
+
+    #[cfg(feature = "perf")]
+    measure_f();
+
+    task_id
 }
 
 pub async fn spawn_sink_reactor<F, Args>(
