@@ -35,6 +35,9 @@ use core::{future::Future, pin::Pin, time::Duration};
 static DAGS: Mutex<Dags> = Mutex::new(Dags::new()); // Set of DAGs.
 static PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
 
+#[cfg(feature = "perf")]
+static SOURCE_PENDING_TASKS: Mutex<BTreeMap<u32, Vec<PendingTask>>> = Mutex::new(BTreeMap::new()); // key: dag_id
+
 pub enum DagError {
     NotWeaklyConnected(u32),
     ContainsCycle(u32),
@@ -128,7 +131,6 @@ impl ResponseInfo {
         };
 
         self.response_time.push(value_to_push);
-        log::debug!("Response time for finish count {finish_count}: {value_to_push}");
     }
 
     fn increment_finish_count(&mut self) {
@@ -254,11 +256,11 @@ impl Dag {
     {
         let node_idx = self.add_node_with_topic_edges(&Vec::new(), &publish_topic_names);
 
-        let mut node = MCSNode::new();
-        let mut pending_tasks = PENDING_TASKS.lock(&mut node);
-
         #[cfg(feature = "perf")]
         {
+            let mut node = MCSNode::new();
+            let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
+
             let dag_id = self.id;
 
             let measure_f = move || {
@@ -268,7 +270,7 @@ impl Dag {
                 response_info.add_release_time(node_idx);
             };
 
-            pending_tasks
+            source_pending_tasks
                 .entry(self.id)
                 .or_default()
                 .push(PendingTask::new(node_idx, move || {
@@ -287,21 +289,25 @@ impl Dag {
         }
 
         #[cfg(not(feature = "perf"))]
-        pending_tasks
-            .entry(self.id)
-            .or_default()
-            .push(PendingTask::new(node_idx, move || {
-                Box::pin(async move {
-                    spawn_periodic_reactor::<F, Ret>(
-                        reactor_name.clone(),
-                        f,
-                        publish_topic_names.clone(),
-                        sched_type,
-                        period,
-                    )
-                    .await
-                })
-            }));
+        {
+            let mut node = MCSNode::new();
+            let mut pending_tasks = PENDING_TASKS.lock(&mut node);
+            pending_tasks
+                .entry(self.id)
+                .or_default()
+                .push(PendingTask::new(node_idx, move || {
+                    Box::pin(async move {
+                        spawn_periodic_reactor::<F, Ret>(
+                            reactor_name.clone(),
+                            f,
+                            publish_topic_names.clone(),
+                            sched_type,
+                            period,
+                        )
+                        .await
+                    })
+                }));
+        }
     }
 
     pub async fn register_sink_reactor<F, Args>(
@@ -463,6 +469,24 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             let mut graph = dag.graph.lock(&mut graph_node);
             if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
                 node_info.task_id = task_id;
+            }
+        }
+
+        #[cfg(feature = "perf")]
+        {
+            let source_pending_tasks = {
+                let mut node = MCSNode::new();
+                let mut lock = SOURCE_PENDING_TASKS.lock(&mut node);
+                lock.remove(&dag.id).unwrap_or_default()
+            };
+
+            for task in source_pending_tasks {
+                let task_id = (task.spawn)().await;
+                let mut graph_node = MCSNode::new();
+                let mut graph = dag.graph.lock(&mut graph_node);
+                if let Some(node_info) = graph.node_weight_mut(task.node_idx) {
+                    node_info.task_id = task_id;
+                }
             }
         }
     }

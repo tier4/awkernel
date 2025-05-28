@@ -7,7 +7,7 @@ use awkernel_async_lib::scheduler::SchedulerType;
 use awkernel_lib::delay::wait_microsec;
 use core::time::Duration;
 
-const LOG_ENABLE: bool = true;
+const LOG_ENABLE: bool = false;
 
 pub async fn run() {
     wait_microsec(1000000);
