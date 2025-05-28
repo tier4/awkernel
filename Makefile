@@ -206,7 +206,11 @@ check_riscv32: FORCE
 # riscv64
 
 riscv64:
-	cargo +$(RUSTV) rv64 $(OPT)
+ifeq ($(RELEASE), 1)
+	cargo +$(RUSTV) rv64 --release
+else
+	cargo +$(RUSTV) rv64 --release
+endif
 
 check_riscv64: FORCE
 	cargo +$(RUSTV) check_rv64
