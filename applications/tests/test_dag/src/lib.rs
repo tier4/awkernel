@@ -10,7 +10,7 @@ use core::time::Duration;
 const LOG_ENABLE: bool = true;
 
 pub async fn run() {
-    wait_microsec(10000000);
+    wait_microsec(1000000);
 
     let dag = create_dag();
 
@@ -25,7 +25,7 @@ pub async fn run() {
         },
         vec![Cow::from("topic0")],
         SchedulerType::FIFO,
-        Duration::from_secs(5),
+        Duration::from_secs(1),
     )
     .await;
 
@@ -85,11 +85,9 @@ pub async fn run() {
         },
         vec![Cow::from("topic3"), Cow::from("topic4")],
         SchedulerType::FIFO,
-        Duration::from_secs(10),
+        Duration::from_secs(1),
     )
     .await;
-
-    wait_microsec(1000000);
 
     let _ = finish_create_dags(&[dag.clone()]).await;
 
