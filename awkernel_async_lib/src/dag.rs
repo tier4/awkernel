@@ -70,7 +70,6 @@ struct NodeInfo {
 struct ResponseInfo {
     release_time: BTreeMap<NodeIndex, Vec<u64>>,
     response_time: Vec<u64>,
-    finish_count: usize,
 }
 
 #[cfg(feature = "perf")]
@@ -79,16 +78,14 @@ impl ResponseInfo {
         Self {
             release_time: BTreeMap::new(),
             response_time: Vec::new(),
-            finish_count: 0,
         }
     }
 
-    fn get_release_time_at(&self, cycle: usize) -> Option<u64> {
-        let cycle_idx = cycle - 1; // Adjust for 1-based index
+    fn get_release_time_at(&self, at_idx: usize) -> Option<u64> {
         let mut earliest_release_time = u64::MAX;
 
         for (_, release_times) in self.release_time.iter() {
-            if let Some(&release_time) = release_times.get(cycle_idx) {
+            if let Some(&release_time) = release_times.get(at_idx) {
                 if release_time < earliest_release_time {
                     earliest_release_time = release_time;
                 }
@@ -101,8 +98,7 @@ impl ResponseInfo {
         }
     }
 
-    fn add_release_time(&mut self, node_idx: NodeIndex) {
-        let current_time = cpu_counter();
+    fn add_release_time(&mut self, node_idx: NodeIndex, current_time: u64) {
         self.release_time
             .entry(node_idx)
             .or_insert_with(Vec::new)
@@ -110,29 +106,23 @@ impl ResponseInfo {
     }
 
     fn add_response_time(&mut self, finish_time: u64) {
-        let finish_count = self.finish_count;
+        let cycle = self.response_time.len();
 
-        let value_to_push = if let Some(release_time) = self.get_release_time_at(finish_count) {
+        let response_time = if let Some(release_time) = self.get_release_time_at(cycle) {
             if finish_time >= release_time {
                 finish_time - release_time
             } else {
                 log::error!(
-                    "Error: Finish time {finish_time} < Release time {release_time}. Cannot calculate response duration for finish_count {finish_count}.",
+                    "Error#{cycle}: Finish time {finish_time} < Release time {release_time}.",
                 );
                 u64::MAX
             }
         } else {
-            log::error!(
-                "Error: Release time not found for finish count {finish_count}. Cannot calculate response duration."
-            );
+            log::error!("Error#{cycle}:: Release time not found.");
             u64::MAX
         };
 
-        self.response_time.push(value_to_push);
-    }
-
-    fn increment_finish_count(&mut self) {
-        self.finish_count += 1;
+        self.response_time.push(response_time);
     }
 }
 
@@ -262,10 +252,11 @@ impl Dag {
             let dag_id = self.id;
 
             let measure_f = move || {
+                let release_time = cpu_counter();
                 let dag = get_dag(dag_id).unwrap();
                 let mut node = MCSNode::new();
                 let mut response_info = dag.response_info.lock(&mut node);
-                response_info.add_release_time(node_idx);
+                response_info.add_release_time(node_idx, release_time);
             };
 
             source_pending_tasks
@@ -342,7 +333,6 @@ impl Dag {
                     let dag = get_dag(dag_id).unwrap();
                     let mut node = MCSNode::new();
                     let mut response_info = dag.response_info.lock(&mut node);
-                    response_info.increment_finish_count();
                     response_info.add_response_time(finish_time);
                 }
             };
