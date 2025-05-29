@@ -1,10 +1,6 @@
 #define TASK_NUM 4
-#define WORKERS 2// おそらくワーカスレッドの数。CPUの数とみなすことができる？
-
+#define WORKERS 2// ワーカスレッドの数。これらは特に制約無く実行されるので、実質CPUの数とみなせる。
 #define NUM_PROC WORKERS
-
-// verify `ltl fairness { }` or `ltl eventually_terminate { }`.
-#define FAIRNESS
 
 #include "../cooperative_spin/fair_lock.pml"
 
@@ -25,16 +21,18 @@ TaskInfo tasks[TASK_NUM];
 // Queue of the FIFO scheduler
 chan queue = [TASK_NUM * 2] of { int }; // これにはタスクIDが入る
 
+// NOTE: 計算量爆発する場合は、これらのロックをまとめることを検討。
 FairLock lock_info[TASK_NUM];// TaskInfoに対するロック
 FairLock lock_future[TASK_NUM];// Task.futureに対するロック。struct TaskはTaskInfoとfutureを持つ
 FairLock lock_scheduler = false;// スケジューラのqueueに対するロック
 
+// 関数の返り値をグローバル変数に格納するスタイルで書かれている。
 int result_next[WORKERS];// get_next()の結果を格納する。これはタスクIDが入る
 mtype result_future[WORKERS];// future()の結果を格納する。これはReadyかPendingが入る
 
 bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフラグ。wakeしてる場合は、そのタスクがReadyになるまではPendingになる。
 
-int num_terminated = 0;
+int num_terminated = 0;// 検証のための変数。
 
 // awkernel_async_lib::scheduler::fifo::FIFOScheduler::wake_task()
 // - task: int. TaskInfoのID、すなわち、タスクID
@@ -45,7 +43,7 @@ inline wake_task(tid,task) {
 	unlock(tid,lock_scheduler);
 }
 
-// wkernel_async_lib::task::ArcWake::wake()
+// awkernel_async_lib::task::ArcWake::wake()
 inline wake(tid,task) {
 	lock(tid,lock_info[task]);
 	
@@ -124,17 +122,6 @@ inline future(tid,task) {
 	fi
 }
 
-inline future_for_fairness(tid,task) {
-	if
-	:: task = TASK_NUM - 1 -> 
-		result_future[tid] = Ready;
-	:: else -> 
-// yield
-		wake(tid,task);
-		result_future[tid] = Pending;
-	fi
-}
-
 proctype run_main(int tid) {
 	start:
 	if
@@ -187,11 +174,7 @@ proctype run_main(int tid) {
 	printf("execute task = %d\n",task);
 	
 // Invoke a task.
-	#ifdef FAIRNESS
-	future_for_fairness(tid,task);
-	#else
 	future(tid,task);
-	#endif
 	
 	unlock(tid,lock_future[task]);
 	
@@ -255,14 +238,8 @@ init {
 	}
 }
 
-#ifdef FAIRNESS
-ltl fairness  {
-	<> (num_terminated == 1)
-}
-#else
 // - starvation-free
 // - eventually all tasks will be terminated
 ltl eventually_terminate {
 	<> (num_terminated == TASK_NUM)
 }
-#endif
