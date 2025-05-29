@@ -4,22 +4,20 @@
 
 #include "../cooperative_spin/fair_lock.pml"
 
-mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending };// Panickedは無視されている。今回はPreemptedが無い
-
-mtype state = Ready;// これは何のstate？
+mtype = { Ready,Runnable,Running,Waiting,Terminated,Pending,Preempted };// Panickedは無視されている。
 
 // awkernel_async_lib::task::TaskInfo
 typedef TaskInfo {
 	mtype state;
 	bool need_sched;
 	bool is_terminated;
-	int id;
+	int id;  // これを優先度としても扱う。小さいほど高優先度。
 };
 
 TaskInfo tasks[TASK_NUM];
 
-// Queue of the FIFO scheduler
-chan queue = [TASK_NUM * 2] of { int }; // これにはタスクIDが入る
+// Queue of the PrioritizedFIFO scheduler
+chan queue = [TASK_NUM * 2] of { int }; // これにはタスクIDが入る。タスクID=priorityとみなす。
 
 // NOTE: 計算量爆発する場合は、これらのロックをまとめることを検討。
 FairLock lock_info[TASK_NUM];// TaskInfoに対するロック
@@ -34,12 +32,15 @@ bool wake_other[TASK_NUM / 2];// 他のタスクをwakeしたかどうかのフ�
 
 int num_terminated = 0;// 検証のための変数。
 
-// awkernel_async_lib::scheduler::fifo::FIFOScheduler::wake_task()
+// awkernel_async_lib::scheduler::fifo::PrioritizedFIFOScheduler::wake_task()
 // - task: int. TaskInfoのID、すなわち、タスクID
 // - tid: int. WORKERSのID、すなわち、スレッドID
 inline wake_task(tid,task) {
 	lock(tid,lock_scheduler);
-	queue!task;
+	queue!!task;
+
+	// TODO: invoke preemption.
+
 	unlock(tid,lock_scheduler);
 }
 
