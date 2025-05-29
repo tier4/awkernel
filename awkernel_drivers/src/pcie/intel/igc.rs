@@ -488,6 +488,10 @@ impl IgcInner {
         info: &mut PCIeInfo,
         hw: &mut IgcHw,
     ) -> Result<(), IgcDriverErr> {
+        if hw.mac.get_link_status {
+            ops.check_for_link(info, hw)?;
+        }
+
         self.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
             if !self.link_active {
                 let (speed, duplex) = ops.get_link_up_info(info, hw)?;
