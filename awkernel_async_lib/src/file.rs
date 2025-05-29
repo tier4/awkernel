@@ -1,23 +1,21 @@
-use crate::channel::unbounded;
+use crate::channel::bounded;
 use alloc::{
-    collections::BTreeMap,
     string::{String, ToString},
     sync::Arc,
     vec::Vec,
 };
 use awkernel_lib::sync::rwlock::RwLock;
 
-#[derive(Clone)]
 pub enum FileSystemReq {
     Open {
         fd: i64,
         path: String,
-        tx: unbounded::Sender<Result<FileSystemRes, FileSystemError>>,
+        tx: bounded::Sender<Result<FileSystemRes, FileSystemError>>,
     },
     Create {
         fd: i64,
         path: String,
-        tx: unbounded::Sender<Result<FileSystemRes, FileSystemError>>,
+        tx: bounded::Sender<Result<FileSystemRes, FileSystemError>>,
     },
     Read {
         fd: i64,
@@ -51,31 +49,16 @@ pub enum FileSystemRes {
     SeekBytes(u64),
 }
 
-#[derive(Debug)]
-pub enum FileManagerError {
-    InvalidFilePath,
-    InvalidInterfaceID,
-    InvalidFileDescriptor,
-    CannotFindInterface,
-    OpenError,
-    WriteError,
-    ReadError,
-    NotYetImplemented,
-    InterfaceIsNotReady,
-    OutOfFds,
-    DeviceError,
-}
-
 pub static FILESYSTEM_MANAGER: RwLock<FileSystemManager> = RwLock::new(FileSystemManager {
-    filesystems: BTreeMap::new(),
+    filesystems: alloc::collections::BTreeMap::new(),
     filesystem_id: 0,
     fd: 0,
 });
 
 pub struct FileSystemManager {
-    filesystems: BTreeMap<u64, Arc<unbounded::Sender<FileSystemReq>>>,
+    filesystems: alloc::collections::BTreeMap<u64, Arc<bounded::Sender<FileSystemReq>>>,
     filesystem_id: u64,
-    fd: i64, // TODO: We will need a vacant fd BTreeMap.
+    fd: i64,
 }
 
 impl FileSystemManager {
@@ -94,7 +77,7 @@ impl FileSystemManager {
     }
 }
 
-pub fn add_filesystem(tx: unbounded::Sender<FileSystemReq>) {
+pub fn add_filesystem(tx: bounded::Sender<FileSystemReq>) {
     let mut file_manager = FILESYSTEM_MANAGER.write();
 
     if file_manager.filesystem_id == u64::MAX {
@@ -111,19 +94,23 @@ pub struct FileDescriptor {
     pub fd: i64,
     pub filesystem_id: u64,
     pub path: String,
-    pub rx: unbounded::Receiver<Result<FileSystemRes, FileSystemError>>,
+    pub rx: bounded::Receiver<Result<FileSystemRes, FileSystemError>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileDescriptorError {
-    FileDescriptionCreationError,
+    InvalidFilePath,
+    OutOfFds,
+    OpenError,
+    CreateError,
     ReadError,
     WriteError,
     SeekError,
+    CloseError,
     InterfaceIsNotReady,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum FileSystemError {
     CannotFindFile,
     OpenError,
@@ -136,11 +123,11 @@ pub enum FileSystemError {
 impl FileDescriptor {
     pub fn new(
         path: &str,
-        rx: unbounded::Receiver<Result<FileSystemRes, FileSystemError>>,
-    ) -> Result<Self, FileManagerError> {
+        rx: bounded::Receiver<Result<FileSystemRes, FileSystemError>>,
+    ) -> Result<Self, FileDescriptorError> {
         let len = path.len();
         if len == 0 {
-            return Err(FileManagerError::InvalidFilePath);
+            return Err(FileDescriptorError::InvalidFilePath);
         }
         // TODO:Insert mount directory check and choose which interface to use.
         let filesystem_id = 0;
@@ -149,7 +136,7 @@ impl FileDescriptor {
 
         let fd = file_manager
             .get_new_fd()
-            .ok_or(FileManagerError::OutOfFds)?;
+            .ok_or(FileDescriptorError::OutOfFds)?;
 
         let path_string = String::from(path);
 
@@ -160,10 +147,8 @@ impl FileDescriptor {
             rx,
         })
     }
-}
 
-impl FileDescriptor {
-    pub fn get_tx(filesystem_id: u64) -> Arc<unbounded::Sender<FileSystemReq>> {
+    pub fn get_tx(filesystem_id: u64) -> Arc<bounded::Sender<FileSystemReq>> {
         let filesystem_manager = FILESYSTEM_MANAGER.read();
         filesystem_manager
             .filesystems
@@ -177,9 +162,8 @@ impl FileDescriptor {
         let filesystem_id = 0;
 
         let tx = FileDescriptor::get_tx(filesystem_id);
-        let (tx_fd, rx_fd) = unbounded::new();
-        let file_handle = FileDescriptor::new(path, rx_fd)
-            .or(Err(FileDescriptorError::FileDescriptionCreationError))?;
+        let (tx_fd, rx_fd) = bounded::new(Default::default());
+        let file_handle = FileDescriptor::new(path, rx_fd)?;
 
         tx.send(FileSystemReq::Open {
             fd: file_handle.fd,
@@ -187,11 +171,18 @@ impl FileDescriptor {
             tx: tx_fd,
         })
         .await
-        .unwrap(); // TODO
+        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = file_handle.rx.recv().await.unwrap(); // TODO
+        let response = file_handle
+            .rx
+            .recv()
+            .await
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        Ok(file_handle)
+        match response {
+            Ok(FileSystemRes::Success) => Ok(file_handle),
+            _ => Err(FileDescriptorError::OpenError),
+        }
     }
 
     pub async fn create(path: &str) -> Result<FileDescriptor, FileDescriptorError> {
@@ -199,45 +190,51 @@ impl FileDescriptor {
         let filesystem_id = 0;
 
         let tx = FileDescriptor::get_tx(filesystem_id);
-        let (tx_fd, rx_fd) = unbounded::new();
-        let file_handle = FileDescriptor::new(path, rx_fd)
-            .or(Err(FileDescriptorError::FileDescriptionCreationError))?;
+        let (tx_fd, rx_fd) = bounded::new(Default::default());
+        let file_handle = FileDescriptor::new(path, rx_fd)?;
 
-        let Ok(_) = tx
-            .send(FileSystemReq::Create {
-                fd: file_handle.fd,
-                path: path.to_string(),
-                tx: tx_fd,
-            })
+        tx.send(FileSystemReq::Create {
+            fd: file_handle.fd,
+            path: path.to_string(),
+            tx: tx_fd,
+        })
+        .await
+        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+
+        let response = file_handle
+            .rx
+            .recv()
             .await
-        else {
-            panic!("send error");
-        };
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = file_handle.rx.recv().await.unwrap(); // TODO
-
-        Ok(file_handle)
+        match response {
+            Ok(FileSystemRes::Success) => Ok(file_handle),
+            _ => Err(FileDescriptorError::CreateError),
+        }
     }
 
     pub async fn read(&self, buf: &mut [u8]) -> Result<usize, FileDescriptorError> {
         let tx = FileDescriptor::get_tx(self.filesystem_id);
 
-        let Ok(_) = tx
-            .send(FileSystemReq::Read {
-                fd: self.fd,
-                bufsize: buf.len(),
-            })
+        tx.send(FileSystemReq::Read {
+            fd: self.fd,
+            bufsize: buf.len(),
+        })
+        .await
+        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+
+        let response = self
+            .rx
+            .recv()
             .await
-        else {
-            panic!("send error");
-        };
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = self.rx.recv().await.unwrap(); // TODO
-
-        match res {
+        match response {
             Ok(FileSystemRes::ReadResult(data)) => {
                 let len = buf.len().min(data.len());
-                unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), buf.as_mut_ptr(), len) };
+                if len > 0 {
+                    buf[..len].copy_from_slice(&data.as_slice()[..len]);
+                }
                 Ok(len)
             }
             _ => Err(FileDescriptorError::ReadError),
@@ -247,19 +244,20 @@ impl FileDescriptor {
     pub async fn write(&self, buf: &[u8]) -> Result<usize, FileDescriptorError> {
         let tx = FileDescriptor::get_tx(self.filesystem_id);
 
-        let Ok(_) = tx
-            .send(FileSystemReq::Write {
-                fd: self.fd,
-                buf: buf.to_vec(),
-            })
+        tx.send(FileSystemReq::Write {
+            fd: self.fd,
+            buf: buf.to_vec(),
+        })
+        .await
+        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+
+        let response = self
+            .rx
+            .recv()
             .await
-        else {
-            panic!("send error");
-        };
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = self.rx.recv().await.unwrap(); // TODO
-
-        match res {
+        match response {
             Ok(FileSystemRes::WriteBytes(bytes)) => Ok(bytes),
             _ => Err(FileDescriptorError::WriteError),
         }
@@ -268,13 +266,17 @@ impl FileDescriptor {
     pub async fn seek(&self, from: SeekFrom) -> Result<u64, FileDescriptorError> {
         let tx = FileDescriptor::get_tx(self.filesystem_id);
 
-        let Ok(_) = tx.send(FileSystemReq::Seek { fd: self.fd, from }).await else {
-            panic!("send error");
-        };
+        tx.send(FileSystemReq::Seek { fd: self.fd, from })
+            .await
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = self.rx.recv().await.unwrap(); //TODO
+        let response = self
+            .rx
+            .recv()
+            .await
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        match res {
+        match response {
             Ok(FileSystemRes::SeekBytes(bytes)) => Ok(bytes),
             _ => Err(FileDescriptorError::SeekError),
         }
@@ -283,15 +285,19 @@ impl FileDescriptor {
     pub async fn close(&self) -> Result<(), FileDescriptorError> {
         let tx = FileDescriptor::get_tx(self.filesystem_id);
 
-        let Ok(_) = tx.send(FileSystemReq::Close { fd: self.fd }).await else {
-            panic!("send error");
-        };
+        tx.send(FileSystemReq::Close { fd: self.fd })
+            .await
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        let res = self.rx.recv().await.unwrap(); // TODO
+        let response = self
+            .rx
+            .recv()
+            .await
+            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
 
-        match res {
+        match response {
             Ok(FileSystemRes::Success) => Ok(()),
-            _ => Err(FileDescriptorError::SeekError),
+            _ => Err(FileDescriptorError::InterfaceIsNotReady),
         }
     }
 }

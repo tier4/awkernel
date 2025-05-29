@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
-    channel::unbounded,
+    channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
 use awkernel_lib::{heap::TALLOC, paging::PAGESIZE};
@@ -21,7 +21,7 @@ use fatfs::{
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 pub async fn run() {
-    let (tx, rx) = unbounded::new();
+    let (tx, rx) = bounded::new(Default::default());
 
     awkernel_async_lib::file::add_filesystem(tx);
     let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
@@ -68,7 +68,7 @@ pub async fn run() {
                 path,
                 tx: tx_fd,
             } => {
-                let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
+                let file = root_dir.open_file(path.as_str()).unwrap(); //TODO
                 tx_fd.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
                 fd_to_file.insert(fd, (file, tx_fd));
             }
@@ -122,7 +122,7 @@ pub async fn run() {
                 };
             }
             FileSystemReq::Close { fd } => {
-                if let Some((file, tx_fd)) = fd_to_file.remove(&fd) {
+                if let Some((_file, tx_fd)) = fd_to_file.remove(&fd) {
                     let _ = tx_fd.send(Ok(FileSystemRes::Success)).await;
                 } else {
                     panic!("Close failed");
