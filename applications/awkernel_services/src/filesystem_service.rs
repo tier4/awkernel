@@ -4,7 +4,7 @@ extern crate alloc;
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 use awkernel_async_lib::{
-    channel::bounded,
+    channel::unbounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
 use awkernel_lib::{heap::TALLOC, paging::PAGESIZE};
@@ -13,8 +13,6 @@ use core::{
     alloc::{GlobalAlloc, Layout},
     fmt,
     fmt::Debug,
-    future::Future,
-    task::Poll,
 };
 use fatfs::{
     format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek,
@@ -22,12 +20,10 @@ use fatfs::{
 };
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
-pub const REQ_QUEUE_SIZE: usize = 10;
 pub async fn run() {
-    let (tx, rx) = bounded::new(REQ_QUEUE_SIZE);
+    let (tx, rx) = unbounded::new();
 
     awkernel_async_lib::file::add_filesystem(tx);
-    let interface_id = 0;
     let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
         panic!("Invalid layout")
     };
@@ -54,62 +50,82 @@ pub async fn run() {
 
     let mut fd_to_file = BTreeMap::new();
 
-    log::info!("fatfs service recv wait");
     loop {
         let req = rx.recv().await.unwrap(); // TODO
 
-        log::info!("fatfs service wake");
-
         match req {
-            FileSystemReq::Create { fd, path, tx } => {
+            FileSystemReq::Create {
+                fd,
+                path,
+                tx: tx_fd,
+            } => {
                 let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
-                tx.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
-                fd_to_file.insert(fd, (file, tx));
+                tx_fd.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
+                fd_to_file.insert(fd, (file, tx_fd));
             }
-            FileSystemReq::Open { fd, path, tx } => {
+            FileSystemReq::Open {
+                fd,
+                path,
+                tx: tx_fd,
+            } => {
                 let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
-                tx.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
-                fd_to_file.insert(fd, (file, tx));
+                tx_fd.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
+                fd_to_file.insert(fd, (file, tx_fd));
             }
             FileSystemReq::Read { fd, bufsize } => {
-                if let Some((file, tx)) = fd_to_file.get_mut(&fd) {
+                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
                     let mut buf = Vec::new();
                     buf.resize(bufsize, 0);
-                    match result = file.read(&mut buf) {
-                        Ok(r_bytes) => tx.send(Ok(FileSytemRes::ReadResult(buf))),
-                        Err(_) => tx.send(Err(FileSystemError::ReadError)),
+                    let result = file.read(&mut buf);
+                    match result {
+                        Ok(r_bytes) => {
+                            let _ = tx_fd.send(Ok(FileSystemRes::ReadResult(buf))).await;
+                        }
+                        Err(_) => {
+                            let _ = tx_fd.send(Err(FileSystemError::ReadError)).await;
+                        }
                     }
                 } else {
                     panic!("Read failed");
                 };
             }
             FileSystemReq::Write { fd, buf } => {
-                if let Some((file, tx)) = fd_to_file.get_mut(&fd) {
-                    match result = file.write(&buf) {
-                        Ok(w_bytes) => tx.send(Ok(FileSytemRes::WriteBytes(w_bytes))),
-                        Err(_) => tx.send(Err(FileSystemError::ReadError)),
+                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
+                    let result = file.write(&buf);
+                    match result {
+                        Ok(w_bytes) => {
+                            let _ = tx_fd.send(Ok(FileSystemRes::WriteBytes(w_bytes))).await;
+                        }
+                        Err(_) => {
+                            let _ = tx_fd.send(Err(FileSystemError::WriteError)).await;
+                        }
                     }
                 } else {
-                    panic!("Read failed");
+                    panic!("Write failed");
                 };
             }
             FileSystemReq::Seek { fd, from } => {
-                if let Some((file, tx)) = fd_to_file.get_mut(&fd) {
+                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
                     let fatfs_seek_from: ExternalFatFsSeekFrom =
                         FatFsSeekFromWrapper::from(from).into();
-                    match result = file.seek(fatfs_seek_from) {
-                        Ok(s_bytes) => tx.send(Ok(FileSytemRes::SeekBytes(s_bytes))),
-                        Err(_) => tx.send(Err(FileSystemError::SeekError)),
+                    let result = file.seek(fatfs_seek_from);
+                    match result {
+                        Ok(s_bytes) => {
+                            let _ = tx_fd.send(Ok(FileSystemRes::SeekBytes(s_bytes))).await;
+                        }
+                        Err(_) => {
+                            let _ = tx_fd.send(Err(FileSystemError::SeekError)).await;
+                        }
                     }
                 } else {
-                    panic!("Read failed");
+                    panic!("Seek failed");
                 };
             }
             FileSystemReq::Close { fd } => {
-                if let Some((file, tx)) = fd_to_file.remove(&fd) {
-                    tx.send(Ok(FileSystemRes::Success));
+                if let Some((file, tx_fd)) = fd_to_file.remove(&fd) {
+                    let _ = tx_fd.send(Ok(FileSystemRes::Success)).await;
                 } else {
-                    tx.send(Err(FileSystemError::CannotFindFile));
+                    panic!("Close failed");
                 };
             }
         }
