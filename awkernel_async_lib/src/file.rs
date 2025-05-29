@@ -107,17 +107,23 @@ pub enum FileDescriptorError {
     WriteError,
     SeekError,
     CloseError,
-    InterfaceIsNotReady,
+    FileSystemIsNotReady,
 }
 
 #[derive(Clone, Debug)]
 pub enum FileSystemError {
-    CannotFindFile,
-    OpenError,
-    CreateError,
-    ReadError,
-    WriteError,
-    SeekError,
+    NotFound,
+    AlreadyExists,
+    InvalidInput,
+    NotEnoughSpace,
+    CorruptedFileSystem,
+    IoError,
+    UnexpectedEof,
+    WriteZero,
+    InvalidFileNameLength,
+    UnsupportedFileNameCharacter,
+    DirectoryIsNotEmpty,
+    UnknownError,
 }
 
 impl FileDescriptor {
@@ -171,13 +177,13 @@ impl FileDescriptor {
             tx: tx_fd,
         })
         .await
-        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+        .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = file_handle
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::Success) => Ok(file_handle),
@@ -199,13 +205,13 @@ impl FileDescriptor {
             tx: tx_fd,
         })
         .await
-        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+        .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = file_handle
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::Success) => Ok(file_handle),
@@ -221,13 +227,13 @@ impl FileDescriptor {
             bufsize: buf.len(),
         })
         .await
-        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+        .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = self
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::ReadResult(data)) => {
@@ -249,13 +255,13 @@ impl FileDescriptor {
             buf: buf.to_vec(),
         })
         .await
-        .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+        .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = self
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::WriteBytes(bytes)) => Ok(bytes),
@@ -268,13 +274,13 @@ impl FileDescriptor {
 
         tx.send(FileSystemReq::Seek { fd: self.fd, from })
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = self
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::SeekBytes(bytes)) => Ok(bytes),
@@ -287,17 +293,17 @@ impl FileDescriptor {
 
         tx.send(FileSystemReq::Close { fd: self.fd })
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         let response = self
             .rx
             .recv()
             .await
-            .map_err(|_| FileDescriptorError::InterfaceIsNotReady)?;
+            .map_err(|_| FileDescriptorError::FileSystemIsNotReady)?;
 
         match response {
             Ok(FileSystemRes::Success) => Ok(()),
-            _ => Err(FileDescriptorError::InterfaceIsNotReady),
+            _ => Err(FileDescriptorError::FileSystemIsNotReady),
         }
     }
 }

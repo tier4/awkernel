@@ -1,8 +1,6 @@
 #![no_std]
 
 extern crate alloc;
-
-use alloc::vec::Vec;
 use awkernel_async_lib::file::SeekFrom;
 use core::str;
 
@@ -28,7 +26,7 @@ async fn filesystem_test() {
         Ok(w_bytes) => {
             log::info!("write bytes:{}", w_bytes);
         }
-        Err(e) => panic!("Error write files"),
+        Err(_) => panic!("Error write files"),
     };
 
     let _ = fd.seek(SeekFrom::Start(0)).await;

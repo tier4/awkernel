@@ -1,8 +1,6 @@
-#![no_std]
-
 extern crate alloc;
 
-use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, vec::Vec};
 use awkernel_async_lib::{
     channel::bounded,
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
@@ -15,9 +13,27 @@ use core::{
     fmt::Debug,
 };
 use fatfs::{
-    format_volume, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read, Seek,
-    SeekFrom as ExternalFatFsSeekFrom, Write,
+    format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
+    Seek, SeekFrom as ExternalFatFsSeekFrom, Write,
 };
+
+fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {
+    log::error!("fatfs error: {:?}", fatfs_err);
+    match fatfs_err {
+        FatFsError::NotFound => FileSystemError::NotFound,
+        FatFsError::AlreadyExists => FileSystemError::AlreadyExists,
+        FatFsError::InvalidInput => FileSystemError::InvalidInput,
+        FatFsError::NotEnoughSpace => FileSystemError::NotEnoughSpace,
+        FatFsError::CorruptedFileSystem => FileSystemError::CorruptedFileSystem,
+        FatFsError::Io(_) => FileSystemError::IoError,
+        FatFsError::UnexpectedEof => FileSystemError::UnexpectedEof,
+        FatFsError::WriteZero => FileSystemError::WriteZero,
+        FatFsError::InvalidFileNameLength => FileSystemError::InvalidFileNameLength,
+        FatFsError::UnsupportedFileNameCharacter => FileSystemError::UnsupportedFileNameCharacter,
+        FatFsError::DirectoryIsNotEmpty => FileSystemError::DirectoryIsNotEmpty,
+        _ => FileSystemError::UnknownError,
+    }
+}
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
 pub async fn run() {
@@ -47,42 +63,95 @@ pub async fn run() {
     };
 
     let root_dir = fs.root_dir();
-
     let mut fd_to_file = BTreeMap::new();
 
     loop {
-        let req = rx.recv().await.unwrap(); // TODO
+        let req = match rx.recv().await {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!(
+                    "Failed to receive from service_rx: {:?}. Shutting down service.",
+                    e
+                );
+                break;
+            }
+        };
 
         match req {
             FileSystemReq::Create {
                 fd,
                 path,
                 tx: tx_fd,
-            } => {
-                let file = root_dir.create_file(path.as_str()).unwrap(); //TODO
-                tx_fd.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
-                fd_to_file.insert(fd, (file, tx_fd));
-            }
+            } => match root_dir.create_file(path.as_str()) {
+                Ok(file) => {
+                    if let Err(e) = tx_fd.send(Ok(FileSystemRes::Success)).await {
+                        panic!(
+                            "[Create] Failed to send response to client for fd {}: {:?}",
+                            fd, e
+                        )
+                    }
+                    fd_to_file.insert(fd, (file, tx_fd));
+                }
+                Err(fatfs_err) => {
+                    let fs_error = map_fatfs_error(fatfs_err);
+                    if let Err(e) = tx_fd.send(Err(fs_error)).await {
+                        panic!(
+                            "[Create] Failed to send response to client for fd {}: {:?}",
+                            fd, e
+                        )
+                    }
+                }
+            },
             FileSystemReq::Open {
                 fd,
                 path,
                 tx: tx_fd,
-            } => {
-                let file = root_dir.open_file(path.as_str()).unwrap(); //TODO
-                tx_fd.send(Ok(FileSystemRes::Success)).await.unwrap(); // TODO
-                fd_to_file.insert(fd, (file, tx_fd));
-            }
+            } => match root_dir.create_file(path.as_str()) {
+                Ok(file) => {
+                    if let Err(e) = tx_fd.send(Ok(FileSystemRes::Success)).await {
+                        panic!(
+                            "[Create] Failed to send response to client for fd {}: {:?}",
+                            fd, e
+                        )
+                    }
+                    fd_to_file.insert(fd, (file, tx_fd));
+                }
+                Err(fatfs_err) => {
+                    let fs_error = map_fatfs_error(fatfs_err);
+                    if let Err(e) = tx_fd.send(Err(fs_error)).await {
+                        panic!(
+                            "[Create] Failed to send response to client for fd {}: {:?}",
+                            fd, e
+                        )
+                    }
+                }
+            },
             FileSystemReq::Read { fd, bufsize } => {
-                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
+                if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
                     let mut buf = Vec::new();
                     buf.resize(bufsize, 0);
-                    let result = file.read(&mut buf);
-                    match result {
-                        Ok(r_bytes) => {
-                            let _ = tx_fd.send(Ok(FileSystemRes::ReadResult(buf))).await;
+                    match file.read(&mut buf) {
+                        Ok(bytes_read) => {
+                            buf.truncate(bytes_read);
+                            if let Err(e) = client_tx.send(Ok(FileSystemRes::ReadResult(buf))).await
+                            {
+                                log::error!(
+                                    "[Read] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
-                        Err(_) => {
-                            let _ = tx_fd.send(Err(FileSystemError::ReadError)).await;
+                        Err(fatfs_err) => {
+                            log::error!("[Read] Error reading from fd {}: {:?}", fd, fatfs_err);
+                            let fs_error = map_fatfs_error(fatfs_err);
+                            if let Err(e) = client_tx.send(Err(fs_error)).await {
+                                log::error!(
+                                    "[Read] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
                     }
                 } else {
@@ -90,14 +159,29 @@ pub async fn run() {
                 };
             }
             FileSystemReq::Write { fd, buf } => {
-                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
-                    let result = file.write(&buf);
-                    match result {
+                if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
+                    match file.write(&buf) {
                         Ok(w_bytes) => {
-                            let _ = tx_fd.send(Ok(FileSystemRes::WriteBytes(w_bytes))).await;
+                            if let Err(e) =
+                                client_tx.send(Ok(FileSystemRes::WriteBytes(w_bytes))).await
+                            {
+                                log::error!(
+                                    "[Write] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
-                        Err(_) => {
-                            let _ = tx_fd.send(Err(FileSystemError::WriteError)).await;
+                        Err(fatfs_err) => {
+                            log::error!("[Write] Error writing to fd {}: {:?}", fd, fatfs_err);
+                            let fs_error = map_fatfs_error(fatfs_err);
+                            if let Err(e) = client_tx.send(Err(fs_error)).await {
+                                log::error!(
+                                    "[Write] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
                     }
                 } else {
@@ -105,16 +189,31 @@ pub async fn run() {
                 };
             }
             FileSystemReq::Seek { fd, from } => {
-                if let Some((file, tx_fd)) = fd_to_file.get_mut(&fd) {
+                if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
                     let fatfs_seek_from: ExternalFatFsSeekFrom =
                         FatFsSeekFromWrapper::from(from).into();
-                    let result = file.seek(fatfs_seek_from);
-                    match result {
+                    match file.seek(fatfs_seek_from) {
                         Ok(s_bytes) => {
-                            let _ = tx_fd.send(Ok(FileSystemRes::SeekBytes(s_bytes))).await;
+                            if let Err(e) =
+                                client_tx.send(Ok(FileSystemRes::SeekBytes(s_bytes))).await
+                            {
+                                log::error!(
+                                    "[Seek] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
-                        Err(_) => {
-                            let _ = tx_fd.send(Err(FileSystemError::SeekError)).await;
+                        Err(fatfs_err) => {
+                            log::error!("[Seek] Error seeking in fd {}: {:?}", fd, fatfs_err);
+                            let fs_error = map_fatfs_error(fatfs_err);
+                            if let Err(e) = client_tx.send(Err(fs_error)).await {
+                                log::error!(
+                                    "[Seek] Failed to send response to client for fd {}: {:?}",
+                                    fd,
+                                    e
+                                );
+                            }
                         }
                     }
                 } else {
@@ -194,8 +293,8 @@ pub enum InMemoryDiskError {
     OutOfBounds,
     WriteZero,
     UnexpectedEof,
-    Interrupted,
-    Other(String),
+    _Interrupted,
+    _Other(String),
 }
 
 impl fmt::Display for InMemoryDiskError {
@@ -204,8 +303,8 @@ impl fmt::Display for InMemoryDiskError {
             InMemoryDiskError::OutOfBounds => write!(f, "Out of bounds access"),
             InMemoryDiskError::WriteZero => write!(f, "Failed to write whole buffer"),
             InMemoryDiskError::UnexpectedEof => write!(f, "Failed to fill whole buffer"),
-            InMemoryDiskError::Interrupted => write!(f, "Operation interrupted"),
-            InMemoryDiskError::Other(msg) => write!(f, "An error occurred: {}", msg),
+            InMemoryDiskError::_Interrupted => write!(f, "Operation interrupted"),
+            InMemoryDiskError::_Other(msg) => write!(f, "An error occurred: {}", msg),
         }
     }
 }
@@ -213,7 +312,7 @@ impl fmt::Display for InMemoryDiskError {
 impl fatfs::IoError for InMemoryDiskError {
     fn is_interrupted(&self) -> bool {
         match self {
-            InMemoryDiskError::Interrupted => true,
+            InMemoryDiskError::_Interrupted => true,
             _ => false,
         }
     }
