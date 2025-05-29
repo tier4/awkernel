@@ -101,7 +101,7 @@ impl ResponseInfo {
     fn add_release_time(&mut self, node_idx: NodeIndex, current_time: u64) {
         self.release_time
             .entry(node_idx)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(current_time);
     }
 
