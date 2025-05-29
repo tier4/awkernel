@@ -89,7 +89,7 @@ pub(super) struct IgcMacInfo {
 
     pub(super) asf_firmware_present: bool,
     pub(super) autoneg: bool,
-    get_link_status: bool,
+    pub(super) get_link_status: bool,
     pub(super) max_frame_size: u32,
 }
 
@@ -164,7 +164,7 @@ pub(super) struct IgcPhyInfo {
     pub(super) mdix: u8,
 
     polarity_correction: bool,
-    speed_downgraded: bool,
+    pub(super) speed_downgraded: bool,
     pub(super) autoneg_wait_to_complete: bool,
 }
 
@@ -239,7 +239,7 @@ pub(super) struct IgcBusInfo {
 pub(super) struct IgcDevSpecI225 {
     pub(super) eee_disable: bool,
     pub(super) clear_semaphore_once: bool,
-    mtu: u32,
+    pub(super) mtu: u32,
 }
 
 #[derive(Debug, Default)]
@@ -263,12 +263,14 @@ pub(super) struct IgcHw {
 pub(super) trait IgcMacOperations {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
-    fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn check_for_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr>;
+
     fn update_mc_addr_list(
         &self,
         _info: &mut PCIeInfo,
@@ -276,9 +278,8 @@ pub(super) trait IgcMacOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
     fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
@@ -423,9 +424,11 @@ pub(super) trait IgcPhyOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
+
     fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn set_page(
         &self,
         _info: &mut PCIeInfo,

@@ -68,6 +68,7 @@ clippy: $(X86ASM)
 	cargo +$(RUSTV) clippy_aarch64_virt
 	cargo +$(RUSTV) clippy_rv64
 	cargo +$(RUSTV) clippy_std
+	cargo +$(RUSTV) clippy_rd_gen_to_dags
 
 udeps: $(X86ASM)
 	cargo +$(RUSTV) udeps_x86
@@ -236,6 +237,7 @@ test: FORCE
 	cargo test_awkernel_async_lib -- --nocapture
 	cargo test_awkernel_drivers
 	cargo test_smoltcp
+	cargo test_rd_gen_to_dags
 
 # Format
 

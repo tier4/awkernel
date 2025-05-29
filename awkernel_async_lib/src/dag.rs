@@ -60,6 +60,10 @@ pub struct Dag {
 }
 
 impl Dag {
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     pub fn node_count(&self) -> usize {
         let mut node = MCSNode::new();
         let graph = self.graph.lock(&mut node);
@@ -111,7 +115,7 @@ impl Dag {
         add_node_idx
     }
 
-    pub async fn spawn_reactor<F, Args, Ret>(
+    pub async fn register_reactor<F, Args, Ret>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,
@@ -151,7 +155,7 @@ impl Dag {
             }));
     }
 
-    pub async fn spawn_periodic_reactor<F, Ret>(
+    pub async fn register_periodic_reactor<F, Ret>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,
@@ -185,7 +189,7 @@ impl Dag {
             }));
     }
 
-    pub async fn spawn_sink_reactor<F, Args>(
+    pub async fn register_sink_reactor<F, Args>(
         &self,
         reactor_name: Cow<'static, str>,
         f: F,

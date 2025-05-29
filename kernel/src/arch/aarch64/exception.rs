@@ -217,29 +217,15 @@ ESR  = 0x{:x}
 #[no_mangle]
 pub extern "C" fn curr_el_spx_irq_el1(_ctx: *mut Context, _sp: usize, _esr: usize) {
     #[cfg(feature = "perf")]
-    let is_task = {
-        use awkernel_async_lib::{
-            cpu_counter,
-            task::perf::{add_kernel_time_start, add_task_end},
-        };
+    let prev = awkernel_async_lib::task::perf::start_interrupt();
 
-        let is_task = add_task_end(awkernel_lib::cpu::cpu_id(), cpu_counter());
-
-        if is_task {
-            add_kernel_time_start(awkernel_lib::cpu::cpu_id(), cpu_counter());
-        } else {
-            // Do nothing.
-            // Already kernel time.
-        }
-
-        is_task
-    };
-
-    #[cfg(not(feature = "perf"))]
     let is_task =
         { awkernel_async_lib::task::get_current_task(awkernel_lib::cpu::cpu_id()).is_some() };
 
     interrupt::handle_irqs(is_task);
+
+    #[cfg(feature = "perf")]
+    awkernel_async_lib::task::perf::transition_to(prev);
 }
 
 #[no_mangle]
