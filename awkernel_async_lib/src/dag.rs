@@ -106,23 +106,11 @@ impl ResponseInfo {
     }
 
     fn add_response_time(&mut self, finish_time: u64) {
-        let cycle = self.response_time.len();
+        let release_time = self
+            .get_release_time_at(self.response_time.len())
+            .expect("release_time is always recorded due to precedence constraints.");
 
-        let response_time = if let Some(release_time) = self.get_release_time_at(cycle) {
-            if finish_time >= release_time {
-                finish_time - release_time
-            } else {
-                log::error!(
-                    "Error#{cycle}: Finish time {finish_time} < Release time {release_time}.",
-                );
-                u64::MAX
-            }
-        } else {
-            log::error!("Error#{cycle}:: Release time not found.");
-            u64::MAX
-        };
-
-        self.response_time.push(response_time);
+        self.response_time.push(finish_time - release_time);
     }
 }
 
