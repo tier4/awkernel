@@ -448,6 +448,9 @@ pub async fn finish_create_dags(dags: &[Arc<Dag>]) -> Result<(), DagError> {
             }
         }
 
+        // Data published before successor nodes were ready was lost, leading to
+        // publish/receive count mismatches and inaccurate response time calculations.
+        // To prevent this, source nodes now spawn only after all successors are prepared.
         #[cfg(feature = "perf")]
         {
             let source_pending_tasks = {
