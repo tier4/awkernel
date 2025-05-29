@@ -305,8 +305,7 @@ where
     Ret::Publishers: Send,
 {
     let mf = || {
-        // This is a no-op function to measure the time taken by the periodic reactor.
-        // It can be replaced with any measurement logic as needed.
+        // This is a no-op (does nothing) as no measurement is performed here.
     };
     spawn_periodic_reactor_with_measure::<_, Ret, _>(
         reactor_name,
