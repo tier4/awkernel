@@ -1,9 +1,7 @@
-use super::address::{
-    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PPN_WIDTH,
-};
+use super::address::{PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PPN_WIDTH};
+use super::frame_allocator::{frame_alloc, FrameTracker};
 use alloc::vec;
 use alloc::vec::Vec;
-use super::frame_allocator::{FrameTracker, frame_alloc};
 use bitflags::*;
 
 /// PTE Flags of RISC V SV39 page table
@@ -43,9 +41,7 @@ impl PageTableEntry {
     }
 
     pub fn empty() -> Self {
-        PageTableEntry {
-            bits: 0,
-        }
+        PageTableEntry { bits: 0 }
     }
 
     pub fn ppn(&self) -> PhysPageNum {
@@ -93,7 +89,8 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 2 {  // Level 0 (leaf level) - changed from 1 to 2
+            if i == 2 {
+                // Level 0 (leaf level) - changed from 1 to 2
                 result = Some(pte);
                 break;
             }
@@ -111,7 +108,8 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 2 {  // Level 0 (leaf level) - changed from 1 to 2
+            if i == 2 {
+                // Level 0 (leaf level) - changed from 1 to 2
                 result = Some(pte);
                 break;
             }
@@ -211,19 +209,19 @@ impl crate::paging::PageTable<Page, RV64PageAllocator, &'static str> for PageTab
         use crate::addr::Addr;
         let vpn = VirtPageNum::from(VirtAddr(virt_addr.as_usize()));
         let ppn = PhysPageNum::from(PhysAddr(phy_addr.as_usize()));
-        
+
         let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
-        
+
         if flags.write {
             rv_flags |= Flags::W | Flags::D; // Writable and dirty
         }
-        
+
         rv_flags |= Flags::R; // Always readable
-        
+
         if flags.execute {
             rv_flags |= Flags::X;
         }
-        
+
         if self.map(vpn, ppn, rv_flags) {
             Ok(())
         } else {

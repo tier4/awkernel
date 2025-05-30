@@ -1,9 +1,7 @@
-use super::address::{
-    PhysAddr, PhysPageNum, MEMORY_END,
-};
-use alloc::vec::Vec;
+use super::address::{PhysAddr, PhysPageNum, MEMORY_END};
 use crate::sync::mcs::MCSNode;
 use crate::sync::mutex::Mutex;
+use alloc::vec::Vec;
 
 type FrameAllocatorImpl = PageAllocator;
 
@@ -14,7 +12,7 @@ type FrameAllocatorImpl = PageAllocator;
 /// SAFETY
 ///
 /// Based on MCSLock, thread safe
-pub static FRAME_ALLOCATOR: crate::sync::mutex::Mutex<Option<FrameAllocatorImpl>> = 
+pub static FRAME_ALLOCATOR: crate::sync::mutex::Mutex<Option<FrameAllocatorImpl>> =
     crate::sync::mutex::Mutex::new(None);
 
 pub fn frame_alloc() -> Option<FrameTracker> {

@@ -1,11 +1,11 @@
+pub(super) mod address;
 pub(super) mod cpu;
 pub(super) mod delay;
 pub(super) mod dvfs;
-pub(super) mod interrupt;
-pub(super) mod paging;
-pub(super) mod address;
-pub(super) mod page_table;
 pub(super) mod frame_allocator;
+pub(super) mod interrupt;
+pub(super) mod page_table;
+pub(super) mod paging;
 
 pub struct RV64;
 
