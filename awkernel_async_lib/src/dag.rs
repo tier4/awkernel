@@ -68,7 +68,7 @@ struct NodeInfo {
 
 #[cfg(feature = "perf")]
 struct ResponseInfo {
-    release_time: BTreeMap<NodeIndex, Vec<u64>>,
+    release_time: Vec<u64>,
     response_time: Vec<u64>,
 }
 
@@ -76,40 +76,22 @@ struct ResponseInfo {
 impl ResponseInfo {
     fn new() -> Self {
         Self {
-            release_time: BTreeMap::new(),
+            release_time: Vec::new(),
             response_time: Vec::new(),
         }
     }
 
-    fn get_release_time_at(&self, at_idx: usize) -> Option<u64> {
-        let mut earliest_release_time = u64::MAX;
-
-        for (_, release_times) in self.release_time.iter() {
-            if let Some(&release_time) = release_times.get(at_idx) {
-                if release_time < earliest_release_time {
-                    earliest_release_time = release_time;
-                }
-            }
-        }
-        if earliest_release_time == u64::MAX {
-            None
-        } else {
-            Some(earliest_release_time)
-        }
-    }
-
-    fn add_release_time(&mut self, node_idx: NodeIndex, current_time: u64) {
-        self.release_time
-            .entry(node_idx)
-            .or_default()
-            .push(current_time);
+    fn add_release_time(&mut self, current_time: u64) {
+        self.release_time.push(current_time);
     }
 
     fn add_response_time(&mut self, finish_time: u64) {
         let release_time = self
-            .get_release_time_at(self.response_time.len())
+            .release_time
+            .get(self.response_time.len())
             .expect("release_time is always recorded due to precedence constraints.");
 
+        // Finish time > release time due to precedence constraints.
         self.response_time.push(finish_time - release_time);
     }
 }
@@ -238,13 +220,12 @@ impl Dag {
             let mut source_pending_tasks = SOURCE_PENDING_TASKS.lock(&mut node);
 
             let dag_id = self.id;
-
             let measure_f = move || {
                 let release_time = cpu_counter();
                 let dag = get_dag(dag_id).unwrap();
                 let mut node = MCSNode::new();
                 let mut response_info = dag.response_info.lock(&mut node);
-                response_info.add_release_time(node_idx, release_time);
+                response_info.add_release_time(release_time);
             };
 
             source_pending_tasks
@@ -315,7 +296,6 @@ impl Dag {
 
             let wrapped_f = move |arg: <Args::Subscribers as MultipleReceiver>::Item| {
                 f(arg);
-
                 {
                     let finish_time = cpu_counter();
                     let dag = get_dag(dag_id).unwrap();
