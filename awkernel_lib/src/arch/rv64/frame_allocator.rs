@@ -1,9 +1,7 @@
 use super::address::{
-    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, MEMORY_END, PAGE_SIZE, PA_WIDTH, PPN_WIDTH,
-    VA_WIDTH, VPN_WIDTH,
+    PhysAddr, PhysPageNum, MEMORY_END,
 };
 use alloc::vec::Vec;
-use alloc::sync::Arc;
 use crate::sync::mcs::MCSNode;
 use crate::sync::mutex::Mutex;
 
@@ -16,14 +14,26 @@ type FrameAllocatorImpl = PageAllocator;
 /// SAFETY
 ///
 /// Based on MCSLock, thread safe
-pub static FRAME_ALLOCATOR: Arc<Mutex<Option<FrameAllocatorImpl>>> = {
-    let mut frame_allocator_ref = Some(FrameAllocatorImpl::new());
-    unsafe { Arc::new(Mutex::new(frame_allocator_ref)) }
-};
+pub static FRAME_ALLOCATOR: crate::sync::mutex::Mutex<Option<FrameAllocatorImpl>> = 
+    crate::sync::mutex::Mutex::new(None);
 
-pub fn frame_alloc() -> Option<FrameTracker> {}
+pub fn frame_alloc() -> Option<FrameTracker> {
+    let mut node = MCSNode::new();
+    let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if let Some(allocator_ref) = allocator.as_mut() {
+        allocator_ref.alloc().map(|ppn| FrameTracker::new(ppn))
+    } else {
+        None
+    }
+}
 
-pub fn frame_dealloc(ppn: PhysPageNum) {}
+pub fn frame_dealloc(ppn: PhysPageNum) {
+    let mut node = MCSNode::new();
+    let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if let Some(allocator_ref) = allocator.as_mut() {
+        allocator_ref.dealloc(ppn);
+    }
+}
 
 pub fn init_page_allocator() {
     extern "C" {
@@ -31,21 +41,16 @@ pub fn init_page_allocator() {
     }
     let mut node = MCSNode::new();
     let mut allocator = FRAME_ALLOCATOR.lock(&mut node);
+    if allocator.is_none() {
+        *allocator = Some(FrameAllocatorImpl::new());
+    }
     if let Some(allocator_ref) = allocator.as_mut() {
         allocator_ref.init(
             PhysAddr::from(ekernel as usize).ceil(),
             PhysAddr::from(MEMORY_END as usize).floor(),
         );
     } else {
-        *allocator = Some(FrameAllocatorImpl::new());
-        if let Some(allocator_ref) = allocator.as_mut() {
-            allocator_ref.init(
-                PhysAddr::from(ekernel as usize).ceil(),
-                PhysAddr::from(MEMORY_END as usize).floor(),
-            );
-        } else {
-            panic!("[Error] Failed to initialize FrameAllocator!");
-        }
+        panic!("[Error] Failed to initialize FrameAllocator!");
     }
 }
 

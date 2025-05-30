@@ -1,15 +1,10 @@
 use super::address::{
-    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PA_WIDTH, PPN_WIDTH, VA_WIDTH,
-    VPN_WIDTH,
+    PhysAddr, PhysPageNum, VirtAddr, VirtPageNum, PAGE_SIZE, PPN_WIDTH,
 };
 use alloc::vec;
 use alloc::vec::Vec;
 use super::frame_allocator::{FrameTracker, frame_alloc};
-use crate::{delay::wait_forever, memory::PAGESIZE};
 use bitflags::*;
-use super::frame_allocator::*;
-use riscv::register::satp;
-use x86_64::structures::paging::page_table::PageTableEntry;
 
 /// PTE Flags of RISC V SV39 page table
 ///  V - Valid
@@ -98,7 +93,7 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 1 {
+            if i == 2 {  // Level 0 (leaf level) - changed from 1 to 2
                 result = Some(pte);
                 break;
             }
@@ -116,7 +111,7 @@ impl PageTable {
         let mut result: Option<&mut PageTableEntry> = None;
         for (i, idx) in idxs.iter().enumerate() {
             let pte = &mut ppn.get_pte_array()[*idx];
-            if i == 1 {
+            if i == 2 {  // Level 0 (leaf level) - changed from 1 to 2
                 result = Some(pte);
                 break;
             }
@@ -133,11 +128,11 @@ impl PageTable {
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: Flags) -> bool {
         let pte = self.find_pte_create(vpn).unwrap();
         if pte.is_valid() {
-            panic!("vpn{:?} is mapped before mapping", vpn);
+            // Page already mapped
             return false;
         }
         *pte = PageTableEntry::new(ppn, flags | Flags::V);
-        return true;
+        true
     }
 
     pub fn unmap(&mut self, vpn: VirtPageNum) {
@@ -156,13 +151,83 @@ impl PageTable {
     }
 }
 
-pub fn get_page_table(va: VirtAddr) -> Option<PageTable> {
-    let root_ppn = unsafe { satp::read().ppn() };
-    let root_frame = FrameTracker::new(root_ppn.into());
-    let mut page_table = PageTable {
-        root_ppn: root_ppn.into(),
-        frames: vec![root_frame],
-    };
+pub fn get_page_table(_va: VirtAddr) -> Option<PageTable> {
+    // TODO: Read actual SATP register when riscv crate is available
+    // For now, create a new page table
+    if let Some(tracker) = frame_alloc() {
+        let page_table = PageTable {
+            root_ppn: tracker.ppn,
+            frames: vec![tracker],
+        };
+        Some(page_table)
+    } else {
+        None
+    }
+}
 
-    Some(page_table)
+// Frame type for integration with common paging interface
+pub struct Page {
+    addr: PhysAddr,
+}
+
+impl crate::paging::Frame for Page {
+    fn start_address(&self) -> crate::addr::phy_addr::PhyAddr {
+        crate::addr::phy_addr::PhyAddr::new(self.addr.0)
+    }
+
+    fn set_address(&mut self, addr: crate::addr::phy_addr::PhyAddr) {
+        use crate::addr::Addr;
+        self.addr = PhysAddr(addr.as_usize());
+    }
+
+    fn size(&self) -> usize {
+        PAGE_SIZE
+    }
+}
+
+// Page allocator for integration with common paging interface
+pub struct RV64PageAllocator;
+
+impl crate::paging::FrameAllocator<Page, &'static str> for RV64PageAllocator {
+    fn allocate_frame(&mut self) -> Result<Page, &'static str> {
+        if let Some(tracker) = frame_alloc() {
+            let addr = PhysAddr((tracker.ppn.0) << 12); // Convert PPN to physical address
+            core::mem::forget(tracker); // Transfer ownership to Page
+            Ok(Page { addr })
+        } else {
+            Err("Out of memory")
+        }
+    }
+}
+
+impl crate::paging::PageTable<Page, RV64PageAllocator, &'static str> for PageTable {
+    unsafe fn map_to(
+        &mut self,
+        virt_addr: crate::addr::virt_addr::VirtAddr,
+        phy_addr: crate::addr::phy_addr::PhyAddr,
+        flags: crate::paging::Flags,
+        _page_allocator: &mut RV64PageAllocator,
+    ) -> Result<(), &'static str> {
+        use crate::addr::Addr;
+        let vpn = VirtPageNum::from(VirtAddr(virt_addr.as_usize()));
+        let ppn = PhysPageNum::from(PhysAddr(phy_addr.as_usize()));
+        
+        let mut rv_flags = Flags::V | Flags::A; // Always valid and accessed
+        
+        if flags.write {
+            rv_flags |= Flags::W | Flags::D; // Writable and dirty
+        }
+        
+        rv_flags |= Flags::R; // Always readable
+        
+        if flags.execute {
+            rv_flags |= Flags::X;
+        }
+        
+        if self.map(vpn, ppn, rv_flags) {
+            Ok(())
+        } else {
+            Err("Mapping failed")
+        }
+    }
 }
