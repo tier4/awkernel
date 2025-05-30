@@ -6,11 +6,9 @@ use awkernel_async_lib::{
     file::{FileSystemError, FileSystemReq, FileSystemRes, SeekFrom as KernelSeekFrom},
 };
 use awkernel_lib::{heap::TALLOC, paging::PAGESIZE};
-
 use core::{
     alloc::{GlobalAlloc, Layout},
-    fmt,
-    fmt::Debug,
+    fmt::{self, Debug},
 };
 use fatfs::{
     format_volume, Error as FatFsError, FileSystem, FormatVolumeOptions, FsOptions, IoBase, Read,
@@ -36,32 +34,28 @@ fn map_fatfs_error<E: Debug>(fatfs_err: FatFsError<E>) -> FileSystemError {
 }
 
 pub const MEMORY_FILESYSTEM_SIZE: usize = 1024 * 1024; // 1MiB
+
 pub async fn run() {
     let (tx, rx) = bounded::new(Default::default());
-
     awkernel_async_lib::file::add_filesystem(tx);
-    let Ok(layout) = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE) else {
-        panic!("Invalid layout")
-    };
 
+    let layout = Layout::from_size_align(MEMORY_FILESYSTEM_SIZE, PAGESIZE)
+        .expect("Invalid layout for memory filesystem");
     let result = unsafe { TALLOC.alloc(layout) };
-    if result.is_null() {
-        panic!("NULL pointer");
-    }
+    assert!(
+        !result.is_null(),
+        "NULL pointer allocated for memory filesystem"
+    );
 
     let data =
         unsafe { Vec::from_raw_parts(result, MEMORY_FILESYSTEM_SIZE, MEMORY_FILESYSTEM_SIZE) };
     let mut disk = InMemoryDisk { data, position: 0 };
 
-    let options = FormatVolumeOptions::new();
-    if format_volume(&mut disk, options).is_err() {
+    if format_volume(&mut disk, FormatVolumeOptions::new()).is_err() {
         log::info!("Error formatting the disk");
     }
-    let fs = FileSystem::new(disk, FsOptions::new());
-    let Ok(fs) = fs else {
-        panic!("Error creating file system");
-    };
 
+    let fs = FileSystem::new(disk, FsOptions::new()).expect("Error creating file system");
     let root_dir = fs.root_dir();
     let mut fd_to_file = BTreeMap::new();
 
@@ -81,153 +75,108 @@ pub async fn run() {
             FileSystemReq::Create {
                 fd,
                 path,
-                tx: tx_fd,
+                tx: client_tx,
             } => match root_dir.create_file(path.as_str()) {
                 Ok(file) => {
-                    if let Err(e) = tx_fd.send(Ok(FileSystemRes::Success)).await {
-                        panic!(
-                            "[Create] Failed to send response to client for fd {}: {:?}",
-                            fd, e
-                        )
-                    }
-                    fd_to_file.insert(fd, (file, tx_fd));
+                    send_response(fd, &client_tx, Ok(FileSystemRes::Success), "[Create]").await;
+                    fd_to_file.insert(fd, (file, client_tx));
                 }
                 Err(fatfs_err) => {
                     let fs_error = map_fatfs_error(fatfs_err);
-                    if let Err(e) = tx_fd.send(Err(fs_error)).await {
-                        panic!(
-                            "[Create] Failed to send response to client for fd {}: {:?}",
-                            fd, e
-                        )
-                    }
+                    send_response(fd, &client_tx, Err(fs_error), "[Create]").await;
                 }
             },
             FileSystemReq::Open {
                 fd,
                 path,
-                tx: tx_fd,
-            } => match root_dir.create_file(path.as_str()) {
+                tx: client_tx,
+            } => match root_dir.open_file(path.as_str()) {
                 Ok(file) => {
-                    if let Err(e) = tx_fd.send(Ok(FileSystemRes::Success)).await {
-                        panic!(
-                            "[Create] Failed to send response to client for fd {}: {:?}",
-                            fd, e
-                        )
-                    }
-                    fd_to_file.insert(fd, (file, tx_fd));
+                    send_response(fd, &client_tx, Ok(FileSystemRes::Success), "[Create]").await;
+                    fd_to_file.insert(fd, (file, client_tx));
                 }
                 Err(fatfs_err) => {
                     let fs_error = map_fatfs_error(fatfs_err);
-                    if let Err(e) = tx_fd.send(Err(fs_error)).await {
-                        panic!(
-                            "[Create] Failed to send response to client for fd {}: {:?}",
-                            fd, e
-                        )
-                    }
+                    send_response(fd, &client_tx, Err(fs_error), "[Create]").await;
                 }
             },
             FileSystemReq::Read { fd, bufsize } => {
                 if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
                     let mut buf = Vec::new();
                     buf.resize(bufsize, 0);
-                    match file.read(&mut buf) {
-                        Ok(bytes_read) => {
+                    let res = file
+                        .read(&mut buf)
+                        .map(|bytes_read| {
                             buf.truncate(bytes_read);
-                            if let Err(e) = client_tx.send(Ok(FileSystemRes::ReadResult(buf))).await
-                            {
-                                log::error!(
-                                    "[Read] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                        Err(fatfs_err) => {
+                            FileSystemRes::ReadResult(buf)
+                        })
+                        .map_err(|fatfs_err| {
                             log::error!("[Read] Error reading from fd {}: {:?}", fd, fatfs_err);
-                            let fs_error = map_fatfs_error(fatfs_err);
-                            if let Err(e) = client_tx.send(Err(fs_error)).await {
-                                log::error!(
-                                    "[Read] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                    }
+                            map_fatfs_error(fatfs_err)
+                        });
+                    send_response(fd, client_tx, res, "[Read]").await;
                 } else {
-                    panic!("Read failed");
-                };
+                    log::error!("[Read] File descriptor {} not found", fd);
+                    panic!("Read failed: File descriptor {} not found", fd);
+                }
             }
             FileSystemReq::Write { fd, buf } => {
                 if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
-                    match file.write(&buf) {
-                        Ok(w_bytes) => {
-                            if let Err(e) =
-                                client_tx.send(Ok(FileSystemRes::WriteBytes(w_bytes))).await
-                            {
-                                log::error!(
-                                    "[Write] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                        Err(fatfs_err) => {
-                            log::error!("[Write] Error writing to fd {}: {:?}", fd, fatfs_err);
-                            let fs_error = map_fatfs_error(fatfs_err);
-                            if let Err(e) = client_tx.send(Err(fs_error)).await {
-                                log::error!(
-                                    "[Write] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                    }
+                    let res =
+                        file.write(&buf)
+                            .map(FileSystemRes::WriteBytes)
+                            .map_err(|fatfs_err| {
+                                log::error!("[Write] Error writing to fd {}: {:?}", fd, fatfs_err);
+                                map_fatfs_error(fatfs_err)
+                            });
+                    send_response(fd, client_tx, res, "[Write]").await;
                 } else {
-                    panic!("Write failed");
-                };
+                    log::error!("[Write] File descriptor {} not found", fd);
+                    panic!("Write failed: File descriptor {} not found", fd);
+                }
             }
             FileSystemReq::Seek { fd, from } => {
                 if let Some((file, client_tx)) = fd_to_file.get_mut(&fd) {
                     let fatfs_seek_from: ExternalFatFsSeekFrom =
                         FatFsSeekFromWrapper::from(from).into();
-                    match file.seek(fatfs_seek_from) {
-                        Ok(s_bytes) => {
-                            if let Err(e) =
-                                client_tx.send(Ok(FileSystemRes::SeekBytes(s_bytes))).await
-                            {
-                                log::error!(
-                                    "[Seek] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                        Err(fatfs_err) => {
+                    let res = file
+                        .seek(fatfs_seek_from)
+                        .map(FileSystemRes::SeekBytes)
+                        .map_err(|fatfs_err| {
                             log::error!("[Seek] Error seeking in fd {}: {:?}", fd, fatfs_err);
-                            let fs_error = map_fatfs_error(fatfs_err);
-                            if let Err(e) = client_tx.send(Err(fs_error)).await {
-                                log::error!(
-                                    "[Seek] Failed to send response to client for fd {}: {:?}",
-                                    fd,
-                                    e
-                                );
-                            }
-                        }
-                    }
+                            map_fatfs_error(fatfs_err)
+                        });
+                    send_response(fd, client_tx, res, "[Seek]").await;
                 } else {
-                    panic!("Seek failed");
-                };
+                    log::error!("[Seek] File descriptor {} not found", fd);
+                    panic!("Seek failed: File descriptor {} not found", fd);
+                }
             }
             FileSystemReq::Close { fd } => {
-                if let Some((_file, tx_fd)) = fd_to_file.remove(&fd) {
-                    let _ = tx_fd.send(Ok(FileSystemRes::Success)).await;
+                if let Some((_file, client_tx)) = fd_to_file.remove(&fd) {
+                    let _ = client_tx.send(Ok(FileSystemRes::Success)).await;
                 } else {
-                    panic!("Close failed");
-                };
+                    log::error!("[Close] File descriptor {} not found", fd);
+                    panic!("Close failed: File descriptor {} not found", fd);
+                }
             }
         }
+    }
+}
+
+async fn send_response(
+    fd: i64,
+    client_tx: &awkernel_async_lib::channel::bounded::Sender<
+        Result<FileSystemRes, FileSystemError>,
+    >,
+    res: Result<FileSystemRes, FileSystemError>,
+    operation_name: &str,
+) {
+    if let Err(e) = client_tx.send(res).await {
+        panic!(
+            "{}] Failed to send response to client for fd {}: {:?}",
+            operation_name, fd, e
+        );
     }
 }
 
@@ -242,28 +191,30 @@ impl IoBase for InMemoryDisk {
 
 impl Read for InMemoryDisk {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let len = core::cmp::min(buf.len(), (self.data.len() as u64 - self.position) as usize);
-        if len == 0 {
+        let len = (self.data.len() as u64 - self.position) as usize;
+        let bytes_to_read = core::cmp::min(buf.len(), len);
+        if bytes_to_read == 0 {
             return Ok(0);
         }
-        buf[..len]
-            .copy_from_slice(&self.data[self.position as usize..self.position as usize + len]);
-        self.position += len as u64;
-        Ok(len)
+        buf[..bytes_to_read].copy_from_slice(
+            &self.data[self.position as usize..self.position as usize + bytes_to_read],
+        );
+        self.position += bytes_to_read as u64;
+        Ok(bytes_to_read)
     }
 }
 
 impl Write for InMemoryDisk {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        //log::info!("write InMemoryDisk");
-        let len = core::cmp::min(buf.len(), (self.data.len() as u64 - self.position) as usize);
-        if len == 0 {
+        let len = (self.data.len() as u64 - self.position) as usize;
+        let bytes_to_write = core::cmp::min(buf.len(), len);
+        if bytes_to_write == 0 {
             return Ok(0);
         }
-        self.data[self.position as usize..self.position as usize + len]
-            .copy_from_slice(&buf[..len]);
-        self.position += len as u64;
-        Ok(len)
+        self.data[self.position as usize..self.position as usize + bytes_to_write]
+            .copy_from_slice(&buf[..bytes_to_write]);
+        self.position += bytes_to_write as u64;
+        Ok(bytes_to_write)
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -311,10 +262,7 @@ impl fmt::Display for InMemoryDiskError {
 
 impl fatfs::IoError for InMemoryDiskError {
     fn is_interrupted(&self) -> bool {
-        match self {
-            InMemoryDiskError::_Interrupted => true,
-            _ => false,
-        }
+        matches!(self, InMemoryDiskError::_Interrupted)
     }
 
     fn new_unexpected_eof_error() -> Self {
