@@ -4,15 +4,6 @@ use alloc::vec;
 use alloc::vec::Vec;
 use bitflags::*;
 
-/// PTE Flags of RISC V SV39 page table
-///  V - Valid
-///  R - Read
-///  W - Write
-///  X - eXecute
-///  U - User
-///  G - Global
-///  A - Accessed
-///  D - Dirty
 bitflags! {
     #[derive(PartialEq)]
     pub struct Flags: u8 {
