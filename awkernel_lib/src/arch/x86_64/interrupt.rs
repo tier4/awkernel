@@ -17,6 +17,10 @@ impl Interrupt for super::X86 {
         x86_64::instructions::interrupts::enable();
     }
 
+    fn are_enabled() -> bool {
+        x86_64::instructions::interrupts::are_enabled()
+    }
+
     fn set_flag(flag: usize) {
         if flag == 0 {
             x86_64::instructions::interrupts::disable();

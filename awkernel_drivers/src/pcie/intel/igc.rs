@@ -1,21 +1,57 @@
 //! This is a skelton of a PCIe device driver.
 
-use alloc::{borrow::Cow, sync::Arc, vec::Vec};
-use awkernel_lib::net::net_device::{self, NetDevice};
-use igc_regs::*;
+use alloc::{borrow::Cow, boxed::Box, sync::Arc, vec::Vec};
+use awkernel_lib::{
+    net::{
+        ether::ETHER_TYPE_VLAN,
+        net_device::{self, LinkStatus, NetDevice},
+    },
+    sync::rwlock::RwLock,
+};
+use i225::{igc_get_flash_presence_i225, I225Flash, I225NoFlash};
+use igc_api::{igc_set_mac_type, igc_setup_init_funcs};
+use igc_defines::*;
+use igc_hw::{IgcFcMode, IgcHw, IgcMacType, IgcMediaType, IgcOperations};
 
 use crate::pcie::{PCIeDevice, PCIeDeviceErr, PCIeInfo};
 
 mod i225;
 mod igc_api;
+mod igc_base;
+mod igc_defines;
 mod igc_hw;
+mod igc_mac;
+mod igc_nvm;
+mod igc_phy;
 mod igc_regs;
+
+const AUTONEG_ADV_DEFAULT: u16 = ADVERTISE_10_HALF
+    | ADVERTISE_10_FULL
+    | ADVERTISE_100_HALF
+    | ADVERTISE_100_FULL
+    | ADVERTISE_1000_FULL
+    | ADVERTISE_2500_FULL;
+
+const AUTO_ALL_MODES: u8 = 0;
+
+const IGC_FC_PAUSE_TIME: u16 = 0x0680;
+
+const IGC_TXPBSIZE: u32 = 20408;
+const IGC_DMCTLX_DCFLUSH_DIS: u32 = 0x80000000; // Disable DMA Coalesce Flush
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IgcDriverErr {
     NoBar0,
     ReadFailure,
     MacInit,
+    MasterRequestsPending,
+    Reset,
+    NVM,
+    SwfwSync,
+    BlkPhyReset,
+    Param,
+    Phy,
+    Config,
 }
 
 /// Check if the device is an Intel I225/I226.
@@ -38,7 +74,8 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     // Read capabilities of PCIe.
     info.read_capability();
 
-    let igc = Igc::new(info);
+    let igc = Igc::new(info)?;
+
     let result = Arc::new(igc);
 
     // Add the network interface, if needed.
@@ -47,16 +84,73 @@ pub fn attach(mut info: PCIeInfo) -> Result<Arc<dyn PCIeDevice + Sync + Send>, P
     Ok(result)
 }
 
-pub struct Igc {
+pub struct IgcInner {
+    ops: Box<dyn IgcOperations + Sync + Send>,
     info: PCIeInfo,
-    // Add more fields if needed.
+    hw: IgcHw,
+    link_active: bool,
+    link_speed: Option<IgcSpeed>,
+    link_duplex: Option<IgcDuplex>,
+    link_status: LinkStatus,
+}
+
+pub struct Igc {
+    inner: RwLock<IgcInner>,
 }
 
 impl Igc {
-    fn new(info: PCIeInfo) -> Self {
-        // TODO: Initialize the device.
+    fn new(mut info: PCIeInfo) -> Result<Self, PCIeDeviceErr> {
+        use PCIeDeviceErr::InitFailure;
 
-        Self { info }
+        let mut hw = IgcHw::default();
+        hw.device_id = info.id;
+
+        igc_set_mac_type(&mut hw).or(Err(InitFailure))?;
+
+        // TODO:
+        // - allocate PCIe resources.
+        // - allocate tx/rx queues.
+
+        let ops = igc_setup_init_funcs(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        hw.mac.autoneg = true;
+        hw.phy.autoneg_wait_to_complete = false;
+        hw.phy.autoneg_advertised = AUTONEG_ADV_DEFAULT;
+
+        // Copper options.
+        if hw.phy.media_type == IgcMediaType::Copper {
+            hw.phy.mdix = AUTO_ALL_MODES;
+        }
+
+        // Set the max frame size.
+        hw.mac.max_frame_size = 9234;
+
+        // TODO: Allocate multicast array memory.
+
+        if ops.check_reset_block(&mut info).is_err() {
+            log::info!("PHY reset is blocked due to SOL/IDER session");
+        }
+
+        // Disable Energy Efficient Ethernet (EEE).
+        hw.dev_spec.eee_disable = true;
+
+        ops.reset_hw(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        // Make sure we have a good EEPROM before we read from it.
+        if ops.validate(&mut info, &mut hw).is_err() {
+            // Some PCI-E parts fail the first check due to
+            // the link being in sleep state, call it again,
+            // if it fails a second time its a real issue.
+            ops.validate(&mut info, &mut hw).or(Err(InitFailure))?;
+        }
+
+        ops.read_mac_addr(&mut info, &mut hw).or(Err(InitFailure))?;
+
+        // TODO: continue initialization
+
+        let inner = RwLock::new(IgcInner::new(ops, info, hw));
+
+        Ok(Igc { inner })
     }
 }
 
@@ -109,18 +203,18 @@ impl NetDevice for Igc {
     }
 
     fn link_speed(&self) -> u64 {
-        // TODO
-        0
+        let inner = self.inner.read();
+        inner.link_speed.map_or(0, |s| s as u64)
     }
 
     fn link_status(&self) -> net_device::LinkStatus {
-        // TODO
-        net_device::LinkStatus::Down
+        let inner = self.inner.read();
+        inner.link_status
     }
 
     fn mac_address(&self) -> [u8; 6] {
-        // TODO
-        [0; 6]
+        let inner = self.inner.read();
+        inner.hw.mac.addr
     }
 
     fn num_queues(&self) -> usize {
@@ -159,7 +253,8 @@ impl NetDevice for Igc {
 #[inline(always)]
 fn write_flush(info: &PCIeInfo) -> Result<(), IgcDriverErr> {
     let bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
-    bar0.read32(IGC_STATUS).ok_or(IgcDriverErr::ReadFailure)?;
+    bar0.read32(igc_regs::IGC_STATUS)
+        .ok_or(IgcDriverErr::ReadFailure)?;
     Ok(())
 }
 
@@ -193,4 +288,232 @@ fn write_reg_array(
     let mut bar0 = info.get_bar(0).ok_or(IgcDriverErr::NoBar0)?;
     bar0.write32(offset + (index << 2), value);
     Ok(())
+}
+
+/// Initialize the DMA Coalescing feature
+fn igc_init_dmac(
+    info: &mut PCIeInfo,
+    hw: &IgcHw,
+    pba: u32,
+    sc_dmac: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    let reg = !IGC_DMACR_DMAC_EN;
+
+    let max_frame_size = hw.mac.max_frame_size;
+
+    if sc_dmac == 0 {
+        // Disabling it
+        write_reg(info, IGC_DMACR, reg)?;
+        return Ok(());
+    } else {
+        log::info!("igc: DMA Coalescing enabled");
+    }
+
+    // Set starting threshold
+    write_reg(info, IGC_DMCTXTH, 0)?;
+
+    let hwm = 64 * pba - max_frame_size / 16;
+    let hwm = if hwm < 64 * (pba - 6) {
+        64 * (pba - 6)
+    } else {
+        hwm
+    };
+
+    let mut reg = read_reg(info, IGC_FCRTC)?;
+    reg &= !IGC_FCRTC_RTH_COAL_MASK;
+    reg |= (hwm << IGC_FCRTC_RTH_COAL_SHIFT) & IGC_FCRTC_RTH_COAL_MASK;
+    write_reg(info, IGC_FCRTC, reg)?;
+
+    let dmac = pba - max_frame_size / 512;
+    let dmac = if dmac < pba - 10 { pba - 10 } else { dmac };
+    let mut reg = read_reg(info, IGC_DMACR)?;
+    reg &= !IGC_DMACR_DMACTHR_MASK;
+    reg |= (dmac << IGC_DMACR_DMACTHR_SHIFT) & IGC_DMACR_DMACTHR_MASK;
+
+    // transition to L0x or L1 if available
+    reg |= IGC_DMACR_DMAC_EN | IGC_DMACR_DMAC_LX_MASK;
+
+    // Check if status is 2.5Gb backplane connection
+    // before configuration of watchdog timer, which is
+    // in msec values in 12.8usec intervals
+    // watchdog timer= msec values in 32usec intervals
+    // for non 2.5Gb connection
+    let status = read_reg(info, IGC_STATUS)?;
+    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER == 0 {
+        reg |= (sc_dmac * 5) >> 6;
+    } else {
+        reg |= sc_dmac >> 5;
+    }
+
+    write_reg(info, IGC_DMACR, reg)?;
+
+    write_reg(info, IGC_DMCRTRH, 0)?;
+
+    // Set the interval before transition
+    let mut reg = read_reg(info, IGC_DMCTLX)?;
+    reg |= IGC_DMCTLX_DCFLUSH_DIS;
+
+    // in 2.5Gb connection, TTLX unit is 0.4 usec
+    // which is 0x4*2 = 0xA. But delay is still 4 usec
+    let status = read_reg(info, IGC_STATUS)?;
+    if status & IGC_STATUS_2P5_SKU != 0 && status & IGC_STATUS_2P5_SKU_OVER == 0 {
+        reg |= 0xA;
+    } else {
+        reg |= 0x4;
+    }
+
+    write_reg(info, IGC_DMCTLX, reg)?;
+
+    // free space in tx packet buffer to wake from DMA coal
+    write_reg(
+        info,
+        IGC_DMCTXTH,
+        (IGC_TXPBSIZE - (2 * max_frame_size)) >> 6,
+    )?;
+
+    // make low power state decision controlled by DMA coal
+    let mut reg = read_reg(info, IGC_PCIEMISC)?;
+    reg &= !IGC_PCIEMISC_LX_DECISION;
+    write_reg(info, IGC_PCIEMISC, reg)?;
+
+    Ok(())
+}
+
+fn igc_reset(
+    ops: &dyn IgcOperations,
+    info: &mut PCIeInfo,
+    hw: &mut IgcHw,
+    sc_fc: IgcFcMode,
+    sc_dmac: u32,
+) -> Result<(), IgcDriverErr> {
+    use igc_regs::*;
+
+    // Let the firmware know the OS is in control
+    igc_get_hw_control(info)?;
+
+    // Packet Buffer Allocation (PBA)
+    // Writing PBA sets the receive portion of the buffer
+    // the remainder is used for the transmit buffer.
+    let pba = IGC_PBA_34K;
+
+    // These parameters control the automatic generation (Tx) and
+    // response (Rx) to Ethernet PAUSE frames.
+    // - High water mark should allow for at least two frames to be
+    //   received after sending an XOFF.
+    // - Low water mark works best when it is very near the high water mark.
+    //   This allows the receiver to restart by sending XON when it has
+    //   drained a bit. Here we use an arbitrary value of 1500 which will
+    //   restart after one full frame is pulled from the buffer. There
+    //   could be several smaller frames in the buffer and if so they will
+    //   not trigger the XON until their total number reduces the buffer
+    //   by 1500.
+    // - The pause time is fairly large at 1000 x 512ns = 512 usec.
+    let rx_buffer_size = (pba & 0xffff) << 10;
+    hw.fc.high_water = rx_buffer_size - roundup2(hw.mac.max_frame_size, 1024);
+    // 16-byte granularity
+    hw.fc.low_water = hw.fc.high_water - 16;
+
+    // locally set flow control value?
+    if sc_fc != IgcFcMode::None {
+        hw.fc.requested_mode = sc_fc;
+    } else {
+        hw.fc.requested_mode = IgcFcMode::Full;
+    }
+
+    hw.fc.pause_time = IGC_FC_PAUSE_TIME;
+
+    hw.fc.send_xon = true;
+
+    // Issue a global reset
+    ops.reset_hw(info, hw)?;
+    write_reg(info, IGC_WUC, 0)?;
+
+    // and a re-init
+    ops.init_hw(info, hw)?;
+
+    // Setup DMA Coalescing
+    igc_init_dmac(info, hw, pba, sc_dmac)?;
+
+    write_reg(info, IGC_VET, ETHER_TYPE_VLAN as u32)?;
+    ops.get_info(info, hw)?;
+    ops.check_for_link(info, hw)?;
+
+    Ok(())
+}
+
+/// igc_get_hw_control sets the {CTRL_EXT|FWSM}:DRV_LOAD bit.
+/// For ASF and Pass Through versions of f/w this means
+/// that the driver is loaded. For AMT version type f/w
+/// this means that the network i/f is open.
+fn igc_get_hw_control(info: &mut PCIeInfo) -> Result<(), IgcDriverErr> {
+    let ctrl_ext = read_reg(info, igc_regs::IGC_CTRL_EXT)?;
+    write_reg(
+        info,
+        igc_regs::IGC_CTRL_EXT,
+        ctrl_ext | IGC_CTRL_EXT_DRV_LOAD,
+    )
+}
+
+fn roundup2<T>(size: T, unit: T) -> T
+where
+    T: Copy
+        + core::ops::Add<Output = T>
+        + core::ops::BitAnd<Output = T>
+        + core::ops::Sub<Output = T>
+        + core::ops::Not<Output = T>
+        + From<u8>,
+{
+    let one = T::from(1);
+    (size + unit - one) & !(unit - one)
+}
+
+impl IgcInner {
+    fn new(ops: Box<dyn IgcOperations + Sync + Send>, info: PCIeInfo, hw: IgcHw) -> Self {
+        Self {
+            ops,
+            info,
+            hw,
+            link_active: false,
+            link_speed: None,
+            link_duplex: None,
+            link_status: LinkStatus::Down,
+        }
+    }
+
+    fn igc_update_link_status(
+        &mut self,
+        ops: &dyn IgcOperations,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(), IgcDriverErr> {
+        if hw.mac.get_link_status {
+            ops.check_for_link(info, hw)?;
+        }
+
+        self.link_status = if read_reg(info, igc_regs::IGC_STATUS)? & IGC_STATUS_LU != 0 {
+            if !self.link_active {
+                let (speed, duplex) = ops.get_link_up_info(info, hw)?;
+                self.link_speed = Some(speed);
+                self.link_duplex = Some(duplex);
+                self.link_active = true;
+            }
+
+            if self.link_duplex == Some(IgcDuplex::Full) {
+                LinkStatus::UpFullDuplex
+            } else {
+                LinkStatus::UpHalfDuplex
+            }
+        } else {
+            if self.link_active {
+                self.link_speed = None;
+                self.link_duplex = None;
+                self.link_active = false;
+            }
+            LinkStatus::Down
+        };
+
+        Ok(())
+    }
 }

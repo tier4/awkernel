@@ -51,7 +51,7 @@ fn verify_fw_version_82599<T: IxgbeOperations + ?Sized>(
         .eeprom_read(info, &mut hw.eeprom, IXGBE_FW_PTR, &mut fw_offset)
         .is_err()
     {
-        log::error!("eeprom read at offset {} failed", IXGBE_FW_PTR);
+        log::error!("eeprom read at offset {IXGBE_FW_PTR} failed");
         return Err(IxgbeDriverErr::EepromVersion);
     }
 

@@ -7,6 +7,14 @@ pub struct IpAddr {
 }
 
 impl IpAddr {
+    #[inline(always)]
+    pub fn new(addr: core::net::IpAddr) -> Self {
+        match addr {
+            core::net::IpAddr::V4(addr) => IpAddr::new_v4(addr),
+            core::net::IpAddr::V6(addr) => IpAddr::new_v6(addr),
+        }
+    }
+
     pub fn new_v4(addr: Ipv4Addr) -> IpAddr {
         let octets = addr.octets();
         IpAddr {

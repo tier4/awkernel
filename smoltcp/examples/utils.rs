@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "phy-tuntap_interface")]
 use smoltcp::phy::TunTapInterface;
-use smoltcp::phy::{Device, FaultInjector, Medium, Tracer};
+use smoltcp::phy::{Device, FaultInjector, Tracer};
 use smoltcp::phy::{PcapMode, PcapWriter};
 use smoltcp::time::{Duration, Instant};
 
@@ -98,6 +98,8 @@ pub fn add_tuntap_options(opts: &mut Options, _free: &mut [&str]) {
 
 #[cfg(feature = "phy-tuntap_interface")]
 pub fn parse_tuntap_options(matches: &mut Matches) -> TunTapInterface {
+    use smoltcp::phy::Medium;
+
     let tun = matches.opt_str("tun");
     let tap = matches.opt_str("tap");
     match (tun, tap) {

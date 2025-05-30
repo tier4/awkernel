@@ -76,7 +76,7 @@ impl RRScheduler {
         if let Some(last_executed) = get_last_executed_by_task_id(task_id) {
             let elapsed = last_executed.elapsed().as_micros() as u64;
             if elapsed > self.interval {
-                set_need_preemption(task_id);
+                set_need_preemption(task_id, cpu_id);
                 awkernel_lib::interrupt::send_ipi(preempt_irq, cpu_id as u32);
             }
         }

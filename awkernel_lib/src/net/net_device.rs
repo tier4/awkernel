@@ -120,7 +120,7 @@ impl Display for NetCapabilities {
             s.push_str("WOL ");
         }
 
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 

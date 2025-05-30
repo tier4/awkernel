@@ -159,7 +159,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     {
         let _guard = TALLOC.save();
         unsafe { TALLOC.use_primary_then_backup() };
-        log::error!("panic: {}", info);
+        log::error!("panic: {info}");
     }
 
     awkernel_async_lib::task::panicking();

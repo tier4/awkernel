@@ -284,6 +284,7 @@ impl InterruptController for GICv2 {
     }
 
     fn irq_range(&self) -> (u16, u16) {
+        // IRQ #0: preemption
         (1, self.max_it)
     }
 

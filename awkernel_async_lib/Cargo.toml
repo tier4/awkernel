@@ -12,10 +12,14 @@ array-macro = "2.1"
 fixedbitset = "0.5.7"
 
 [dependencies.futures]
-git = "https://github.com/ytakano/futures-rs.git"
-# version = "0.3"
+version = "0.3"
 default-features = false
 features = ["alloc", "async-await"]
+
+[dependencies.futures-util]
+version = "0.3"
+default-features = false
+features = ["alloc", "async-await", "async-await-macro"]
 
 [dependencies.awkernel_lib]
 path = "../awkernel_lib"
@@ -24,21 +28,13 @@ default-features = false
 [dependencies.awkernel_async_lib_verified]
 path = "../awkernel_async_lib_verified"
 
+[dependencies.awkernel_futures_macro]
+path = "../awkernel_futures_macro"
+
 [dependencies.smoltcp]
 path = "../smoltcp"
 default-features = false
-features = [
-    "alloc",
-    "async",
-    "log",
-    "socket-udp",
-    "socket-tcp",
-    "proto-ipv4",
-    "proto-ipv6",
-    "socket-icmp",
-    "medium-ethernet",
-    "proto-igmp",
-]
+features = ["awkernel"]
 
 [features]
 default = []
