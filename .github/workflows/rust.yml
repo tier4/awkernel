@@ -20,9 +20,9 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install Rust nightly
-        run: rustup toolchain install nightly-2025-02-27
+        run: rustup toolchain install nightly-2025-04-29
       - name: Use Rust nightly
-        run: rustup default nightly-2025-02-27
+        run: rustup default nightly-2025-04-29
       - name: Add Rust components
         run: rustup component add rust-src llvm-tools-preview clippy rustfmt
       - name: Add Rust targets
@@ -66,9 +66,11 @@ jobs:
         run: cargo clippy_rv64 -- --deny warnings
       - name: Clippy std
         run: cargo clippy_std -- --deny warnings
+      - name: Clippy rd_gen_to_dags
+        run: cargo clippy_rd_gen_to_dags -- --deny warnings
 
       - name: udeps
         run: make udeps
 
       - name: test
-        run: make test
+        run: RUSTFLAGS="-D warnings" make test

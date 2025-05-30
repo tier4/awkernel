@@ -14,6 +14,10 @@ path = "../awkernel_async_lib"
 [dependencies.awkernel_services]
 path = "../applications/awkernel_services"
 
+[dependencies.rd_gen_to_dags]
+path = "../applications/rd_gen_to_dags"
+optional = true
+
 [dependencies.test_pubsub]
 path = "../applications/tests/test_pubsub"
 optional = true
@@ -70,9 +74,20 @@ optional = true
 path = "../applications/tests/test_dag"
 optional = true
 
+[dependencies.test_dvfs]
+path = "../applications/tests/test_dvfs"
+optional = true
+
+[dependencies.test_voluntary_preemption]
+path = "../applications/tests/test_voluntary_preemption"
+optional = true
+
 [features]
-default = ["test_load_udp"]
+default = []
 perf = ["awkernel_services/perf"]
+
+# Evaluation applications
+rd_gen_to_dags = ["dep:rd_gen_to_dags"]
 
 # Test applications
 test_network = ["dep:test_network"]
@@ -89,3 +104,4 @@ test_measure_channel = ["dep:test_measure_channel"]
 test_measure_channel_heavy = ["dep:test_measure_channel_heavy"]
 test_sched_preempt = ["dep:test_sched_preempt"]
 test_dag = ["dep:test_dag"]
+test_voluntary_preemption = ["dep:test_voluntary_preemption"]

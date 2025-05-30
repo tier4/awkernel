@@ -39,6 +39,7 @@ pub mod intel;
 pub mod pcie_class;
 pub mod pcie_id;
 pub mod raspi;
+pub mod virtio;
 
 static PCIE_TREES: Mutex<BTreeMap<u16, Arc<PCIeTree>>> = Mutex::new(BTreeMap::new());
 
@@ -284,7 +285,7 @@ impl fmt::Display for PCIeTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (_, bus) in self.tree.iter() {
             if !bus.devices.is_empty() {
-                write!(f, "{}", bus)?;
+                write!(f, "{bus}")?;
             }
         }
 
@@ -451,7 +452,7 @@ fn print_pcie_devices(device: &dyn PCIeDevice, f: &mut fmt::Formatter, indent: u
                     );
 
                     let indent_str = " ".repeat((indent as usize + 1) * 4);
-                    write!(f, "{}{}\r\n", indent_str, name)?;
+                    write!(f, "{indent_str}{name}\r\n")?;
                 }
                 ChildDevice::Bus(bus) => {
                     print_pcie_devices(bus.as_ref(), f, indent + 1)?;
@@ -648,7 +649,7 @@ fn init<F>(
 
     bus_tree.attach();
 
-    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{}", bus_tree);
+    log::info!("PCIe: segment_group = {segment_group:04x}\r\n{bus_tree}");
 
     let mut node = MCSNode::new();
     let mut pcie_trees = PCIE_TREES.lock(&mut node);
@@ -674,6 +675,7 @@ pub struct PCIeInfo {
     msi: Option<capability::msi::Msi>,
     msix: Option<capability::msix::Msix>,
     pcie_cap: Option<capability::pcie_cap::PCIeCap>,
+    virtio_caps: Vec<capability::virtio::VirtioCap>,
 
     // The bridge having this device.
     bridge_bus_number: Option<u8>,
@@ -775,6 +777,7 @@ impl PCIeInfo {
             msi: None,
             msix: None,
             pcie_cap: None,
+            virtio_caps: Vec::new(),
             bridge_bus_number: None,
             bridge_device_number: None,
             bridge_function_number: None,
@@ -987,29 +990,9 @@ impl PCIeInfo {
 
     /// Initialize the PCIe device based on the information
     fn attach(self) -> Result<Arc<dyn PCIeDevice + Sync + Send>, PCIeDeviceErr> {
-        let segment_group = self.segment_group;
-        let bus_number = self.bus_number;
-        let device_number = self.device_number;
-        let function_number = self.function_number;
-        let vendor = self.vendor;
-        let id = self.id;
-
         match self.vendor {
             pcie_id::INTEL_VENDOR_ID => {
-                #[cfg(feature = "igb")]
-                if intel::igb::match_device(self.vendor, self.id) {
-                    return intel::igb::attach(self);
-                }
-
-                #[cfg(feature = "ixgbe")]
-                if intel::ixgbe::match_device(self.vendor, self.id) {
-                    return intel::ixgbe::attach(self);
-                }
-
-                // Example of the driver for Intel E1000e.
-                if intel::e1000e_example::match_device(self.vendor, self.id) {
-                    return intel::e1000e_example::attach(self);
-                }
+                return intel::attach(self);
             }
             pcie_id::RASPI_VENDOR_ID =>
             {
@@ -1024,18 +1007,13 @@ impl PCIeInfo {
                     return broadcom::bcm2712::attach(self);
                 }
             }
+            pcie_id::VIRTIO_VENDOR_ID => {
+                return virtio::attach(self);
+            }
             _ => (),
         }
 
-        Ok(Arc::new(UnknownDevice {
-            segment_group,
-            bus_number,
-            device_number,
-            function_number,
-            vendor,
-            id,
-            pcie_class: self.pcie_class,
-        }))
+        Ok(self.unknown_device())
     }
 
     pub fn disable_legacy_interrupt(&mut self) {
@@ -1046,6 +1024,18 @@ impl PCIeInfo {
     pub fn enable_legacy_interrupt(&mut self) {
         let reg = self.read_status_command();
         self.write_status_command(reg & !registers::StatusCommand::INTERRUPT_DISABLE);
+    }
+
+    fn unknown_device(self) -> Arc<dyn PCIeDevice + Sync + Send> {
+        Arc::new(UnknownDevice {
+            segment_group: self.segment_group,
+            bus_number: self.bus_number,
+            device_number: self.device_number,
+            function_number: self.function_number,
+            vendor: self.vendor,
+            id: self.id,
+            pcie_class: self.pcie_class,
+        })
     }
 }
 

@@ -251,7 +251,7 @@ enum PCIeInt {
 
 impl From<IxgbeDriverErr> for PCIeDeviceErr {
     fn from(value: IxgbeDriverErr) -> Self {
-        log::error!("ixgbe: {:?}", value);
+        log::error!("ixgbe: {value:?}");
         match value {
             IxgbeDriverErr::NotImplemented => PCIeDeviceErr::NotImplemented,
             IxgbeDriverErr::ReadFailure => PCIeDeviceErr::ReadFailure,
@@ -1522,6 +1522,12 @@ impl Ixgbe {
         let mut node = MCSNode::new();
         let mut rx = que.rx.lock(&mut node);
 
+        let Some(read_buf) = rx.read_buf.as_ref() else {
+            return Err(IxgbeDriverErr::DMAPool);
+        };
+
+        let buf_phy_addr = read_buf.get_phy_addr().as_usize();
+
         let mut i = rx.rx_desc_head as usize;
         let mut prev;
         let rx_desc_tail = rx.rx_desc_tail;
@@ -1539,8 +1545,8 @@ impl Ixgbe {
             }
 
             let desc = &mut rx_desc_ring[i];
-            desc.wb.upper_status_error = 0;
-            desc.wb.upper_length = MCLBYTES as u16;
+            desc.data = [0; 2];
+            desc.read.pkt_addr = (buf_phy_addr + i * MCLBYTES as usize) as u64;
         }
 
         rx.rx_desc_head = prev as u32;
@@ -1937,7 +1943,7 @@ fn allocate_msix(
         irqs.push((irq_rxtx, IRQRxTxLink::RxTx(q.me)));
     }
 
-    let irq_name_tx = format!("{}-{}-Other", DEVICE_SHORT_NAME, bfd);
+    let irq_name_tx = format!("{DEVICE_SHORT_NAME}-{bfd}-Other");
     let mut irq_other = msix
         .register_handler(
             irq_name_tx.into(),
@@ -2150,10 +2156,10 @@ impl NetDevice for Ixgbe {
         if !inner.flags.contains(NetFlags::UP) {
             if let Err(err_init) = inner.init(&self.que) {
                 if let Err(err_stop) = inner.stop(&self.que) {
-                    log::error!("ixgbe: stop failed: {:?}", err_stop);
+                    log::error!("ixgbe: stop failed: {err_stop:?}");
                 }
 
-                log::error!("ixgbe: init failed: {:?}", err_init);
+                log::error!("ixgbe: init failed: {err_init:?}");
                 Err(NetDevError::DeviceError)
             } else {
                 inner.flags.insert(NetFlags::UP);
@@ -2169,7 +2175,7 @@ impl NetDevice for Ixgbe {
 
         if inner.flags.contains(NetFlags::UP) {
             if let Err(e) = inner.stop(&self.que) {
-                log::error!("ixgbe: stop failed: {:?}", e);
+                log::error!("ixgbe: stop failed: {e:?}");
                 Err(NetDevError::DeviceError)
             } else {
                 inner.flags.remove(NetFlags::UP);

@@ -12,10 +12,15 @@
 //! ```
 
 use crate::{console::Console, delay};
-use log::Level;
+use log::{Level, Log};
 
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
+
+static mut LOGGER: Logger = Logger {
+    raw_console: None,
+    buf_console: None,
+};
 
 /// Format a logging message and print it out.
 pub fn write_msg(writer: &mut dyn Console, record: &log::Record) {
@@ -56,5 +61,64 @@ pub fn format_msg(record: &log::Record) -> String {
                 alloc::format!("{head}{}\r\n", record.args())
             }
         }
+    }
+}
+
+struct Logger {
+    raw_console: Option<&'static dyn Log>,
+    buf_console: Option<&'static dyn Log>,
+}
+
+impl Log for Logger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        if let Some(log) = self.buf_console {
+            log.enabled(metadata)
+        } else if let Some(log) = self.raw_console {
+            log.enabled(metadata)
+        } else {
+            false
+        }
+    }
+
+    fn log(&self, record: &log::Record) {
+        if let Some(log) = self.buf_console {
+            log.log(record);
+        } else if let Some(log) = self.raw_console {
+            log.log(record);
+        }
+    }
+
+    fn flush(&self) {
+        if let Some(log) = self.buf_console {
+            log.flush();
+        } else if let Some(log) = self.raw_console {
+            log.flush();
+        }
+    }
+}
+
+pub fn set_raw_console(logger: &'static dyn Log) {
+    let ptr = &raw mut LOGGER;
+    unsafe {
+        (*ptr).raw_console = Some(logger);
+    }
+}
+
+pub fn set_buf_console(logger: &'static dyn Log) {
+    let ptr = &raw mut LOGGER;
+    unsafe {
+        (*ptr).buf_console = Some(logger);
+    }
+}
+
+/// Initialize the logger.
+///
+/// # Safety
+///
+/// This function must be called once.
+pub unsafe fn init() {
+    let ptr = &raw const LOGGER;
+    unsafe {
+        let _ = log::set_logger(&*ptr);
     }
 }

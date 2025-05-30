@@ -1,6 +1,6 @@
-//! # awkernel_async_lib: Asynchronous library for Autoware Kernel
+//! # awkernel_async_lib: Asynchronous library for Awkernel
 //!
-//! Autoware Kernel is an operating system, and this is an asynchronous library
+//! Awkernel is an operating system, and this is an asynchronous library
 //! to provide APIs like to Robot Operating System 2 (ROS2).
 //! For example, there are asynchronous APIs for publish and subscribe
 //! communications.
@@ -27,6 +27,7 @@ pub mod sync;
 pub mod task;
 pub mod time;
 mod timeout_call;
+pub mod utils;
 mod yield_task;
 
 #[cfg(test)]
@@ -38,7 +39,10 @@ use core::time::Duration;
 use futures::{channel::oneshot, Future};
 use join_handle::JoinHandle;
 
-pub use futures::{select, select_biased};
+#[doc(hidden)]
+pub use awkernel_futures_macro::select_internal;
+
+pub use futures::select_biased;
 
 pub use awkernel_lib::{
     cpu::cpu_id,
@@ -48,6 +52,57 @@ pub use awkernel_lib::{
 use pubsub::{
     Attribute, MultipleReceiver, MultipleSender, VectorToPublishers, VectorToSubscribers,
 };
+
+#[doc(hidden)]
+pub use futures_util as __futures_crate;
+
+/// Polls multiple futures and streams simultaneously, executing the branch
+/// for the future that finishes first. If multiple futures are ready,
+/// one will be pseudo-randomly selected at runtime. Futures directly
+/// passed to `select!` must be `Unpin` and implement `FusedFuture`.
+///
+/// If an expression which yields a `Future` is passed to `select!`
+/// (e.g. an `async fn` call) instead of a `Future` by name the `Unpin`
+/// requirement is relaxed, since the macro will pin the resulting `Future`
+/// on the stack. However the `Future` returned by the expression must
+/// still implement `FusedFuture`.
+///
+/// Futures and streams which are not already fused can be fused using the
+/// `.fuse()` method. Note, though, that fusing a future or stream directly
+/// in the call to `select!` will not be enough to prevent it from being
+/// polled after completion if the `select!` call is in a loop, so when
+/// `select!`ing in a loop, users should take care to `fuse()` outside of
+/// the loop.
+///
+/// `select!` can be used as an expression and will return the return
+/// value of the selected branch. For this reason the return type of every
+/// branch in a `select!` must be the same.
+///
+/// This macro is only usable inside of async functions, closures, and blocks.
+/// It is also gated behind the `async-await` feature of this library, which is
+/// activated by default.
+///
+/// # Examples
+///
+/// ```
+/// use awkernel_async_lib::{future::FutureExt, select};
+///
+/// async fn select_example() {
+///     select! {
+///         a = async { 1 }.fuse() => a,
+///         b = async { 2 }.fuse() => b
+///     };
+/// }
+/// ```
+#[macro_export]
+macro_rules! select {
+    ($($tokens:tt)*) => {{
+        use $crate::__futures_crate as __futures_crate;
+        $crate::select_internal! {
+            $( $tokens )*
+        }
+    }}
+}
 
 pub trait Cancel: Future + Unpin {
     fn cancel(self: core::pin::Pin<&mut Self>) {
@@ -260,6 +315,31 @@ where
             sleep(period).await; //TODO(sykwer):Improve the accuracy of the period.
             let results = f();
             publishers.send_all(results).await;
+        }
+    };
+
+    crate::task::spawn(reactor_name, future, sched_type)
+}
+
+pub async fn spawn_sink_reactor<F, Args>(
+    reactor_name: Cow<'static, str>,
+    f: F,
+    subscribe_topic_names: Vec<Cow<'static, str>>,
+    sched_type: SchedulerType,
+) -> u32
+where
+    F: Fn(<Args::Subscribers as MultipleReceiver>::Item) + Send + 'static,
+    Args: VectorToSubscribers,
+    Args::Subscribers: Send,
+{
+    let future = async move {
+        let subscribers: <Args as VectorToSubscribers>::Subscribers =
+            Args::create_subscribers(subscribe_topic_names, Attribute::default());
+
+        loop {
+            let args: <<Args as VectorToSubscribers>::Subscribers as MultipleReceiver>::Item =
+                subscribers.recv_all().await;
+            f(args);
         }
     };
 

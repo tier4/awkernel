@@ -77,6 +77,10 @@ impl<T: Send> Sender<T> {
             }
 
             chan.queue.push_back(data);
+
+            if let Some(waker_receiver) = chan.waker_receiver.take() {
+                waker_receiver.wake();
+            }
         }
 
         Ok(())
