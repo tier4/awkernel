@@ -176,12 +176,19 @@ pub(super) const IGC_STATUS_2P5_SKU: u32 = 0x00001000; // Val of 2.5GBE SKU stra
 pub(super) const IGC_STATUS_2P5_SKU_OVER: u32 = 0x00002000; // Val of 2.5GBE SKU Over
 pub(super) const IGC_STATUS_PCIM_STATE: u32 = 0x40000000; // PCIm function state
 
-pub(super) const SPEED_10: u32 = 10;
-pub(super) const SPEED_100: u32 = 100;
-pub(super) const SPEED_1000: u32 = 1000;
-pub(super) const SPEED_2500: u32 = 2500;
-pub(super) const HALF_DUPLEX: u32 = 1;
-pub(super) const FULL_DUPLEX: u32 = 2;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum IgcSpeed {
+    Speed10 = 10,
+    Speed100 = 100,
+    Speed1000 = 1000,
+    Speed2500 = 2500,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum IgcDuplex {
+    Half = 1,
+    Full = 2,
+}
 
 pub(super) const ADVERTISE_10_HALF: u16 = 0x0001;
 pub(super) const ADVERTISE_10_FULL: u16 = 0x0002;
@@ -421,6 +428,9 @@ pub(super) const IGC_RAH_AV: u32 = 0x80000000; // Receive descriptor valid
 pub(super) const IGC_RAL_MAC_ADDR_LEN: usize = 4;
 pub(super) const IGC_RAH_MAC_ADDR_LEN: usize = 2;
 
+// Flow Control
+pub(super) const IGC_FCRTL_XONE: u32 = 0x80000000; // Enable XON frame transmission
+
 // Loop limit on how long we wait for auto-negotiation to complete
 pub(super) const COPPER_LINK_UP_LIMIT: u32 = 10;
 pub(super) const PHY_AUTO_NEG_LIMIT: u32 = 45;
@@ -496,46 +506,46 @@ pub(super) const MII_CR_SPEED_100: u16 = 0x2000;
 pub(super) const MII_CR_SPEED_10: u16 = 0x0000;
 
 // PHY Status Register
-pub(super) const MII_SR_EXTENDED_CAPS: u32 = 0x0001; // Extended register capabilities
-pub(super) const MII_SR_JABBER_DETECT: u32 = 0x0002; // Jabber Detected
-pub(super) const MII_SR_LINK_STATUS: u32 = 0x0004; // Link Status 1 = link
-pub(super) const MII_SR_AUTONEG_CAPS: u32 = 0x0008; // Auto Neg Capable
-pub(super) const MII_SR_REMOTE_FAULT: u32 = 0x0010; // Remote Fault Detect
-pub(super) const MII_SR_AUTONEG_COMPLETE: u32 = 0x0020; // Auto Neg Complete
-pub(super) const MII_SR_PREAMBLE_SUPPRESS: u32 = 0x0040; // Preamble may be suppressed
-pub(super) const MII_SR_EXTENDED_STATUS: u32 = 0x0100; // Ext. status info in Reg 0x0F
-pub(super) const MII_SR_100T2_HD_CAPS: u32 = 0x0200; // 100T2 Half Duplex Capable
-pub(super) const MII_SR_100T2_FD_CAPS: u32 = 0x0400; // 100T2 Full Duplex Capable
-pub(super) const MII_SR_10T_HD_CAPS: u32 = 0x0800; // 10T   Half Duplex Capable
-pub(super) const MII_SR_10T_FD_CAPS: u32 = 0x1000; // 10T   Full Duplex Capable
-pub(super) const MII_SR_100X_HD_CAPS: u32 = 0x2000; // 100X  Half Duplex Capable
-pub(super) const MII_SR_100X_FD_CAPS: u32 = 0x4000; // 100X  Full Duplex Capable
-pub(super) const MII_SR_100T4_CAPS: u32 = 0x8000; // 100T4 Capable
+pub(super) const MII_SR_EXTENDED_CAPS: u16 = 0x0001; // Extended register capabilities
+pub(super) const MII_SR_JABBER_DETECT: u16 = 0x0002; // Jabber Detected
+pub(super) const MII_SR_LINK_STATUS: u16 = 0x0004; // Link Status 1 = link
+pub(super) const MII_SR_AUTONEG_CAPS: u16 = 0x0008; // Auto Neg Capable
+pub(super) const MII_SR_REMOTE_FAULT: u16 = 0x0010; // Remote Fault Detect
+pub(super) const MII_SR_AUTONEG_COMPLETE: u16 = 0x0020; // Auto Neg Complete
+pub(super) const MII_SR_PREAMBLE_SUPPRESS: u16 = 0x0040; // Preamble may be suppressed
+pub(super) const MII_SR_EXTENDED_STATUS: u16 = 0x0100; // Ext. status info in Reg 0x0F
+pub(super) const MII_SR_100T2_HD_CAPS: u16 = 0x0200; // 100T2 Half Duplex Capable
+pub(super) const MII_SR_100T2_FD_CAPS: u16 = 0x0400; // 100T2 Full Duplex Capable
+pub(super) const MII_SR_10T_HD_CAPS: u16 = 0x0800; // 10T   Half Duplex Capable
+pub(super) const MII_SR_10T_FD_CAPS: u16 = 0x1000; // 10T   Full Duplex Capable
+pub(super) const MII_SR_100X_HD_CAPS: u16 = 0x2000; // 100X  Half Duplex Capable
+pub(super) const MII_SR_100X_FD_CAPS: u16 = 0x4000; // 100X  Full Duplex Capable
+pub(super) const MII_SR_100T4_CAPS: u16 = 0x8000; // 100T4 Capable
 
 // Autoneg Advertisement Register
-pub(super) const NWAY_AR_SELECTOR_FIELD: u32 = 0x0001; // indicates IEEE 802.3 CSMA/CD
-pub(super) const NWAY_AR_10T_HD_CAPS: u32 = 0x0020; // 10T   Half Duplex Capable
-pub(super) const NWAY_AR_10T_FD_CAPS: u32 = 0x0040; // 10T   Full Duplex Capable
-pub(super) const NWAY_AR_100TX_HD_CAPS: u32 = 0x0080; // 100TX Half Duplex Capable
-pub(super) const NWAY_AR_100TX_FD_CAPS: u32 = 0x0100; // 100TX Full Duplex Capable
-pub(super) const NWAY_AR_100T4_CAPS: u32 = 0x0200; // 100T4 Capable
-pub(super) const NWAY_AR_PAUSE: u32 = 0x0400; // Pause operation desired
-pub(super) const NWAY_AR_ASM_DIR: u32 = 0x0800; // Asymmetric Pause Direction bit
-pub(super) const NWAY_AR_REMOTE_FAULT: u32 = 0x2000; // Remote Fault detected
-pub(super) const NWAY_AR_NEXT_PAGE: u32 = 0x8000; // Next Page ability supported
+pub(super) const NWAY_AR_SELECTOR_FIELD: u16 = 0x0001; // indicates IEEE 802.3 CSMA/CD
+pub(super) const NWAY_AR_10T_HD_CAPS: u16 = 0x0020; // 10T   Half Duplex Capable
+pub(super) const NWAY_AR_10T_FD_CAPS: u16 = 0x0040; // 10T   Full Duplex Capable
+pub(super) const NWAY_AR_100TX_HD_CAPS: u16 = 0x0080; // 100TX Half Duplex Capable
+pub(super) const NWAY_AR_100TX_FD_CAPS: u16 = 0x0100; // 100TX Full Duplex Capable
+pub(super) const NWAY_AR_100T4_CAPS: u16 = 0x0200; // 100T4 Capable
+pub(super) const NWAY_AR_PAUSE: u16 = 0x0400; // Pause operation desired
+pub(super) const NWAY_AR_ASM_DIR: u16 = 0x0800; // Asymmetric Pause Direction bit
+pub(super) const NWAY_AR_REMOTE_FAULT: u16 = 0x2000; // Remote Fault detected
+pub(super) const NWAY_AR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
 
 // Link Partner Ability Register (Base Page)
-pub(super) const NWAY_LPAR_SELECTOR_FIELD: u32 = 0x0000; // LP protocol selector field
-pub(super) const NWAY_LPAR_10T_HD_CAPS: u32 = 0x0020; // LP 10T Half Dplx Capable
-pub(super) const NWAY_LPAR_10T_FD_CAPS: u32 = 0x0040; // LP 10T Full Dplx Capable
-pub(super) const NWAY_LPAR_100TX_HD_CAPS: u32 = 0x0080; // LP 100TX Half Dplx Capable
-pub(super) const NWAY_LPAR_100TX_FD_CAPS: u32 = 0x0100; // LP 100TX Full Dplx Capable
-pub(super) const NWAY_LPAR_100T4_CAPS: u32 = 0x0200; // LP is 100T4 Capable
-pub(super) const NWAY_LPAR_PAUSE: u32 = 0x0400; // LP Pause operation desired
-pub(super) const NWAY_LPAR_ASM_DIR: u32 = 0x0800; // LP Asym Pause Direction bit
-pub(super) const NWAY_LPAR_REMOTE_FAULT: u32 = 0x2000; // LP detected Remote Fault
-pub(super) const NWAY_LPAR_ACKNOWLEDGE: u32 = 0x4000; // LP rx'd link code word
-pub(super) const NWAY_LPAR_NEXT_PAGE: u32 = 0x8000; // Next Page ability supported
+pub(super) const NWAY_LPAR_SELECTOR_FIELD: u16 = 0x0000; // LP protocol selector field
+pub(super) const NWAY_LPAR_10T_HD_CAPS: u16 = 0x0020; // LP 10T Half Dplx Capable
+pub(super) const NWAY_LPAR_10T_FD_CAPS: u16 = 0x0040; // LP 10T Full Dplx Capable
+pub(super) const NWAY_LPAR_100TX_HD_CAPS: u16 = 0x0080; // LP 100TX Half Dplx Capable
+pub(super) const NWAY_LPAR_100TX_FD_CAPS: u16 = 0x0100; // LP 100TX Full Dplx Capable
+pub(super) const NWAY_LPAR_100T4_CAPS: u16 = 0x0200; // LP is 100T4 Capable
+pub(super) const NWAY_LPAR_PAUSE: u16 = 0x0400; // LP Pause operation desired
+pub(super) const NWAY_LPAR_ASM_DIR: u16 = 0x0800; // LP Asym Pause Direction bit
+pub(super) const NWAY_LPAR_REMOTE_FAULT: u16 = 0x2000; // LP detected Remote Fault
+pub(super) const NWAY_LPAR_ACKNOWLEDGE: u16 = 0x4000; // LP rx'd link code word
+pub(super) const NWAY_LPAR_NEXT_PAGE: u16 = 0x8000; // Next Page ability supported
 
 // Autoneg Expansion Register
 pub(super) const NWAY_ER_LP_NWAY_CAPS: u32 = 0x0001; // LP has Auto Neg Capability
@@ -620,7 +630,7 @@ pub(super) const IGC_EECD_FLUPD_I225: u32 = 0x00800000; // Update FLASH
 pub(super) const IGC_EECD_FLUDONE_I225: u32 = 0x04000000; // Update FLASH done
 pub(super) const IGC_EECD_FLASH_DETECTED_I225: u32 = 0x00080000; // FLASH detected
 pub(super) const IGC_FLUDONE_ATTEMPTS: u32 = 20000;
-pub(super) const IGC_EERD_EEWR_MAX_COUNT: u32 = 512; // buffered EEPROM words rw
+pub(super) const IGC_EERD_EEWR_MAX_COUNT: u16 = 512; // buffered EEPROM words rw
 pub(super) const IGC_EECD_SEC1VAL_I225: u32 = 0x02000000; // Sector One Valid
 pub(super) const IGC_FLSECU_BLK_SW_ACCESS_I225: u32 = 0x00000004; // Block SW access
 pub(super) const IGC_FWSM_FW_VALID_I225: u32 = 0x8000; // FW valid bit
@@ -647,7 +657,10 @@ pub(super) const NVM_SWDEF_PINS_CTRL_PORT_0: u32 = 0x0020;
 pub(super) const NVM_INIT_CONTROL3_PORT_A: u32 = 0x0024;
 pub(super) const NVM_CFG: u32 = 0x0012;
 pub(super) const NVM_ALT_MAC_ADDR_PTR: u16 = 0x0037;
-pub(super) const NVM_CHECKSUM_REG: u32 = 0x003F;
+pub(super) const NVM_CHECKSUM_REG: u16 = 0x003F;
+
+// For checksumming, the sum of all words in the NVM should equal 0xBABA.
+pub(super) const NVM_SUM: u16 = 0xBABA;
 
 // PBA (printed board assembly) number words
 pub(super) const NVM_PBA_OFFSET_0: u32 = 8;

@@ -12,7 +12,7 @@ pub async fn run() {
 
     let dag = create_dag();
 
-    dag.spawn_periodic_reactor::<_, (i32,)>(
+    dag.register_periodic_reactor::<_, (i32,)>(
         "reactor_source_node".into(),
         || -> (i32,) {
             let number: i32 = 1;
@@ -25,7 +25,7 @@ pub async fn run() {
     )
     .await;
 
-    dag.spawn_reactor::<_, (i32,), (i32, i32)>(
+    dag.register_reactor::<_, (i32,), (i32, i32)>(
         "reactor_node1".into(),
         |(a,): (i32,)| -> (i32, i32) {
             log::debug!("value={} in reactor_node1", a);
@@ -37,7 +37,7 @@ pub async fn run() {
     )
     .await;
 
-    dag.spawn_reactor::<_, (i32,), (i32,)>(
+    dag.register_reactor::<_, (i32,), (i32,)>(
         "reactor_node2".into(),
         |(a,): (i32,)| -> (i32,) {
             log::debug!("value={} in reactor_node2", a * 2);
@@ -49,7 +49,7 @@ pub async fn run() {
     )
     .await;
 
-    dag.spawn_reactor::<_, (i32,), (i32,)>(
+    dag.register_reactor::<_, (i32,), (i32,)>(
         "reactor_node3".into(),
         |(a,): (i32,)| -> (i32,) {
             log::debug!("value={} in reactor_node3", a * 3);
@@ -61,7 +61,7 @@ pub async fn run() {
     )
     .await;
 
-    dag.spawn_sink_reactor::<_, (i32, i32)>(
+    dag.register_sink_reactor::<_, (i32, i32)>(
         "reactor_node4".into(),
         |(a, b): (i32, i32)| {
             log::debug!("value={} in reactor_node4", a + b);

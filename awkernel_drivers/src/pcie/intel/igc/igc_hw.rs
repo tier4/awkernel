@@ -1,4 +1,5 @@
 use awkernel_lib::net::ether::ETHER_ADDR_LEN;
+use bitflags::bitflags;
 
 use crate::pcie::{
     intel::igc::{igc_defines::*, igc_regs::*, read_reg, write_reg, write_reg_array},
@@ -46,15 +47,27 @@ pub const IGC_DEVICES: [(u16, u16); 15] = [
     (INTEL_VENDOR_ID, PCI_PRODUCT_INTEL_I226_V),
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcMacType {
+    #[default]
     Undefined,
     I225,
 }
 
+/// Because Rust does not support default derives for [u32, 128],
+/// we prepare a struct to hold the array and implement `Default`.
 #[derive(Debug)]
+struct MtaShadow([u32; 128]);
+
+impl Default for MtaShadow {
+    fn default() -> Self {
+        Self([0; 128])
+    }
+}
+
+#[derive(Debug, Default)]
 pub(super) struct IgcMacInfo {
-    addr: [u8; ETHER_ADDR_LEN],
+    pub(super) addr: [u8; ETHER_ADDR_LEN],
     perm_addr: [u8; ETHER_ADDR_LEN],
 
     pub(super) mac_type: IgcMacType,
@@ -67,61 +80,72 @@ pub(super) struct IgcMacInfo {
     ifs_ratio: u16,
     ifs_step_size: u16,
     pub(super) mta_reg_count: u16,
-    uta_reg_count: u16,
+    pub(super) uta_reg_count: u16,
 
-    mta_shadow: [u32; 128],
+    mta_shadow: MtaShadow,
     pub(super) rar_entry_count: u16,
 
     forced_speed_duplex: u8,
 
     pub(super) asf_firmware_present: bool,
-    autoneg: bool,
-    get_link_status: bool,
-    max_frame_size: u32,
+    pub(super) autoneg: bool,
+    pub(super) get_link_status: bool,
+    pub(super) max_frame_size: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum IgcFcMode {
-    None,
-    RxPause,
-    TxPause,
-    Full,
-    Default,
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(super) struct IgcFcMode: u8 {
+        const None = 0;
+        const RxPause = 1;
+        const TxPause = 1 << 1;
+        const Full = IgcFcMode::RxPause.bits() | IgcFcMode::TxPause.bits();
+        const Default = 0xff;
+    }
 }
 
-#[derive(Debug)]
-struct IgcFcInfo {
-    high_water: u32,           // Flow control high-water mark
-    low_water: u32,            // Flow control low-water mark
-    pause_time: u16,           // Flow control pause timer
-    refresh_time: u16,         // Flow control refresh timer
-    send_xon: bool,            // Flow control send XON
-    strict_ieee: bool,         // Strict IEEE mode
-    current_mode: IgcFcMode,   // FC mode in effect
-    requested_mode: IgcFcMode, // FC mode requested by caller
+impl Default for IgcFcMode {
+    fn default() -> Self {
+        IgcFcMode::Default
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default)]
+pub(super) struct IgcFcInfo {
+    pub(super) high_water: u32,           // Flow control high-water mark
+    pub(super) low_water: u32,            // Flow control low-water mark
+    pub(super) pause_time: u16,           // Flow control pause timer
+    refresh_time: u16,                    // Flow control refresh timer
+    pub(super) send_xon: bool,            // Flow control send XON
+    strict_ieee: bool,                    // Strict IEEE mode
+    pub(super) current_mode: IgcFcMode,   // FC mode in effect
+    pub(super) requested_mode: IgcFcMode, // FC mode requested by caller
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcPhyType {
+    #[default]
     Unknown,
     None,
     I225,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcSmartSpeed {
+    #[default]
     Default,
     On,
     Off,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcMediaType {
+    #[default]
     Unknown,
     Copper,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcPhyInfo {
     pub(super) phy_type: IgcPhyType,
 
@@ -134,25 +158,26 @@ pub(super) struct IgcPhyInfo {
 
     pub(super) media_type: IgcMediaType,
 
-    autoneg_advertised: u16,
+    pub(super) autoneg_advertised: u16,
     pub(super) autoneg_mask: u16,
 
-    mdix: u8,
+    pub(super) mdix: u8,
 
     polarity_correction: bool,
-    speed_downgraded: bool,
-    autoneg_wait_to_complete: bool,
+    pub(super) speed_downgraded: bool,
+    pub(super) autoneg_wait_to_complete: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum IgcNvmType {
+    #[default]
     Unknown,
     EepromSpi,
     FlashHw,
     Invm,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcNvmInfo {
     pub(super) nvm_type: IgcNvmType,
 
@@ -163,8 +188,9 @@ pub(super) struct IgcNvmInfo {
     pub(super) page_size: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusType {
+    #[default]
     Unknown,
     Pci,
     PciX,
@@ -172,8 +198,9 @@ enum IgcBusType {
     Reserved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusSpeed {
+    #[default]
     Unknown,
     Speed33,
     Speed66,
@@ -185,8 +212,9 @@ enum IgcBusSpeed {
     Reserved,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum IgcBusWidth {
+    #[default]
     Unknown = 0,
     PcieX1,
     PcieX2,
@@ -197,7 +225,7 @@ enum IgcBusWidth {
     Reserved,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcBusInfo {
     bus_type: IgcBusType,
     speed: IgcBusSpeed,
@@ -207,17 +235,17 @@ pub(super) struct IgcBusInfo {
     pci_cmd_word: u16,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcDevSpecI225 {
-    eee_disable: bool,
+    pub(super) eee_disable: bool,
     pub(super) clear_semaphore_once: bool,
-    mtu: u32,
+    pub(super) mtu: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct IgcHw {
     pub(super) mac: IgcMacInfo,
-    fc: IgcFcInfo,
+    pub(super) fc: IgcFcInfo,
     pub(super) phy: IgcPhyInfo,
     pub(super) nvm: IgcNvmInfo,
     pub(super) bus: IgcBusInfo,
@@ -235,12 +263,14 @@ pub(super) struct IgcHw {
 pub(super) trait IgcMacOperations {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
-    fn check_for_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn get_link_up_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+    fn check_for_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    fn get_link_up_info(
+        &self,
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+    ) -> Result<(IgcSpeed, IgcDuplex), IgcDriverErr>;
+
     fn update_mc_addr_list(
         &self,
         _info: &mut PCIeInfo,
@@ -248,15 +278,13 @@ pub(super) trait IgcMacOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn init_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
-    fn setup_link(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn reset_hw(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    fn init_hw(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
+    fn setup_link(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn setup_physical_interface(
         &self,
         _info: &mut PCIeInfo,
@@ -396,9 +424,11 @@ pub(super) trait IgcPhyOperations {
     ) -> Result<(), IgcDriverErr> {
         todo!()
     }
+
     fn get_info(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn set_page(
         &self,
         _info: &mut PCIeInfo,
@@ -479,6 +509,7 @@ pub(super) trait IgcPhyOperations {
     fn power_down(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 }
 
+#[allow(unused_variables)]
 pub(super) trait IgcNvmOperations {
     fn init_params(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
 
@@ -490,32 +521,33 @@ pub(super) trait IgcNvmOperations {
 
     fn read(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u16,
-        _words: u16,
-        _data: &mut [u16],
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &mut [u16],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
+
     fn reload(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
     fn update(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
         todo!()
     }
-    fn validate(&self, _info: &mut PCIeInfo, _hw: &mut IgcHw) -> Result<(), IgcDriverErr> {
-        todo!()
-    }
+
+    fn validate(&self, info: &mut PCIeInfo, hw: &mut IgcHw) -> Result<(), IgcDriverErr>;
+
     fn write(
         &self,
-        _info: &mut PCIeInfo,
-        _hw: &mut IgcHw,
-        _offset: u16,
-        _words: u16,
-        _data: &[u16],
+        info: &mut PCIeInfo,
+        hw: &mut IgcHw,
+        offset: u16,
+        words: u16,
+        data: &[u16],
     ) -> Result<(), IgcDriverErr> {
-        todo!()
+        Ok(())
     }
 }
 

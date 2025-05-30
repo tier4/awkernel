@@ -76,6 +76,35 @@ impl BaseAddress {
         }
     }
 
+    pub fn read8(&self, offset: usize) -> Option<u8> {
+        match self {
+            #[cfg(feature = "x86")]
+            BaseAddress::IO { addr, size, .. } => {
+                if offset >= *size {
+                    return None;
+                }
+
+                let mut port1 = x86_64::instructions::port::PortWriteOnly::new(0xCF8);
+                let mut port2 = x86_64::instructions::port::PortReadOnly::new(0xCFC);
+
+                let addr = *addr | ((offset as u32) & 0xfc);
+                let val = unsafe {
+                    port1.write(addr);
+                    let tmp: u32 = port2.read();
+                    (tmp >> ((offset as u32 & 3) * 8)) as u8
+                };
+
+                Some(val)
+            }
+            BaseAddress::Mmio { addr, size, .. } => {
+                let dst = *addr + offset;
+                assert!(dst + 1 < *addr + *size);
+                unsafe { Some(read_volatile(dst as *const u8)) }
+            }
+            _ => None,
+        }
+    }
+
     pub fn read16(&self, offset: usize) -> Option<u16> {
         assert_eq!(offset & 1, 0);
         match self {
@@ -92,7 +121,7 @@ impl BaseAddress {
                 let val = unsafe {
                     port1.write(addr);
                     let tmp: u32 = port2.read();
-                    (tmp >> (((offset as u32 & 2) * 8) & 0xffff)) as u16
+                    (tmp >> ((offset as u32 & 2) * 8)) as u16
                 };
 
                 Some(val)
@@ -155,7 +184,7 @@ impl BaseAddress {
             }
             BaseAddress::Mmio { addr, size, .. } => unsafe {
                 let dst = *addr + offset;
-                assert!(dst + 4 < *addr + *size);
+                assert!(dst + 1 < *addr + *size);
                 write_volatile(dst as *mut u8, val);
             },
             _ => (),

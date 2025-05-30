@@ -317,7 +317,7 @@ impl Raspi {
 
         // Raspberry Pi 4 has 5 UARTs.
         for i in 2..=5 {
-            let Ok(uart_arrayed_node) = self.get_device_from_symbols(&format!("uart{}", i)) else {
+            let Ok(uart_arrayed_node) = self.get_device_from_symbols(&format!("uart{i}")) else {
                 continue;
             };
 
@@ -338,7 +338,7 @@ impl Raspi {
                 continue;
             }
 
-            let Ok(pins_arrayed_node) = self.get_device_from_symbols(&format!("uart{}_pins", i))
+            let Ok(pins_arrayed_node) = self.get_device_from_symbols(&format!("uart{i}_pins"))
             else {
                 continue;
             };
@@ -527,7 +527,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find clk's base address")))?;
 
-        log::info!("CLK: 0x{:016x}", base_addr);
+        log::info!("CLK: 0x{base_addr:016x}");
 
         let clocks_node = self
             .device_tree
@@ -545,7 +545,7 @@ impl Raspi {
 
         let clock_freq = match clock_freq_prop.value() {
             PropertyValue::Integer(value) => {
-                log::info!("CLK-OSC clock-frequency: {} Hz", value);
+                log::info!("CLK-OSC clock-frequency: {value} Hz");
                 *value
             }
             _ => {
@@ -568,7 +568,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find SPI's base address")))?;
 
-        log::info!("SPI: 0x{:016x}", base_addr);
+        log::info!("SPI: 0x{base_addr:016x}");
 
         unsafe { hal::raspi::spi::set_spi_base(base_addr as usize) };
 
@@ -583,7 +583,7 @@ impl Raspi {
             .get_address(0)
             .or(Err(err_msg!("could not find PWM's base address")))?;
 
-        log::info!("PWM: 0x{:016x}", base_addr);
+        log::info!("PWM: 0x{base_addr:016x}");
 
         unsafe { hal::raspi::pwm::set_pwm_base(base_addr as usize) };
 
@@ -599,8 +599,7 @@ impl Raspi {
 
         if timer_node.compatible(&["arm,armv8-timer"]) {
             // IRQ #27 is the recommended value.
-            // every 1/2^19 = .000_001_9 [s].
-            let timer = Box::new(Armv8Timer::new(27, 19));
+            let timer = Box::new(Armv8Timer::new(27));
 
             awkernel_lib::timer::register_timer(timer);
 
@@ -694,8 +693,7 @@ impl Raspi {
         let phy_id = get_phy_id(leaf);
 
         log::info!(
-            "GENET: base_addr = 0x{:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}, phy_id = {phy_id:x?}",
-            base_addr
+            "GENET: base_addr = 0x{base_addr:016x}, irq0 = {irq0}, irq1 = {irq1}, phy_mode = {phy_mode}, mac_addr = {mac_addr:02x?}, phy_id = {phy_id:x?}",
         );
 
         if let Err(e) = awkernel_drivers::ic::genet::attach(
@@ -705,7 +703,7 @@ impl Raspi {
             phy_id,
             &mac_addr,
         ) {
-            log::error!("Failed to initialize GENET: {:?}", e);
+            log::error!("Failed to initialize GENET: {e:?}");
         }
 
         Ok(())

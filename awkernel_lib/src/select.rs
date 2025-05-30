@@ -105,7 +105,7 @@ pub fn wait(timeout: Duration) {
 
 /// Send an even to a task which is calling `poll()`.
 #[inline(always)]
-pub fn notify() {
+pub(super) fn notify() {
     #[cfg(target_os = "linux")]
     epoll::notify();
 

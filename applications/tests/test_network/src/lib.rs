@@ -5,8 +5,11 @@ extern crate alloc;
 use core::{net::Ipv4Addr, time::Duration};
 
 use alloc::format;
-use awkernel_async_lib::net::{tcp::TcpConfig, udp::UdpConfig, IpAddr};
-use awkernel_lib::net::NetManagerError;
+use awkernel_async_lib::net::{
+    tcp::TcpConfig,
+    udp::{UdpConfig, UdpSocketError},
+    IpAddr,
+};
 
 const INTERFACE_ID: u64 = 0;
 
@@ -25,7 +28,8 @@ const TCP_DST_PORT: u16 = 26099;
 const TCP_LISTEN_PORT: u16 = 26100;
 
 const MULTICAST_ADDR: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 123);
-const MULTICAST_PORT: u16 = 20001;
+const MULTICAST_PORT1: u16 = 20001;
+const MULTICAST_PORT2: u16 = 30001;
 
 pub async fn run() {
     awkernel_lib::net::add_ipv4_addr(INTERFACE_ID, INTERFACE_ADDR, 24);
@@ -70,7 +74,10 @@ async fn ipv4_multicast_send_test() {
     // Create a UDP socket on interface 0.
     let mut socket = awkernel_async_lib::net::udp::UdpSocket::bind_on_interface(
         INTERFACE_ID,
-        &Default::default(),
+        &UdpConfig {
+            addr: IpAddr::new_v4(INTERFACE_ADDR),
+            ..Default::default()
+        },
     )
     .unwrap();
 
@@ -79,7 +86,7 @@ async fn ipv4_multicast_send_test() {
     loop {
         // Send a UDP packet.
         if let Err(e) = socket
-            .send(b"Hello Awkernel!", &dst_addr, MULTICAST_PORT)
+            .send(b"Hello Awkernel!", &dst_addr, MULTICAST_PORT1)
             .await
         {
             log::error!("Failed to send a UDP packet: {:?}", e);
@@ -94,7 +101,7 @@ async fn ipv4_multicast_send_test() {
 async fn ipv4_multicast_recv_test() {
     // Open a UDP socket for multicast.
     let config = UdpConfig {
-        port: Some(MULTICAST_PORT),
+        port: Some(MULTICAST_PORT2),
         ..UdpConfig::default()
     };
 
@@ -104,12 +111,12 @@ async fn ipv4_multicast_recv_test() {
     loop {
         // Join the multicast group.
         loop {
-            match awkernel_lib::net::join_multicast_v4(INTERFACE_ID, MULTICAST_ADDR) {
+            match socket.join_multicast_v4(MULTICAST_ADDR, INTERFACE_ADDR) {
                 Ok(_) => {
                     log::debug!("Joined the multicast group.");
                     break;
                 }
-                Err(NetManagerError::SendError) => (),
+                Err(UdpSocketError::SendError) => (),
                 _ => {
                     log::error!("Failed to join the multicast group.");
                     return;
@@ -125,24 +132,32 @@ async fn ipv4_multicast_recv_test() {
             // Receive a UDP packet.
             let result = socket.recv(&mut buf).await.unwrap();
 
-            let msg = format!(
-                "Received a Multicast packet from {}:{}: {}",
-                result.1.get_addr(),
-                result.2,
-                core::str::from_utf8(&buf[..result.0]).unwrap()
-            );
+            if let Ok(data) = core::str::from_utf8(&buf[..result.0]) {
+                let msg = format!(
+                    "Received a Multicast packet from {}:{}: {data}",
+                    result.1.get_addr(),
+                    result.2
+                );
 
-            log::debug!("{msg}");
+                log::debug!("{msg}");
+            } else {
+                log::debug!(
+                    "Received a Multicast packet from {}:{}: {} bytes",
+                    result.1.get_addr(),
+                    result.2,
+                    result.0
+                );
+            }
         }
 
         // Leave the multicast group.
         loop {
-            match awkernel_lib::net::leave_multicast_v4(INTERFACE_ID, MULTICAST_ADDR) {
+            match socket.leave_multicast_v4(MULTICAST_ADDR, INTERFACE_ADDR) {
                 Ok(_) => {
                     log::debug!("Left the multicast group.");
                     break;
                 }
-                Err(NetManagerError::SendError) => (),
+                Err(UdpSocketError::SendError) => (),
                 Err(e) => {
                     log::error!("Failed to leave the multicast group. {e:?}");
                     return;

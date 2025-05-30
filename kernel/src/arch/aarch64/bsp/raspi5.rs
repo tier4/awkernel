@@ -112,7 +112,7 @@ impl super::SoC for Raspi5 {
 
     unsafe fn init(&self) -> Result<(), &'static str> {
         if let Err(msg) = self.init_pcie() {
-            log::warn!("failed to initialize PCIe: {}", msg);
+            log::warn!("failed to initialize PCIe: {msg}");
         }
 
         Ok(())

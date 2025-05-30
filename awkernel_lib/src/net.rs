@@ -63,6 +63,7 @@ pub enum NetManagerError {
 
     // Multicast
     MulticastInvalidIpv4Address,
+    MulticastInvalidInterfaceAddress,
     MulticastError,
     MulticastNotJoined,
 
@@ -89,11 +90,11 @@ impl Display for IfStatus {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut ipv4_addr = String::new();
         for (addr, plen) in self.ipv4_addrs.iter() {
-            ipv4_addr.push_str(&format!("{}/{}", addr, plen));
+            ipv4_addr.push_str(&format!("{addr}/{plen}"));
         }
 
         let ipv4_gateway = match self.ipv4_gateway {
-            Some(addr) => format!("{}", addr),
+            Some(addr) => format!("{addr}"),
             None => String::from("None"),
         };
 
@@ -469,7 +470,7 @@ pub fn add_ipv4_addr(interface_id: u64, addr: Ipv4Addr, prefix_len: u8) {
             IpAddress::v4(octets[0], octets[1], octets[2], octets[3]),
             prefix_len,
         )) {
-            log::error!("add_ipv4_addr: {}", e);
+            log::error!("add_ipv4_addr: {e}");
         }
     });
 }
@@ -715,7 +716,8 @@ pub fn get_default_gateway_ipv4(interface_id: u64) -> Result<Option<Ipv4Addr>, N
 ///
 /// Returns `Ok(announce_sent)` if the address was added successfully,
 /// where `announce_sent` indicates whether an initial immediate announcement has been sent.
-pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+#[cfg(not(feature = "std"))]
+fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {
@@ -729,7 +731,8 @@ pub fn join_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetM
 ///
 /// Returns `Ok(leave_sent)` if the address was removed successfully,
 /// where `leave_sent` indicates whether an immediate leave packet has been sent.
-pub fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
+#[cfg(not(feature = "std"))]
+fn leave_multicast_v4(interface_id: u64, addr: Ipv4Addr) -> Result<bool, NetManagerError> {
     let net_manager = NET_MANAGER.read();
 
     let Some(if_net) = net_manager.interfaces.get(&interface_id) else {

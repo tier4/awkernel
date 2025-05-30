@@ -17,6 +17,7 @@ pub trait Interrupt {
     fn get_flag() -> usize;
     fn disable();
     fn enable();
+    fn are_enabled() -> bool;
     fn set_flag(flag: usize);
 }
 
@@ -71,6 +72,9 @@ static IRQ_HANDLERS: RwLock<BTreeMap<u16, NameAndCallback>> = RwLock::new(BTreeM
 
 static PREEMPT_IRQ: AtomicU16 = AtomicU16::new(!0);
 static PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
+static VOLUNTARY_PREEMPT_FN: AtomicPtr<()> = AtomicPtr::new(empty as *mut ());
+
+static WAKEUP_IRQ: AtomicU16 = AtomicU16::new(!0);
 
 fn empty() {}
 
@@ -331,12 +335,17 @@ pub fn handle_irq(irq: u16) {
             log::warn!("an interrupt handler has been panicked: name = {name}, irq = {irq}");
         }
     }
+
+    // Because IPIs are edge-trigger,
+    // IPI sent during interrupt handlers will be ignored.
+    // To notify the interrupt again, we setup a timer.
+    crate::cpu::reset_wakeup_timer();
 }
 
 /// Handle all pending interrupt requests.
 /// This function will be used by only aarch64 and called from CPU's interrupt handlers.
 #[cfg(feature = "aarch64")]
-pub fn handle_irqs() {
+pub fn handle_irqs(is_task: bool) {
     use crate::{heap, unwind::catch_unwind};
     use core::mem::transmute;
 
@@ -372,11 +381,16 @@ pub fn handle_irqs() {
         }
     }
 
-    if need_preemption {
+    if need_preemption && is_task {
         let ptr = PREEMPT_FN.load(Ordering::Relaxed);
         let preemption = unsafe { transmute::<*mut (), fn()>(ptr) };
         preemption();
     }
+
+    // Because IPIs are edge-trigger,
+    // IPI sent during interrupt handlers will be ignored.
+    // To notify the interrupt again, we setup a timer.
+    crate::cpu::reset_wakeup_timer();
 }
 
 /// Handle preemption.
@@ -422,6 +436,48 @@ impl InterruptGuard {
 impl Drop for InterruptGuard {
     fn drop(&mut self) {
         ArchImpl::set_flag(self.flag);
+        if ArchImpl::are_enabled() {
+            let voluntary_preemption = VOLUNTARY_PREEMPT_FN.load(Ordering::Relaxed);
+            let preemption = unsafe { core::mem::transmute::<*mut (), fn()>(voluntary_preemption) };
+            preemption();
+        }
+    }
+}
+
+/// Enable interrupts and automatically restored the configuration.
+///
+/// ```
+/// {
+///     use awkernel_lib::interrupt::InterruptEnable;
+///
+///     let _int_enable = InterruptEnable::new();
+///     // interrupts are enabled.
+/// }
+/// // The configuration will be restored here.
+/// ```
+pub struct InterruptEnable {
+    flag: usize,
+}
+
+impl Default for InterruptEnable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InterruptEnable {
+    #[inline(always)]
+    pub fn new() -> Self {
+        let flag = ArchImpl::get_flag();
+        ArchImpl::enable();
+
+        Self { flag }
+    }
+}
+
+impl Drop for InterruptEnable {
+    fn drop(&mut self) {
+        ArchImpl::set_flag(self.flag);
     }
 }
 
@@ -451,14 +507,29 @@ pub unsafe fn init_non_primary() {
 
 /// When the interrupt request of `irq` is received,
 /// `preemption` will be called.
-pub fn set_preempt_irq(irq: u16, preemption: unsafe fn()) {
+pub fn set_preempt_irq(irq: u16, preemption: unsafe fn(), voluntary_preemption: unsafe fn()) {
     PREEMPT_IRQ.store(irq, Ordering::Relaxed);
     PREEMPT_FN.store(preemption as *mut (), Ordering::Relaxed);
+    VOLUNTARY_PREEMPT_FN.store(voluntary_preemption as *mut (), Ordering::Relaxed);
+
+    awkernel_sync::set_voluntary_preemption_fn(voluntary_preemption);
 }
 
 /// Return the IRQ number for preemption.
 pub fn get_preempt_irq() -> u16 {
     PREEMPT_IRQ.load(Ordering::Relaxed)
+}
+
+/// To wake up a sleeping CPU, interrupt of `irq` is sent.
+#[inline(always)]
+pub fn set_wakeup_irq(irq: u16) {
+    WAKEUP_IRQ.store(irq, Ordering::Relaxed);
+}
+
+/// Return the IRQ number for wakeup.
+#[inline(always)]
+pub fn get_wakeup_irq() -> u16 {
+    WAKEUP_IRQ.load(Ordering::Relaxed)
 }
 
 /// Check the initialization status of the interrupt module.
@@ -469,7 +540,7 @@ pub fn sanity_check() {
         log::info!("interrupt::INTERRUPT_CONTROLLER has been initialized.");
     }
 
-    if PREEMPT_FN.load(Ordering::Relaxed) == empty as *mut () {
+    if core::ptr::eq(PREEMPT_FN.load(Ordering::Relaxed), empty as *mut ()) {
         log::warn!("interrupt::PREEMPT_FN is not yet initialized.")
     } else {
         log::info!("interrupt::PREEMPT_FN has been initialized.")
@@ -485,4 +556,8 @@ pub fn eoi() {
     } else {
         log::warn!("Interrupt controller is not yet enabled.");
     }
+}
+
+pub fn are_enabled() -> bool {
+    ArchImpl::are_enabled()
 }
