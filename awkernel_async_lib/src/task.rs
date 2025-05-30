@@ -892,7 +892,7 @@ pub fn get_absolute_deadline_by_task_id(task_id: u32) -> Option<u64> {
 }
 
 #[inline(always)]
-pub fn set_need_preemption(task_id: u32) {
+pub fn set_need_preemption(task_id: u32, cpu_id: usize) {
     let mut node = MCSNode::new();
     let tasks = TASKS.lock(&mut node);
 
@@ -902,7 +902,7 @@ pub fn set_need_preemption(task_id: u32) {
         info.need_preemption = true;
     }
 
-    PREEMPTION_REQUEST[awkernel_lib::cpu::cpu_id()].store(true, Ordering::Release);
+    PREEMPTION_REQUEST[cpu_id].store(true, Ordering::Release);
 }
 
 pub fn panicking() {
